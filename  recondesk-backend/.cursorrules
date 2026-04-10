@@ -1,0 +1,10 @@
+# ReconDesk Project Context
+Tech stack: FastAPI (Python 3.11), Next.js 14 App Router, Supabase PostgreSQL,
+Cloudflare R2, Railway (backend), Vercel (frontend), Razorpay (payments)
+Rules:
+- Always use async/await in FastAPI routes
+- Store all money as integer paise (1 rupee = 100 paise). Never float.
+- Use Pydantic v2 for all data models
+- Supabase RLS is always enabled. Never use service role key in frontend.
+- Python: use type hints on every function signature
+- Every error message must say WHAT, WHICH RECORD, WHY, and WHAT
