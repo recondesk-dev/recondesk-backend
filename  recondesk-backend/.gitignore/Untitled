@@ -1,0 +1,20 @@
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# IDE
+.cursor/
+.vscode/
