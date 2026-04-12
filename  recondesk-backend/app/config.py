@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import List
 
+from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0"
     SECRET_KEY: str = "change-me"
     ALLOWED_ORIGINS: str = "http://localhost:3000"
+    FRONTEND_URL: str = ""
 
     # Supabase
     SUPABASE_URL: str = ""
@@ -44,6 +46,38 @@ class Settings(BaseSettings):
 
     # Sentry
     SENTRY_DSN: str = ""
+
+    # ── Computed aliases (alternate env-var name spellings) ───────────────────
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def SUPABASE_SERVICE_KEY(self) -> str:
+        return self.SUPABASE_SERVICE_ROLE_KEY
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def R2_ACCESS_KEY(self) -> str:
+        return self.R2_ACCESS_KEY_ID
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def R2_SECRET_KEY(self) -> str:
+        return self.R2_SECRET_ACCESS_KEY
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def R2_BUCKET(self) -> str:
+        return self.R2_BUCKET_NAME
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def RAZORPAY_KEY(self) -> str:
+        return self.RAZORPAY_KEY_ID
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def RAZORPAY_SECRET(self) -> str:
+        return self.RAZORPAY_KEY_SECRET
 
     @property
     def allowed_origins_list(self) -> List[str]:

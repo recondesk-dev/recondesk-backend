@@ -1,70 +1,149 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from supabase import Client
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from gotrue import User
 
-from app.auth import create_access_token, get_current_active_user
-from app.database import supabase_client
-from app.models.user import LoginRequest, TokenResponse, UserCreate, UserResponse
-from app.services.email_service import send_welcome_email
+from app.auth import get_current_user, get_current_user_id, get_user_role
+from app.database import get_db, get_user_profile
+from app.models.user import (
+    LoginRequest,
+    LoginResponse,
+    SignupRequest,
+    SignupResponse,
+    UserProfileResponse,
+)
+from app.utils.rate_limit import limiter
 
 router = APIRouter()
 
+_RATE = "10/minute"
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def register(payload: UserCreate, db: Client = Depends(supabase_client)):
-    # Create auth user in Supabase
+
+# ── POST /auth/signup ─────────────────────────────────────────────────────────
+
+@router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(_RATE)
+async def signup(request: Request, payload: SignupRequest):
+    """Register a new user and create their profile row."""
+    db = get_db()
+
     try:
-        auth_response = db.auth.sign_up({"email": payload.email, "password": payload.password})
+        auth_response = db.auth.sign_up(
+            {"email": payload.email, "password": payload.password}
+        )
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
 
     if not auth_response.user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Registration failed")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sign-up failed. The email may already be registered.",
+        )
 
     user_id = str(auth_response.user.id)
 
-    # Insert profile row
     profile = {
         "id": user_id,
         "email": payload.email,
         "full_name": payload.full_name,
-        "company_name": payload.company_name,
+        "firm_name": payload.firm_name,
+        "phone": payload.phone,
+        "role": "staff",
         "is_active": True,
-        "plan": "free",
     }
-    db.table("users").insert(profile).execute()
 
-    send_welcome_email(payload.email, payload.full_name or payload.email)
+    try:
+        db.table("user_profiles").insert(profile).execute()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Profile creation failed: {exc}",
+        ) from exc
 
-    token = create_access_token(subject=user_id)
-    return TokenResponse(access_token=token, user=UserResponse(**profile))
+    return SignupResponse(
+        user_id=user_id,
+        message="Account created successfully. Please check your email to confirm.",
+    )
 
 
-@router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, db: Client = Depends(supabase_client)):
+# ── POST /auth/login ──────────────────────────────────────────────────────────
+
+@router.post("/login", response_model=LoginResponse)
+@limiter.limit(_RATE)
+async def login(request: Request, payload: LoginRequest):
+    """Authenticate with email/password and return a Supabase JWT with role."""
+    db = get_db()
+
     try:
         auth_response = db.auth.sign_in_with_password(
             {"email": payload.email, "password": payload.password}
         )
     except Exception as exc:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password.",
         ) from exc
 
-    if not auth_response.user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if not auth_response.user or not auth_response.session:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password.",
+        )
 
     user_id = str(auth_response.user.id)
-    result = db.table("users").select("*").eq("id", user_id).single().execute()
+    access_token = auth_response.session.access_token
+    role = await get_user_role(user_id)
 
-    token = create_access_token(subject=user_id)
-    return TokenResponse(access_token=token, user=UserResponse(**result.data))
+    user_dict = {
+        "id": user_id,
+        "email": auth_response.user.email,
+    }
+    profile = get_user_profile(user_id)
+    if profile:
+        user_dict.update(
+            {
+                "full_name": profile.get("full_name"),
+                "firm_name": profile.get("firm_name"),
+                "phone": profile.get("phone"),
+                "is_active": profile.get("is_active", True),
+            }
+        )
+
+    return LoginResponse(
+        access_token=access_token,
+        user=user_dict,
+        role=role,
+    )
 
 
-@router.get("/me", response_model=UserResponse)
-async def get_me(current_user: dict = Depends(get_current_active_user)):
-    return UserResponse(**current_user)
-
+# ── POST /auth/logout ─────────────────────────────────────────────────────────
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(db: Client = Depends(supabase_client)):
-    db.auth.sign_out()
+@limiter.limit(_RATE)
+async def logout(request: Request, user: User = Depends(get_current_user)):
+    """Sign out the currently authenticated user."""
+    db = get_db()
+    try:
+        db.auth.sign_out()
+    except Exception:
+        pass
+
+
+# ── GET /auth/me ──────────────────────────────────────────────────────────────
+
+@router.get("/me", response_model=UserProfileResponse)
+@limiter.limit(_RATE)
+async def get_me(
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return the authenticated user's profile including their role."""
+    profile = get_user_profile(user_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found.",
+        )
+    role = await get_user_role(user_id)
+    profile["role"] = role
+    return UserProfileResponse(**profile)
