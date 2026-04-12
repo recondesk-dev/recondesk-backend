@@ -17,9 +17,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        working-directory: recondesk-backend
-        run: pip install -r requirements.txt
+        run: cd recondesk-backend && pip install -r requirements.txt
 
       - name: Run tests
-        working-directory: recondesk-backend
-        run: pytest tests/
+        run: cd recondesk-backend && pytest tests/
