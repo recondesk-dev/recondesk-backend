@@ -8,12 +8,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: recondesk-backend
-
     steps:
       - uses: actions/checkout@v4
+
+      - name: Debug - show repo structure
+        run: find . -maxdepth 3 -type f | head -50
 
       - uses: actions/setup-python@v5
         with:
