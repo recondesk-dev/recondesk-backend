@@ -316,6 +316,12 @@ def normalize_date(raw) -> NormalizationResult:
 # normalize_amount
 # ---------------------------------------------------------------------------
 
+_CURRENCY_PREFIX_RE = re.compile(
+    r"(?:₹|Rs\.|RS\.|rs\.|Rs|RS|rs|INR|')+",
+    re.IGNORECASE,
+)
+
+
 def normalize_amount(raw) -> NormalizationResult:
     """Normalize *raw* monetary value to integer paise (rupees × 100).
 
@@ -343,8 +349,9 @@ def normalize_amount(raw) -> NormalizationResult:
     did_strip_internal_spaces = False
     did_parentheses_negative = False
 
-    # 1. Strip ₹ and leading apostrophe (Excel text-prefix).
-    cleaned = s.replace("₹", "").replace("'", "").strip()
+    # 1. Strip currency symbols/prefixes and leading apostrophe (Excel text-prefix).
+    # Case-insensitive removal of: ₹, Rs./RS./rs., Rs/RS/rs, INR — longest match first.
+    cleaned = _CURRENCY_PREFIX_RE.sub("", s).strip()
     if cleaned != s:
         did_strip_symbols = True
     s = cleaned
