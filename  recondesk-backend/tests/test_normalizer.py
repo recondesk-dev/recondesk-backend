@@ -492,23 +492,27 @@ def test_58_date_month_name_lowercase_full():
 
 
 def test_59_date_excel_serial_float():
-    serial = 45383
-    expected = (
-        datetime.datetime(1899, 12, 30) + datetime.timedelta(days=serial)
-    ).date()
-    r = normalize_date(45383.0)
-    assert r.value == expected
+    # Independent verification — no implementation formula used:
+    #   Known anchor: Excel serial 36526 = 2000-01-01 (universally documented).
+    #   2000-01-01 → 2024-01-01: 24 years, 6 leap (2000,04,08,12,16,20) → 8 766 days
+    #                             → serial 36526 + 8766 = 45292 = 2024-01-01
+    #   2024-01-01 → 2024-04-08: 31(Jan remaining) + 29(Feb leap) + 31(Mar) + 8(Apr)
+    #                             = 98 more days → serial 45292 + 98 = 45390 = 2024-04-08 ✓
+    r = normalize_date(45390.0)
+    assert r.value == datetime.date(2024, 4, 8)
     assert "excel_serial_converted" in r.notes
 
 
 def test_60_date_excel_serial_numeric_string():
-    serial = 45383
-    expected = (
-        datetime.datetime(1899, 12, 30) + datetime.timedelta(days=serial)
-    ).date()
-    r = normalize_date("45383")
-    assert r.value == expected
+    # Same independently verified anchor as test_59: 45390 = 2024-04-08.
+    # Also tests the float-string variant ("45390.0") in the same breath.
+    r = normalize_date("45390")
+    assert r.value == datetime.date(2024, 4, 8)
     assert "excel_serial_converted" in r.notes
+
+    r2 = normalize_date("45390.0")
+    assert r2.value == datetime.date(2024, 4, 8)
+    assert "excel_serial_converted" in r2.notes
 
 
 def test_61_date_excel_datetime_string_strips_time():
