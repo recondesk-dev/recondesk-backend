@@ -142,7 +142,7 @@ def _parse_items(items_list: list) -> tuple:
 
 def _build_invoice_record(
     *,
-    document_type: str,
+    doc_type: str,
     is_amendment: bool,
     section: str,
     supplier_gstin_raw: str,
@@ -163,8 +163,20 @@ def _build_invoice_record(
     items: list,
     normalization_notes: dict,
 ) -> dict:
+    invoice_date_norm = (
+        invoice_date.isoformat()
+        if isinstance(invoice_date, datetime.date)
+        else str(invoice_date)
+    )
+    if original_invoice_date is None:
+        original_invoice_date_norm = None
+    elif isinstance(original_invoice_date, datetime.date):
+        original_invoice_date_norm = original_invoice_date.isoformat()
+    else:
+        original_invoice_date_norm = str(original_invoice_date)
+
     return {
-        "document_type": document_type,
+        "doc_type": doc_type,
         "is_amendment": is_amendment,
         "section": section,
         "schema_version": SCHEMA_VERSION,
@@ -174,16 +186,16 @@ def _build_invoice_record(
         "invoice_date_raw": invoice_date_raw,
         "invoice_value_raw": invoice_value_raw,
         "invoice_number": invoice_number,
-        "invoice_date": invoice_date,
+        "invoice_date_norm": invoice_date_norm,
         "invoice_value_paise": invoice_value_paise,
         "original_invoice_number_raw": original_invoice_number_raw,
         "original_invoice_number": original_invoice_number,
         "original_invoice_date_raw": original_invoice_date_raw,
-        "original_invoice_date": original_invoice_date,
+        "original_invoice_date_norm": original_invoice_date_norm,
         "pos": pos,
         "reverse_charge": reverse_charge,
         "itc_available": itc_available,
-        "unique_key": (supplier_gstin, invoice_number, invoice_date),
+        "unique_key": None,
         "items": items,
         "normalization_notes": normalization_notes,
     }
@@ -265,7 +277,7 @@ def _parse_b2b_invoice(
             normalization_notes[f"item_{i}_taxable_value"] = result.notes
 
     return _build_invoice_record(
-        document_type="INVOICE",
+        doc_type="INVOICE",
         is_amendment=is_amendment,
         section=section,
         supplier_gstin_raw=supplier_gstin_raw,
@@ -374,7 +386,7 @@ def _parse_cdnr_invoice(
             normalization_notes[f"item_{i}_taxable_value"] = result.notes
 
     return _build_invoice_record(
-        document_type=document_type,
+        doc_type=document_type,
         is_amendment=is_amendment,
         section=section,
         supplier_gstin_raw=supplier_gstin_raw,
@@ -419,28 +431,21 @@ def _get_inv_num(invoice: Any, is_cdnr: bool) -> str:
 def _enrich_record(record: dict, buyer_gstin: str) -> None:
     """Add standardized output fields to a parsed record (in-place).
 
-    Adds: buyer_gstin, invoice_number_norm, invoice_date_norm,
-          taxable_value (rupees int), doc_type.
+    Adds: buyer_gstin, supplier_gstin_norm, invoice_number_norm,
+          taxable_value (rupees int), unique_key (string).
     Never removes or renames existing fields.
     Falls back to raw values if normalization fails.
     """
     record["buyer_gstin"] = buyer_gstin
+
+    # supplier_gstin_norm — guaranteed uppercase
+    record["supplier_gstin_norm"] = str(record.get("supplier_gstin", "")).upper()
 
     # invoice_number_norm — uppercase, trimmed
     try:
         record["invoice_number_norm"] = str(record["invoice_number"]).strip().upper()
     except Exception:
         record["invoice_number_norm"] = str(record.get("invoice_number_raw", ""))
-
-    # invoice_date_norm — ISO "YYYY-MM-DD" string
-    try:
-        d = record["invoice_date"]
-        if isinstance(d, datetime.date):
-            record["invoice_date_norm"] = d.isoformat()
-        else:
-            record["invoice_date_norm"] = str(d)
-    except Exception:
-        record["invoice_date_norm"] = str(record.get("invoice_date_raw", ""))
 
     # taxable_value — sum of item taxable values in whole rupees (integer)
     try:
@@ -453,8 +458,12 @@ def _enrich_record(record: dict, buyer_gstin: str) -> None:
     except Exception:
         record["taxable_value"] = 0
 
-    # doc_type — human-readable alias for document_type
-    record["doc_type"] = record.get("document_type", "INVOICE")
+    # unique_key — stable string, safe for JSON / DB keys
+    record["unique_key"] = (
+        f"{record['buyer_gstin']}"
+        f"|{record['invoice_number_norm']}"
+        f"|{record['invoice_date_norm']}"
+    )
 
 
 # ---------------------------------------------------------------------------
