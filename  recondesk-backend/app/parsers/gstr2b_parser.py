@@ -229,8 +229,14 @@ def _parse_b2b_invoice(
         normalization_notes["invoice_date"] = result.notes
     invoice_date = result.value
 
-    raw_val = _parse_numeric_field(invoice.get("val"), "val")
-    result = _validate_result(normalize_amount(raw_val), "invoice_value")
+    try:
+        raw_val = _parse_numeric_field(invoice.get("val"), "val")
+    except ValueError:
+        raise ValueError("Invalid value format for invoice amount")
+    try:
+        result = _validate_result(normalize_amount(raw_val), "invoice_value")
+    except NormalizationError:
+        raise ValueError("Invalid value format for invoice amount")
     if result.notes:
         normalization_notes["invoice_value"] = result.notes
     invoice_value_paise = result.value
@@ -338,8 +344,14 @@ def _parse_cdnr_invoice(
         normalization_notes["invoice_date"] = result.notes
     invoice_date = result.value
 
-    raw_val = _parse_numeric_field(invoice.get("val"), "val")
-    result = _validate_result(normalize_amount(raw_val), "invoice_value")
+    try:
+        raw_val = _parse_numeric_field(invoice.get("val"), "val")
+    except ValueError:
+        raise ValueError("Invalid value format for invoice amount")
+    try:
+        result = _validate_result(normalize_amount(raw_val), "invoice_value")
+    except NormalizationError:
+        raise ValueError("Invalid value format for invoice amount")
     if result.notes:
         normalization_notes["invoice_value"] = result.notes
     invoice_value_paise = result.value
@@ -442,21 +454,15 @@ def _enrich_record(record: dict, buyer_gstin: str) -> None:
     record["supplier_gstin_norm"] = str(record.get("supplier_gstin", "")).upper()
 
     # invoice_number_norm — uppercase, trimmed
-    try:
-        record["invoice_number_norm"] = str(record["invoice_number"]).strip().upper()
-    except Exception:
-        record["invoice_number_norm"] = str(record.get("invoice_number_raw", ""))
+    record["invoice_number_norm"] = str(record["invoice_number"]).strip().upper()
 
     # taxable_value — sum of item taxable values in whole rupees (integer)
-    try:
-        items = record.get("items") or []
-        if items:
-            total_paise = sum(item.get("taxable_value_paise", 0) for item in items)
-        else:
-            total_paise = record.get("invoice_value_paise", 0)
-        record["taxable_value"] = round(total_paise / 100)
-    except Exception:
-        record["taxable_value"] = 0
+    items = record.get("items") or []
+    if items:
+        total_paise = sum(item.get("taxable_value_paise", 0) for item in items)
+    else:
+        total_paise = record.get("invoice_value_paise", 0)
+    record["taxable_value"] = round(total_paise / 100)
 
     # unique_key — stable string, safe for JSON / DB keys
     record["unique_key"] = (
@@ -464,6 +470,45 @@ def _enrich_record(record: dict, buyer_gstin: str) -> None:
         f"|{record['invoice_number_norm']}"
         f"|{record['invoice_date_norm']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Structure validation
+# ---------------------------------------------------------------------------
+
+def validate_b2b_record(record: dict) -> None:
+    """Validate a single b2b supplier record for required fields and types.
+
+    Raises:
+        ValueError: If a required field is missing or has the wrong type.
+    """
+    if not isinstance(record, dict):
+        raise ValueError("Invalid type for field: b2b_record")
+
+    if "ctin" not in record:
+        raise ValueError("Missing required field: ctin")
+    if not isinstance(record["ctin"], str):
+        raise ValueError("Invalid type for field: ctin")
+
+    if "inv" not in record:
+        raise ValueError("Missing required field: inv")
+    if not isinstance(record["inv"], list):
+        raise ValueError("Invalid type for field: inv")
+
+    for idx, invoice in enumerate(record["inv"]):
+        if not isinstance(invoice, dict):
+            raise ValueError(f"Invalid type for field: inv[{idx}]")
+
+        if "inum" not in invoice:
+            raise ValueError("Missing required field: inum")
+        if not isinstance(invoice["inum"], str):
+            raise ValueError("Invalid type for field: inum")
+
+        if "val" not in invoice:
+            raise ValueError("Missing required field: val")
+        val = invoice["val"]
+        if not isinstance(val, (int, float, str)) or isinstance(val, bool):
+            raise ValueError("Invalid type for field: val")
 
 
 # ---------------------------------------------------------------------------
@@ -506,12 +551,19 @@ def _process_section(
         if not isinstance(inv_list, list):
             inv_list = []
 
-        raw_ctin = supplier.get("ctin", "")
-        if not isinstance(raw_ctin, str) or not raw_ctin.strip():
+        raw_ctin = supplier.get("ctin")
+        if raw_ctin is None or (isinstance(raw_ctin, str) and not raw_ctin.strip()):
+            ctin_error = "missing_supplier_gstin"
+        elif not isinstance(raw_ctin, str):
+            ctin_error = "Invalid type for field: ctin"
+        else:
+            ctin_error = None
+
+        if ctin_error is not None:
             for inv in inv_list:
                 inv_num = _get_inv_num(inv, is_cdnr)
                 skipped.append(
-                    _make_skip_entry(section_name, "unknown", inv_num, "missing_supplier_gstin", inv)
+                    _make_skip_entry(section_name, "unknown", inv_num, ctin_error, inv)
                 )
             continue
 
@@ -582,19 +634,29 @@ def _process_section(
 # Public API
 # ---------------------------------------------------------------------------
 
-def parse_gstr2b(file_content: bytes) -> dict:
+def parse_gstr2b(file_content) -> dict:
     """Parse GSTR-2B JSON file content into structured records.
+
+    Accepts bytes, str, or a pre-parsed dict.
 
     Raises:
         ValueError: For top-level structural errors (invalid JSON, missing
-            required keys, unparseable period).
+            required keys, unparseable period, unsupported input type).
     """
-    try:
-        data = json.loads(file_content.decode("utf-8"))
-    except json.JSONDecodeError as e:
-        raise ValueError(f"invalid_json: line {e.lineno} col {e.colno} (char {e.pos})")
-    except Exception:
-        raise ValueError("invalid_json")
+    if isinstance(file_content, dict):
+        data = file_content
+    elif isinstance(file_content, (bytes, bytearray)):
+        try:
+            data = json.loads(file_content.decode("utf-8"))
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON at line {e.lineno}, column {e.colno}: {e.msg}")
+    elif isinstance(file_content, str):
+        try:
+            data = json.loads(file_content)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON at line {e.lineno}, column {e.colno}: {e.msg}")
+    else:
+        raise ValueError("Unsupported input type for GSTR-2B parser")
 
     if not isinstance(data, dict):
         raise ValueError("invalid_data_structure")
@@ -618,7 +680,7 @@ def parse_gstr2b(file_content: bytes) -> dict:
         month = int(rtnprd[:2])
         year = int(rtnprd[2:])
         period = datetime.date(year, month, 1)
-    except Exception:
+    except (ValueError, IndexError):
         raise ValueError("invalid_rtnprd")
 
     raw_buyer_gstin = root["gstin"]
