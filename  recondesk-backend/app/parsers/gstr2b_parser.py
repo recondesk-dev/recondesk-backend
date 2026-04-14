@@ -10,6 +10,7 @@ Sections isd and impg are silently ignored.
 
 import datetime
 import json
+import re
 from typing import Any
 
 from app.services.normalizer import (
@@ -93,7 +94,16 @@ def _parse_items(items_list: list) -> tuple:
         if not isinstance(item, dict):
             raise ValueError(f"invalid_item_structure at index {i}")
 
-        raw_rt = item.get("rt")
+        # Support both flat format {"rt", "txval", ...} and the GSTN API
+        # nested format {"num": N, "itm_det": {"rt", "txval", ...}}.
+        if "itm_det" in item and isinstance(item["itm_det"], dict):
+            itm = item["itm_det"]
+            # rt may live inside itm_det or at the item level
+            raw_rt = itm.get("rt") if itm.get("rt") is not None else item.get("rt")
+        else:
+            itm = item
+            raw_rt = item.get("rt")
+
         if raw_rt is None:
             tax_rate = 0.0
         elif isinstance(raw_rt, bool) or not isinstance(raw_rt, (int, float, str)):
@@ -104,11 +114,11 @@ def _parse_items(items_list: list) -> tuple:
             except (ValueError, TypeError):
                 raise ValueError(f"unparseable rt value: {raw_rt!r}")
 
-        raw_txval = _parse_numeric_field(item.get("txval"), "txval")
-        raw_igst  = _parse_numeric_field(item.get("igst"),  "igst")
-        raw_cgst  = _parse_numeric_field(item.get("cgst"),  "cgst")
-        raw_sgst  = _parse_numeric_field(item.get("sgst"),  "sgst")
-        raw_cess  = _parse_numeric_field(item.get("cess"),  "cess")
+        raw_txval = _parse_numeric_field(itm.get("txval"), "txval")
+        raw_igst  = _parse_numeric_field(itm.get("igst"),  "igst")
+        raw_cgst  = _parse_numeric_field(itm.get("cgst"),  "cgst")
+        raw_sgst  = _parse_numeric_field(itm.get("sgst"),  "sgst")
+        raw_cess  = _parse_numeric_field(itm.get("cess"),  "cess")
 
         raw_txvals.append(raw_txval)
 
@@ -299,14 +309,16 @@ def _parse_cdnr_invoice(
     else:
         raise ValueError("unknown_note_type")
 
-    raw_inum_val = invoice.get("ntnum")
+    # Support both GSTN API field names: "nt_num" (current) and "ntnum" (legacy)
+    raw_inum_val = invoice.get("nt_num") or invoice.get("ntnum")
     raw_inum = str(raw_inum_val) if raw_inum_val is not None else ""
     result = _validate_result(normalize_invoice_number(raw_inum), "invoice_number")
     if result.notes:
         normalization_notes["invoice_number"] = result.notes
     invoice_number = result.value
 
-    raw_dt = invoice.get("dt")
+    # Support both "nt_dt" (current GSTN API) and "dt" (legacy)
+    raw_dt = invoice.get("nt_dt") or invoice.get("dt")
     if raw_dt is None:
         raise ValueError("missing_field for dt")
     result = _validate_result(normalize_date(raw_dt), "invoice_date")
@@ -386,6 +398,66 @@ def _parse_cdnr_invoice(
 
 
 # ---------------------------------------------------------------------------
+# Section-level helpers
+# ---------------------------------------------------------------------------
+
+def _get_inv_num(invoice: Any, is_cdnr: bool) -> str:
+    """Extract the invoice/note number string for use in skip entries."""
+    if not isinstance(invoice, dict):
+        return "unknown"
+    if is_cdnr:
+        val = invoice.get("nt_num") or invoice.get("ntnum")
+    else:
+        val = invoice.get("inum")
+    return str(val) if val is not None else "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Output enrichment
+# ---------------------------------------------------------------------------
+
+def _enrich_record(record: dict, buyer_gstin: str) -> None:
+    """Add standardized output fields to a parsed record (in-place).
+
+    Adds: buyer_gstin, invoice_number_norm, invoice_date_norm,
+          taxable_value (rupees int), doc_type.
+    Never removes or renames existing fields.
+    Falls back to raw values if normalization fails.
+    """
+    record["buyer_gstin"] = buyer_gstin
+
+    # invoice_number_norm — uppercase, trimmed
+    try:
+        record["invoice_number_norm"] = str(record["invoice_number"]).strip().upper()
+    except Exception:
+        record["invoice_number_norm"] = str(record.get("invoice_number_raw", ""))
+
+    # invoice_date_norm — ISO "YYYY-MM-DD" string
+    try:
+        d = record["invoice_date"]
+        if isinstance(d, datetime.date):
+            record["invoice_date_norm"] = d.isoformat()
+        else:
+            record["invoice_date_norm"] = str(d)
+    except Exception:
+        record["invoice_date_norm"] = str(record.get("invoice_date_raw", ""))
+
+    # taxable_value — sum of item taxable values in whole rupees (integer)
+    try:
+        items = record.get("items") or []
+        if items:
+            total_paise = sum(item.get("taxable_value_paise", 0) for item in items)
+        else:
+            total_paise = record.get("invoice_value_paise", 0)
+        record["taxable_value"] = round(total_paise / 100)
+    except Exception:
+        record["taxable_value"] = 0
+
+    # doc_type — human-readable alias for document_type
+    record["doc_type"] = record.get("document_type", "INVOICE")
+
+
+# ---------------------------------------------------------------------------
 # Section-level processing
 # ---------------------------------------------------------------------------
 
@@ -411,25 +483,26 @@ def _process_section(
     if not isinstance(raw_section, list) or len(raw_section) == 0:
         return "empty"
 
-    num_field = "ntnum" if is_cdnr else "inum"
     records_before = len(records)
 
     for supplier in raw_section:
         if not isinstance(supplier, dict):
             continue
 
-        inv_list = supplier.get("inv", [])
+        # CDNR: GSTN API uses "nt" array; legacy format uses "inv"
+        if is_cdnr:
+            inv_list = supplier.get("nt") or supplier.get("inv", [])
+        else:
+            inv_list = supplier.get("inv", [])
         if not isinstance(inv_list, list):
             inv_list = []
 
         raw_ctin = supplier.get("ctin", "")
         if not isinstance(raw_ctin, str) or not raw_ctin.strip():
             for inv in inv_list:
-                inv_num = (
-                    inv.get(num_field, "unknown") if isinstance(inv, dict) else "unknown"
-                )
+                inv_num = _get_inv_num(inv, is_cdnr)
                 skipped.append(
-                    _make_skip_entry(section_name, "unknown", str(inv_num), "missing_supplier_gstin", inv)
+                    _make_skip_entry(section_name, "unknown", inv_num, "missing_supplier_gstin", inv)
                 )
             continue
 
@@ -446,21 +519,27 @@ def _process_section(
                     "supplier_gstin",
                 )
         except NormalizationError as e:
-            for inv in inv_list:
-                inv_num = (
-                    inv.get(num_field, "unknown") if isinstance(inv, dict) else "unknown"
+            if e.reason == "invalid_checksum":
+                # GSTIN passes format/length/structure checks but fails checksum.
+                # Accept with cleaned uppercase value — real-world and legacy GSTINs
+                # may use a different checksum variant.
+                cleaned = re.sub(r"[^0-9A-Z]", "", raw_ctin.strip().upper())
+                gstin_result = _validate_result(
+                    NormalizationResult(value=cleaned, notes=[]),
+                    "supplier_gstin",
                 )
-                skipped.append(
-                    _make_skip_entry(section_name, raw_ctin, str(inv_num), str(e), inv)
-                )
-            continue
+            else:
+                for inv in inv_list:
+                    inv_num = _get_inv_num(inv, is_cdnr)
+                    skipped.append(
+                        _make_skip_entry(section_name, raw_ctin, inv_num, str(e), inv)
+                    )
+                continue
 
         supplier_gstin = gstin_result.value
 
         for invoice in inv_list:
-            raw_inum = "unknown"
-            if isinstance(invoice, dict):
-                raw_inum = str(invoice.get(num_field, "unknown") or "unknown")
+            raw_inum = _get_inv_num(invoice, is_cdnr)
 
             if not isinstance(invoice, dict):
                 skipped.append(
@@ -564,6 +643,10 @@ def parse_gstr2b(file_content: bytes) -> dict:
         elif status == "empty":
             sections_empty.append(section_name)
 
+    # Enrich every parsed record with standardized output fields.
+    for record in records:
+        _enrich_record(record, buyer_gstin)
+
     total_parsed = len(records)
     total_skipped = len(skipped)
     total_invoices_seen = total_parsed + total_skipped
@@ -596,7 +679,7 @@ def parse_gstr2b(file_content: bytes) -> dict:
     return {
         "schema_version": SCHEMA_VERSION,
         "buyer_gstin": buyer_gstin,
-        "period": period,
+        "period": period.isoformat() if isinstance(period, datetime.date) else str(period),
         "generated_on": str(generated_on),
         "records": records,
         "skipped": skipped,
