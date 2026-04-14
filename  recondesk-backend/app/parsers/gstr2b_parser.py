@@ -243,7 +243,9 @@ def _parse_b2b_invoice(
             original_invoice_date = result.value
 
     items_list = invoice.get("itms", [])
-    if not isinstance(items_list, list):
+    if items_list is not None and not isinstance(items_list, list):
+        raise ValueError(f"invalid_type for itms: {type(items_list)}")
+    if items_list is None:
         items_list = []
     item_records, raw_txvals = _parse_items(items_list)
 
@@ -348,7 +350,9 @@ def _parse_cdnr_invoice(
             original_invoice_date = result.value
 
     items_list = invoice.get("itms", [])
-    if not isinstance(items_list, list):
+    if items_list is not None and not isinstance(items_list, list):
+        raise ValueError(f"invalid_type for itms: {type(items_list)}")
+    if items_list is None:
         items_list = []
     item_records, raw_txvals = _parse_items(items_list)
 
@@ -430,11 +434,17 @@ def _process_section(
             continue
 
         try:
-            normalized_gstin = normalize_gstin(raw_ctin)
-            gstin_result = _validate_result(
-                NormalizationResult(value=normalized_gstin, notes=[]),
-                "supplier_gstin",
-            )
+            _gstin_out = normalize_gstin(raw_ctin)
+            # normalize_gstin currently returns a plain str; tolerate a
+            # NormalizationResult-compatible object (e.g. in tests or after a
+            # future refactor) by unwrapping .value when present.
+            if hasattr(_gstin_out, "value") and hasattr(_gstin_out, "notes"):
+                gstin_result = _validate_result(_gstin_out, "supplier_gstin")
+            else:
+                gstin_result = _validate_result(
+                    NormalizationResult(value=_gstin_out, notes=[]),
+                    "supplier_gstin",
+                )
         except NormalizationError as e:
             for inv in inv_list:
                 inv_num = (
@@ -493,6 +503,8 @@ def parse_gstr2b(file_content: bytes) -> dict:
     """
     try:
         data = json.loads(file_content.decode("utf-8"))
+    except json.JSONDecodeError as e:
+        raise ValueError(f"invalid_json: line {e.lineno} col {e.colno} (char {e.pos})")
     except Exception:
         raise ValueError("invalid_json")
 
