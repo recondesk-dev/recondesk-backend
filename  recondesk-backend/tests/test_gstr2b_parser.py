@@ -10,6 +10,7 @@ Verified valid GSTINs:
 
 import datetime
 import json
+import time
 
 import pytest
 
@@ -319,6 +320,14 @@ def test_missing_itms_produces_empty_items_record_still_parsed():
     assert result["records"][0]["items"] == []
 
 
+def test_itms_non_list_goes_to_skipped():
+    inv = {"inum": "INV001", "dt": "01-04-2024", "val": 1000, "pos": "27", "rev": "N", "itcavl": "Y", "itms": "invalid"}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
+    assert result["total_parsed"] == 0
+    assert result["total_skipped"] == 1
+    assert "invalid_type for itms" in result["skipped"][0]["error_reason"]
+
+
 def test_cdnr_unknown_ntty_goes_to_skipped_with_correct_reason():
     inv = _cdnr_invoice(ntty="X")
     result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, [inv])]))
@@ -377,3 +386,92 @@ def test_mutating_skip_raw_data_is_independent_shallow_copy():
 
     # Nested list is the same reference (shallow copy — not deepcopy)
     assert skip_entry["raw_data"]["nested"] is original["nested"]
+
+
+# ===========================================================================
+# New acceptance tests
+# ===========================================================================
+
+def test_buyer_gstin_and_period_correct_from_sample_file():
+    """Parser returns correct buyer_gstin and period from a sample file."""
+    result = parse_gstr2b(
+        _payload(gstin=BUYER_GSTIN, rtnprd="042024", b2b=[_supplier(SUPPLIER_1, [_invoice()])])
+    )
+    assert result["buyer_gstin"] == BUYER_GSTIN
+    assert result["period"] == datetime.date(2024, 4, 1)
+    assert result["schema_version"] == "gstr2b_v1"
+
+
+def test_b2b_invoices_have_both_raw_and_normalized_columns():
+    """Every parsed b2b record carries both *_raw source fields and normalized values."""
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(inum="inv-001", val=2500)])]))
+    assert result["total_parsed"] == 1
+    rec = result["records"][0]
+
+    # Raw columns present and are strings
+    assert isinstance(rec["supplier_gstin_raw"], str)
+    assert isinstance(rec["invoice_number_raw"], str)
+    assert isinstance(rec["invoice_date_raw"], str)
+    assert isinstance(rec["invoice_value_raw"], str)
+
+    # Normalized columns have correct types
+    assert isinstance(rec["supplier_gstin"], str)
+    assert isinstance(rec["invoice_number"], str)
+    assert isinstance(rec["invoice_date"], datetime.date)
+    assert isinstance(rec["invoice_value_paise"], int)
+
+    # Raw and normalized differ when input needed transformation
+    # "inv-001" → symbols stripped + uppercased → "INV001"
+    assert rec["invoice_number_raw"] == "inv-001"
+    assert rec["invoice_number"] == "INV001"
+    assert rec["invoice_value_paise"] == 250000  # 2500 rupees × 100 paise
+
+
+def test_malformed_json_raises_value_error_with_location():
+    """Malformed JSON raises ValueError whose message includes line and col."""
+    bad_payloads = [
+        b'{"data": {"gstin": "X", BROKEN',          # missing quote / bad key
+        b'{"data": {\n  "gstin": "X",\n  BAD\n}}',  # error on line 3
+    ]
+    for payload in bad_payloads:
+        with pytest.raises(ValueError) as exc_info:
+            parse_gstr2b(payload)
+        msg = str(exc_info.value)
+        assert msg.startswith("invalid_json"), f"unexpected message: {msg!r}"
+        assert "line" in msg, f"no line info in: {msg!r}"
+        assert "col" in msg, f"no col info in: {msg!r}"
+
+
+def test_500_invoices_parse_under_2_seconds():
+    """Parser handles 500 invoices and completes in under 2 seconds."""
+    invoices = [
+        _invoice(inum=f"INV{i:04d}", val=1000 + i, itms=[_item(txval=1000 + i, igst=180)])
+        for i in range(500)
+    ]
+    payload = _payload(b2b=[_supplier(SUPPLIER_1, invoices)])
+
+    start = time.perf_counter()
+    result = parse_gstr2b(payload)
+    elapsed = time.perf_counter() - start
+
+    assert result["total_parsed"] == 500, f"expected 500 parsed, got {result['total_parsed']}"
+    assert result["total_skipped"] == 0
+    assert elapsed < 2.0, f"parsing took {elapsed:.2f}s — exceeded 2s budget"
+
+
+def test_cdnr_records_flagged_as_credit_or_debit_note():
+    """cdnr ntty=C → CREDIT_NOTE, ntty=D → DEBIT_NOTE; both present in one parse."""
+    invoices = [
+        _cdnr_invoice(ntnum="CN001", ntty="C", val=300),
+        _cdnr_invoice(ntnum="DN001", ntty="D", val=400),
+    ]
+    result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, invoices)]))
+
+    assert result["total_parsed"] == 2
+    by_num = {r["invoice_number"]: r["document_type"] for r in result["records"]}
+    assert by_num["CN001"] == "CREDIT_NOTE"
+    assert by_num["DN001"] == "DEBIT_NOTE"
+    # Both are non-amendments from the cdnr section
+    for rec in result["records"]:
+        assert rec["section"] == "cdnr"
+        assert rec["is_amendment"] is False
