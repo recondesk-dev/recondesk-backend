@@ -101,7 +101,7 @@ def test_valid_b2b_all_fields_present_and_typed():
 
     assert result["schema_version"] == "gstr2b_v1"
     assert result["buyer_gstin"] == BUYER_GSTIN
-    assert isinstance(result["period"], datetime.date)
+    assert result["period"] == "2024-04-01"
     assert result["total_parsed"] == 1
     assert result["total_skipped"] == 0
 
@@ -175,7 +175,7 @@ def test_cdnra_is_amendment_true_with_originals():
 
 def test_rtnprd_042024_parses_to_april_2024():
     result = parse_gstr2b(_payload(rtnprd="042024", b2b=[_supplier(SUPPLIER_1, [_invoice()])]))
-    assert result["period"] == datetime.date(2024, 4, 1)
+    assert result["period"] == "2024-04-01"
 
 
 def test_rev_y_sets_reverse_charge_true():
@@ -398,7 +398,7 @@ def test_buyer_gstin_and_period_correct_from_sample_file():
         _payload(gstin=BUYER_GSTIN, rtnprd="042024", b2b=[_supplier(SUPPLIER_1, [_invoice()])])
     )
     assert result["buyer_gstin"] == BUYER_GSTIN
-    assert result["period"] == datetime.date(2024, 4, 1)
+    assert result["period"] == "2024-04-01"
     assert result["schema_version"] == "gstr2b_v1"
 
 
