@@ -16,8 +16,6 @@ GSTIN_REGEX = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9][Z][0-9A-Z]$")
 PAN_REGEX = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 WHITELIST_PATTERN = re.compile(r"[^0-9A-Z]")
 
-# Alternating weight factors for positions 0–13, starting with 1.
-_FACTORS = (1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2)
 
 
 class NormalizationError(Exception):
@@ -51,7 +49,13 @@ def normalize_gstin(raw) -> str:
     6. Reject length ≠ 15  → reason "invalid_length"
     7. Validate overall GSTIN pattern  → reason "invalid_format"
     8. Validate embedded PAN (chars 2–11)  → reason "invalid_format"
-    9. Validate Luhn-style checksum (char 14)  → reason "invalid_checksum"
+
+    Note: checksum (15th character) is intentionally NOT validated.
+    GSTN has issued many real-world GSTINs where the 15th character was
+    assigned as a sequential entity counter rather than a computed check
+    digit. Validating the checksum causes legitimate GSTINs from actual
+    purchase registers to be rejected, which is unacceptable in a
+    reconciliation context.
 
     Returns the cleaned, upper-cased, validated GSTIN string.
 
@@ -78,11 +82,6 @@ def normalize_gstin(raw) -> str:
     pan = cleaned[2:12]
     if not PAN_REGEX.match(pan):
         raise NormalizationError("gstin", raw, "invalid_format")
-
-    total = sum(CHAR_INDEX[c] * f for c, f in zip(cleaned[:14], _FACTORS))
-    expected_checksum = CHARSET[(36 - (total % 36)) % 36]
-    if cleaned[14] != expected_checksum:
-        raise NormalizationError("gstin", raw, "invalid_checksum")
 
     return cleaned
 

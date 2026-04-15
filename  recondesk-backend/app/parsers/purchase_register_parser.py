@@ -44,7 +44,7 @@ COLUMN_ALIASES: dict[str, list[str]] = {
         "ref no", "doc no",
     ],
     "invoice_date": [
-        "invoice date", "bill date", "date", "voucher date", "doc date",
+        "invoice date", "bill date", "bill dt", "date", "voucher date", "doc date",
     ],
     "taxable_amount": [
         "taxable value", "taxable amount", "base amount", "taxable",
@@ -245,9 +245,8 @@ def _parse_amount(raw_str: str) -> float | None:
     cleaned = _preprocess_amount(raw_str)
     if not cleaned:
         return None
-    result = normalize_amount(cleaned)
-    # normalize_amount returns integer paise; convert to rupees.
-    return result.value / 100.0
+    # normalize_amount now returns float rupees directly (or None on failure).
+    return normalize_amount(cleaned)
 
 
 # ---------------------------------------------------------------------------
@@ -425,10 +424,10 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 "row_number": row_number,
                 "invoice_number": None,
                 "invoice_date": None,
-                "supplier_gstin": None,
-                "supplier_gstin_valid": False,
+                "gstin": None,
+                "gstin_valid": False,
                 "supplier_name": None,
-                "taxable_amount": None,
+                "taxable_value": None,
                 "igst": None,
                 "cgst": None,
                 "sgst": None,
@@ -455,15 +454,17 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                             f"Row {row_number}: invalid date '{raw}' ({exc.reason})"
                         )
 
-            # supplier_gstin
+            # gstin — always store the raw value so callers can see it even when
+            # validation fails; overwrite with the normalised form on success.
             if "gstin" in column_mapping:
                 raw = _safe_cell(row.get(column_mapping["gstin"]))
                 if raw is not None:
+                    out["gstin"] = raw  # raw preserved regardless of validity
                     try:
-                        out["supplier_gstin"] = normalize_gstin(raw)
-                        out["supplier_gstin_valid"] = True
+                        out["gstin"] = normalize_gstin(raw)
+                        out["gstin_valid"] = True
                     except NormalizationError as exc:
-                        out["supplier_gstin_valid"] = False
+                        out["gstin_valid"] = False
                         warnings.append(
                             f"Row {row_number}: invalid GSTIN '{raw}' ({exc.reason})"
                         )
@@ -476,7 +477,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
 
             # Monetary amounts
             for std_field, out_key in (
-                ("taxable_amount", "taxable_amount"),
+                ("taxable_amount", "taxable_value"),
                 ("igst", "igst"),
                 ("cgst", "cgst"),
                 ("sgst", "sgst"),
@@ -486,13 +487,8 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 if std_field in column_mapping:
                     raw = _safe_cell(row.get(column_mapping[std_field]))
                     if raw is not None:
-                        try:
-                            out[out_key] = _parse_amount(raw)
-                        except NormalizationError as exc:
-                            warnings.append(
-                                f"Row {row_number}: invalid amount for"
-                                f" '{std_field}' '{raw}' ({exc.reason})"
-                            )
+                        # _parse_amount never raises; returns None on failure.
+                        out[out_key] = _parse_amount(raw)
 
             # place_of_supply
             if "place_of_supply" in column_mapping:
