@@ -389,6 +389,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
     # ------------------------------------------------------------------
     records: list[dict] = []
     warnings: list[str] = []
+    errors: list[str] = []
     total_rows: int = 0
     skipped_rows: int = 0
 
@@ -438,9 +439,9 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 "source_file": filename,
             }
 
-            # invoice_number
+            # invoice_number — normalise to uppercase to match GSTR-2B format
             if inv_raw is not None:
-                out["invoice_number"] = inv_raw
+                out["invoice_number"] = inv_raw.upper()
 
             # invoice_date
             if "invoice_date" in column_mapping:
@@ -454,20 +455,23 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                             f"Row {row_number}: invalid date '{raw}' ({exc.reason})"
                         )
 
-            # gstin — always store the raw value so callers can see it even when
-            # validation fails; overwrite with the normalised form on success.
+            # gstin — missing or structurally invalid GSTIN rejects the row.
             if "gstin" in column_mapping:
                 raw = _safe_cell(row.get(column_mapping["gstin"]))
-                if raw is not None:
-                    out["gstin"] = raw  # raw preserved regardless of validity
-                    try:
-                        out["gstin"] = normalize_gstin(raw)
-                        out["gstin_valid"] = True
-                    except NormalizationError as exc:
-                        out["gstin_valid"] = False
-                        warnings.append(
-                            f"Row {row_number}: invalid GSTIN '{raw}' ({exc.reason})"
-                        )
+                if raw is None:
+                    errors.append(f"Row {row_number}: missing GSTIN")
+                    skipped_rows += 1
+                    continue
+                out["gstin"] = raw  # preserve raw so callers always see original
+                try:
+                    out["gstin"] = normalize_gstin(raw)
+                    out["gstin_valid"] = True
+                except NormalizationError as exc:
+                    errors.append(
+                        f"Row {row_number}: invalid GSTIN '{raw}' ({exc.reason})"
+                    )
+                    skipped_rows += 1
+                    continue
 
             # supplier_name
             if "supplier_name" in column_mapping:
@@ -504,6 +508,40 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
 
             records.append(out)
 
+        # ------------------------------------------------------------------
+        # STEP 3b — DUPLICATE DETECTION
+        # First occurrence of a (gstin, invoice_number) key is kept as the
+        # canonical record.  Every subsequent occurrence is an error — if
+        # the values differ it is a conflict; if identical it is a redundant
+        # duplicate.  Either way only the later rows are rejected.
+        # ------------------------------------------------------------------
+        seen_keys: dict[tuple, dict] = {}  # key → first record seen
+        clean: list[dict] = []
+
+        for rec in records:
+            key = (rec.get("gstin"), rec.get("invoice_number"))
+            if key[0] is None or key[1] is None:
+                clean.append(rec)          # cannot deduplicate without both fields
+                continue
+            if key not in seen_keys:
+                seen_keys[key] = rec       # first occurrence → keep
+                clean.append(rec)
+            else:
+                # Subsequent occurrence — decide conflict vs exact duplicate
+                first = seen_keys[key]
+                if rec.get("taxable_value") != first.get("taxable_value"):
+                    label = "conflicting duplicate"
+                else:
+                    label = "duplicate"
+                errors.append(
+                    f"Row {rec['row_number']}: {label} invoice "
+                    f"'{rec['invoice_number']}' for GSTIN '{rec['gstin']}' "
+                    f"(first seen at row {first['row_number']})"
+                )
+                skipped_rows += 1
+
+        records = clean
+
     except Exception as exc:
         return {
             "success": False,
@@ -525,5 +563,5 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
         "unmapped_columns": unmapped_columns,
         "warnings": warnings,
         "records": records,
-        "errors": [],
+        "errors": errors,
     }
