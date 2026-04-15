@@ -57,3 +57,17 @@ async def file_exists(storage_key: str) -> bool:
         return True
     except ClientError:
         return False
+
+async def upload_file_raw(file_content: bytes, key: str) -> str:
+    """Upload *file_content* to R2 at the exact *key* provided.
+
+    Unlike :func:`upload_file`, no key is generated — the caller owns naming.
+    Returns the key on success.
+    """
+    _get_client().put_object(
+        Bucket=settings.R2_BUCKET_NAME,
+        Key=key,
+        Body=file_content,
+        ServerSideEncryption="AES256",
+    )
+    return key
