@@ -266,7 +266,9 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
     Returns
     -------
     dict
-        On success: ``{"success": True, "records": [...], ...}``
+        On success: includes ``skip_reasons`` (counts per skip category) alongside
+        ``errors`` (row-level messages). Rows are either fully validated into
+        ``records`` or omitted with a matching ``skip_reasons`` entry.
         On failure: ``{"success": False, "error": "...", "error_stage": "...", "records": []}``
     """
     ext = ""
@@ -392,6 +394,15 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
     errors: list[str] = []
     total_rows: int = 0
     skipped_rows: int = 0
+    skip_reasons: dict[str, int] = {}
+
+    def _bump_skip(reason: str) -> None:
+        skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+
+    def _is_blank_cell(s: str) -> bool:
+        """Return True for cells that carry no meaningful value."""
+        stripped = s.strip().lower()
+        return not stripped or stripped in ("nan", "none", "nat")
 
     try:
         for df_idx, row in df.iterrows():
@@ -403,32 +414,78 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
             row_values = [str(v) if v is not None else "" for v in row]
             if is_total_row(row_values):
                 skipped_rows += 1
+                _bump_skip("total_or_summary_row")
                 continue
 
-            # Fetch raw values needed for the empty-row guard.
-            inv_raw = (
-                _safe_cell(row.get(column_mapping["invoice_number"]))
-                if "invoice_number" in column_mapping
-                else None
-            )
-            tax_raw = (
-                _safe_cell(row.get(column_mapping["taxable_amount"]))
-                if "taxable_amount" in column_mapping
-                else None
-            )
-            if inv_raw is None and tax_raw is None:
+            # Empty row — every cell is blank / whitespace / NaN equivalent.
+            if all(_is_blank_cell(cell) for cell in row_values):
+                errors.append(f"Row {row_number}: empty row")
                 skipped_rows += 1
+                _bump_skip("empty_row")
                 continue
 
-            # ---- Build output record ----
+            # ---- Collect ALL field-level errors before deciding row fate ----
+            row_errors: list[str] = []
+
+            # GSTIN
+            gstin_value: str | None = None
+            gstin_valid = False
+            if "gstin" in column_mapping:
+                raw_gstin = _safe_cell(row.get(column_mapping["gstin"]))
+                if raw_gstin is None:
+                    row_errors.append("missing GSTIN")
+                else:
+                    try:
+                        gstin_value = normalize_gstin(raw_gstin)
+                        gstin_valid = True
+                    except NormalizationError:
+                        row_errors.append("invalid GSTIN")
+
+            # invoice_number
+            inv_raw: str | None = None
+            if "invoice_number" in column_mapping:
+                inv_raw = _safe_cell(row.get(column_mapping["invoice_number"]))
+                if inv_raw is None:
+                    row_errors.append("missing invoice number")
+
+            # invoice_date
+            date_value: str | None = None
+            if "invoice_date" in column_mapping:
+                raw_date = _safe_cell(row.get(column_mapping["invoice_date"]))
+                if raw_date is not None:
+                    try:
+                        result = normalize_date(raw_date)
+                        date_value = result.value.isoformat()
+                    except NormalizationError:
+                        row_errors.append("invalid date")
+
+            # taxable_value — non-empty but non-numeric is an explicit error
+            taxable_value: float | None = None
+            if "taxable_amount" in column_mapping:
+                raw_tax = _safe_cell(row.get(column_mapping["taxable_amount"]))
+                if raw_tax is not None:
+                    parsed = _parse_amount(raw_tax)
+                    if parsed is None:
+                        row_errors.append("invalid value")
+                    else:
+                        taxable_value = parsed
+
+            # ---- Row decision: any error → reject the whole row ----
+            if row_errors:
+                errors.append(f"Row {row_number}: {', '.join(row_errors)}")
+                skipped_rows += 1
+                _bump_skip("invalid_row")
+                continue
+
+            # ---- Build output record (only reached when row is fully valid) ----
             out: dict[str, Any] = {
                 "row_number": row_number,
-                "invoice_number": None,
-                "invoice_date": None,
-                "gstin": None,
-                "gstin_valid": False,
+                "invoice_number": inv_raw.upper() if inv_raw else None,
+                "invoice_date": date_value,
+                "gstin": gstin_value,
+                "gstin_valid": gstin_valid,
                 "supplier_name": None,
-                "taxable_value": None,
+                "taxable_value": taxable_value,
                 "igst": None,
                 "cgst": None,
                 "sgst": None,
@@ -439,49 +496,14 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 "source_file": filename,
             }
 
-            # invoice_number — normalise to uppercase to match GSTR-2B format
-            if inv_raw is not None:
-                out["invoice_number"] = inv_raw.upper()
-
-            # invoice_date
-            if "invoice_date" in column_mapping:
-                raw = _safe_cell(row.get(column_mapping["invoice_date"]))
-                if raw is not None:
-                    try:
-                        result = normalize_date(raw)
-                        out["invoice_date"] = result.value.isoformat()
-                    except NormalizationError as exc:
-                        warnings.append(
-                            f"Row {row_number}: invalid date '{raw}' ({exc.reason})"
-                        )
-
-            # gstin — missing or structurally invalid GSTIN rejects the row.
-            if "gstin" in column_mapping:
-                raw = _safe_cell(row.get(column_mapping["gstin"]))
-                if raw is None:
-                    errors.append(f"Row {row_number}: missing GSTIN")
-                    skipped_rows += 1
-                    continue
-                out["gstin"] = raw  # preserve raw so callers always see original
-                try:
-                    out["gstin"] = normalize_gstin(raw)
-                    out["gstin_valid"] = True
-                except NormalizationError as exc:
-                    errors.append(
-                        f"Row {row_number}: invalid GSTIN '{raw}' ({exc.reason})"
-                    )
-                    skipped_rows += 1
-                    continue
-
             # supplier_name
             if "supplier_name" in column_mapping:
                 out["supplier_name"] = _safe_cell(
                     row.get(column_mapping["supplier_name"])
                 )
 
-            # Monetary amounts
+            # Remaining monetary amounts
             for std_field, out_key in (
-                ("taxable_amount", "taxable_value"),
                 ("igst", "igst"),
                 ("cgst", "cgst"),
                 ("sgst", "sgst"),
@@ -491,7 +513,6 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 if std_field in column_mapping:
                     raw = _safe_cell(row.get(column_mapping[std_field]))
                     if raw is not None:
-                        # _parse_amount never raises; returns None on failure.
                         out[out_key] = _parse_amount(raw)
 
             # place_of_supply
@@ -533,12 +554,18 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     label = "conflicting duplicate"
                 else:
                     label = "duplicate"
+                reason_key = (
+                    "conflicting_duplicate_invoice"
+                    if label == "conflicting duplicate"
+                    else "duplicate_invoice"
+                )
                 errors.append(
                     f"Row {rec['row_number']}: {label} invoice "
                     f"'{rec['invoice_number']}' for GSTIN '{rec['gstin']}' "
                     f"(first seen at row {first['row_number']})"
                 )
                 skipped_rows += 1
+                _bump_skip(reason_key)
 
         records = clean
 
@@ -559,6 +586,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
         "total_rows": total_rows,
         "valid_rows": len(records),
         "skipped_rows": skipped_rows,
+        "skip_reasons": skip_reasons,
         "detected_columns": column_mapping,
         "unmapped_columns": unmapped_columns,
         "warnings": warnings,
