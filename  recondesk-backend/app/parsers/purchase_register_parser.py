@@ -300,11 +300,22 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
     Returns
     -------
     dict
-        On success: includes ``skip_reasons`` (counts per skip category) alongside
-        ``errors`` (row-level messages). Rows are either fully validated into
-        ``records`` or omitted with a matching ``skip_reasons`` entry.
-        On failure: ``{"success": False, "error": "...", "error_stage": "...", "records": []}``
+        Always includes ``success``, ``total_rows``, ``valid_rows``, ``records``,
+        and ``errors``. On a full parse, also includes ``source_software``,
+        ``skipped_rows``, ``skip_reasons``, ``detected_columns``, ``unmapped_columns``,
+        and ``warnings``.
     """
+    result: dict[str, Any] = {
+        "success": False,
+        "total_rows": 0,
+        "valid_rows": 0,
+        "records": [],
+        "errors": [],
+    }
+    if not file_content or not file_content.strip():
+        result["errors"].append("Empty file")
+        return result
+
     ext = ""
     dot_idx = filename.rfind(".")
     if dot_idx != -1:
@@ -393,15 +404,12 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
         else:
             raise ParseError(f"Unsupported file extension: '{ext}'")
 
-    except ParseError:
-        raise
+    except ParseError as exc:
+        result["errors"].append(str(exc))
+        return result
     except Exception as exc:
-        return {
-            "success": False,
-            "error": str(exc),
-            "error_stage": "read_file",
-            "records": [],
-        }
+        result["errors"].append(f"read_file: {exc}")
+        return result
 
     # ------------------------------------------------------------------
     # STEP 2 — COLUMN MAPPING
@@ -413,12 +421,10 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
             c for c in source_cols if c not in mapped_originals
         ]
     except Exception as exc:
-        return {
-            "success": False,
-            "error": str(exc),
-            "error_stage": "column_mapping",
-            "records": [],
-        }
+        result["errors"].append(f"column_mapping: {exc}")
+        return result
+
+    header_detected = True
 
     # ------------------------------------------------------------------
     # STEP 3 — ROW PROCESSING
@@ -488,8 +494,8 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 raw_date = _safe_cell(row.get(column_mapping["invoice_date"]))
                 if raw_date is not None:
                     try:
-                        result = normalize_date(raw_date)
-                        date_value = result.value.isoformat()
+                        norm_date = normalize_date(raw_date)
+                        date_value = norm_date.value.isoformat()
                     except NormalizationError:
                         row_errors.append("invalid date")
 
@@ -613,26 +619,25 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
         records = clean
 
     except Exception as exc:
-        return {
-            "success": False,
-            "error": str(exc),
-            "error_stage": "row_processing",
-            "records": [],
-        }
+        result["errors"].append(f"row_processing: {exc}")
+        return result
 
     # ------------------------------------------------------------------
     # STEP 4 — RETURN
     # ------------------------------------------------------------------
-    return {
-        "success": True,
-        "source_software": source_software,
-        "total_rows": total_rows,
-        "valid_rows": len(records),
-        "skipped_rows": skipped_rows,
-        "skip_reasons": skip_reasons,
-        "detected_columns": column_mapping,
-        "unmapped_columns": unmapped_columns,
-        "warnings": warnings,
-        "records": records,
-        "errors": errors,
-    }
+    result["total_rows"] = total_rows
+    result["valid_rows"] = len(records)
+    result["records"] = records
+    result["errors"] = errors
+    if result["total_rows"] == 0 and header_detected:
+        result["errors"].append("No data rows found")
+        result["success"] = False
+    else:
+        result["success"] = result["valid_rows"] > 0
+    result["source_software"] = source_software
+    result["skipped_rows"] = skipped_rows
+    result["skip_reasons"] = skip_reasons
+    result["detected_columns"] = column_mapping
+    result["unmapped_columns"] = unmapped_columns
+    result["warnings"] = warnings
+    return result
