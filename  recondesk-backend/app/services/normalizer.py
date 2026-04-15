@@ -8,7 +8,7 @@ import datetime
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 CHAR_INDEX = {c: i for i, c in enumerate(CHARSET)}
@@ -321,115 +321,107 @@ _CURRENCY_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Matches accounting Dr / Cr suffix preceded by at least one space.
+# The space requirement is critical: "2Cr" (crore) must NOT match,
+# but "1000 Cr" (credit notation) must match.
+_DR_CR_RE = re.compile(r"\s+([Dd][Rr]|[Cc][Rr])\s*$")
 
-def normalize_amount(raw) -> NormalizationResult:
-    """Normalize *raw* monetary value to integer paise (rupees × 100).
 
-    Accepted symbols / decorations: ``₹``, leading apostrophe, commas,
-    internal spaces, ``-`` prefix, parentheses wrapping (accounting negative).
+def normalize_amount(value) -> Optional[float]:
+    """Normalize a messy monetary value to a float in rupees.
 
-    Suffixes (case-insensitive, longest-match): K/k → ×1 000,
-    L/l/Lakh/Lakhs → ×1 00 000, Cr/Crore → ×1 00 00 000.
+    Handles Indian-format numbers with:
+    * Currency symbols: ₹, Rs, INR
+    * Thousand/lakh separators (commas)
+    * Parentheses-style negatives: (50000) → -50000
+    * Leading minus: -50000 → -50000
+    * Accounting notation (space-separated): "1000 Cr" → -1000, "1000 Dr" → +1000
+    * Magnitude suffixes: K → ×1 000, L → ×1 00 000, Cr → ×1 00 00 000
+      (suffix WITHOUT a preceding space is treated as magnitude, not sign)
 
-    Raises:
-        NormalizationError: reason ``"invalid_format"`` when the value cannot be
-            parsed, ``"multiple_suffixes"`` when more than one suffix is found,
-            ``"overflow"`` when ``abs(paise) >= 1_000_000_000_000``.
+    Returns:
+        float in rupees, or None for None / NaN / empty / unparseable input.
+    Never raises.
     """
-    if raw is None or isinstance(raw, bool):
-        raise NormalizationError("amount", raw, "invalid_format")
+    # 1. Reject None up front before any type coercion.
+    if value is None:
+        return None
 
-    s = str(raw).strip()
-    if not s:
-        raise NormalizationError("amount", raw, "invalid_format")
+    # Reject float NaN before str() turns it into the string "nan".
+    if isinstance(value, float) and math.isnan(value):
+        return None
 
-    # Track what happened so notes can be emitted in canonical order later.
-    did_strip_symbols = False
-    did_strip_commas = False
-    did_strip_internal_spaces = False
-    did_parentheses_negative = False
+    # 2. Coerce to plain string and strip surrounding whitespace.
+    value = str(value).strip()
+    if not value:
+        return None
 
-    # 1. Strip currency symbols/prefixes and leading apostrophe (Excel text-prefix).
-    # Case-insensitive removal of: ₹, Rs./RS./rs., Rs/RS/rs, INR — longest match first.
-    cleaned = _CURRENCY_PREFIX_RE.sub("", s).strip()
-    if cleaned != s:
-        did_strip_symbols = True
-    s = cleaned
-
-    # 2. Detect & remove negative marker.
+    # 3a. Parentheses-style negative: (50000) → -50000
     is_negative = False
-    if s.startswith("(") and s.endswith(")"):
+    if value.startswith("(") and value.endswith(")"):
         is_negative = True
-        did_parentheses_negative = True
-        s = s[1:-1].strip()
-    elif s.startswith("-"):
+        value = value[1:-1].strip()
+
+    # 3b. Leading-minus negative: -50000 → negative
+    elif value.startswith("-"):
         is_negative = True
-        s = s[1:].strip()
+        value = value[1:].strip()
 
-    # 3. Strip commas.
-    if "," in s:
-        s = s.replace(",", "")
-        did_strip_commas = True
+    # 3c. Accounting Dr / Cr suffix (must have whitespace before it so that
+    #     "2Cr" is NOT treated as credit; only "1000 Cr" is).
+    #     "Cr" (credit) → negative; "Dr" (debit) → positive (default).
+    m = _DR_CR_RE.search(value)
+    if m:
+        if m.group(1).upper() == "CR":
+            is_negative = True  # credit side = money going out = negative
+        # DR leaves is_negative unchanged (debit = positive, already the default)
+        value = value[: m.start()].strip()
 
-    # 4. Strip internal spaces.
-    if " " in s:
-        s = s.replace(" ", "")
-        did_strip_internal_spaces = True
+    # 4. Strip currency symbols: ₹, Rs, rs, INR (case-insensitive, longest first).
+    value = _CURRENCY_PREFIX_RE.sub("", value).strip()
 
-    if not s:
-        raise NormalizationError("amount", raw, "invalid_format")
+    # Remove commas used as Indian lakh/crore digit-group separators.
+    value = value.replace(",", "")
 
-    # 5. Suffix detection — uppercase, then longest-match order.
-    s_upper = s.upper()
+    # Remove any residual internal spaces (e.g. "1 000").
+    value = value.replace(" ", "")
+
+    if not value:
+        return None
+
+    # 5. Uppercase once for suffix detection (keeps logic below simple).
+    value_upper = value.upper()
     multiplier = 1
-    suffix_note = None
-    numeric_part = s_upper
 
-    for suffix_str, mult, stag in _AMOUNT_SUFFIXES:
-        if s_upper.endswith(suffix_str):
+    # Longest-match suffix first: CRORE before CR, LAKHS/LAKH before L.
+    for suffix_str, mult, _tag in _AMOUNT_SUFFIXES:
+        if value_upper.endswith(suffix_str):
             multiplier = mult
-            suffix_note = stag
-            numeric_part = s_upper[: -len(suffix_str)]
-            break
+            value_upper = value_upper[: -len(suffix_str)]
+            break  # only one magnitude suffix is allowed
 
-    # Detect a second suffix in the remaining numeric part.
-    if suffix_note is not None:
-        for suffix_str, _, _ in _AMOUNT_SUFFIXES:
-            if numeric_part.endswith(suffix_str):
-                raise NormalizationError("amount", raw, "multiple_suffixes")
+    if not value_upper:
+        return None
 
-    # 6. Parse numeric part.
+    # 6. Safe float conversion — return None instead of raising on bad input.
     try:
-        amount_float = float(numeric_part)
-    except ValueError:
-        raise NormalizationError("amount", raw, "invalid_format")
+        amount = float(value_upper)
+    except (ValueError, TypeError):
+        return None
 
-    if not math.isfinite(amount_float):
-        raise NormalizationError("amount", raw, "invalid_format")
+    # Guard against inf / nan produced by float("inf") or float("nan").
+    if not math.isfinite(amount):
+        return None
 
-    # 7. Convert to paise.
-    result_paise = round(amount_float * multiplier * 100)
+    # Apply magnitude multiplier (K / L / Cr) to the base numeric value.
+    amount = amount * multiplier
+
+    # 7. Apply sign last so it works regardless of how the sign was detected.
     if is_negative:
-        result_paise = -result_paise
+        amount = -amount
 
-    # 8. Overflow guard (1 lakh crore cap).
-    if abs(result_paise) >= _PAISE_CAP:
-        raise NormalizationError("amount", raw, "overflow")
-
-    # 9. Build notes in canonical order.
-    notes: list = []
-    if did_strip_symbols:
-        _note(notes, "symbols_stripped")
-    if did_strip_commas:
-        _note(notes, "commas_stripped")
-    if did_strip_internal_spaces:
-        _note(notes, "internal_spaces_stripped")
-    if did_parentheses_negative:
-        _note(notes, "parentheses_negative")
-    if suffix_note is not None:
-        _note(notes, suffix_note)
-
-    return NormalizationResult(value=result_paise, notes=notes)
+    # 8. Return rupees directly (do NOT multiply by 100).
+    return float(amount)
 
 
 # ---------------------------------------------------------------------------
