@@ -249,6 +249,40 @@ def _parse_amount(raw_str: str) -> float | None:
     return normalize_amount(cleaned)
 
 
+def _classify_invoice_type(
+    invoice_number: str | None, original_taxable: float | None
+) -> str:
+    """Classify document type from invoice number prefix and signed taxable value.
+
+    Rules (same order as product spec):
+    * ``CN`` prefix OR negative taxable → ``CREDIT_NOTE``
+    * ``DN`` prefix → ``DEBIT_NOTE``
+    * else → ``INVOICE``
+    """
+    inv = (invoice_number or "").strip().upper()
+    if inv.startswith("CN") or (
+        original_taxable is not None and original_taxable < 0
+    ):
+        return "CREDIT_NOTE"
+    if inv.startswith("DN"):
+        return "DEBIT_NOTE"
+    return "INVOICE"
+
+
+def _invoice_type_consistency_errors(
+    invoice_type: str, original_taxable: float | None
+) -> list[str]:
+    """Return row-level error fragments when sign and type disagree."""
+    errs: list[str] = []
+    if original_taxable is None:
+        return errs
+    if invoice_type == "CREDIT_NOTE" and original_taxable > 0:
+        errs.append("credit note with positive value")
+    if invoice_type == "INVOICE" and original_taxable < 0:
+        errs.append("invoice with negative value")
+    return errs
+
+
 # ---------------------------------------------------------------------------
 # Main parser
 # ---------------------------------------------------------------------------
@@ -459,7 +493,9 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     except NormalizationError:
                         row_errors.append("invalid date")
 
-            # taxable_value — non-empty but non-numeric is an explicit error
+            # taxable_value — non-empty but non-numeric is an explicit error.
+            # Keep the parsed sign as *original_taxable* for type + validation; store abs().
+            original_taxable: float | None = None
             taxable_value: float | None = None
             if "taxable_amount" in column_mapping:
                 raw_tax = _safe_cell(row.get(column_mapping["taxable_amount"]))
@@ -468,7 +504,13 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     if parsed is None:
                         row_errors.append("invalid value")
                     else:
-                        taxable_value = parsed
+                        original_taxable = parsed
+                        taxable_value = abs(parsed)
+
+            invoice_type = _classify_invoice_type(inv_raw, original_taxable)
+            row_errors.extend(
+                _invoice_type_consistency_errors(invoice_type, original_taxable)
+            )
 
             # ---- Row decision: any error → reject the whole row ----
             if row_errors:
@@ -481,6 +523,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
             out: dict[str, Any] = {
                 "row_number": row_number,
                 "invoice_number": inv_raw.upper() if inv_raw else None,
+                "invoice_type": invoice_type,
                 "invoice_date": date_value,
                 "gstin": gstin_value,
                 "gstin_valid": gstin_valid,
