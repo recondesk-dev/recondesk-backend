@@ -334,7 +334,7 @@ def test_large_dataset_deterministic():
     c1 = run_import_sanity(rows, expected_count=n, source_type="bulk")
     c2 = run_import_sanity(rows, expected_count=n, source_type="bulk")
     assert c1 == c2
-    assert len(c1) == 13
+    assert len(c1) == 15  # 13 core + Duplicate Records + Invoice Conflicts
     assert _by_name(c1, "Row Count").passed is True
 
     d1 = detect_duplicates(rows)
@@ -497,11 +497,18 @@ def test_duplicate_detection_check12_calls_detect_duplicates():
         "t",
         existing_records=hist,
     )
-    dup = _by_name(checks, "Duplicate Indicators")
-    assert dup.name == "Duplicate Indicators"
+    dup = _by_name(checks, "Duplicate Indicators (Pre-check)")
+    assert dup.name == "Duplicate Indicators (Pre-check)"
     assert dup.passed is False
     assert dup.severity == "error"
     assert "Duplicates" in dup.detail
+
+    dup_rec = _by_name(checks, "Duplicate Records")
+    assert dup_rec.passed is False
+    assert dup_rec.affected_count > 0
+
+    inv_conf = _by_name(checks, "Invoice Conflicts")
+    assert inv_conf.passed is True
 
     rows = [
         _base(
