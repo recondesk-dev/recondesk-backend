@@ -74,6 +74,7 @@ COLUMN_ALIASES: dict[str, list[str]] = {
     "taxable_amount": [
         "taxable value", "taxable amount", "base amount", "taxable",
         "assessable value", "value", "net amount",
+        "amount", "invoice value", "total amount",
     ],
     "igst": ["igst", "integrated tax", "igst amount", "igst paid"],
     "cgst": ["cgst", "central tax", "cgst amount"],
