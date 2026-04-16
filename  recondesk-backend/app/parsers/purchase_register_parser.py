@@ -1,6 +1,10 @@
 """Purchase Register parser — parses .xlsx / .xls / .csv purchase registers
 into a normalised list of invoice records.
 
+After reading a sheet into a DataFrame, columns are mapped to a canonical schema
+(``gstin``, ``invoice_number_normalized``, ``invoice_date``, ``*_paise``, …)
+aligned with ``app.services.sanity`` expectations.
+
 Relies on app.services.normalizer for GSTIN, date, and amount normalisation.
 """
 
@@ -32,6 +36,22 @@ class ParseError(Exception):
 # ---------------------------------------------------------------------------
 # Column alias registry
 # ---------------------------------------------------------------------------
+
+# Internal detector names → canonical column names (aligned with app.services.sanity).
+STANDARD_TO_CANONICAL: dict[str, str] = {
+    "gstin": "gstin",
+    "invoice_number": "invoice_number_normalized",
+    "invoice_date": "invoice_date",
+    "taxable_amount": "taxable_amount_paise",
+    "igst": "igst_paise",
+    "cgst": "cgst_paise",
+    "sgst": "sgst_paise",
+    "total_tax": "total_tax_paise",
+    "total_amount": "total_amount_paise",
+    "supplier_name": "supplier_name",
+    "place_of_supply": "place_of_supply",
+    "reverse_charge": "reverse_charge",
+}
 
 COLUMN_ALIASES: dict[str, list[str]] = {
     "gstin": [
@@ -249,6 +269,88 @@ def _parse_amount(raw_str: str) -> float | None:
     return normalize_amount(cleaned)
 
 
+def _normalize_gstin_cell(val: Any) -> str | None:
+    s = _safe_cell(val)
+    if s is None:
+        return None
+    return s.strip().upper()
+
+
+def _normalize_invoice_number_cell(val: Any) -> str | None:
+    s = _safe_cell(val)
+    if s is None:
+        return None
+    if isinstance(val, (int, float)) and not pd.isna(val):
+        if isinstance(val, float) and val == int(val):
+            return str(int(val)).strip().upper()
+        if isinstance(val, int):
+            return str(val).strip().upper()
+    return str(s).strip().upper()
+
+
+def _rupees_to_paise_int_signed(val: Any) -> int | None:
+    s = _safe_cell(val)
+    if s is None:
+        return None
+    r = _parse_amount(s)
+    if r is None:
+        return None
+    return int(round(r * 100))
+
+
+def _rupees_to_paise_int_unsigned(val: Any) -> int | None:
+    s = _safe_cell(val)
+    if s is None:
+        return None
+    r = _parse_amount(s)
+    if r is None:
+        return None
+    return int(round(abs(r) * 100))
+
+
+def normalize_dataframe_to_canonical_schema(
+    df: pd.DataFrame, column_mapping: dict[str, str]
+) -> pd.DataFrame:
+    """Build a DataFrame with canonical column names and sanity-aligned values.
+
+    Rows match *df*; string columns are stripped; *gstin* is uppercased;
+    invoice numbers are strings (upper); rupee amounts in source cells become
+    integer paise (signed for taxable; unsigned for tax components).
+    """
+    out_cols: dict[str, pd.Series] = {}
+    for std_name, orig_col in column_mapping.items():
+        if std_name not in STANDARD_TO_CANONICAL:
+            continue
+        if orig_col not in df.columns:
+            continue
+        canon = STANDARD_TO_CANONICAL[std_name]
+        ser = df[orig_col]
+        if canon == "gstin":
+            out_cols[canon] = ser.map(_normalize_gstin_cell)
+        elif canon == "invoice_number_normalized":
+            out_cols[canon] = ser.map(_normalize_invoice_number_cell)
+        elif canon == "invoice_date":
+            out_cols[canon] = ser.map(_safe_cell)
+        elif canon == "taxable_amount_paise":
+            out_cols[canon] = ser.map(_rupees_to_paise_int_signed)
+        elif canon in (
+            "igst_paise",
+            "cgst_paise",
+            "sgst_paise",
+            "total_tax_paise",
+            "total_amount_paise",
+        ):
+            out_cols[canon] = ser.map(_rupees_to_paise_int_unsigned)
+        elif canon in ("supplier_name", "place_of_supply"):
+            out_cols[canon] = ser.map(_safe_cell)
+        elif canon == "reverse_charge":
+            out_cols[canon] = ser.map(_normalize_reverse_charge)
+
+    if not out_cols:
+        return pd.DataFrame(index=df.index)
+    return pd.DataFrame(out_cols, index=df.index)
+
+
 def _classify_invoice_type(
     invoice_number: str | None, original_taxable: float | None
 ) -> str:
@@ -267,6 +369,20 @@ def _classify_invoice_type(
     if inv.startswith("DN"):
         return "DEBIT_NOTE"
     return "INVOICE"
+
+
+def _df_cell_int(val: Any) -> int | None:
+    """Return int from a DataFrame cell, or None for missing/NaN."""
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(val, bool):
+        return None
+    return int(val)
 
 
 def _invoice_type_consistency_errors(
@@ -426,6 +542,9 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
 
     header_detected = True
 
+    # Canonical schema (renamed columns, GSTIN uppercased, amounts as paise ints).
+    df_canon = normalize_dataframe_to_canonical_schema(df, column_mapping)
+
     # ------------------------------------------------------------------
     # STEP 3 — ROW PROCESSING
     # ------------------------------------------------------------------
@@ -445,13 +564,14 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
         return not stripped or stripped in ("nan", "none", "nat")
 
     try:
-        for df_idx, row in df.iterrows():
+        for df_idx, row in df_canon.iterrows():
             total_rows += 1
             # 1-indexed position in the source file (header row accounts for 1 row).
             row_number: int = selected_header_row + int(df_idx) + 2
+            orig_row = df.loc[df_idx]
 
-            # Skip totals / summary rows.
-            row_values = [str(v) if v is not None else "" for v in row]
+            # Skip totals / summary rows (use raw row for detection).
+            row_values = [str(v) if v is not None else "" for v in orig_row]
             if is_total_row(row_values):
                 skipped_rows += 1
                 _bump_skip("total_or_summary_row")
@@ -467,31 +587,35 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
             # ---- Collect ALL field-level errors before deciding row fate ----
             row_errors: list[str] = []
 
-            # GSTIN
+            # GSTIN (canonical column is uppercased; validate with normaliser)
             gstin_value: str | None = None
             gstin_valid = False
             if "gstin" in column_mapping:
-                raw_gstin = _safe_cell(row.get(column_mapping["gstin"]))
+                raw_gstin = row.get("gstin")
                 if raw_gstin is None:
                     row_errors.append("missing GSTIN")
                 else:
                     try:
-                        gstin_value = normalize_gstin(raw_gstin)
+                        gstin_value = normalize_gstin(str(raw_gstin))
                         gstin_valid = True
                     except NormalizationError:
                         row_errors.append("invalid GSTIN")
 
-            # invoice_number
+            # invoice_number_normalized
             inv_raw: str | None = None
             if "invoice_number" in column_mapping:
-                inv_raw = _safe_cell(row.get(column_mapping["invoice_number"]))
+                cell = row.get("invoice_number_normalized")
+                if cell is None or (isinstance(cell, float) and pd.isna(cell)):
+                    inv_raw = None
+                else:
+                    inv_raw = str(cell).strip().upper() if str(cell).strip() else None
                 if inv_raw is None:
                     row_errors.append("missing invoice number")
 
             # invoice_date
             date_value: str | None = None
             if "invoice_date" in column_mapping:
-                raw_date = _safe_cell(row.get(column_mapping["invoice_date"]))
+                raw_date = _safe_cell(orig_row.get(column_mapping["invoice_date"]))
                 if raw_date is not None:
                     try:
                         norm_date = normalize_date(raw_date)
@@ -499,19 +623,17 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     except NormalizationError:
                         row_errors.append("invalid date")
 
-            # taxable_value — non-empty but non-numeric is an explicit error.
-            # Keep the parsed sign as *original_taxable* for type + validation; store abs().
+            # taxable_amount_paise — sign preserved for classification (rupees in source).
             original_taxable: float | None = None
-            taxable_value: float | None = None
+            taxable_amount_paise: int | None = None
             if "taxable_amount" in column_mapping:
-                raw_tax = _safe_cell(row.get(column_mapping["taxable_amount"]))
+                raw_tax = _safe_cell(orig_row.get(column_mapping["taxable_amount"]))
+                taxable_amount_paise = _df_cell_int(row.get("taxable_amount_paise"))
                 if raw_tax is not None:
-                    parsed = _parse_amount(raw_tax)
-                    if parsed is None:
+                    if taxable_amount_paise is None:
                         row_errors.append("invalid value")
                     else:
-                        original_taxable = parsed
-                        taxable_value = abs(parsed)
+                        original_taxable = taxable_amount_paise / 100.0
 
             invoice_type = _classify_invoice_type(inv_raw, original_taxable)
             row_errors.extend(
@@ -525,56 +647,42 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 _bump_skip("invalid_row")
                 continue
 
+            igst_paise = _df_cell_int(row.get("igst_paise"))
+            cgst_paise = _df_cell_int(row.get("cgst_paise"))
+            sgst_paise = _df_cell_int(row.get("sgst_paise"))
+            total_tax_paise = _df_cell_int(row.get("total_tax_paise"))
+            if total_tax_paise is None and (
+                igst_paise is not None or cgst_paise is not None or sgst_paise is not None
+            ):
+                total_tax_paise = (igst_paise or 0) + (cgst_paise or 0) + (sgst_paise or 0)
+
+            _rcell = row.get("reverse_charge")
+            if _rcell is None or (isinstance(_rcell, float) and pd.isna(_rcell)):
+                reverse_out: bool | None = None
+            else:
+                reverse_out = _rcell  # type: ignore[assignment]
+
             # ---- Build output record (only reached when row is fully valid) ----
             out: dict[str, Any] = {
                 "row_number": row_number,
-                "invoice_number": inv_raw.upper() if inv_raw else None,
+                "invoice_number_normalized": inv_raw,
+                "invoice_number": inv_raw,
+                "document_type": invoice_type,
                 "invoice_type": invoice_type,
                 "invoice_date": date_value,
                 "gstin": gstin_value,
                 "gstin_valid": gstin_valid,
-                "supplier_name": None,
-                "taxable_value": taxable_value,
-                "igst": None,
-                "cgst": None,
-                "sgst": None,
-                "total_tax": None,
-                "total_amount": None,
-                "place_of_supply": None,
-                "reverse_charge": None,
+                "supplier_name": _safe_cell(row.get("supplier_name")),
+                "taxable_amount_paise": taxable_amount_paise,
+                "igst_paise": igst_paise,
+                "cgst_paise": cgst_paise,
+                "sgst_paise": sgst_paise,
+                "total_tax_paise": total_tax_paise,
+                "total_amount_paise": _df_cell_int(row.get("total_amount_paise")),
+                "place_of_supply": _safe_cell(row.get("place_of_supply")),
+                "reverse_charge": reverse_out,
                 "source_file": filename,
             }
-
-            # supplier_name
-            if "supplier_name" in column_mapping:
-                out["supplier_name"] = _safe_cell(
-                    row.get(column_mapping["supplier_name"])
-                )
-
-            # Remaining monetary amounts
-            for std_field, out_key in (
-                ("igst", "igst"),
-                ("cgst", "cgst"),
-                ("sgst", "sgst"),
-                ("total_tax", "total_tax"),
-                ("total_amount", "total_amount"),
-            ):
-                if std_field in column_mapping:
-                    raw = _safe_cell(row.get(column_mapping[std_field]))
-                    if raw is not None:
-                        out[out_key] = _parse_amount(raw)
-
-            # place_of_supply
-            if "place_of_supply" in column_mapping:
-                out["place_of_supply"] = _safe_cell(
-                    row.get(column_mapping["place_of_supply"])
-                )
-
-            # reverse_charge
-            if "reverse_charge" in column_mapping:
-                out["reverse_charge"] = _normalize_reverse_charge(
-                    row.get(column_mapping["reverse_charge"])
-                )
 
             records.append(out)
 
@@ -589,7 +697,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
         clean: list[dict] = []
 
         for rec in records:
-            key = (rec.get("gstin"), rec.get("invoice_number"))
+            key = (rec.get("gstin"), rec.get("invoice_number_normalized"))
             if key[0] is None or key[1] is None:
                 clean.append(rec)          # cannot deduplicate without both fields
                 continue
@@ -599,7 +707,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
             else:
                 # Subsequent occurrence — decide conflict vs exact duplicate
                 first = seen_keys[key]
-                if rec.get("taxable_value") != first.get("taxable_value"):
+                if rec.get("taxable_amount_paise") != first.get("taxable_amount_paise"):
                     label = "conflicting duplicate"
                 else:
                     label = "duplicate"
@@ -610,7 +718,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 )
                 errors.append(
                     f"Row {rec['row_number']}: {label} invoice "
-                    f"'{rec['invoice_number']}' for GSTIN '{rec['gstin']}' "
+                    f"'{rec['invoice_number_normalized']}' for GSTIN '{rec['gstin']}' "
                     f"(first seen at row {first['row_number']})"
                 )
                 skipped_rows += 1

@@ -183,6 +183,17 @@ def make_dedup_key_string(rec: dict) -> str:
     return "|".join((gstin, inv, inv_date or "NULL", doc))
 
 
+def _normalize_record_for_dedup(rec: dict) -> dict:
+    """Shallow-copy *rec* and normalize fields used for dedup keys and downstream outputs."""
+    out = dict(rec)
+    out["gstin"] = normalize_string(rec.get("gstin"))
+    inv_src = rec.get("invoice_number_normalized") or rec.get("invoice_number")
+    out["invoice_number_normalized"] = normalize_string(inv_src)
+    out["document_type"] = normalize_string(rec.get("document_type"))
+    out["invoice_date"] = normalize_date_for_key(rec.get("invoice_date"))
+    return out
+
+
 def run_import_sanity(
     records: list[dict],
     expected_count: int | None,
@@ -622,18 +633,21 @@ def detect_duplicates(
 ) -> dict[str, Any]:
     existing_records = existing_records or []
 
+    batch_norm: list[dict] = [_normalize_record_for_dedup(r) for r in records]
+    existing_norm: list[dict] = [_normalize_record_for_dedup(r) for r in existing_records]
+
     def sk(r: dict) -> str:
         return make_dedup_key_string(r)
 
     def fp(r: dict) -> tuple[int | None, int | None]:
         return _amount_fingerprint(r)
 
-    n_batch = len(records)
-    batch_sks: list[str] = [sk(r) for r in records]
-    batch_fps: list[tuple[int | None, int | None]] = [fp(r) for r in records]
+    n_batch = len(batch_norm)
+    batch_sks: list[str] = [sk(r) for r in batch_norm]
+    batch_fps: list[tuple[int | None, int | None]] = [fp(r) for r in batch_norm]
 
     hist_fps: dict[str, set[tuple[int | None, int | None]]] = defaultdict(set)
-    for er in existing_records:
+    for er in existing_norm:
         k = sk(er)
         hist_fps[k].add(fp(er))
 
@@ -657,11 +671,11 @@ def detect_duplicates(
     conflict_keys: dict[str, int] = {}
 
     def _conflict_copy(rec: dict) -> dict:
-        x = deepcopy(rec)
+        x = dict(rec)
         x["_conflict_kind"] = "invoice_conflict"
         return x
 
-    for i, rec in enumerate(records):
+    for i, rec in enumerate(batch_norm):
         k = batch_sks[i]
         fpi = batch_fps[i]
         kp = (k, fpi)
@@ -680,15 +694,15 @@ def detect_duplicates(
         dup_after_first = i > first_idx[kp]
 
         if hset is not None and len(hset) > 0 and fpi in hset:
-            against_history.append(deepcopy(rec))
+            against_history.append(dict(rec))
             if dup_after_first:
-                within_batch.append(deepcopy(rec))
+                within_batch.append(dict(rec))
             continue
 
         if dup_after_first:
-            within_batch.append(deepcopy(rec))
+            within_batch.append(dict(rec))
         else:
-            clean_records.append(deepcopy(rec))
+            clean_records.append(dict(rec))
 
     count_sk_fp: dict[tuple[str, tuple[int | None, int | None]], int] = defaultdict(int)
     for i in range(n_batch):
