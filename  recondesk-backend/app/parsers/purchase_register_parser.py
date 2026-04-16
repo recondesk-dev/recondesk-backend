@@ -104,10 +104,11 @@ _ACCT_SUFFIX_RE = re.compile(r"\s+(?:cr|dr)\.?\s*$", re.IGNORECASE)
 # ---------------------------------------------------------------------------
 
 def normalize_header(col: str) -> str:
-    """Lower-case, strip, remove punctuation, collapse spaces."""
+    """Lower-case, strip, treat underscores/punctuation as spaces, collapse spaces."""
     col = col.lower()
     col = col.strip()
-    col = re.sub(r"[^\w\s]", "", col)
+    col = col.replace("_", " ")
+    col = re.sub(r"[^\w\s]", " ", col)
     col = re.sub(r"\s+", " ", col)
     return col.strip()
 
@@ -748,4 +749,29 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
     result["detected_columns"] = column_mapping
     result["unmapped_columns"] = unmapped_columns
     result["warnings"] = warnings
+    result["normalized_columns"] = list(df_canon.columns)
+    result["normalized_dataframe"] = df_canon
     return result
+
+
+def parse_purchase_register_dataframe(
+    file_content: bytes, filename: str
+) -> pd.DataFrame:
+    """Parse a purchase register and return the canonical DataFrame directly.
+
+    Columns match ``app.services.sanity`` expectations:
+    ``gstin`` (upper), ``invoice_number_normalized`` (str, upper),
+    ``invoice_date`` (str), ``taxable_amount_paise`` / ``cgst_paise`` /
+    ``sgst_paise`` / ``igst_paise`` / ``total_tax_paise`` /
+    ``total_amount_paise`` (ints).
+
+    Raises ParseError on failure (the dict returned by ``parse_purchase_register``
+    is not used here).
+    """
+    res = parse_purchase_register(file_content, filename)
+    if not res.get("success"):
+        raise ParseError("; ".join(res.get("errors") or ["parse failed"]))
+    df_out = res.get("normalized_dataframe")
+    if df_out is None:
+        raise ParseError("no normalized dataframe produced")
+    return df_out
