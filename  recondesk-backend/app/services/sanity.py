@@ -582,15 +582,20 @@ def run_import_sanity(
     )
 
     dup_result = detect_duplicates(records, existing_records=existing_records)
+    within_batch = dup_result.get("within_batch", [])
+    against_history = dup_result.get("against_history", [])
+    conflicts = dup_result.get("conflicts", [])
+
+    # --- Duplicate Indicators (Pre-check) — heuristic summary, kept for back-compat ---
     if dup_result["has_duplicates"]:
         wb = dup_result["counts"]["within_batch"]
         ah = dup_result["counts"]["against_history"]
         aff = wb + ah
-        pool = dup_result["within_batch"] + dup_result["against_history"]
+        pool = within_batch + against_history
         samp = [deepcopy(r) for r in pool[:10]]
         out.append(
             _make_check(
-                "Duplicate Indicators",
+                "Duplicate Indicators (Pre-check)",
                 False,
                 f"Duplicates: within_batch={wb}, against_history={ah}.",
                 "error",
@@ -601,7 +606,7 @@ def run_import_sanity(
     else:
         out.append(
             _make_check(
-                "Duplicate Indicators",
+                "Duplicate Indicators (Pre-check)",
                 True,
                 "No duplicate rows (within batch or vs history).",
                 "info",
@@ -621,6 +626,31 @@ def run_import_sanity(
             "error" if currency_fail else "info",
             [],
             n if currency_fail else 0,
+        )
+    )
+
+    # --- Duplicate Records ---
+    dup_total = len(within_batch) + len(against_history)
+    out.append(
+        _make_check(
+            "Duplicate Records",
+            len(within_batch) == 0 and len(against_history) == 0,
+            f"{len(within_batch)} within batch, {len(against_history)} against history",
+            "error" if len(against_history) > 0 else "warning" if len(within_batch) > 0 else "info",
+            list(within_batch + against_history),
+            dup_total,
+        )
+    )
+
+    # --- Invoice Conflicts ---
+    out.append(
+        _make_check(
+            "Invoice Conflicts",
+            len(conflicts) == 0,
+            f"{len(conflicts)} conflicting records detected",
+            "error" if len(conflicts) > 0 else "info",
+            list(conflicts),
+            len(conflicts),
         )
     )
 
