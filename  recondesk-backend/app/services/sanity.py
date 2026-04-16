@@ -238,7 +238,7 @@ def run_import_sanity(
                     f"diff={diff}, relative={diff / expected_count:.6f}.",
                     "warning",
                     [],
-                    0,
+                    diff,
                 )
             )
         else:
@@ -249,7 +249,7 @@ def run_import_sanity(
                     f"Row count mismatch: expected={expected_count}, actual={n}, diff={diff}.",
                     "error",
                     [],
-                    0,
+                    diff,
                 )
             )
 
@@ -308,6 +308,12 @@ def run_import_sanity(
         raw_inv = rec.get("invoice_number")
         norm = rec.get("invoice_number_normalized")
         norm_s = normalize_string(norm) if norm is not None else ""
+
+        # Flag records whose normalized invoice number is missing or empty
+        if not norm_s:
+            inv_indices.add(i)
+            continue
+
         if raw_inv is not None and str(raw_inv).strip() != str(raw_inv):
             inv_indices.add(i)
             continue
