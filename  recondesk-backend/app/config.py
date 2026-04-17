@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # Sentry
     SENTRY_DSN: str = ""
 
+    # Import pipeline (Day 11) — off by default so existing deployments behave unchanged
+    # until DATABASE_URL migration, REDIS_URL, and Celery worker are ready.
+    IMPORT_PIPELINE_ENABLED: bool = False
+
     # ── Computed aliases (alternate env-var name spellings) ───────────────────
 
     @computed_field  # type: ignore[prop-decorator]
