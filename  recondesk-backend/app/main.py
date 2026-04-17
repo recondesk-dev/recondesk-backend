@@ -55,6 +55,11 @@ app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"])
 
+if settings.IMPORT_PIPELINE_ENABLED:
+    from app.routers import import_router
+
+    app.include_router(import_router.router, tags=["Import"])
+
 
 # ── Core endpoints ────────────────────────────────────────────────────────────
 @app.get("/health", tags=["System"])
