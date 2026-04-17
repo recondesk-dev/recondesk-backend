@@ -91,6 +91,23 @@ def _tax_tolerance_paise(taxable: int) -> float:
     return float(_tax_tolerance_int(taxable))
 
 
+def _tax_diff_severity(diff: float, tol: int) -> Literal["warning", "error"] | None:
+    """Classify a single tax amount diff vs tolerance; None means no mismatch (diff == 0)."""
+    if math.isclose(diff, 0.0, abs_tol=1e-6):
+        return None
+    if diff <= float(tol):
+        return "warning"
+    return "error"
+
+
+def _worst_tax_row_severity(*parts: Literal["warning", "error"] | None) -> Literal["warning", "error"] | None:
+    if "error" in parts:
+        return "error"
+    if "warning" in parts:
+        return "warning"
+    return None
+
+
 def _percentile_90(values: list[int]) -> float:
     if not values:
         return 0.0
@@ -166,6 +183,42 @@ def _make_check(
         affected_count=affected_count,
         affected_records=bounded,
     )
+
+
+def _missing_mandatory_fields(rec: dict) -> list[str]:
+    """Core required fields for the Mandatory Fields check (report only; does not gate other checks)."""
+    required = ("gstin", "invoice_number_normalized", "invoice_date", "taxable_amount_paise")
+    miss: list[str] = []
+    for f in required:
+        v = rec.get(f)
+        if v is None:
+            miss.append(f)
+        elif isinstance(v, str) and not v.strip():
+            miss.append(f)
+        elif f == "taxable_amount_paise" and v is not None:
+            if _coerce_int(v) is None:
+                miss.append(f)
+    return miss
+
+
+def _invoice_number_normalized_usable(rec: dict) -> bool:
+    """True only when consistency logic should run (non-empty normalized invoice number)."""
+    norm = rec.get("invoice_number_normalized")
+    if norm is None:
+        return False
+    if isinstance(norm, str):
+        return norm.strip() != ""
+    return str(norm).strip() != ""
+
+
+def _has_invoice_date_for_date_check(rec: dict) -> bool:
+    """True when invoice_date is present enough to run Date Validity (missing/blank → skip; Mandatory Fields handles those)."""
+    v = rec.get("invoice_date")
+    if v is None:
+        return False
+    if isinstance(v, str) and not v.strip():
+        return False
+    return True
 
 
 def _amount_fingerprint(rec: dict) -> tuple[int | None, int | None]:
@@ -253,20 +306,10 @@ def run_import_sanity(
                 )
             )
 
-    required = ("gstin", "invoice_number_normalized", "invoice_date", "taxable_amount_paise")
     missing_samples: list[dict] = []
     missing_count = 0
     for rec in records:
-        miss: list[str] = []
-        for f in required:
-            v = rec.get(f)
-            if v is None:
-                miss.append(f)
-            elif isinstance(v, str) and not v.strip():
-                miss.append(f)
-            elif f == "taxable_amount_paise" and v is not None:
-                if _coerce_int(v) is None:
-                    miss.append(f)
+        miss = _missing_mandatory_fields(rec)
         if miss:
             missing_count += 1
             if len(missing_samples) < 10:
@@ -305,13 +348,12 @@ def run_import_sanity(
     inv_issues: list[dict] = []
     inv_indices: set[int] = set()
     for i, rec in enumerate(records):
+        if not _invoice_number_normalized_usable(rec):
+            continue
         raw_inv = rec.get("invoice_number")
         norm = rec.get("invoice_number_normalized")
         norm_s = normalize_string(norm) if norm is not None else ""
-
-        # Flag records whose normalized invoice number is missing or empty
         if not norm_s:
-            inv_indices.add(i)
             continue
 
         if raw_inv is not None and str(raw_inv).strip() != str(raw_inv):
@@ -323,6 +365,8 @@ def run_import_sanity(
     by_gstin: dict[str, dict[str, set[str]]] = {}
     indices_by_pair: dict[tuple[str, str], list[int]] = defaultdict(list)
     for i, rec in enumerate(records):
+        if not _invoice_number_normalized_usable(rec):
+            continue
         g = normalize_string(rec.get("gstin"))
         invn = normalize_string(rec.get("invoice_number_normalized"))
         if g and invn:
@@ -352,7 +396,8 @@ def run_import_sanity(
     )
 
     tax_samples: list[dict] = []
-    tax_record_indices: set[int] = set()
+    tax_warn_rows = 0
+    tax_err_rows = 0
     tax_sev: Literal["error", "warning", "info"] = "info"
 
     for ri, rec in enumerate(records):
@@ -367,56 +412,61 @@ def run_import_sanity(
         tol = _tax_tolerance_int(taxable)
         tr_f = _coerce_float(rec.get("tax_rate")) if rec.get("tax_rate") is not None else None
 
-        row_error = False
-        row_warn = False
+        sev_rate: Literal["warning", "error"] | None = None
+        sev_infer: Literal["warning", "error"] | None = None
+        sev_comp: Literal["warning", "error"] | None = None
 
-        # Rate-based: compare total_tax vs expected from rate
+        # Rate-based: expected_tax = taxable * tax_rate / 100; diff vs tolerance
         if tr_f is not None:
             expected_tax = taxable * tr_f / 100.0
-            diff_a = abs(total_tax - expected_tax)
-            if diff_a > 0:
-                if diff_a > tol:
-                    row_error = True
-                else:
-                    row_warn = True
+            diff_a = abs(float(total_tax) - expected_tax)
+            sev_rate = _tax_diff_severity(diff_a, tol)
 
         # Inferred slab fallback when tax_rate absent
         if tr_f is None and taxable != 0:
             infer_rate = (total_tax / taxable) * 100.0
             nearest = _nearest_slab(infer_rate)
             expected_tax_b = taxable * nearest / 100.0
-            diff_b = abs(total_tax - expected_tax_b)
-            if diff_b > 0:
-                if diff_b > tol:
-                    row_error = True
-                else:
-                    row_warn = True
+            diff_b = abs(float(total_tax) - expected_tax_b)
+            sev_infer = _tax_diff_severity(diff_b, tol)
 
-        # Component check: total_tax vs cgst + sgst + igst
+        # Component check: total_tax vs cgst + sgst + igst (same tolerance bands)
         comp_sum = cgst + sgst + igst
-        diff_c = abs(total_tax - comp_sum)
-        if diff_c > 0:
-            if diff_c > tol:
-                row_error = True
-            else:
-                row_warn = True
+        diff_c = abs(float(total_tax) - float(comp_sum))
+        sev_comp = _tax_diff_severity(diff_c, tol)
 
-        if row_error or row_warn:
-            tax_record_indices.add(ri)
-            if row_error:
-                tax_sev = "error"
-            elif tax_sev != "error":
-                tax_sev = "warning"
+        row_sev = _worst_tax_row_severity(sev_rate, sev_infer, sev_comp)
+
+        if row_sev == "error":
+            tax_err_rows += 1
+            if len(tax_samples) < 10:
+                tax_samples.append(dict(rec))
+        elif row_sev == "warning":
+            tax_warn_rows += 1
             if len(tax_samples) < 10:
                 tax_samples.append(dict(rec))
 
-    tax_issues = len(tax_record_indices)
+    tax_issues = tax_warn_rows + tax_err_rows
+    if tax_err_rows > 0:
+        tax_sev = "error"
+    elif tax_warn_rows > 0:
+        tax_sev = "warning"
+    else:
+        tax_sev = "info"
+
+    if tax_issues == 0:
+        tax_detail = "No tax math mismatches; tolerance=max(50,1%×|taxable|) per row."
+    else:
+        tax_detail = (
+            f"{tax_issues} mismatches found ({tax_warn_rows} within tolerance, "
+            f"{tax_err_rows} beyond tolerance); tolerance=max(50,1%×|taxable|) per row."
+        )
     out.append(
         _make_check(
             "Tax Math",
             tax_issues == 0,
-            f"Tax math issues on {tax_issues} record(s); tolerance=max(50,1%×taxable) per row.",
-            tax_sev if tax_issues else "info",
+            tax_detail,
+            tax_sev,
             tax_samples,
             tax_issues,
         )
@@ -454,6 +504,8 @@ def run_import_sanity(
     today = datetime.date.today()
     ten_years = datetime.timedelta(days=10 * 365)
     for rec in records:
+        if not _has_invoice_date_for_date_check(rec):
+            continue
         d = parse_date_safe(rec.get("invoice_date"))
         if d is None:
             date_err += 1
@@ -621,17 +673,23 @@ def run_import_sanity(
             )
         )
 
-    tax_vals = [t for t in (_coerce_int(r.get("taxable_amount_paise")) for r in records) if t is not None]
+    tax_vals = [
+        t
+        for t in (_coerce_int(rec.get("taxable_amount_paise")) for rec in records)
+        if t is not None
+    ]
+    n_taxable = len(tax_vals)
     p90 = _percentile_90(tax_vals)
-    currency_fail = n > 20 and p90 < 100.0
+    currency_fail = n_taxable > 20 and p90 < 100.0
     out.append(
         _make_check(
             "Unit Consistency",
             not currency_fail,
-            f"p90(taxable_amount_paise)={p90:.2f}, n={n}. Error if n>20 and p90<100.",
+            f"p90(taxable_amount_paise)={p90:.2f}, n={n_taxable} (rows with coercible taxable). "
+            f"Error if n>20 and p90<100.",
             "error" if currency_fail else "info",
             [],
-            n if currency_fail else 0,
+            n_taxable if currency_fail else 0,
         )
     )
 

@@ -52,7 +52,7 @@ def test_row_count_minor_and_major_mismatch():
     c1 = _by_name(minor, "Row Count")
     assert c1.severity == "warning"
     assert c1.passed is False
-    assert c1.affected_count == 0
+    assert c1.affected_count == 2  # |expected − actual| when within minor-mismatch band
 
     major = run_import_sanity(good, expected_count=200, source_type="csv")
     c2 = _by_name(major, "Row Count")
@@ -313,6 +313,31 @@ def test_mixed_valid_invalid_batch():
     assert _by_name(checks, "Row Count").passed is True
 
 
+def test_mandatory_missing_does_not_suppress_other_checks():
+    """Rows with missing mandatory fields must still run independent checks (no global valid-only gate)."""
+    bad = {
+        "gstin": "BADGSTIN",
+        "invoice_number_normalized": "",
+        "invoice_date": "2035-01-01",
+        "taxable_amount_paise": 0,
+        "total_tax_paise": 99999,
+        "cgst_paise": 50000,
+        "sgst_paise": 0,
+        "igst_paise": 50000,
+        "tax_rate": 99,
+        "document_type": "INVOICE",
+    }
+    checks = run_import_sanity([bad], expected_count=50, source_type="test")
+    assert _by_name(checks, "Mandatory Fields").affected_count == 1
+    assert _by_name(checks, "GSTIN Validity").affected_count == 1
+    assert _by_name(checks, "Date Validity").passed is False
+    assert _by_name(checks, "Tax Math").affected_count >= 1
+    assert _by_name(checks, "Tax Structure").affected_count >= 1
+    assert _by_name(checks, "Tax Rate").affected_count >= 1
+    assert _by_name(checks, "Zero Taxable").affected_count >= 1
+    assert _by_name(checks, "Row Count").affected_count == 49
+
+
 # ---------------------------------------------------------------------------
 # 15. Large dataset (performance + correctness)
 # ---------------------------------------------------------------------------
@@ -380,6 +405,32 @@ def test_check5_rate_mismatch_error_band():
     t = _by_name(run_import_sanity([r], None, "t"), "Tax Math")
     assert t.affected_count == 1
     assert t.severity == "error"
+
+
+def test_tax_math_mixed_warning_and_error_rows():
+    """Within-tolerance row → warning band; beyond-tolerance row → error; overall severity error."""
+    inv1 = _base(
+        invoice_number_normalized="INV1",
+        taxable_amount_paise=10_000,
+        total_tax_paise=1_850,
+        cgst_paise=925,
+        sgst_paise=925,
+        igst_paise=0,
+        tax_rate=18,
+    )
+    inv2 = _base(
+        invoice_number_normalized="INV2",
+        taxable_amount_paise=10_000,
+        total_tax_paise=3_000,
+        cgst_paise=1_500,
+        sgst_paise=1_500,
+        igst_paise=0,
+        tax_rate=18,
+    )
+    t = _by_name(run_import_sanity([inv1, inv2], None, "test"), "Tax Math")
+    assert t.affected_count == 2
+    assert t.severity == "error"
+    assert "2 mismatches found (1 within tolerance, 1 beyond tolerance)" in t.detail
 
 
 def test_check5_inferred_slab_warning_no_tax_rate():
