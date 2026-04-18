@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # Import pipeline (Day 11) — off by default so existing deployments behave unchanged
     # until DATABASE_URL migration, REDIS_URL, and Celery worker are ready.
     IMPORT_PIPELINE_ENABLED: bool = False
+    # When True, the API runs import jobs in a daemon thread (no Redis/Celery worker needed).
+    # Set False in production when using Celery + Redis.
+    IMPORT_USE_THREAD_WORKER: bool = True
 
     # ── Computed aliases (alternate env-var name spellings) ───────────────────
 

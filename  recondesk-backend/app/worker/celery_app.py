@@ -2,10 +2,13 @@ import os
 
 from celery import Celery
 
+# Default to in-memory broker so importing tasks works without Redis (API thread worker).
+_redis = os.environ.get("REDIS_URL") or "memory://"
+
 celery_app = Celery(
     "recondesk",
-    broker=os.environ["REDIS_URL"],
-    backend=os.environ["REDIS_URL"],
+    broker=_redis,
+    backend=_redis,
 )
 
 celery_app.conf.update(
