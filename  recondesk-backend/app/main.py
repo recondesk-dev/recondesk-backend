@@ -58,7 +58,7 @@ app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"]
 if settings.IMPORT_PIPELINE_ENABLED:
     from app.routers import import_router
 
-    app.include_router(import_router.router, tags=["Import"])
+    app.include_router(import_router.router, prefix="/api/import", tags=["Import"])
 
 
 # ── Core endpoints ────────────────────────────────────────────────────────────

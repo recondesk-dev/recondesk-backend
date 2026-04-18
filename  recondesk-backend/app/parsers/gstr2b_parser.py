@@ -669,6 +669,24 @@ def parse_gstr2b(file_content) -> dict:
     if not isinstance(root, dict):
         raise ValueError("invalid_data_structure")
 
+    # Normalize common GST portal / JSON-tool layouts: gstnId+fp on the parent object,
+    # invoice sections nested under data.docdata.
+    if not root.get("gstin"):
+        top_gst = data.get("gstnId") or data.get("gstin")
+        if top_gst:
+            root["gstin"] = top_gst
+    if not root.get("rtnprd"):
+        fp = data.get("fp") or data.get("ret_period")
+        if fp is not None:
+            root["rtnprd"] = str(fp)
+
+    docdata = root.get("docdata")
+    if isinstance(docdata, dict):
+        for key in ("b2b", "b2ba", "cdnr", "cdnra"):
+            if key not in root or root.get(key) in (None, [], {}):
+                if docdata.get(key) not in (None, [], {}):
+                    root[key] = docdata[key]
+
     if not root.get("gstin"):
         raise ValueError("missing_gstin")
 

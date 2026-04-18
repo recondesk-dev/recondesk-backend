@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import os
 import threading
 import time
@@ -15,18 +16,40 @@ from pathlib import Path
 from typing import Any, Optional
 from uuid import UUID
 
+import math
+
 import pandas as pd
+from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
 
 from app.auth import get_current_active_user
+from app.config import settings
 from app.database import get_supabase
 from app.utils.storage import upload_file_raw
 
-router = APIRouter(prefix="/api/import", tags=["Import"])
+router = APIRouter()
+_logger = logging.getLogger(__name__)
 
 
 def _enqueue_import_task(run_id: str, file_type: str, r2_key: str) -> None:
+    """Queue the import job via Celery, or run it in-process (daemon thread) when configured."""
+    if settings.IMPORT_USE_THREAD_WORKER:
+        from app.worker.tasks import run_import_job_in_api_thread
+
+        def _run() -> None:
+            try:
+                run_import_job_in_api_thread(run_id, file_type, r2_key)
+            except Exception:
+                _logger.exception(
+                    "Import job crashed (thread worker run_id=%s type=%s)",
+                    run_id,
+                    file_type,
+                )
+
+        threading.Thread(target=_run, daemon=True).start()
+        return
+
     try:
         from app.worker.celery_app import celery_app
     except ImportError as e:
@@ -34,10 +57,19 @@ def _enqueue_import_task(run_id: str, file_type: str, r2_key: str) -> None:
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Import worker is not available (Celery not installed or misconfigured).",
         ) from e
-    celery_app.send_task(
-        "worker.run_import_job",
-        args=[run_id, file_type, r2_key],
-    )
+    try:
+        celery_app.send_task(
+            "worker.run_import_job",
+            args=[run_id, file_type, r2_key],
+        )
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Could not queue import job (broker unavailable). "
+                "Ensure Redis is running and REDIS_URL is set in the API environment."
+            ),
+        ) from e
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 PR_REQUIRED = frozenset(
@@ -113,10 +145,14 @@ def check_active_run_lock(
     for row in resp.data or []:
         st = row.get("status") or ""
         if st in ("queued", "importing", "matching"):
+            if override:
+                continue
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 detail=(
-                    f"An import is already active for this period (run status '{st}')."
+                    f"An import is already active for this period (run status '{st}'). "
+                    "Re-uploading the same file is idempotent and does not need override. "
+                    "To upload a different file while a run is still queued, pass ?override=true."
                 ),
             )
         if st == "partial_success" and not override:
@@ -148,14 +184,39 @@ def _validate_gstr2b_schema_bytes(raw: bytes) -> dict:
             status.HTTP_400_BAD_REQUEST,
             detail="'data' must be an object.",
         )
-    portal_style = "docDetails" in d and "itms" in d
-    has_sections = any(d.get(k) for k in ("b2b", "b2ba", "cdnr", "cdnra"))
-    if not portal_style and not has_sections:
+    section_keys = ("b2b", "b2ba", "cdnr", "cdnra")
+
+    def _sections_non_empty(obj: Any) -> bool:
+        if not isinstance(obj, dict):
+            return False
+        return any(obj.get(k) for k in section_keys)
+
+    has_sections = _sections_non_empty(d)
+    docdata = d.get("docdata")
+    if isinstance(docdata, dict):
+        has_sections = has_sections or _sections_non_empty(docdata)
+
+    p_dd = d.get("docDetails")
+    p_it = d.get("itms")
+    portal_keys = "docDetails" in d and "itms" in d
+    portal_nonempty = False
+    if portal_keys:
+        dd_ok = isinstance(p_dd, dict) and len(p_dd) > 0
+        if isinstance(p_it, list):
+            it_ok = len(p_it) > 0
+        elif isinstance(p_it, dict):
+            it_ok = len(p_it) > 0
+        else:
+            it_ok = bool(p_it)
+        portal_nonempty = dd_ok or it_ok
+
+    if not portal_nonempty and not has_sections:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail=(
-                "GSTR-2B JSON must include data.docDetails and data.itms, "
-                "or at least one populated section among b2b, b2ba, cdnr, cdnra."
+                "GSTR-2B JSON must include non-empty data.docDetails or data.itms, "
+                "or at least one populated section among b2b, b2ba, cdnr, cdnra "
+                "(including under data.docdata)."
             ),
         )
     return payload
@@ -197,13 +258,33 @@ def _validate_pr_headers(content: bytes, filename: str) -> None:
 
 
 def _client_gstin_from_user(user: dict) -> str:
-    cid = user.get("client_gstin_id")
-    if not cid:
+    uid = user.get("id")
+    if not uid:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail="User profile has no client_gstin_id.",
         )
-    return str(cid)
+    client = get_supabase()
+    try:
+        resp = (
+            client.table("client_gstins")
+            .select("id")
+            .eq("assigned_to", str(uid))
+            .limit(1)
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail="Could not load client GSTIN assignment from database.",
+        ) from e
+    rows = resp.data or []
+    if not rows:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="User profile has no client_gstin_id.",
+        )
+    return str(rows[0]["id"])
 
 
 @router.post("/gstr2b")
@@ -244,12 +325,11 @@ async def import_gstr2b(
         )
 
     file_hash = _sha256_hex(raw)
-    check_active_run_lock(uid_gstin, p, override=override)
 
     client = get_supabase()
     dup = (
         client.table("reconciliation_run")
-        .select("id,status")
+        .select("id,status,r2_key")
         .eq("client_gstin_id", uid_gstin)
         .eq("period", p)
         .eq("file_type", "gstr2b")
@@ -259,29 +339,62 @@ async def import_gstr2b(
     )
     if dup.data:
         r = dup.data[0]
-        return {"run_id": str(r["id"]), "status": r.get("status", "queued")}
+        rid = str(r["id"])
+        st = r.get("status") or ""
+        # Same file hash as a failed run: retry (unique constraint blocks a second insert).
+        if st == "failed" and r.get("r2_key"):
+            (
+                client.table("reconciliation_run")
+                .update(
+                    {
+                        "status": "queued",
+                        "retry_count": 0,
+                        "status_message": None,
+                    }
+                )
+                .eq("id", rid)
+                .execute()
+            )
+            _enqueue_import_task(rid, "gstr2b", str(r["r2_key"]))
+            return {"run_id": rid, "status": "queued"}
+        return {"run_id": rid, "status": st or "queued"}
+
+    # New file for this period: block only after idempotent same-hash handling above.
+    check_active_run_lock(uid_gstin, p, override=override)
 
     _validate_gstr2b_schema_bytes(raw)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     r2_key = f"uploads/{uid_gstin}/{p}/gstr2b_{ts}.json"
-    await upload_file_raw(raw, r2_key)
+    try:
+        await upload_file_raw(raw, r2_key)
+    except (ClientError, OSError) as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail="Could not store file in object storage (R2). Check credentials and bucket.",
+        ) from e
 
-    insert_resp = (
-        client.table("reconciliation_run")
-        .insert(
-            {
-                "client_gstin_id": uid_gstin,
-                "period": p,
-                "file_type": "gstr2b",
-                "r2_key": r2_key,
-                "status": "queued",
-                "file_hash": file_hash,
-                "retry_count": 0,
-            }
+    try:
+        insert_resp = (
+            client.table("reconciliation_run")
+            .insert(
+                {
+                    "client_gstin_id": uid_gstin,
+                    "period": p,
+                    "file_type": "gstr2b",
+                    "r2_key": r2_key,
+                    "status": "queued",
+                    "file_hash": file_hash,
+                    "retry_count": 0,
+                }
+            )
+            .execute()
         )
-        .execute()
-    )
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail="Could not create reconciliation run in database.",
+        ) from e
     if not insert_resp.data:
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -376,7 +489,13 @@ async def import_purchase_register(
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     r2_key = f"uploads/{uid_gstin}/{period}/pr_{ts}{ext}"
-    await upload_file_raw(raw, r2_key)
+    try:
+        await upload_file_raw(raw, r2_key)
+    except (ClientError, OSError) as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail="Could not store file in object storage (R2). Check credentials and bucket.",
+        ) from e
 
     parent_id = str(rid)
     stub = (
@@ -433,37 +552,61 @@ async def import_status(
             detail="run_id must be a valid UUID.",
         ) from e
 
-    run_resp = (
-        client.table("reconciliation_run")
-        .select("*")
-        .eq("id", run_id)
-        .limit(1)
-        .execute()
-    )
+    try:
+        run_resp = (
+            client.table("reconciliation_run")
+            .select("*")
+            .eq("id", run_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail="Could not load reconciliation run from database.",
+        ) from e
     if not run_resp.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Run not found.")
     row = run_resp.data[0]
     if str(row.get("client_gstin_id")) != uid_gstin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Access denied.")
 
-    logs = (
-        client.table("job_logs")
-        .select("step_name,status,error_details,created_at")
-        .eq("run_id", run_id)
-        .order("created_at", desc=True)
-        .limit(5)
-        .execute()
-    )
-    recent = []
-    for lg in logs.data or []:
-        recent.append(
-            {
-                "step_name": lg.get("step_name"),
-                "status": lg.get("status"),
-                "error_details": lg.get("error_details"),
-                "created_at": lg.get("created_at"),
-            }
+    recent: list[dict[str, Any]] = []
+    try:
+        logs = (
+            client.table("job_logs")
+            .select("step_name,status,error_details,created_at")
+            .eq("run_id", run_id)
+            .order("created_at", desc=True)
+            .limit(5)
+            .execute()
         )
+        for lg in logs.data or []:
+            recent.append(
+                {
+                    "step_name": lg.get("step_name"),
+                    "status": lg.get("status"),
+                    "error_details": lg.get("error_details"),
+                    "created_at": lg.get("created_at"),
+                }
+            )
+    except Exception:
+        pass
+
+    def _num(v: Any, default: float = 0.0) -> float:
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return default
+        if not math.isfinite(x):
+            return default
+        return x
+
+    def _int(v: Any, default: int = 0) -> int:
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return default
 
     sr = row.get("sanity_report")
     sanity_checks: list[Any] = []
@@ -472,14 +615,19 @@ async def import_status(
     elif isinstance(sr, dict) and sr:
         sanity_checks = [sr]
 
+    try:
+        sanity_checks = json.loads(json.dumps(sanity_checks, default=str))
+    except (TypeError, ValueError):
+        sanity_checks = []
+
     return ImportStatusResponse(
         run_id=str(row["id"]),
         status=str(row.get("status", "queued")),
-        progress_percent=float(row.get("progress_percent") or 0.0),
+        progress_percent=_num(row.get("progress_percent"), 0.0),
         status_message=row.get("status_message"),
-        gstr_records_imported=int(row.get("gstr_records_imported") or 0),
-        pr_records_imported=int(row.get("pr_records_imported") or 0),
-        failed_records=int(row.get("failed_records") or 0),
+        gstr_records_imported=_int(row.get("gstr_records_imported"), 0),
+        pr_records_imported=_int(row.get("pr_records_imported"), 0),
+        failed_records=_int(row.get("failed_records"), 0),
         sanity_checks=sanity_checks,
         recent_logs=recent,
     )

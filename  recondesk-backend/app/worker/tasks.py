@@ -623,6 +623,41 @@ def run_import_job_impl(self, run_id: str, file_type: str, r2_key: str) -> None:
         raise
 
 
+class _ApiThreadTaskShim:
+    """Minimal Celery-like ``self`` for :func:`run_import_job_impl` outside a worker."""
+
+    def retry(self, exc=None, countdown=30):
+        raise Retry(exc=exc)
+
+
+def run_import_job_in_api_thread(run_id: str, file_type: str, r2_key: str) -> None:
+    """Run the import pipeline from a FastAPI daemon thread (no broker / worker required)."""
+    import time
+
+    try:
+        run_import_job_impl(_ApiThreadTaskShim(), run_id, file_type, r2_key)
+    except Retry:
+        time.sleep(min(30, 5))
+        try:
+            run_import_job_impl(_ApiThreadTaskShim(), run_id, file_type, r2_key)
+        except Retry:
+            logger.warning(
+                "Import retry exhausted in API thread mode (run_id=%s)",
+                run_id,
+            )
+            supabase = get_supabase()
+            _update_run(
+                supabase,
+                str(run_id),
+                {
+                    "status": FINAL_FAILED,
+                    "status_message": (
+                        "Transient storage error. Re-upload or use a Celery worker with Redis."
+                    ),
+                },
+            )
+
+
 @celery_app.task(
     bind=True,
     max_retries=3,
