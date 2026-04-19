@@ -1,11 +1,49 @@
 import uuid
 
-from app.services.matcher import match_gstr_to_pr
+import pytest
+
+from app.services.matcher import (
+    explain_invoice_difference,
+    invoice_similarity,
+    levenshtein,
+    match_gstr_to_pr,
+    normalize_invoice,
+)
 
 # Valid 15-char GSTINs (normalized uppercase)
 GSTIN_MH = "27AABCU9603R1ZX"
 GSTIN_KA = "29ABCDE1234F1Z5"
 GSTIN_TN = "33AABCG1254E1Z3"
+
+
+def test_normalize_invoice_examples():
+    assert normalize_invoice("INV/2024/001") == "INV2024001"
+    assert normalize_invoice("") == ""
+    assert normalize_invoice(None) == ""
+
+
+def test_levenshtein_empty():
+    assert levenshtein("", "ABC") == 3
+
+
+def test_invoice_similarity_examples():
+    assert invoice_similarity("INV001", "INV0001") == pytest.approx(1.0, abs=0.001)
+    assert invoice_similarity("INV/2024/001", "INV2024001") == pytest.approx(1.0, abs=0.001)
+    assert invoice_similarity("INV001", "INV002") == pytest.approx(0.75, abs=0.001)
+    assert invoice_similarity("INV0001", "INV0002") == pytest.approx(0.75, abs=0.001)
+    assert invoice_similarity("ABCDEF", "ZYXWVU") == pytest.approx(0.0, abs=0.001)
+    assert invoice_similarity("", "INV001") == pytest.approx(0.0, abs=0.001)
+
+
+def test_explain_invoice_difference_examples():
+    assert (
+        explain_invoice_difference("INV001", "INV002")
+        == "Sequence number differs by 1"
+    )
+    assert (
+        explain_invoice_difference("INV", "INVOICE")
+        == "Prefix abbreviation difference"
+    )
 
 
 def _base_rec(
@@ -36,7 +74,7 @@ def _base_rec(
 def test_l1_exact_match_all_fields():
     g = _base_rec()
     p = _base_rec(supplier_gstin=g["supplier_gstin"])
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 1
     assert r.matched is True
     assert r.confidence == 100
@@ -51,7 +89,7 @@ def test_l1_amount_at_upper_boundary_rs1_tolerance():
         invoice_date=g["invoice_date"],
         taxable_paise=10_000_000 - 100,
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 1
     assert r.matched is True
     assert r.confidence == 100
@@ -66,7 +104,7 @@ def test_l1_inside_tolerance_amount_99_paise_date_3_days():
         invoice_date="2024-04-04",
         taxable_paise=5_000_000 - 99,
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 1
     assert r.matched is True
     assert r.confidence == 100
@@ -81,7 +119,7 @@ def test_l1_outside_amount_101_paise_becomes_l2():
         invoice_date=g["invoice_date"],
         taxable_paise=8_888_888 - 101,
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 2
     assert r.matched is True
     assert r.confidence == 90
@@ -102,7 +140,7 @@ def test_l2_near_amount_difference_inside_l2_tolerance():
         invoice_date=g["invoice_date"],
         taxable_paise=12_345_678 - 5_432,
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 2
     assert r.matched is True
     assert r.confidence == 90
@@ -117,7 +155,7 @@ def test_l2_near_date_four_days_invoice_matches():
         invoice_date="2024-08-05",
         taxable_paise=g["taxable_amount_paise"],
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 2
     assert r.matched is True
     assert r.confidence == 90
@@ -136,7 +174,7 @@ def test_l2_both_near_amount_and_date():
         invoice_date="2024-09-16",
         taxable_paise=3_333_333 - 8_000,
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 2
     assert r.matched is True
     assert r.confidence == 90
@@ -155,7 +193,7 @@ def test_l2_boundary_amount_10000_paise_and_date_7_days():
         invoice_date="2024-01-08",
         taxable_paise=7_000_000 - 10_000,
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 2
     assert r.matched is True
     assert r.confidence == 90
@@ -179,7 +217,7 @@ def test_l3_diff_just_over_l2_within_five_percent():
         invoice_date=g["invoice_date"],
         taxable_paise=base - diff,
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 3
     assert r.matched is True
     assert r.confidence == 75
@@ -200,7 +238,7 @@ def test_l3_amount_at_4_9_percent():
         invoice_date=g["invoice_date"],
         taxable_paise=base - diff,
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 3
     assert r.matched is True
     assert r.confidence == 75
@@ -220,11 +258,8 @@ def test_l3_amount_at_5_1_percent_fails_to_l6():
         invoice_date=g["invoice_date"],
         taxable_paise=base - diff,
     )
-    r = match_gstr_to_pr(g, p)
-    assert r.level == 6
-    assert r.matched is False
-    assert r.confidence == 0
-    assert r.requires_human_review is False
+    r = match_gstr_to_pr(g, [p])
+    assert r is None
 
 
 def test_l3_tax_structure_igst_vs_cgst_sgst_same_totals_not_l6():
@@ -241,7 +276,7 @@ def test_l3_tax_structure_igst_vs_cgst_sgst_same_totals_not_l6():
     p["cgst_paise"] = 900_000
     p["sgst_paise"] = 900_000
     p["total_tax_paise"] = 1_800_000
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 3
     assert r.matched is True
     assert r.confidence == 75
@@ -262,7 +297,7 @@ def test_l3_same_identity_taxable_but_total_tax_mismatch_not_l6():
     )
     p["igst_paise"] = 1_800_000
     p["total_tax_paise"] = 1_800_000 + 50_000
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 3
     assert r.matched is True
     assert r.confidence == 75
@@ -284,7 +319,7 @@ def test_l3_missing_date_on_pr_skips_date_and_matches_l3():
         taxable_paise=base - diff,
     )
     del p["invoice_date"]
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 3
     assert r.matched is True
     assert r.confidence == 75
@@ -308,7 +343,7 @@ def test_l4_invoice_typo_different_suffix():
         invoice_date=d,
         taxable_paise=amt,
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 4
     assert r.matched is True
     assert r.confidence == 50
@@ -327,7 +362,7 @@ def test_l4_invoice_prefix_branch_vs_parent():
         invoice_date=g["invoice_date"],
         taxable_paise=g["taxable_amount_paise"],
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 4
     assert r.matched is True
     assert r.confidence == 50
@@ -348,7 +383,7 @@ def test_l4_same_taxable_different_invoice_number():
         invoice_date=day,
         taxable_paise=amt,
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 4
     assert r.matched is True
     assert r.confidence == 50
@@ -367,7 +402,7 @@ def test_l4_financial_year_marker_differs():
         invoice_date=g["invoice_date"],
         taxable_paise=g["taxable_amount_paise"],
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 4
     assert r.matched is True
     assert r.confidence == 50
@@ -377,80 +412,77 @@ def test_l4_financial_year_marker_differs():
 # --- L5 (4) ---
 
 
-def test_l5_exactly_30_day_difference():
+def test_l5_exactly_30_day_difference_fuzzy_invoice():
+    """L4 fails on date (>7d); L5 if GSTIN ok, amount within Rs50, similarity ≥0.70."""
     g = _base_rec(
         supplier_gstin=GSTIN_KA,
         invoice_number="BLRVINV202401001",
         invoice_date="2024-01-01",
-        taxable_paise=50_000_000_00,
+        taxable_paise=10_000_000,
     )
     p = _base_rec(
         supplier_gstin=GSTIN_KA,
-        invoice_number="BLRVINV202402001",
+        invoice_number="BLRVINV202401002",
         invoice_date="2024-01-31",
-        taxable_paise=49_000_000_00,
+        taxable_paise=10_000_000,
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 5
     assert r.matched is True
     assert r.confidence == 30
     assert r.requires_human_review is True
 
 
-def test_l5_31_days_becomes_l6():
+def test_l5_low_invoice_similarity_becomes_l6():
     g = _base_rec(
         supplier_gstin=GSTIN_KA,
         invoice_number="BLRVINV202401100",
         invoice_date="2024-01-01",
-        taxable_paise=50_000_000_00,
+        taxable_paise=10_000_000,
     )
     p = _base_rec(
         supplier_gstin=GSTIN_KA,
-        invoice_number="BLRVINV202402200",
+        invoice_number="ZZZZZZ202499999",
         invoice_date="2024-02-01",
-        taxable_paise=49_000_000_00,
+        taxable_paise=10_000_000,
     )
-    r = match_gstr_to_pr(g, p)
-    assert r.level == 6
-    assert r.matched is False
-    assert r.confidence == 0
-    assert r.requires_human_review is False
+    r = match_gstr_to_pr(g, [p])
+    assert r is None
 
 
-def test_l5_amount_within_4_9_percent_invoice_mismatch():
-    base = 80_000_000_00
-    diff = int(round(0.049 * base))
+def test_l5_amount_over_rs50_becomes_l6():
+    """L4 fails on date; amount diff 5001 paise fails L5 (Rs50 cap)."""
     g = _base_rec(
         supplier_gstin=GSTIN_TN,
         invoice_number="CHN202425AA100",
-        taxable_paise=base,
+        invoice_date="2024-01-01",
+        taxable_paise=10_000_000,
     )
     p = _base_rec(
         supplier_gstin=GSTIN_TN,
-        invoice_number="CHN202425AA200",
-        taxable_paise=base - diff,
+        invoice_number="CHN202425AA101",
+        invoice_date="2024-01-20",
+        taxable_paise=10_000_000 - 5_001,
     )
-    r = match_gstr_to_pr(g, p)
-    assert r.level == 5
-    assert r.matched is True
-    assert r.confidence == 30
-    assert r.requires_human_review is True
+    r = match_gstr_to_pr(g, [p])
+    assert r is None
 
 
-def test_l5_weak_match_supplier_only_moderate_date_diff():
+def test_l5_at_rs50_boundary_and_similar_invoices():
+    """L4 fails on date (>7d); taxable diff exactly Rs50 and fuzzy invoice."""
     g = _base_rec(
         supplier_gstin=GSTIN_MH,
         invoice_number="NAGPUR202425001",
-        invoice_date="2024-02-10",
-        taxable_paise=40_000_000_00,
+        invoice_date="2024-03-01",
+        taxable_paise=10_000_000,
     )
     p = _base_rec(
         supplier_gstin=GSTIN_MH,
-        invoice_number="NAGPUR202425999",
-        invoice_date="2024-03-01",
-        taxable_paise=39_200_000_00,
+        invoice_number="NAGPUR202425002",
+        invoice_date="2024-03-15",
+        taxable_paise=10_000_000 - 5_000,
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 5
     assert r.matched is True
     assert r.confidence == 30
@@ -473,11 +505,8 @@ def test_l6_completely_different_records():
         invoice_date="2024-09-20",
         taxable_paise=99_999_999,
     )
-    r = match_gstr_to_pr(g, p)
-    assert r.level == 6
-    assert r.matched is False
-    assert r.confidence == 0
-    assert r.requires_human_review is False
+    r = match_gstr_to_pr(g, [p])
+    assert r is None
 
 
 def test_l6_missing_gstin_on_gstr():
@@ -487,21 +516,15 @@ def test_l6_missing_gstin_on_gstr():
         invoice_number=g["invoice_number_normalized"],
         taxable_paise=g["taxable_amount_paise"],
     )
-    r = match_gstr_to_pr(g, p)
-    assert r.level == 6
-    assert r.matched is False
-    assert r.confidence == 0
-    assert r.requires_human_review is False
+    r = match_gstr_to_pr(g, [p])
+    assert r is None
 
 
 def test_l6_empty_invoice_both_sides_different_gstin():
     g = _base_rec(supplier_gstin=GSTIN_MH, invoice_number="")
     p = _base_rec(supplier_gstin=GSTIN_TN, invoice_number="")
-    r = match_gstr_to_pr(g, p)
-    assert r.level == 6
-    assert r.matched is False
-    assert r.confidence == 0
-    assert r.requires_human_review is False
+    r = match_gstr_to_pr(g, [p])
+    assert r is None
 
 
 # --- Edge (2) ---
@@ -516,7 +539,7 @@ def test_edge_missing_invoice_date_both_skips_date_l1_match():
     )
     del g["invoice_date"]
     del p["invoice_date"]
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 1
     assert r.matched is True
     assert r.confidence == 100
@@ -531,7 +554,7 @@ def test_edge_both_taxable_zero_identical():
         invoice_date=g["invoice_date"],
         taxable_paise=0,
     )
-    r = match_gstr_to_pr(g, p)
+    r = match_gstr_to_pr(g, [p])
     assert r.level == 1
     assert r.matched is True
     assert r.confidence == 100

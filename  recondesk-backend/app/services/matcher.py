@@ -4,6 +4,7 @@ GSTR ↔ Purchase Register invoice matcher (levels L1–L6).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Mapping
@@ -20,9 +21,91 @@ AMOUNT_TOLERANCE_L2_PCT = 0.01
 
 TOTAL_TOLERANCE_PAISE = 100  # Rs1 rounding on taxable + total tax
 
+# L5: fuzzy invoice match — Rs50 and normalized Levenshtein similarity
+AMOUNT_TOLERANCE_L5_PAISE = 5_000
+INVOICE_SIMILARITY_L5_MIN = 0.70
+
 FINANCIAL_MISMATCH_REASON = (
     "Financial mismatch: GSTIN / total / tax structure inconsistency"
 )
+
+_RE_NON_ALNUM = re.compile(r"[^A-Za-z0-9]")
+_RE_LEADING_ALPHA = re.compile(r"^[A-Z]+")
+_RE_TRAILING_DIGITS = re.compile(r"\d+$")
+
+
+def normalize_invoice(inv: str | None) -> str:
+    """Uppercase; alphanumerics only; leading zeros removed from the trailing ``\\d+``."""
+    if inv is None or inv == "":
+        return ""
+    s = _RE_NON_ALNUM.sub("", str(inv)).upper()
+    if not s:
+        return ""
+    m = _RE_TRAILING_DIGITS.search(s)
+    if not m:
+        return s
+    digs = m.group(0).lstrip("0") or "0"
+    return s[: m.start()] + digs
+
+
+def levenshtein(s1: str, s2: str) -> int:
+    if not s1:
+        return len(s2)
+    if not s2:
+        return len(s1)
+    la, lb = len(s1), len(s2)
+    prev = list(range(lb + 1))
+    for i in range(1, la + 1):
+        cur = [i] + [0] * lb
+        for j in range(1, lb + 1):
+            cost = 0 if s1[i - 1] == s2[j - 1] else 1
+            cur[j] = min(
+                prev[j] + 1,
+                cur[j - 1] + 1,
+                prev[j - 1] + cost,
+            )
+        prev = cur
+    return prev[lb]
+
+
+def invoice_similarity(inv1: str, inv2: str) -> float:
+    norm1 = normalize_invoice(inv1)
+    norm2 = normalize_invoice(inv2)
+    if norm1 == "" or norm2 == "":
+        return 0.0
+    if norm1 == norm2:
+        return 1.0
+    d = levenshtein(norm1, norm2)
+    denom = max(len(norm1), len(norm2))
+    if denom == 0:
+        return 0.0
+    return 1.0 - (d / denom)
+
+
+def explain_invoice_difference(inv1: str, inv2: str) -> str:
+    n1 = normalize_invoice(inv1)
+    n2 = normalize_invoice(inv2)
+    if n1 == n2:
+        return ""
+    p1 = _RE_LEADING_ALPHA.match(n1)
+    p2 = _RE_LEADING_ALPHA.match(n2)
+    if p1 and p2 and p1.group(0) != p2.group(0):
+        return "Prefix abbreviation difference"
+
+    num1 = _RE_TRAILING_DIGITS.search(n1)
+    num2 = _RE_TRAILING_DIGITS.search(n2)
+    if num1 and num2:
+        v1 = int(num1.group(0))
+        v2 = int(num2.group(0))
+        if v1 != v2:
+            return f"Sequence number differs by {abs(v1 - v2)}"
+
+    dist = levenshtein(n1, n2)
+    if dist == 1:
+        return "One character difference -- likely a typo"
+    if dist == 2:
+        return "Two character differences -- verify with supplier"
+    return "Invoice numbers differ -- verify with supplier"
 
 
 @dataclass
@@ -52,9 +135,9 @@ def _invoice_total_paise(rec: Mapping[str, Any]) -> int:
 
 
 def _gstin_match_spec(gstr_rec: Mapping[str, Any], pr_rec: Mapping[str, Any]) -> bool:
-    g = gstr_rec.get("supplier_gstin")
-    p = pr_rec.get("supplier_gstin")
-    return bool(g) and bool(p) and gstr_rec["supplier_gstin"] == pr_rec["supplier_gstin"]
+    g = _supplier_gstin(gstr_rec)
+    p = _supplier_gstin(pr_rec)
+    return bool(g) and bool(p) and g == p
 
 
 def _has_explicit_total_tax_line(
@@ -126,15 +209,22 @@ def _financial_downgrade_l13(
 
 
 def _optional_taxable(rec: Mapping[str, Any]) -> int | None:
-    if "taxable_amount_paise" not in rec:
-        return None
-    v = rec["taxable_amount_paise"]
-    if v is None:
-        return None
-    return int(v)
+    if "taxable_amount_paise" in rec:
+        v = rec["taxable_amount_paise"]
+        if v is None:
+            return None
+        return int(v)
+    if "taxable_amount" in rec:
+        v = rec["taxable_amount"]
+        if v is None:
+            return None
+        return int(round(float(v) * 100))
+    return None
 
 
 def _parse_invoice_date(rec: Mapping[str, Any]) -> date | None:
+    if not isinstance(rec, dict):
+        raise TypeError(f"Expected dict, got {type(rec)}")
     v = rec.get("invoice_date")
     if v is None or v == "":
         return None
@@ -148,11 +238,15 @@ def _parse_invoice_date(rec: Mapping[str, Any]) -> date | None:
 
 def _invoice_number(rec: Mapping[str, Any]) -> str:
     v = rec.get("invoice_number_normalized")
+    if v is None or str(v).strip() == "":
+        v = rec.get("invoice_number")
     return "" if v is None else str(v).strip()
 
 
 def _supplier_gstin(rec: Mapping[str, Any]) -> str:
     v = rec.get("supplier_gstin")
+    if v is None or str(v).strip() == "":
+        v = rec.get("gstin")
     return "" if v is None else str(v).strip()
 
 
@@ -248,7 +342,7 @@ def build_discrepancies(
     return out
 
 
-def match_gstr_to_pr(
+def _match_gstr_to_pr_pair(
     gstr_rec: Mapping[str, Any],
     pr_rec: Mapping[str, Any],
 ) -> MatchResult:
@@ -480,22 +574,33 @@ def match_gstr_to_pr(
             discrepancies=discrepancies,
         )
 
-    # L5 — Supplier only
+    # L5 — Fuzzy invoice (after L1–L4; GSTIN + Rs50 + normalized similarity)
+    amount_within_l5 = skip_amount or amount_diff_paise <= AMOUNT_TOLERANCE_L5_PAISE
+    inv_sim = invoice_similarity(g_inv, p_inv)
     if (
         gstin_match
         and not inv_ok
-        and within_l3_pct_cap
-        and date_within_l3
+        and amount_within_l5
+        and inv_sim >= INVOICE_SIMILARITY_L5_MIN
     ):
         return MatchResult(
             level=5,
             matched=True,
             confidence=30,
             requires_human_review=True,
-            decision_what="Weak match found on supplier GSTIN and amount only",
-            decision_why="Invoice number and date are both different.",
-            decision_next="Manually verify with supplier. Do not auto-accept this match.",
-            review_reason="Weak match: supplier and amount only",
+            decision_what="Weak fuzzy match on supplier, amount, and similar invoice number",
+            decision_why=(
+                "Supplier GSTIN matches, taxable amount within Rs50, and invoice numbers are "
+                "similar after normalization"
+            ),
+            decision_next=(
+                "Manually verify with supplier. Do not auto-accept this match without "
+                "confirming the invoice identity."
+            ),
+            review_reason=(
+                f"Fuzzy invoice match (similarity {inv_sim:.2f}); "
+                f"{explain_invoice_difference(g_inv, p_inv)}"
+            ),
             discrepancies=discrepancies,
         )
 
@@ -510,3 +615,30 @@ def match_gstr_to_pr(
         decision_next="Check if supplier filed late. If missing, raise ITC risk flag and follow up with supplier.",
         discrepancies=discrepancies,
     )
+
+
+def match_gstr_to_pr(
+    gstr_rec: Mapping[str, Any],
+    pr_records: list[Mapping[str, Any]],
+) -> MatchResult | None:
+    """Compare one GSTR row to many PR rows; return the best match or ``None``.
+
+    Chooses the candidate with the **lowest** ``level`` (L1 preferred over L5), then
+    **highest** ``confidence`` on ties. Unmatched candidates (L6) are ignored; if none
+    match, returns ``None``. ``pr_records`` must be a ``list`` (possibly empty).
+    """
+    assert isinstance(pr_records, list)
+    if not pr_records:
+        return None
+    best: MatchResult | None = None
+    for pr_rec in pr_records:
+        r = _match_gstr_to_pr_pair(gstr_rec, pr_rec)
+        if not r.matched:
+            continue
+        if best is None:
+            best = r
+        elif r.level < best.level:
+            best = r
+        elif r.level == best.level and r.confidence > best.confidence:
+            best = r
+    return best
