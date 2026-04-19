@@ -227,6 +227,49 @@ def test_l3_amount_at_5_1_percent_fails_to_l6():
     assert r.requires_human_review is False
 
 
+def test_l3_tax_structure_igst_vs_cgst_sgst_same_totals_not_l6():
+    """L1-quality identity + taxable; only IGST vs CGST+SGST differs → L3, not L6."""
+    g = _base_rec()
+    g["igst_paise"] = 1_800_000
+    g["total_tax_paise"] = 1_800_000
+    p = _base_rec(
+        supplier_gstin=g["supplier_gstin"],
+        invoice_number=g["invoice_number_normalized"],
+        invoice_date=g["invoice_date"],
+        taxable_paise=g["taxable_amount_paise"],
+    )
+    p["cgst_paise"] = 900_000
+    p["sgst_paise"] = 900_000
+    p["total_tax_paise"] = 1_800_000
+    r = match_gstr_to_pr(g, p)
+    assert r.level == 3
+    assert r.matched is True
+    assert r.confidence == 75
+    assert r.requires_human_review is True
+    assert r.review_reason == "Tax structure mismatch"
+
+
+def test_l3_same_identity_taxable_but_total_tax_mismatch_not_l6():
+    """Taxable + invoice identity match; total (taxable + tax) differs → L3 review, not L6."""
+    g = _base_rec()
+    g["igst_paise"] = 1_800_000
+    g["total_tax_paise"] = 1_800_000
+    p = _base_rec(
+        supplier_gstin=g["supplier_gstin"],
+        invoice_number=g["invoice_number_normalized"],
+        invoice_date=g["invoice_date"],
+        taxable_paise=g["taxable_amount_paise"],
+    )
+    p["igst_paise"] = 1_800_000
+    p["total_tax_paise"] = 1_800_000 + 50_000
+    r = match_gstr_to_pr(g, p)
+    assert r.level == 3
+    assert r.matched is True
+    assert r.confidence == 75
+    assert r.requires_human_review is True
+    assert r.review_reason == "Total value mismatch"
+
+
 def test_l3_missing_date_on_pr_skips_date_and_matches_l3():
     base = 8_000_000
     diff = 100_000

@@ -98,11 +98,14 @@ def _financial_downgrade_l13(
     *,
     gstin_match: bool,
     total_diff: int,
-    tax_structure_match: bool,
     enforce_total_tolerance: bool,
 ) -> MatchResult:
-    """If L1–L3 and GSTIN/total/tax safety fails, cap at L3 with mandatory review."""
-    unsafe = (not gstin_match) or (not tax_structure_match)
+    """If L1–L3 and GSTIN/total safety fails, cap at L3 with mandatory review.
+
+    Tax structure (IGST vs CGST+SGST) is enforced only for L1/L2 via ``l12_finance_ok``;
+    it must not suppress L3 or alter L3 outcomes here.
+    """
+    unsafe = not gstin_match
     if enforce_total_tolerance and total_diff > TOTAL_TOLERANCE_PAISE:
         unsafe = True
     if res.level not in (1, 2, 3) or not unsafe:
@@ -344,7 +347,6 @@ def match_gstr_to_pr(
             ),
             gstin_match=gstin_match,
             total_diff=total_diff,
-            tax_structure_match=tax_structure_match,
             enforce_total_tolerance=enforce_total_for_downgrade,
         )
 
@@ -371,7 +373,6 @@ def match_gstr_to_pr(
             ),
             gstin_match=gstin_match,
             total_diff=total_diff,
-            tax_structure_match=tax_structure_match,
             enforce_total_tolerance=enforce_total_for_downgrade,
         )
 
@@ -402,8 +403,62 @@ def match_gstr_to_pr(
             ),
             gstin_match=gstin_match,
             total_diff=total_diff,
-            tax_structure_match=tax_structure_match,
             enforce_total_tolerance=enforce_total_for_downgrade,
+        )
+
+    # Identity + taxable align but invoice total (taxable + tax) differs — match with review, not L6.
+    invoice_number_match = inv_ok
+    date_match = not skip_date and date_within_l1
+    taxable_amount_match = not skip_amount and amount_within_l1
+    if (
+        gstin_match
+        and invoice_number_match
+        and date_match
+        and taxable_amount_match
+        and total_diff > TOTAL_TOLERANCE_PAISE
+    ):
+        return MatchResult(
+            level=3,
+            matched=True,
+            confidence=75,
+            requires_human_review=True,
+            decision_what="Invoice matched but total value differs",
+            decision_why=(
+                "Supplier GSTIN, invoice number, date, and taxable amount align within "
+                "tolerance, but total invoice value (taxable + tax) differs beyond Rs1 rounding"
+            ),
+            decision_next=(
+                "Reconcile tax lines in GSTR-2B vs purchase register; "
+                "verify with supplier if totals should match"
+            ),
+            review_reason="Total value mismatch",
+            discrepancies=discrepancies,
+        )
+
+    # Same invoice identity + taxable as L1, but IGST vs CGST+SGST — L3 review, not L6.
+    if (
+        gstin_match
+        and invoice_number_match
+        and date_match
+        and taxable_amount_match
+        and not tax_structure_match
+    ):
+        return MatchResult(
+            level=3,
+            matched=True,
+            confidence=75,
+            requires_human_review=True,
+            decision_what="Invoice matched but tax structure differs",
+            decision_why=(
+                "Supplier GSTIN, invoice number, date, and taxable amount align within "
+                "tolerance, but GSTR and PR disagree on IGST vs CGST+SGST treatment"
+            ),
+            decision_next=(
+                "Verify interstate vs intrastate treatment and tax lines in both books; "
+                "reconcile with supplier if needed"
+            ),
+            review_reason="Tax structure mismatch",
+            discrepancies=discrepancies,
         )
 
     # L4 — Invoice number mismatch
