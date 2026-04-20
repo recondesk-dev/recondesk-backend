@@ -113,8 +113,8 @@ def run_bidirectional_reconciliation(
         if best_result is not None and best_pr is not None:
             matched.append(
                 {
-                    "gstr_rec": gstr_record,
-                    "pr_rec": best_pr,
+                    "gstr_id": str(gstr_record["id"]),
+                    "pr_id": str(best_pr["id"]),
                     "match_result": best_result,
                 }
             )
@@ -124,7 +124,7 @@ def run_bidirectional_reconciliation(
             ttp = gstr_record.get("total_tax_paise")
             missed_itc.append(
                 {
-                    "id": gstr_id,
+                    "gstr_id": gstr_id,
                     "supplier_gstin": str(gstin),
                     "invoice_number_normalized": str(
                         gstr_record.get("invoice_number_normalized") or ""
@@ -164,7 +164,7 @@ def run_bidirectional_reconciliation(
         int(w["total_tax_paise"]) for w in wrongful_itc_risk
     )
 
-    missed_gstr_ids = {str(m["id"]) for m in missed_itc}
+    missed_gstr_ids = {str(m["gstr_id"]) for m in missed_itc}
     sanity_passed = (
         matched_count + missed_itc_count == total_gstr
         and not (matched_gstr_ids & missed_gstr_ids)
