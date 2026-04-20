@@ -1,669 +1,307 @@
-"""
-Celery tasks for the import pipeline.
-
-Uses Supabase (PostgREST) for DB and boto3 for R2. Chunk inserts use
-``upsert(..., ignore_duplicates=True, returning='representation')``;
-``len(response.data)`` is treated as the insert count (equivalent to conflict-aware inserts).
-"""
+"""Celery tasks for import pipeline (R2 + Supabase)."""
 
 from __future__ import annotations
 
-import io
-import json
+import datetime as dt
 import logging
-import re
-import traceback
-from calendar import monthrange
-from datetime import date, datetime
-from typing import Any, Optional
+import math
+import os
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 import boto3
-import pandas as pd
-from botocore.exceptions import ClientError
-from celery.exceptions import Retry, SoftTimeLimitExceeded
-from postgrest.types import ReturnMethod
+from botocore.config import Config
+from supabase import Client, create_client
 
-from app.config import settings
-from app.database import get_supabase
+from app.config import get_r2_s3_endpoint_url, get_settings
 from app.parsers.gstr2b_parser import parse_gstr2b
+from app.parsers.purchase_register_parser import parse_purchase_register
+from app.services.sanity import SanityCheck, run_import_sanity
 from app.worker.celery_app import celery_app
 
-logger = logging.getLogger(__name__)
+_log = logging.getLogger(__name__)
 
-GSTIN_RE = re.compile(
-    r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$"
-)
-FINAL_FAILED = "failed"
-
-_RETRYABLE_EXC = (OSError, ConnectionError, TimeoutError, ClientError)
+CHUNK_SIZE = 500
 
 
-def _r2_client():
+def _task_error_detail(exc: BaseException) -> str:
+    """Append hints for common Supabase/Postgres errors (visible in status_message)."""
+    msg = str(exc)
+    low = msg.lower()
+    if (
+        "22001" in msg
+        or "too long" in low
+        or "character varying" in low
+        or "value too long" in low
+    ):
+        msg += (
+            " Hint: `client_gstin_id` must store UUIDs (36 chars). "
+            "Run `scripts/fix_client_gstin_id.sql` in the Supabase SQL editor."
+        )
+    if "does not exist" in low and "relation" in low:
+        msg += (
+            " Hint: run `scripts/setup_gstr_pr_tables.sql` in Supabase SQL Editor "
+            "(creates gstr_records / pr_records)."
+        )
+    if "permission denied" in low or "rls" in low:
+        msg += " Hint: use SUPABASE_SERVICE_ROLE_KEY in the API (bypasses RLS)."
+    return msg
+
+
+def _supabase() -> Client:
+    s = get_settings()
+    return create_client(s.SUPABASE_URL, s.SUPABASE_SERVICE_ROLE_KEY)
+
+
+def _s3():
+    s = get_settings()
     return boto3.client(
         "s3",
-        endpoint_url=f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
-        aws_access_key_id=settings.R2_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+        endpoint_url=get_r2_s3_endpoint_url(),
+        aws_access_key_id=s.R2_ACCESS_KEY_ID,
+        aws_secret_access_key=s.R2_SECRET_ACCESS_KEY,
+        config=Config(signature_version="s3v4"),
         region_name="auto",
     )
 
 
-def _download_r2_bytes(key: str) -> bytes:
-    c = _r2_client()
-    obj = c.get_object(Bucket=settings.R2_BUCKET_NAME, Key=key)
-    return obj["Body"].read()
-
-
-def _r2_copy_then_delete(source_key: str, dest_key: str) -> None:
-    c = _r2_client()
-    c.copy_object(
-        Bucket=settings.R2_BUCKET_NAME,
-        CopySource={"Bucket": settings.R2_BUCKET_NAME, "Key": source_key},
-        Key=dest_key,
-    )
-    c.delete_object(Bucket=settings.R2_BUCKET_NAME, Key=source_key)
-
-
-def _parse_period_bounds(period: str) -> tuple[date, date]:
-    y, m = period.split("-")
-    yy, mm = int(y), int(m)
-    last = monthrange(yy, mm)[1]
-    return date(yy, mm, 1), date(yy, mm, last)
-
-
-def _parse_invoice_date(value: Any) -> Optional[date]:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date) and not isinstance(value, datetime):
-        return value
-    s = str(value).strip()
-    if not s or s.lower() == "nan":
-        return None
-    s = s.replace("Z", "+00:00")
-    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
-        try:
-            return date_type.fromisoformat(s[:10])
-        except ValueError:
-            pass
-    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(s[:10], fmt).date()
-        except ValueError:
-            continue
-    try:
-        return datetime.fromisoformat(s.replace("Z", "")).date()
-    except ValueError:
-        return None
-
-
-def log_step(
-    run_id: str,
-    step_name: str,
-    status: str,
-    error: Optional[BaseException] = None,
-    supabase: Optional[Any] = None,
-) -> None:
-    client = supabase or get_supabase()
-    err_details = traceback.format_exc() if error else None
-    client.table("job_logs").insert(
-        {
-            "run_id": run_id,
-            "step_name": step_name,
-            "status": status,
-            "error_details": err_details,
-        }
-    ).execute()
-
-
-def _update_run(supabase, run_id: str, fields: dict[str, Any]) -> None:
-    supabase.table("reconciliation_run").update(fields).eq("id", run_id).execute()
-
-
-def _fetch_run(supabase, run_id: str) -> Optional[dict[str, Any]]:
-    r = (
-        supabase.table("reconciliation_run")
-        .select("*")
-        .eq("id", run_id)
-        .limit(1)
-        .execute()
-    )
-    if r.data:
-        return r.data[0]
-    return None
-
-
-def _inc_retry_count(supabase, run_id: str) -> None:
-    row = _fetch_run(supabase, run_id)
-    if not row:
-        return
-    n = int(row.get("retry_count") or 0) + 1
-    _update_run(supabase, run_id, {"retry_count": n})
-
-
 def _json_safe(obj: Any) -> Any:
+    """JSONB-safe values: no NaN/Inf (Postgres JSON rejects them), no raw Decimal."""
+    if obj is None:
+        return None
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, int) and not isinstance(obj, bool):
+        return obj
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, Decimal):
+        try:
+            f = float(obj)
+            if math.isnan(f) or math.isinf(f):
+                return None
+            return f
+        except Exception:
+            return str(obj)
+    if isinstance(obj, str):
+        return obj
     if isinstance(obj, dict):
-        return {k: _json_safe(v) for k, v in obj.items()}
-    if isinstance(obj, list):
+        return {str(k): _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
         return [_json_safe(x) for x in obj]
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    if isinstance(obj, date):
+    if isinstance(obj, (dt.date, dt.datetime)):
         return obj.isoformat()
     if isinstance(obj, UUID):
         return str(obj)
-    if hasattr(obj, "item"):
-        try:
-            return obj.item()
-        except Exception:  # noqa: BLE001
-            return str(obj)
-    return obj
+    if isinstance(obj, (bytes, bytearray)):
+        return obj.decode("utf-8", errors="replace")
+    return str(obj)
 
 
-def _chunk_size(total_rows: int) -> int:
-    if total_rows >= 1000:
-        return 1000
-    if total_rows <= 0:
-        return 1
-    alt = max(100, total_rows // 10)
-    if alt >= total_rows:
-        return max(1, total_rows // 10) or 1
-    return alt
+def _sanity_failure_message(checks: list[SanityCheck]) -> str:
+    bad = [c for c in checks if c.severity == "error" and not c.passed]
+    if not bad:
+        return "Sanity checks failed"
+    parts: list[str] = []
+    for c in bad[:8]:
+        d = (c.detail or "")[:200]
+        parts.append(f"{c.name}: {d}")
+    return "Sanity checks failed — " + " | ".join(parts)
 
 
-def _sanity_gstr(
-    records: list[dict], period: str, status_message_holder: list[str]
-) -> tuple[bool, Optional[dict], Optional[str]]:
-    if len(records) == 0:
-        sm = "No invoices found after parsing."
-        status_message_holder.append(sm)
-        return False, {"errors": ["empty_file"]}, sm
-
-    start_d, end_d = _parse_period_bounds(period)
-    null_sg = 0
-    null_inum = 0
-    bad_gstin = 0
-    bad_date = 0
-    for rec in records:
-        sg = rec.get("supplier_gstin")
-        inv = rec.get("invoice_number")
-        if not sg or (isinstance(sg, str) and not str(sg).strip()):
-            null_sg += 1
-        if not inv or (isinstance(inv, str) and not str(inv).strip()):
-            null_inum += 1
-        sgs = str(sg).strip() if sg else ""
-        if sgs and not GSTIN_RE.match(sgs):
-            bad_gstin += 1
-        idate = _parse_invoice_date(rec.get("invoice_date_norm"))
-        if idate is None or idate < start_d or idate > end_d:
-            bad_date += 1
-
-    issues: list[str] = []
-    if null_sg:
-        issues.append(f"{null_sg} invoices have null supplier_gstin")
-    if null_inum:
-        issues.append(f"{null_inum} invoices have null invoice_number")
-    if bad_gstin:
-        issues.append(f"{bad_gstin} invoices have invalid supplier GSTIN format")
-    if bad_date:
-        issues.append(f"{bad_date} invoices have dates outside declared period {period}")
-
-    if issues:
-        msg = "Sanity check failed: " + "; ".join(issues)
-        status_message_holder.append(msg)
-        return False, {"issues": issues}, msg
-
-    return True, None, None
+def _sanity_checks_to_json(checks: list[SanityCheck]) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": c.name,
+            "passed": c.passed,
+            "detail": c.detail,
+            "severity": c.severity,
+            "affected_records": _json_safe(c.affected_records),
+        }
+        for c in checks
+    ]
 
 
-def _sanity_pr(
-    df: pd.DataFrame,
-    period: str,
-    status_message_holder: list[str],
-) -> tuple[bool, Optional[dict], Optional[str]]:
-    if len(df) == 0:
-        sm = "No rows in purchase register file."
-        status_message_holder.append(sm)
-        return False, {"errors": ["empty_file"]}, sm
-
-    start_d, end_d = _parse_period_bounds(period)
-    cols = {str(c).strip().lower(): c for c in df.columns}
-    inv_date_col = cols.get("invoice_date")
-    if not inv_date_col:
-        sm = "Missing invoice_date column after header normalisation."
-        status_message_holder.append(sm)
-        return False, {"errors": ["no_invoice_date"]}, sm
-
-    sg_col = cols.get("supplier_gstin") or cols.get("gstin")
-    in_col = cols.get("invoice_number")
-    if not sg_col or not in_col:
-        sm = "Missing supplier GSTIN or invoice number column."
-        status_message_holder.append(sm)
-        return False, {"errors": ["missing_columns"]}, sm
-
-    null_sg = 0
-    null_inum = 0
-    bad_gstin = 0
-    bad_date = 0
-
-    for _, row in df.iterrows():
-        sg = row.get(sg_col)
-        inv = row.get(in_col)
-        if pd.isna(sg) or str(sg).strip() == "":
-            null_sg += 1
-        if pd.isna(inv) or str(inv).strip() == "":
-            null_inum += 1
-        sgs = str(sg).strip() if not pd.isna(sg) else ""
-        if sgs and not GSTIN_RE.match(sgs):
-            bad_gstin += 1
-        raw_d = row.get(inv_date_col)
-        idate = _parse_invoice_date(raw_d)
-        if idate is None or idate < start_d or idate > end_d:
-            bad_date += 1
-
-    issues: list[str] = []
-    if null_sg:
-        issues.append(f"{null_sg} rows have null supplier_gstin")
-    if null_inum:
-        issues.append(f"{null_inum} rows have null invoice_number")
-    if bad_gstin:
-        issues.append(f"{bad_gstin} rows have invalid supplier GSTIN format")
-    if bad_date:
-        issues.append(f"{bad_date} rows have invoice dates outside period {period}")
-
-    if issues:
-        msg = "Sanity check failed: " + "; ".join(issues)
-        status_message_holder.append(msg)
-        return False, {"issues": issues}, msg
-
-    return True, None, None
-
-
-def _rows_gstr2b(
-    records: list[dict],
-    client_gstin_id: str,
-    period: str,
-    run_id: str,
-) -> list[dict]:
+def _gstr_records_for_sanity(records: list[dict]) -> list[dict]:
     out: list[dict] = []
     for rec in records:
-        inv_dt = _parse_invoice_date(rec.get("invoice_date_norm"))
+        items = rec.get("items") or []
+        taxable = sum(int(i.get("taxable_value_paise") or 0) for i in items)
+        if not taxable:
+            taxable = int(rec.get("invoice_value_paise") or 0)
+        cgst = sum(int(i.get("cgst_paise") or 0) for i in items)
+        sgst = sum(int(i.get("sgst_paise") or 0) for i in items)
+        igst = sum(int(i.get("igst_paise") or 0) for i in items)
+        total_tax = cgst + sgst + igst
+        tr = None
+        if items:
+            tr = items[0].get("tax_rate")
         out.append(
             {
-                "client_gstin_id": client_gstin_id,
-                "period": period,
-                "supplier_gstin": str(rec.get("supplier_gstin") or "").strip(),
-                "invoice_number": str(rec.get("invoice_number") or "").strip(),
-                "run_id": run_id,
-                "invoice_date": inv_dt.isoformat() if inv_dt else None,
-                "payload": _json_safe(rec),
+                "gstin": rec.get("supplier_gstin_norm") or rec.get("supplier_gstin") or "",
+                "invoice_number": rec.get("invoice_number"),
+                "invoice_number_normalized": rec.get("invoice_number_norm")
+                or rec.get("invoice_number"),
+                "invoice_date": rec.get("invoice_date_norm"),
+                "taxable_amount_paise": taxable,
+                "tax_rate": tr,
+                "total_tax_paise": total_tax,
+                "cgst_paise": cgst,
+                "sgst_paise": sgst,
+                "igst_paise": igst,
             }
         )
     return out
 
 
-def _read_pr_dataframe(content: bytes, r2_key: str) -> pd.DataFrame:
-    ext = r2_key.rsplit(".", 1)[-1].lower()
-    if ext == "csv":
-        return pd.read_csv(io.BytesIO(content), dtype=str)
-    return pd.read_excel(io.BytesIO(content), dtype=str)
-
-
-def _normalize_pr_df(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df.columns = [str(c).strip() for c in df.columns]
-    lower = {str(c).strip().lower(): c for c in df.columns}
-    rename = {}
-    for req in (
-        "supplier_gstin",
-        "invoice_number",
-        "invoice_date",
-        "taxable_value",
-        "igst",
-        "cgst",
-        "sgst",
-    ):
-        if req in lower:
-            rename[lower[req]] = req
-        elif req == "supplier_gstin" and "gstin" in lower:
-            rename[lower["gstin"]] = "supplier_gstin"
-    return df.rename(columns=rename)
-
-
-def _rows_pr(
-    df: pd.DataFrame,
-    client_gstin_id: str,
-    period: str,
+def _update_run(
+    client: Client,
     run_id: str,
-) -> list[dict]:
-    def num(v: Any) -> Optional[float]:
-        if pd.isna(v) or v is None or str(v).strip() == "":
-            return None
-        try:
-            return float(str(v).replace(",", ""))
-        except ValueError:
-            return None
-
-    rows: list[dict] = []
-    for _, r in df.iterrows():
-        idate = _parse_invoice_date(r.get("invoice_date"))
-        rows.append(
-            {
-                "client_gstin_id": client_gstin_id,
-                "period": period,
-                "supplier_gstin": str(r.get("supplier_gstin") or "").strip(),
-                "invoice_number": str(r.get("invoice_number") or "").strip(),
-                "run_id": run_id,
-                "invoice_date": idate.isoformat() if idate else None,
-                "taxable_value": num(r.get("taxable_value")),
-                "igst": num(r.get("igst")),
-                "cgst": num(r.get("cgst")),
-                "sgst": num(r.get("sgst")),
-                "raw": _json_safe(
-                    {
-                        "invoice_date": r.get("invoice_date"),
-                        "taxable_value": r.get("taxable_value"),
-                        "igst": r.get("igst"),
-                        "cgst": r.get("cgst"),
-                        "sgst": r.get("sgst"),
-                    }
-                ),
-            }
-        )
-    return rows
+    fields: dict[str, Any],
+) -> None:
+    client.table("reconciliation_run").update(fields).eq("id", run_id).execute()
 
 
-def _upsert_chunk(
-    supabase,
+def _bulk_insert(
+    client: Client,
     table: str,
-    on_conflict: str,
-    chunk: list[dict],
-) -> int:
-    if not chunk:
-        return 0
-    resp = (
-        supabase.table(table)
-        .upsert(
-            chunk,
-            on_conflict=on_conflict,
-            ignore_duplicates=True,
-            returning=ReturnMethod.representation,
-        )
-        .execute()
-    )
-    return len(resp.data or [])
+    rows: list[dict[str, Any]],
+) -> None:
+    for i in range(0, len(rows), CHUNK_SIZE):
+        chunk = rows[i : i + CHUNK_SIZE]
+        try:
+            client.table(table).insert(chunk).execute()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Insert into {table} failed ({len(chunk)} row(s), offset {i}): {exc}"
+            ) from exc
 
 
-def run_import_job_impl(self, run_id: str, file_type: str, r2_key: str) -> None:
-    supabase = get_supabase()
-    run_id_str = str(run_id)
-    status_messages: list[str] = []
-
-    run_row = _fetch_run(supabase, run_id_str)
-    if not run_row:
-        logger.error("Run %s not found", run_id_str)
-        return
+@celery_app.task(name="worker.run_import_job", max_retries=0)
+def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
+    client = _supabase()
+    bucket = get_settings().R2_BUCKET_NAME
+    s3 = _s3()
+    now = datetime.now(timezone.utc).isoformat()
 
     try:
-        _update_run(supabase, run_id_str, {"status": "importing"})
-        log_step(run_id_str, "start", "success", supabase=supabase)
-
-        try:
-            raw = _download_r2_bytes(r2_key)
-        except _RETRYABLE_EXC as e:
-            _inc_retry_count(supabase, run_id_str)
-            log_step(run_id_str, "downloading_file", "error", e, supabase=supabase)
-            raise self.retry(exc=e, countdown=30)
-        except Exception as e:  # noqa: BLE001
-            msg = f"Failed to download file from storage: {e}"
-            _update_run(
-                supabase,
-                run_id_str,
-                {"status": FINAL_FAILED, "status_message": msg},
-            )
-            log_step(run_id_str, "downloading_file", "error", e, supabase=supabase)
-            return
-
-        log_step(run_id_str, "downloading_file", "success", supabase=supabase)
-
-        client_gstin_id = str(run_row["client_gstin_id"])
-        period = str(run_row["period"])
-        inserted_records = 0
-        failed_records = 0
-        processed_rows = 0
-        total_records = 0
-        invoice_rows: list[dict] = []
-
-        try:
-            if file_type == "gstr2b":
-                parsed = parse_gstr2b(raw)
-                records = parsed.get("records") or []
-                total_records = len(records)
-            elif file_type == "purchase_register":
-                df_raw = _read_pr_dataframe(raw, r2_key)
-                df_norm = _normalize_pr_df(df_raw)
-                total_records = len(df_norm)
-            else:
-                raise ValueError(f"Unknown file_type {file_type}")
-        except SoftTimeLimitExceeded:
-            raise
-        except Exception as e:  # noqa: BLE001
-            msg = f"Parse failed: {e}"
-            status_messages.append(msg)
-            _update_run(
-                supabase,
-                run_id_str,
-                {
-                    "status": FINAL_FAILED,
-                    "status_message": msg,
-                    "sanity_report": {"parse_error": str(e)},
-                },
-            )
-            log_step(run_id_str, "parsing_complete", "error", e, supabase=supabase)
-            return
-
-        _update_run(supabase, run_id_str, {"total_records": total_records})
-        log_step(run_id_str, "parsing_complete", "success", supabase=supabase)
-
-        if file_type == "gstr2b":
-            ok, sanity_report, _ = _sanity_gstr(records, period, status_messages)
-        else:
-            ok, sanity_report, _ = _sanity_pr(df_norm, period, status_messages)
-
-        if not ok:
-            sm = status_messages[-1] if status_messages else "Sanity check failed."
-            _update_run(
-                supabase,
-                run_id_str,
-                {
-                    "status": FINAL_FAILED,
-                    "sanity_report": sanity_report or {},
-                    "status_message": sm,
-                },
-            )
-            log_step(run_id_str, "sanity_failed", "error", Exception(sm), supabase=supabase)
-            return
-
-        log_step(run_id_str, "sanity_passed", "success", supabase=supabase)
-
-        if file_type == "gstr2b":
-            invoice_rows = _rows_gstr2b(
-                records, client_gstin_id, period, run_id_str
-            )
-        else:
-            invoice_rows = _rows_pr(
-                df_norm, client_gstin_id, period, run_id_str
-            )
-
-        table = (
-            "gstr2b_invoices"
-            if file_type == "gstr2b"
-            else "purchase_register_invoices"
-        )
-        conflict_cols = "client_gstin_id,period,supplier_gstin,invoice_number"
-
-        chunk_n = _chunk_size(total_records)
-        pos = 0
-        while pos < total_records:
-            chunk = invoice_rows[pos : pos + chunk_n]
-            try:
-                ins = _upsert_chunk(supabase, table, conflict_cols, chunk)
-                inserted_records += ins
-                failed_records += len(chunk) - ins
-            except Exception as e:  # noqa: BLE001
-                failed_records += len(chunk)
-                log_step(run_id_str, "chunk_failed", "error", e, supabase=supabase)
-
-            processed_rows += len(chunk)
-            progress = (
-                (processed_rows / total_records) * 100 if total_records else 100.0
-            )
-            _update_run(supabase, run_id_str, {"progress_percent": progress})
-            pos += chunk_n
-
-        failure_ratio = (failed_records / total_records) if total_records else 0.0
-        if failure_ratio > 0.05:
-            final_status = "failed"
-        elif failed_records > 0:
-            final_status = "partial_success"
-        else:
-            final_status = "complete"
-
-        log_step(run_id_str, "db_insert_complete", "success", supabase=supabase)
-
-        archive_key = r2_key.replace("uploads/", "archive/", 1)
-        try:
-            _r2_copy_then_delete(r2_key, archive_key)
-            log_step(run_id_str, "file_archived", "success", supabase=supabase)
-        except _RETRYABLE_EXC as e:
-            _inc_retry_count(supabase, run_id_str)
-            log_step(run_id_str, "file_archived", "error", e, supabase=supabase)
-            raise self.retry(exc=e, countdown=30)
-        except Exception as e:  # noqa: BLE001
-            log_step(run_id_str, "file_archived", "error", e, supabase=supabase)
-            final_status = FINAL_FAILED
-            status_messages.append(f"Archiving failed: {e}")
-
-        if final_status == FINAL_FAILED and status_messages:
-            summary_msg = status_messages[-1]
-        elif final_status == "complete":
-            summary_msg = f"Imported {inserted_records:,} records successfully."
-        elif final_status == "partial_success":
-            summary_msg = (
-                f"Imported {inserted_records:,} of {total_records:,} rows; "
-                f"{failed_records:,} rows skipped due to duplicates or errors."
-            )
-        elif final_status == FINAL_FAILED:
-            summary_msg = (
-                f"Import failed: more than 5% of rows could not be inserted "
-                f"({failed_records:,} of {total_records:,})."
-            )
-        else:
-            summary_msg = f"Import finished with status {final_status}."
-
-        counters: dict[str, Any] = {
-            "status": final_status,
-            "inserted_records": inserted_records,
-            "failed_records": failed_records,
-            "progress_percent": 100.0,
-            "status_message": summary_msg,
-        }
-        if file_type == "gstr2b":
-            counters["gstr_records_imported"] = inserted_records
-        else:
-            counters["pr_records_imported"] = inserted_records
-
-        _update_run(supabase, run_id_str, counters)
-
-        stub = (
-            supabase.table("reconciliation_run")
-            .select("id")
-            .eq("r2_key", r2_key)
-            .eq("file_type", "purchase_register")
-            .limit(1)
-            .execute()
-        )
-        if stub.data:
-            _update_run(supabase, stub.data[0]["id"], {"status": final_status})
-
-        if final_status in ("complete", "partial_success"):
-            log_step(run_id_str, "job_success", "success", supabase=supabase)
-        elif final_status == FINAL_FAILED:
-            log_step(
-                run_id_str,
-                "job_finished_failed",
-                "error",
-                Exception(summary_msg),
-                supabase=supabase,
-            )
-
-    except SoftTimeLimitExceeded:
         _update_run(
-            supabase,
-            run_id_str,
+            client,
+            run_id,
             {
-                "status": FINAL_FAILED,
-                "status_message": "Time limit exceeded while processing import.",
+                "status": "importing",
+                "progress_percent": 5,
+                "updated_at": now,
             },
         )
-        log_step(run_id_str, "fatal_error", "error", Exception("timeout"), supabase=supabase)
-        raise
-    except Retry:
-        raise
-    except Exception as e:  # noqa: BLE001
-        msg = f"Fatal error: {e}"
-        _update_run(
-            supabase,
-            run_id_str,
-            {"status": FINAL_FAILED, "status_message": msg},
+
+        obj = s3.get_object(Bucket=bucket, Key=r2_key)
+        body = obj["Body"].read()
+
+        if file_type == "gstr2b":
+            parsed = parse_gstr2b(body)
+            records = list(parsed.get("records") or [])
+            for_sanity = _gstr_records_for_sanity(records)
+        elif file_type == "purchase_register":
+            name = os.path.basename(r2_key) or "purchase.xlsx"
+            pr = parse_purchase_register(body, name)
+            if not pr.get("success"):
+                errs = "; ".join(pr.get("errors") or ["parse failed"])
+                raise ValueError(errs)
+            records = list(pr.get("records") or [])
+            for_sanity = records
+        else:
+            raise ValueError(f"unknown file_type: {file_type}")
+
+        run_row = (
+            client.table("reconciliation_run")
+            .select("client_gstin_id, period")
+            .eq("id", run_id)
+            .single()
+            .execute()
         )
-        log_step(run_id_str, "fatal_error", "error", e, supabase=supabase)
-        raise
+        data = run_row.data or {}
+        client_gstin_id = data.get("client_gstin_id")
+        period = data.get("period")
+        if not client_gstin_id or not period:
+            raise ValueError("reconciliation_run missing client_gstin_id or period")
 
+        _update_run(
+            client,
+            run_id,
+            {"progress_percent": 40, "updated_at": datetime.now(timezone.utc).isoformat()},
+        )
 
-class _ApiThreadTaskShim:
-    """Minimal Celery-like ``self`` for :func:`run_import_job_impl` outside a worker."""
+        checks = run_import_sanity(
+            for_sanity,
+            expected_count=len(for_sanity),
+            source_type=file_type,
+        )
+        sanity_json = _sanity_checks_to_json(checks)
+        blocking = any(
+            c.severity == "error" and not c.passed for c in checks
+        )
+        if blocking:
+            _log.warning(
+                "Sanity reported errors (non-fatal; sanity_report saved on completion): %s",
+                _sanity_failure_message(checks),
+            )
 
-    def retry(self, exc=None, countdown=30):
-        raise Retry(exc=exc)
+        insert_table = "gstr_records" if file_type == "gstr2b" else "pr_records"
+        rows = [
+            {
+                "run_id": run_id,
+                "client_gstin_id": client_gstin_id,
+                "period": period,
+                "record_data": _json_safe(rec),
+            }
+            for rec in records
+        ]
+        if rows:
+            _bulk_insert(client, insert_table, rows)
 
+        count = len(rows)
+        _update_run(
+            client,
+            run_id,
+            {
+                "progress_percent": 90,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
-def run_import_job_in_api_thread(run_id: str, file_type: str, r2_key: str) -> None:
-    """Run the import pipeline from a FastAPI daemon thread (no broker / worker required)."""
-    import time
-
-    try:
-        run_import_job_impl(_ApiThreadTaskShim(), run_id, file_type, r2_key)
-    except Retry:
-        time.sleep(min(30, 5))
         try:
-            run_import_job_impl(_ApiThreadTaskShim(), run_id, file_type, r2_key)
-        except Retry:
-            logger.warning(
-                "Import retry exhausted in API thread mode (run_id=%s)",
-                run_id,
-            )
-            supabase = get_supabase()
-            _update_run(
-                supabase,
-                str(run_id),
-                {
-                    "status": FINAL_FAILED,
-                    "status_message": (
-                        "Transient storage error. Re-upload or use a Celery worker with Redis."
-                    ),
-                },
-            )
+            s3.delete_object(Bucket=bucket, Key=r2_key)
+        except Exception:
+            pass
 
+        patch: dict[str, Any] = {
+            "status": "complete",
+            "progress_percent": 100,
+            "sanity_report": sanity_json,
+            "status_message": None,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if file_type == "gstr2b":
+            patch["gstr_records_imported"] = count
+        else:
+            patch["pr_records_imported"] = count
 
-@celery_app.task(
-    bind=True,
-    max_retries=3,
-    soft_time_limit=600,
-    time_limit=660,
-    name="worker.run_import_job",
-)
-def run_import_job(self, run_id: str, file_type: str, r2_key: str) -> None:
-    run_import_job_impl(self, run_id, file_type, r2_key)
+        _update_run(client, run_id, patch)
+
+    except Exception as exc:
+        _log.exception("run_import_job failed for run_id=%s", run_id)
+        _update_run(
+            client,
+            run_id,
+            {
+                "status": "failed",
+                "status_message": _task_error_detail(exc),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        raise

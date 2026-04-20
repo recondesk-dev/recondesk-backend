@@ -25,12 +25,22 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str = ""
     SUPABASE_SERVICE_ROLE_KEY: str = ""
 
-    # Cloudflare R2
+    # Cloudflare R2 (S3-compatible; prefer R2_ENDPOINT_URL when set)
+    R2_ENDPOINT_URL: str = ""
     R2_ACCOUNT_ID: str = ""
     R2_ACCESS_KEY_ID: str = ""
     R2_SECRET_ACCESS_KEY: str = ""
     R2_BUCKET_NAME: str = "recondesk-uploads"
     R2_PUBLIC_URL: str = ""
+
+    # Celery / Redis
+    REDIS_URL: str = "redis://localhost:6379/0"
+    # When False (default), import jobs run in the API process via Celery ``.apply()`` so
+    # progress updates without a separate worker. Set True + run ``celery worker`` to offload.
+    IMPORT_USE_CELERY: bool = False
+    # When True, any sanity check with severity=error fails the run. When False, failures are
+    # still stored in sanity_report but the import continues (recommended for messy GSTR-2B data).
+    IMPORT_SANITY_STRICT: bool = False
 
     # JWT
     JWT_ALGORITHM: str = "HS256"
@@ -46,13 +56,6 @@ class Settings(BaseSettings):
 
     # Sentry
     SENTRY_DSN: str = ""
-
-    # Import pipeline (Day 11) — off by default so existing deployments behave unchanged
-    # until DATABASE_URL migration, REDIS_URL, and Celery worker are ready.
-    IMPORT_PIPELINE_ENABLED: bool = False
-    # When True, the API runs import jobs in a daemon thread (no Redis/Celery worker needed).
-    # Set False in production when using Celery + Redis.
-    IMPORT_USE_THREAD_WORKER: bool = True
 
     # ── Computed aliases (alternate env-var name spellings) ───────────────────
 
@@ -94,6 +97,20 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def get_r2_s3_endpoint_url() -> str:
+    """R2 S3 API URL: ``R2_ENDPOINT_URL`` if set, else ``https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com``."""
+    s = get_settings()
+    ep = (s.R2_ENDPOINT_URL or "").strip()
+    if ep:
+        return ep.rstrip("/")
+    acc = (s.R2_ACCOUNT_ID or "").strip()
+    if acc:
+        return f"https://{acc}.r2.cloudflarestorage.com"
+    raise ValueError(
+        "R2 endpoint not configured: set R2_ENDPOINT_URL or R2_ACCOUNT_ID in the environment"
+    )
 
 
 settings: Settings = get_settings()

@@ -8,7 +8,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
-from app.routers import auth, reconciliation, upload, reports, billing, webhooks
+from app.routers import auth, reconciliation, upload, reports, billing, webhooks, import_router
 from app.utils.rate_limit import limiter
 
 # ── Sentry ────────────────────────────────────────────────────────────────────
@@ -54,11 +54,7 @@ app.include_router(upload.router, prefix="/api/v1/upload", tags=["Upload"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"])
-
-if settings.IMPORT_PIPELINE_ENABLED:
-    from app.routers import import_router
-
-    app.include_router(import_router.router, prefix="/api/import", tags=["Import"])
+app.include_router(import_router.router, prefix="/api/import", tags=["Import"])
 
 
 # ── Core endpoints ────────────────────────────────────────────────────────────
