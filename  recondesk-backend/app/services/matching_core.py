@@ -2,7 +2,8 @@
 
 from app.services.matcher import MatchResult, match_gstr_to_pr
 
-# THRESHOLD: accept only level <= 5 (L6 = no match in matcher).
+# THRESHOLD: accept only level <= 5 (L6 = no match in matcher). L5 minimum score is 20.
+THRESHOLD = 20
 
 
 def compute_match_score(result: MatchResult) -> int:
@@ -24,4 +25,5 @@ def choose_best_candidate(g, candidates):
         return None, 0, []
 
     scored.sort(key=lambda x: (-x[1], x[0]["id"]))
-    return scored[0]
+    best_p, best_score = scored[0]
+    return best_p, best_score, []

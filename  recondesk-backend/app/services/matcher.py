@@ -119,6 +119,9 @@ class MatchResult:
     decision_next: str
     review_reason: str | None = None
     discrepancies: list[str] = field(default_factory=list)
+    is_late_filing: bool = False
+    original_period: date | None = None
+    late_months: int = 0
 
 
 def _safe_paise_field(rec: Mapping[str, Any], key: str) -> int:
