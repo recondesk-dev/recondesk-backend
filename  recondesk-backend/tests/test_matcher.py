@@ -10,6 +10,8 @@ from app.services.matcher import (
     normalize_invoice,
 )
 
+from app.services.reconciliation import run_bidirectional_reconciliation
+
 # Valid 15-char GSTINs (normalized uppercase)
 GSTIN_MH = "27AABCU9603R1ZX"
 GSTIN_KA = "29ABCDE1234F1Z5"
@@ -559,3 +561,66 @@ def test_edge_both_taxable_zero_identical():
     assert r.matched is True
     assert r.confidence == 100
     assert r.requires_human_review is False
+
+# ── Day 15: Cross-period late invoice matching ────────────────────────────────
+from datetime import date as _date
+from app.services.reconciliation import get_search_periods
+
+def _gstr(id, inv, date_str, gstin="27ABCDE1234F1Z5"):
+    return {"id": id, "supplier_gstin": gstin, "invoice_number_normalized": inv,
+            "invoice_date": date_str, "taxable_amount_paise": 100000, "total_tax_paise": 18000}
+
+def _pr(id, inv, date_str, gstin="27ABCDE1234F1Z5"):
+    return {"id": id, "supplier_gstin": gstin, "invoice_number_normalized": inv,
+            "invoice_date": date_str, "taxable_amount_paise": 100000, "total_tax_paise": 18000}
+
+def test_april_gstr_finds_jan_pr_in_cross_period():
+    res = run_bidirectional_reconciliation(
+        [_gstr("g1", "INV001", "2024-01-15")], [],
+        gstr_period=_date(2024, 4, 1),
+        pr_records_by_period={_date(2024, 4, 1): [], _date(2024, 1, 1): [_pr("p1", "INV001", "2024-01-15")]}
+    )
+    assert res["stats"]["matched_count"] == 1
+    assert res["matched"][0]["is_late_filing"] is True
+    assert res["matched"][0]["late_months"] == 3
+
+def test_get_search_periods_jan_to_april():
+    result = get_search_periods(_date(2024, 1, 15), _date(2024, 4, 1))
+    assert result[0] == _date(2024, 4, 1)
+    assert set(result) == {_date(2024,4,1), _date(2024,1,1), _date(2024,2,1), _date(2024,3,1)}
+
+def test_late_match_is_late_filing_true():
+    res = run_bidirectional_reconciliation(
+        [_gstr("g1", "INV001", "2024-01-10")], [],
+        gstr_period=_date(2024, 3, 1),
+        pr_records_by_period={_date(2024, 3, 1): [], _date(2024, 1, 1): [_pr("p1", "INV001", "2024-01-10")]}
+    )
+    assert res["matched"][0]["is_late_filing"] is True
+    assert res["matched"][0]["original_period"] == _date(2024, 1, 1)
+    assert res["matched"][0]["late_months"] == 2
+
+def test_late_match_not_in_missed_itc():
+    res = run_bidirectional_reconciliation(
+        [_gstr("g1", "INV001", "2024-01-10")], [],
+        gstr_period=_date(2024, 3, 1),
+        pr_records_by_period={_date(2024, 3, 1): [], _date(2024, 1, 1): [_pr("p1", "INV001", "2024-01-10")]}
+    )
+    assert {m["gstr_id"] for m in res["matched"]}.isdisjoint({m["gstr_id"] for m in res["missed_itc"]})
+
+def test_lookback_stops_at_6_months():
+    res = run_bidirectional_reconciliation(
+        [_gstr("g1", "INV001", "2023-09-10")], [],
+        gstr_period=_date(2024, 4, 1),
+        pr_records_by_period={_date(2024, 4, 1): [], _date(2023, 9, 1): [_pr("p1", "INV001", "2023-09-10")]}
+    )
+    assert res["stats"]["matched_count"] == 0
+    assert res["stats"]["missed_itc_count"] == 1
+
+def test_lookback_6_months_exact_boundary():
+    res = run_bidirectional_reconciliation(
+        [_gstr("g1", "INV001", "2023-10-10")], [],
+        gstr_period=_date(2024, 4, 1),
+        pr_records_by_period={_date(2024, 4, 1): [], _date(2023, 10, 1): [_pr("p1", "INV001", "2023-10-10")]}
+    )
+    assert res["stats"]["matched_count"] == 1
+    assert res["matched"][0]["late_months"] == 6
