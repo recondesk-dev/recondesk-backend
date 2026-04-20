@@ -75,6 +75,17 @@ def _parse_numeric_field(value: Any, field_name: str) -> str:
     return str(value)
 
 
+def _amount_str_to_paise(raw: str, field_name: str) -> int:
+    """Convert a GST monetary string to integer paise.
+
+    ``normalize_amount`` returns rupees as float; we store paise as int.
+    """
+    rupees = normalize_amount(raw)
+    if rupees is None:
+        raise ValueError(f"invalid or empty amount for {field_name}")
+    return int(round(float(rupees) * 100))
+
+
 # ---------------------------------------------------------------------------
 # Item-level parsing
 # ---------------------------------------------------------------------------
@@ -125,11 +136,11 @@ def _parse_items(items_list: list) -> tuple:
         item_record = {
             "tax_rate": tax_rate,
             "taxable_value_raw": raw_txval,
-            "taxable_value_paise": _validate_result(normalize_amount(raw_txval), "taxable_value").value,
-            "igst_paise":  _validate_result(normalize_amount(raw_igst),  "igst").value,
-            "cgst_paise":  _validate_result(normalize_amount(raw_cgst),  "cgst").value,
-            "sgst_paise":  _validate_result(normalize_amount(raw_sgst),  "sgst").value,
-            "cess_paise":  _validate_result(normalize_amount(raw_cess),  "cess").value,
+            "taxable_value_paise": _amount_str_to_paise(raw_txval, "taxable_value"),
+            "igst_paise": _amount_str_to_paise(raw_igst, "igst"),
+            "cgst_paise": _amount_str_to_paise(raw_cgst, "cgst"),
+            "sgst_paise": _amount_str_to_paise(raw_sgst, "sgst"),
+            "cess_paise": _amount_str_to_paise(raw_cess, "cess"),
         }
         item_records.append(item_record)
 
@@ -234,12 +245,9 @@ def _parse_b2b_invoice(
     except ValueError:
         raise ValueError("Invalid value format for invoice amount")
     try:
-        result = _validate_result(normalize_amount(raw_val), "invoice_value")
-    except NormalizationError:
-        raise ValueError("Invalid value format for invoice amount")
-    if result.notes:
-        normalization_notes["invoice_value"] = result.notes
-    invoice_value_paise = result.value
+        invoice_value_paise = _amount_str_to_paise(raw_val, "invoice_value")
+    except ValueError as e:
+        raise ValueError("Invalid value format for invoice amount") from e
 
     pos = str(invoice.get("pos", ""))
     reverse_charge = invoice.get("rev", "N") == "Y"
@@ -276,11 +284,6 @@ def _parse_b2b_invoice(
     if items_list is None:
         items_list = []
     item_records, raw_txvals = _parse_items(items_list)
-
-    for i, raw_txval in enumerate(raw_txvals):
-        result = _validate_result(normalize_amount(raw_txval), f"item_{i}_taxable_value")
-        if result.notes:
-            normalization_notes[f"item_{i}_taxable_value"] = result.notes
 
     return _build_invoice_record(
         doc_type="INVOICE",
@@ -349,12 +352,9 @@ def _parse_cdnr_invoice(
     except ValueError:
         raise ValueError("Invalid value format for invoice amount")
     try:
-        result = _validate_result(normalize_amount(raw_val), "invoice_value")
-    except NormalizationError:
-        raise ValueError("Invalid value format for invoice amount")
-    if result.notes:
-        normalization_notes["invoice_value"] = result.notes
-    invoice_value_paise = result.value
+        invoice_value_paise = _amount_str_to_paise(raw_val, "invoice_value")
+    except ValueError as e:
+        raise ValueError("Invalid value format for invoice amount") from e
 
     pos = str(invoice.get("pos", ""))
     reverse_charge = invoice.get("rev", "N") == "Y"
@@ -391,11 +391,6 @@ def _parse_cdnr_invoice(
     if items_list is None:
         items_list = []
     item_records, raw_txvals = _parse_items(items_list)
-
-    for i, raw_txval in enumerate(raw_txvals):
-        result = _validate_result(normalize_amount(raw_txval), f"item_{i}_taxable_value")
-        if result.notes:
-            normalization_notes[f"item_{i}_taxable_value"] = result.notes
 
     return _build_invoice_record(
         doc_type=document_type,
@@ -649,12 +644,16 @@ def parse_gstr2b(file_content) -> dict:
         try:
             data = json.loads(file_content.decode("utf-8"))
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON at line {e.lineno}, column {e.colno}: {e.msg}")
+            raise ValueError(
+                f"invalid_json at line {e.lineno}, column {e.colno}: {e.msg}"
+            ) from e
     elif isinstance(file_content, str):
         try:
             data = json.loads(file_content)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON at line {e.lineno}, column {e.colno}: {e.msg}")
+            raise ValueError(
+                f"invalid_json at line {e.lineno}, column {e.colno}: {e.msg}"
+            ) from e
     else:
         raise ValueError("Unsupported input type for GSTR-2B parser")
 
