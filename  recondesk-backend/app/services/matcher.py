@@ -5,7 +5,7 @@ GSTR ↔ Purchase Register invoice matcher (levels L1–L6).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Mapping
 
@@ -633,15 +633,124 @@ def match_gstr_to_pr(
     assert isinstance(pr_records, list)
     if not pr_records:
         return None
-    best: MatchResult | None = None
+    candidates: list[dict[str, Any]] = []
     for pr_rec in pr_records:
         r = _match_gstr_to_pr_pair(gstr_rec, pr_rec)
         if not r.matched:
             continue
-        if best is None:
-            best = r
-        elif r.level < best.level:
-            best = r
-        elif r.level == best.level and r.confidence > best.confidence:
-            best = r
-    return best
+        gstr = gstr_rec
+        pr = pr_rec
+        score = 0
+        reasons: list[str] = []
+        is_late_filing = False
+        original_period = None
+        g_date = _parse_invoice_date(gstr)
+        pr_date = _parse_invoice_date(pr)
+        if g_date and pr_date:
+            date_diff = abs((g_date - pr_date).days)
+
+            if date_diff == 0:
+                score += 20
+                reasons.append("exact_date_match")
+
+            elif date_diff <= 1:
+                score += 5
+                reasons.append("near_date_match")
+
+            elif date_diff <= 90:
+                # GST late filing window
+                score += 8
+                reasons.append("possible_late_filing")
+
+                # mark late filing ONLY if strong match on other fields
+                if (
+                    gstr.get("invoice_number_normalized")
+                    == pr.get("invoice_number_normalized")
+                    and gstr.get("supplier_gstin") == pr.get("supplier_gstin")
+                    and abs(
+                        int(gstr.get("taxable_amount_paise") or 0)
+                        - int(pr.get("taxable_amount_paise") or 0)
+                    )
+                    <= 100
+                ):
+                    is_late_filing = True
+                    original_period = pr_date
+
+            else:
+                score -= 5
+                reasons.append("date_mismatch")
+
+        else:
+            # missing date case
+            score -= 2
+            reasons.append("missing_date")
+
+        rank_key = (
+            r.level,
+            -r.confidence,
+            -score,
+            str(pr_rec.get("id", "")),
+        )
+        candidates.append(
+            {
+                "pr": pr_rec,
+                "r": r,
+                "reasons": reasons,
+                "date_signal": score,
+                "is_late_filing": is_late_filing,
+                "original_period": original_period,
+                "rank_key": rank_key,
+                # Lex max encodes the same ordering as ``rank_key`` (lower L, higher conf, stronger date).
+                "score": (-r.level, r.confidence, score),
+            }
+        )
+
+    if not candidates:
+        return None
+
+    gstr = gstr_rec
+
+    # Filter strong identity matches
+    strong_matches = [
+        c
+        for c in candidates
+        if (
+            c["pr"].get("invoice_number_normalized")
+            == gstr.get("invoice_number_normalized")
+            and c["pr"].get("supplier_gstin") == gstr.get("supplier_gstin")
+            and abs(
+                int(c["pr"].get("taxable_amount_paise") or 0)
+                - int(gstr.get("taxable_amount_paise") or 0)
+            )
+            <= 100
+        )
+    ]
+
+    if strong_matches:
+        # Prefer earliest invoice date (original filing)
+
+        def get_date(c: dict[str, Any]) -> str:
+            v = c["pr"].get("invoice_date")
+            if v is None or v == "":
+                return "9999-12-31"
+            if isinstance(v, date):
+                return v.isoformat()
+            return str(v)
+
+        best_candidate = min(strong_matches, key=get_date)
+
+        is_late_filing_sel = True
+        original_period_sel: date | None = _parse_invoice_date(best_candidate["pr"])
+    else:
+        # fallback to normal scoring (level → confidence → date signal); ties broken like ``rank_key``
+        best_scored = max(candidates, key=lambda x: x["score"])
+        tied = [c for c in candidates if c["score"] == best_scored["score"]]
+        best_candidate = min(tied, key=lambda x: x["rank_key"])
+        is_late_filing_sel = best_candidate["is_late_filing"]
+        original_period_sel = best_candidate["original_period"]
+
+    return replace(
+        best_candidate["r"],
+        is_late_filing=is_late_filing_sel,
+        original_period=original_period_sel,
+    )
