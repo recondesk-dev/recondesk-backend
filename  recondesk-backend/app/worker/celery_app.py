@@ -10,7 +10,7 @@ celery_app = Celery(
     "recondesk",
     broker=redis_url,
     backend=redis_url,
-    include=["app.worker.tasks"],
+    include=["app.worker.tasks", "app.worker.reconciliation_task"],
 )
 
 celery_app.conf.update(
@@ -21,4 +21,5 @@ celery_app.conf.update(
     enable_utc=True,
 )
 
+import app.worker.reconciliation_task  # noqa: E402, F401
 import app.worker.tasks  # noqa: E402, F401 — register task modules

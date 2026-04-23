@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import math
 import os
@@ -158,6 +159,31 @@ def _gstr_records_for_sanity(records: list[dict]) -> list[dict]:
     return out
 
 
+def _load_and_normalize_gstr2b_body_for_parse(body: bytes) -> dict[str, Any]:
+    try:
+        data: Any = json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"invalid_json at line {e.lineno}, column {e.colno}: {e.msg}"
+        ) from e
+    except UnicodeDecodeError as e:
+        raise ValueError(f"invalid_utf8: {e}") from e
+    if not isinstance(data, dict):
+        raise ValueError("invalid_data_structure")
+    if "data" not in data:
+        raise ValueError("missing_data_key")
+    root = data.get("data")
+    if not isinstance(root, dict):
+        raise ValueError("invalid_data_structure")
+    if not root.get("rtnprd"):
+        fp = data.get("fp") or data.get("ret_period")
+        if fp is not None:
+            root["rtnprd"] = str(fp)
+    if not root.get("rtnprd"):
+        raise ValueError("Invalid GSTR2B: missing rtnprd")
+    return data
+
+
 def _update_run(
     client: Client,
     run_id: str,
@@ -183,12 +209,26 @@ def _bulk_insert(
 
 @celery_app.task(name="worker.run_import_job", max_retries=0)
 def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
+    print(f"[WORKER] START run_id={run_id}")
     client = _supabase()
     bucket = get_settings().R2_BUCKET_NAME
     s3 = _s3()
     now = datetime.now(timezone.utc).isoformat()
 
     try:
+        run_res = (
+            client.table("reconciliation_run")
+            .select("client_gstin_id, period")
+            .eq("id", run_id)
+            .limit(1)
+            .execute()
+        )
+        if not run_res.data:
+            raise RuntimeError(f"Run {run_id} does not exist")
+        run_data = run_res.data[0] or {}
+        client_gstin_id = run_data.get("client_gstin_id")
+        period = run_data.get("period")
+
         _update_run(
             client,
             run_id,
@@ -203,7 +243,8 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
         body = obj["Body"].read()
 
         if file_type == "gstr2b":
-            parsed = parse_gstr2b(body)
+            gstr_payload = _load_and_normalize_gstr2b_body_for_parse(body)
+            parsed = parse_gstr2b(gstr_payload)
             records = list(parsed.get("records") or [])
             for_sanity = _gstr_records_for_sanity(records)
         elif file_type == "purchase_register":
@@ -217,16 +258,8 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
         else:
             raise ValueError(f"unknown file_type: {file_type}")
 
-        run_row = (
-            client.table("reconciliation_run")
-            .select("client_gstin_id, period")
-            .eq("id", run_id)
-            .single()
-            .execute()
-        )
-        data = run_row.data or {}
-        client_gstin_id = data.get("client_gstin_id")
-        period = data.get("period")
+        print("[WORKER] Input validated")
+
         if not client_gstin_id or not period:
             raise ValueError("reconciliation_run missing client_gstin_id or period")
 
@@ -261,6 +294,9 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             }
             for rec in records
         ]
+        print(
+            f"[WORKER] Inserting {len(rows)} rows into {insert_table}"
+        )
         if rows:
             _bulk_insert(client, insert_table, rows)
 
@@ -280,7 +316,6 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             pass
 
         patch: dict[str, Any] = {
-            "status": "complete",
             "progress_percent": 100,
             "sanity_report": sanity_json,
             "status_message": None,
@@ -293,7 +328,35 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
 
         _update_run(client, run_id, patch)
 
+        acc = (
+            client.table("reconciliation_run")
+            .select("gstr_records_imported, pr_records_imported")
+            .eq("id", run_id)
+            .single()
+            .execute()
+        )
+        ad = acc.data or {}
+        gi = int(ad.get("gstr_records_imported") or 0)
+        pi = int(ad.get("pr_records_imported") or 0)
+        if gi > 0 and pi > 0:
+            post_status = "READY"
+        elif gi > 0:
+            post_status = "GSTR_IMPORT_COMPLETE"
+        elif pi > 0:
+            post_status = "PURCHASE_IMPORT_COMPLETE"
+        else:
+            post_status = "complete"
+        _update_run(
+            client,
+            run_id,
+            {
+                "status": post_status,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
     except Exception as exc:
+        print(f"[WORKER] ERROR: {str(exc)}")
         _log.exception("run_import_job failed for run_id=%s", run_id)
         _update_run(
             client,

@@ -50,6 +50,11 @@ app.add_middleware(
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(reconciliation.router, prefix="/api/v1/reconciliation", tags=["Reconciliation"])
+app.include_router(
+    reconciliation.start_router,
+    prefix="/api/reconciliation",
+    tags=["Reconciliation Run"],
+)
 app.include_router(upload.router, prefix="/api/v1/upload", tags=["Upload"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])

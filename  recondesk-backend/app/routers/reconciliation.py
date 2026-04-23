@@ -1,12 +1,17 @@
+import logging
 import uuid
 from datetime import datetime, timezone
-from typing import List
+from typing import Any, List, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from supabase import Client
 
 from app.auth import get_current_active_user
-from app.database import supabase_client
+from app.database import get_supabase, supabase_client
+from app.routers.import_router import _assigned_client_gstin_id
+from app.worker.reconciliation_task import execute_reconciliation
 from app.models.reconciliation import (
     ReconciliationJobCreate,
     ReconciliationJobResponse,
@@ -19,6 +24,30 @@ from app.services.reconciliation_service import reconcile
 from app.services.email_service import send_reconciliation_complete_email
 
 router = APIRouter()
+start_router = APIRouter()
+_log = logging.getLogger(__name__)
+
+
+class ReconciliationStartRequest(BaseModel):
+    run_id: str = Field(..., min_length=1)
+
+
+class ReconciliationStartResponse(BaseModel):
+    run_id: str
+    status: str
+
+
+class ReconciliationStatusResponse(BaseModel):
+    run_id: str
+    status: str
+    progress_percent: Optional[float] = None
+    status_message: Optional[str] = None
+    processing_started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    summary: Optional[dict[str, Any]] = None
+    matching_version: Optional[str] = None
+    rules_version: Optional[str] = None
+    decision_version: Optional[str] = None
 
 
 async def _fetch_file_content(file_key: str) -> bytes:
@@ -31,7 +60,7 @@ async def _fetch_file_content(file_key: str) -> bytes:
         return response.content
 
 
-@router.post("/jobs", response_model=ReconciliationJobResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/jobs", response_model=ReconciliationJobResponse, status_code=status.HTTP_202_ACCEPTED)
 async def create_job(
     payload: ReconciliationJobCreate,
     current_user: dict = Depends(get_current_active_user),
@@ -168,3 +197,159 @@ async def delete_job(
     )
     if not result.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+
+@start_router.post("/start", response_model=ReconciliationStartResponse , status_code=status.HTTP_202_ACCEPTED)
+async def start_reconciliation_run(
+    payload: ReconciliationStartRequest,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Queue async reconciliation for a *READY* run with GSTR + PR data loaded."""
+    try:
+        UUID(payload.run_id.strip())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid run_id",
+        ) from exc
+    run_id = str(payload.run_id).strip()
+    sb = get_supabase()
+    assigned = _assigned_client_gstin_id(sb, current_user)
+    # Query 1 — fetch the run
+    res = (
+        sb.table("reconciliation_run")
+        .select(
+            "id, client_gstin_id, status, gstr_records_imported, pr_records_imported"
+        )
+        .eq("id", run_id)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="run not found",
+        )
+    row = res.data[0]
+    if str(row.get("client_gstin_id", "")).strip() != assigned:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="run does not belong to your client scope",
+        )
+    st = (row.get("status") or "").strip().upper()
+    if st != "READY":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"run is not runnable in current state: {row.get('status')}",
+        )
+    gi = int(row.get("gstr_records_imported") or 0)
+    pi = int(row.get("pr_records_imported") or 0)
+    if gi <= 0 or pi <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GSTR and purchase register data must both be imported",
+        )
+    now = datetime.now(timezone.utc).isoformat()
+    # Query 2 — update the run (atomic READY → MATCHING)
+    upd = (
+        sb.table("reconciliation_run")
+        .update(
+            {
+                "status": "MATCHING",
+                "processing_started_at": now,
+                "progress_percent": 0.0,
+                "status_message": "Queued for processing",
+                "updated_at": now,
+            }
+        )
+        .eq("id", run_id)
+        .eq("status", "READY")
+        .execute()
+    )
+    if not upd.data:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="reconciliation is already in progress or not in READY state",
+        )
+    try:
+        execute_reconciliation.delay(run_id)
+    except Exception as exc:
+        _log.exception("Celery enqueue failed for run_id=%s", run_id)
+        sb.table("reconciliation_run").update(
+            {
+                "status": "READY",
+                "status_message": f"Queue rejected: {exc!s}"[:2000],
+                "processing_started_at": None,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).eq("id", run_id).execute()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Reconciliation task queue is unavailable. Try again later.",
+        ) from exc
+    return ReconciliationStartResponse(run_id=run_id, status="MATCHING")
+
+
+@start_router.get("/status/{run_id}", response_model=ReconciliationStatusResponse)
+async def get_reconciliation_run_status(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    try:
+        UUID(run_id.strip())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid run_id",
+        ) from exc
+    sb = get_supabase()
+    assigned = _assigned_client_gstin_id(sb, current_user)
+    res = (
+        sb.table("reconciliation_run")
+        .select(
+            "id, client_gstin_id, status, progress_percent, status_message, "
+            "processing_started_at, completed_at, run_summary, matching_version, rules_version, "
+            "decision_version"
+        )
+        .eq("id", run_id)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="run not found",
+        )
+    row = res.data[0]
+    if str(row.get("client_gstin_id", "")).strip() != str(assigned).strip():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="run does not belong to your client scope",
+        )
+
+    summary = row.get("run_summary")
+    if not isinstance(summary, dict):
+        summary = None
+    st = str(row.get("status") or "")
+    u = st.upper()
+    if u in (
+        "MATCHING",
+        "PROCESSING",
+        "COMPLETED",
+        "FAILED",
+        "READY",
+        "GSTR_IMPORT_COMPLETE",
+        "PURCHASE_IMPORT_COMPLETE",
+    ):
+        st = u
+    return ReconciliationStatusResponse(
+        run_id=row["id"],
+        status=st,
+        progress_percent=row.get("progress_percent"),
+        status_message=row.get("status_message"),
+        processing_started_at=row.get("processing_started_at"),
+        completed_at=row.get("completed_at"),
+        summary=summary,
+        matching_version=row.get("matching_version"),
+        rules_version=row.get("rules_version"),
+        decision_version=row.get("decision_version"),
+    )
