@@ -83,7 +83,7 @@ def _assigned_client_gstin_id(sb: Client, current_user: dict) -> str:
     res = (
         sb.table("client_gstins")
         .select("id")
-        .eq("assigned_to", user_id)
+        .eq("firm_owner_id", user_id)
         .limit(1)
         .execute()
     )

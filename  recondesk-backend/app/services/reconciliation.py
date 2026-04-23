@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import date
 
 from app.services.matching_core import THRESHOLD, choose_best_candidate, compute_match_score
@@ -149,6 +150,231 @@ def _build_pr_index_by_period(
     return pr_index_by_period
 
 
+@dataclass
+class ReconState:
+    """Mutable state for multi-chunk GSTR↔PR matching (avoids re-processing or duplicate PR use)."""
+
+    matched: list[dict] = field(default_factory=list)
+    matched_pr_ids: set[str] = field(default_factory=set)
+    matched_gstr_ids: set[str] = field(default_factory=set)
+    missed_itc: list[dict] = field(default_factory=list)
+
+
+def process_gstr_records_chunk(
+    gstr_records: list[dict],
+    effective_gstr_period: date,
+    pr_index: dict[str, list[dict]],
+    pr_index_by_period: dict[date, dict[str, dict[str, list[dict]]]],
+    state: ReconState,
+) -> None:
+    """Match a chunk of GSTR rows using shared *state* (same invariants as full run)."""
+    gstr_period = date(effective_gstr_period.year, effective_gstr_period.month, 1)
+    for gstr_record in gstr_records:
+        gstr_id = str(gstr_record["id"])
+        gstin = gstr_record.get("supplier_gstin") or ""
+        candidates = pr_index.get(str(gstin), [])
+
+        best_result: MatchResult | None = None
+        best_pr: dict | None = None
+        best_key: tuple[int, int, int] | None = None
+
+        for pr_rec in candidates:
+            pr_id = str(pr_rec["id"])
+            if pr_id in state.matched_pr_ids:
+                continue
+            result = match_gstr_to_pr(gstr_record, [pr_rec])
+            if result is None or not _accept_reconciliation_pair(
+                gstr_record, pr_rec, result
+            ):
+                continue
+            key = _tie_key(result, gstr_record, pr_rec)
+            if best_key is None or key < best_key:
+                best_key = key
+                best_result = result
+                best_pr = pr_rec
+
+        if best_result is not None and best_pr is not None:
+            score = compute_match_score(best_result)
+            state.matched.append(
+                {
+                    "gstr_id": str(gstr_record["id"]),
+                    "pr_id": str(best_pr["id"]),
+                    "confidence_score": score,
+                    "match_reasons": _match_reasons_from_result(best_result),
+                    "is_late_filing": False,
+                    "original_period": None,
+                    "late_months": 0,
+                    "match_status_text": "Matched",
+                }
+            )
+            state.matched_pr_ids.add(str(best_pr["id"]))
+            state.matched_gstr_ids.add(gstr_id)
+            continue
+
+        inv_raw = gstr_record.get("invoice_date")
+        inv_d: date | None
+        if inv_raw is None or inv_raw == "":
+            inv_d = None
+        elif isinstance(inv_raw, date):
+            inv_d = inv_raw
+        else:
+            try:
+                inv_d = date.fromisoformat(str(inv_raw))
+            except (ValueError, TypeError):
+                inv_d = None
+
+        periods = get_search_periods(inv_d, gstr_period)
+        other_periods = sorted(
+            periods[1:],
+            key=lambda d: abs(
+                (gstr_period.year - d.year) * 12
+                + (gstr_period.month - d.month)
+            ),
+        )
+
+        cross_matched = False
+        for period in other_periods:
+            inv_norm = str(gstr_record.get("invoice_number_normalized") or "")
+            raw_candidates = (
+                pr_index_by_period.get(period, {})
+                .get(str(gstin), {})
+                .get(inv_norm, [])
+            )
+            raw_candidates = [
+                p for p in raw_candidates if str(p["id"]) not in state.matched_pr_ids
+            ]
+            candidates_cp = sorted(raw_candidates, key=lambda x: x["id"])
+            acceptable: list[dict] = []
+            for p in candidates_cp:
+                r = match_gstr_to_pr(gstr_record, [p])
+                if r is None or not _accept_reconciliation_pair(gstr_record, p, r):
+                    continue
+                acceptable.append(p)
+            if not acceptable:
+                continue
+
+            best_p, score, _ = choose_best_candidate(gstr_record, acceptable)
+            if best_p is None or score < THRESHOLD:
+                continue
+
+            final_mr = match_gstr_to_pr(gstr_record, [best_p])
+            if final_mr is None:
+                continue
+
+            late_months = (gstr_period.year - period.year) * 12 + (
+                gstr_period.month - period.month
+            )
+            state.matched.append(
+                {
+                    "gstr_id": str(gstr_record["id"]),
+                    "pr_id": str(best_p["id"]),
+                    "confidence_score": score,
+                    "match_reasons": _match_reasons_from_result(final_mr),
+                    "is_late_filing": True,
+                    "original_period": period,
+                    "late_months": late_months,
+                    "match_status_text": (
+                        f"Matched -- Late Supplier Filing ({late_months} months late)"
+                    ),
+                }
+            )
+            state.matched_pr_ids.add(str(best_p["id"]))
+            state.matched_gstr_ids.add(gstr_id)
+            cross_matched = True
+            break
+
+        if cross_matched:
+            continue
+
+        ttp = gstr_record.get("total_tax_paise")
+        state.missed_itc.append(
+            {
+                "gstr_id": gstr_id,
+                "supplier_gstin": str(gstin),
+                "invoice_number_normalized": str(
+                    gstr_record.get("invoice_number_normalized") or ""
+                ),
+                "invoice_date": gstr_record.get("invoice_date"),
+                "total_tax_paise": int(ttp) if ttp is not None else 0,
+            }
+        )
+
+
+def build_wrongful_itc_risk(
+    pr_records: list[dict],
+    matched_pr_ids: set[str],
+) -> list[dict]:
+    """PR rows in the current run that had no GSTR match."""
+    out: list[dict] = []
+    for pr_rec in pr_records:
+        pr_id = str(pr_rec["id"])
+        if pr_id in matched_pr_ids:
+            continue
+        ttp = pr_rec.get("total_tax_paise")
+        tap = pr_rec.get("taxable_amount_paise")
+        out.append(
+            {
+                "id": pr_id,
+                "supplier_gstin": str(pr_rec.get("supplier_gstin") or ""),
+                "invoice_number_normalized": str(
+                    pr_rec.get("invoice_number_normalized") or ""
+                ),
+                "invoice_date": pr_rec.get("invoice_date"),
+                "taxable_amount_paise": int(tap) if tap is not None else 0,
+                "total_tax_paise": int(ttp) if ttp is not None else 0,
+            }
+        )
+    return out
+
+
+def _finalize_reconciliation_result(
+    state: ReconState,
+    wrongful_itc_risk: list[dict],
+    total_gstr: int,
+    total_pr: int,
+) -> dict:
+    """Shared stats and sanity payload (same as :func:`run_bidirectional_reconciliation` output)."""
+    matched_count = len(state.matched)
+    missed_itc_count = len(state.missed_itc)
+    missed_itc_amount_paise = sum(
+        int(m["total_tax_paise"]) for m in state.missed_itc
+    )
+    wrongful_risk_count = len(wrongful_itc_risk)
+    wrongful_risk_amount_paise = sum(
+        int(w["total_tax_paise"]) for w in wrongful_itc_risk
+    )
+
+    missed_gstr_ids = {str(m["gstr_id"]) for m in state.missed_itc}
+    sanity_passed = (
+        matched_count + missed_itc_count == total_gstr
+        and matched_count + wrongful_risk_count == total_pr
+        and not (state.matched_gstr_ids & missed_gstr_ids)
+        and len(state.matched_pr_ids) == matched_count
+    )
+
+    if total_gstr > 0:
+        match_rate_pct = round(matched_count / total_gstr * 100, 2)
+    else:
+        match_rate_pct = 0.0
+
+    return {
+        "matched": state.matched,
+        "missed_itc": state.missed_itc,
+        "wrongful_itc_risk": wrongful_itc_risk,
+        "stats": {
+            "total_gstr": total_gstr,
+            "total_pr": total_pr,
+            "matched_count": matched_count,
+            "missed_itc_count": missed_itc_count,
+            "missed_itc_amount_paise": missed_itc_amount_paise,
+            "wrongful_risk_count": wrongful_risk_count,
+            "wrongful_risk_amount_paise": wrongful_risk_amount_paise,
+            "match_rate_pct": match_rate_pct,
+            "sanity_passed": sanity_passed,
+        },
+    }
+
+
 def run_bidirectional_reconciliation(
     gstr_records: list[dict],
     pr_records: list[dict],
@@ -192,204 +418,18 @@ def run_bidirectional_reconciliation(
             },
         }
 
+    gstr_p = date(effective_gstr_period.year, effective_gstr_period.month, 1)
     pr_records_current = effective_pr_by_period.get(effective_gstr_period, [])
     pr_index: dict[str, list[dict]] = defaultdict(list)
     for pr_rec in pr_records_current:
         gstin = pr_rec.get("supplier_gstin") or ""
         pr_index[str(gstin)].append(pr_rec)
 
-    matched: list[dict] = []
-    matched_pr_ids: set[str] = set()
-    matched_gstr_ids: set[str] = set()
-    missed_itc: list[dict] = []
-
-    for gstr_record in gstr_records:
-        gstr_id = str(gstr_record["id"])
-        gstin = gstr_record.get("supplier_gstin") or ""
-        candidates = pr_index.get(str(gstin), [])
-
-        best_result: MatchResult | None = None
-        best_pr: dict | None = None
-        best_key: tuple[int, int, int] | None = None
-
-        for pr_rec in candidates:
-            pr_id = str(pr_rec["id"])
-            if pr_id in matched_pr_ids:
-                continue
-            result = match_gstr_to_pr(gstr_record, [pr_rec])
-            if result is None or not _accept_reconciliation_pair(
-                gstr_record, pr_rec, result
-            ):
-                continue
-            key = _tie_key(result, gstr_record, pr_rec)
-            if best_key is None or key < best_key:
-                best_key = key
-                best_result = result
-                best_pr = pr_rec
-
-        if best_result is not None and best_pr is not None:
-            score = compute_match_score(best_result)
-            matched.append(
-                {
-                    "gstr_id": str(gstr_record["id"]),
-                    "pr_id": str(best_pr["id"]),
-                    "confidence_score": score,
-                    "match_reasons": _match_reasons_from_result(best_result),
-                    "is_late_filing": False,
-                    "original_period": None,
-                    "late_months": 0,
-                    "match_status_text": "Matched",
-                }
-            )
-            matched_pr_ids.add(str(best_pr["id"]))
-            matched_gstr_ids.add(gstr_id)
-            continue
-
-        # Cross-period late filing search
-        inv_raw = gstr_record.get("invoice_date")
-        inv_d: date | None
-        if inv_raw is None or inv_raw == "":
-            inv_d = None
-        elif isinstance(inv_raw, date):
-            inv_d = inv_raw
-        else:
-            try:
-                inv_d = date.fromisoformat(str(inv_raw))
-            except (ValueError, TypeError):
-                inv_d = None
-
-        periods = get_search_periods(inv_d, effective_gstr_period)
-        other_periods = sorted(
-            periods[1:],
-            key=lambda d: abs(
-                (effective_gstr_period.year - d.year) * 12
-                + (effective_gstr_period.month - d.month)
-            ),
-        )
-
-        cross_matched = False
-        for period in other_periods:
-            inv_norm = str(gstr_record.get("invoice_number_normalized") or "")
-            raw_candidates = (
-                pr_index_by_period.get(period, {})
-                .get(str(gstin), {})
-                .get(inv_norm, [])
-            )
-            raw_candidates = [
-                p for p in raw_candidates if str(p["id"]) not in matched_pr_ids
-            ]
-            candidates_cp = sorted(raw_candidates, key=lambda x: x["id"])
-            acceptable: list[dict] = []
-            for p in candidates_cp:
-                r = match_gstr_to_pr(gstr_record, [p])
-                if r is None or not _accept_reconciliation_pair(gstr_record, p, r):
-                    continue
-                acceptable.append(p)
-            if not acceptable:
-                continue
-
-            best_p, score, _ = choose_best_candidate(gstr_record, acceptable)
-            if best_p is None or score < THRESHOLD:
-                continue
-
-            final_mr = match_gstr_to_pr(gstr_record, [best_p])
-            if final_mr is None:
-                continue
-
-            late_months = (effective_gstr_period.year - period.year) * 12 + (
-                effective_gstr_period.month - period.month
-            )
-            matched.append(
-                {
-                    "gstr_id": str(gstr_record["id"]),
-                    "pr_id": str(best_p["id"]),
-                    "confidence_score": score,
-                    "match_reasons": _match_reasons_from_result(final_mr),
-                    "is_late_filing": True,
-                    "original_period": period,
-                    "late_months": late_months,
-                    "match_status_text": (
-                        f"Matched -- Late Supplier Filing ({late_months} months late)"
-                    ),
-                }
-            )
-            matched_pr_ids.add(str(best_p["id"]))
-            matched_gstr_ids.add(gstr_id)
-            cross_matched = True
-            break
-
-        if cross_matched:
-            continue
-
-        ttp = gstr_record.get("total_tax_paise")
-        missed_itc.append(
-            {
-                "gstr_id": gstr_id,
-                "supplier_gstin": str(gstin),
-                "invoice_number_normalized": str(
-                    gstr_record.get("invoice_number_normalized") or ""
-                ),
-                "invoice_date": gstr_record.get("invoice_date"),
-                "total_tax_paise": int(ttp) if ttp is not None else 0,
-            }
-        )
-
-    wrongful_itc_risk: list[dict] = []
-    for pr_rec in pr_records:
-        pr_id = str(pr_rec["id"])
-        if pr_id in matched_pr_ids:
-            continue
-        ttp = pr_rec.get("total_tax_paise")
-        tap = pr_rec.get("taxable_amount_paise")
-        wrongful_itc_risk.append(
-            {
-                "id": pr_id,
-                "supplier_gstin": str(pr_rec.get("supplier_gstin") or ""),
-                "invoice_number_normalized": str(
-                    pr_rec.get("invoice_number_normalized") or ""
-                ),
-                "invoice_date": pr_rec.get("invoice_date"),
-                "taxable_amount_paise": int(tap) if tap is not None else 0,
-                "total_tax_paise": int(ttp) if ttp is not None else 0,
-            }
-        )
-
-    matched_count = len(matched)
-    missed_itc_count = len(missed_itc)
-    missed_itc_amount_paise = sum(
-        int(m["total_tax_paise"]) for m in missed_itc
+    state = ReconState()
+    process_gstr_records_chunk(
+        gstr_records, gstr_p, pr_index, pr_index_by_period, state
     )
-    wrongful_risk_count = len(wrongful_itc_risk)
-    wrongful_risk_amount_paise = sum(
-        int(w["total_tax_paise"]) for w in wrongful_itc_risk
+    wrongful_itc_risk = build_wrongful_itc_risk(pr_records, state.matched_pr_ids)
+    return _finalize_reconciliation_result(
+        state, wrongful_itc_risk, total_gstr, total_pr
     )
-
-    missed_gstr_ids = {str(m["gstr_id"]) for m in missed_itc}
-    sanity_passed = (
-        matched_count + missed_itc_count == total_gstr
-        and matched_count + wrongful_risk_count == total_pr
-        and not (matched_gstr_ids & missed_gstr_ids)
-        and len(matched_pr_ids) == matched_count
-    )
-
-    if total_gstr > 0:
-        match_rate_pct = round(matched_count / total_gstr * 100, 2)
-    else:
-        match_rate_pct = 0.0
-
-    return {
-        "matched": matched,
-        "missed_itc": missed_itc,
-        "wrongful_itc_risk": wrongful_itc_risk,
-        "stats": {
-            "total_gstr": total_gstr,
-            "total_pr": total_pr,
-            "matched_count": matched_count,
-            "missed_itc_count": missed_itc_count,
-            "missed_itc_amount_paise": missed_itc_amount_paise,
-            "wrongful_risk_count": wrongful_risk_count,
-            "wrongful_risk_amount_paise": wrongful_risk_amount_paise,
-            "match_rate_pct": match_rate_pct,
-            "sanity_passed": sanity_passed,
-        },
-    }
