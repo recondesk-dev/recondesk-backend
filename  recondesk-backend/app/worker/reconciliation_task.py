@@ -270,6 +270,16 @@ def execute_reconciliation(run_id: str) -> None:
 
         state = ReconState()
         n_chunks = max(1, (len(gstr_matcher) + BATCH - 1) // BATCH)
+        _update_run(
+            client,
+            run_id,
+            {
+                "progress_percent": 30,
+                "status_message": "Matching started",
+                "updated_at": _now_iso(),
+            },
+        )
+        mid_done = (n_chunks + 1) // 2
         for i in range(0, len(gstr_matcher), BATCH):
             chunk = gstr_matcher[i : i + BATCH]
             process_gstr_records_chunk(
@@ -280,12 +290,17 @@ def execute_reconciliation(run_id: str) -> None:
                 state,
             )
             done = i // BATCH + 1
-            pct = 30 + int(40 * (done / n_chunks))
+            if done == n_chunks:
+                pct = 70
+            elif n_chunks > 1 and done == mid_done and done < n_chunks:
+                pct = 50
+            else:
+                pct = min(69, 30 + int(40 * done / n_chunks))
             _update_run(
                 client,
                 run_id,
                 {
-                    "progress_percent": min(70, pct),
+                    "progress_percent": pct,
                     "status_message": f"Matching ({min(done, n_chunks)}/{n_chunks} batches)",
                     "updated_at": _now_iso(),
                 },
