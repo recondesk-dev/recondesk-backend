@@ -43,6 +43,14 @@ def run_query(table: str, query_fn: Callable) -> Any:
         raise exc
 
 
+# Columns that exist in production; avoid select('*') so missing optional columns
+# (e.g. legacy firm_id) are never required by PostgREST.
+_USER_PROFILE_SELECT = (
+    "id, email, full_name, firm_name, phone, role, is_active, "
+    "plan, runs_used, runs_limit, created_at"
+)
+
+
 def get_user_profile(user_id: str) -> Optional[dict]:
     """Fetch a single row from *user_profiles* by primary key.
 
@@ -52,7 +60,7 @@ def get_user_profile(user_id: str) -> Optional[dict]:
         client = get_supabase()
         result = (
             client.table("user_profiles")
-            .select("*")
+            .select(_USER_PROFILE_SELECT)
             .eq("id", user_id)
             .single()
             .execute()

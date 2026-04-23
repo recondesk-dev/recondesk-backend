@@ -23,6 +23,7 @@ from app.services.reconciliation import (
     build_wrongful_itc_risk,
     process_gstr_records_chunk,
 )
+from app.constants import RunStatus
 from app.services.rule37_tracker import check_rule_37_compliance
 from app.worker.celery_app import celery_app
 from app.worker.tasks import _json_safe, _supabase, _update_run
@@ -479,7 +480,7 @@ def execute_reconciliation(run_id: str) -> None:
             client,
             run_id,
             {
-                "status": "COMPLETED",
+                "status": RunStatus.COMPLETED,
                 "progress_percent": 100.0,
                 "completed_at": _now_iso(),
                 "status_message": "Completed",

@@ -8,13 +8,22 @@ import datetime
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 CHAR_INDEX = {c: i for i, c in enumerate(CHARSET)}
 GSTIN_REGEX = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9][Z][0-9A-Z]$")
 PAN_REGEX = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 WHITELIST_PATTERN = re.compile(r"[^0-9A-Z]")
+
+
+def _gstin_expected_checksum_char(first_14: str) -> str:
+    """15th GSTIN character: index in CHARSET from weighted sum of first 14 (factors 1,2,1,2,...)."""
+    total = 0
+    for i, ch in enumerate(first_14):
+        factor = 1 if (i % 2 == 0) else 2
+        total += CHAR_INDEX[ch] * factor
+    return CHARSET[(36 - (total % 36)) % 36]
 
 
 
@@ -49,13 +58,7 @@ def normalize_gstin(raw) -> str:
     6. Reject length ≠ 15  → reason "invalid_length"
     7. Validate overall GSTIN pattern  → reason "invalid_format"
     8. Validate embedded PAN (chars 2–11)  → reason "invalid_format"
-
-    Note: checksum (15th character) is intentionally NOT validated.
-    GSTN has issued many real-world GSTINs where the 15th character was
-    assigned as a sequential entity counter rather than a computed check
-    digit. Validating the checksum causes legitimate GSTINs from actual
-    purchase registers to be rejected, which is unacceptable in a
-    reconciliation context.
+    9. Validate 15th character against GSTIN check digit  → "invalid_checksum"
 
     Returns the cleaned, upper-cased, validated GSTIN string.
 
@@ -82,6 +85,9 @@ def normalize_gstin(raw) -> str:
     pan = cleaned[2:12]
     if not PAN_REGEX.match(pan):
         raise NormalizationError("gstin", raw, "invalid_format")
+
+    if cleaned[14] != _gstin_expected_checksum_char(cleaned[:14]):
+        raise NormalizationError("gstin", raw, "invalid_checksum")
 
     return cleaned
 
@@ -326,101 +332,97 @@ _CURRENCY_PREFIX_RE = re.compile(
 _DR_CR_RE = re.compile(r"\s+([Dd][Rr]|[Cc][Rr])\s*$")
 
 
-def normalize_amount(value) -> Optional[float]:
-    """Normalize a messy monetary value to a float in rupees.
+def _amount_strip_suffix(
+    s_upper: str,
+) -> Tuple[str, int, Optional[str]]:
+    for suffix_str, mult, tag in _AMOUNT_SUFFIXES:
+        if s_upper.endswith(suffix_str):
+            return s_upper[: -len(suffix_str)], mult, tag
+    return s_upper, 1, None
 
-    Handles Indian-format numbers with:
-    * Currency symbols: ₹, Rs, INR
-    * Thousand/lakh separators (commas)
-    * Parentheses-style negatives: (50000) → -50000
-    * Leading minus: -50000 → -50000
-    * Accounting notation (space-separated): "1000 Cr" → -1000, "1000 Dr" → +1000
-    * Magnitude suffixes: K → ×1 000, L → ×1 00 000, Cr → ×1 00 00 000
-      (suffix WITHOUT a preceding space is treated as magnitude, not sign)
 
-    Returns:
-        float in rupees, or None for None / NaN / empty / unparseable input.
-    Never raises.
+def normalize_amount(value) -> NormalizationResult:
+    """Normalize a messy monetary value to **integer paise** in a ``NormalizationResult``.
+
+    Raises:
+        ``NormalizationError`` (field ``amount``): ``empty``, ``invalid_format``,
+        ``overflow``, ``multiple_suffixes``.
     """
-    # 1. Reject None up front before any type coercion.
+    raw = value
+    notes: list = []
+
     if value is None:
-        return None
-
-    # Reject float NaN before str() turns it into the string "nan".
+        raise NormalizationError("amount", raw, "empty")
+    if isinstance(value, bool):
+        raise NormalizationError("amount", raw, "invalid_format")
     if isinstance(value, float) and math.isnan(value):
-        return None
+        raise NormalizationError("amount", raw, "invalid_format")
 
-    # 2. Coerce to plain string and strip surrounding whitespace.
-    value = str(value).strip()
-    if not value:
-        return None
+    s = str(value).strip()
+    if not s:
+        raise NormalizationError("amount", raw, "empty")
 
-    # 3a. Parentheses-style negative: (50000) → -50000
     is_negative = False
-    if value.startswith("(") and value.endswith(")"):
+    if s.startswith("-"):
         is_negative = True
-        value = value[1:-1].strip()
+        s = s[1:].strip()
 
-    # 3b. Leading-minus negative: -50000 → negative
-    elif value.startswith("-"):
-        is_negative = True
-        value = value[1:].strip()
-
-    # 3c. Accounting Dr / Cr suffix (must have whitespace before it so that
-    #     "2Cr" is NOT treated as credit; only "1000 Cr" is).
-    #     "Cr" (credit) → negative; "Dr" (debit) → positive (default).
-    m = _DR_CR_RE.search(value)
+    m = _DR_CR_RE.search(s)
     if m:
         if m.group(1).upper() == "CR":
-            is_negative = True  # credit side = money going out = negative
-        # DR leaves is_negative unchanged (debit = positive, already the default)
-        value = value[: m.start()].strip()
+            is_negative = True
+        s = s[: m.start()].strip()
 
-    # 4. Strip currency symbols: ₹, Rs, rs, INR (case-insensitive, longest first).
-    value = _CURRENCY_PREFIX_RE.sub("", value).strip()
+    s2 = _CURRENCY_PREFIX_RE.sub("", s).strip()
+    if s2 != s:
+        _note(notes, "symbols_stripped")
+    s = s2
 
-    # Remove commas used as Indian lakh/crore digit-group separators.
-    value = value.replace(",", "")
+    s2 = s.replace(",", "")
+    if s2 != s:
+        _note(notes, "commas_stripped")
+    s = s2
 
-    # Remove any residual internal spaces (e.g. "1 000").
-    value = value.replace(" ", "")
+    if re.search(r"\d\s+\d", s):
+        _note(notes, "internal_spaces_stripped")
+    s = s.replace(" ", "")
 
-    if not value:
-        return None
+    if s.startswith("(") and s.endswith(")"):
+        is_negative = not is_negative
+        s = s[1:-1].strip()
+        _note(notes, "parentheses_negative")
 
-    # 5. Uppercase once for suffix detection (keeps logic below simple).
-    value_upper = value.upper()
-    multiplier = 1
+    if not s:
+        raise NormalizationError("amount", raw, "invalid_format")
 
-    # Longest-match suffix first: CRORE before CR, LAKHS/LAKH before L.
-    for suffix_str, mult, _tag in _AMOUNT_SUFFIXES:
-        if value_upper.endswith(suffix_str):
-            multiplier = mult
-            value_upper = value_upper[: -len(suffix_str)]
-            break  # only one magnitude suffix is allowed
+    s_upper = s.upper()
+    rest, mult, tag = _amount_strip_suffix(s_upper)
+    if tag is not None:
+        _note(notes, tag)
+        s_upper = rest
+        if s_upper and _amount_strip_suffix(s_upper)[2] is not None:
+            raise NormalizationError("amount", raw, "multiple_suffixes")
 
-    if not value_upper:
-        return None
+    if not s_upper:
+        raise NormalizationError("amount", raw, "invalid_format")
 
-    # 6. Safe float conversion — return None instead of raising on bad input.
     try:
-        amount = float(value_upper)
+        amount_rupees = float(s_upper)
     except (ValueError, TypeError):
-        return None
+        raise NormalizationError("amount", raw, "invalid_format")
 
-    # Guard against inf / nan produced by float("inf") or float("nan").
-    if not math.isfinite(amount):
-        return None
+    if not math.isfinite(amount_rupees):
+        raise NormalizationError("amount", raw, "invalid_format")
 
-    # Apply magnitude multiplier (K / L / Cr) to the base numeric value.
-    amount = amount * multiplier
-
-    # 7. Apply sign last so it works regardless of how the sign was detected.
+    amount_rupees = amount_rupees * mult
     if is_negative:
-        amount = -amount
+        amount_rupees = -amount_rupees
 
-    # 8. Return rupees directly (do NOT multiply by 100).
-    return float(amount)
+    paise = int(round(amount_rupees * 100.0))
+    if abs(paise) >= _PAISE_CAP:
+        raise NormalizationError("amount", raw, "overflow")
+
+    return NormalizationResult(value=paise, notes=notes)
 
 
 # ---------------------------------------------------------------------------

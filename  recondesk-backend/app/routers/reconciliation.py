@@ -219,7 +219,8 @@ async def start_reconciliation_run(
     res = (
         sb.table("reconciliation_run")
         .select(
-            "id, client_gstin_id, status, gstr_records_imported, pr_records_imported"
+            "id, client_gstin_id, status, gstr_records_imported, pr_records_imported, "
+            "is_locked"
         )
         .eq("id", run_id)
         .execute()
@@ -230,6 +231,11 @@ async def start_reconciliation_run(
             detail="run not found",
         )
     row = res.data[0]
+    if bool(row.get("is_locked")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This reconciliation run is locked; matching cannot be re-run.",
+        )
     if str(row.get("client_gstin_id", "")).strip() != assigned:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
