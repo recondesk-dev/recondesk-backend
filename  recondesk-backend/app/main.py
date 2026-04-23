@@ -8,7 +8,18 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
-from app.routers import auth, reconciliation, upload, reports, billing, webhooks, import_router
+from app.routers import (
+    auth,
+    reconciliation,
+    reconciliation_api,
+    upload,
+    reports,
+    billing,
+    webhooks,
+    import_router,
+    notes,
+    clients,
+)
 from app.utils.rate_limit import limiter
 
 # ── Sentry ────────────────────────────────────────────────────────────────────
@@ -55,6 +66,13 @@ app.include_router(
     prefix="/api/reconciliation",
     tags=["Reconciliation Run"],
 )
+app.include_router(
+    reconciliation_api.router,
+    prefix="/api/reconciliation",
+    tags=["Reconciliation API"],
+)
+app.include_router(notes.router, prefix="/api/notes", tags=["Notes"])
+app.include_router(clients.router, prefix="/api/clients", tags=["Clients"])
 app.include_router(upload.router, prefix="/api/v1/upload", tags=["Upload"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])

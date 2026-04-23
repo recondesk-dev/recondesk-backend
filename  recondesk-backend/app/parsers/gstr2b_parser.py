@@ -76,14 +76,12 @@ def _parse_numeric_field(value: Any, field_name: str) -> str:
 
 
 def _amount_str_to_paise(raw: str, field_name: str) -> int:
-    """Convert a GST monetary string to integer paise.
-
-    ``normalize_amount`` returns rupees as float; we store paise as int.
-    """
-    rupees = normalize_amount(raw)
-    if rupees is None:
-        raise ValueError(f"invalid or empty amount for {field_name}")
-    return int(round(float(rupees) * 100))
+    """Convert a GST monetary string to integer paise via ``normalize_amount``."""
+    try:
+        r = normalize_amount(raw)
+    except NormalizationError as exc:
+        raise ValueError(f"invalid amount for {field_name}: {exc.reason}") from exc
+    return int(r.value)
 
 
 # ---------------------------------------------------------------------------
