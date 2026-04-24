@@ -337,29 +337,19 @@ def execute_reconciliation(run_id: str) -> None:
         )
         itc_at_risk_total = r37_itc if r37_itc else itc_missed
 
-        matched_for_rules: list[dict[str, Any]] = []
-        for m in state.matched:
-            pr_id = str(m.get("pr_id"))
-            g_id = str(m.get("gstr_id"))
-            pr = pr_by_id.get(pr_id, {})
-            ggr = gstr_by_id.get(g_id, {})
-            rdg = gstr_raw_by_id.get(g_id) or {}
-            hsn = rec_adapt.first_hsn_from_gstr_record_data(rdg)
-            invn = ggr.get("invoice_number_normalized") or pr.get(
-                "invoice_number_normalized"
-            )
-            matched_for_rules.append(
-                {
-                    "id": g_id,
-                    "supplier_gstin": ggr.get("supplier_gstin")
-                    or pr.get("supplier_gstin"),
-                    "invoice_number": invn,
-                    "invoice_number_normalized": invn,
-                    "hsn_code": hsn,
-                    "pr_id": pr_id,
-                }
-            )
-        s175 = check_blocked_credits(matched_for_rules)
+        gstr_invoices_for_blocked: list[dict[str, Any]] = []
+        for ggr in gstr_matcher:
+            gid = str(ggr.get("id", ""))
+            rdg = gstr_raw_by_id.get(gid) or {}
+            # Full GSTR-2B record_data (incl. items / nested line HSN) for Section 17(5) checks
+            merged: dict[str, Any] = dict(rdg) if isinstance(rdg, dict) else {}
+            if ggr.get("invoice_number_normalized") is not None:
+                merged["invoice_number"] = ggr.get("invoice_number_normalized")
+            if ggr.get("supplier_gstin") is not None:
+                merged["supplier_gstin"] = ggr.get("supplier_gstin")
+            gstr_invoices_for_blocked.append(merged)
+        _log.warning("DEBUG s175 input sample: %s", gstr_invoices_for_blocked[:2])
+        s175 = check_blocked_credits(gstr_invoices_for_blocked)
         for m in state.matched:
             gid = str(m.get("gstr_id") or "")
             pid = str(m.get("pr_id") or "")

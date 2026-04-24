@@ -84,6 +84,12 @@ def _amount_str_to_paise(raw: str, field_name: str) -> int:
     return int(r.value)
 
 
+def _hsn_str_or_none(v: Any) -> str | None:
+    if v is None or (isinstance(v, str) and v.strip() == ""):
+        return None
+    return str(v).strip()
+
+
 # ---------------------------------------------------------------------------
 # Item-level parsing
 # ---------------------------------------------------------------------------
@@ -131,7 +137,7 @@ def _parse_items(items_list: list) -> tuple:
 
         raw_txvals.append(raw_txval)
 
-        item_record = {
+        item_record: dict[str, Any] = {
             "tax_rate": tax_rate,
             "taxable_value_raw": raw_txval,
             "taxable_value_paise": _amount_str_to_paise(raw_txval, "taxable_value"),
@@ -140,6 +146,15 @@ def _parse_items(items_list: list) -> tuple:
             "sgst_paise": _amount_str_to_paise(raw_sgst, "sgst"),
             "cess_paise": _amount_str_to_paise(raw_cess, "cess"),
         }
+        # itms[] line: GSTR-2B puts HSN in itm_det.hsn; some dumps use a flat hsn
+        itm_det_raw = item.get("itm_det")
+        if itm_det_raw is None or not isinstance(itm_det_raw, dict):
+            itm_det_raw = {}
+        raw_hsn = _hsn_str_or_none(itm_det_raw.get("hsn"))
+        if raw_hsn is None:
+            raw_hsn = _hsn_str_or_none(item.get("hsn"))
+        if raw_hsn is not None:
+            item_record["hsn"] = raw_hsn
         item_records.append(item_record)
 
     return item_records, raw_txvals

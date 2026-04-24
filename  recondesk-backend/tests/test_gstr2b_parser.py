@@ -70,8 +70,11 @@ def _invoice(
     return inv
 
 
-def _item(rt=18, txval=1000, igst=180, cgst=0, sgst=0, cess=0) -> dict:
-    return {"rt": rt, "txval": txval, "igst": igst, "cgst": cgst, "sgst": sgst, "cess": cess}
+def _item(rt=18, txval=1000, igst=180, cgst=0, sgst=0, cess=0, hsn=None) -> dict:
+    d = {"rt": rt, "txval": txval, "igst": igst, "cgst": cgst, "sgst": sgst, "cess": cess}
+    if hsn is not None:
+        d["hsn"] = hsn
+    return d
 
 
 def _cdnr_invoice(
@@ -125,8 +128,28 @@ def test_valid_b2b_all_fields_present_and_typed():
     assert isinstance(rec["pos"], str)
     assert isinstance(rec["items"], list)
     assert len(rec["items"]) == 1
+    assert "hsn" not in rec["items"][0]
     assert isinstance(rec["normalization_notes"], dict)
     assert isinstance(rec["unique_key"], str)
+
+
+def test_item_hsn_flat_line_item():
+    result = parse_gstr2b(
+        _payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itms=[_item(hsn="87032100")])])])
+    )
+    assert result["records"][0]["items"][0]["hsn"] == "87032100"
+
+
+def test_item_hsn_from_itm_det():
+    line = {"num": 1, "itm_det": {**_item(), "hsn": "998313"}}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itms=[line])])]))
+    assert result["records"][0]["items"][0]["hsn"] == "998313"
+
+
+def test_item_hsn_prefers_itm_det_over_item_wrapper():
+    line = {"num": 1, "hsn": "1111", "itm_det": {**_item(), "hsn": "998313"}}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itms=[line])])]))
+    assert result["records"][0]["items"][0]["hsn"] == "998313"
 
 
 def test_cdnr_ntty_c_is_credit_note():

@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
+from app.services.matcher import normalize_invoice
+
 
 def _iso_date(val: Any) -> str | None:
     if val is None or val == "":
@@ -50,7 +52,8 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(rd, dict):
         rd = {}
     sup = (rd.get("supplier_gstin_norm") or rd.get("supplier_gstin") or "").strip()
-    inv = (rd.get("invoice_number_norm") or rd.get("invoice_number") or "").strip()
+    inv_raw = rd.get("invoice_number_norm") or rd.get("invoice_number") or ""
+    inv = normalize_invoice(str(inv_raw).strip() if inv_raw is not None else None)
     cg, sg, ig, ttp = _gstr_tax_paise_from_record(rd)
     taxable = _gstr_taxable_paise_from_record(rd)
     inv_d = _iso_date(rd.get("invoice_date_norm") or rd.get("invoice_date"))
@@ -67,6 +70,13 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _pr_stored_rupees_to_paise(x: object) -> int:
+    """PR parser stores whole rupees in *paise* fields; GSTR-2B uses true paise."""
+    if x is None:
+        return 0
+    return int(x) * 100
+
+
 def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     """``row`` = ``{id, record_data}`` from ``pr_records``."""
     rid = row["id"]
@@ -74,27 +84,19 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(rd, dict):
         rd = {}
     gstin = (rd.get("gstin") or rd.get("supplier_gstin") or "").strip()
-    invn = (rd.get("invoice_number_normalized") or rd.get("invoice_number") or "").strip()
+    inv_raw = rd.get("invoice_number_normalized") or rd.get("invoice_number") or ""
+    invn = normalize_invoice(
+        str(inv_raw).strip() if inv_raw is not None else None
+    )
     inv_d = _iso_date(rd.get("invoice_date"))
     return {
         "id": str(rid),
         "supplier_gstin": gstin,
         "invoice_number_normalized": invn,
         "invoice_date": inv_d,
-        "taxable_amount_paise": int(rd.get("taxable_amount_paise") or 0),
-        "cgst_paise": int(rd.get("cgst_paise") or 0),
-        "sgst_paise": int(rd.get("sgst_paise") or 0),
-        "igst_paise": int(rd.get("igst_paise") or 0),
-        "total_tax_paise": int(rd.get("total_tax_paise") or 0),
+        "taxable_amount_paise": _pr_stored_rupees_to_paise(rd.get("taxable_amount_paise")),
+        "cgst_paise": _pr_stored_rupees_to_paise(rd.get("cgst_paise")),
+        "sgst_paise": _pr_stored_rupees_to_paise(rd.get("sgst_paise")),
+        "igst_paise": _pr_stored_rupees_to_paise(rd.get("igst_paise")),
+        "total_tax_paise": _pr_stored_rupees_to_paise(rd.get("total_tax_paise")),
     }
-
-
-def first_hsn_from_gstr_record_data(rd: dict[str, Any]) -> str | None:
-    items = rd.get("items") or []
-    if not items:
-        return None
-    h = items[0].get("hsn_code")
-    if h is None:
-        return None
-    s = str(h).strip()[:4]
-    return s or None
