@@ -64,6 +64,8 @@ async def get_reconciliation_results(
             detail="no reconciliation payload for this run",
         )
     _rows, ccounts, stats = ro.build_outcome_rows(sb, rid, p)
+    comp = p.get("compliance") or {}
+    blocked_credit_warnings = list(comp.get("section_17_5") or [])
     return {
         "run_id": rid,
         "stats": {
@@ -89,6 +91,7 @@ async def get_reconciliation_results(
             "blocked_credit": ccounts.get("blocked_credit", 0),
             "credit_notes": ccounts.get("credit_notes", 0),
         },
+        "blocked_credit_warnings": blocked_credit_warnings,
     }
 
 

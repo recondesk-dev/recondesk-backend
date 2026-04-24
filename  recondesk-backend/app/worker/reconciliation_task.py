@@ -345,20 +345,42 @@ def execute_reconciliation(run_id: str) -> None:
             ggr = gstr_by_id.get(g_id, {})
             rdg = gstr_raw_by_id.get(g_id) or {}
             hsn = rec_adapt.first_hsn_from_gstr_record_data(rdg)
+            invn = ggr.get("invoice_number_normalized") or pr.get(
+                "invoice_number_normalized"
+            )
             matched_for_rules.append(
                 {
                     "id": g_id,
                     "supplier_gstin": ggr.get("supplier_gstin")
                     or pr.get("supplier_gstin"),
-                    "invoice_number_normalized": ggr.get(
-                        "invoice_number_normalized"
-                    )
-                    or pr.get("invoice_number_normalized"),
+                    "invoice_number": invn,
+                    "invoice_number_normalized": invn,
                     "hsn_code": hsn,
                     "pr_id": pr_id,
                 }
             )
         s175 = check_blocked_credits(matched_for_rules)
+        for m in state.matched:
+            gid = str(m.get("gstr_id") or "")
+            pid = str(m.get("pr_id") or "")
+            ggr = gstr_by_id.get(gid, {})
+            pr = pr_by_id.get(pid, {})
+            try:
+                gid_int = int(gid)
+            except (TypeError, ValueError):
+                _log.warning("skip amount_difference_paise: invalid gstr_id=%s", gid)
+                continue
+            diff = int(ggr.get("total_tax_paise") or 0) - int(
+                pr.get("total_tax_paise") or 0
+            )
+            try:
+                client.table("gstr_records").update(
+                    {"amount_difference_paise": diff}
+                ).eq("id", gid_int).execute()
+            except Exception:
+                _log.exception(
+                    "amount_difference_paise update failed gstr_id=%s", gid
+                )
         credit_rows = [
             {**p, "doc_kind": classify_document(p)}
             for p in pr_current
