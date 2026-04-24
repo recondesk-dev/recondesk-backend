@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -536,18 +537,39 @@ load_gstr_map = _load_gstr_map
 load_pr_map = _load_pr_map
 
 
+def _merge_payload_blobs(record_data: Any, payload: Any) -> dict[str, Any]:
+    if isinstance(payload, dict) and payload:
+        return payload
+    if isinstance(payload, str) and payload.strip().startswith(("{", "[")):
+        try:
+            d = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            d = None
+        if isinstance(d, dict) and d:
+            return d
+    if isinstance(record_data, dict) and record_data:
+        return record_data
+    if isinstance(record_data, str) and record_data.strip().startswith(("{", "[")):
+        try:
+            d = json.loads(record_data)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return d if isinstance(d, dict) else {}
+    return {}
+
+
 def load_payload(sb: Client, run_id: str) -> dict[str, Any]:
     r = (
         sb.table("reconciliation_results")
-        .select("payload")
+        .select("record_data, payload")
         .eq("run_id", run_id)
         .limit(1)
         .execute()
     )
     if not r.data:
         return {}
-    p = r.data[0].get("payload")
-    return p if isinstance(p, dict) else {}
+    row = r.data[0]
+    return _merge_payload_blobs(row.get("record_data"), row.get("payload"))
 
 
 def filter_invoices(

@@ -15,6 +15,8 @@ from app.routers.reconciliation_api import _parse_uuid
 from app.routers.reconciliation_api import _history_row
 
 router = APIRouter()
+# Alias for `app.include_router(clients_router, ...)` in main.py
+clients_router = router
 
 GSTIN_RE = re.compile(
     r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$"
@@ -129,7 +131,7 @@ async def list_clients(current_user: dict = Depends(get_current_active_user)):
     return res.data or []
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_client(
     body: ClientCreate,
     current_user: dict = Depends(get_current_active_user),
