@@ -210,12 +210,19 @@ def _rule37_index(rule37: list[dict]) -> dict[str, dict]:
     return {str(x.get("pr_id")): x for x in rule37 if x.get("pr_id") is not None}
 
 
-def _blocked_index(blocked: list[dict]) -> set[str]:
-    s: set[str] = set()
+def _blocked_pair(x: dict[str, Any]) -> tuple[str, str]:
+    sg = str(x.get("supplier_gstin") or "").strip().upper()
+    inv = str(x.get("invoice_number") or "").strip()
+    return (sg, inv)
+
+
+def _blocked_index(blocked: list[dict]) -> set[tuple[str, str]]:
+    """Keys match (supplier_gstin, invoice_number) from Section 17(5) warnings."""
+    s: set[tuple[str, str]] = set()
     for x in blocked:
-        k = str(x.get("invoice_id", "")) or str(x.get("gstr_id", ""))
-        if k:
-            s.add(k)
+        pair = _blocked_pair(x)
+        if pair[0]:
+            s.add(pair)
     return s
 
 
@@ -288,7 +295,15 @@ def build_outcome_rows(
         d_what, d_why, d_next, tvd, igd, cgd, sgd, ttd, mst = _mr_to_decisions(g, p)
         r37r = r37x.get(p_id, {})
         r37f = (r37r.get("status") or "") in _RULE37_CONCERNS
-        bflag = (g_id in blocked_by_gstr) or (str(m0.get("id", g_id)) in blocked_by_gstr)
+        _bpair = (
+            str(g.get("supplier_gstin") or p.get("supplier_gstin") or "").strip().upper(),
+            str(
+                g.get("invoice_number_normalized")
+                or p.get("invoice_number_normalized")
+                or ""
+            ).strip(),
+        )
+        bflag = _bpair in blocked_by_gstr
         rows.append(
             OutcomeRow(
                 id=f"pm:{g_id}",
@@ -415,7 +430,17 @@ def build_outcome_rows(
         )
 
     for b in s175:
-        gid = str(b.get("invoice_id") or b.get("gstr_id") or "")
+        bpair = _blocked_pair(b)
+        gid = ""
+        for candidate_id, gcell in gstr_m.items():
+            gm = gcell.get("matcher") or {}
+            gpair = (
+                str(gm.get("supplier_gstin") or "").strip().upper(),
+                str(gm.get("invoice_number_normalized") or "").strip(),
+            )
+            if gpair == bpair:
+                gid = str(candidate_id)
+                break
         if not gid:
             continue
         if any(

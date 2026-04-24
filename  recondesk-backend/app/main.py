@@ -10,6 +10,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from app.config import settings
 from app.routers import (
     auth,
+    intelligence,
     reconciliation,
     reconciliation_api,
     upload,
@@ -73,6 +74,11 @@ app.include_router(
 )
 app.include_router(notes.router, prefix="/api/notes", tags=["Notes"])
 app.include_router(clients_router, prefix="/api/clients", tags=["Clients"])
+app.include_router(
+    intelligence.router,
+    prefix="/api/intelligence",
+    tags=["Intelligence"],
+)
 app.include_router(upload.router, prefix="/api/v1/upload", tags=["Upload"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])

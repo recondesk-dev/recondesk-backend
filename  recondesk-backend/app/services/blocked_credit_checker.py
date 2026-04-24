@@ -1,9 +1,5 @@
 """Section 17(5) blocked-credit hints by HSN — advisory warnings only."""
 
-import logging
-
-logger = logging.getLogger(__name__)
-
 BLOCKED_HSN_CODES = {
     "8703": {
         "category": "Motor vehicles (<13 seater) -- Section 17(5)(a)",
@@ -61,25 +57,23 @@ def check_blocked_credits(matched_records: list[dict]) -> list[dict]:
         exempt_note = entry["exempt_note"]
 
         if usage_dependent:
-            action = (
+            reason = (
+                f"HSN {hsn_str} falls under {category}. "
                 "Verify before claiming ITC -- may be blocked under Section 17(5). "
                 f"Note: {exempt_note}"
             )
         else:
-            action = (
+            reason = (
+                f"HSN {hsn_str} falls under {category}. "
                 "Verify before claiming ITC -- likely blocked under Section 17(5)"
             )
 
         warnings.append(
             {
-                "invoice_id": record.get("id"),
-                "supplier_gstin": record.get("supplier_gstin"),
-                "invoice_number": record.get("invoice_number_normalized"),
-                "hsn_code": hsn_str,
-                "category": category,
-                "usage_dependent": usage_dependent,
-                "reason": f"HSN {hsn_str} falls under {category}",
-                "action": action,
+                "invoice_number": record.get("invoice_number"),
+                "supplier_gstin": str(record.get("supplier_gstin") or ""),
+                "reason": reason,
+                "section": "17(5)",
             }
         )
 

@@ -211,8 +211,6 @@ def _bulk_insert(
 def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
     print(f"[WORKER] START run_id={run_id}")
 
-    from app.core.config import get_settings
-
     print("=== DEBUG DB URL ===")
     print(get_settings().SUPABASE_URL)
     print("====================")
