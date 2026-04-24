@@ -83,6 +83,19 @@ def test_l1_exact_match_all_fields():
     assert r.requires_human_review is False
 
 
+def test_l1_match_differing_only_by_invoice_punctuation():
+    g = _base_rec(invoice_number="INV2025001")
+    p = _base_rec(
+        supplier_gstin=g["supplier_gstin"],
+        invoice_date=g["invoice_date"],
+        taxable_paise=g["taxable_amount_paise"],
+    )
+    p["invoice_number_normalized"] = "INV-2025-001"
+    r = match_gstr_to_pr(g, [p])
+    assert r.level == 1
+    assert r.matched is True
+
+
 def test_l1_amount_at_upper_boundary_rs1_tolerance():
     g = _base_rec(taxable_paise=10_000_000)
     p = _base_rec(

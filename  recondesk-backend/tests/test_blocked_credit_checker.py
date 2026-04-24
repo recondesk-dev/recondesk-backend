@@ -22,3 +22,60 @@ def test_invoice_number_mapped_and_strict_schema():
         "section",
     }
     assert "8703" in warnings[0]["reason"]
+
+
+def test_hsn_key_and_long_code_normalized():
+    """Prefer ``hsn``; use first 4 digits like GSTR-2B line items."""
+    warnings = check_blocked_credits(
+        [
+            {
+                "invoice_number": "INV2",
+                "supplier_gstin": "27BBB",
+                "hsn": "87032100",
+            }
+        ]
+    )
+    assert len(warnings) == 1
+    assert "8703" in warnings[0]["reason"]
+
+
+def test_hsn_code_fallback_still_works():
+    warnings = check_blocked_credits(
+        [
+            {
+                "invoice_number": "INV3",
+                "supplier_gstin": "27CCC",
+                "hsn_code": "9963",
+            }
+        ]
+    )
+    assert len(warnings) == 1
+    assert "9963" in warnings[0]["reason"]
+
+
+def test_hsn_from_items_when_top_level_missing():
+    warnings = check_blocked_credits(
+        [
+            {
+                "invoice_number": "INV4",
+                "supplier_gstin": "27DDD",
+                "items": [{"hsn": "8703"}],
+            }
+        ]
+    )
+    assert len(warnings) == 1
+    assert "8703" in warnings[0]["reason"]
+
+
+def test_hsn_from_itm_det_nested():
+    warnings = check_blocked_credits(
+        [
+            {
+                "invoice_number_norm": "INV5",
+                "supplier_gstin_norm": "27EEE",
+                "items": [{"num": 1, "itm_det": {"hsn_sc": "996311"}}],
+            }
+        ]
+    )
+    assert len(warnings) == 1
+    assert "9963" in warnings[0]["reason"]

@@ -269,8 +269,20 @@ def _date_diff_days_and_skip(
     return abs((dg - dp).days), False
 
 
+def _invoice_key_for_match(inv: str | None) -> str:
+    """Match key: same rules as GSTR-2B / PR adapter (alnum-only, case-fold)."""
+    return normalize_invoice(inv)
+
+
 def invoices_effectively_match(g_inv: str, p_inv: str) -> bool:
-    return bool(g_inv) and g_inv == p_inv
+    a = _invoice_key_for_match(g_inv)
+    b = _invoice_key_for_match(p_inv)
+    return bool(a) and bool(b) and a == b
+
+
+def invoice_match_key_for_record(rec: Mapping[str, Any]) -> str:
+    """Normalized invoice identity for a matcher row (GSTR or PR)."""
+    return _invoice_key_for_match(_invoice_number(rec))
 
 
 def _compute_percentage_diff(
@@ -664,8 +676,8 @@ def match_gstr_to_pr(
 
                 # mark late filing ONLY if strong match on other fields
                 if (
-                    gstr.get("invoice_number_normalized")
-                    == pr.get("invoice_number_normalized")
+                    invoice_match_key_for_record(gstr)
+                    == invoice_match_key_for_record(pr)
                     and gstr.get("supplier_gstin") == pr.get("supplier_gstin")
                     and abs(
                         int(gstr.get("taxable_amount_paise") or 0)
@@ -715,8 +727,8 @@ def match_gstr_to_pr(
         c
         for c in candidates
         if (
-            c["pr"].get("invoice_number_normalized")
-            == gstr.get("invoice_number_normalized")
+            invoice_match_key_for_record(c["pr"])
+            == invoice_match_key_for_record(gstr)
             and c["pr"].get("supplier_gstin") == gstr.get("supplier_gstin")
             and abs(
                 int(c["pr"].get("taxable_amount_paise") or 0)
