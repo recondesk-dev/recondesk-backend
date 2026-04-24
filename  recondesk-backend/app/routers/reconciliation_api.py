@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
@@ -14,9 +15,17 @@ from app.auth import get_current_active_user, get_user_role
 from app.constants import RunStatus
 from app.database import get_supabase, get_user_profile
 from app.services import reconciliation_outcomes as ro
-from app.services.firm_access import assert_run_accessible
-from app.services.invoice_results_sync import count_unresolved_rule37, sync_rule37_invoice_results
+from app.services.firm_access import (
+    assert_run_accessible,
+    list_accessible_client_gstin_ids,
+)
+from app.services.invoice_results_sync import (
+    count_unresolved_rule37,
+    find_invoice_result_id_for_pr,
+    sync_rule37_invoice_results,
+)
 
+_log = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -212,6 +221,82 @@ async def finalize_reconciliation(
         )
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
+    # Debug: 404 "run not found" is raised when *reconciliation_run* has no row for
+    # this id. 403 "run not accessible" is when the run exists but client_gstin_id is
+    # not in list_accessible (firm_owner_id / assigned_to vs user_profiles.id).
+    prof_dbg = get_user_profile(uid) or {}
+    role_dbg = (prof_dbg.get("role") or "staff").strip().lower()
+    run_dbg = (
+        sb.table("reconciliation_run")
+        .select("id, client_gstin_id")
+        .eq("id", rid)
+        .limit(1)
+        .execute()
+    )
+    if not (run_dbg.data or []):
+        _log.info(
+            "finalize access debug: no reconciliation_run row (this yields 404). "
+            "user_id=%s run_id=%s role=%s",
+            uid,
+            rid,
+            role_dbg,
+        )
+    else:
+        cgid = str((run_dbg.data[0] or {}).get("client_gstin_id", "") or "").strip()
+        cgr = (
+            sb.table("client_gstins")
+            .select("id, firm_owner_id, assigned_to, gstin, is_active")
+            .eq("id", cgid)
+            .limit(1)
+            .execute()
+        )
+        cgrow = (cgr.data or [None])[0] or {}
+        try:
+            allowed = list_accessible_client_gstin_ids(sb, current_user)
+        except Exception as exc:
+            allowed = set()
+            _log.info(
+                "finalize access debug: list_accessible_client_gstin_ids failed: %s",
+                exc,
+            )
+        if role_dbg == "admin":
+            own = (
+                sb.table("client_gstins")
+                .select("id, firm_owner_id")
+                .eq("firm_owner_id", uid)
+                .eq("is_active", True)
+                .execute()
+            )
+            _log.info(
+                "finalize access debug: user_id=%s run_id=%s role=admin run.client_gstin_id=%s "
+                "client_gstin id=%s firm_owner_id=%s assigned_to=%s is_active=%s "
+                "client_in_accessible_set=%s admin_owned_client_rows=%s sample_owned_ids=%s",
+                uid,
+                rid,
+                cgid,
+                cgrow.get("id"),
+                cgrow.get("firm_owner_id"),
+                cgrow.get("assigned_to"),
+                cgrow.get("is_active"),
+                cgid in allowed,
+                len(own.data or []),
+                [str(x.get("id")) for x in (own.data or [])[:8]],
+            )
+        else:
+            _log.info(
+                "finalize access debug: user_id=%s run_id=%s role=%s run.client_gstin_id=%s "
+                "client_gstin firm_owner_id=%s assigned_to=%s is_active=%s "
+                "client_in_accessible_set=%s accessible_id_count=%s",
+                uid,
+                rid,
+                role_dbg,
+                cgid,
+                cgrow.get("firm_owner_id"),
+                cgrow.get("assigned_to"),
+                cgrow.get("is_active"),
+                cgid in allowed,
+                len(allowed),
+            )
     row = assert_run_accessible(sb, rid, current_user)
     st = str(row.get("status") or "").strip().upper()
     if st == RunStatus.FINAL or bool(row.get("is_locked")):
@@ -516,20 +601,12 @@ async def mark_rule37_resolved(
             detail="resolution_note max 500 characters",
         )
     sync_rule37_invoice_results(sb, rid)
-    ex = (
-        sb.table("invoice_results")
-        .select("id, rule37_flag")
-        .eq("run_id", rid)
-        .eq("pr_id", pr_key)
-        .limit(1)
-        .execute()
-    )
-    if not ex.data or not ex.data[0].get("rule37_flag"):
+    inv_res_id = find_invoice_result_id_for_pr(sb, rid, pr_key)
+    if not inv_res_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="no rule37_flag invoice result for this pr_id",
+            detail="no rule37 concern in stored payload for this pr_id",
         )
-    inv_res_id = str(ex.data[0]["id"])
     exist = (
         sb.table("rule37_resolutions")
         .select("id")

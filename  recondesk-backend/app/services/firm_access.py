@@ -1,6 +1,9 @@
 """Client scoping: runs and notes are allowed when ``reconciliation_run.client_gstin_id``
 refers to a *client_gstins* row whose owner (``firm_owner_id`` → ``user_profiles.id``) or
 assignee (``assigned_to``) matches the current user. No *user_profiles.firm_id* is used.
+
+Every query against *client_gstins* must filter the owning user with column
+``firm_owner_id`` (not ``user_id`` — that name is not on this table).
 """
 
 from __future__ import annotations

@@ -1,63 +1,105 @@
-"""Sync `invoice_results` for Rule 37 from reconciliation payload; resolution counts."""
+"""Rule 37 counts and resolve lookups from ``reconciliation_results`` JSON (payload/record_data).
+
+The table is expected to expose only: id, run_id, record_data, created_at, payload.
+Per-line fields such as pr_id or rule37_flag are **inside** the JSON, not table columns.
+"""
 
 from __future__ import annotations
 
+import json
+from typing import Any, Optional, Tuple
+
 from supabase import Client
 
-from app.services import reconciliation_outcomes as ro
 from app.services.reconciliation_outcomes import RULE37_CONCERNS
 
 
+def _as_dict(blob: Any) -> dict[str, Any]:
+    if blob is None:
+        return {}
+    if isinstance(blob, dict):
+        return blob
+    if isinstance(blob, str):
+        try:
+            p = json.loads(blob)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return p if isinstance(p, dict) else {}
+    return {}
+
+
+def _merged_result_doc(record_data: Any, payload: Any) -> dict[str, Any]:
+    """Prefer *payload* when present, otherwise *record_data*."""
+    p = _as_dict(payload)
+    if p:
+        return p
+    return _as_dict(record_data)
+
+
+def _rule37_items(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    comp = doc.get("compliance")
+    if not isinstance(comp, dict):
+        return []
+    r = comp.get("rule37")
+    if not isinstance(r, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for x in r:
+        if isinstance(x, dict):
+            out.append(x)
+    return out
+
+
+def _is_rule37_concern(item: dict[str, Any]) -> bool:
+    if item.get("rule37_flag") is True:
+        return True
+    if (item.get("status") or "") in RULE37_CONCERNS:
+        return True
+    return False
+
+
+def count_rule37_needs_in_doc(doc: dict[str, Any]) -> int:
+    """Count Rule 37 line items in *doc* that require resolution (flag or concern status)."""
+    return sum(1 for it in _rule37_items(doc) if _is_rule37_concern(it))
+
+
+def _fetch_result_docs(sb: Client, run_id: str) -> list[dict[str, Any]]:
+    r = (
+        sb.table("reconciliation_results")
+        .select("id, run_id, record_data, payload, created_at")
+        .eq("run_id", run_id)
+        .execute()
+    )
+    return [d for d in (r.data or []) if isinstance(d, dict)]
+
+
 def sync_rule37_invoice_results(sb: Client, run_id: str) -> None:
-    """Ensure `invoice_results` rows exist for every PR line that needs Rule 37 follow-up."""
-    p = ro.load_payload(sb, run_id)
-    if not p:
-        return
-    comp = p.get("compliance") or {}
-    for row in comp.get("rule37") or []:
-        if (row.get("status") or "") not in RULE37_CONCERNS:
-            continue
-        pid = str(row.get("pr_id", "")).strip()
-        if not pid:
-            continue
-        ex = (
-            sb.table("invoice_results")
-            .select("id")
-            .eq("run_id", run_id)
-            .eq("pr_id", pid)
-            .limit(1)
-            .execute()
-        )
-        if ex.data:
-            sb.table("invoice_results").update({"rule37_flag": True}).eq(
-                "id", ex.data[0]["id"]
-            ).execute()
-        else:
-            sb.table("invoice_results").insert(
-                {
-                    "run_id": run_id,
-                    "pr_id": pid,
-                    "rule37_flag": True,
-                }
-            ).execute()
+    """No-op: outcomes live in the stored JSON; there are no per-line columns to sync.
+
+    Kept for call-site compatibility; counting reads JSON directly in
+    :func:`count_unresolved_rule37`.
+    """
+    del sb, run_id
 
 
-def count_unresolved_rule37(sb: Client, run_id: str) -> tuple[int, int, int]:
+def count_unresolved_rule37(sb: Client, run_id: str) -> Tuple[int, int, int]:
     """Returns (need, have, unresolved) for finalize pre-check.
 
-    *need* = rows in ``invoice_results`` with ``rule37_flag`` true.
-    *have* = ``rule37_resolutions`` for this run.
+    *need* = number of compliance.rule37 entries in stored JSON (payload or
+    record_data) with ``rule37_flag is True`` or a ``status`` in
+    :data:`RULE37_CONCERNS`, summed across all ``reconciliation_results`` rows
+    for this *run_id*.
+
+    *have* = number of ``rule37_resolutions`` for this run.
+
     *unresolved* = max(0, need - have).
     """
     sync_rule37_invoice_results(sb, run_id)
-    n1 = (
-        sb.table("invoice_results")
-        .select("id", count="exact")
-        .eq("run_id", run_id)
-        .eq("rule37_flag", True)
-        .limit(0)
-        .execute()
-    )
+    need = 0
+    for row in _fetch_result_docs(sb, run_id):
+        doc = _merged_result_doc(row.get("record_data"), row.get("payload"))
+        need += count_rule37_needs_in_doc(doc)
+
     n2 = (
         sb.table("rule37_resolutions")
         .select("id", count="exact")
@@ -65,6 +107,26 @@ def count_unresolved_rule37(sb: Client, run_id: str) -> tuple[int, int, int]:
         .limit(0)
         .execute()
     )
-    need = int(n1.count or 0)
     have = int(n2.count or 0)
     return need, have, max(0, need - have)
+
+
+def find_invoice_result_id_for_pr(
+    sb: Client, run_id: str, pr_id: str
+) -> Optional[str]:
+    """Return ``reconciliation_results.id`` for a row whose JSON lists *pr_id* as a Rule 37 concern.
+
+    Scans *payload* first, then *record_data*. Returns ``None`` if no match.
+    """
+    pr_key = str(pr_id).strip()
+    for row in _fetch_result_docs(sb, run_id):
+        doc = _merged_result_doc(row.get("record_data"), row.get("payload"))
+        for it in _rule37_items(doc):
+            if str(it.get("pr_id", "")).strip() != pr_key:
+                continue
+            if not _is_rule37_concern(it):
+                continue
+            rid = row.get("id")
+            if rid is not None:
+                return str(rid).strip() or None
+    return None

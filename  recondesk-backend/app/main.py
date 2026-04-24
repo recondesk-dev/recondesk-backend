@@ -18,8 +18,8 @@ from app.routers import (
     webhooks,
     import_router,
     notes,
-    clients,
 )
+from app.routers.clients import clients_router
 from app.utils.rate_limit import limiter
 
 # ── Sentry ────────────────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ app.include_router(
     tags=["Reconciliation API"],
 )
 app.include_router(notes.router, prefix="/api/notes", tags=["Notes"])
-app.include_router(clients.router, prefix="/api/clients", tags=["Clients"])
+app.include_router(clients_router, prefix="/api/clients", tags=["Clients"])
 app.include_router(upload.router, prefix="/api/v1/upload", tags=["Upload"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])

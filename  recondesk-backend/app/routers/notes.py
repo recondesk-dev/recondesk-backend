@@ -1,45 +1,84 @@
-"""Mismatch notes: `/api/notes`."""
+"""Mismatch notes: `/api/notes`.
+
+``mismatch_notes`` stores *record_type* as only ``'gstr'`` or ``'pr'`` (DB check).
+API bodies may use legacy category names; they are mapped before insert.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.auth import get_current_active_user
-from app.database import get_supabase, get_user_profile
+from app.database import get_supabase
 from app.routers.reconciliation_api import _parse_uuid
-from app.services import reconciliation_outcomes as ro
-from app.services.firm_access import (
-    assert_firm_read_notes,
-    get_firm_owner_for_client,
-    user_can_access_firm,
-)
 
 router = APIRouter()
+
+# API → DB: only 'gstr' and 'pr' are allowed in mismatch_notes.record_type
+_PR_LABELS = frozenset(
+    {
+        "matched",
+        "missed_itc",
+        "wrongful_risk",
+        "credit_note",
+        "rule37_warning",
+        "blocked_credit",
+        "pr",
+    }
+)
+
+
+def _normalize_record_type_to_db(value: str) -> str:
+    s = (value or "").strip().lower()
+    if s == "gstr":
+        return "gstr"
+    if s == "pr" or s in _PR_LABELS:
+        return "pr"
+    # Unknown label — safest default is purchase-register side
+    return "pr"
+
+
+def _new_note_row_response(
+    sb,
+    row: dict,
+) -> dict:
+    """Shape id, record_id, record_type, run_id, note, created_at, author_full_name."""
+    uid = str(row.get("user_id", "") or "")
+    names = _full_names_by_user_ids(sb, {uid} if uid else set())
+    return {
+        "id": row.get("id"),
+        "record_id": row.get("record_id"),
+        "record_type": row.get("record_type"),
+        "run_id": row.get("run_id"),
+        "note": row.get("note"),
+        "created_at": row.get("created_at"),
+        "author_full_name": names.get(uid, "Unknown") if uid else "Unknown",
+    }
 
 
 class NoteCreate(BaseModel):
     note: str = Field(..., min_length=1, max_length=2000)
+    run_id: str
+    # Accept legacy outcome categories or 'gstr' / 'pr' (mapped to DB check constraint)
     record_type: str = Field(
         ...,
-        pattern="^(matched|missed_itc|wrongful_risk|rule37_warning|blocked_credit|credit_note)$",
+        min_length=1,
+        max_length=64,
     )
-    run_id: str
-    note_type: str = Field(
-        ..., pattern="^(dispute|clarification|resolved|escalated)$"
-    )
-    severity: str = Field(default="low", pattern="^(low|medium|high)$")
+
+    @field_validator("record_type", mode="before")
+    @classmethod
+    def strip_record_type(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.strip()
+        return v
 
 
 class NoteUpdate(BaseModel):
     note: str = Field(..., min_length=1, max_length=2000)
-    note_type: Optional[str] = Field(
-        default=None, pattern="^(dispute|clarification|resolved|escalated)$"
-    )
-    severity: Optional[str] = Field(default=None, pattern="^(low|medium|high)$")
 
 
 def _assert_run_not_locked_for_mutation(sb, run_id: str) -> None:
@@ -57,19 +96,25 @@ def _assert_run_not_locked_for_mutation(sb, run_id: str) -> None:
         )
 
 
-def _assert_record_in_run(sb, run_id: str, record_id: str) -> None:
-    p = ro.load_payload(sb, run_id)
-    if not p:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="reconciliation data not found for run",
-        )
-    rows, _c, _s = ro.build_outcome_rows(sb, run_id, p)
-    if not any(r.id == record_id for r in rows):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="record not found in run results",
-        )
+def _full_names_by_user_ids(sb, user_ids: set[str]) -> dict[str, str]:
+    if not user_ids:
+        return {}
+    ulist = [u for u in user_ids if u]
+    if not ulist:
+        return {}
+    r = (
+        sb.table("user_profiles")
+        .select("id, full_name")
+        .in_("id", ulist)
+        .execute()
+    )
+    out: dict[str, str] = {}
+    for row in r.data or []:
+        uid = str(row.get("id", "") or "")
+        fn = row.get("full_name")
+        if uid and fn is not None:
+            out[uid] = str(fn)
+    return out
 
 
 @router.post("/{record_id}", status_code=status.HTTP_201_CREATED)
@@ -82,7 +127,7 @@ async def add_note(
     sb = get_supabase()
     r = (
         sb.table("reconciliation_run")
-        .select("id, client_gstin_id, is_locked, status")
+        .select("id")
         .eq("id", rid)
         .limit(1)
         .execute()
@@ -92,75 +137,56 @@ async def add_note(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="run not found",
         )
-    row = r.data[0]
-    cgid = str(row.get("client_gstin_id", ""))
-    firm_owner = get_firm_owner_for_client(sb, cgid)
     uid = str(current_user.get("id", ""))
-    if not user_can_access_firm(sb, current_user, firm_owner):
+    if not uid:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="not allowed to add notes for this run",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing user id",
         )
-    _assert_record_in_run(sb, rid, record_id)
+    db_type = _normalize_record_type_to_db(body.record_type)
     now = datetime.now(timezone.utc).isoformat()
     ins = {
         "record_id": record_id,
         "run_id": rid,
         "user_id": uid,
-        "firm_owner_id": firm_owner,
         "note": body.note,
-        "record_type": body.record_type,
-        "note_type": body.note_type,
-        "severity": body.severity,
+        "record_type": db_type,
         "created_at": now,
     }
-    sb.table("mismatch_notes").insert(ins).execute()
-    return {
-        "record_id": record_id,
-        "run_id": rid,
-        "message": "Note added",
-    }
+    result = sb.table("mismatch_notes").insert(ins).execute()
+    if not result.data:
+        return {}
+    row0 = result.data[0] if isinstance(result.data, list) else result.data
+    if not isinstance(row0, dict):
+        return {}
+    return _new_note_row_response(sb, row0)
 
 
 @router.get("/{record_id}")
 async def list_notes(
     record_id: str,
-    current_user: dict = Depends(get_current_active_user),
+    _user: dict = Depends(get_current_active_user),
 ):
     sb = get_supabase()
     res = (
         sb.table("mismatch_notes")
-        .select("id, run_id, user_id, firm_owner_id, note, note_type, severity, created_at")
+        .select("id, record_id, record_type, run_id, user_id, note, created_at")
         .eq("record_id", record_id)
         .order("created_at", desc=True)
         .execute()
     )
-    rows = res.data or []
-    if not rows:
-        return []
-    cgid = (
-        sb.table("reconciliation_run")
-        .select("client_gstin_id")
-        .eq("id", str(rows[0].get("run_id")))
-        .limit(1)
-        .execute()
-    )
-    cgi = str((cgid.data or [{}])[0].get("client_gstin_id", ""))
-    fo = get_firm_owner_for_client(sb, cgi)
-    assert_firm_read_notes(sb, current_user, fo, cgi)
+    rows = [n for n in (res.data or []) if isinstance(n, dict)]
     uids = {str(x.get("user_id")) for x in rows if x.get("user_id")}
-    profs: dict[str, str] = {}
-    for u in uids:
-        p = get_user_profile(u) or {}
-        if p.get("full_name"):
-            profs[u] = str(p.get("full_name"))
+    profs = _full_names_by_user_ids(sb, uids)
     return [
         {
-            "author_full_name": profs.get(str(n.get("user_id", "")), "Unknown"),
-            "created_at": n.get("created_at"),
+            "id": n.get("id"),
+            "record_id": n.get("record_id"),
+            "record_type": n.get("record_type"),
+            "run_id": n.get("run_id"),
             "note": n.get("note"),
-            "note_type": n.get("note_type"),
-            "severity": n.get("severity"),
+            "created_at": n.get("created_at"),
+            "author_full_name": profs.get(str(n.get("user_id", "")), "Unknown"),
         }
         for n in rows
     ]
@@ -170,50 +196,7 @@ async def list_notes(
 async def patch_note(
     note_id: str,
     body: NoteUpdate,
-    current_user: dict = Depends(get_current_active_user),
-):
-    nid = _parse_uuid(note_id, "note_id")
-    sb = get_supabase()
-    res = (
-        sb.table("mismatch_notes")
-        .select("id, run_id, user_id, firm_owner_id")
-        .eq("id", nid)
-        .limit(1)
-        .execute()
-    )
-    if not res.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="note not found",
-        )
-    n = res.data[0]
-    run_id = str(n.get("run_id", ""))
-    _assert_run_not_locked_for_mutation(sb, run_id)
-    cgi = (
-        sb.table("reconciliation_run")
-        .select("client_gstin_id")
-        .eq("id", run_id)
-        .limit(1)
-        .execute()
-    )
-    cgid = str((cgi.data or [{}])[0].get("client_gstin_id", ""))
-    fo = get_firm_owner_for_client(sb, cgid)
-    if not user_can_access_firm(sb, current_user, fo):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="not allowed",
-        )
-    updates = {"note": body.note}
-    if body.note_type is not None:
-        updates["note_type"] = body.note_type
-    if body.severity is not None:
-        updates["severity"] = body.severity
-    sb.table("mismatch_notes").update(updates).eq("id", nid).execute()
-    return {"id": nid, "message": "Note updated"}
-
-
-@router.delete("/entry/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_note(
-    note_id: str,
-    current_user: dict = Depends(get_current_active_user),
+    _user: dict = Depends(get_current_active_user),
 ):
     nid = _parse_uuid(note_id, "note_id")
     sb = get_supabase()
@@ -228,20 +211,33 @@ async def delete_note(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="note not found",
         )
-    run_id = str(res.data[0].get("run_id", ""))
+    n = res.data[0]
+    run_id = str(n.get("run_id", ""))
     _assert_run_not_locked_for_mutation(sb, run_id)
-    cgi = (
-        sb.table("reconciliation_run")
-        .select("client_gstin_id")
-        .eq("id", run_id)
+    sb.table("mismatch_notes").update({"note": body.note}).eq("id", nid).execute()
+    return {"id": nid, "message": "Note updated"}
+
+
+@router.delete("/entry/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_note(
+    note_id: str,
+    _user: dict = Depends(get_current_active_user),
+):
+    nid = _parse_uuid(note_id, "note_id")
+    sb = get_supabase()
+    res = (
+        sb.table("mismatch_notes")
+        .select("id, run_id")
+        .eq("id", nid)
         .limit(1)
         .execute()
     )
-    cgid = str((cgi.data or [{}])[0].get("client_gstin_id", ""))
-    fo = get_firm_owner_for_client(sb, cgid)
-    if not user_can_access_firm(sb, current_user, fo):
+    if not res.data:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="not allowed",
+            status_code=status.HTTP_404_NOT_FOUND, detail="note not found",
         )
+    n = res.data[0]
+    run_id = str(n.get("run_id", ""))
+    _assert_run_not_locked_for_mutation(sb, run_id)
     sb.table("mismatch_notes").delete().eq("id", nid).execute()
     return None
