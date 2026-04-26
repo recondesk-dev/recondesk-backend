@@ -1,6 +1,10 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
+from jose import jwt
 
+from app.config import get_settings
 from app.main import app
 
 
@@ -11,8 +15,16 @@ def client() -> TestClient:
 
 @pytest.fixture
 def auth_headers() -> dict:
-    """
-    Returns mock auth headers. In real tests replace with a fixture that
-    registers / logs in a test user and returns a real JWT.
-    """
-    return {"Authorization": "Bearer test-token"}
+    """Valid HS256 token using configured JWT secret (for endpoint tests that expect auth)."""
+    s = get_settings()
+    exp = datetime.now(timezone.utc) + timedelta(hours=1)
+    tok = jwt.encode(
+        {
+            "sub": "00000000-0000-0000-0000-000000000001",
+            "email": "test@example.com",
+            "exp": exp,
+        },
+        s.jwt_signing_key,
+        algorithm="HS256",
+    )
+    return {"Authorization": f"Bearer {tok}"}

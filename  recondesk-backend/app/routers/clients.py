@@ -188,14 +188,14 @@ async def get_client(
     )
     if not res.data:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="client not found",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
         )
     row = res.data[0]
     if not row.get("is_active", True):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="client not found",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
         )
     fo = str(row.get("firm_owner_id", ""))
     if role == "admin":
@@ -233,8 +233,8 @@ async def update_client(
     )
     if not res.data:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="client not found",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
         )
     row = res.data[0]
     fo = str(row.get("firm_owner_id", ""))
@@ -290,7 +290,7 @@ async def delete_client(
     )
     if not ex.data:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="client not found",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
         )
     return None

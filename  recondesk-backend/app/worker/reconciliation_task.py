@@ -165,7 +165,12 @@ def _load_gstr_matcher_and_raw(
     return (out, raw_by_id)
 
 
-@celery_app.task(name="worker.execute_reconciliation", max_retries=0)
+@celery_app.task(
+    name="worker.execute_reconciliation",
+    max_retries=0,
+    soft_time_limit=600,
+    time_limit=660,
+)
 def execute_reconciliation(run_id: str) -> None:
     if not os.environ.get("REDIS_URL"):
         _log.debug("REDIS_URL not set; using fallback from Settings")
@@ -186,6 +191,9 @@ def execute_reconciliation(run_id: str) -> None:
             return
         run = run_res.data[0]
         st = (run.get("status") or "").strip().upper()
+        if st in ("COMPLETED", "FAILED", "FINAL"):
+            _log.warning("execute_reconciliation: run %s already terminal (%s)", run_id, st)
+            return
         if st != "MATCHING":
             _log.warning("execute_reconciliation: run %s not in MATCHING (got %s)", run_id, st)
             return
@@ -348,7 +356,6 @@ def execute_reconciliation(run_id: str) -> None:
             if ggr.get("supplier_gstin") is not None:
                 merged["supplier_gstin"] = ggr.get("supplier_gstin")
             gstr_invoices_for_blocked.append(merged)
-        _log.warning("DEBUG s175 input sample: %s", gstr_invoices_for_blocked[:2])
         s175 = check_blocked_credits(gstr_invoices_for_blocked)
         for m in state.matched:
             gid = str(m.get("gstr_id") or "")

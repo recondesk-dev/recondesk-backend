@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.models.base import StrictModel
+
 
 class ReconciliationStatus(str, Enum):
     PENDING = "pending"
@@ -20,7 +22,7 @@ class MatchStatus(str, Enum):
     EXCEPTION = "exception"
 
 
-class ReconciliationJobCreate(BaseModel):
+class ReconciliationJobCreate(StrictModel):
     name: str
     source_file_key: str
     target_file_key: str

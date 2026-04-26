@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.auth import get_current_active_user
 from app.database import get_supabase
 from app.routers.reconciliation_api import _parse_uuid
+from app.services.firm_access import assert_run_accessible
 
 router = APIRouter()
 
@@ -60,7 +61,7 @@ def _new_note_row_response(
 
 
 class NoteCreate(BaseModel):
-    note: str = Field(..., min_length=1, max_length=2000)
+    note: str = Field(..., min_length=1, max_length=5000)
     run_id: str
     # Accept legacy outcome categories or 'gstr' / 'pr' (mapped to DB check constraint)
     record_type: str = Field(
@@ -78,7 +79,7 @@ class NoteCreate(BaseModel):
 
 
 class NoteUpdate(BaseModel):
-    note: str = Field(..., min_length=1, max_length=2000)
+    note: str = Field(..., min_length=1, max_length=5000)
 
 
 def _assert_run_not_locked_for_mutation(sb, run_id: str) -> None:
@@ -125,18 +126,7 @@ async def add_note(
 ):
     rid = _parse_uuid(body.run_id, "run_id")
     sb = get_supabase()
-    r = (
-        sb.table("reconciliation_run")
-        .select("id")
-        .eq("id", rid)
-        .limit(1)
-        .execute()
-    )
-    if not r.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="run not found",
-        )
+    assert_run_accessible(sb, rid, current_user)
     uid = str(current_user.get("id", ""))
     if not uid:
         raise HTTPException(
@@ -196,7 +186,7 @@ async def list_notes(
 async def patch_note(
     note_id: str,
     body: NoteUpdate,
-    _user: dict = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user),
 ):
     nid = _parse_uuid(note_id, "note_id")
     sb = get_supabase()
@@ -213,6 +203,7 @@ async def patch_note(
         )
     n = res.data[0]
     run_id = str(n.get("run_id", ""))
+    assert_run_accessible(sb, run_id, current_user)
     _assert_run_not_locked_for_mutation(sb, run_id)
     sb.table("mismatch_notes").update({"note": body.note}).eq("id", nid).execute()
     return {"id": nid, "message": "Note updated"}
@@ -221,7 +212,7 @@ async def patch_note(
 @router.delete("/entry/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_note(
     note_id: str,
-    _user: dict = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user),
 ):
     nid = _parse_uuid(note_id, "note_id")
     sb = get_supabase()
@@ -238,6 +229,7 @@ async def delete_note(
         )
     n = res.data[0]
     run_id = str(n.get("run_id", ""))
+    assert_run_accessible(sb, run_id, current_user)
     _assert_run_not_locked_for_mutation(sb, run_id)
     sb.table("mismatch_notes").delete().eq("id", nid).execute()
     return None

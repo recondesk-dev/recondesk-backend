@@ -1,21 +1,27 @@
 from functools import lru_cache
 from typing import Any, Callable, Optional
 
+import httpx
 from supabase import Client, create_client
+from supabase.lib.client_options import SyncClientOptions
 
-from app.config import settings
+from app.config import get_settings, httpx_timeout_client
 
 
 @lru_cache
 def get_supabase() -> Client:
     """Cached Supabase client using the service-role key (bypasses RLS)."""
-    return create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+    s = get_settings()
+    opts = SyncClientOptions(httpx_client=httpx_timeout_client())
+    return create_client(s.SUPABASE_URL, s.SUPABASE_SERVICE_ROLE_KEY, options=opts)
 
 
 @lru_cache
 def get_supabase_anon() -> Client:
     """Cached Supabase client using the anon/public key (respects RLS)."""
-    return create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
+    s = get_settings()
+    opts = SyncClientOptions(httpx_client=httpx_timeout_client())
+    return create_client(s.SUPABASE_URL, s.SUPABASE_ANON_KEY, options=opts)
 
 
 def supabase_client() -> Client:
@@ -44,7 +50,7 @@ def run_query(table: str, query_fn: Callable) -> Any:
 
 
 # Columns that exist in production; avoid select('*') so missing optional columns
-# (e.g. legacy firm_id) are never required by PostgREST.
+# are never required by PostgREST.
 _USER_PROFILE_SELECT = (
     "id, email, full_name, firm_name, phone, role, is_active, "
     "plan, runs_used, runs_limit, created_at"

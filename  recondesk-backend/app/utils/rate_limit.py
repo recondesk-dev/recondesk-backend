@@ -1,4 +1,15 @@
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+"""Re-export shared :class:`~slowapi.Limiter` (defined in ``app.main``)."""
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+from __future__ import annotations
+
+from typing import Any
+
+__all__ = ("limiter",)
+
+
+def __getattr__(name: str) -> Any:
+    if name == "limiter":
+        from app import main
+
+        return main.limiter
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
