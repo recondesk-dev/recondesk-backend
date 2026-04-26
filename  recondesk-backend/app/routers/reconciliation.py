@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from supabase import Client
 
@@ -22,6 +22,7 @@ from app.parsers.file_router import parse_file
 from app.services.r2_service import create_presigned_download_url
 from app.services.reconciliation_service import reconcile
 from app.services.email_service import send_reconciliation_complete_email
+from app.utils.rate_limit import limiter
 
 router = APIRouter()
 start_router = APIRouter()
@@ -120,7 +121,10 @@ async def create_job(
         db.table("reconciliation_jobs").update(
             {"status": ReconciliationStatus.FAILED}
         ).eq("id", job_id).execute()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred. Please try again.",
+        ) from exc
 
     result = db.table("reconciliation_jobs").select("*").eq("id", job_id).single().execute()
     return ReconciliationJobResponse(**result.data)
@@ -199,8 +203,10 @@ async def delete_job(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
 
-@start_router.post("/start", response_model=ReconciliationStartResponse , status_code=status.HTTP_202_ACCEPTED)
+@start_router.post("/start", response_model=ReconciliationStartResponse, status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("50/hour")
 async def start_reconciliation_run(
+    request: Request,  # noqa: ARG001
     payload: ReconciliationStartRequest,
     current_user: dict = Depends(get_current_active_user),
 ):

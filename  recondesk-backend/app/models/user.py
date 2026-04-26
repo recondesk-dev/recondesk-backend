@@ -2,24 +2,28 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+from app.models.base import StrictModel
 
 
-# ── Existing models (kept for backward compatibility) ─────────────────────────
+# ── Legacy models (kept) ────────────────────────────────────────────────────
 
 class UserBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
-    full_name: Optional[str] = None
-    company_name: Optional[str] = None
+    full_name: Optional[str] = Field(default=None, max_length=255)
+    company_name: Optional[str] = Field(default=None, max_length=255)
 
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(min_length=8, max_length=256)
 
 
-class UserUpdate(BaseModel):
-    full_name: Optional[str] = None
-    company_name: Optional[str] = None
+class UserUpdate(StrictModel):
+    full_name: Optional[str] = Field(default=None, max_length=255)
+    company_name: Optional[str] = Field(default=None, max_length=255)
     is_active: Optional[bool] = None
 
 
@@ -29,50 +33,51 @@ class UserResponse(UserBase):
     created_at: datetime
     plan: Optional[str] = "free"
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
-class TokenResponse(BaseModel):
+class TokenResponse(StrictModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
 
 
-class LoginRequest(BaseModel):
+# ── API auth models ─────────────────────────────────────────────────────────
+
+
+class LoginRequest(StrictModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=1, max_length=256)
 
 
-# ── New auth models ───────────────────────────────────────────────────────────
-
-class SignupRequest(BaseModel):
+class SignupRequest(StrictModel):
     email: EmailStr
-    password: str
-    full_name: str
-    firm_name: str
-    phone: Optional[str] = None
+    password: str = Field(min_length=8, max_length=256)
+    full_name: str = Field(max_length=255)
+    firm_name: str = Field(max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=32)
 
 
-class SignupResponse(BaseModel):
+class SignupResponse(StrictModel):
     user_id: str
     message: str
 
 
-class LoginResponse(BaseModel):
+class LoginResponse(StrictModel):
     access_token: str
     token_type: str = "bearer"
     user: dict
     role: str
 
 
-class UserProfileResponse(BaseModel):
+class UserProfileResponse(StrictModel):
     id: str
     email: Optional[str] = None
-    full_name: Optional[str] = None
-    firm_name: Optional[str] = None
-    phone: Optional[str] = None
+    full_name: Optional[str] = Field(default=None, max_length=255)
+    firm_name: Optional[str] = Field(default=None, max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=32)
     role: str = "staff"
     is_active: bool = True
     created_at: Optional[datetime] = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)

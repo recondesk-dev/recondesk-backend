@@ -145,7 +145,7 @@ def assert_firm_read_notes(
 
 
 def assert_run_accessible(sb: Client, run_id: str, current_user: dict) -> dict:
-    """Load reconciliation_run; 404 / 403 if not in accessible client scope."""
+    """Load reconciliation_run; 403 if missing or not in accessible client scope."""
     res = (
         sb.table("reconciliation_run")
         .select(
@@ -158,8 +158,8 @@ def assert_run_accessible(sb: Client, run_id: str, current_user: dict) -> dict:
     )
     if not res.data:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="run not found",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
         )
     row = res.data[0]
     cg = str(row.get("client_gstin_id", "")).strip()
@@ -167,6 +167,6 @@ def assert_run_accessible(sb: Client, run_id: str, current_user: dict) -> dict:
     if cg not in allowed:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="run not accessible for your account",
+            detail="Access denied",
         )
     return row

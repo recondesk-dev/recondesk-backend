@@ -12,11 +12,12 @@ from uuid import UUID, uuid4
 
 import boto3
 from botocore.config import Config
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from supabase import Client, create_client
 
 from app.auth import get_current_active_user
 from app.config import get_r2_s3_endpoint_url, get_settings
+from app.utils.audit import log_action
 from app.worker.celery_app import celery_app
 
 router = APIRouter()
@@ -97,6 +98,7 @@ def _assigned_client_gstin_id(sb: Client, current_user: dict) -> str:
 
 @router.post("/gstr2b")
 async def import_gstr2b(
+    request: Request,
     file: UploadFile = File(...),
     client_gstin_id: str = Form(...),
     period: str = Form(...),
@@ -136,20 +138,59 @@ async def import_gstr2b(
         )
 
     file_hash = hashlib.sha256(raw).hexdigest()
-
+    if raw[0:1] not in (b"{", b"["):
+        await log_action(
+            str(current_user.get("id")),
+            "UPLOAD_REJECTED",
+            "gstr2b",
+            cg,
+            {"reason": "not_json_start"},
+            ip_address=(request.client.host if request.client else None),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="JSON file must start with { or [",
+        )
+    if len(raw) > get_settings().MAX_FILE_SIZE_MB * 1024 * 1024:
+        await log_action(
+            str(current_user.get("id")),
+            "UPLOAD_REJECTED",
+            "gstr2b",
+            cg,
+            {"reason": "over_max_bytes"},
+            ip_address=(request.client.host if request.client else None),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"file exceeds {get_settings().MAX_FILE_SIZE_MB}MB limit",
+        )
+    start_uid = str(current_user.get("id", "")).strip()
     dup = (
         sb.table("reconciliation_run")
-        .select("id, status")
+        .select("id, status, created_by")
         .eq("client_gstin_id", cg)
         .eq("period", period_norm)
         .eq("file_hash", file_hash)
         .eq("file_type", "gstr2b")
+        .eq("created_by", start_uid)
         .limit(1)
         .execute()
     )
     if dup.data:
         row = dup.data[0]
         prev_status = (row.get("status") or "").strip().lower()
+        if prev_status in (
+            "pending",
+            "processing",
+            "uploading",
+            "queued",
+        ) or prev_status in (
+            "gstr_import_complete",
+            "purchase_import_complete",
+            "ready",
+            "matching",
+        ):
+            return {"run_id": row["id"], "status": row.get("status", "queued")}
         # Same file already imported or in flight — short-circuit.
         if prev_status not in ("failed", "uploading"):
             return {"run_id": row["id"], "status": row.get("status", "queued")}
@@ -184,6 +225,7 @@ async def import_gstr2b(
             "progress_percent": 0,
             "created_at": now,
             "updated_at": now,
+            "created_by": start_uid,
         }
         sb.table("reconciliation_run").insert(insert_row).execute()
 
@@ -217,8 +259,8 @@ async def import_gstr2b(
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
+            detail="An unexpected error occurred. Please try again.",
+        ) from e
 
     if ran_import_sync:
         st_res = (

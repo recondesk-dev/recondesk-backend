@@ -1,5 +1,9 @@
+from __future__ import annotations
+
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from gotrue import User
+from gotrue.types import User
 
 from app.auth import get_current_user, get_current_user_id, get_user_role
 from app.database import get_db, get_user_profile
@@ -10,37 +14,75 @@ from app.models.user import (
     SignupResponse,
     UserProfileResponse,
 )
+from app.utils.audit import log_action
+from app.utils.login_throttle import (
+    is_login_locked,
+    record_login_failure,
+    record_login_success,
+)
 from app.utils.rate_limit import limiter
 
 router = APIRouter()
+_log = logging.getLogger(__name__)
 
-_RATE = "10/minute"
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 # ── POST /auth/signup ─────────────────────────────────────────────────────────
 
 @router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit(_RATE)
+@limiter.limit("10/minute")
 async def signup(request: Request, payload: SignupRequest):
     """Register a new user and create their profile row."""
     db = get_db()
-
+    ip = _client_ip(request)
     try:
         auth_response = db.auth.sign_up(
             {"email": payload.email, "password": payload.password}
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
+        _log.debug("sign_up failed: %s", type(exc).__name__)
+        await log_action(
+            None,
+            "SIGNUP",
+            "user",
+            None,
+            {"result": "failed"},
+            ip_address=ip,
+        )
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unable to complete sign up. Check your details and try again.",
         ) from exc
 
     if not auth_response.user:
+        await log_action(
+            None,
+            "SIGNUP",
+            "user",
+            None,
+            {"result": "no_user"},
+            ip_address=ip,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Sign-up failed. The email may already be registered.",
         )
 
     user_id = str(auth_response.user.id)
+    await log_action(
+        user_id,
+        "SIGNUP",
+        "user",
+        user_id,
+        {},
+        ip_address=ip,
+    )
 
     profile = {
         "id": user_id,
@@ -54,10 +96,11 @@ async def signup(request: Request, payload: SignupRequest):
 
     try:
         db.table("user_profiles").insert(profile).execute()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
+        _log.error("Profile insert failed: %s", type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Profile creation failed: {exc}",
+            detail="An unexpected error occurred. Please try again.",
         ) from exc
 
     return SignupResponse(
@@ -66,34 +109,65 @@ async def signup(request: Request, payload: SignupRequest):
     )
 
 
-# ── POST /auth/login ──────────────────────────────────────────────────────────
+# ── POST /auth/login ─────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=LoginResponse)
-@limiter.limit(_RATE)
+@limiter.limit("10/minute")
 async def login(request: Request, payload: LoginRequest):
     """Authenticate with email/password and return a Supabase JWT with role."""
+    ip = _client_ip(request)
+    if is_login_locked(ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
     db = get_db()
-
     try:
         auth_response = db.auth.sign_in_with_password(
             {"email": payload.email, "password": payload.password}
         )
-    except Exception as exc:
+    except Exception:  # noqa: BLE001
+        record_login_failure(ip)
+        await log_action(
+            None,
+            "LOGIN",
+            "user",
+            None,
+            {"result": "failed"},
+            ip_address=ip,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
-        ) from exc
+        ) from None
 
     if not auth_response.user or not auth_response.session:
+        record_login_failure(ip)
+        await log_action(
+            None,
+            "LOGIN",
+            "user",
+            None,
+            {"result": "failed"},
+            ip_address=ip,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
         )
 
+    record_login_success(ip)
     user_id = str(auth_response.user.id)
     access_token = auth_response.session.access_token
     role = await get_user_role(user_id)
-
+    await log_action(
+        user_id,
+        "LOGIN",
+        "user",
+        user_id,
+        {"result": "ok"},
+        ip_address=ip,
+    )
     user_dict = {
         "id": user_id,
         "email": auth_response.user.email,
@@ -108,7 +182,6 @@ async def login(request: Request, payload: LoginRequest):
                 "is_active": profile.get("is_active", True),
             }
         )
-
     return LoginResponse(
         access_token=access_token,
         user=user_dict,
@@ -116,32 +189,44 @@ async def login(request: Request, payload: LoginRequest):
     )
 
 
-# ── POST /auth/logout ─────────────────────────────────────────────────────────
+# ── POST /auth/logout ───────────────────────────────────────────────────────
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-@limiter.limit(_RATE)
-async def logout(request: Request, user: User = Depends(get_current_user)):
+@limiter.limit("200/minute")
+async def logout(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
     """Sign out the currently authenticated user."""
     db = get_db()
+    ip = _client_ip(request)
+    await log_action(
+        str(user.id),
+        "LOGOUT",
+        "user",
+        str(user.id),
+        {},
+        ip_address=ip,
+    )
     try:
         db.auth.sign_out()
     except Exception:
         pass
 
 
-# ── GET /auth/me ──────────────────────────────────────────────────────────────
+# ── GET /auth/me ─────────────────────────────────────────────────────────────
 
 @router.get("/me", response_model=UserProfileResponse)
-@limiter.limit(_RATE)
+@limiter.limit("200/minute")
 async def get_me(
-    request: Request,
+    request: Request,  # noqa: ARG001
     user_id: str = Depends(get_current_user_id),
 ):
     """Return the authenticated user's profile including their role."""
     profile = get_user_profile(user_id)
     if profile is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="User profile not found.",
         )
     role = await get_user_role(user_id)
