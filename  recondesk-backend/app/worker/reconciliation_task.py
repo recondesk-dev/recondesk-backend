@@ -478,8 +478,8 @@ def execute_reconciliation(run_id: str) -> None:
             "gstr_in_scope": n_gstr,
             "pr_in_scope": n_pr,
             "compliance": {
-                "rule37": rule37,
-                "section_17_5": s175,
+                "rule37": decision_payload.get("rule37", rule37),
+                "section_17_5": decision_payload.get("section_17_5", s175),
             },
             "decisions": decision_payload,
         }
@@ -492,8 +492,8 @@ def execute_reconciliation(run_id: str) -> None:
                     "wrongful_itc_risk": wrongful_itc,
                 },
                 "compliance": {
-                    "rule37": rule37,
-                    "section_17_5": s175,
+                    "rule37": decision_payload.get("rule37", rule37),
+                    "section_17_5": decision_payload.get("section_17_5", s175),
                     "credit_notes": cn_net,
                 },
                 "decisions": decision_payload,
