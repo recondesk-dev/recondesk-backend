@@ -6,6 +6,7 @@ import calendar
 import json
 import logging
 import os
+import time
 import traceback
 from collections import defaultdict
 from datetime import date, datetime, timezone
@@ -172,6 +173,16 @@ def _load_gstr_matcher_and_raw(
     time_limit=660,
 )
 def execute_reconciliation(run_id: str) -> None:
+    _t: dict[str, float] = {"start": time.perf_counter()}
+
+    def _phase(name: str) -> None:
+        now = time.perf_counter()
+        prev_name = list(_t.keys())[-1]
+        elapsed = now - _t[prev_name]
+        total = now - _t["start"]
+        _log.info("[PERF] %s=%.3fs total=%.3fs", name, elapsed, total)
+        _t[name] = now
+
     if not os.environ.get("REDIS_URL"):
         _log.debug("REDIS_URL not set; using fallback from Settings")
 
@@ -263,9 +274,16 @@ def execute_reconciliation(run_id: str) -> None:
             )
 
         gstr_matcher, gstr_raw_by_id = _load_gstr_matcher_and_raw(client, run_id)
+        _log.info(
+            "[PERF] gstr_count=%d pr_count=%d",
+            len(gstr_matcher),
+            len(pr_current),
+        )
+        _phase("file_load")
         for rec in gstr_matcher:
             if not rec.get("invoice_date"):
                 rec["invoice_date"] = gstr_end.isoformat()
+        _phase("normalization")
 
         _update_run(
             client,
@@ -315,6 +333,7 @@ def execute_reconciliation(run_id: str) -> None:
                 },
             )
 
+        _phase("matching")
         wrongful_itc = build_wrongful_itc_risk(pr_current, state.matched_pr_ids)
         late_itc = sum(
             1
@@ -357,6 +376,8 @@ def execute_reconciliation(run_id: str) -> None:
                 merged["supplier_gstin"] = ggr.get("supplier_gstin")
             gstr_invoices_for_blocked.append(merged)
         s175 = check_blocked_credits(gstr_invoices_for_blocked)
+        amount_diff_upsert_rows: list[dict[str, Any]] = []
+        amount_diff_ts = _now_iso()
         for m in state.matched:
             gid = str(m.get("gstr_id") or "")
             pid = str(m.get("pr_id") or "")
@@ -370,14 +391,22 @@ def execute_reconciliation(run_id: str) -> None:
             diff = int(ggr.get("total_tax_paise") or 0) - int(
                 pr.get("total_tax_paise") or 0
             )
+            amount_diff_upsert_rows.append(
+                {
+                    "id": gid_int,
+                    "amount_difference_paise": diff,
+                    "updated_at": amount_diff_ts,
+                }
+            )
+        if amount_diff_upsert_rows:
             try:
-                client.table("gstr_records").update(
-                    {"amount_difference_paise": diff}
-                ).eq("id", gid_int).execute()
+                client.table("gstr_records").upsert(
+                    amount_diff_upsert_rows,
+                    on_conflict="id",
+                    returning="minimal",
+                ).execute()
             except Exception:
-                _log.exception(
-                    "amount_difference_paise update failed gstr_id=%s", gid
-                )
+                _log.exception("amount_difference_paise bulk upsert failed")
         credit_rows = [
             {**p, "doc_kind": classify_document(p)}
             for p in pr_current
@@ -510,6 +539,7 @@ def execute_reconciliation(run_id: str) -> None:
                 "updated_at": _now_iso(),
             },
         )
+        _phase("db_writes")
     except Exception as exc:
         _log.exception("execute_reconciliation failed run_id=%s", run_id)
         _log.error("%s", traceback.format_exc())
