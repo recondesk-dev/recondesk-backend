@@ -13,6 +13,7 @@ from app.routers import (
     intelligence,
     reconciliation,
     reconciliation_api,
+    reconciliation_import_wizard,
     upload,
     reports,
     billing,
@@ -84,6 +85,11 @@ app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"])
 app.include_router(import_router.router, prefix="/api/import", tags=["Import"])
+app.include_router(
+    reconciliation_import_wizard.router,
+    prefix="/api",
+    tags=["Import Wizard"],
+)
 
 
 # ── Core endpoints ────────────────────────────────────────────────────────────
