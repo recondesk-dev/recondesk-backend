@@ -1,0 +1,89 @@
+/** Status machine — these are the ONLY valid statuses */
+export type ReconciliationStatus =
+  | "PENDING"
+  | "IMPORTING"
+  | "MATCHING"
+  | "COMPLETE"
+  | "FINALIZED"
+  | "FAILED";
+
+export type ComplianceRisk = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+export interface Staff {
+  id: string;
+  name: string;
+  email: string;
+  role: "ADMIN" | "STAFF";
+  avatarInitials: string;
+}
+
+export interface Client {
+  id: string;
+  tradeName: string;
+  gstin: string;
+  registrationType: "Regular" | "Composition" | "SEZ";
+  assignedStaffId: string;
+  createdAt: string;
+}
+
+export interface ReconciliationRun {
+  id: string;
+  clientId: string;
+  period: string;
+  runNumber: number;
+  status: ReconciliationStatus;
+  matchRate: number | null;
+  itcClaimed: number | null;
+  missedItc: number | null;
+  complianceRisk: ComplianceRisk | null;
+  errorMessage: string | null;
+  finalizedBy: string | null;
+  finalizedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClientPortfolioRow {
+  client: Client;
+  latestRun: ReconciliationRun | null;
+  priorityScore: number;
+  assignedStaff: Staff;
+}
+
+export interface DashboardStats {
+  totalClients: number;
+  pendingThisMonth: number;
+  totalItcProtected: number;
+  teamMembers: number;
+}
+
+export type PortfolioStatusFilter =
+  | "ALL"
+  | "PENDING"
+  | "IN_PROGRESS"
+  | "COMPLETE"
+  | "FINALIZED"
+  | "FAILED";
+
+export interface PortfolioFilters {
+  status: PortfolioStatusFilter;
+  assignedStaffId: string | "ALL";
+  period: string | "ALL";
+  search: string;
+}
+
+export interface PaginatedPortfolioResponse {
+  data: ClientPortfolioRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface ItcTrendPoint {
+  period: string;
+  missedItc: number;
+}
+
+export type SortDirection = "asc" | "desc";
+
+export type PortfolioSortKey = "priority" | "matchRate" | "missedItc";

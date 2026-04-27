@@ -34,9 +34,14 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
+  const isMockDashboard =
+    pathname === "/" ||
+    pathname.startsWith("/clients") ||
+    pathname.startsWith("/runs") ||
+    pathname.startsWith("/settings");
 
-  // Unauthenticated → redirect to /login
-  if (!user && !isPublicRoute) {
+  // Unauthenticated → redirect to /login (mock dashboard is open without auth)
+  if (!user && !isPublicRoute && !isMockDashboard) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirectTo", pathname);
