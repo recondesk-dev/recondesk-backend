@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
+import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from gotrue.types import User
-from jose import ExpiredSignatureError, JWTError, jwt
+from jose import ExpiredSignatureError, JWTError, jwk, jwt
 from jose.exceptions import JWEError, JWKError  # type: ignore[attr-defined]
 
 from app.config import settings
@@ -17,22 +20,109 @@ from app.utils.errors import http_401, http_403
 bearer_scheme = HTTPBearer(auto_error=False)
 _log = logging.getLogger(__name__)
 
-def _decode_bearer_jwt(token: str) -> dict:
+_JWKS_LOCK = threading.Lock()
+_JWKS_CACHE: Optional[dict[str, Any]] = None
+_JWKS_CACHE_MONO: float = 0.0
+_JWKS_TTL_SEC = 3600.0
+
+
+def _jwks_url() -> str:
+    base = (settings.SUPABASE_URL or "").strip().rstrip("/")
+    if not base:
+        raise JWTError("SUPABASE_URL is not configured")
+    return f"{base}/auth/v1/.well-known/jwks.json"
+
+
+def _fetch_jwks_from_network() -> dict[str, Any]:
+    url = _jwks_url()
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(url)
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPError as exc:
+        _log.warning("JWKS fetch failed from %s: %s", url, exc)
+        raise JWTError("JWKS unavailable") from exc
+
+
+def _get_jwks_cached(*, force_refresh: bool = False) -> dict[str, Any]:
+    """Return Supabase JWKS; refresh after TTL or when ``force_refresh`` is True."""
+    global _JWKS_CACHE, _JWKS_CACHE_MONO
+    now = time.monotonic()
+    with _JWKS_LOCK:
+        if (
+            not force_refresh
+            and _JWKS_CACHE is not None
+            and (now - _JWKS_CACHE_MONO) < _JWKS_TTL_SEC
+        ):
+            return _JWKS_CACHE
+    data = _fetch_jwks_from_network()
+    with _JWKS_LOCK:
+        _JWKS_CACHE = data
+        _JWKS_CACHE_MONO = time.monotonic()
+        return _JWKS_CACHE
+
+
+def _jwk_key_for_token(token: str, jwks: dict[str, Any]) -> Any:
+    header = jwt.get_unverified_header(token) or {}
+    kid = header.get("kid")
+    if not kid:
+        raise JWTError("token missing kid")
+    for key_dict in jwks.get("keys") or []:
+        if key_dict.get("kid") == kid:
+            return jwk.construct(key_dict)
+    raise JWTError("no matching JWK for token")
+
+
+def _jwt_decode_options() -> dict[str, bool]:
     v = settings.jwt_verify_aud_iss
-    opts = {
+    return {
         "verify_signature": True,
         "require_exp": True,
         "verify_aud": v,
         "verify_iss": v,
     }
+
+
+def _decode_hs256(token: str) -> dict:
     return jwt.decode(
         token,
         settings.jwt_signing_key,
         algorithms=["HS256"],
-        audience=settings.JWT_AUDIENCE if v else None,
-        issuer=settings.JWT_ISSUER if v else None,
-        options=opts,
+        audience=settings.JWT_AUDIENCE if settings.jwt_verify_aud_iss else None,
+        issuer=settings.JWT_ISSUER if settings.jwt_verify_aud_iss else None,
+        options=_jwt_decode_options(),
     )
+
+
+def _decode_es256(token: str) -> dict:
+    jwks_data = _get_jwks_cached()
+    try:
+        key = _jwk_key_for_token(token, jwks_data)
+    except JWTError:
+        jwks_data = _get_jwks_cached(force_refresh=True)
+        key = _jwk_key_for_token(token, jwks_data)
+    return jwt.decode(
+        token,
+        key,
+        algorithms=["ES256"],
+        audience=settings.JWT_AUDIENCE if settings.jwt_verify_aud_iss else None,
+        issuer=settings.JWT_ISSUER if settings.jwt_verify_aud_iss else None,
+        options=_jwt_decode_options(),
+    )
+
+
+def _decode_bearer_jwt(token: str) -> dict:
+    try:
+        header = jwt.get_unverified_header(token) or {}
+    except (JWTError, JWEError, JWKError, TypeError, ValueError) as exc:
+        raise JWTError("invalid token header") from exc
+    alg = (header.get("alg") or "").upper()
+    if alg == "HS256":
+        return _decode_hs256(token)
+    if alg == "ES256":
+        return _decode_es256(token)
+    raise JWTError(f"unsupported algorithm: {alg!r}")
 
 
 def _user_from_claims(claims: dict) -> User:
@@ -48,7 +138,7 @@ def _user_from_claims(claims: dict) -> User:
     )
 
 
-# ── Supabase JWT validation (HS256 only; no algorithm confusion) ────────────
+# ── Supabase JWT validation (HS256 symmetric + ES256 via JWKS) ─────────────
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
@@ -58,12 +148,6 @@ async def get_current_user(
     token = (credentials.credentials or "").strip()
     if not token:
         raise http_401()
-    try:
-        unverified = jwt.get_unverified_header(token)
-        if (unverified or {}).get("alg") != "HS256":
-            raise JWTError("invalid algorithm")
-    except (JWTError, JWEError, JWKError, TypeError, ValueError):
-        raise http_401() from None
     try:
         claims = _decode_bearer_jwt(token)
     except ExpiredSignatureError as exc:
