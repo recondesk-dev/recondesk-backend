@@ -149,13 +149,15 @@ async def import_gstr2b(
     period_norm = period.strip()
 
     sb = _supabase()
-    assigned_cg = _assigned_client_gstin_id(sb, current_user)
     cg = str(client_gstin_id).strip()
-    if cg != assigned_cg:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="client_gstin_id does not match your assigned client_gstin",
-        )
+    role = str(current_user.get("role") or "staff").strip().lower()
+    if role != "admin":
+        assigned_cg = _assigned_client_gstin_id(sb, current_user)
+        if cg != assigned_cg:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="client_gstin_id does not match your assigned client_gstin",
+            )
 
     raw = await file.read()
     if len(raw) > MAX_UPLOAD_BYTES:
