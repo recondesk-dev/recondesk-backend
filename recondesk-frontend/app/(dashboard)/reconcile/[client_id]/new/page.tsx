@@ -536,8 +536,12 @@ export default function NewReconcileWizardPage() {
   };
 
   const checksDisplayed = sanityChecks ?? run?.sanity_check_results ?? [];
-  const sanityErrors = checksDisplayed.filter((c) => c.status === "error");
-  const sanityWarnings = checksDisplayed.filter((c) => c.status === "warning");
+  const sanityErrors = checksDisplayed.filter(
+    (c) => String(c.status).toLowerCase() === "error"
+  );
+  const sanityWarnings = checksDisplayed.filter(
+    (c) => String(c.status).toLowerCase() === "warning"
+  );
   const warningsOk = sanityWarnings.length === 0 || sanityWarnings.every((w) => w.acknowledged);
 
   const gstinRow = mappingLocal?.find((m) => m.standard_field === "gstin");
@@ -635,7 +639,7 @@ export default function NewReconcileWizardPage() {
         if (cancelled) return;
         setPoll({ pct: s.progress_pct, message: s.message, status: s.status });
         if (s.status === "complete") {
-          router.push(`/results/${runId}`);
+          router.push(`/reconcile/runs/${runId}/results`);
           return;
         }
         if (s.status === "error") {
@@ -876,43 +880,82 @@ export default function NewReconcileWizardPage() {
                 </div>
               ) : null}
               <ul className="space-y-2">
-                {checksDisplayed.map((c) => (
-                  <li
-                    key={c.id}
-                    className="flex flex-wrap items-start gap-2 rounded-lg border border-[var(--border)] p-3 text-sm"
-                  >
-                    {c.status === "pass" ? (
-                      <span className="text-[var(--success)]">✓</span>
-                    ) : c.status === "warning" ? (
-                      <span className="text-[var(--warning)]">⚠</span>
-                    ) : (
-                      <span className="text-[var(--danger)]">✕</span>
-                    )}
-                    <div className="flex-1">
-                      <div className="font-medium">{c.label}</div>
-                      {c.detail ? <div className="text-[var(--text-secondary)]">{c.detail}</div> : null}
-                      {c.affected_records?.length ? (
-                        <ul className="mt-1 font-mono text-xs text-[var(--text-secondary)]">
-                          {c.affected_records.slice(0, 20).map((a, i) => (
-                            <li key={i}>
-                              {a.gstin} — {a.invoice_number}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                      {c.status === "warning" ? (
-                        <button
-                          type="button"
-                          disabled={!!c.acknowledged}
-                          onClick={() => onDismissWarning(c)}
-                          className="mt-2 rounded border px-2 py-1 text-xs font-medium disabled:opacity-50"
+                {checksDisplayed.map((c, idx) => {
+                  const st = String(c.status).toLowerCase();
+                  const isError = st === "error";
+                  const isWarning = st === "warning";
+                  const title =
+                    "name" in c && typeof (c as { name?: string }).name === "string"
+                      ? (c as { name: string }).name
+                      : c.label;
+                  const messageText =
+                    "message" in c && typeof (c as { message?: string }).message === "string"
+                      ? (c as { message: string }).message
+                      : c.detail;
+                  return (
+                    <li
+                      key={c.id || `sanity-${idx}-${title}`}
+                      className={
+                        isError
+                          ? "flex flex-wrap items-start gap-2 rounded-lg border-2 border-red-500 bg-red-50 p-4 text-sm shadow-sm"
+                          : isWarning
+                            ? "flex flex-wrap items-start gap-2 rounded-lg border border-amber-300 bg-amber-50/90 p-3 text-sm"
+                            : "flex flex-wrap items-start gap-2 rounded-lg border border-[var(--border)] p-3 text-sm"
+                      }
+                    >
+                      {st === "pass" ? (
+                        <span className="text-[var(--success)]">✓</span>
+                      ) : isWarning ? (
+                        <span className="text-[var(--warning)]">⚠</span>
+                      ) : (
+                        <span className="font-semibold text-red-700">✕</span>
+                      )}
+                      <div className="flex-1">
+                        <div
+                          className={
+                            isError
+                              ? "font-semibold text-red-950"
+                              : isWarning
+                                ? "font-medium text-amber-950"
+                                : "font-medium"
+                          }
                         >
-                          {c.acknowledged ? "Dismissed" : "Dismiss"}
-                        </button>
-                      ) : null}
-                    </div>
-                  </li>
-                ))}
+                          {title}
+                        </div>
+                        {messageText ? (
+                          <div
+                            className={
+                              isError
+                                ? "mt-1 text-sm font-medium text-red-900"
+                                : "text-[var(--text-secondary)]"
+                            }
+                          >
+                            {messageText}
+                          </div>
+                        ) : null}
+                        {c.affected_records?.length ? (
+                          <ul className="mt-1 font-mono text-xs text-[var(--text-secondary)]">
+                            {c.affected_records.slice(0, 20).map((a, i) => (
+                              <li key={i}>
+                                {a.gstin} — {a.invoice_number}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        {isWarning ? (
+                          <button
+                            type="button"
+                            disabled={!!c.acknowledged}
+                            onClick={() => onDismissWarning(c)}
+                            className="mt-2 rounded border px-2 py-1 text-xs font-medium disabled:opacity-50"
+                          >
+                            {c.acknowledged ? "Dismissed" : "Dismiss"}
+                          </button>
+                        ) : null}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
               {sanityErrors.length ? (
                 <button
@@ -938,7 +981,7 @@ export default function NewReconcileWizardPage() {
             type="button"
             disabled={!canGoToStep3}
             onClick={() => setUiStep(3)}
-            className="rounded-lg bg-[var(--text-primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-[var(--text-primary)] px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-400 disabled:text-gray-100 disabled:opacity-90"
           >
             Continue to purchase register
           </button>
