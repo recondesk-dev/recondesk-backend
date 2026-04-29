@@ -31,10 +31,12 @@ export default function SignupPage() {
     setLoading(true);
     setError(null);
 
+    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin).replace(/\/$/, "");
     const { error } = await supabase.auth.signUp({
       email: form.email,
       password: form.password,
       options: {
+        emailRedirectTo: `${siteUrl}/auth/callback`,
         data: {
           full_name: form.name,
           firm_name: form.firmName,

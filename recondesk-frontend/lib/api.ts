@@ -67,17 +67,51 @@ export interface RecordWithStatus {
 
 // ─── Core fetch wrapper ───────────────────────────────────────────────────────
 
+function formatApiErrorDetail(raw: unknown, fallback: string): string {
+  if (raw == null) return fallback;
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) =>
+        typeof item === "object" && item && "msg" in item
+          ? String((item as { msg: unknown }).msg)
+          : JSON.stringify(item)
+      )
+      .join("; ");
+  }
+  return String(raw);
+}
+
 async function apiFetch<T>(
   path: string,
   options: RequestInit & { token?: string } = {}
 ): Promise<T> {
   const { token, ...fetchOptions } = options;
 
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(fetchOptions.headers ?? {}),
-  };
+  const headers = new Headers();
+
+  const incoming = fetchOptions.headers;
+  if (incoming instanceof Headers) {
+    incoming.forEach((value, key) => {
+      if (value != null && value !== "") headers.set(key, value);
+    });
+  } else if (incoming && typeof incoming === "object") {
+    for (const [key, value] of Object.entries(incoming)) {
+      if (value != null && value !== "") headers.set(key, String(value));
+    }
+  }
+
+  const isFormData =
+    typeof FormData !== "undefined" && fetchOptions.body instanceof FormData;
+
+  if (!isFormData && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const bearer = typeof token === "string" ? token.trim() : "";
+  if (bearer) {
+    headers.set("Authorization", `Bearer ${bearer}`);
+  }
 
   const res = await fetch(`${API_URL}${path}`, {
     ...fetchOptions,
@@ -87,8 +121,8 @@ async function apiFetch<T>(
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
     try {
-      const json = await res.json();
-      detail = json.detail ?? detail;
+      const json = (await res.json()) as { detail?: unknown };
+      detail = formatApiErrorDetail(json.detail, detail);
     } catch {
       // Response body was not JSON
     }
@@ -313,12 +347,15 @@ export interface RunPollStatus {
 }
 
 export const importWizardApi = {
-  createRun: (token: string, body: { client_id: string; period: string }) =>
-    apiFetch<ImportWizardRun>("/api/runs", {
+  createRun: (token: string, body: { client_id: string; period: string }) => {
+    const t = token.trim();
+    return apiFetch<ImportWizardRun>("/api/runs", {
       method: "POST",
       body: JSON.stringify(body),
-      token,
-    }),
+      token: t,
+      headers: { Authorization: `Bearer ${t}` },
+    });
+  },
 
   getRun: (token: string, runId: string) =>
     apiFetch<ImportWizardRun>(`/api/runs/${runId}`, { token }),
