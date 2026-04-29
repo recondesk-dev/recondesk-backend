@@ -10,7 +10,7 @@ import {
   type ImportWizardRun,
   type SanityCheckItem,
 } from "@/lib/api";
-import { createClient } from "@/lib/supabase/client";
+import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 
 const MAX_UPLOAD = 20 * 1024 * 1024;
 const ACTIVE_STATUSES = ["draft", "gstr_uploaded", "pr_uploaded", "pending", "processing"] as const;
@@ -158,7 +158,8 @@ export default function NewReconcileWizardPage() {
   const searchParams = useSearchParams();
   const clientId = params?.client_id as string;
 
-  const [token, setToken] = useState<string | null>(null);
+  /** `null` = auth still resolving; `string` = JWT; `false` = not signed in */
+  const [token, setToken] = useState<string | null | false>(null);
   const [run, setRun] = useState<ImportWizardRun | null>(null);
   const [uiStep, setUiStep] = useState(1);
   const [period, setPeriod] = useState<string>("");
@@ -199,22 +200,10 @@ export default function NewReconcileWizardPage() {
     []
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const supabase = createClient();
-      const { data } = await supabase.auth.getSession();
-      const tok = data.session?.access_token ?? null;
-      if (cancelled) return;
-      setToken(tok);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  useEffect(() => subscribeAccessToken(setToken), []);
 
   useEffect(() => {
-    if (!token || !clientId) return;
+    if (typeof token !== "string" || !clientId) return;
     let cancelled = false;
     (async () => {
       const supabase = createClient();
@@ -273,7 +262,7 @@ export default function NewReconcileWizardPage() {
   }, [run?.id]);
 
   useEffect(() => {
-    if (!token || !clientId || !period) return;
+    if (typeof token !== "string" || !clientId || !period) return;
     let cancelled = false;
     (async () => {
       const supabase = createClient();
@@ -296,7 +285,7 @@ export default function NewReconcileWizardPage() {
   }, [token, clientId, period]);
 
   const onResume = async () => {
-    if (!token || !incompleteNotice) return;
+    if (typeof token !== "string" || !incompleteNotice) return;
     setErr(null);
     const r = await refreshRun(incompleteNotice.id, token);
     setIncompleteNotice(null);
@@ -311,7 +300,7 @@ export default function NewReconcileWizardPage() {
   };
 
   const onStartFresh = async () => {
-    if (!token || !incompleteNotice) return;
+    if (typeof token !== "string" || !incompleteNotice) return;
     setErr(null);
     setBusy(true);
     try {
@@ -326,13 +315,16 @@ export default function NewReconcileWizardPage() {
   };
 
   const onConfirmPeriod = async () => {
-    if (!token || !period) {
+    if (typeof token !== "string") return;
+    if (!period) {
       setErr("Select a period.");
       return;
     }
     setErr(null);
     setBusy(true);
     try {
+      // eslint-disable-next-line no-console -- debug: verify JWT sent on Continue
+      console.log(token);
       const r = await importWizardApi.createRun(token, { client_id: clientId, period });
       setRun(r);
       setUiStep(2);
@@ -348,7 +340,7 @@ export default function NewReconcileWizardPage() {
   const runId = run?.id ?? searchParams.get("run_id");
 
   const runSanityWithRetry = async () => {
-    if (!token || !runId) return;
+    if (typeof token !== "string" || !runId) return;
     setSanityBusy(true);
     setErr(null);
     try {
@@ -368,7 +360,7 @@ export default function NewReconcileWizardPage() {
   };
 
   const onGstrUpload = async () => {
-    if (!token || !runId || !gstrFile) return;
+    if (typeof token !== "string" || !runId || !gstrFile) return;
     setErr(null);
     setGstrUploadFailed(false);
     if (!gstrFile.name.toLowerCase().endsWith(".json")) {
@@ -420,7 +412,7 @@ export default function NewReconcileWizardPage() {
   };
 
   const onPrUpload = async () => {
-    if (!token || !runId || !prFile) return;
+    if (typeof token !== "string" || !runId || !prFile) return;
     setErr(null);
     setPrUploadFailed(false);
     const ext = prFile.name.split(".").pop()?.toLowerCase() ?? "";
@@ -465,7 +457,7 @@ export default function NewReconcileWizardPage() {
   };
 
   const runDetectWithRetry = async () => {
-    if (!token || !runId) return;
+    if (typeof token !== "string" || !runId) return;
     setDetectBusy(true);
     setErr(null);
     try {
@@ -483,7 +475,7 @@ export default function NewReconcileWizardPage() {
   };
 
   const persistMapping = async (next: ColumnMappingRow[]) => {
-    if (!token || !runId) return;
+    if (typeof token !== "string" || !runId) return;
     setMappingLocal(next);
     await importWizardApi.patchRun(token, runId, { column_mapping: next });
     const r = await refreshRun(runId, token);
@@ -506,7 +498,7 @@ export default function NewReconcileWizardPage() {
     );
     await persistMapping(next);
     const updated = next.find((m) => m.standard_field === field);
-    if (row && token) {
+    if (row && typeof token === "string") {
       await importWizardApi.confirmMapping(token, runId, {
         field,
         detected_column: updated?.detected_column ?? null,
@@ -523,7 +515,7 @@ export default function NewReconcileWizardPage() {
       m.standard_field === field ? { ...m, confirmed: true } : m
     );
     await persistMapping(next);
-    if (row && token && runId) {
+    if (row && typeof token === "string" && runId) {
       await importWizardApi.confirmMapping(token, runId, {
         field,
         detected_column: row.detected_column,
@@ -534,7 +526,7 @@ export default function NewReconcileWizardPage() {
   };
 
   const onDismissWarning = async (c: SanityCheckItem) => {
-    if (!token || !runId) return;
+    if (typeof token !== "string" || !runId) return;
     await importWizardApi.acknowledgeWarning(token, runId, {
       check_id: c.id,
       check_label: c.label,
@@ -571,7 +563,7 @@ export default function NewReconcileWizardPage() {
     if (uiStep <= 1) return;
     const next = uiStep - 1;
     setUiStep(next);
-    if (token && runId && run) {
+    if (typeof token === "string" && runId && run) {
       const newCompleted = Math.max(1, (run.current_step ?? 1) - 1);
       try {
         await importWizardApi.patchRun(token, runId, { current_step: newCompleted });
@@ -583,7 +575,7 @@ export default function NewReconcileWizardPage() {
   };
 
   const onStart = async () => {
-    if (!token || !runId) return;
+    if (typeof token !== "string" || !runId) return;
     setStart409(null);
     setStartBusy(true);
     setErr(null);
@@ -604,7 +596,7 @@ export default function NewReconcileWizardPage() {
   };
 
   const onCancelRun = async () => {
-    if (!token || !runId) return;
+    if (typeof token !== "string" || !runId) return;
     setBusy(true);
     try {
       await importWizardApi.cancel(token, runId);
@@ -618,7 +610,7 @@ export default function NewReconcileWizardPage() {
   };
 
   const onRetryError = async () => {
-    if (!token || !runId) return;
+    if (typeof token !== "string" || !runId) return;
     setErr(null);
     try {
       const r = await importWizardApi.retry(token, runId);
@@ -631,7 +623,7 @@ export default function NewReconcileWizardPage() {
   };
 
   useEffect(() => {
-    if (!token || !runId) return;
+    if (typeof token !== "string" || !runId) return;
     if (run?.status !== "pending" && run?.status !== "processing") return;
 
     let cancelled = false;
@@ -665,7 +657,29 @@ export default function NewReconcileWizardPage() {
     };
   }, [token, runId, run?.status, router, refreshRun]);
 
-  if (!token) {
+  if (token === null) {
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8 text-[var(--text-secondary)]">
+        <svg
+          className="h-8 w-8 animate-spin text-[var(--accent)]"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          aria-hidden
+        >
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path
+            className="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+          />
+        </svg>
+        <p className="text-sm">Checking authentication…</p>
+      </div>
+    );
+  }
+
+  if (token === false) {
     return (
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8 text-[var(--text-secondary)]">
         Sign in to continue.

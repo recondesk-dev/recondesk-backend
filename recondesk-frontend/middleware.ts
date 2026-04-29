@@ -35,13 +35,23 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
   const isMockDashboard =
-    pathname === "/" ||
-    pathname.startsWith("/clients") ||
-    pathname.startsWith("/runs") ||
-    pathname.startsWith("/settings");
+  pathname === "/" ||
+  pathname.startsWith("/clients") ||
+  pathname.startsWith("/runs") ||
+  pathname.startsWith("/settings") ||
+  pathname.startsWith("/reconcile") ||
+  pathname.startsWith("/results");
+
+  /** Let this API return 401 JSON instead of redirecting (client fetch needs a body). */
+  const isAccessTokenApi =
+    pathname === "/api/auth/access-token" || pathname === "/api/auth/access-token/";
+
+  /** OAuth / magic link must run while still unauthenticated (PKCE code exchange). */
+  const isAuthCallback =
+    pathname === "/auth/callback" || pathname.startsWith("/auth/callback/");
 
   // Unauthenticated → redirect to /login (mock dashboard is open without auth)
-  if (!user && !isPublicRoute && !isMockDashboard) {
+  if (!user && !isPublicRoute && !isMockDashboard && !isAccessTokenApi && !isAuthCallback) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirectTo", pathname);
