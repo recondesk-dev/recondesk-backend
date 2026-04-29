@@ -211,22 +211,10 @@ async def import_gstr2b(
         if cg_res.data and cg_res.data[0].get("gstin") is not None:
             client_gstin_raw = str(cg_res.data[0]["gstin"]).strip()
         file_gstin_raw = _gstr2b_buyer_gstin_from_raw(raw) or ""
-        print(f"[GSTIN preflight DEBUG] client_gstin from DB: {client_gstin_raw!r}")
-        print(f"[GSTIN preflight DEBUG] file_gstin extracted: {file_gstin_raw!r}")
-        if not client_gstin_raw or not file_gstin_raw:
-            print(
-                "[GSTIN preflight DEBUG] skipping compare: "
-                f"client_empty={not bool(client_gstin_raw)} file_empty={not bool(file_gstin_raw)}"
-            )
-        else:
+        if client_gstin_raw and file_gstin_raw:
             n_file = _gstin_norm_for_compare(file_gstin_raw)
             n_client = _gstin_norm_for_compare(client_gstin_raw)
-            match = n_file == n_client
-            print(
-                f"[GSTIN preflight DEBUG] normalized file={n_file!r} "
-                f"normalized client={n_client!r} match={match}"
-            )
-            if not match:
+            if n_file != n_client:
                 return JSONResponse(
                     status_code=200,
                     content={
@@ -243,7 +231,6 @@ async def import_gstr2b(
                     },
                 )
     except Exception as exc:
-        print(f"[GSTIN preflight DEBUG] EXCEPT: {type(exc).__name__}: {exc!r}")
         _log.warning(
             "GSTIN sanity preflight failed (%s); continuing with import",
             exc,
