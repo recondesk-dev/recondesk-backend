@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -13,10 +14,12 @@ from uuid import UUID, uuid4
 import boto3
 from botocore.config import Config
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import JSONResponse
 from supabase import Client, create_client
 
 from app.auth import get_current_active_user
 from app.config import get_r2_s3_endpoint_url, get_settings
+from app.services.normalizer import NormalizationError, normalize_gstin
 from app.utils.audit import log_action
 from app.worker.celery_app import celery_app
 
@@ -96,6 +99,35 @@ def _assigned_client_gstin_id(sb: Client, current_user: dict) -> str:
     return str(res.data[0]["id"]).strip()
 
 
+def _gstr2b_buyer_gstin_from_raw(raw: bytes) -> str | None:
+    """Best-effort buyer GSTIN from GSTR-2B JSON (portal layouts vary)."""
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    root = data.get("data")
+    gst: Any = None
+    if isinstance(root, dict):
+        gst = root.get("gstin")
+        if not gst:
+            gst = data.get("gstnId") or data.get("gstin")
+    else:
+        gst = data.get("gstnId") or data.get("gstin")
+    if gst is None:
+        return None
+    s = str(gst).strip()
+    return s or None
+
+
+def _gstin_norm_for_compare(raw: str) -> str:
+    try:
+        return normalize_gstin(raw)
+    except NormalizationError:
+        return re.sub(r"\s+", "", raw).upper()
+
+
 @router.post("/gstr2b")
 async def import_gstr2b(
     request: Request,
@@ -164,6 +196,58 @@ async def import_gstr2b(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"file exceeds {get_settings().MAX_FILE_SIZE_MB}MB limit",
         )
+
+    try:
+        cg_res = (
+            sb.table("client_gstins")
+            .select("gstin")
+            .eq("id", cg)
+            .limit(1)
+            .execute()
+        )
+        client_gstin_raw = ""
+        if cg_res.data and cg_res.data[0].get("gstin") is not None:
+            client_gstin_raw = str(cg_res.data[0]["gstin"]).strip()
+        file_gstin_raw = _gstr2b_buyer_gstin_from_raw(raw) or ""
+        print(f"[GSTIN preflight DEBUG] client_gstin from DB: {client_gstin_raw!r}")
+        print(f"[GSTIN preflight DEBUG] file_gstin extracted: {file_gstin_raw!r}")
+        if not client_gstin_raw or not file_gstin_raw:
+            print(
+                "[GSTIN preflight DEBUG] skipping compare: "
+                f"client_empty={not bool(client_gstin_raw)} file_empty={not bool(file_gstin_raw)}"
+            )
+        else:
+            n_file = _gstin_norm_for_compare(file_gstin_raw)
+            n_client = _gstin_norm_for_compare(client_gstin_raw)
+            match = n_file == n_client
+            print(
+                f"[GSTIN preflight DEBUG] normalized file={n_file!r} "
+                f"normalized client={n_client!r} match={match}"
+            )
+            if not match:
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "checks": [
+                            {
+                                "name": "GSTIN match",
+                                "status": "ERROR",
+                                "message": (
+                                    f"GSTIN in file ({file_gstin_raw}) does not match "
+                                    f"client GSTIN ({client_gstin_raw}). Upload the correct file."
+                                ),
+                            }
+                        ]
+                    },
+                )
+    except Exception as exc:
+        print(f"[GSTIN preflight DEBUG] EXCEPT: {type(exc).__name__}: {exc!r}")
+        _log.warning(
+            "GSTIN sanity preflight failed (%s); continuing with import",
+            exc,
+            exc_info=True,
+        )
+
     start_uid = str(current_user.get("id", "")).strip()
     dup = (
         sb.table("reconciliation_run")
