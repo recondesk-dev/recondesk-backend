@@ -324,7 +324,6 @@ export default function NewReconcileWizardPage() {
     setBusy(true);
     try {
       // eslint-disable-next-line no-console -- debug: verify JWT sent on Continue
-      console.log(token);
       const r = await importWizardApi.createRun(token, { client_id: clientId, period });
       setRun(r);
       setUiStep(2);
