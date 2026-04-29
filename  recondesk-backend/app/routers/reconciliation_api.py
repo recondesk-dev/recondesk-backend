@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
+import math
 import re
+from collections import Counter
 from datetime import datetime, timezone
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, TypeVar
+
+TSeq = TypeVar("TSeq")
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from uuid import UUID
 
 from app.auth import get_current_active_user, get_user_role
 from app.constants import RunStatus
 from app.database import get_supabase, get_user_profile
+from app.services.decision_templates import generate_decision
 from app.services import reconciliation_outcomes as ro
 from app.services.firm_access import (
     assert_run_accessible,
@@ -581,3 +589,1031 @@ async def mark_rule37_resolved(
         resolved_at=now,
         resolution_note=resolution_note,
     )
+
+
+# ── `/api/reconcile/runs/{run_id}/…` (mounted from ``main.py`` with prefix `/api/reconcile`)
+
+reconcile_runs_router = APIRouter()
+
+
+def _display_status(st: Optional[str]) -> str:
+    s = (st or "").strip().lower()
+    if s == RunStatus.COMPLETED.lower():
+        return "completed"
+    if s == RunStatus.FINAL.lower():
+        return "final"
+    if s == RunStatus.PENDING.lower():
+        return "pending"
+    if s == RunStatus.PROCESSING.lower():
+        return "processing"
+    return (st or "").lower() or ""
+
+
+def _paise_to_rupees(paise: Optional[int]) -> float:
+    if paise is None:
+        return 0.0
+    try:
+        return round(float(paise) / 100.0, 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _notes_count_for_run(sb, run_id: str) -> Counter[str]:
+    try:
+        r = (
+            sb.table("mismatch_notes")
+            .select("record_id")
+            .eq("run_id", run_id)
+            .execute()
+        )
+    except Exception:
+        _log.exception("notes count reconciliation_run=%s", run_id)
+        return Counter()
+    c: Counter[str] = Counter()
+    for row in r.data or []:
+        cid = row.get("record_id")
+        if cid is not None and str(cid):
+            c[str(cid)] += 1
+    return c
+
+
+def _merged_record_data(rd: Optional[dict[str, Any]], matcher: Optional[dict[str, Any]]) -> dict[str, Any]:
+    if not matcher and not rd:
+        return {}
+    merged: dict[str, Any] = {}
+    if isinstance(rd, dict):
+        merged.update(rd)
+    if isinstance(matcher, dict):
+        for k, v in matcher.items():
+            if k == "supplier_gstin" and merged.get(k) is None:
+                merged[k] = v
+            elif k not in merged:
+                merged[k] = v
+    out: dict[str, Any] = {}
+    for k, v in merged.items():
+        if isinstance(v, (int, float, str)):
+            out[str(k)] = v
+        else:
+            out[str(k)] = str(v) if v is not None else ""
+    return out
+
+
+def _matched_ui_match_level(engine_row: dict[str, Any], match_status_display: Optional[str]) -> str:
+    st = str(match_status_display or "").strip().upper()
+    if engine_row.get("is_late_filing"):
+        return "MANUAL"
+    if st == "MATCHED":
+        return "EXACT"
+    return "FUZZY"
+
+
+def _rule37_urgency_from_status(status: Optional[str]) -> Optional[str]:
+    s = str(status or "").upper()
+    if s == "OVERDUE_UNPAID":
+        return "CRITICAL"
+    if "60" in s or s == "WARNING_60_DAYS":
+        return "HIGH"
+    if "30" in s or s == "WARNING_30_DAYS" or s in ro.RULE37_CONCERNS:
+        return "MEDIUM"
+    return None
+
+
+def _build_reconcile_summary(
+    sb,
+    *,
+    run_row: dict[str, Any],
+    payload: dict[str, Any],
+    current_user_id: str,
+) -> dict[str, Any]:
+    rid = str(run_row.get("id", "")).strip()
+    engine = payload.get("engine") or {}
+    gstr_m = ro.load_gstr_map(sb, rid)
+    matched_n = len(engine.get("matched") or [])
+    n_g = len(gstr_m)
+
+    matched_count = matched_n
+    missed_list = engine.get("missed_itc") or []
+    wr_list = engine.get("wrongful_itc_risk") or []
+    missed_count = len(missed_list)
+    wrongful_count = len(wr_list)
+
+    missed_total_rupees = sum(
+        _paise_to_rupees(int(m.get("total_tax_paise") or 0)) for m in missed_list
+    )
+    wrongful_total_rupees = sum(
+        _paise_to_rupees(int(w.get("taxable_amount_paise") or 0)) for w in wr_list
+    )
+    if n_g > 0:
+        match_pct = round(100.0 * matched_count / n_g, 1)
+    else:
+        match_pct = 0.0
+
+    cgid = str(run_row.get("client_gstin_id") or "").strip()
+    cg = (
+        sb.table("client_gstins")
+        .select("trade_name, gstin, assigned_to")
+        .eq("id", cgid)
+        .limit(1)
+        .execute()
+    )
+    crow = (cg.data or [{}])[0]
+    client_display = crow.get("trade_name") or crow.get("gstin") or ""
+    assigned_to_uid = crow.get("assigned_to")
+    assigned_to_name = ""
+    if assigned_to_uid:
+        ap = get_user_profile(str(assigned_to_uid)) or {}
+        assigned_to_name = str(ap.get("full_name") or "")
+
+    fin_uid = str(run_row.get("finalized_by") or "").strip()
+    finalized_name: Optional[str] = None
+    if fin_uid:
+        fp = get_user_profile(fin_uid) or {}
+        finalized_name = str(fp.get("full_name")) if fp.get("full_name") else None
+
+    prof = get_user_profile(current_user_id) or {}
+    user_role_literal = (
+        prof.get("role").strip().lower()
+        if prof.get("role")
+        else "staff"
+    )
+    role_out: Literal["admin", "staff"] = (
+        "admin" if user_role_literal == "admin" else "staff"
+    )
+
+    period = str(run_row.get("period") or "")
+
+    return {
+        "run_id": rid,
+        "client_name": client_display,
+        "period": period,
+        "assigned_to_name": assigned_to_name,
+        "status": _display_status(run_row.get("status")),
+        "finalized_by_name": finalized_name,
+        "finalized_at": run_row.get("finalized_at"),
+        "total_gstr_records": n_g,
+        "matched_count": matched_count,
+        "missed_itc_count": missed_count,
+        "missed_itc_total_amount": round(missed_total_rupees, 2),
+        "wrongful_risk_count": wrongful_count,
+        "wrongful_risk_total_amount": round(wrongful_total_rupees, 2),
+        "match_rate_percent": match_pct,
+        "user_role": role_out,
+    }
+
+
+def _build_missed_itc_records(
+    sb,
+    *,
+    rid: str,
+    payload: dict[str, Any],
+    note_counts: Counter[str],
+    source_software: str,
+) -> list[dict[str, Any]]:
+    engine = payload.get("engine") or {}
+    gstr_db = ro.load_gstr_map(sb, rid)
+    out = []
+    for mi in engine.get("missed_itc") or []:
+        gid = str(mi.get("gstr_id", "")).strip()
+        cell = gstr_db.get(gid) or {}
+        mt = cell.get("matcher") or {}
+        rd = cell.get("record_data") if isinstance(cell.get("record_data"), dict) else {}
+        amt_paise = int(mi.get("total_tax_paise") or mt.get("total_tax_paise") or 0)
+        amt = _paise_to_rupees(amt_paise)
+        dout = generate_decision(
+            "MISSED_ITC",
+            source_software=source_software,
+            itc_amount=f"₹{amt:,.2f}",
+        )
+        row_id = f"mi:{gid}"
+        gd2 = _merged_record_data(rd, mt)
+        out.append(
+            {
+                "id": row_id,
+                "supplier_gstin": str(mi.get("supplier_gstin") or mt.get("supplier_gstin") or ""),
+                "invoice_number": str(
+                    mi.get("invoice_number_normalized")
+                    or mt.get("invoice_number_normalized")
+                    or ""
+                ),
+                "invoice_date": str(mi.get("invoice_date") or mt.get("invoice_date") or "")[:40],
+                "amount": amt,
+                "match_level": "UNMATCHED",
+                "confidence_score": 0.0,
+                "discrepancy_note": mi.get("mismatch_reason") if isinstance(mi, dict) else None,
+                "decision_what": dout.what,
+                "decision_why": dout.why,
+                "decision_next": dout.next,
+                "decision_status": "pending",
+                "decision_type": None,
+                "notes_count": int(note_counts.get(row_id, 0)),
+                "gstr2b_data": gd2,
+                "purchase_register_data": {},
+            }
+        )
+    out.sort(key=lambda x: (-x["amount"], x["id"]))
+    return out
+
+
+def _build_wrongful_risk_records(
+    sb,
+    *,
+    rid: str,
+    payload: dict[str, Any],
+    note_counts: Counter[str],
+) -> list[dict[str, Any]]:
+    engine = payload.get("engine") or {}
+    pr_db = ro.load_pr_map(sb, rid)
+    out = []
+    for w in engine.get("wrongful_itc_risk") or []:
+        pid = str(w.get("id", "")).strip()
+        row_id = f"wr:{pid}"
+        cell = pr_db.get(pid) or {}
+        mt = cell.get("matcher") or {}
+        rd = cell.get("record_data") if isinstance(cell.get("record_data"), dict) else {}
+        amt = _paise_to_rupees(
+            int(w.get("taxable_amount_paise") or mt.get("taxable_amount_paise") or 0)
+        )
+        dout = generate_decision(
+            "WRONGFUL_ITC",
+            supplier_gstin=str(w.get("supplier_gstin") or mt.get("supplier_gstin") or "?"),
+            itc_amount=f"₹{amt:,.2f}",
+        )
+        gd2 = _merged_record_data(rd, mt)
+        out.append(
+            {
+                "id": row_id,
+                "supplier_gstin": str(w.get("supplier_gstin") or mt.get("supplier_gstin") or ""),
+                "invoice_number": str(
+                    w.get("invoice_number_normalized") or mt.get("invoice_number_normalized") or ""
+                ),
+                "invoice_date": str(w.get("invoice_date") or mt.get("invoice_date") or "")[:40],
+                "amount": amt,
+                "match_level": "UNMATCHED",
+                "confidence_score": 0.0,
+                "discrepancy_note": None,
+                "decision_what": dout.what,
+                "decision_why": dout.why,
+                "decision_next": dout.next,
+                "decision_status": "pending",
+                "decision_type": None,
+                "notes_count": int(note_counts.get(row_id, 0)),
+                "gstr2b_data": {},
+                "purchase_register_data": gd2,
+            }
+        )
+    out.sort(key=lambda x: (-x["amount"], x["id"]))
+    return out
+
+
+def _build_matched_pair_records(
+    sb,
+    *,
+    rid: str,
+    payload: dict[str, Any],
+    note_counts: Counter[str],
+) -> list[tuple[dict[str, Any], Any]]:
+    """Return list of ({api_row}, outcome_row) for pagination / filters."""
+    gstr_db = ro.load_gstr_map(sb, rid)
+    pr_db = ro.load_pr_map(sb, rid)
+    engine_matched = payload.get("engine", {}).get("matched") or []
+    decisions_rows = (
+        ((payload.get("decisions") or {}).get("rows")) or []
+    )
+
+    oc_rows = ro.build_outcome_rows(sb, rid, payload)[0]
+    oc_matched_in_order = [r for r in oc_rows if r.category == "matched"]
+
+    if len(oc_matched_in_order) != len(engine_matched):
+        _log.warning(
+            "matched outcome vs engine mismatch run=%s %s vs %s",
+            rid,
+            len(oc_matched_in_order),
+            len(engine_matched),
+        )
+
+    out_pairs: list[tuple[dict[str, Any], Any]] = []
+
+    for idx, en_row in enumerate(engine_matched):
+        gid = str(en_row.get("gstr_id", "")).strip()
+        pid = str(en_row.get("pr_id", "")).strip()
+        gm = ((gstr_db.get(gid) or {}).get("matcher")) or {}
+        grd_raw = (
+            (gstr_db.get(gid) or {}).get("record_data")
+            if isinstance((gstr_db.get(gid) or {}).get("record_data"), dict)
+            else {}
+        )
+        pm = ((pr_db.get(pid) or {}).get("matcher")) or {}
+        prd_raw = (
+            (pr_db.get(pid) or {}).get("record_data")
+            if isinstance((pr_db.get(pid) or {}).get("record_data"), dict)
+            else {}
+        )
+
+        orow = oc_matched_in_order[idx] if idx < len(oc_matched_in_order) else None
+        mst_disp = getattr(orow, "match_status", None)
+        lvl = _matched_ui_match_level(dict(en_row), mst_disp)
+        amt = _paise_to_rupees(int(gm.get("total_tax_paise") or 0))
+
+        discrep: Optional[str] = None
+        if getattr(orow, "match_status", "") == "MISMATCHED" and orow is not None:
+            discrep = (
+                f"GST tax delta (Δpaise): {int(orow.total_tax_diff_paise):,}"
+            )
+
+        dm: dict[str, Any] = (
+            decisions_rows[idx] if idx < len(decisions_rows) and isinstance(decisions_rows[idx], dict) else {}
+        )
+        d_what = dm.get("decision_what")
+        d_why = dm.get("decision_why")
+        d_next = dm.get("decision_next")
+
+        gd2 = _merged_record_data(grd_raw, gm)
+        pd2 = _merged_record_data(prd_raw, pm)
+
+        rid_str = f"pm:{gid}"
+        api_row = {
+            "id": rid_str,
+            "supplier_gstin": str(gm.get("supplier_gstin") or pm.get("supplier_gstin") or ""),
+            "invoice_number": str(
+                gm.get("invoice_number_normalized")
+                or pm.get("invoice_number_normalized")
+                or ""
+            ),
+            "invoice_date": str(
+                gm.get("invoice_date") or pm.get("invoice_date") or ""
+            )[:40],
+            "amount": amt,
+            "match_level": lvl,
+            "confidence_score": float(en_row.get("confidence_score") or 0.0),
+            "discrepancy_note": discrep,
+            "decision_what": d_what
+            if d_what
+            else (str(getattr(orow, "decision_what", "")) if orow else None),
+            "decision_why": d_why
+            if d_why
+            else (str(getattr(orow, "decision_why", "")) if orow else None),
+            "decision_next": d_next
+            if d_next
+            else (str(getattr(orow, "decision_next", "")) if orow else None),
+            "decision_status": "pending",
+            "decision_type": None,
+            "notes_count": int(note_counts.get(rid_str, 0)),
+            "gstr2b_data": gd2,
+            "purchase_register_data": pd2,
+        }
+        out_pairs.append((api_row, orow))
+    out_pairs.sort(key=lambda t: (-t[0]["amount"], t[0]["id"]))
+    return out_pairs
+
+
+def _filter_matched(
+    pairs: list[tuple[dict[str, Any], Any]],
+    *,
+    search_q: Optional[str],
+    match_level_filter: Optional[str],
+    amount_min_val: Optional[float],
+    amount_max_val: Optional[float],
+    require_notes: bool,
+    review_required: bool,
+    section174: bool,
+) -> list[tuple[dict[str, Any], Any]]:
+    out_f: list[tuple[dict[str, Any], Any]] = []
+    for api_row, orow in pairs:
+        amt = float(api_row["amount"]) if api_row.get("amount") is not None else 0.0
+        gstin = str(api_row.get("supplier_gstin") or "").lower()
+        invn = str(api_row.get("invoice_number") or "").lower()
+        lvl = str(api_row.get("match_level") or "").upper()
+
+        if search_q:
+            q = search_q.strip().lower()
+            if q not in gstin and q not in invn:
+                continue
+
+        if match_level_filter:
+            if lvl != match_level_filter.strip().upper():
+                continue
+
+        if amount_min_val is not None and amt < amount_min_val - 1e-9:
+            continue
+        if amount_max_val is not None and amt > amount_max_val + 1e-9:
+            continue
+
+        if require_notes and int(api_row.get("notes_count") or 0) < 1:
+            continue
+
+        if review_required and orow is not None:
+            if getattr(orow, "match_status", "").upper() == "MATCHED":
+                continue
+
+        if section174:
+            blk = bool(getattr(orow, "blocked_credit_flag", False)) if orow else False
+            if not blk:
+                continue
+
+        out_f.append((api_row, orow))
+    return out_f
+
+
+def _total_pages(total: int, limit: int) -> int:
+    if total <= 0 or limit <= 0:
+        return 0 if total <= 0 else 1
+    return math.ceil(total / limit)
+
+
+def _pagination_chunk(seq: list[TSeq], page: int, limit: int) -> list[TSeq]:
+    if limit <= 0:
+        return []
+    start = max(0, (page - 1) * limit)
+    return seq[start : start + limit]
+
+
+def _paginated_body(rows: list[dict[str, Any]], page: int, limit: int) -> dict[str, Any]:
+    total = len(rows)
+    page_items = _pagination_chunk(rows, page, limit)
+    return {
+        "data": page_items,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": _total_pages(total, limit),
+    }
+
+
+async def _reconcile_finalize_core(
+    request: Request,
+    sb,
+    *,
+    rid: str,
+    current_user: dict,
+) -> dict[str, Any]:
+    uid = str(current_user.get("id", ""))
+    role = await get_user_role(uid)
+    if (role or "").strip().lower() == "staff":
+        await log_action(
+            uid,
+            "FINALIZATION_BLOCKED",
+            "reconciliation_run",
+            rid,
+            {"role": role},
+            ip_address=(request.client.host if request.client else None),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    run_row = assert_run_accessible(sb, rid, current_user)
+    if bool(run_row.get("is_locked")):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="run is already final",
+        )
+    st = str(run_row.get("status") or "").strip().upper()
+    if st == RunStatus.FINAL:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="run is already final",
+        )
+    if st != RunStatus.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="run must be complete before finalization",
+        )
+    if not ro.load_payload(sb, rid):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="no reconciliation payload for this run",
+        )
+    need, have, unresolved = count_unresolved_rule37(sb, rid)
+    if unresolved > 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"{unresolved} Rule 37 invoice(s) are unresolved. "
+                "Resolve all before finalizing."
+            ),
+        )
+    now = datetime.now(timezone.utc).isoformat()
+    ex = (
+        sb.table("reconciliation_run")
+        .update(
+            {
+                "status": RunStatus.FINAL,
+                "finalized_at": now,
+                "finalized_by": uid,
+                "is_locked": True,
+                "updated_at": now,
+            }
+        )
+        .eq("id", rid)
+        .eq("status", RunStatus.COMPLETED)
+        .execute()
+    )
+    if not ex.data:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="could not finalize run; refresh and retry",
+        )
+    await log_action(
+        uid,
+        "RUN_FINALIZED",
+        "reconciliation_run",
+        rid,
+        {},
+        ip_address=(request.client.host if request.client else None),
+    )
+    refreshed = (
+        sb.table("reconciliation_run")
+        .select("*")
+        .eq("id", rid)
+        .limit(1)
+        .execute()
+    ).data or []
+    refreshed_row = refreshed[0] if refreshed else {}
+    p = ro.load_payload(sb, rid) or {}
+    return _build_reconcile_summary(
+        sb, run_row={**run_row, **refreshed_row}, payload=p, current_user_id=uid
+    )
+
+
+
+
+
+def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Counter[str]) -> list[dict[str, Any]]:
+    dec = payload.get("decisions") if isinstance(payload.get("decisions"), dict) else {}
+    comp = payload.get("compliance") if isinstance(payload.get("compliance"), dict) else {}
+    lst = []
+    lst.extend(list(dec.get("rule37") or []))
+    lst.extend(list(comp.get("rule37") or []))
+    uniq: dict[str, dict[str, Any]] = {}
+    for item in lst:
+        if not isinstance(item, dict):
+            continue
+        pid = str(item.get("pr_id") or "").strip()
+        key = pid or id(item)
+        if key in uniq:
+            continue
+        uniq[str(key)] = item
+    out: list[dict[str, Any]] = []
+    for ru in uniq.values():
+        pr_id_actual = ru.get("pr_id")
+        amt = _paise_to_rupees(int(ru.get("itc_at_risk_paise") or 0))
+        row_id = f"r37:{pr_id_actual or id(ru)}"
+        ur = _rule37_urgency_from_status(ru.get("status"))
+        out.append(
+            {
+                "id": row_id,
+                "supplier_gstin": str(ru.get("supplier_gstin") or ""),
+                "invoice_number": str(ru.get("invoice_number") or ""),
+                "invoice_date": str(ru.get("invoice_date") or "")[:40],
+                "amount": amt,
+                "match_level": "UNMATCHED",
+                "confidence_score": 0.0,
+                "discrepancy_note": None,
+                "decision_what": ru.get("decision_what"),
+                "decision_why": ru.get("decision_why"),
+                "decision_next": ru.get("decision_next"),
+                "decision_status": "pending",
+                "decision_type": None,
+                "notes_count": int(note_counts.get(row_id, 0)),
+                "gstr2b_data": {},
+                "purchase_register_data": {},
+                "rule37_urgency": ur,
+            }
+        )
+    out.sort(key=lambda x: (-x["amount"], x["id"]))
+    return out
+
+
+def _try_rule37_via_table(sb, rid: str, page: int, limit: int) -> Optional[dict[str, Any]]:
+    for col in ("reconciliation_run_id", "run_id"):
+        try:
+            off = max(0, (page - 1) * limit)
+            qr = sb.table("rule37_warnings").select("*", count="exact").eq(col, rid)  # type: ignore[arg-type]
+            qr = qr.range(off, off + limit - 1)
+            exe = qr.execute()
+            total = exe.count if getattr(exe, "count", None) is not None else len(exe.data or [])
+            chunk = exe.data or []
+            body = [_db_rule37_warning_to_frontend(row) for row in chunk]
+            return {
+                "data": body,
+                "total": int(total),
+                "page": page,
+                "limit": limit,
+                "total_pages": _total_pages(int(total), limit),
+            }
+        except Exception:
+            continue
+    return None
+
+
+def _db_rule37_warning_to_frontend(row: dict[str, Any]) -> dict[str, Any]:
+    pr_id = row.get("pr_id") or row.get("id")
+    amt = row.get("itc_amount_rupees")
+    try:
+        ar = (
+            float(amt)
+            if amt is not None
+            else _paise_to_rupees(int(row.get("itc_at_risk_paise") or 0))
+        )
+    except (TypeError, ValueError):
+        ar = _paise_to_rupees(int(row.get("itc_at_risk_paise") or 0))
+    rid_str = f"r37:{pr_id}"
+    return {
+        "id": rid_str,
+        "supplier_gstin": str(row.get("supplier_gstin") or ""),
+        "invoice_number": str(row.get("invoice_number") or ""),
+        "invoice_date": str(row.get("invoice_date") or ""),
+        "amount": round(ar, 2),
+        "match_level": "UNMATCHED",
+        "confidence_score": 0.0,
+        "discrepancy_note": None,
+        "decision_what": row.get("decision_what"),
+        "decision_why": row.get("decision_why"),
+        "decision_next": row.get("decision_next"),
+        "decision_status": "pending",
+        "decision_type": None,
+        "notes_count": 0,
+        "gstr2b_data": {},
+        "purchase_register_data": {},
+        "rule37_urgency": _rule37_urgency_from_status(row.get("status")),
+    }
+
+
+def _build_section175_rows(sb, rid: str, payload: dict[str, Any], note_counts: Counter[str]) -> list[dict[str, Any]]:
+    dec = payload.get("decisions") if isinstance(payload.get("decisions"), dict) else {}
+    comp = payload.get("compliance") if isinstance(payload.get("compliance"), dict) else {}
+    lst: list = []
+    lst.extend(list(dec.get("section_17_5") or dec.get("section_175") or []))
+    lst.extend(list(comp.get("section_17_5") or comp.get("section_175") or []))
+
+    uniq: dict[str, dict[str, Any]] = {}
+    for item in lst:
+        if not isinstance(item, dict):
+            continue
+        inv = str(item.get("invoice_number") or item.get("invoice_no") or "")
+        gst = str(item.get("supplier_gstin") or "")
+        k = f"{gst}|{inv}"
+        uniq[k] = item
+
+    out: list[dict[str, Any]] = []
+    for k, bn in uniq.items():
+        row_id = f"s175:{k.replace('|', '-')[:240]}"
+        cat = bn.get("category")
+        raw_am = bn.get("estimated_itc_amount") if "estimated_itc_amount" in bn else bn.get("amount")
+        try:
+            amt = round(float(raw_am if raw_am is not None else 0.0), 2)
+        except (TypeError, ValueError):
+            amt = 0.0
+        out.append(
+            {
+                "id": row_id,
+                "supplier_gstin": str(bn.get("supplier_gstin") or ""),
+                "invoice_number": str(bn.get("invoice_number") or ""),
+                "invoice_date": str(bn.get("invoice_date") or "")[:40],
+                "amount": amt,
+                "match_level": "UNMATCHED",
+                "confidence_score": 0.0,
+                "discrepancy_note": bn.get("hsn_code"),
+                "decision_what": bn.get("decision_what"),
+                "decision_why": bn.get("decision_why"),
+                "decision_next": bn.get("decision_next"),
+                "decision_status": "pending",
+                "decision_type": None,
+                "notes_count": int(note_counts.get(row_id, 0)),
+                "gstr2b_data": {},
+                "purchase_register_data": {},
+                "section_17_5_category": str(cat) if cat else None,
+            }
+        )
+    out.sort(key=lambda x: (-x["amount"], x["id"]))
+    return out
+
+
+def _try_section175_via_table(sb, rid: str, page: int, limit: int) -> Optional[dict[str, Any]]:
+    for tbl in ("section_17_5_flags", "section_175_warnings"):
+        for col in ("reconciliation_run_id", "run_id"):
+            try:
+                off = max(0, (page - 1) * limit)
+                qr = sb.table(tbl).select("*", count="exact").eq(col, rid)  # type: ignore[arg-type]
+                exe = qr.range(off, off + limit - 1).execute()
+                total = exe.count if getattr(exe, "count", None) is not None else len(exe.data or [])
+                chunk = exe.data or []
+                body = []
+                for i, rw in enumerate(chunk):
+                    gid = rw.get("gstr_record_id") or rw.get("id") or i
+                    body.append(_db_section17_to_frontend(str(gid), rw))
+                return {
+                    "data": body,
+                    "total": int(total),
+                    "page": page,
+                    "limit": limit,
+                    "total_pages": _total_pages(int(total), limit),
+                }
+            except Exception:
+                continue
+    return None
+
+
+def _db_section17_to_frontend(syn_id: str, row: dict[str, Any]) -> dict[str, Any]:
+    row_id = f"s175-db:{syn_id}"
+    amt = row.get("amount_rupees", 0.0)
+    try:
+        ar = float(amt)
+    except (TypeError, ValueError):
+        ar = 0.0
+    return {
+        "id": row_id,
+        "supplier_gstin": str(row.get("supplier_gstin") or ""),
+        "invoice_number": str(row.get("invoice_number") or ""),
+        "invoice_date": str(row.get("invoice_date") or ""),
+        "amount": round(ar, 2),
+        "match_level": "UNMATCHED",
+        "confidence_score": 0.0,
+        "discrepancy_note": None,
+        "decision_what": row.get("decision_what"),
+        "decision_why": row.get("decision_why"),
+        "decision_next": row.get("decision_next"),
+        "decision_status": "pending",
+        "decision_type": None,
+        "notes_count": 0,
+        "gstr2b_data": {},
+        "purchase_register_data": {},
+        "section_17_5_category": str(row.get("category") or "") or None,
+    }
+
+
+def _csv_bytes(headers: tuple[str, ...], data_rows: list[list[Any]]) -> bytes:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    for ln in data_rows:
+        writer.writerow(ln)
+    return buf.getvalue().encode("utf-8")
+
+
+@reconcile_runs_router.get("/runs/{run_id}/summary")
+async def reconcile_run_summary(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, rid, current_user)
+    p = ro.load_payload(sb, rid)
+    if not p:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="no reconciliation payload for this run",
+        )
+    uid = str(current_user.get("id", ""))
+    return _build_reconcile_summary(
+        sb, run_row=run_row, payload=p, current_user_id=uid
+    )
+
+
+def _payload_or_404(sb, rid: str) -> dict[str, Any]:
+    p = ro.load_payload(sb, rid)
+    if not p:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="no reconciliation payload for this run",
+        )
+    return p
+
+
+@reconcile_runs_router.get("/runs/{run_id}/itc")
+async def reconcile_run_itc_bucket(
+    run_id: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    sort: str = Query("amount_desc"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    notes = _notes_count_for_run(sb, rid)
+    rows = _build_missed_itc_records(
+        sb,
+        rid=rid,
+        payload=p,
+        note_counts=notes,
+        source_software="your accounting software",
+    )
+    if sort.endswith("desc"):
+        rows.sort(key=lambda x: (-x["amount"], x["id"]))
+    else:
+        rows.sort(key=lambda x: (x["amount"], x["id"]))
+    return _paginated_body(rows, page, limit)
+
+
+@reconcile_runs_router.get("/runs/{run_id}/risk")
+async def reconcile_run_risk_bucket(
+    run_id: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    sort: str = Query("amount_desc"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    notes = _notes_count_for_run(sb, rid)
+    rows = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
+    if sort.endswith("desc"):
+        rows.sort(key=lambda x: (-x["amount"], x["id"]))
+    else:
+        rows.sort(key=lambda x: (x["amount"], x["id"]))
+    return _paginated_body(rows, page, limit)
+
+
+@reconcile_runs_router.get("/runs/{run_id}/matched")
+async def reconcile_run_matched_bucket(
+    run_id: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    sort: str = Query("amount_desc"),
+    search: Optional[str] = None,
+    match_level: Optional[str] = None,
+    has_notes: Optional[str] = None,
+    review_required: Optional[str] = None,
+    section_17_5: Optional[str] = None,
+    amount_min: Optional[str] = None,
+    amount_max: Optional[str] = None,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    notes = _notes_count_for_run(sb, rid)
+
+    def _parse_money(s: Optional[str]) -> Optional[float]:
+        if s is None or not str(s).strip():
+            return None
+        try:
+            return float(str(s).replace(",", "").strip())
+        except ValueError:
+            return None
+
+    pairs = _build_matched_pair_records(sb, rid=rid, payload=p, note_counts=notes)
+    hn = bool(has_notes and has_notes.strip().lower() in ("true", "1", "yes"))
+    rr_req = bool(review_required and review_required.strip().lower() in ("true", "1", "yes"))
+    s174 = bool(section_17_5 and section_17_5.strip().lower() in ("true", "1", "yes"))
+    filtered_pairs = _filter_matched(
+        pairs,
+        search_q=search,
+        match_level_filter=match_level,
+        amount_min_val=_parse_money(amount_min),
+        amount_max_val=_parse_money(amount_max),
+        require_notes=hn,
+        review_required=rr_req,
+        section174=s174,
+    )
+    extracted = [pair[0] for pair in filtered_pairs]
+    if sort.endswith("desc"):
+        extracted.sort(key=lambda x: (-x["amount"], x["id"]))
+    else:
+        extracted.sort(key=lambda x: (x["amount"], x["id"]))
+    return _paginated_body(extracted, page, limit)
+
+
+@reconcile_runs_router.get("/runs/{run_id}/rule37")
+async def reconcile_run_rule37(
+    run_id: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    via = _try_rule37_via_table(sb, rid, page, limit)
+    if via is not None:
+        return via
+    notes = _notes_count_for_run(sb, rid)
+    rows = _build_rule37_rows(sb, rid, p, notes)
+    return _paginated_body(rows, page, limit)
+
+
+@reconcile_runs_router.get("/runs/{run_id}/section17")
+async def reconcile_run_section175(
+    run_id: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    via = _try_section175_via_table(sb, rid, page, limit)
+    if via is not None:
+        return via
+    notes = _notes_count_for_run(sb, rid)
+    rows = _build_section175_rows(sb, rid, p, notes)
+    return _paginated_body(rows, page, limit)
+
+
+@reconcile_runs_router.post("/runs/{run_id}/finalize")
+async def reconcile_finalize_run_api(
+    request: Request,
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    return await _reconcile_finalize_core(request, sb, rid=rid, current_user=current_user)
+
+
+def _csv_missed(sb, rid: str, payload: dict[str, Any]) -> tuple[bytes, str]:
+    notes = _notes_count_for_run(sb, rid)
+    rows = _build_missed_itc_records(
+        sb,
+        rid=rid,
+        payload=payload,
+        note_counts=notes,
+        source_software="your accounting software",
+    )
+    hdr = (
+        "Supplier GSTIN",
+        "Invoice Number",
+        "Invoice Date",
+        "ITC Amount",
+        "WHAT",
+        "WHY",
+        "NEXT ACTION",
+    )
+    lines: list[list[Any]] = []
+    for rw in rows:
+        lines.append(
+            [
+                rw.get("supplier_gstin", ""),
+                rw.get("invoice_number", ""),
+                rw.get("invoice_date", ""),
+                rw.get("amount", ""),
+                (rw.get("decision_what") or ""),
+                (rw.get("decision_why") or ""),
+                (rw.get("decision_next") or ""),
+            ]
+        )
+    return _csv_bytes(hdr, lines), f"missed_itc_export_{rid[:8]}.csv"
+
+
+def _csv_risk(sb, rid: str, payload: dict[str, Any]) -> tuple[bytes, str]:
+    notes = _notes_count_for_run(sb, rid)
+    rows = _build_wrongful_risk_records(sb, rid=rid, payload=payload, note_counts=notes)
+    hdr = (
+        "Supplier GSTIN",
+        "Invoice Number",
+        "Invoice Date",
+        "ITC Amount",
+        "WHAT",
+        "WHY",
+        "NEXT ACTION",
+    )
+    lines = []
+    for rw in rows:
+        lines.append(
+            [
+                rw.get("supplier_gstin", ""),
+                rw.get("invoice_number", ""),
+                rw.get("invoice_date", ""),
+                rw.get("amount", ""),
+                (rw.get("decision_what") or ""),
+                (rw.get("decision_why") or ""),
+                (rw.get("decision_next") or ""),
+            ]
+        )
+    return _csv_bytes(hdr, lines), f"risk_export_{rid[:8]}.csv"
+
+
+@reconcile_runs_router.get("/runs/{run_id}/export/itc")
+async def reconcile_export_itc(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    blob, fn = _csv_missed(sb, rid, p)
+    headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
+    return StreamingResponse(io.BytesIO(blob), media_type="text/csv", headers=headers)
+
+
+@reconcile_runs_router.get("/runs/{run_id}/export/risk")
+async def reconcile_export_risk(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    blob, fn = _csv_risk(sb, rid, p)
+    headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
+    return StreamingResponse(io.BytesIO(blob), media_type="text/csv", headers=headers)
