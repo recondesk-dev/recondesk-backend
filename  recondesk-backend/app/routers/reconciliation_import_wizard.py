@@ -7,11 +7,16 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.auth import get_current_user_id
 from app.config import settings
 from app.database import get_supabase
+from app.routers.import_router import (
+    _gstin_norm_for_compare,
+    _gstr2b_buyer_gstin_from_raw,
+)
 from app.services.reconciliation_import_wizard import wizard_service as ws
 
 router = APIRouter()
@@ -184,6 +189,40 @@ async def gstr2b_upload_complete(
     if body.file_size > ws.MAX_UPLOAD_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File too large")
     size = ws.verify_r2_sha256(body.r2_key, body.file_hash)
+
+    _gstr2_obj = ws._r2().get_object(Bucket=settings.R2_BUCKET_NAME, Key=body.r2_key)
+    gstr2_raw = _gstr2_obj["Body"].read()
+    file_gstin_raw = _gstr2b_buyer_gstin_from_raw(gstr2_raw) or ""
+    cg_res = (
+        sb.table("client_gstins")
+        .select("gstin")
+        .eq("id", str(r["client_id"]))
+        .limit(1)
+        .execute()
+    )
+    client_gstin_raw = ""
+    if cg_res.data and cg_res.data[0].get("gstin") is not None:
+        client_gstin_raw = str(cg_res.data[0]["gstin"]).strip()
+    if client_gstin_raw and file_gstin_raw:
+        if _gstin_norm_for_compare(file_gstin_raw) != _gstin_norm_for_compare(
+            client_gstin_raw
+        ):
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "sanity_check_results": [
+                        {
+                            "name": "GSTIN match",
+                            "status": "ERROR",
+                            "message": (
+                                f"GSTIN in file ({file_gstin_raw}) does not match "
+                                f"client GSTIN ({client_gstin_raw}). Upload the correct file."
+                            ),
+                        }
+                    ]
+                },
+            )
+
     ws.transition_run(
         sb,
         str(run_id),
