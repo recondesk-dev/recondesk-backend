@@ -27,6 +27,10 @@ from app.services.firm_access import (
     assert_run_accessible,
     list_accessible_client_gstin_ids,
 )
+from app.services.reconcile_export_workbook import (
+    build_excel_workbook_bytes,
+    build_pdf_summary_bytes,
+)
 from app.utils.audit import log_action
 from app.services.invoice_results_sync import (
     count_unresolved_rule37,
@@ -1879,3 +1883,118 @@ async def reconcile_export_risk(
     blob, fn = _csv_risk_bytes(rows, rid)
     headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
     return StreamingResponse(io.BytesIO(blob), media_type="text/csv", headers=headers)
+
+
+@reconcile_runs_router.get("/runs/{run_id}/export/excel")
+async def reconcile_export_excel_workbook(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    uid = str(current_user.get("id", ""))
+    run_ex = (
+        sb.table("reconciliation_run")
+        .select("id, period, status, client_gstin_id, finalized_at, finalized_by")
+        .eq("id", rid)
+        .limit(1)
+        .execute()
+    )
+    run_row = (run_ex.data or [{}])[0]
+    summ = _build_reconcile_summary(sb, run_row=run_row, payload=p, current_user_id=uid)
+    prof = get_user_profile(uid) or {}
+    firm_name = str(prof.get("firm_name") or "")
+    gen_name = str(prof.get("full_name") or "")
+    notes = _notes_count_for_run(sb, rid)
+    matched_pairs = _build_matched_pair_records(sb, rid=rid, payload=p, note_counts=notes)
+    missed = _build_missed_itc_records(
+        sb,
+        rid=rid,
+        payload=p,
+        note_counts=notes,
+        source_software="your accounting software",
+    )
+    risk = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
+    r37 = _build_rule37_rows(sb, rid, p, notes)
+    s17 = _build_section175_rows(sb, rid, p, notes)
+    blob, fn = build_excel_workbook_bytes(
+        run_id=rid,
+        firm_name=firm_name,
+        client_trade_name=str(summ.get("client_name") or ""),
+        period_raw=str(run_row.get("period") or ""),
+        summary=summ,
+        matched_pairs=matched_pairs,
+        missed_rows=missed,
+        risk_rows=risk,
+        rule37_rows=r37,
+        section17_rows=s17,
+        generated_at=datetime.now(timezone.utc),
+        generated_by_name=gen_name,
+    )
+    headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
+    return StreamingResponse(
+        io.BytesIO(blob),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+@reconcile_runs_router.get("/runs/{run_id}/export/pdf")
+async def reconcile_export_pdf_summary(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    uid = str(current_user.get("id", ""))
+    run_ex = (
+        sb.table("reconciliation_run")
+        .select("id, period, status, client_gstin_id, finalized_at, finalized_by")
+        .eq("id", rid)
+        .limit(1)
+        .execute()
+    )
+    run_row = (run_ex.data or [{}])[0]
+    summ = _build_reconcile_summary(sb, run_row=run_row, payload=p, current_user_id=uid)
+    prof = get_user_profile(uid) or {}
+    firm_name = str(prof.get("firm_name") or "")
+    notes = _notes_count_for_run(sb, rid)
+    missed = _build_missed_itc_records(
+        sb,
+        rid=rid,
+        payload=p,
+        note_counts=notes,
+        source_software="your accounting software",
+    )
+    risk = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
+    r37 = _build_rule37_rows(sb, rid, p, notes)
+    missed_sorted = sorted(
+        missed,
+        key=lambda x: (-float(x.get("amount") or 0), str(x.get("id") or "")),
+    )
+    risk_sorted = sorted(
+        risk,
+        key=lambda x: (-float(x.get("amount") or 0), str(x.get("id") or "")),
+    )
+    blob, fn = build_pdf_summary_bytes(
+        firm_name=firm_name,
+        client_trade_name=str(summ.get("client_name") or ""),
+        period_raw=str(run_row.get("period") or ""),
+        run_status=str(summ.get("status") or ""),
+        summary=summ,
+        top_missed=missed_sorted[:3],
+        top_risk=risk_sorted[:3],
+        rule37_count=len(r37),
+        generated_at=datetime.now(timezone.utc),
+        watermark_text=firm_name or "ReconDesk",
+    )
+    headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
+    return StreamingResponse(
+        io.BytesIO(blob),
+        media_type="application/pdf",
+        headers=headers,
+    )

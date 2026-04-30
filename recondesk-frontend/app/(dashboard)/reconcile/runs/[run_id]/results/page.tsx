@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, Loader2, Shield, X } from "lucide-react";
+import { Check, ChevronDown, FileSpreadsheet, FileText, Loader2, Shield, X } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -565,6 +565,8 @@ export default function ReconcileResultsPage() {
 
   const [itcCsvDownloading, setItcCsvDownloading] = useState(false);
   const [riskCsvDownloading, setRiskCsvDownloading] = useState(false);
+  const [excelDownloading, setExcelDownloading] = useState(false);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
 
   const downloadItcCsv = useCallback(async () => {
     if (typeof token !== "string" || !runId) return;
@@ -617,6 +619,56 @@ export default function ReconcileResultsPage() {
       setRiskCsvDownloading(false);
     }
   }, [addToast, debouncedRiskFilters, riskSort, runId, token]);
+
+  const downloadExcelReport = useCallback(async () => {
+    if (typeof token !== "string" || !runId) return;
+    setExcelDownloading(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/reconcile/runs/${runId}/export/excel`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) throw new Error("failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "ReconDesk-report.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      addToast("Failed to generate Excel report", "error");
+    } finally {
+      setExcelDownloading(false);
+    }
+  }, [addToast, runId, token]);
+
+  const downloadPdfReport = useCallback(async () => {
+    if (typeof token !== "string" || !runId) return;
+    setPdfDownloading(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/reconcile/runs/${runId}/export/pdf`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) throw new Error("failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "ReconDesk-report.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      addToast("Failed to generate PDF report", "error");
+    } finally {
+      setPdfDownloading(false);
+    }
+  }, [addToast, runId, token]);
 
   const [drawerDecisionError, setDrawerDecisionError] = useState<string | null>(
     null
@@ -1100,30 +1152,60 @@ export default function ReconcileResultsPage() {
                   </span>
                 )}
             </div>
-            <div className="flex flex-wrap gap-4">
-              <div>
-                <p className="text-sm text-gray-700">Total GSTR Records</p>
-                <p className="text-lg font-semibold text-gray-900">
-                  {summary.total_gstr_records.toLocaleString("en-IN")}
-                </p>
+            <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-end">
+              <div className="flex flex-wrap gap-4">
+                <div>
+                  <p className="text-sm text-gray-700">Total GSTR Records</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {summary.total_gstr_records.toLocaleString("en-IN")}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-700">Matched</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {summary.matched_count.toLocaleString("en-IN")}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-emerald-600">
+                    {formatINR(summary.missed_itc_total_amount)}
+                  </p>
+                  <p className="text-xs text-gray-400">Missed ITC</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-red-600">
+                    {formatINR(summary.wrongful_risk_total_amount)}
+                  </p>
+                  <p className="text-xs text-gray-400">At Risk</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm text-gray-700">Matched</p>
-                <p className="text-lg font-semibold text-gray-900">
-                  {summary.matched_count.toLocaleString("en-IN")}
-                </p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-emerald-600">
-                  {formatINR(summary.missed_itc_total_amount)}
-                </p>
-                <p className="text-xs text-gray-400">Missed ITC</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-red-600">
-                  {formatINR(summary.wrongful_risk_total_amount)}
-                </p>
-                <p className="text-xs text-gray-400">At Risk</p>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+                <button
+                  type="button"
+                  disabled={excelDownloading}
+                  className="inline-flex items-center justify-center gap-1.5 rounded border border-emerald-600 px-2 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => void downloadExcelReport()}
+                >
+                  {excelDownloading ? (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
+                  )}
+                  Excel
+                </button>
+                <button
+                  type="button"
+                  disabled={pdfDownloading}
+                  className="inline-flex items-center justify-center gap-1.5 rounded border border-red-600 px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => void downloadPdfReport()}
+                >
+                  {pdfDownloading ? (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                  ) : (
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                  )}
+                  PDF
+                </button>
               </div>
             </div>
           </div>
