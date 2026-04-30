@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, ChevronDown, Loader2, Shield, X } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   useCallback,
@@ -26,6 +27,7 @@ type Rule37Urgency = "CRITICAL" | "HIGH" | "MEDIUM";
 type ReconcileRow = {
   id: string;
   supplier_gstin: string;
+  trade_name?: string | null;
   invoice_number: string;
   invoice_date: string;
   amount: number;
@@ -58,6 +60,7 @@ type RunSummary = {
   missed_itc_total_amount: number;
   wrongful_risk_count: number;
   wrongful_risk_total_amount: number;
+  late_match_count?: number | null;
   match_rate_percent: number;
   user_role: "admin" | "staff";
 };
@@ -78,6 +81,14 @@ type Note = {
 };
 
 type Toast = { id: string; message: string; type: "success" | "error" };
+
+type LateMatchRow = {
+  supplier_gstin: string;
+  invoice_number: string;
+  original_period: string;
+  gstr2b_period: string;
+  months_late: number;
+};
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -211,6 +222,93 @@ function hasActiveMatchedFilters(
   );
 }
 
+type ItcFiltersState = {
+  amount_min: string;
+  amount_max: string;
+  supplier_gstin: string;
+  date_from: string;
+  date_to: string;
+};
+
+type RiskFiltersState = {
+  amount_min: string;
+  amount_max: string;
+  supplier_gstin: string;
+  risk_level: string;
+};
+
+function buildItcListQueryString(
+  page: number,
+  sort: string,
+  f: ItcFiltersState
+): string {
+  const p = new URLSearchParams();
+  p.set("page", String(page));
+  p.set("limit", "50");
+  p.set("sort", sort);
+  if (f.amount_min.trim()) p.set("amount_min", f.amount_min.trim());
+  if (f.amount_max.trim()) p.set("amount_max", f.amount_max.trim());
+  if (f.supplier_gstin.trim()) p.set("supplier_gstin", f.supplier_gstin.trim());
+  if (f.date_from.trim()) p.set("date_from", f.date_from.trim());
+  if (f.date_to.trim()) p.set("date_to", f.date_to.trim());
+  return p.toString();
+}
+
+function buildItcExportQueryString(sort: string, f: ItcFiltersState): string {
+  const p = new URLSearchParams();
+  p.set("sort", sort);
+  if (f.amount_min.trim()) p.set("amount_min", f.amount_min.trim());
+  if (f.amount_max.trim()) p.set("amount_max", f.amount_max.trim());
+  if (f.supplier_gstin.trim()) p.set("supplier_gstin", f.supplier_gstin.trim());
+  if (f.date_from.trim()) p.set("date_from", f.date_from.trim());
+  if (f.date_to.trim()) p.set("date_to", f.date_to.trim());
+  return p.toString();
+}
+
+function hasActiveItcFilters(f: ItcFiltersState): boolean {
+  return Object.values(f).some((v) => String(v).trim() !== "");
+}
+
+function buildRiskListQueryString(
+  page: number,
+  sort: string,
+  f: RiskFiltersState
+): string {
+  const p = new URLSearchParams();
+  p.set("page", String(page));
+  p.set("limit", "50");
+  p.set("sort", sort);
+  if (f.amount_min.trim()) p.set("amount_min", f.amount_min.trim());
+  if (f.amount_max.trim()) p.set("amount_max", f.amount_max.trim());
+  if (f.supplier_gstin.trim()) p.set("supplier_gstin", f.supplier_gstin.trim());
+  if (f.risk_level.trim()) p.set("risk_level", f.risk_level.trim().toLowerCase());
+  return p.toString();
+}
+
+function buildRiskExportQueryString(sort: string, f: RiskFiltersState): string {
+  const p = new URLSearchParams();
+  p.set("sort", sort);
+  if (f.amount_min.trim()) p.set("amount_min", f.amount_min.trim());
+  if (f.amount_max.trim()) p.set("amount_max", f.amount_max.trim());
+  if (f.supplier_gstin.trim()) p.set("supplier_gstin", f.supplier_gstin.trim());
+  if (f.risk_level.trim()) p.set("risk_level", f.risk_level.trim().toLowerCase());
+  return p.toString();
+}
+
+function hasActiveRiskFilters(f: RiskFiltersState): boolean {
+  return Object.values(f).some((v) => String(v).trim() !== "");
+}
+
+function supplierRiskImpactLabel(
+  supplierTotal: number,
+  grandTotal: number
+): "high" | "medium" | "low" {
+  if (grandTotal <= 0) return "low";
+  if (supplierTotal >= grandTotal * 0.5) return "high";
+  if (supplierTotal >= grandTotal * 0.1) return "medium";
+  return "low";
+}
+
 // ─── Small UI bits ─────────────────────────────────────────────────────────
 
 function DecisionStatusPill({
@@ -267,6 +365,22 @@ function ImpactCell({
     <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
       <span className={`h-2 w-2 shrink-0 rounded-full ${cfg.dot}`} />
       {cfg.label}
+    </span>
+  );
+}
+
+function ImpactSupplierPill({ level }: { level: "high" | "medium" | "low" }) {
+  const cls = {
+    high: "bg-red-100 text-red-800",
+    medium: "bg-amber-100 text-amber-800",
+    low: "bg-gray-200 text-gray-600",
+  }[level];
+  const label = level === "high" ? "High" : level === "medium" ? "Medium" : "Low";
+  return (
+    <span
+      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}
+    >
+      {label}
     </span>
   );
 }
@@ -397,6 +511,45 @@ export default function ReconcileResultsPage() {
     setMatchedPage(1);
   }, [debouncedMatchedSearch, matchedFilters]);
 
+  const [itcFilters, setItcFilters] = useState<ItcFiltersState>({
+    amount_min: "",
+    amount_max: "",
+    supplier_gstin: "",
+    date_from: "",
+    date_to: "",
+  });
+  const [debouncedItcFilters, setDebouncedItcFilters] =
+    useState<ItcFiltersState>(itcFilters);
+  useEffect(() => {
+    const h = window.setTimeout(() => setDebouncedItcFilters(itcFilters), 400);
+    return () => window.clearTimeout(h);
+  }, [itcFilters]);
+
+  const [itcSort, setItcSort] = useState("amount_desc");
+
+  useEffect(() => {
+    setItcPage(1);
+  }, [debouncedItcFilters, itcSort]);
+
+  const [riskFilters, setRiskFilters] = useState<RiskFiltersState>({
+    amount_min: "",
+    amount_max: "",
+    supplier_gstin: "",
+    risk_level: "",
+  });
+  const [debouncedRiskFilters, setDebouncedRiskFilters] =
+    useState<RiskFiltersState>(riskFilters);
+  useEffect(() => {
+    const h = window.setTimeout(() => setDebouncedRiskFilters(riskFilters), 400);
+    return () => window.clearTimeout(h);
+  }, [riskFilters]);
+
+  const [riskSort, setRiskSort] = useState("amount_desc");
+
+  useEffect(() => {
+    setRiskPage(1);
+  }, [debouncedRiskFilters, riskSort]);
+
   const [localDecisionStatus, setLocalDecisionStatus] = useState<
     Map<string, DecisionStatus>
   >(() => new Map());
@@ -443,14 +596,19 @@ export default function ReconcileResultsPage() {
     mutate: mutateSummary,
   } = useSWR<RunSummary>(summaryKey, authJsonFetcher, { revalidateOnFocus: false });
 
+  const itcListQuery = useMemo(
+    () => buildItcListQueryString(itcPage, itcSort, debouncedItcFilters),
+    [itcPage, itcSort, debouncedItcFilters]
+  );
+
   const itcListKey = useMemo(() => {
     if (!authReady || !runId || !summary || summary.missed_itc_count <= 0)
       return null;
     return [
-      `/api/reconcile/runs/${runId}/itc?page=${itcPage}&limit=50&sort=amount_desc`,
+      `/api/reconcile/runs/${runId}/itc?${itcListQuery}`,
       token,
     ] as const;
-  }, [authReady, runId, summary, itcPage, token]);
+  }, [authReady, runId, summary, itcListQuery, token]);
 
   const {
     data: itcPageData,
@@ -461,14 +619,19 @@ export default function ReconcileResultsPage() {
     revalidateOnFocus: false,
   });
 
+  const riskListQuery = useMemo(
+    () => buildRiskListQueryString(riskPage, riskSort, debouncedRiskFilters),
+    [riskPage, riskSort, debouncedRiskFilters]
+  );
+
   const riskListKey = useMemo(() => {
     if (!authReady || !runId || !summary || summary.wrongful_risk_count <= 0)
       return null;
     return [
-      `/api/reconcile/runs/${runId}/risk?page=${riskPage}&limit=50&sort=amount_desc`,
+      `/api/reconcile/runs/${runId}/risk?${riskListQuery}`,
       token,
     ] as const;
-  }, [authReady, runId, summary, riskPage, token]);
+  }, [authReady, runId, summary, riskListQuery, token]);
 
   const {
     data: riskPageData,
@@ -478,6 +641,32 @@ export default function ReconcileResultsPage() {
   } = useSWR<Paginated<ReconcileRow>>(riskListKey, authJsonFetcher, {
     revalidateOnFocus: false,
   });
+
+  const lateMatchesKey = useMemo(
+    () =>
+      authReady &&
+      runId &&
+      summary &&
+      typeof summary.late_match_count === "number" &&
+      summary.late_match_count > 0
+        ? ([`/api/reconcile/runs/${runId}/late-matches`, token] as const)
+        : null,
+    [authReady, runId, summary?.late_match_count, token]
+  );
+
+  const {
+    data: lateMatchesData,
+    error: lateMatchesError,
+    isLoading: lateMatchesLoading,
+  } = useSWR<{ data: LateMatchRow[]; total: number }>(
+    lateMatchesKey,
+    authJsonFetcher,
+    {
+      revalidateOnFocus: false,
+      isPaused: () =>
+        !(typeof summary?.late_match_count === "number" && summary.late_match_count > 0),
+    }
+  );
 
   const matchedQuery = useMemo(
     () =>
@@ -573,7 +762,9 @@ export default function ReconcileResultsPage() {
     ) => {
       if (ids.length === 0 || typeof token !== "string") return;
       const t = token;
+      let mapBefore = new Map<string, DecisionStatus>();
       setLocalDecisionStatus((prev) => {
+        mapBefore = new Map(prev);
         const next = new Map(prev);
         for (const id of ids) next.set(id, status);
         return next;
@@ -583,7 +774,6 @@ export default function ReconcileResultsPage() {
         next[section].clear();
         return next;
       });
-      addToast(`${ids.length} records updated`, "success");
       try {
         await apiFetch<{ updated_count: number }>(
           "/api/reconcile/records/bulk-update",
@@ -598,6 +788,7 @@ export default function ReconcileResultsPage() {
         );
         if (section === "itc") await mutateItc();
         else await mutateRisk();
+        addToast(`${ids.length} records updated`, "success");
         setLocalDecisionStatus((prev) => {
           const next = new Map(prev);
           for (const id of ids) next.delete(id);
@@ -606,7 +797,10 @@ export default function ReconcileResultsPage() {
       } catch {
         setLocalDecisionStatus((prev) => {
           const next = new Map(prev);
-          for (const id of ids) next.delete(id);
+          for (const id of ids) {
+            if (mapBefore.has(id)) next.set(id, mapBefore.get(id)!);
+            else next.delete(id);
+          }
           return next;
         });
         setSelectedIds((prev) => ({
@@ -736,6 +930,37 @@ export default function ReconcileResultsPage() {
     () => riskRows.reduce((m, r) => Math.max(m, r.amount), 0),
     [riskRows]
   );
+
+  const topSuppliersByRisk = useMemo(() => {
+    const grand = summary?.wrongful_risk_total_amount ?? 0;
+    if (!riskRows.length) return [];
+    const m = new Map<
+      string,
+      { gstin: string; tradeName: string; count: number; total: number }
+    >();
+    for (const row of riskRows) {
+      const g = row.supplier_gstin?.trim();
+      if (!g) continue;
+      const cur = m.get(g) ?? {
+        gstin: g,
+        tradeName: (row.trade_name && String(row.trade_name).trim()) || "",
+        count: 0,
+        total: 0,
+      };
+      if (!cur.tradeName && row.trade_name)
+        cur.tradeName = String(row.trade_name).trim();
+      cur.count += 1;
+      cur.total += row.amount;
+      m.set(g, cur);
+    }
+    return Array.from(m.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5)
+      .map((s) => ({
+        ...s,
+        impact: supplierRiskImpactLabel(s.total, grand),
+      }));
+  }, [riskRows, summary?.wrongful_risk_total_amount]);
 
   useEffect(() => {
     const el = riskHeaderRef.current;
@@ -894,7 +1119,7 @@ export default function ReconcileResultsPage() {
                   className="rounded border border-emerald-700 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
                   onClick={() =>
                     window.open(
-                      `${API_URL}/api/reconcile/runs/${runId}/export/itc`,
+                      `${API_URL}/api/reconcile/runs/${runId}/export/itc?${buildItcExportQueryString(itcSort, debouncedItcFilters)}`,
                       "_blank"
                     )
                   }
@@ -902,6 +1127,86 @@ export default function ReconcileResultsPage() {
                   Download CSV
                 </button>
               </div>
+            </div>
+
+            <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
+              <div className="flex w-full flex-col flex-wrap gap-2 sm:flex-row sm:items-center">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="w-full min-w-[6rem] rounded border border-emerald-600/30 bg-white px-2 py-1.5 text-sm sm:w-28"
+                  placeholder="₹ Min"
+                  value={itcFilters.amount_min}
+                  onChange={(e) =>
+                    setItcFilters((f) => ({ ...f, amount_min: e.target.value }))
+                  }
+                />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="w-full min-w-[6rem] rounded border border-emerald-600/30 bg-white px-2 py-1.5 text-sm sm:w-28"
+                  placeholder="₹ Max"
+                  value={itcFilters.amount_max}
+                  onChange={(e) =>
+                    setItcFilters((f) => ({ ...f, amount_max: e.target.value }))
+                  }
+                />
+                <input
+                  type="text"
+                  className="w-full min-w-[10rem] rounded border border-emerald-600/30 bg-white px-2 py-1.5 text-sm sm:min-w-[12rem]"
+                  placeholder="Filter by GSTIN..."
+                  value={itcFilters.supplier_gstin}
+                  onChange={(e) =>
+                    setItcFilters((f) => ({
+                      ...f,
+                      supplier_gstin: e.target.value,
+                    }))
+                  }
+                />
+                <input
+                  type="date"
+                  className="w-full rounded border border-emerald-600/30 bg-white px-2 py-1.5 text-sm sm:w-auto"
+                  value={itcFilters.date_from}
+                  onChange={(e) =>
+                    setItcFilters((f) => ({ ...f, date_from: e.target.value }))
+                  }
+                />
+                <input
+                  type="date"
+                  className="w-full rounded border border-emerald-600/30 bg-white px-2 py-1.5 text-sm sm:w-auto"
+                  value={itcFilters.date_to}
+                  onChange={(e) =>
+                    setItcFilters((f) => ({ ...f, date_to: e.target.value }))
+                  }
+                />
+                {hasActiveItcFilters(itcFilters) && (
+                  <button
+                    type="button"
+                    className="text-sm font-medium text-emerald-800 underline"
+                    onClick={() =>
+                      setItcFilters({
+                        amount_min: "",
+                        amount_max: "",
+                        supplier_gstin: "",
+                        date_from: "",
+                        date_to: "",
+                      })
+                    }
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+              <select
+                className="w-full rounded border border-emerald-600/40 bg-white px-2 py-1.5 text-sm text-emerald-900 lg:w-auto lg:min-w-[12rem]"
+                value={itcSort}
+                onChange={(e) => setItcSort(e.target.value)}
+              >
+                <option value="amount_desc">ITC Amount ↓</option>
+                <option value="amount_asc">ITC Amount ↑</option>
+                <option value="supplier_name">Supplier Name</option>
+                <option value="invoice_date">Invoice Date</option>
+              </select>
             </div>
 
             {itcError && (
@@ -1059,6 +1364,10 @@ export default function ReconcileResultsPage() {
                     )
                   }
                 />
+                <p className="mt-2 text-right text-sm font-medium text-emerald-700">
+                  {formatINR(summary.missed_itc_total_amount)} ITC recoverable across{" "}
+                  {itcPageData.total.toLocaleString("en-IN")} invoices
+                </p>
               </>
             )}
           </div>
@@ -1091,7 +1400,7 @@ export default function ReconcileResultsPage() {
                   className="rounded border border-red-700 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100"
                   onClick={() =>
                     window.open(
-                      `${API_URL}/api/reconcile/runs/${runId}/export/risk`,
+                      `${API_URL}/api/reconcile/runs/${runId}/export/risk?${buildRiskExportQueryString(riskSort, debouncedRiskFilters)}`,
                       "_blank"
                     )
                   }
@@ -1099,6 +1408,84 @@ export default function ReconcileResultsPage() {
                   Download CSV
                 </button>
               </div>
+            </div>
+
+            <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
+              <div className="flex w-full flex-col flex-wrap gap-2 sm:flex-row sm:items-center">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="w-full min-w-[6rem] rounded border border-red-600/30 bg-white px-2 py-1.5 text-sm sm:w-28"
+                  placeholder="₹ Min"
+                  value={riskFilters.amount_min}
+                  onChange={(e) =>
+                    setRiskFilters((f) => ({ ...f, amount_min: e.target.value }))
+                  }
+                />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="w-full min-w-[6rem] rounded border border-red-600/30 bg-white px-2 py-1.5 text-sm sm:w-28"
+                  placeholder="₹ Max"
+                  value={riskFilters.amount_max}
+                  onChange={(e) =>
+                    setRiskFilters((f) => ({ ...f, amount_max: e.target.value }))
+                  }
+                />
+                <input
+                  type="text"
+                  className="w-full min-w-[10rem] rounded border border-red-600/30 bg-white px-2 py-1.5 text-sm sm:min-w-[12rem]"
+                  placeholder="Filter by GSTIN..."
+                  value={riskFilters.supplier_gstin}
+                  onChange={(e) =>
+                    setRiskFilters((f) => ({
+                      ...f,
+                      supplier_gstin: e.target.value,
+                    }))
+                  }
+                />
+                <select
+                  className="w-full rounded border border-red-600/30 bg-white px-2 py-1.5 text-sm sm:w-auto sm:min-w-[8rem]"
+                  value={riskFilters.risk_level}
+                  onChange={(e) =>
+                    setRiskFilters((f) => ({
+                      ...f,
+                      risk_level: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">All</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+                {hasActiveRiskFilters(riskFilters) && (
+                  <button
+                    type="button"
+                    className="text-sm font-medium text-red-800 underline"
+                    onClick={() =>
+                      setRiskFilters({
+                        amount_min: "",
+                        amount_max: "",
+                        supplier_gstin: "",
+                        risk_level: "",
+                      })
+                    }
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+              <select
+                className="w-full rounded border border-red-600/40 bg-white px-2 py-1.5 text-sm text-red-900 lg:w-auto lg:min-w-[12rem]"
+                value={riskSort}
+                onChange={(e) => setRiskSort(e.target.value)}
+              >
+                <option value="amount_desc">ITC at Risk ↓</option>
+                <option value="amount_asc">ITC at Risk ↑</option>
+                <option value="supplier_name">Supplier Name</option>
+                <option value="invoice_date">Invoice Date</option>
+              </select>
             </div>
 
             {riskError && (
@@ -1190,6 +1577,9 @@ export default function ReconcileResultsPage() {
                         <th className="px-2 py-2">WHY</th>
                         <th className="px-2 py-2">NEXT</th>
                         <th className="px-2 py-2">Status</th>
+                        <th className="px-2 py-2 text-right text-xs font-medium text-gray-600">
+                          Generate Notice
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1239,6 +1629,16 @@ export default function ReconcileResultsPage() {
                           <td>
                             <DecisionStatusPill status={effectiveStatus(row)} />
                           </td>
+                          <td className="px-2 py-2 text-right">
+                            <button
+                              type="button"
+                              disabled
+                              title="Coming Soon — Phase 7"
+                              className="whitespace-nowrap rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-500 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Generate Notice
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1256,10 +1656,134 @@ export default function ReconcileResultsPage() {
                     )
                   }
                 />
+                <p className="mt-2 text-right text-sm font-medium text-red-700">
+                  {formatINR(summary.wrongful_risk_total_amount)} ITC at risk across{" "}
+                  {riskPageData.total.toLocaleString("en-IN")} invoices
+                </p>
               </>
             )}
           </div>
         )}
+
+        {summary && summary.wrongful_risk_count > 0 && (
+          <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+            <h2 className="mb-3 text-lg font-semibold text-gray-900">
+              Top Suppliers by ITC at Risk
+            </h2>
+            {riskLoading && !riskPageData && (
+              <div className="animate-pulse space-y-2 py-2">
+                <div className="h-8 rounded bg-gray-100" />
+                <div className="h-8 rounded bg-gray-100/90" />
+                <div className="h-8 rounded bg-gray-100/80" />
+              </div>
+            )}
+            {!(riskLoading && !riskPageData) && topSuppliersByRisk.length === 0 && (
+              <p className="text-sm text-gray-500">No supplier risk data available.</p>
+            )}
+            {!(riskLoading && !riskPageData) && topSuppliersByRisk.length > 0 && (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2">Supplier GSTIN</th>
+                        <th className="px-3 py-2">Trade Name</th>
+                        <th className="px-3 py-2 text-right">Invoice Count</th>
+                        <th className="px-3 py-2 text-right">Total ITC at Risk</th>
+                        <th className="px-3 py-2">Impact</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topSuppliersByRisk.map((s) => (
+                        <tr key={s.gstin} className="border-b border-gray-100">
+                          <td className="px-3 py-2 font-mono text-xs">{s.gstin}</td>
+                          <td className="max-w-[200px] truncate px-3 py-2 text-gray-700">
+                            {s.tradeName || "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {s.count.toLocaleString("en-IN")}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {formatINR(s.total)}
+                          </td>
+                          <td className="px-3 py-2">
+                            <ImpactSupplierPill level={s.impact} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-3 text-right">
+                  <Link
+                    href="/intelligence"
+                    className="text-sm font-medium text-blue-700 hover:underline"
+                  >
+                    View full vendor intelligence →
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {summary &&
+          typeof summary.late_match_count === "number" &&
+          summary.late_match_count > 0 && (
+            <div className="mb-6 rounded-lg border-l-4 border-emerald-400 bg-emerald-50 p-4">
+              <p className="mb-3 font-semibold text-emerald-800">
+                {summary.late_match_count.toLocaleString("en-IN")} invoices
+                matched from previous periods
+              </p>
+              {lateMatchesLoading && (
+                <div className="animate-pulse space-y-2 py-2">
+                  <div className="h-6 rounded bg-emerald-100/90" />
+                  <div className="h-6 rounded bg-emerald-100/70" />
+                  <div className="h-6 rounded bg-emerald-100/50" />
+                </div>
+              )}
+              {!lateMatchesLoading &&
+                (lateMatchesError || !(lateMatchesData?.data?.length ?? 0)) && (
+                  <p className="text-sm text-gray-600">
+                    No late match data available.
+                  </p>
+                )}
+              {!lateMatchesLoading &&
+                (lateMatchesData?.data?.length ?? 0) > 0 && (
+                  <div className="overflow-x-auto rounded border border-emerald-200/70 bg-white">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="border-b bg-emerald-50/80">
+                        <tr>
+                          <th className="px-3 py-2">Supplier</th>
+                          <th className="px-3 py-2">Invoice#</th>
+                          <th className="px-3 py-2">Original Period</th>
+                          <th className="px-3 py-2">GSTR-2B Period</th>
+                          <th className="px-3 py-2 text-right">Months Late</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(lateMatchesData?.data ?? []).map((row, idx) => (
+                          <tr
+                            key={`${row.supplier_gstin}-${row.invoice_number}-${idx}`}
+                            className="border-b border-gray-100"
+                          >
+                            <td className="px-3 py-2 font-mono text-xs">
+                              {row.supplier_gstin || "—"}
+                            </td>
+                            <td className="px-3 py-2">{row.invoice_number || "—"}</td>
+                            <td className="px-3 py-2">{row.original_period || "—"}</td>
+                            <td className="px-3 py-2">{row.gstr2b_period || "—"}</td>
+                            <td className="px-3 py-2 text-right font-medium tabular-nums text-emerald-700">
+                              {row.months_late}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+            </div>
+          )}
 
         {/* Matched */}
         <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4">

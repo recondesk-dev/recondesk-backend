@@ -8,7 +8,7 @@ import logging
 import math
 import re
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional, TypeVar
 
 TSeq = TypeVar("TSeq")
@@ -694,6 +694,8 @@ def _build_reconcile_summary(
     matched_count = matched_n
     missed_list = engine.get("missed_itc") or []
     wr_list = engine.get("wrongful_itc_risk") or []
+    matched_engine = engine.get("matched") or []
+    late_match_count = sum(1 for m in matched_engine if m.get("is_late_filing"))
     missed_count = len(missed_list)
     wrongful_count = len(wr_list)
 
@@ -756,6 +758,7 @@ def _build_reconcile_summary(
         "missed_itc_total_amount": round(missed_total_rupees, 2),
         "wrongful_risk_count": wrongful_count,
         "wrongful_risk_total_amount": round(wrongful_total_rupees, 2),
+        "late_match_count": late_match_count,
         "match_rate_percent": match_pct,
         "user_role": role_out,
     }
@@ -786,10 +789,17 @@ def _build_missed_itc_records(
         )
         row_id = f"mi:{gid}"
         gd2 = _merged_record_data(rd, mt)
+        trade_name = ""
+        for key in ("trade_name", "Trade Name", "supplier_name", "Supplier Name"):
+            v = gd2.get(key)
+            if v:
+                trade_name = str(v).strip()[:200]
+                break
         out.append(
             {
                 "id": row_id,
                 "supplier_gstin": str(mi.get("supplier_gstin") or mt.get("supplier_gstin") or ""),
+                "trade_name": trade_name or None,
                 "invoice_number": str(
                     mi.get("invoice_number_normalized")
                     or mt.get("invoice_number_normalized")
@@ -810,7 +820,6 @@ def _build_missed_itc_records(
                 "purchase_register_data": {},
             }
         )
-    out.sort(key=lambda x: (-x["amount"], x["id"]))
     return out
 
 
@@ -839,10 +848,17 @@ def _build_wrongful_risk_records(
             itc_amount=f"₹{amt:,.2f}",
         )
         gd2 = _merged_record_data(rd, mt)
+        trade_name = ""
+        for key in ("trade_name", "Trade Name", "supplier_name", "Supplier Name"):
+            v = gd2.get(key)
+            if v:
+                trade_name = str(v).strip()[:200]
+                break
         out.append(
             {
                 "id": row_id,
                 "supplier_gstin": str(w.get("supplier_gstin") or mt.get("supplier_gstin") or ""),
+                "trade_name": trade_name or None,
                 "invoice_number": str(
                     w.get("invoice_number_normalized") or mt.get("invoice_number_normalized") or ""
                 ),
@@ -861,7 +877,6 @@ def _build_wrongful_risk_records(
                 "purchase_register_data": gd2,
             }
         )
-    out.sort(key=lambda x: (-x["amount"], x["id"]))
     return out
 
 
@@ -1012,6 +1027,174 @@ def _filter_matched(
 
         out_f.append((api_row, orow))
     return out_f
+
+
+def _parse_money_query(s: Optional[str]) -> Optional[float]:
+    if s is None or not str(s).strip():
+        return None
+    try:
+        return float(str(s).replace(",", "").strip())
+    except ValueError:
+        return None
+
+
+def _parse_iso_date_query(s: Optional[str]) -> Optional[date]:
+    if s is None or not str(s).strip():
+        return None
+    raw = str(s).strip()[:10]
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _row_invoice_date_value(row: dict[str, Any]) -> Optional[date]:
+    inv = row.get("invoice_date")
+    if inv is None or inv == "":
+        return None
+    if isinstance(inv, date):
+        return inv
+    try:
+        return date.fromisoformat(str(inv).strip()[:10])
+    except ValueError:
+        return None
+
+
+def _filter_bucket_amount_gstin(
+    rows: list[dict[str, Any]],
+    *,
+    amount_min_val: Optional[float],
+    amount_max_val: Optional[float],
+    supplier_gstin_q: Optional[str],
+) -> list[dict[str, Any]]:
+    gq = (supplier_gstin_q or "").strip().lower()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        amt = float(r.get("amount") or 0)
+        if amount_min_val is not None and amt < amount_min_val - 1e-9:
+            continue
+        if amount_max_val is not None and amt > amount_max_val + 1e-9:
+            continue
+        if gq:
+            gstin = str(r.get("supplier_gstin") or "").lower()
+            if gq not in gstin:
+                continue
+        out.append(r)
+    return out
+
+
+def _filter_itc_date_range(
+    rows: list[dict[str, Any]],
+    *,
+    date_from: Optional[date],
+    date_to: Optional[date],
+) -> list[dict[str, Any]]:
+    if date_from is None and date_to is None:
+        return list(rows)
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        id_val = _row_invoice_date_value(r)
+        if date_from is not None:
+            if id_val is None or id_val < date_from:
+                continue
+        if date_to is not None:
+            if id_val is None or id_val > date_to:
+                continue
+        out.append(r)
+    return out
+
+
+def _risk_impact_level(amount: float, max_amount: float) -> str:
+    if max_amount <= 0:
+        return "low"
+    if amount >= max_amount * 0.5 - 1e-9:
+        return "high"
+    if amount >= max_amount * 0.1 - 1e-9:
+        return "medium"
+    return "low"
+
+
+def _filter_risk_by_level(
+    rows: list[dict[str, Any]],
+    risk_level: Optional[str],
+) -> list[dict[str, Any]]:
+    lvl = (risk_level or "").strip().lower()
+    if not lvl or lvl not in ("high", "medium", "low"):
+        return list(rows)
+    mx = max((float(r.get("amount") or 0) for r in rows), default=0.0)
+    return [
+        r
+        for r in rows
+        if _risk_impact_level(float(r.get("amount") or 0), mx) == lvl
+    ]
+
+
+def _sort_reconcile_bucket_rows(rows: list[dict[str, Any]], sort: str) -> None:
+    s = (sort or "amount_desc").strip().lower()
+    if s == "amount_asc":
+        rows.sort(key=lambda x: (float(x.get("amount") or 0), str(x.get("id"))))
+    elif s == "amount_desc":
+        rows.sort(key=lambda x: (-float(x.get("amount") or 0), str(x.get("id"))))
+    elif s == "supplier_name":
+        rows.sort(
+            key=lambda x: (str(x.get("supplier_gstin") or "").lower(), str(x.get("id")))
+        )
+    elif s == "invoice_date":
+        rows.sort(
+            key=lambda x: (
+                _row_invoice_date_value(x) or date.min,
+                str(x.get("id")),
+            ),
+            reverse=True,
+        )
+    else:
+        rows.sort(key=lambda x: (-float(x.get("amount") or 0), str(x.get("id"))))
+
+
+def _build_late_match_rows(
+    sb,
+    *,
+    rid: str,
+    payload: dict[str, Any],
+    gstr2b_period_label: str,
+) -> list[dict[str, Any]]:
+    gstr_db = ro.load_gstr_map(sb, rid)
+    pr_db = ro.load_pr_map(sb, rid)
+    engine_matched = payload.get("engine", {}).get("matched") or []
+    out: list[dict[str, Any]] = []
+    for en_row in engine_matched:
+        if not en_row.get("is_late_filing"):
+            continue
+        gid = str(en_row.get("gstr_id", "")).strip()
+        pid = str(en_row.get("pr_id", "")).strip()
+        gm = ((gstr_db.get(gid) or {}).get("matcher")) or {}
+        pm = ((pr_db.get(pid) or {}).get("matcher")) or {}
+        orig = en_row.get("original_period")
+        orig_label = ""
+        if isinstance(orig, date):
+            orig_label = orig.isoformat()[:7]
+        elif orig is not None:
+            orig_label = str(orig)[:40]
+        late_m = int(en_row.get("late_months") or 0)
+        supplier = str(gm.get("supplier_gstin") or pm.get("supplier_gstin") or "")
+        inv = str(
+            gm.get("invoice_number_normalized")
+            or pm.get("invoice_number_normalized")
+            or ""
+        )
+        out.append(
+            {
+                "supplier_gstin": supplier,
+                "invoice_number": inv,
+                "original_period": orig_label,
+                "gstr2b_period": gstr2b_period_label,
+                "months_late": late_m,
+            }
+        )
+    out.sort(
+        key=lambda x: (-int(x.get("months_late") or 0), x["supplier_gstin"], x["invoice_number"])
+    )
+    return out
 
 
 def _total_pages(total: int, limit: int) -> int:
@@ -1387,6 +1570,11 @@ async def reconcile_run_itc_bucket(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     sort: str = Query("amount_desc"),
+    amount_min: Optional[str] = None,
+    amount_max: Optional[str] = None,
+    supplier_gstin: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
@@ -1401,10 +1589,18 @@ async def reconcile_run_itc_bucket(
         note_counts=notes,
         source_software="your accounting software",
     )
-    if sort.endswith("desc"):
-        rows.sort(key=lambda x: (-x["amount"], x["id"]))
-    else:
-        rows.sort(key=lambda x: (x["amount"], x["id"]))
+    amin = _parse_money_query(amount_min)
+    amax = _parse_money_query(amount_max)
+    dfrom = _parse_iso_date_query(date_from)
+    dto = _parse_iso_date_query(date_to)
+    rows = _filter_bucket_amount_gstin(
+        rows,
+        amount_min_val=amin,
+        amount_max_val=amax,
+        supplier_gstin_q=supplier_gstin,
+    )
+    rows = _filter_itc_date_range(rows, date_from=dfrom, date_to=dto)
+    _sort_reconcile_bucket_rows(rows, sort)
     return _paginated_body(rows, page, limit)
 
 
@@ -1414,6 +1610,10 @@ async def reconcile_run_risk_bucket(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     sort: str = Query("amount_desc"),
+    amount_min: Optional[str] = None,
+    amount_max: Optional[str] = None,
+    supplier_gstin: Optional[str] = None,
+    risk_level: Optional[str] = None,
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
@@ -1422,11 +1622,40 @@ async def reconcile_run_risk_bucket(
     p = _payload_or_404(sb, rid)
     notes = _notes_count_for_run(sb, rid)
     rows = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
-    if sort.endswith("desc"):
-        rows.sort(key=lambda x: (-x["amount"], x["id"]))
-    else:
-        rows.sort(key=lambda x: (x["amount"], x["id"]))
+    amin = _parse_money_query(amount_min)
+    amax = _parse_money_query(amount_max)
+    rows = _filter_bucket_amount_gstin(
+        rows,
+        amount_min_val=amin,
+        amount_max_val=amax,
+        supplier_gstin_q=supplier_gstin,
+    )
+    rows = _filter_risk_by_level(rows, risk_level)
+    _sort_reconcile_bucket_rows(rows, sort)
     return _paginated_body(rows, page, limit)
+
+
+@reconcile_runs_router.get("/runs/{run_id}/late-matches")
+async def reconcile_run_late_matches(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    run_row = (
+        sb.table("reconciliation_run")
+        .select("period")
+        .eq("id", rid)
+        .limit(1)
+        .execute()
+    )
+    period_label = ""
+    if run_row.data:
+        period_label = str((run_row.data[0] or {}).get("period") or "")
+    rows = _build_late_match_rows(sb, rid=rid, payload=p, gstr2b_period_label=period_label)
+    return {"data": rows, "total": len(rows)}
 
 
 @reconcile_runs_router.get("/runs/{run_id}/matched")
@@ -1529,15 +1758,7 @@ async def reconcile_finalize_run_api(
     return await _reconcile_finalize_core(request, sb, rid=rid, current_user=current_user)
 
 
-def _csv_missed(sb, rid: str, payload: dict[str, Any]) -> tuple[bytes, str]:
-    notes = _notes_count_for_run(sb, rid)
-    rows = _build_missed_itc_records(
-        sb,
-        rid=rid,
-        payload=payload,
-        note_counts=notes,
-        source_software="your accounting software",
-    )
+def _csv_missed_bytes(rows: list[dict[str, Any]], rid: str) -> tuple[bytes, str]:
     hdr = (
         "Supplier GSTIN",
         "Invoice Number",
@@ -1563,9 +1784,7 @@ def _csv_missed(sb, rid: str, payload: dict[str, Any]) -> tuple[bytes, str]:
     return _csv_bytes(hdr, lines), f"missed_itc_export_{rid[:8]}.csv"
 
 
-def _csv_risk(sb, rid: str, payload: dict[str, Any]) -> tuple[bytes, str]:
-    notes = _notes_count_for_run(sb, rid)
-    rows = _build_wrongful_risk_records(sb, rid=rid, payload=payload, note_counts=notes)
+def _csv_risk_bytes(rows: list[dict[str, Any]], rid: str) -> tuple[bytes, str]:
     hdr = (
         "Supplier GSTIN",
         "Invoice Number",
@@ -1575,7 +1794,7 @@ def _csv_risk(sb, rid: str, payload: dict[str, Any]) -> tuple[bytes, str]:
         "WHY",
         "NEXT ACTION",
     )
-    lines = []
+    lines: list[list[Any]] = []
     for rw in rows:
         lines.append(
             [
@@ -1594,13 +1813,39 @@ def _csv_risk(sb, rid: str, payload: dict[str, Any]) -> tuple[bytes, str]:
 @reconcile_runs_router.get("/runs/{run_id}/export/itc")
 async def reconcile_export_itc(
     run_id: str,
+    sort: str = Query("amount_desc"),
+    amount_min: Optional[str] = None,
+    amount_max: Optional[str] = None,
+    supplier_gstin: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
     assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
-    blob, fn = _csv_missed(sb, rid, p)
+    notes = _notes_count_for_run(sb, rid)
+    rows = _build_missed_itc_records(
+        sb,
+        rid=rid,
+        payload=p,
+        note_counts=notes,
+        source_software="your accounting software",
+    )
+    amin = _parse_money_query(amount_min)
+    amax = _parse_money_query(amount_max)
+    dfrom = _parse_iso_date_query(date_from)
+    dto = _parse_iso_date_query(date_to)
+    rows = _filter_bucket_amount_gstin(
+        rows,
+        amount_min_val=amin,
+        amount_max_val=amax,
+        supplier_gstin_q=supplier_gstin,
+    )
+    rows = _filter_itc_date_range(rows, date_from=dfrom, date_to=dto)
+    _sort_reconcile_bucket_rows(rows, sort)
+    blob, fn = _csv_missed_bytes(rows, rid)
     headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
     return StreamingResponse(io.BytesIO(blob), media_type="text/csv", headers=headers)
 
@@ -1608,12 +1853,29 @@ async def reconcile_export_itc(
 @reconcile_runs_router.get("/runs/{run_id}/export/risk")
 async def reconcile_export_risk(
     run_id: str,
+    sort: str = Query("amount_desc"),
+    amount_min: Optional[str] = None,
+    amount_max: Optional[str] = None,
+    supplier_gstin: Optional[str] = None,
+    risk_level: Optional[str] = None,
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
     assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
-    blob, fn = _csv_risk(sb, rid, p)
+    notes = _notes_count_for_run(sb, rid)
+    rows = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
+    amin = _parse_money_query(amount_min)
+    amax = _parse_money_query(amount_max)
+    rows = _filter_bucket_amount_gstin(
+        rows,
+        amount_min_val=amin,
+        amount_max_val=amax,
+        supplier_gstin_q=supplier_gstin,
+    )
+    rows = _filter_risk_by_level(rows, risk_level)
+    _sort_reconcile_bucket_rows(rows, sort)
+    blob, fn = _csv_risk_bytes(rows, rid)
     headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
     return StreamingResponse(io.BytesIO(blob), media_type="text/csv", headers=headers)
