@@ -563,6 +563,61 @@ export default function ReconcileResultsPage() {
     }, 3000);
   }, []);
 
+  const [itcCsvDownloading, setItcCsvDownloading] = useState(false);
+  const [riskCsvDownloading, setRiskCsvDownloading] = useState(false);
+
+  const downloadItcCsv = useCallback(async () => {
+    if (typeof token !== "string" || !runId) return;
+    setItcCsvDownloading(true);
+    try {
+      const qs = buildItcExportQueryString(itcSort, debouncedItcFilters);
+      const res = await fetch(
+        `${API_URL}/api/reconcile/runs/${runId}/export/itc?${qs}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) throw new Error("failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "itc-export.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      addToast("Failed to download CSV", "error");
+    } finally {
+      setItcCsvDownloading(false);
+    }
+  }, [addToast, debouncedItcFilters, itcSort, runId, token]);
+
+  const downloadRiskCsv = useCallback(async () => {
+    if (typeof token !== "string" || !runId) return;
+    setRiskCsvDownloading(true);
+    try {
+      const qs = buildRiskExportQueryString(riskSort, debouncedRiskFilters);
+      const res = await fetch(
+        `${API_URL}/api/reconcile/runs/${runId}/export/risk?${qs}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) throw new Error("failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "risk-export.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      addToast("Failed to download CSV", "error");
+    } finally {
+      setRiskCsvDownloading(false);
+    }
+  }, [addToast, debouncedRiskFilters, riskSort, runId, token]);
+
   const [drawerDecisionError, setDrawerDecisionError] = useState<string | null>(
     null
   );
@@ -1116,14 +1171,13 @@ export default function ReconcileResultsPage() {
                 </span>
                 <button
                   type="button"
-                  className="rounded border border-emerald-700 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
-                  onClick={() =>
-                    window.open(
-                      `${API_URL}/api/reconcile/runs/${runId}/export/itc?${buildItcExportQueryString(itcSort, debouncedItcFilters)}`,
-                      "_blank"
-                    )
-                  }
+                  disabled={itcCsvDownloading}
+                  className="inline-flex items-center gap-1.5 rounded border border-emerald-700 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                  onClick={() => void downloadItcCsv()}
                 >
+                  {itcCsvDownloading ? (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                  ) : null}
                   Download CSV
                 </button>
               </div>
@@ -1397,14 +1451,13 @@ export default function ReconcileResultsPage() {
                 </span>
                 <button
                   type="button"
-                  className="rounded border border-red-700 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100"
-                  onClick={() =>
-                    window.open(
-                      `${API_URL}/api/reconcile/runs/${runId}/export/risk?${buildRiskExportQueryString(riskSort, debouncedRiskFilters)}`,
-                      "_blank"
-                    )
-                  }
+                  disabled={riskCsvDownloading}
+                  className="inline-flex items-center gap-1.5 rounded border border-red-700 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-60"
+                  onClick={() => void downloadRiskCsv()}
                 >
+                  {riskCsvDownloading ? (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                  ) : null}
                   Download CSV
                 </button>
               </div>
