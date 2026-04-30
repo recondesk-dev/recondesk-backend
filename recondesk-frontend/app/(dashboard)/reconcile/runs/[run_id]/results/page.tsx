@@ -466,64 +466,6 @@ function SummarySkeleton() {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function ReconcileResultsPage() {
-  const MOCK_MATCHED = true;
-
-  const MOCK_MATCHED_RESPONSE: Paginated<ReconcileRow> = {
-    data: [
-      {
-        id: "mock-001",
-        supplier_gstin: "27AABCT1234D1Z5",
-        invoice_number: "TEST-MATCH-001",
-        invoice_date: "2025-06-01",
-        amount: 50000,
-        match_level: "FUZZY",
-        confidence_score: 0.85,
-        discrepancy_note: "Amount differs by ₹2,000",
-        notes_count: 1,
-        decision_what:
-          "Amount discrepancy detected between GSTR-2B and purchase register",
-        decision_why:
-          "Taxable amount in GSTR-2B is ₹50,000 but purchase register shows ₹48,000",
-        decision_next:
-          "Verify original invoice. Update purchase register if GSTR-2B is correct.",
-        decision_status: "pending",
-        decision_type: null,
-        gstr2b_data: {
-          supplier_gstin: "27AABCT1234D1Z5",
-          invoice_number: "TEST-MATCH-001",
-          invoice_date: "2025-06-01",
-          taxable_amount: 50000,
-          igst: 9000,
-          cgst: 0,
-          sgst: 0,
-        },
-        purchase_register_data: {
-          supplier_gstin: "27AABCT1234D1Z5",
-          invoice_number: "TEST-MATCH-001",
-          invoice_date: "2025-06-01",
-          taxable_amount: 48000,
-          igst: 8640,
-          cgst: 0,
-          sgst: 0,
-        },
-      },
-    ],
-    total: 1,
-    page: 1,
-    limit: 50,
-    total_pages: 1,
-  };
-
-  const MOCK_MATCHED_NOTES: Note[] = [
-    {
-      id: "note-001",
-      author_name: "Omkar Kadam",
-      created_at: "2025-06-15T10:30:00+00:00",
-      note_text:
-        "Checked with supplier - they confirm invoice amount is Rs 50,000. Purchase register entry needs correction.",
-    },
-  ];
-
   const params = useParams();
   const runId = typeof params.run_id === "string" ? params.run_id : "";
 
@@ -804,10 +746,6 @@ export default function ReconcileResultsPage() {
     revalidateOnFocus: false,
   });
 
-  const matchedDataUi = MOCK_MATCHED ? MOCK_MATCHED_RESPONSE : matchedData;
-  const matchedErrorUi = MOCK_MATCHED ? undefined : matchedError;
-  const matchedLoadingUi = MOCK_MATCHED ? false : matchedLoading;
-
   const rule37ListKey = useMemo(
     () =>
       authReady && runId
@@ -863,13 +801,6 @@ export default function ReconcileResultsPage() {
     isLoading: drawerNotesLoading,
     mutate: mutateDrawerNotes,
   } = useSWR<Note[]>(notesKey, authJsonFetcher, { revalidateOnFocus: false });
-
-  const drawerNotesUi =
-    MOCK_MATCHED && activeRecord?.id === "mock-001"
-      ? MOCK_MATCHED_NOTES
-      : drawerNotes;
-  const drawerNotesLoadingUi =
-    MOCK_MATCHED && activeRecord?.id === "mock-001" ? false : drawerNotesLoading;
 
   const effectiveStatus = useCallback(
     (row: ReconcileRow): DecisionStatus =>
@@ -1911,9 +1842,9 @@ export default function ReconcileResultsPage() {
         <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="mb-3 text-lg font-semibold text-gray-900">
             Matched Records{" "}
-            {matchedDataUi != null && (
+            {matchedData != null && (
               <span className="font-normal text-gray-500">
-                ({matchedDataUi.total})
+                ({matchedData.total})
               </span>
             )}
           </h2>
@@ -2037,21 +1968,21 @@ export default function ReconcileResultsPage() {
             </div>
           </div>
 
-          {matchedErrorUi && (
+          {matchedError && (
             <SectionError
               message="Failed to load."
               onRetry={() => void mutateMatched()}
             />
           )}
-          {matchedLoadingUi && !matchedDataUi && !matchedErrorUi && (
+          {matchedLoading && !matchedData && !matchedError && (
             <div className="animate-pulse space-y-2 py-4">
               <div className="h-8 rounded bg-gray-100" />
               <div className="h-8 rounded bg-gray-100/80" />
             </div>
           )}
-          {matchedDataUi &&
-            !matchedErrorUi &&
-            matchedDataUi.data.length === 0 && (
+          {matchedData &&
+            !matchedError &&
+            matchedData.data.length === 0 && (
               <div className="rounded border border-gray-100 bg-gray-50 p-6 text-center">
                 <p className="text-gray-600">
                   No records match your filters. Try adjusting the search or
@@ -2078,7 +2009,7 @@ export default function ReconcileResultsPage() {
                 </button>
               </div>
             )}
-          {matchedDataUi && !matchedErrorUi && matchedDataUi.data.length > 0 && (
+          {matchedData && !matchedError && matchedData.data.length > 0 && (
             <>
               <div className="overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
@@ -2095,7 +2026,7 @@ export default function ReconcileResultsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {matchedDataUi.data.map((row) => (
+                    {matchedData.data.map((row) => (
                       <tr
                         key={row.id}
                         className="cursor-pointer border-b border-gray-100 hover:bg-gray-50"
@@ -2139,14 +2070,14 @@ export default function ReconcileResultsPage() {
                 </table>
               </div>
               <PaginationFooter
-                page={matchedDataUi.page}
-                totalPages={matchedDataUi.total_pages}
-                total={matchedDataUi.total}
-                limit={matchedDataUi.limit}
+                page={matchedData.page}
+                totalPages={matchedData.total_pages}
+                total={matchedData.total}
+                limit={matchedData.limit}
                 onPrev={() => setMatchedPage((p) => Math.max(1, p - 1))}
                 onNext={() =>
                   setMatchedPage((p) =>
-                    Math.min(matchedDataUi.total_pages, p + 1)
+                    Math.min(matchedData.total_pages, p + 1)
                   )
                 }
               />
@@ -2485,19 +2416,19 @@ export default function ReconcileResultsPage() {
                 <div className="mb-2 flex items-center gap-2">
                   <h3 className="font-semibold text-gray-900">Notes</h3>
                   <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                    {drawerNotesUi.length}
+                    {drawerNotes.length}
                   </span>
                 </div>
-                {drawerNotesLoadingUi && (
+                {drawerNotesLoading && (
                   <div className="animate-pulse space-y-2 py-2">
                     <div className="h-12 rounded bg-gray-100" />
                     <div className="h-12 rounded bg-gray-100" />
                     <div className="h-12 rounded bg-gray-100" />
                   </div>
                 )}
-                {!drawerNotesLoadingUi && (
+                {!drawerNotesLoading && (
                   <ul className="space-y-3">
-                    {[...drawerNotesUi].reverse().map((n) => (
+                    {[...drawerNotes].reverse().map((n) => (
                       <li key={n.id} className="flex gap-3">
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 text-sm font-medium text-gray-600">
                           {(n.author_name || "?").charAt(0).toUpperCase()}
