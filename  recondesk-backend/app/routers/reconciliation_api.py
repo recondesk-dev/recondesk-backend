@@ -1232,10 +1232,12 @@ async def _reconcile_finalize_core(
     *,
     rid: str,
     current_user: dict,
+    checklist_snapshot: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     uid = str(current_user.get("id", ""))
+    run_row = assert_run_accessible(sb, rid, current_user)
     role = await get_user_role(uid)
-    if (role or "").strip().lower() == "staff":
+    if (role or "").strip().lower() != "admin":
         await log_action(
             uid,
             "FINALIZATION_BLOCKED",
@@ -1246,19 +1248,14 @@ async def _reconcile_finalize_core(
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
+            detail="Only admin users can finalize a reconciliation.",
         )
-    run_row = assert_run_accessible(sb, rid, current_user)
-    if bool(run_row.get("is_locked")):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="run is already final",
-        )
-    st = str(run_row.get("status") or "").strip().upper()
-    if st == RunStatus.FINAL:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="run is already final",
+    raw_status = str(run_row.get("status") or "").strip()
+    st = raw_status.upper()
+    if st == RunStatus.FINAL or raw_status.lower() == "final":
+        p = ro.load_payload(sb, rid) or {}
+        return _build_reconcile_summary(
+            sb, run_row=run_row, payload=p, current_user_id=uid
         )
     if st != RunStatus.COMPLETED:
         raise HTTPException(
@@ -1279,22 +1276,53 @@ async def _reconcile_finalize_core(
                 "Resolve all before finalizing."
             ),
         )
-    now = datetime.now(timezone.utc).isoformat()
-    ex = (
-        sb.table("reconciliation_run")
-        .update(
-            {
-                "status": RunStatus.FINAL,
-                "finalized_at": now,
-                "finalized_by": uid,
-                "is_locked": True,
-                "updated_at": now,
-            }
+    now = datetime.utcnow().isoformat()
+    update_fields: dict[str, Any] = {
+        "status": RunStatus.FINAL,
+        "finalized_at": now,
+        "finalized_by": uid,
+        "is_locked": True,
+        "updated_at": now,
+    }
+    if checklist_snapshot is not None:
+        update_fields["checklist_snapshot"] = checklist_snapshot
+
+    def _do_update(fields: dict[str, Any]):
+        return (
+            sb.table("reconciliation_run")
+            .update(fields)
+            .eq("id", rid)
+            .eq("status", RunStatus.COMPLETED)
+            .execute()
         )
-        .eq("id", rid)
-        .eq("status", RunStatus.COMPLETED)
-        .execute()
-    )
+
+    ex: Any = None
+    try:
+        ex = _do_update(update_fields)
+    except Exception as exc:
+        err = str(exc).lower()
+        if checklist_snapshot is not None and (
+            "checklist_snapshot" in err
+            or "column" in err
+            or "schema" in err
+            or "pgrst" in err
+        ):
+            rs_raw = run_row.get("run_summary")
+            summary_dict: dict[str, Any] = (
+                dict(rs_raw) if isinstance(rs_raw, dict) else {}
+            )
+            summary_dict["finalization"] = {
+                "checklist": checklist_snapshot,
+                "finalized_by": uid,
+                "finalized_at": now,
+            }
+            fields2 = {
+                k: v for k, v in update_fields.items() if k != "checklist_snapshot"
+            }
+            fields2["run_summary"] = summary_dict
+            ex = _do_update(fields2)
+        else:
+            raise
     if not ex.data:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1751,15 +1779,26 @@ async def reconcile_run_section175(
     return _paginated_body(rows, page, limit)
 
 
+class ReconcileFinalizeBody(BaseModel):
+    checklist_snapshot: Optional[dict[str, Any]] = None
+
+
 @reconcile_runs_router.post("/runs/{run_id}/finalize")
 async def reconcile_finalize_run_api(
     request: Request,
     run_id: str,
+    body: ReconcileFinalizeBody = Body(default_factory=ReconcileFinalizeBody),
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    return await _reconcile_finalize_core(request, sb, rid=rid, current_user=current_user)
+    return await _reconcile_finalize_core(
+        request,
+        sb,
+        rid=rid,
+        current_user=current_user,
+        checklist_snapshot=body.checklist_snapshot,
+    )
 
 
 def _csv_missed_bytes(rows: list[dict[str, Any]], rid: str) -> tuple[bytes, str]:
