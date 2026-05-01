@@ -1226,7 +1226,7 @@ export default function ReconcileResultsPage() {
       {/* Sticky summary */}
       <div
         ref={summaryRef}
-        className="fixed left-0 right-0 top-0 z-50 border-b border-gray-200 bg-white px-6 py-3 shadow-sm"
+        className="fixed left-0 right-0 top-0 z-50 border-b border-gray-200 bg-white px-4 py-3 shadow-sm"
       >
         {summaryLoading && <SummarySkeleton />}
         {summaryError && (
@@ -1329,7 +1329,7 @@ export default function ReconcileResultsPage() {
         )}
       </div>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6">
+      <div className="mx-auto max-w-7xl space-y-6 px-4">
         {/* ITC */}
         {summary && summary.missed_itc_count === 0 && (
           <div className="mb-6 rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4">
@@ -2689,7 +2689,7 @@ export default function ReconcileResultsPage() {
 
       {/* Finalize bar */}
       {finalizeBarVisible && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-gray-200 bg-white py-3 pl-6 pr-6 shadow-lg">
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-gray-200 bg-white py-3 px-4 shadow-lg">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-gray-500">
               Review all sections before finalizing
