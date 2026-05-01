@@ -22,6 +22,7 @@ from app.services.reconciliation import (
     ReconState,
     _build_pr_index_by_period,
     build_wrongful_itc_risk,
+    notify_reconciliation_run_completed_email_maybe,
     process_gstr_records_chunk,
 )
 from app.constants import RunStatus
@@ -191,7 +192,7 @@ def execute_reconciliation(run_id: str) -> None:
         run_res = (
             client.table("reconciliation_run")
             .select(
-                "id, status, client_gstin_id, period, gstr_records_imported, pr_records_imported"
+                "id, status, client_gstin_id, period, gstr_records_imported, pr_records_imported, created_by"
             )
             .eq("id", run_id)
             .limit(1)
@@ -539,6 +540,54 @@ def execute_reconciliation(run_id: str) -> None:
                 "updated_at": _now_iso(),
             },
         )
+        created_by = str(run.get("created_by") or "").strip()
+        match_rate = round(len(state.matched) / n_gstr * 100, 2) if n_gstr else 0.0
+
+        to_email = ""
+        full_nm = ""
+        if created_by:
+            prof = (
+                client.table("user_profiles")
+                .select("email, full_name")
+                .eq("id", created_by)
+                .limit(1)
+                .execute()
+            )
+            if prof.data:
+                to_email = str(prof.data[0].get("email") or "").strip()
+                full_nm = str(prof.data[0].get("full_name") or "").strip()
+
+        client_display_name = "Client"
+        cg_row = (
+            client.table("client_gstins")
+            .select("trade_name, legal_name, gstin")
+            .eq("id", client_gstin_id)
+            .limit(1)
+            .execute()
+        )
+        if cg_row.data:
+            r0 = cg_row.data[0]
+            client_display_name = (
+                str(r0.get("trade_name") or "").strip()
+                or str(r0.get("legal_name") or "").strip()
+                or str(r0.get("gstin") or "").strip()
+                or "Client"
+            )
+
+        notify_reconciliation_run_completed_email_maybe(
+            client,
+            run_id=run_id,
+            actor_user_id=created_by or None,
+            to_email=to_email,
+            full_name=full_nm,
+            client_name=client_display_name,
+            period=period,
+            matched_count=len(state.matched),
+            missed_itc_amount_paise=itc_missed,
+            wrongful_risk_amount_paise=wrongful_paise,
+            match_rate_percent=match_rate,
+        )
+
         _phase("db_writes")
     except Exception as exc:
         _log.exception("execute_reconciliation failed run_id=%s", run_id)
