@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from gotrue.types import User
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.auth import get_current_user, get_current_user_id, get_user_role
 from app.database import get_db, get_user_profile
@@ -24,7 +26,45 @@ from app.utils.login_throttle import (
 from app.utils.rate_limit import limiter
 
 router = APIRouter()
+webhook_router = APIRouter()
 _log = logging.getLogger(__name__)
+
+
+class _UserProfileWebhookRecord(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    full_name: str | None = None
+    firm_name: str | None = None
+
+
+class UserProfileInsertWebhook(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    type: str
+    table: str
+    record: _UserProfileWebhookRecord
+    schema: str = "public"
+
+
+async def _webhook_error(
+    request: Request,
+    message: str,
+    *,
+    entity_id: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    meta: dict[str, Any] = {"error_message": message[:2000]}
+    if extra:
+        meta.update(extra)
+    await log_action(
+        None,
+        "WEBHOOK_ERROR",
+        "webhook",
+        entity_id,
+        meta,
+        ip_address=_client_ip(request),
+    )
 
 
 def _client_ip(request: Request) -> str:
@@ -125,6 +165,76 @@ async def signup(
         user_id=user_id,
         message="Account created successfully. Please check your email to confirm.",
     )
+
+
+# ── POST /api/auth/webhook/signup (Supabase DB webhook: user_profiles INSERT) ─
+
+@webhook_router.post("/webhook/signup")
+async def webhook_signup(
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """Inbound Supabase Database Webhook when a row is inserted into *user_profiles*."""
+    try:
+        body = await request.json()
+    except Exception as exc:  # noqa: BLE001
+        await _webhook_error(
+            request,
+            f"invalid_json: {type(exc).__name__}: {exc}",
+        )
+        return {"received": True}
+
+    if not isinstance(body, dict):
+        await _webhook_error(request, "payload_must_be_object")
+        return {"received": True}
+
+    try:
+        payload = UserProfileInsertWebhook.model_validate(body)
+    except ValidationError as exc:
+        await _webhook_error(
+            request,
+            f"invalid_payload: {exc!s}",
+            extra={"errors": exc.errors()[:20]},
+        )
+        return {"received": True}
+
+    if payload.type != "INSERT" or payload.table != "user_profiles":
+        await _webhook_error(
+            request,
+            "unexpected_event",
+            extra={"type": payload.type, "table": payload.table},
+        )
+        return {"received": True}
+
+    user_id = str(payload.record.id).strip()
+    if not user_id:
+        await _webhook_error(request, "missing_record_id")
+        return {"received": True}
+
+    profile = get_user_profile(user_id)
+    if not profile:
+        await _webhook_error(
+            request,
+            "user_profile_not_found",
+            entity_id=user_id,
+        )
+        return {"received": True}
+
+    email = str(profile.get("email") or "").strip()
+    if not email:
+        await _webhook_error(
+            request,
+            "missing_email_on_profile",
+            entity_id=user_id,
+        )
+        return {"received": True}
+
+    full_name = str(
+        profile.get("full_name") or payload.record.full_name or ""
+    ).strip()
+
+    background_tasks.add_task(_signup_welcome_email_task, email, full_name)
+    return {"received": True}
 
 
 # ── POST /auth/login ─────────────────────────────────────────────────────────
