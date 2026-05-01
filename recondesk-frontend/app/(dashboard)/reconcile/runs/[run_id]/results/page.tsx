@@ -90,6 +90,49 @@ type LateMatchRow = {
   months_late: number;
 };
 
+type FinalizeChecklistState = {
+  reviewed_l3_matches: boolean;
+  verified_section_17_5: boolean;
+  reviewed_rule_37: boolean;
+  contacted_suppliers: boolean;
+  itc_amounts_verified: boolean;
+};
+
+const EMPTY_FINALIZE_CHECKLIST: FinalizeChecklistState = {
+  reviewed_l3_matches: false,
+  verified_section_17_5: false,
+  reviewed_rule_37: false,
+  contacted_suppliers: false,
+  itc_amounts_verified: false,
+};
+
+const FINALIZE_CHECKLIST_ROWS: {
+  key: keyof FinalizeChecklistState;
+  label: string;
+}[] = [
+  {
+    key: "reviewed_l3_matches",
+    label: "I have reviewed all matches requiring human review",
+  },
+  {
+    key: "verified_section_17_5",
+    label: "I have verified all Section 17(5) flagged invoices",
+  },
+  {
+    key: "reviewed_rule_37",
+    label: "I have reviewed all Rule 37 payment deadline warnings",
+  },
+  {
+    key: "contacted_suppliers",
+    label:
+      "I have contacted suppliers with missing GSTR filings (if any)",
+  },
+  {
+    key: "itc_amounts_verified",
+    label: "All ITC amounts match what I plan to claim in GSTR-3B",
+  },
+];
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function formatINR(amount: number): string {
@@ -414,7 +457,7 @@ function PaginationFooter({
           type="button"
           disabled={disabled || page <= 1}
           onClick={onPrev}
-          className="rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 disabled:opacity-40"
+          className="min-h-[44px] rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 disabled:opacity-40"
         >
           Previous
         </button>
@@ -422,7 +465,7 @@ function PaginationFooter({
           type="button"
           disabled={disabled || page >= totalPages}
           onClick={onNext}
-          className="rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 disabled:opacity-40"
+          className="min-h-[44px] rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 disabled:opacity-40"
         >
           Next
         </button>
@@ -443,7 +486,7 @@ function SectionError({
       {message}{" "}
       <button
         type="button"
-        className="font-medium underline"
+        className="min-h-[44px] font-medium underline"
         onClick={onRetry}
       >
         Retry
@@ -673,7 +716,17 @@ export default function ReconcileResultsPage() {
   const [drawerDecisionError, setDrawerDecisionError] = useState<string | null>(
     null
   );
-  const [finalizeBusy, setFinalizeBusy] = useState(false);
+  const [finalizeModalOpen, setFinalizeModalOpen] = useState(false);
+  const [checklist, setChecklist] = useState<FinalizeChecklistState>(() => ({
+    ...EMPTY_FINALIZE_CHECKLIST,
+  }));
+  const [finalizing, setFinalizing] = useState(false);
+
+  useEffect(() => {
+    if (finalizeModalOpen) {
+      setChecklist({ ...EMPTY_FINALIZE_CHECKLIST });
+    }
+  }, [finalizeModalOpen]);
 
   const summaryRef = useRef<HTMLDivElement>(null);
   const [summaryBarHeight, setSummaryBarHeight] = useState(0);
@@ -702,6 +755,11 @@ export default function ReconcileResultsPage() {
     isLoading: summaryLoading,
     mutate: mutateSummary,
   } = useSWR<RunSummary>(summaryKey, authJsonFetcher, { revalidateOnFocus: false });
+
+  const isRunFinalized = Boolean(
+    summary &&
+      (summary.status === "final" || summary.status === "FINAL")
+  );
 
   const itcListQuery = useMemo(
     () => buildItcListQueryString(itcPage, itcSort, debouncedItcFilters),
@@ -1076,25 +1134,69 @@ export default function ReconcileResultsPage() {
     el.indeterminate = n > 0 && n < riskRows.length;
   }, [selectedIds.risk, riskRows]);
 
-  const finalizeVisible =
-    summary?.user_role === "admin" && summary.status !== "final";
+  const finalizeBarVisible =
+    summary?.user_role === "admin" && !isRunFinalized;
+  const staffFinalizeMessageVisible =
+    summary?.user_role === "staff" && !isRunFinalized;
 
-  const onFinalize = useCallback(async () => {
+  const closeFinalizeModal = useCallback(() => {
+    if (finalizing) return;
+    setFinalizeModalOpen(false);
+    setChecklist({ ...EMPTY_FINALIZE_CHECKLIST });
+  }, [finalizing]);
+
+  const submitFinalize = useCallback(async () => {
     if (!runId || typeof token !== "string") return;
-    setFinalizeBusy(true);
+    const checkedCount = Object.values(checklist).filter(Boolean).length;
+    if (checkedCount !== 5 || finalizing) return;
+    setFinalizing(true);
     try {
       const updated = await apiFetch<RunSummary>(
         `/api/reconcile/runs/${runId}/finalize`,
-        { method: "POST", token }
+        {
+          method: "POST",
+          token,
+          body: JSON.stringify({ checklist_snapshot: checklist }),
+        }
       );
       await mutateSummary(updated, { revalidate: false });
-      addToast("Reconciliation finalized", "success");
-    } catch {
-      addToast("Finalization failed — try again", "error");
-    } finally {
-      setFinalizeBusy(false);
+      await Promise.all([
+        mutateItc(),
+        mutateRisk(),
+        mutateMatched(),
+        mutateRule37(),
+        mutateSection17(),
+      ]);
+      setFinalizeModalOpen(false);
+      setChecklist({ ...EMPTY_FINALIZE_CHECKLIST });
+      setFinalizing(false);
+      addToast("Reconciliation finalized successfully", "success");
+    } catch (e: unknown) {
+      setFinalizing(false);
+      let msg = "Finalization failed — try again";
+      if (
+        e &&
+        typeof e === "object" &&
+        "detail" in e &&
+        typeof (e as { detail: unknown }).detail === "string"
+      ) {
+        msg = (e as { detail: string }).detail;
+      }
+      addToast(msg, "error");
     }
-  }, [addToast, mutateSummary, runId, token]);
+  }, [
+    addToast,
+    checklist,
+    finalizing,
+    mutateItc,
+    mutateMatched,
+    mutateRisk,
+    mutateRule37,
+    mutateSection17,
+    mutateSummary,
+    runId,
+    token,
+  ]);
 
   if (token === null) {
     return (
@@ -1143,7 +1245,7 @@ export default function ReconcileResultsPage() {
               <p className="text-xs text-gray-400">
                 Assigned to: {summary.assigned_to_name}
               </p>
-              {summary.status === "final" &&
+              {isRunFinalized &&
                 summary.finalized_by_name &&
                 summary.finalized_at && (
                   <span className="mt-2 inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
@@ -1183,7 +1285,7 @@ export default function ReconcileResultsPage() {
                 <button
                   type="button"
                   disabled={excelDownloading}
-                  className="inline-flex items-center justify-center gap-1.5 rounded border border-emerald-600 px-2 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded border border-emerald-600 px-2 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={() => void downloadExcelReport()}
                 >
                   {excelDownloading ? (
@@ -1196,7 +1298,7 @@ export default function ReconcileResultsPage() {
                 <button
                   type="button"
                   disabled={pdfDownloading}
-                  className="inline-flex items-center justify-center gap-1.5 rounded border border-red-600 px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded border border-red-600 px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={() => void downloadPdfReport()}
                 >
                   {pdfDownloading ? (
@@ -1254,7 +1356,7 @@ export default function ReconcileResultsPage() {
                 <button
                   type="button"
                   disabled={itcCsvDownloading}
-                  className="inline-flex items-center gap-1.5 rounded border border-emerald-700 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded border border-emerald-700 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
                   onClick={() => void downloadItcCsv()}
                 >
                   {itcCsvDownloading ? (
@@ -1318,7 +1420,7 @@ export default function ReconcileResultsPage() {
                 {hasActiveItcFilters(itcFilters) && (
                   <button
                     type="button"
-                    className="text-sm font-medium text-emerald-800 underline"
+                    className="min-h-[44px] text-sm font-medium text-emerald-800 underline"
                     onClick={() =>
                       setItcFilters({
                         amount_min: "",
@@ -1334,7 +1436,7 @@ export default function ReconcileResultsPage() {
                 )}
               </div>
               <select
-                className="w-full rounded border border-emerald-600/40 bg-white px-2 py-1.5 text-sm text-emerald-900 lg:w-auto lg:min-w-[12rem]"
+                className="min-h-[44px] w-full rounded border border-emerald-600/40 bg-white px-2 py-1.5 text-sm text-emerald-900 lg:w-auto lg:min-w-[12rem]"
                 value={itcSort}
                 onChange={(e) => setItcSort(e.target.value)}
               >
@@ -1364,7 +1466,8 @@ export default function ReconcileResultsPage() {
                     <span>{selectedIds.itc.size} selected</span>
                     <button
                       type="button"
-                      className="rounded border border-emerald-600 px-2 py-1 text-emerald-800"
+                      disabled={isRunFinalized}
+                      className="min-h-[44px] rounded border border-emerald-600 px-2 py-1 text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => {
                         const snap = new Set(selectedIds.itc);
                         const ids = Array.from(snap);
@@ -1375,7 +1478,8 @@ export default function ReconcileResultsPage() {
                     </button>
                     <button
                       type="button"
-                      className="rounded border border-gray-400 px-2 py-1 text-gray-700"
+                      disabled={isRunFinalized}
+                      className="min-h-[44px] rounded border border-gray-400 px-2 py-1 text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => {
                         const snap = new Set(selectedIds.itc);
                         const ids = Array.from(snap);
@@ -1386,7 +1490,7 @@ export default function ReconcileResultsPage() {
                     </button>
                     <button
                       type="button"
-                      className="text-emerald-700 underline"
+                      className="min-h-[44px] text-emerald-700 underline"
                       onClick={() =>
                         setSelectedIds((p) => ({ ...p, itc: new Set() }))
                       }
@@ -1399,10 +1503,11 @@ export default function ReconcileResultsPage() {
                   <table className="min-w-full text-left text-sm">
                     <thead className="border-b bg-emerald-50/50">
                       <tr>
-                        <th className="px-2 py-2">
+                        <th className="sticky left-0 z-10 bg-emerald-50/50 px-2 py-2">
                           <input
                             ref={itcHeaderRef}
                             type="checkbox"
+                            disabled={isRunFinalized}
                             checked={
                               itcRows.length > 0 &&
                               itcRows.every((r) => selectedIds.itc.has(r.id))
@@ -1439,9 +1544,10 @@ export default function ReconcileResultsPage() {
                     <tbody>
                       {itcRows.map((row, i) => (
                         <tr key={row.id} className="border-b border-gray-100">
-                          <td className="px-2 py-2">
+                          <td className="sticky left-0 z-10 bg-emerald-50 px-2 py-2">
                             <input
                               type="checkbox"
+                              disabled={isRunFinalized}
                               checked={selectedIds.itc.has(row.id)}
                               onChange={(e) => {
                                 setSelectedIds((prev) => {
@@ -1534,7 +1640,7 @@ export default function ReconcileResultsPage() {
                 <button
                   type="button"
                   disabled={riskCsvDownloading}
-                  className="inline-flex items-center gap-1.5 rounded border border-red-700 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-60"
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded border border-red-700 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-60"
                   onClick={() => void downloadRiskCsv()}
                 >
                   {riskCsvDownloading ? (
@@ -1580,7 +1686,7 @@ export default function ReconcileResultsPage() {
                   }
                 />
                 <select
-                  className="w-full rounded border border-red-600/30 bg-white px-2 py-1.5 text-sm sm:w-auto sm:min-w-[8rem]"
+                  className="min-h-[44px] w-full rounded border border-red-600/30 bg-white px-2 py-1.5 text-sm sm:w-auto sm:min-w-[8rem]"
                   value={riskFilters.risk_level}
                   onChange={(e) =>
                     setRiskFilters((f) => ({
@@ -1597,7 +1703,7 @@ export default function ReconcileResultsPage() {
                 {hasActiveRiskFilters(riskFilters) && (
                   <button
                     type="button"
-                    className="text-sm font-medium text-red-800 underline"
+                    className="min-h-[44px] text-sm font-medium text-red-800 underline"
                     onClick={() =>
                       setRiskFilters({
                         amount_min: "",
@@ -1612,7 +1718,7 @@ export default function ReconcileResultsPage() {
                 )}
               </div>
               <select
-                className="w-full rounded border border-red-600/40 bg-white px-2 py-1.5 text-sm text-red-900 lg:w-auto lg:min-w-[12rem]"
+                className="min-h-[44px] w-full rounded border border-red-600/40 bg-white px-2 py-1.5 text-sm text-red-900 lg:w-auto lg:min-w-[12rem]"
                 value={riskSort}
                 onChange={(e) => setRiskSort(e.target.value)}
               >
@@ -1642,7 +1748,8 @@ export default function ReconcileResultsPage() {
                     <span>{selectedIds.risk.size} selected</span>
                     <button
                       type="button"
-                      className="rounded border border-red-600 px-2 py-1 text-red-800"
+                      disabled={isRunFinalized}
+                      className="min-h-[44px] rounded border border-red-600 px-2 py-1 text-red-800 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => {
                         const snap = new Set(selectedIds.risk);
                         void runBulkDecision("risk", Array.from(snap), "acted", snap);
@@ -1652,7 +1759,8 @@ export default function ReconcileResultsPage() {
                     </button>
                     <button
                       type="button"
-                      className="rounded border border-gray-400 px-2 py-1 text-gray-700"
+                      disabled={isRunFinalized}
+                      className="min-h-[44px] rounded border border-gray-400 px-2 py-1 text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => {
                         const snap = new Set(selectedIds.risk);
                         void runBulkDecision("risk", Array.from(snap), "ignored", snap);
@@ -1662,7 +1770,7 @@ export default function ReconcileResultsPage() {
                     </button>
                     <button
                       type="button"
-                      className="text-red-700 underline"
+                      className="min-h-[44px] text-red-700 underline"
                       onClick={() =>
                         setSelectedIds((p) => ({ ...p, risk: new Set() }))
                       }
@@ -1675,10 +1783,11 @@ export default function ReconcileResultsPage() {
                   <table className="min-w-full text-left text-sm">
                     <thead className="border-b bg-red-50/50">
                       <tr>
-                        <th className="px-2 py-2">
+                        <th className="sticky left-0 z-10 bg-red-50/50 px-2 py-2">
                           <input
                             ref={riskHeaderRef}
                             type="checkbox"
+                            disabled={isRunFinalized}
                             checked={
                               riskRows.length > 0 &&
                               riskRows.every((r) => selectedIds.risk.has(r.id))
@@ -1720,9 +1829,10 @@ export default function ReconcileResultsPage() {
                     <tbody>
                       {riskRows.map((row, i) => (
                         <tr key={row.id} className="border-b border-gray-100">
-                          <td className="px-2 py-2">
+                          <td className="sticky left-0 z-10 bg-red-50 px-2 py-2">
                             <input
                               type="checkbox"
+                              disabled={isRunFinalized}
                               checked={selectedIds.risk.has(row.id)}
                               onChange={(e) => {
                                 setSelectedIds((prev) => {
@@ -1769,7 +1879,7 @@ export default function ReconcileResultsPage() {
                               type="button"
                               disabled
                               title="Coming Soon — Phase 7"
-                              className="whitespace-nowrap rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-500 disabled:cursor-not-allowed disabled:opacity-60"
+                              className="min-h-[44px] whitespace-nowrap rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-500 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               Generate Notice
                             </button>
@@ -1821,7 +1931,9 @@ export default function ReconcileResultsPage() {
                   <table className="min-w-full text-left text-sm">
                     <thead className="border-b bg-gray-50">
                       <tr>
-                        <th className="px-3 py-2">Supplier GSTIN</th>
+                        <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2">
+                          Supplier GSTIN
+                        </th>
                         <th className="px-3 py-2">Trade Name</th>
                         <th className="px-3 py-2 text-right">Invoice Count</th>
                         <th className="px-3 py-2 text-right">Total ITC at Risk</th>
@@ -1831,7 +1943,9 @@ export default function ReconcileResultsPage() {
                     <tbody>
                       {topSuppliersByRisk.map((s) => (
                         <tr key={s.gstin} className="border-b border-gray-100">
-                          <td className="px-3 py-2 font-mono text-xs">{s.gstin}</td>
+                          <td className="sticky left-0 z-10 bg-white px-3 py-2 font-mono text-xs">
+                            {s.gstin}
+                          </td>
                           <td className="max-w-[200px] truncate px-3 py-2 text-gray-700">
                             {s.tradeName || "—"}
                           </td>
@@ -1889,7 +2003,9 @@ export default function ReconcileResultsPage() {
                     <table className="min-w-full text-left text-sm">
                       <thead className="border-b bg-emerald-50/80">
                         <tr>
-                          <th className="px-3 py-2">Supplier</th>
+                          <th className="sticky left-0 z-10 bg-emerald-50/80 px-3 py-2">
+                            Supplier
+                          </th>
                           <th className="px-3 py-2">Invoice#</th>
                           <th className="px-3 py-2">Original Period</th>
                           <th className="px-3 py-2">GSTR-2B Period</th>
@@ -1902,7 +2018,7 @@ export default function ReconcileResultsPage() {
                             key={`${row.supplier_gstin}-${row.invoice_number}-${idx}`}
                             className="border-b border-gray-100"
                           >
-                            <td className="px-3 py-2 font-mono text-xs">
+                            <td className="sticky left-0 z-10 bg-white px-3 py-2 font-mono text-xs">
                               {row.supplier_gstin || "—"}
                             </td>
                             <td className="px-3 py-2">{row.invoice_number || "—"}</td>
@@ -1941,7 +2057,7 @@ export default function ReconcileResultsPage() {
             />
             <div className="flex flex-wrap items-center gap-2">
               <select
-                className="rounded border border-gray-300 px-2 py-1 text-sm"
+                className="min-h-[44px] rounded border border-gray-300 px-2 py-1 text-sm"
                 value={matchedFilters.match_level}
                 onChange={(e) =>
                   setMatchedFilters((f) => ({
@@ -1980,7 +2096,7 @@ export default function ReconcileResultsPage() {
               />
               <button
                 type="button"
-                className={`rounded-full border px-2 py-1 text-xs ${
+                className={`min-h-[36px] rounded-full border px-2 py-1 text-xs ${
                   matchedFilters.has_notes
                     ? "border-blue-600 bg-blue-50 text-blue-800"
                     : "border-gray-300 text-gray-600"
@@ -1996,7 +2112,7 @@ export default function ReconcileResultsPage() {
               </button>
               <button
                 type="button"
-                className={`rounded-full border px-2 py-1 text-xs ${
+                className={`min-h-[36px] rounded-full border px-2 py-1 text-xs ${
                   matchedFilters.review_required
                     ? "border-amber-600 bg-amber-50 text-amber-800"
                     : "border-gray-300 text-gray-600"
@@ -2012,7 +2128,7 @@ export default function ReconcileResultsPage() {
               </button>
               <button
                 type="button"
-                className={`rounded-full border px-2 py-1 text-xs ${
+                className={`min-h-[36px] rounded-full border px-2 py-1 text-xs ${
                   matchedFilters.section_17_5
                     ? "border-gray-700 bg-gray-100 text-gray-800"
                     : "border-gray-300 text-gray-600"
@@ -2029,7 +2145,7 @@ export default function ReconcileResultsPage() {
               {hasActiveMatchedFilters(debouncedMatchedSearch, matchedFilters) && (
                 <button
                   type="button"
-                  className="text-sm text-blue-600 underline"
+                  className="min-h-[44px] text-sm text-blue-600 underline"
                   onClick={() => {
                     setMatchedSearch("");
                     setDebouncedMatchedSearch("");
@@ -2072,7 +2188,7 @@ export default function ReconcileResultsPage() {
                 </p>
                 <button
                   type="button"
-                  className="mt-3 rounded bg-gray-200 px-3 py-1 text-sm text-gray-800"
+                  className="mt-3 min-h-[44px] rounded bg-gray-200 px-3 py-1 text-sm text-gray-800"
                   onClick={() => {
                     setMatchedSearch("");
                     setDebouncedMatchedSearch("");
@@ -2097,7 +2213,9 @@ export default function ReconcileResultsPage() {
                 <table className="min-w-full text-left text-sm">
                   <thead className="border-b bg-gray-50">
                     <tr>
-                      <th className="px-2 py-2">Supplier</th>
+                      <th className="sticky left-0 z-10 bg-gray-50 px-2 py-2">
+                        Supplier
+                      </th>
                       <th className="px-2 py-2">Invoice#</th>
                       <th className="px-2 py-2">Date</th>
                       <th className="px-2 py-2 text-right">Amount</th>
@@ -2111,14 +2229,16 @@ export default function ReconcileResultsPage() {
                     {matchedData.data.map((row) => (
                       <tr
                         key={row.id}
-                        className="cursor-pointer border-b border-gray-100 hover:bg-gray-50"
+                        className="group cursor-pointer border-b border-gray-100 hover:bg-gray-50"
                         onClick={() => {
                           setActiveRecord(row);
                           setDrawerDecisionError(null);
                           setNotePostError(null);
                         }}
                       >
-                        <td className="font-mono text-xs">{row.supplier_gstin}</td>
+                        <td className="sticky left-0 z-10 bg-white px-2 py-2 font-mono text-xs group-hover:bg-gray-50">
+                          {row.supplier_gstin}
+                        </td>
                         <td>{row.invoice_number}</td>
                         <td>{formatDate(row.invoice_date)}</td>
                         <td className="text-right font-mono">
@@ -2171,7 +2291,7 @@ export default function ReconcileResultsPage() {
         <div className="mb-6 rounded-lg border border-gray-200 bg-white">
           <button
             type="button"
-            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50"
+            className="flex min-h-[44px] w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50"
             onClick={() => setRule37Open((o) => !o)}
           >
             <span className="flex items-center gap-2 font-semibold text-gray-900">
@@ -2274,7 +2394,7 @@ export default function ReconcileResultsPage() {
         <div className="mb-6 rounded-lg border border-gray-200 bg-white">
           <button
             type="button"
-            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50"
+            className="flex min-h-[44px] w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50"
             onClick={() => setSection17Open((o) => !o)}
           >
             <span className="flex items-center gap-2 font-semibold text-gray-900">
@@ -2362,8 +2482,8 @@ export default function ReconcileResultsPage() {
             className="fixed inset-0 z-40 bg-black/40"
             onClick={() => setActiveRecord(null)}
           />
-          <aside className="fixed bottom-0 right-0 top-0 z-50 flex w-full flex-col overflow-y-auto border-l border-gray-200 bg-white shadow-xl sm:w-[640px]">
-            <div className="sticky top-0 z-10 flex items-start justify-between border-b border-gray-100 bg-white px-4 py-3">
+          <aside className="fixed bottom-0 right-0 top-0 z-50 flex h-full w-full flex-col border-l border-gray-200 bg-white shadow-xl sm:w-[640px]">
+            <div className="sticky top-0 z-10 flex shrink-0 items-start justify-between border-b border-gray-100 bg-white px-4 py-3">
               <div>
                 <p className="font-mono text-xs text-gray-500">
                   {activeRecord.supplier_gstin}
@@ -2376,14 +2496,14 @@ export default function ReconcileResultsPage() {
               </div>
               <button
                 type="button"
-                className="rounded p-1 text-gray-500 hover:bg-gray-100"
+                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded p-1 text-gray-500 hover:bg-gray-100"
                 onClick={() => setActiveRecord(null)}
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="flex-1 space-y-4 p-4">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
@@ -2470,7 +2590,8 @@ export default function ReconcileResultsPage() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    className="rounded border border-emerald-600 px-3 py-1 text-sm text-emerald-800"
+                    disabled={isRunFinalized}
+                    className="min-h-[44px] rounded border border-emerald-600 px-3 py-1 text-sm text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={() =>
                       void runSingleDecision(activeRecord.id, "acted")
                     }
@@ -2479,7 +2600,8 @@ export default function ReconcileResultsPage() {
                   </button>
                   <button
                     type="button"
-                    className="rounded border border-gray-400 px-3 py-1 text-sm text-gray-700"
+                    disabled={isRunFinalized}
+                    className="min-h-[44px] rounded border border-gray-400 px-3 py-1 text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={() =>
                       void runSingleDecision(activeRecord.id, "ignored")
                     }
@@ -2540,7 +2662,7 @@ export default function ReconcileResultsPage() {
                     value={newNoteText}
                     onChange={(e) => setNewNoteText(e.target.value)}
                   />
-                  <div className="mt-2 flex justify-end gap-2">
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:justify-end">
                     {notePostError && (
                       <p className="mr-auto text-sm text-red-600">
                         {notePostError}
@@ -2549,7 +2671,7 @@ export default function ReconcileResultsPage() {
                     <button
                       type="button"
                       disabled={notePosting || !newNoteText.trim()}
-                      className="inline-flex items-center gap-1 rounded bg-gray-900 px-3 py-1 text-sm text-white disabled:opacity-40"
+                      className="inline-flex min-h-[44px] w-full items-center justify-center gap-1 rounded bg-gray-900 px-3 py-1 text-sm text-white disabled:opacity-40 sm:w-auto"
                       onClick={() => void submitNote()}
                     >
                       {notePosting && (
@@ -2566,7 +2688,7 @@ export default function ReconcileResultsPage() {
       )}
 
       {/* Finalize bar */}
-      {finalizeVisible && (
+      {finalizeBarVisible && (
         <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-gray-200 bg-white py-3 pl-6 pr-6 shadow-lg">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-gray-500">
@@ -2574,15 +2696,131 @@ export default function ReconcileResultsPage() {
             </p>
             <button
               type="button"
-              disabled={finalizeBusy}
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2 text-white disabled:opacity-50"
-              onClick={() => void onFinalize()}
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2 text-white hover:bg-emerald-700"
+              onClick={() => setFinalizeModalOpen(true)}
             >
-              {finalizeBusy && (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              )}
               Finalize Reconciliation
             </button>
+          </div>
+        </div>
+      )}
+
+      {staffFinalizeMessageVisible && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-blue-200 bg-blue-50 py-3 px-6">
+          <p className="text-center text-sm text-blue-700">
+            Only your CA principal (admin) can finalize this reconciliation.
+          </p>
+        </div>
+      )}
+
+      {finalizeModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeFinalizeModal();
+          }}
+        >
+          <div className="relative mx-4 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+            <div className="pr-8">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Finalize Reconciliation
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Check all items to confirm. This action is permanent and cannot be
+                undone.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={finalizing}
+              className="absolute right-4 top-4 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-gray-500 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Close"
+              onClick={closeFinalizeModal}
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="mt-4 space-y-3">
+              {FINALIZE_CHECKLIST_ROWS.map(({ key, label }) => {
+                const checked = checklist[key];
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    disabled={finalizing}
+                    onClick={() =>
+                      setChecklist((c) => ({ ...c, [key]: !c[key] }))
+                    }
+                    className="flex w-full cursor-pointer items-start gap-3 rounded text-left disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <span
+                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 ${
+                        checked
+                          ? "border-emerald-500 bg-emerald-500 text-white"
+                          : "border-gray-300 bg-white"
+                      }`}
+                      aria-hidden
+                    >
+                      {checked ? (
+                        <Check className="h-3 w-3 stroke-[3]" />
+                      ) : null}
+                    </span>
+                    <span
+                      className={`text-sm ${
+                        checked
+                          ? "text-gray-400 line-through"
+                          : "text-gray-700"
+                      }`}
+                    >
+                      {label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {(() => {
+              const n = Object.values(checklist).filter(Boolean).length;
+              return (
+                <div className="mt-4">
+                  <p className="text-sm text-gray-500">
+                    {n} of 5 items confirmed
+                  </p>
+                  <div className="mt-1 h-1.5 w-full rounded-full bg-gray-200">
+                    <div
+                      className="h-1.5 rounded-full bg-emerald-500 transition-all"
+                      style={{ width: `${(n / 5) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                disabled={finalizing}
+                className="min-h-[44px] rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={closeFinalizeModal}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={
+                  finalizing ||
+                  Object.values(checklist).filter(Boolean).length !== 5
+                }
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void submitFinalize()}
+              >
+                {finalizing && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
+                {finalizing ? "Finalizing..." : "Finalize"}
+              </button>
+            </div>
           </div>
         </div>
       )}
