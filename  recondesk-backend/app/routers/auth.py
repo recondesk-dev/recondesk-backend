@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from gotrue.types import User
 
 from app.auth import get_current_user, get_current_user_id, get_user_role
@@ -15,6 +15,7 @@ from app.models.user import (
     UserProfileResponse,
 )
 from app.utils.audit import log_action
+from app.utils.email import send_welcome_email
 from app.utils.login_throttle import (
     is_login_locked,
     record_login_failure,
@@ -33,11 +34,22 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+async def _signup_welcome_email_task(to: str, full_name: str) -> None:
+    try:
+        await send_welcome_email(to=to, full_name=full_name)
+    except Exception:
+        _log.exception("welcome email background task failed to=%s", to)
+
+
 # ── POST /auth/signup ─────────────────────────────────────────────────────────
 
 @router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("10/minute")
-async def signup(request: Request, payload: SignupRequest):
+async def signup(
+    request: Request,
+    payload: SignupRequest,
+    background_tasks: BackgroundTasks,
+):
     """Register a new user and create their profile row."""
     db = get_db()
     ip = _client_ip(request)
@@ -102,6 +114,12 @@ async def signup(request: Request, payload: SignupRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred. Please try again.",
         ) from exc
+
+    background_tasks.add_task(
+        _signup_welcome_email_task,
+        str(payload.email).strip(),
+        str(payload.full_name or ""),
+    )
 
     return SignupResponse(
         user_id=user_id,

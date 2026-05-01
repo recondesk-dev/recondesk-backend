@@ -64,7 +64,7 @@ class Settings(BaseSettings):
 
     # Resend
     RESEND_API_KEY: str = ""
-    EMAIL_FROM: str = "no-reply@recondesk.com"
+    EMAIL_FROM: str = "ReconDesk <onboarding@resend.dev>"
 
     # Sentry
     SENTRY_DSN: str = ""

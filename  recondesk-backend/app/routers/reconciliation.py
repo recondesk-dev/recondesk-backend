@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from supabase import Client
 
@@ -21,12 +21,21 @@ from app.models.reconciliation import (
 from app.parsers.file_router import parse_file
 from app.services.r2_service import create_presigned_download_url
 from app.services.reconciliation_service import reconcile
-from app.services.email_service import send_reconciliation_complete_email
+from app.services.email_service import send_legacy_reconciliation_job_email_async
 from app.utils.rate_limit import limiter
 
 router = APIRouter()
 start_router = APIRouter()
 _log = logging.getLogger(__name__)
+
+
+async def _legacy_reconciliation_job_email_task(
+    to: str, job_name: str, summary: dict
+) -> None:
+    try:
+        await send_legacy_reconciliation_job_email_async(to, job_name, summary)
+    except Exception:
+        _log.exception("legacy reconciliation job email failed to=%s", to)
 
 
 class ReconciliationStartRequest(BaseModel):
@@ -64,6 +73,7 @@ async def _fetch_file_content(file_key: str) -> bytes:
 @router.post("/jobs", response_model=ReconciliationJobResponse, status_code=status.HTTP_202_ACCEPTED)
 async def create_job(
     payload: ReconciliationJobCreate,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_active_user),
     db: Client = Depends(supabase_client),
 ):
@@ -115,7 +125,12 @@ async def create_job(
             }
         ).eq("id", job_id).execute()
 
-        send_reconciliation_complete_email(current_user["email"], payload.name, summary)
+        background_tasks.add_task(
+            _legacy_reconciliation_job_email_task,
+            str(current_user["email"]),
+            payload.name,
+            summary,
+        )
 
     except Exception as exc:
         db.table("reconciliation_jobs").update(

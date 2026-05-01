@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
 
 from app.services.matching_core import THRESHOLD, choose_best_candidate, compute_match_score
+from supabase import Client
+
 from app.services.matcher import (
     INVOICE_SIMILARITY_L5_MIN,
     MatchResult,
@@ -432,4 +435,74 @@ def run_bidirectional_reconciliation(
     wrongful_itc_risk = build_wrongful_itc_risk(pr_records, state.matched_pr_ids)
     return _finalize_reconciliation_result(
         state, wrongful_itc_risk, total_gstr, total_pr
+    )
+
+
+def notify_reconciliation_run_completed_email_maybe(
+    client: Client,
+    *,
+    run_id: str,
+    actor_user_id: str | None,
+    to_email: str,
+    full_name: str,
+    client_name: str,
+    period: str,
+    matched_count: int,
+    missed_itc_amount_paise: int,
+    wrongful_risk_amount_paise: int,
+    match_rate_percent: float,
+) -> None:
+    """If no prior EMAIL_SENT for this run, send completion email and record EMAIL_SENT.
+
+    Swallows failures from :func:`asyncio.run` so Celery / callers are never blocked.
+    """
+    from app.utils.audit import log_action_sync
+    from app.utils.email import send_reconciliation_complete_email
+
+    to_clean = (to_email or "").strip()
+    if not to_clean:
+        return
+
+    try:
+        already = (
+            client.table("audit_logs")
+            .select("id")
+            .eq("action", "EMAIL_SENT")
+            .eq("entity_id", run_id)
+            .limit(1)
+            .execute()
+        )
+        if (already.data or []):
+            return
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("audit_logs idempotency check failed run_id=%s: %s", run_id, exc)
+        return
+
+    try:
+        ok = asyncio.run(
+            send_reconciliation_complete_email(
+                to_clean,
+                (full_name or "").strip() or "there",
+                (client_name or "").strip() or "Client",
+                (period or "").strip(),
+                matched_count,
+                int(missed_itc_amount_paise),
+                int(wrongful_risk_amount_paise),
+                float(match_rate_percent),
+                run_id,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("reconciliation complete email failed run_id=%s: %s", run_id, exc)
+        return
+
+    if not ok:
+        return
+
+    log_action_sync(
+        actor_user_id,
+        "EMAIL_SENT",
+        "reconciliation_run",
+        run_id,
+        {"kind": "reconciliation_complete"},
     )
