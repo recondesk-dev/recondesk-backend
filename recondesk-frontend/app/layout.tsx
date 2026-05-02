@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { DM_Sans, Space_Mono } from "next/font/google";
+
+import { RootProviders } from "@/components/providers/RootProviders";
+
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -28,7 +31,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${dmSans.variable} ${spaceMono.variable}`}>
-      <body className="min-w-[1280px] font-sans antialiased">{children}</body>
+      <body className="min-w-[1280px] font-sans antialiased">
+        <RootProviders>{children}</RootProviders>
+      </body>
     </html>
   );
 }

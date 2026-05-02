@@ -18,7 +18,8 @@ function pageTitle(pathname: string): string {
   if (pathname === "/") return "Dashboard";
   if (pathname === "/clients") return "Clients";
   if (pathname === "/runs") return "Runs";
-  if (pathname === "/settings") return "Settings";
+  if (pathname.startsWith("/settings/team")) return "Team";
+  if (pathname.startsWith("/settings")) return "Settings";
   if (/^\/clients\/[^/]+$/.test(pathname)) return "Client Detail";
   return "ReconDesk";
 }

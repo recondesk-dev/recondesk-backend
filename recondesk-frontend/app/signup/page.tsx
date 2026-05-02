@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Eye, EyeOff, UserPlus } from "lucide-react";
 
-export default function SignupPage() {
+function SignupForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
 
   const [form, setForm] = useState({
@@ -22,6 +23,16 @@ export default function SignupPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  const inviteRoleRaw =
+    searchParams.get("invite_role")?.trim().toLowerCase() ?? "";
+
+  useEffect(() => {
+    const email = searchParams.get("email")?.trim();
+    if (email) {
+      setForm((prev) => ({ ...prev, email }));
+    }
+  }, [searchParams]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
@@ -31,7 +42,16 @@ export default function SignupPage() {
     setLoading(true);
     setError(null);
 
-    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin).replace(/\/$/, "");
+    const metadataRole =
+      inviteRoleRaw === "staff"
+        ? "Staff"
+        : inviteRoleRaw === "admin"
+          ? "Admin"
+          : "Admin";
+
+    const siteUrl = (
+      process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin
+    ).replace(/\/$/, "");
     const { error } = await supabase.auth.signUp({
       email: form.email,
       password: form.password,
@@ -41,7 +61,7 @@ export default function SignupPage() {
           full_name: form.name,
           firm_name: form.firmName,
           phone: form.phone,
-          role: "Admin",
+          role: metadataRole,
         },
       },
     });
@@ -58,14 +78,14 @@ export default function SignupPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
         <div className="w-full max-w-md text-center">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-green-100 rounded-full mb-4">
-            <svg className="w-7 h-7 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-full bg-green-100">
+            <svg className="h-7 w-7 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Check your email</h2>
+          <h2 className="mb-2 text-xl font-semibold text-gray-900">Check your email</h2>
           <p className="text-sm text-gray-500">
             We&apos;ve sent a confirmation link to <strong>{form.email}</strong>.<br />
             Redirecting to login...
@@ -76,26 +96,34 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12">
       <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-purple-600 rounded-xl mb-4">
+        <div className="mb-8 text-center">
+          <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-purple-600">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-white">
               <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">RECONDESK</h1>
-          <p className="text-sm text-gray-500 mt-1">Reconciliation made simple</p>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900">RECONDESK</h1>
+          <p className="mt-1 text-sm text-gray-500">Reconciliation made simple</p>
         </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-          <h2 className="text-xl font-semibold text-gray-900 mb-1">Create your account</h2>
-          <p className="text-sm text-gray-500 mb-6">Get started with ReconDesk for free</p>
+        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+          <h2 className="mb-1 text-xl font-semibold text-gray-900">Create your account</h2>
+          <p className="mb-6 text-sm text-gray-500">Get started with ReconDesk for free</p>
+
+          {inviteRoleRaw ? (
+            <div className="mb-4 rounded-lg border border-purple-100 bg-purple-50 px-3 py-2 text-sm text-purple-950">
+              You&apos;re signing up from a team invitation
+              {inviteRoleRaw === "admin" || inviteRoleRaw === "staff"
+                ? ` (${inviteRoleRaw})`
+                : ""}
+              .
+            </div>
+          ) : null}
 
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
             </div>
           )}
@@ -103,7 +131,7 @@ export default function SignupPage() {
           <form onSubmit={handleSignup} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label htmlFor="name" className="mb-1.5 block text-sm font-medium text-gray-700">
                   Full name
                 </label>
                 <input
@@ -114,11 +142,11 @@ export default function SignupPage() {
                   value={form.name}
                   onChange={handleChange}
                   placeholder="Jane Smith"
-                  className="input-field"
+                  className="input-field min-h-[44px]"
                 />
               </div>
               <div>
-                <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label htmlFor="phone" className="mb-1.5 block text-sm font-medium text-gray-700">
                   Phone number
                 </label>
                 <input
@@ -128,13 +156,13 @@ export default function SignupPage() {
                   value={form.phone}
                   onChange={handleChange}
                   placeholder="+91 98765 43210"
-                  className="input-field"
+                  className="input-field min-h-[44px]"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="firmName" className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label htmlFor="firmName" className="mb-1.5 block text-sm font-medium text-gray-700">
                 Firm / Company name
               </label>
               <input
@@ -145,12 +173,12 @@ export default function SignupPage() {
                 value={form.firmName}
                 onChange={handleChange}
                 placeholder="Acme Accounting LLP"
-                className="input-field"
+                className="input-field min-h-[44px]"
               />
             </div>
 
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-gray-700">
                 Work email
               </label>
               <input
@@ -162,12 +190,12 @@ export default function SignupPage() {
                 value={form.email}
                 onChange={handleChange}
                 placeholder="you@company.com"
-                className="input-field"
+                className="input-field min-h-[44px]"
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-gray-700">
                 Password
               </label>
               <div className="relative">
@@ -181,26 +209,27 @@ export default function SignupPage() {
                   value={form.password}
                   onChange={handleChange}
                   placeholder="Min. 8 characters"
-                  className="input-field pr-10"
+                  className="input-field min-h-[44px] pr-12"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-1 top-1/2 inline-flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                 >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
-              <p className="text-xs text-gray-400 mt-1.5">At least 8 characters</p>
+              <p className="mt-1.5 text-xs text-gray-400">At least 8 characters</p>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary w-full flex items-center justify-center gap-2 mt-2"
+              className="btn-primary mt-2 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
             >
               {loading ? (
-                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
@@ -210,7 +239,7 @@ export default function SignupPage() {
               {loading ? "Creating account..." : "Create account"}
             </button>
 
-            <p className="text-xs text-gray-400 text-center">
+            <p className="text-center text-xs text-gray-400">
               By signing up, you agree to our{" "}
               <Link href="/terms" className="text-purple-600 hover:underline">Terms</Link>{" "}
               and{" "}
@@ -219,13 +248,27 @@ export default function SignupPage() {
           </form>
         </div>
 
-        <p className="text-center text-sm text-gray-500 mt-6">
+        <p className="mt-6 text-center text-sm text-gray-500">
           Already have an account?{" "}
-          <Link href="/login" className="text-purple-600 hover:text-purple-700 font-medium">
+          <Link href="/login" className="font-medium text-purple-600 hover:text-purple-700">
             Sign in
           </Link>
         </p>
       </div>
     </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-purple-600 border-t-transparent" />
+        </div>
+      }
+    >
+      <SignupForm />
+    </Suspense>
   );
 }

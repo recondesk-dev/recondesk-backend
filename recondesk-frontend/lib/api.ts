@@ -23,10 +23,47 @@ export type PrRecord =
   Database["public"]["Tables"]["pr_records"]["Row"];
 export type MismatchNote =
   Database["public"]["Tables"]["mismatch_notes"]["Row"];
-export type TeamMember =
+export type TeamMemberRecord =
   Database["public"]["Tables"]["team_members"]["Row"];
 export type UserProfile =
   Database["public"]["Tables"]["user_profiles"]["Row"];
+
+/** Row shape from GET /api/team/members */
+export interface TeamMemberListItem {
+  id: string;
+  member_user_id: string | null;
+  full_name: string;
+  email: string;
+  role: string;
+  joined_at: string | null;
+  status: "active" | "pending";
+  invite_expires_at: string | null;
+}
+
+/** Profile from GET /api/v1/auth/me (matches FastAPI UserProfileResponse). */
+export interface AuthMeProfile {
+  id: string;
+  email?: string | null;
+  full_name?: string | null;
+  firm_name?: string | null;
+  phone?: string | null;
+  role: string;
+  is_active?: boolean;
+  created_at?: string | null;
+  plan?: string | null;
+  runs_used?: number | null;
+  runs_limit?: number | null;
+}
+
+export type AcceptInviteResponse =
+  | { status: "accepted"; redirect: string }
+  | {
+      status: "signup_required";
+      redirect: string;
+      email: string;
+      role: string;
+      token: string;
+    };
 export type Payment =
   Database["public"]["Tables"]["payments"]["Row"];
 
@@ -35,6 +72,17 @@ export type Payment =
 export interface ApiError {
   detail: string;
   status: number;
+}
+
+export function isApiError(e: unknown): e is ApiError {
+  return (
+    typeof e === "object" &&
+    e !== null &&
+    "detail" in e &&
+    "status" in e &&
+    typeof (e as ApiError).detail === "string" &&
+    typeof (e as ApiError).status === "number"
+  );
 }
 
 export interface PaginatedResponse<T> {
@@ -136,20 +184,24 @@ export async function apiFetch<T>(
 
 // ─── Client GSTINs ───────────────────────────────────────────────────────────
 
+export interface ClientCreatePayload {
+  gstin: string;
+  trade_name: string;
+  legal_name?: string | null;
+  contact_name: string;
+  contact_email: string;
+  contact_phone: string;
+  assigned_to?: string | null;
+}
+
 export const clientsApi = {
-  list: (token: string, page = 1, pageSize = 50) =>
-    apiFetch<PaginatedResponse<ClientGstin>>(
-      `/api/clients?page=${page}&page_size=${pageSize}`,
-      { token }
-    ),
+  list: (token: string) =>
+    apiFetch<ClientGstin[]>("/api/clients", { token }),
 
   get: (token: string, id: string) =>
     apiFetch<ClientGstin>(`/api/clients/${id}`, { token }),
 
-  create: (
-    token: string,
-    data: Database["public"]["Tables"]["client_gstins"]["Insert"]
-  ) =>
+  create: (token: string, data: ClientCreatePayload) =>
     apiFetch<ClientGstin>("/api/clients", {
       method: "POST",
       body: JSON.stringify(data),
@@ -164,6 +216,13 @@ export const clientsApi = {
     apiFetch<ClientGstin>(`/api/clients/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
+      token,
+    }),
+
+  assign: (token: string, id: string, assigned_to: string) =>
+    apiFetch<ClientGstin>(`/api/clients/${id}/assign`, {
+      method: "PATCH",
+      body: JSON.stringify({ assigned_to }),
       token,
     }),
 
@@ -248,19 +307,28 @@ export const notesApi = {
 
 // ─── Team ─────────────────────────────────────────────────────────────────────
 
+export const authApi = {
+  /** Mounted at `/api/v1/auth` on the FastAPI backend. */
+  me: (token: string) =>
+    apiFetch<AuthMeProfile>("/api/v1/auth/me", { token }),
+};
+
 export const teamApi = {
   list: (token: string) =>
-    apiFetch<TeamMember[]>("/api/team", { token }),
+    apiFetch<TeamMemberListItem[]>("/api/team/members", { token }),
 
-  invite: (token: string, email: string, role: "Staff" | "Manager") =>
-    apiFetch<TeamMember>("/api/team/invite", {
+  invite: (token: string, email: string, role: "admin" | "staff") =>
+    apiFetch<{ invited: boolean }>("/api/team/invite", {
       method: "POST",
       body: JSON.stringify({ email, role }),
       token,
     }),
 
   remove: (token: string, memberId: string) =>
-    apiFetch<void>(`/api/team/${memberId}`, { method: "DELETE", token }),
+    apiFetch<{ removed: boolean }>(`/api/team/members/${memberId}`, {
+      method: "DELETE",
+      token,
+    }),
 };
 
 // ─── Health ───────────────────────────────────────────────────────────────────
