@@ -110,7 +110,7 @@ def _resolve_firm_owner(sb, uid: str) -> str:
     return str(r.data[0].get("firm_owner_id", "")).strip()
 
 
-@router.get("/")
+@router.get("")
 async def list_clients(current_user: dict = Depends(get_current_active_user)):
     sb = get_supabase()
     uid = str(current_user.get("id", ""))
@@ -135,7 +135,7 @@ async def list_clients(current_user: dict = Depends(get_current_active_user)):
     return res.data or []
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_client(
     body: ClientCreate,
     current_user: dict = Depends(get_current_active_user),
