@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import useSWR, { mutate } from "swr";
+import { Users } from "lucide-react";
 import {
   addMockClient,
   deleteMockClient,
@@ -38,7 +39,7 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export default function ClientsPage() {
-  const { data: rows, error } = useSWR("/api/clients/management", mockFetchers["/api/clients/management"]);
+  const { data: rows, error, isLoading } = useSWR("/api/clients/management", mockFetchers["/api/clients/management"]);
   const { data: staff } = useSWR("/api/staff", mockFetchers["/api/staff"]);
 
   const [search, setSearch] = useState("");
@@ -152,6 +153,11 @@ export default function ClientsPage() {
 
   const finalized = (r: ClientManagementRow) => r.lastRun?.status === "FINALIZED";
 
+  const listLoaded = Array.isArray(rows);
+  const hasActiveSearch = debouncedSearch.trim().length > 0;
+  const showTableEmptyState =
+    !isLoading && !error && listLoaded && totalFiltered === 0;
+
   return (
     <div className="space-y-6">
       <div className="flex justify-end">
@@ -177,6 +183,49 @@ export default function ClientsPage() {
         </div>
       )}
 
+      {showTableEmptyState ? (
+        <div className="flex min-h-[320px] flex-col items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-6 py-16 text-center">
+          <Users
+            className="mb-4 h-14 w-14 text-[var(--text-secondary)]"
+            strokeWidth={1.25}
+            aria-hidden
+          />
+          {hasActiveSearch ? (
+            <>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                No clients found
+              </h2>
+              <p className="mt-2 max-w-sm text-sm text-[var(--text-secondary)]">
+                No clients match your search. Try a different name or GSTIN.
+              </p>
+            </>
+          ) : (rows?.length ?? 0) === 0 ? (
+            <>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">No clients yet</h2>
+              <p className="mt-2 max-w-sm text-sm text-[var(--text-secondary)]">
+                Add your first client to start reconciling
+              </p>
+              <button
+                type="button"
+                onClick={openAdd}
+                className="mt-6 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white"
+              >
+                Add Client
+              </button>
+            </>
+          ) : (
+            <>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                No clients found
+              </h2>
+              <p className="mt-2 max-w-sm text-sm text-[var(--text-secondary)]">
+                No clients match the selected staff filter.
+              </p>
+            </>
+          )}
+        </div>
+      ) : (
+        <>
       <div className="flex flex-wrap items-end gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
         <div className="min-w-[200px] flex-1">
           <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Search</label>
@@ -339,6 +388,8 @@ export default function ClientsPage() {
           </div>
         </div>
       </div>
+        </>
+      )}
 
       <Modal
         open={addOpen}
