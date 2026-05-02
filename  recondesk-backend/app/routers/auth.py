@@ -17,7 +17,11 @@ from app.models.user import (
     UserProfileResponse,
 )
 from app.utils.audit import log_action
-from app.utils.email import send_welcome_email
+from app.utils.email import (
+    send_monthly_reminder_email,
+    send_team_invite_email,
+    send_welcome_email,
+)
 from app.utils.login_throttle import (
     is_login_locked,
     record_login_failure,
@@ -27,6 +31,7 @@ from app.utils.rate_limit import limiter
 
 router = APIRouter()
 webhook_router = APIRouter()
+test_router = APIRouter()
 _log = logging.getLogger(__name__)
 
 
@@ -360,3 +365,28 @@ async def get_me(
     role = await get_user_role(user_id)
     profile["role"] = role
     return UserProfileResponse(**profile)
+
+
+# ── GET /api/test/send-emails (temporary; remove before production) ───────────
+
+@test_router.get("/send-emails")
+async def test_send_emails():
+    """Fire test transactional emails via Resend. No authentication."""
+    await send_team_invite_email(
+        to="kadamomkar9988@gmail.com",
+        inviter_firm_name="Test CA Firm",
+        role="staff",
+        invite_token="test-token-123",
+    )
+    await send_monthly_reminder_email(
+        to="kadamomkar9988@gmail.com",
+        full_name="Omkar Kadam",
+        pending_clients=[
+            {
+                "client_name": "ABC Corp",
+                "gstin": "27AABCU9603R1ZX",
+                "last_reconciled_period": "Mar 2025",
+            }
+        ],
+    )
+    return {"sent": True}
