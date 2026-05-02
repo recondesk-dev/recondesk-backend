@@ -40,6 +40,7 @@ if settings.SENTRY_DSN:
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
+    redirect_slashes=False,
     title="ReconDesk API",
     description="B2B SaaS reconciliation platform API",
     version=settings.APP_VERSION,
