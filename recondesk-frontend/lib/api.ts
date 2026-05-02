@@ -288,6 +288,69 @@ export const reconciliationsApi = {
     }),
 };
 
+/** Row from GET `/api/reconcile/runs` (FastAPI reconcile router). */
+export interface ReconcileRunListRow {
+  id: string;
+  client_gstin_id: string;
+  period: string;
+  status: string;
+  run_summary?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at?: string | null;
+  finalized_at?: string | null;
+  finalized_by?: string | null;
+  finalized_by_name?: string | null;
+  progress_percent?: number | null;
+  status_message?: string | null;
+  gstr_records_imported?: number | null;
+  pr_records_imported?: number | null;
+  matched_itc_paise?: number | null;
+  missed_itc_paise?: number | null;
+  wrongful_risk_paise?: number | null;
+  processing_completed_at?: string | null;
+  completed_at?: string | null;
+  trade_name?: string | null;
+  client_gstin?: string | null;
+}
+
+export const reconcileRunsApi = {
+  list: (
+    token: string,
+    params?: {
+      status?: string;
+      limit?: number;
+      client_gstin_id?: string;
+    }
+  ) => {
+    const sp = new URLSearchParams();
+    if (params?.status) sp.set("status", params.status);
+    if (params?.limit != null) sp.set("limit", String(params.limit));
+    if (params?.client_gstin_id)
+      sp.set("client_gstin_id", params.client_gstin_id);
+    const q = sp.toString();
+    return apiFetch<ReconcileRunListRow[]>(
+      `/api/reconcile/runs${q ? `?${q}` : ""}`,
+      { token }
+    );
+  },
+
+  retryFailed: (token: string, runId: string) =>
+    apiFetch<{ run_id: string; status: string }>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/retry`,
+      { method: "POST", token }
+    ),
+
+  finalizeRun: (token: string, runId: string) =>
+    apiFetch<unknown>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/finalize`,
+      {
+        method: "POST",
+        token,
+        body: JSON.stringify({ checklist_snapshot: {} }),
+      }
+    ),
+};
+
 // ─── Records ──────────────────────────────────────────────────────────────────
 
 export const recordsApi = {

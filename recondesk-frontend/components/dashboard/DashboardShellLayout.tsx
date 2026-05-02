@@ -2,17 +2,26 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
-import useSWR from "swr";
-import { mutate } from "swr";
-import { mockFetchers, retryFailedRun } from "@/lib/mock-data";
+import { useEffect, useState } from "react";
+import useSWR, { mutate } from "swr";
 import { Avatar } from "@/components/ui/Avatar";
+import { useToast } from "@/components/providers/ToastProvider";
+import { authApi, isApiError, reconcileRunsApi } from "@/lib/api";
+import { DW, formatPeriodLabel } from "@/lib/dashboard-portfolio";
+import { subscribeAccessToken } from "@/lib/supabase/client";
 
-const LOGGED_IN = {
-  name: "Priya Sharma",
-  role: "ADMIN" as const,
-  initials: "PS",
-};
+function initialsFromDisplayName(name: string): string {
+  const t = name.trim();
+  if (!t) return "?";
+  const parts = t.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    const a = parts[0][0];
+    const b = parts[parts.length - 1][0];
+    return `${a}${b}`.toUpperCase();
+  }
+  if (parts[0].length >= 2) return parts[0].slice(0, 2).toUpperCase();
+  return parts[0][0]?.toUpperCase() ?? "?";
+}
 
 function pageTitle(pathname: string): string {
   if (pathname === "/") return "Dashboard";
@@ -94,15 +103,88 @@ export default function DashboardShellLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const toast = useToast();
   const title = pageTitle(pathname);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [accessToken, setAccessToken] = useState<string | false | null>(null);
+  const [currentUser, setCurrentUser] = useState({
+    name: "…",
+    role: "…",
+    initials: "··",
+  });
 
-  const { data: failures, mutate: mutateFailures } = useSWR(
-    "/api/dashboard/failures",
-    mockFetchers["/api/dashboard/failures"]
+  useEffect(() => subscribeAccessToken(setAccessToken), []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProfile() {
+      if (accessToken === null) return;
+
+      if (accessToken === false) {
+        setCurrentUser({ name: "Guest", role: "—", initials: "?" });
+        return;
+      }
+
+      try {
+        const me = await authApi.me(accessToken);
+        if (cancelled) return;
+        const name = me.full_name?.trim() || me.email?.trim() || "User";
+        const role = (me.role ?? "staff").toUpperCase();
+        setCurrentUser({
+          name,
+          role,
+          initials: initialsFromDisplayName(name),
+        });
+      } catch {
+        if (cancelled) return;
+        setCurrentUser({
+          name: "User",
+          role: "STAFF",
+          initials: "?",
+        });
+      }
+    }
+
+    void loadProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  const failuresKey =
+    typeof accessToken === "string" && accessToken.length > 0
+      ? ([DW, "failures", accessToken] as const)
+      : null;
+
+  const {
+    data: failures,
+    error: failuresError,
+    isLoading: failuresLoading,
+    mutate: mutateFailures,
+  } = useSWR(
+    failuresKey,
+    async ([, , token]) => {
+      const rows = await reconcileRunsApi.list(token, {
+        status: "failed",
+        limit: 500,
+      });
+      const items = rows.slice(0, 5).map((r) => ({
+        runId: r.id,
+        tradeName: (r.trade_name || r.client_gstin || "Unknown").trim(),
+        period: formatPeriodLabel(r.period),
+        errorSnippet: (r.status_message || "Reconciliation failed.").slice(0, 80),
+      }));
+      return { count: rows.length, items };
+    },
+    { revalidateOnFocus: false }
   );
 
   const failedCount = failures?.count ?? 0;
+
+  async function invalidateDw(): Promise<void> {
+    await mutate((key: unknown) => Array.isArray(key) && key[0] === DW);
+  }
 
   const nav = [
     { href: "/", label: "Dashboard", Icon: NavIconDashboard },
@@ -144,11 +226,11 @@ export default function DashboardShellLayout({
         </nav>
         <div className="border-t border-white/10 p-4">
           <div className="flex items-center gap-3">
-            <Avatar initials={LOGGED_IN.initials} />
+            <Avatar initials={currentUser.initials} />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-white">{LOGGED_IN.name}</p>
+              <p className="truncate text-sm font-medium text-white">{currentUser.name}</p>
               <span className="mt-0.5 inline-block rounded bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
-                {LOGGED_IN.role}
+                {currentUser.role}
               </span>
             </div>
           </div>
@@ -174,7 +256,7 @@ export default function DashboardShellLayout({
                 </span>
               )}
             </button>
-            <Avatar initials={LOGGED_IN.initials} />
+            <Avatar initials={currentUser.initials} />
           </div>
         </header>
 
@@ -204,9 +286,27 @@ export default function DashboardShellLayout({
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
-              {!failures?.items.length && (
-                <p className="text-sm text-[var(--text-secondary)]">No failed runs.</p>
+              {failuresLoading && (
+                <p className="text-sm text-[var(--text-secondary)]">Loading failed runs…</p>
               )}
+              {failuresError && (
+                <p className="text-sm text-[var(--danger)]">
+                  Could not load failures.{" "}
+                  <button
+                    type="button"
+                    className="font-semibold underline"
+                    onClick={() => void mutateFailures()}
+                  >
+                    Retry
+                  </button>
+                </p>
+              )}
+              {!failuresLoading &&
+                !failuresError &&
+                failures &&
+                failures.items.length === 0 && (
+                  <p className="text-sm text-[var(--text-secondary)]">No failed runs.</p>
+                )}
               <ul className="space-y-3">
                 {failures?.items.map((item) => (
                   <li
@@ -220,14 +320,18 @@ export default function DashboardShellLayout({
                       type="button"
                       className="mt-2 text-sm font-semibold text-[var(--accent)] hover:underline"
                       onClick={() => {
-                        retryFailedRun(item.runId);
-                        void mutateFailures();
-                        void mutate(
-                          (key) => Array.isArray(key) && key[0] === "/api/portfolio"
-                        );
-                        void mutate("/api/dashboard/stats");
-                        void mutate("/api/dashboard/signals");
-                        setPanelOpen(false);
+                        if (typeof accessToken !== "string") return;
+                        void (async () => {
+                          try {
+                            await reconcileRunsApi.retryFailed(accessToken, item.runId);
+                            toast("Retry queued", "success");
+                            await mutateFailures();
+                            await invalidateDw();
+                            setPanelOpen(false);
+                          } catch (e: unknown) {
+                            toast(isApiError(e) ? e.detail : "Retry failed", "error");
+                          }
+                        })();
                       }}
                     >
                       Retry

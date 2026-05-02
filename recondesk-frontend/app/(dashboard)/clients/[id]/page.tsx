@@ -4,12 +4,28 @@ import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
 import useSWR from "swr";
 import { useParams } from "next/navigation";
-import { mockFetchers } from "@/lib/mock-data";
-import type { ReconciliationRun } from "@/lib/types";
-import { Avatar } from "@/components/ui/Avatar";
+
 import { ItcTrendChart } from "@/components/dashboard/ItcTrendChart";
 import { StatusBadge } from "@/components/dashboard/StatusBadge";
+import { Avatar } from "@/components/ui/Avatar";
+import {
+  authApi,
+  clientsApi,
+  reconcileRunsApi,
+  teamApi,
+  type ClientGstin,
+  type ReconcileRunListRow,
+} from "@/lib/api";
+import {
+  DW,
+  buildRunRowsForClient,
+  buildStaffRoster,
+  clientGstinToClient,
+  staffForAssignee,
+} from "@/lib/dashboard-portfolio";
 import { formatInrFull } from "@/lib/format";
+import { useAccessToken } from "@/lib/hooks/useAccessToken";
+import type { ItcTrendPoint, ReconciliationRun } from "@/lib/types";
 
 const HISTORY_PAGE = 10;
 
@@ -47,36 +63,91 @@ function missedCell(run: ReconciliationRun) {
   );
 }
 
+function itcTrendFromRuns(runsNewestFirst: ReconciliationRun[]): ItcTrendPoint[] {
+  const asc = [...runsNewestFirst].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+  return asc.map((r) => ({
+    period: r.period,
+    missedItc: r.missedItc ?? 0,
+  }));
+}
+
 export default function ClientDetailPage() {
   const params = useParams();
   const id = params?.id as string;
+  const tokenState = useAccessToken();
+  const authToken =
+    typeof tokenState === "string" && tokenState.length > 0 ? tokenState : null;
 
-  const { data: client, isLoading: cLoad } = useSWR(
-    id ? ["/api/clients/[id]", id] : null,
-    ([, cid]) => mockFetchers["/api/clients/[id]"](cid)
+  const clientKey =
+    authToken && id ? ([DW, "client-detail", authToken, id] as const) : null;
+  const runsKey =
+    authToken && id ? ([DW, "runs-detail", authToken, id] as const) : null;
+  const teamKey = authToken ? ([DW, "team-detail", authToken] as const) : null;
+  const meKey = authToken ? ([DW, "me-detail", authToken] as const) : null;
+
+  const {
+    data: rawClient,
+    error: clientError,
+    isLoading: cLoad,
+  } = useSWR(clientKey, ([, , t, cid]) => clientsApi.get(t, cid), {
+    revalidateOnFocus: false,
+  });
+
+  const {
+    data: runRows,
+    error: runsError,
+    isLoading: rLoad,
+  } = useSWR(
+    runsKey,
+    ([, , t, cid]) =>
+      reconcileRunsApi.list(t, { client_gstin_id: cid, limit: 200 }),
+    { revalidateOnFocus: false }
   );
-  const { data: runs, isLoading: rLoad } = useSWR(
-    id ? ["/api/clients/[id]/runs", id] : null,
-    ([, cid]) => mockFetchers["/api/clients/[id]/runs"](cid)
+
+  const { data: teamMembers } = useSWR(teamKey, ([, , t]) => teamApi.list(t), {
+    revalidateOnFocus: false,
+  });
+
+  const { data: me } = useSWR(meKey, ([, , t]) => authApi.me(t), {
+    revalidateOnFocus: false,
+  });
+
+  const staff = useMemo(
+    () => buildStaffRoster(teamMembers ?? [], me ?? null),
+    [teamMembers, me]
   );
-  const { data: trend, isLoading: tLoad } = useSWR(
-    id ? ["/api/clients/[id]/itc-trend", id] : null,
-    ([, cid]) => mockFetchers["/api/clients/[id]/itc-trend"](cid)
+
+  const client = useMemo(() => {
+    if (!rawClient) return null;
+    return clientGstinToClient(rawClient as ClientGstin);
+  }, [rawClient]);
+
+  const sortedRuns = useMemo(
+    () =>
+      id && runRows
+        ? buildRunRowsForClient(runRows as ReconcileRunListRow[], id)
+        : [],
+    [runRows, id]
   );
-  const { data: staff } = useSWR("/api/staff", mockFetchers["/api/staff"]);
+
+  const assigned = useMemo(
+    () => (client ? staffForAssignee(staff, client.assignedStaffId) : undefined),
+    [staff, client]
+  );
+
+  const trendData =
+    sortedRuns.length >= 3 ? itcTrendFromRuns(sortedRuns) : null;
 
   const [histPage, setHistPage] = useState(1);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
-  const assigned = useMemo(
-    () => staff?.find((s) => s.id === client?.assignedStaffId),
-    [staff, client]
-  );
-
-  const sortedRuns = runs ?? [];
   const latest = sortedRuns[0] ?? null;
 
-  const runInProgress = sortedRuns.some((r) => r.status === "IMPORTING" || r.status === "MATCHING");
+  const runInProgress = sortedRuns.some(
+    (r) => r.status === "IMPORTING" || r.status === "MATCHING"
+  );
 
   const completeTooFresh =
     latest?.status === "COMPLETE" &&
@@ -103,8 +174,34 @@ export default function ClientDetailPage() {
     });
   };
 
+  if (tokenState === null) {
+    return (
+      <div className="space-y-8">
+        <CardSkeleton />
+        <div className="h-[200px] animate-pulse rounded-lg bg-[#E5E7EB]" />
+        <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+          <HistorySkeleton />
+        </div>
+      </div>
+    );
+  }
+
+  if (tokenState === false) {
+    return (
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--text-secondary)]">
+        Sign in required to view this client.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8" id="top">
+      {clientError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          Could not load client details.
+        </div>
+      )}
+
       {cLoad || !client ? (
         <CardSkeleton />
       ) : (
@@ -159,15 +256,24 @@ export default function ClientDetailPage() {
 
       <section>
         <h2 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">ITC trend (missed)</h2>
-        {tLoad || !trend ? (
+        {rLoad ? (
           <div className="h-[200px] animate-pulse rounded-lg bg-[#E5E7EB]" />
-        ) : (
-          <ItcTrendChart data={trend} />
-        )}
+        ) : sortedRuns.length < 3 ? (
+          <p className="text-sm text-[var(--text-secondary)]">
+            ITC trend available after 3+ reconciliations
+          </p>
+        ) : trendData ? (
+          <ItcTrendChart data={trendData} />
+        ) : null}
       </section>
 
       <section id="history">
         <h2 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">Reconciliation history</h2>
+        {runsError && (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            Could not load reconciliation history.
+          </div>
+        )}
         <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
           {rLoad ? (
             <HistorySkeleton />
