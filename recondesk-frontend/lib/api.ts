@@ -40,7 +40,7 @@ export interface TeamMemberListItem {
   invite_expires_at: string | null;
 }
 
-/** Profile from GET /api/v1/auth/me (matches FastAPI UserProfileResponse). */
+/** Profile from GET `/api/v1/auth/me` (`auth.router` + `/me`; see `AUTH_ROUTER_PREFIX`). */
 export interface AuthMeProfile {
   id: string;
   email?: string | null;
@@ -130,6 +130,13 @@ function formatApiErrorDetail(raw: unknown, fallback: string): string {
   return String(raw);
 }
 
+/** Strip accidental trailing slashes (e.g. `/api/foo/` → `/api/foo`). Root `/` unchanged. */
+function normalizeApiPath(path: string): string {
+  const p = path.trim();
+  if (p.length <= 1) return p;
+  return p.replace(/\/+$/, "");
+}
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit & { token?: string } = {}
@@ -161,7 +168,7 @@ export async function apiFetch<T>(
     headers.set("Authorization", `Bearer ${bearer}`);
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${API_URL}${normalizeApiPath(path)}`, {
     ...fetchOptions,
     headers,
   });
@@ -184,6 +191,15 @@ export async function apiFetch<T>(
 
 // ─── Client GSTINs ───────────────────────────────────────────────────────────
 
+/** Builds `/api/clients` (no trailing slash) or `/api/clients/{segments…}`. */
+function clientsApiPath(...segments: string[]): string {
+  const cleaned = segments
+    .map((s) => String(s).trim())
+    .map((s) => s.replace(/^\/+|\/+$/g, ""))
+    .filter((s) => s.length > 0);
+  return "/api/clients" + (cleaned.length ? "/" + cleaned.join("/") : "");
+}
+
 export interface ClientCreatePayload {
   gstin: string;
   trade_name: string;
@@ -196,13 +212,13 @@ export interface ClientCreatePayload {
 
 export const clientsApi = {
   list: (token: string) =>
-    apiFetch<ClientGstin[]>("/api/clients", { token }),
+    apiFetch<ClientGstin[]>(clientsApiPath(), { token }),
 
   get: (token: string, id: string) =>
-    apiFetch<ClientGstin>(`/api/clients/${id}`, { token }),
+    apiFetch<ClientGstin>(clientsApiPath(id), { token }),
 
   create: (token: string, data: ClientCreatePayload) =>
-    apiFetch<ClientGstin>("/api/clients", {
+    apiFetch<ClientGstin>(clientsApiPath(), {
       method: "POST",
       body: JSON.stringify(data),
       token,
@@ -213,21 +229,21 @@ export const clientsApi = {
     id: string,
     data: Database["public"]["Tables"]["client_gstins"]["Update"]
   ) =>
-    apiFetch<ClientGstin>(`/api/clients/${id}`, {
+    apiFetch<ClientGstin>(clientsApiPath(id), {
       method: "PATCH",
       body: JSON.stringify(data),
       token,
     }),
 
   assign: (token: string, id: string, assigned_to: string) =>
-    apiFetch<ClientGstin>(`/api/clients/${id}/assign`, {
+    apiFetch<ClientGstin>(clientsApiPath(id, "assign"), {
       method: "PATCH",
       body: JSON.stringify({ assigned_to }),
       token,
     }),
 
   delete: (token: string, id: string) =>
-    apiFetch<void>(`/api/clients/${id}`, { method: "DELETE", token }),
+    apiFetch<void>(clientsApiPath(id), { method: "DELETE", token }),
 };
 
 // ─── Reconciliation runs ─────────────────────────────────────────────────────
@@ -305,12 +321,18 @@ export const notesApi = {
     }),
 };
 
-// ─── Team ─────────────────────────────────────────────────────────────────────
+// ─── Team & auth ─────────────────────────────────────────────────────────────
+
+/**
+ * Prefix for `auth.router` in FastAPI (`app/routers/auth.py`).
+ * Mounted in `app/main.py`: `include_router(auth.router, prefix="/api/v1/auth")`.
+ */
+const AUTH_ROUTER_PREFIX = "/api/v1/auth";
 
 export const authApi = {
-  /** Mounted at `/api/v1/auth` on the FastAPI backend. */
+  /** GET `/me` on the main auth router → `/api/v1/auth/me`. */
   me: (token: string) =>
-    apiFetch<AuthMeProfile>("/api/v1/auth/me", { token }),
+    apiFetch<AuthMeProfile>(`${AUTH_ROUTER_PREFIX}/me`, { token }),
 };
 
 export const teamApi = {

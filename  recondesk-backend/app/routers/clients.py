@@ -14,7 +14,7 @@ from app.database import get_supabase, get_user_profile
 from app.routers.reconciliation_api import _parse_uuid
 from app.routers.reconciliation_api import _history_row
 
-router = APIRouter()
+router = APIRouter(redirect_slashes=False)
 # Alias for `app.include_router(clients_router, ...)` in main.py
 clients_router = router
 
