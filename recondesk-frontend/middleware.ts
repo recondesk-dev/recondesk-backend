@@ -68,8 +68,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Already authenticated → bounce away from auth pages
-  if (user && isPublicRoute) {
+  const isInviteSignupCompletion =
+    pathname.startsWith("/signup") &&
+    request.nextUrl.searchParams.has("invite_token");
+
+  // Already authenticated → bounce away from auth pages (except team-invite signup completion)
+  if (user && isPublicRoute && !isInviteSignupCompletion) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     url.search = "";

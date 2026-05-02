@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useToast } from "@/components/providers/ToastProvider";
-import type { AcceptInviteResponse } from "@/lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -58,23 +57,49 @@ export default function AcceptInvitePage({
           return;
         }
 
-        const parsed = body as AcceptInviteResponse;
+        const payload =
+          body && typeof body === "object" && !Array.isArray(body)
+            ? (body as Record<string, unknown>)
+            : {};
+        const flowStatus = String(payload.status ?? "")
+          .trim()
+          .toLowerCase();
 
-        if (parsed.status === "accepted") {
-          setPhase("done");
-          toast("Welcome — joining your firm workspace.", "success");
-          window.setTimeout(() => {
-            router.replace(parsed.redirect === "/dashboard" ? "/" : parsed.redirect || "/");
-          }, 900);
+        if (cancelled) return;
+
+        // Handle signup_required before "accepted" — avoids misrouting if shapes drift.
+        if (flowStatus === "signup_required") {
+          const email =
+            typeof payload.email === "string" ? payload.email.trim() : "";
+          const inviteToken =
+            typeof payload.token === "string" && payload.token.length > 0
+              ? payload.token.trim()
+              : rawToken.trim();
+          const roleRaw =
+            typeof payload.role === "string"
+              ? payload.role.trim().toLowerCase()
+              : "";
+          const inviteRole = roleRaw === "admin" ? "admin" : "staff";
+
+          const q = new URLSearchParams({
+            email,
+            invite_token: inviteToken,
+            invite_role: inviteRole,
+          });
+          router.replace(`/signup?${q.toString()}`);
           return;
         }
 
-        if (parsed.status === "signup_required") {
-          const q = new URLSearchParams({
-            email: parsed.email ?? "",
-            invite_role: parsed.role ?? "staff",
-          });
-          router.replace(`/signup?${q.toString()}`);
+        if (flowStatus === "accepted") {
+          const redirectTarget =
+            typeof payload.redirect === "string" ? payload.redirect.trim() : "";
+          setPhase("done");
+          toast("Welcome — joining your firm workspace.", "success");
+          window.setTimeout(() => {
+            router.replace(
+              redirectTarget === "/dashboard" ? "/" : redirectTarget || "/"
+            );
+          }, 900);
           return;
         }
 
