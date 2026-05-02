@@ -32,6 +32,7 @@ from app.services.reconcile_export_workbook import (
     build_pdf_summary_bytes,
 )
 from app.utils.audit import log_action
+from app.worker.reconciliation_task import execute_reconciliation
 from app.services.invoice_results_sync import (
     count_unresolved_rule37,
     find_invoice_result_id_for_pr,
@@ -1564,6 +1565,220 @@ def _csv_bytes(headers: tuple[str, ...], data_rows: list[list[Any]]) -> bytes:
     for ln in data_rows:
         writer.writerow(ln)
     return buf.getvalue().encode("utf-8")
+
+
+_CHUNK_CLIENT_IDS = 120
+
+
+def _list_reconciliation_run_rows_for_clients(
+    sb,
+    client_ids: list[str],
+    *,
+    status_filter: Optional[str],
+    per_chunk_cap: int,
+) -> list[dict[str, Any]]:
+    """Merge runs across client id chunks (PostgREST ``in`` size limits)."""
+    rows_out: list[dict[str, Any]] = []
+    for i in range(0, len(client_ids), _CHUNK_CLIENT_IDS):
+        chunk = client_ids[i : i + _CHUNK_CLIENT_IDS]
+        q = (
+            sb.table("reconciliation_run")
+            .select(
+                "id, client_gstin_id, period, status, run_summary, created_at, "
+                "updated_at, finalized_at, finalized_by, progress_percent, status_message, "
+                "gstr_records_imported, pr_records_imported, matched_itc_paise, missed_itc_paise, "
+                "wrongful_risk_paise, processing_completed_at, completed_at"
+            )
+            .in_("client_gstin_id", chunk)
+        )
+        raw_sf = (status_filter or "").strip()
+        if raw_sf:
+            norm = raw_sf.upper()
+            if norm == "FAILED":
+                q = q.in_("status", ["FAILED", "failed"])
+            elif norm == RunStatus.PENDING:
+                q = q.eq("status", RunStatus.PENDING)
+            elif norm == RunStatus.PROCESSING:
+                q = q.eq("status", RunStatus.PROCESSING)
+            elif norm == RunStatus.COMPLETED:
+                q = q.eq("status", RunStatus.COMPLETED)
+            elif norm == RunStatus.FINAL:
+                q = q.eq("status", RunStatus.FINAL)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="invalid status filter",
+                )
+        try:
+            res = q.order("created_at", desc=True).limit(per_chunk_cap).execute()
+        except Exception:
+            _log.exception("list_reconciliation_run_rows chunk failed")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="could not load reconciliation runs",
+            ) from None
+        rows_out.extend(list(res.data or []))
+    rows_out.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+    return rows_out
+
+
+@reconcile_runs_router.get("/runs")
+async def list_reconcile_runs(
+    status: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+    client_gstin_id: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_active_user),
+):
+    sb = get_supabase()
+    accessible = list_accessible_client_gstin_ids(sb, current_user)
+    if not accessible:
+        return []
+
+    per_chunk_cap = max(limit, limit * 3 // max(1, (len(accessible) + _CHUNK_CLIENT_IDS - 1) // _CHUNK_CLIENT_IDS))
+
+    if client_gstin_id:
+        cid = _parse_uuid(client_gstin_id, "client_gstin_id")
+        if cid not in accessible:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="not allowed for this client",
+            )
+        rows = _list_reconciliation_run_rows_for_clients(
+            sb,
+            [cid],
+            status_filter=status,
+            per_chunk_cap=limit,
+        )[:limit]
+    else:
+        aid = sorted(accessible)
+        rows = _list_reconciliation_run_rows_for_clients(
+            sb,
+            aid,
+            status_filter=status,
+            per_chunk_cap=per_chunk_cap,
+        )[:limit]
+
+    cids = list({str(r.get("client_gstin_id") or "") for r in rows if r.get("client_gstin_id")})
+    trade_by_id: dict[str, dict[str, Any]] = {}
+    if cids:
+        cr = (
+            sb.table("client_gstins")
+            .select("id, trade_name, gstin")
+            .in_("id", cids)
+            .execute()
+        )
+        for row in cr.data or []:
+            trade_by_id[str(row["id"])] = row
+
+    finalized_ids = list(
+        {
+            str(r.get("finalized_by"))
+            for r in rows
+            if r.get("finalized_by") not in (None, "")
+        }
+    )
+    name_by_uid: dict[str, str] = {}
+    for u in finalized_ids:
+        p = get_user_profile(u) or {}
+        fn = (p.get("full_name") or "").strip()
+        if fn:
+            name_by_uid[u] = fn
+
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        cg = str(r.get("client_gstin_id") or "")
+        tn = trade_by_id.get(cg, {})
+        fb = str(r.get("finalized_by") or "").strip()
+        finalized_name = name_by_uid.get(fb) if fb else None
+        row_out = dict(r)
+        row_out["trade_name"] = tn.get("trade_name")
+        row_out["client_gstin"] = tn.get("gstin")
+        row_out["finalized_by_name"] = finalized_name
+        out.append(row_out)
+    return out
+
+
+@reconcile_runs_router.post("/runs/{run_id}/retry")
+async def retry_failed_reconcile_run(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    full = (
+        sb.table("reconciliation_run")
+        .select(
+            "id, status, client_gstin_id, is_locked, gstr_records_imported, "
+            "pr_records_imported"
+        )
+        .eq("id", rid)
+        .limit(1)
+        .execute()
+    )
+    if not full.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="run not found",
+        )
+    r = full.data[0]
+    if bool(r.get("is_locked")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This reconciliation run is locked; matching cannot be re-run.",
+        )
+    st_raw = str(r.get("status") or "").strip().upper()
+    st_lower = str(r.get("status") or "").strip().lower()
+    if st_raw != "FAILED" and st_lower != "failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"run is not failed (status={r.get('status')})",
+        )
+    gi = int(r.get("gstr_records_imported") or 0)
+    pi = int(r.get("pr_records_imported") or 0)
+    if gi <= 0 or pi <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="cannot retry without imported GSTR and purchase register data",
+        )
+    now = datetime.now(timezone.utc).isoformat()
+    upd = (
+        sb.table("reconciliation_run")
+        .update(
+            {
+                "status": "MATCHING",
+                "progress_percent": 0.0,
+                "status_message": "Queued for retry",
+                "updated_at": now,
+                "processing_started_at": None,
+                "completed_at": None,
+            }
+        )
+        .eq("id", rid)
+        .in_("status", ["FAILED", "failed"])
+        .execute()
+    )
+    if not upd.data:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="could not reset failed run; refresh and retry",
+        )
+    try:
+        execute_reconciliation.delay(rid)
+    except Exception as exc:
+        _log.exception("Celery enqueue failed retry run_id=%s", rid)
+        sb.table("reconciliation_run").update(
+            {
+                "status": "FAILED",
+                "status_message": f"Queue rejected: {exc!s}"[:2000],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).eq("id", rid).execute()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Reconciliation task queue is unavailable. Try again later.",
+        ) from exc
+    return {"run_id": rid, "status": "MATCHING"}
 
 
 @reconcile_runs_router.get("/runs/{run_id}/summary")
