@@ -4,24 +4,40 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR, { mutate } from "swr";
-import {
-  assignStaffToClients,
-  bulkFinalizeCompleteRuns,
-  bulkRetryFailedForClients,
-  finalizeRun,
-  mockFetchers,
-  retryFailedRun,
-  areAllSelectedComplete,
-  areAllSelectedFailed,
-} from "@/lib/mock-data";
-import type { PortfolioFilters, PortfolioSortKey, SortDirection } from "@/lib/types";
-import { StatCard } from "@/components/dashboard/StatCard";
+
 import { FilterBar } from "@/components/dashboard/FilterBar";
 import { ClientTable, RetryConfirmModal } from "@/components/dashboard/ClientTable";
+import { StatCard } from "@/components/dashboard/StatCard";
 import { StatusBadge } from "@/components/dashboard/StatusBadge";
+import { useToast } from "@/components/providers/ToastProvider";
+import {
+  authApi,
+  clientsApi,
+  isApiError,
+  reconcileRunsApi,
+  teamApi,
+  type ClientGstin,
+  type ReconcileRunListRow,
+} from "@/lib/api";
+import {
+  DW,
+  buildPortfolioRows,
+  buildStaffRoster,
+  computeDashboardSignals,
+  computeDashboardStats,
+  derivePeriodLabels,
+  paginatePortfolio,
+  type PortfolioQuery,
+} from "@/lib/dashboard-portfolio";
 import { formatInrCompact, formatInrFull } from "@/lib/format";
-import type { ClientPortfolioRow } from "@/lib/types";
-import type { ComplianceRisk } from "@/lib/types";
+import { useAccessToken } from "@/lib/hooks/useAccessToken";
+import type {
+  ClientPortfolioRow,
+  ComplianceRisk,
+  PortfolioFilters,
+  PortfolioSortKey,
+  SortDirection,
+} from "@/lib/types";
 
 const PAGE_SIZE = 20;
 
@@ -57,19 +73,17 @@ function useDebounced<T>(value: T, ms: number): T {
   return d;
 }
 
-async function invalidateDashboard() {
-  await Promise.all([
-    mutate((key) => Array.isArray(key) && key[0] === "/api/portfolio"),
-    mutate("/api/dashboard/stats"),
-    mutate("/api/dashboard/signals"),
-    mutate("/api/dashboard/failures"),
-    mutate("/api/clients"),
-    mutate("/api/periods"),
-  ]);
+async function invalidateDw(): Promise<void> {
+  await mutate((key: unknown) => Array.isArray(key) && key[0] === DW);
 }
 
 export default function PortfolioDashboardPage() {
   const router = useRouter();
+  const toast = useToast();
+  const tokenState = useAccessToken();
+  const authToken =
+    typeof tokenState === "string" && tokenState.length > 0 ? tokenState : null;
+
   const [filters, setFilters] = useState<PortfolioFilters>(DEFAULT_FILTERS);
   const [searchInput, setSearchInput] = useState("");
   const debouncedSearch = useDebounced(searchInput, 200);
@@ -87,7 +101,7 @@ export default function PortfolioDashboardPage() {
     [filters, debouncedSearch]
   );
 
-  const portfolioQuery = useMemo(
+  const portfolioQuery = useMemo<PortfolioQuery>(
     () => ({
       page,
       limit: PAGE_SIZE,
@@ -97,21 +111,93 @@ export default function PortfolioDashboardPage() {
     [page, filtersWithSearch, sort]
   );
 
-  const {
-    data: portfolio,
-    error: portfolioError,
-    isLoading: portfolioLoading,
-    mutate: mutatePortfolio,
-  } = useSWR(["/api/portfolio", portfolioQuery], ([, q]) => mockFetchers["/api/portfolio"](q));
+  const clientsKey = authToken ? ([DW, "clients", authToken] as const) : null;
+  const runsKey = authToken ? ([DW, "runs", authToken] as const) : null;
+  const teamKey = authToken ? ([DW, "team", authToken] as const) : null;
+  const meKey = authToken ? ([DW, "me", authToken] as const) : null;
 
-  const { data: stats } = useSWR("/api/dashboard/stats", mockFetchers["/api/dashboard/stats"]);
-  const { data: staff } = useSWR("/api/staff", mockFetchers["/api/staff"]);
-  const { data: periods } = useSWR("/api/periods", mockFetchers["/api/periods"]);
-  const { data: signals } = useSWR("/api/dashboard/signals", mockFetchers["/api/dashboard/signals"]);
+  const {
+    data: clients,
+    error: clientsError,
+    isLoading: clientsLoading,
+  } = useSWR(
+    clientsKey,
+    ([, , t]) => clientsApi.list(t),
+    { revalidateOnFocus: false }
+  );
+
+  const {
+    data: runs,
+    error: runsError,
+    isLoading: runsLoading,
+  } = useSWR(
+    runsKey,
+    ([, , t]) =>
+      reconcileRunsApi.list(t, {
+        limit: 500,
+      }),
+    { revalidateOnFocus: false }
+  );
+
+  const { data: teamMembers, isLoading: teamLoading } = useSWR(
+    teamKey,
+    ([, , t]) => teamApi.list(t),
+    { revalidateOnFocus: false }
+  );
+
+  const { data: me, isLoading: meLoading } = useSWR(meKey, ([, , t]) => authApi.me(t), {
+    revalidateOnFocus: false,
+  });
 
   useEffect(() => {
     setPage(1);
   }, [filtersWithSearch, sort]);
+
+  const staff = useMemo(
+    () => buildStaffRoster(teamMembers ?? [], me ?? null),
+    [teamMembers, me]
+  );
+
+  const periods = useMemo(() => derivePeriodLabels(runs ?? []), [runs]);
+
+  const baseRows = useMemo(
+    () =>
+      buildPortfolioRows(
+        (clients ?? []) as ClientGstin[],
+        (runs ?? []) as ReconcileRunListRow[],
+        staff
+      ),
+    [clients, runs, staff]
+  );
+
+  const portfolio = useMemo(
+    () => paginatePortfolio(baseRows, portfolioQuery),
+    [baseRows, portfolioQuery]
+  );
+
+  const stats = useMemo(
+    () =>
+      computeDashboardStats(
+        clients?.length ?? 0,
+        (runs ?? []) as ReconcileRunListRow[],
+        staff.length
+      ),
+    [clients?.length, runs, staff.length]
+  );
+
+  const signals = useMemo(() => computeDashboardSignals(baseRows), [baseRows]);
+
+  const rowByClientId = useMemo(() => {
+    const m = new Map<string, ClientPortfolioRow>();
+    for (const r of baseRows) {
+      m.set(r.client.id, r);
+    }
+    return m;
+  }, [baseRows]);
+
+  const portfolioLoading = clientsLoading || runsLoading;
+  const directoryLoading = teamLoading || meLoading;
+  const loadError = clientsError || runsError;
 
   const showReset = useMemo(() => {
     return (
@@ -154,53 +240,119 @@ export default function PortfolioDashboardPage() {
   const onRetryConfirm = (row: ClientPortfolioRow) => setRetryRow(row);
 
   const confirmRetry = async () => {
-    if (!retryRow?.latestRun) return;
+    if (!retryRow?.latestRun || !authToken) return;
     setRetryLoading(true);
-    retryFailedRun(retryRow.latestRun.id);
-    setRetryRow(null);
-    await invalidateDashboard();
-    setRetryLoading(false);
+    try {
+      await reconcileRunsApi.retryFailed(authToken, retryRow.latestRun.id);
+      toast("Retry queued", "success");
+      setRetryRow(null);
+      await invalidateDw();
+    } catch (e: unknown) {
+      toast(isApiError(e) ? e.detail : "Retry failed", "error");
+    } finally {
+      setRetryLoading(false);
+    }
   };
 
   const onFinalizeConfirm = async (row: ClientPortfolioRow) => {
-    if (!row.latestRun || row.latestRun.status !== "COMPLETE") return;
-    finalizeRun(row.latestRun.id, "Priya Sharma");
-    await invalidateDashboard();
+    if (!authToken || !row.latestRun || row.latestRun.status !== "COMPLETE") return;
+    try {
+      await reconcileRunsApi.finalizeRun(authToken, row.latestRun.id);
+      toast("Run finalized", "success");
+      await invalidateDw();
+    } catch (e: unknown) {
+      toast(isApiError(e) ? e.detail : "Finalization failed", "error");
+    }
   };
 
   const selectedList = useMemo(() => Array.from(selectedIds), [selectedIds]);
-  const canBulkFinalize = areAllSelectedComplete(selectedList);
-  const canBulkRetry = areAllSelectedFailed(selectedList);
+  const canBulkFinalize =
+    selectedList.length > 0 &&
+    selectedList.every((id) => rowByClientId.get(id)?.latestRun?.status === "COMPLETE");
+  const canBulkRetry =
+    selectedList.length > 0 &&
+    selectedList.every((id) => rowByClientId.get(id)?.latestRun?.status === "FAILED");
 
   const onBulkAssign = async (staffId: string) => {
-    assignStaffToClients(selectedList, staffId);
-    setSelectedIds(new Set());
-    await invalidateDashboard();
+    if (!authToken) return;
+    try {
+      await Promise.all(
+        selectedList.map((cid) => clientsApi.assign(authToken, cid, staffId))
+      );
+      toast("Assignments updated", "success");
+      setSelectedIds(new Set());
+      await invalidateDw();
+    } catch (e: unknown) {
+      toast(isApiError(e) ? e.detail : "Assignment failed", "error");
+    }
   };
 
   const onBulkFinalize = async () => {
-    bulkFinalizeCompleteRuns(selectedList);
-    setSelectedIds(new Set());
-    await invalidateDashboard();
+    if (!authToken) return;
+    try {
+      for (const cid of selectedList) {
+        const run = rowByClientId.get(cid)?.latestRun;
+        if (run?.status === "COMPLETE") {
+          await reconcileRunsApi.finalizeRun(authToken, run.id);
+        }
+      }
+      toast("Selected runs finalized", "success");
+      setSelectedIds(new Set());
+      await invalidateDw();
+    } catch (e: unknown) {
+      toast(isApiError(e) ? e.detail : "Bulk finalize failed", "error");
+    }
   };
 
   const onBulkRetry = async () => {
-    bulkRetryFailedForClients(selectedList);
-    setSelectedIds(new Set());
-    await invalidateDashboard();
+    if (!authToken) return;
+    try {
+      for (const cid of selectedList) {
+        const run = rowByClientId.get(cid)?.latestRun;
+        if (run?.status === "FAILED") {
+          await reconcileRunsApi.retryFailed(authToken, run.id);
+        }
+      }
+      toast("Retry queued for selected runs", "success");
+      setSelectedIds(new Set());
+      await invalidateDw();
+    } catch (e: unknown) {
+      toast(isApiError(e) ? e.detail : "Bulk retry failed", "error");
+    }
   };
 
-  const totalClients = stats?.totalClients ?? 0;
+  const totalClients = stats.totalClients;
   const isEmptyPortfolio = !portfolioLoading && totalClients === 0;
 
   const startHereRow = useMemo(() => {
-    if (page !== 1 || portfolioLoading || !portfolio?.data?.length) return null;
+    if (page !== 1 || portfolioLoading || !portfolio.data.length) return null;
     return portfolio.data.find((r) => r.latestRun?.status !== "FINALIZED") ?? null;
   }, [page, portfolio, portfolioLoading]);
 
+  if (tokenState === null) {
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="h-24 animate-pulse rounded-xl bg-[#E5E7EB]" />
+          <div className="h-24 animate-pulse rounded-xl bg-[#E5E7EB]" />
+        </div>
+        <div className="h-40 animate-pulse rounded-xl bg-[#E5E7EB]" />
+        <div className="h-72 animate-pulse rounded-xl bg-[#E5E7EB]" />
+      </div>
+    );
+  }
+
+  if (tokenState === false) {
+    return (
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--text-secondary)]">
+        Sign in required to view the dashboard.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {signals && signals.failedClientCount > 0 && (
+      {!portfolioLoading && signals.failedClientCount > 0 && (
         <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
           <span>
             <strong>{signals.failedClientCount}</strong> client(s) have failed reconciliations.{" "}
@@ -217,14 +369,14 @@ export default function PortfolioDashboardPage() {
           </span>
         </div>
       )}
-      {signals &&
+      {!portfolioLoading &&
         signals.failedClientCount === 0 &&
         signals.completeReadyCount > 0 && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
             <strong>{signals.completeReadyCount}</strong> reconciliation(s) are ready for your review.
           </div>
         )}
-      {signals?.showAllFinalizedBanner && (
+      {!portfolioLoading && signals.showAllFinalizedBanner && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900">
           All clients reconciled for this period 🎉
         </div>
@@ -238,7 +390,9 @@ export default function PortfolioDashboardPage() {
       <div className="grid grid-cols-2 gap-4">
         <StatCard
           label="Needs Attention"
-          value={stats ? String(stats.pendingThisMonth) : "—"}
+          value={
+            portfolioLoading ? "—" : stats ? String(stats.pendingThisMonth) : "—"
+          }
           icon={
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
               <path
@@ -252,7 +406,9 @@ export default function PortfolioDashboardPage() {
         />
         <StatCard
           label="Total ITC Protected"
-          value={stats ? formatInrCompact(stats.totalItcProtected) : "—"}
+          value={
+            portfolioLoading ? "—" : stats ? formatInrCompact(stats.totalItcProtected) : "—"
+          }
           icon={
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
               <path
@@ -266,13 +422,13 @@ export default function PortfolioDashboardPage() {
         />
       </div>
 
-      {portfolioError && (
+      {loadError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           Could not load data.{" "}
           <button
             type="button"
             className="font-semibold text-[var(--accent)] underline"
-            onClick={() => void mutatePortfolio()}
+            onClick={() => void invalidateDw()}
           >
             Retry
           </button>
@@ -297,7 +453,7 @@ export default function PortfolioDashboardPage() {
         </div>
       )}
 
-      {!isEmptyPortfolio && staff && periods && (
+      {!isEmptyPortfolio && (
         <>
           {startHereRow && (
             <div>
@@ -391,16 +547,20 @@ export default function PortfolioDashboardPage() {
             </div>
           )}
 
-          <FilterBar
-            filters={filters}
-            onChange={setFilters}
-            staff={staff}
-            periods={periods}
-            searchInput={searchInput}
-            onSearchInputChange={setSearchInput}
-            showReset={showReset}
-            onReset={onResetFilters}
-          />
+          {directoryLoading ? (
+            <div className="h-[72px] animate-pulse rounded-xl bg-[#E5E7EB]" aria-hidden />
+          ) : (
+            <FilterBar
+              filters={filters}
+              onChange={setFilters}
+              staff={staff}
+              periods={periods}
+              searchInput={searchInput}
+              onSearchInputChange={setSearchInput}
+              showReset={showReset}
+              onReset={onResetFilters}
+            />
+          )}
 
           {!portfolioLoading &&
             portfolio &&
@@ -438,6 +598,12 @@ export default function PortfolioDashboardPage() {
         </>
       )}
 
+      {!isEmptyPortfolio && !directoryLoading && staff.length === 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          Team directory is empty — add staff in Settings → Team before using assign filters.
+        </div>
+      )}
+
       <RetryConfirmModal
         open={retryRow !== null}
         row={retryRow}
@@ -446,7 +612,7 @@ export default function PortfolioDashboardPage() {
         loading={retryLoading}
       />
 
-      {selectedIds.size > 0 && staff && (
+      {selectedIds.size > 0 && staff.length > 0 && (
         <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-3 shadow-lg">
           <span className="text-sm font-medium text-[var(--text-primary)]">
             {selectedIds.size} selected
@@ -461,7 +627,7 @@ export default function PortfolioDashboardPage() {
             <option value="" disabled>
               Assign to…
             </option>
-            {staff?.map((s) => (
+            {staff.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
