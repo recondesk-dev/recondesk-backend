@@ -1243,7 +1243,12 @@ export default function ReconcileResultsPage() {
               </p>
               <p className="text-sm text-gray-500">{summary.period}</p>
               <p className="text-xs text-gray-400">
-                Assigned to: {summary.assigned_to_name}
+                Assigned to:{" "}
+                {summary.assigned_to_name?.trim() ? (
+                  summary.assigned_to_name
+                ) : (
+                  <span className="italic text-gray-400">Unassigned</span>
+                )}
               </p>
               {isRunFinalized &&
                 summary.finalized_by_name &&
@@ -1454,9 +1459,37 @@ export default function ReconcileResultsPage() {
               />
             )}
             {itcLoading && !itcPageData && !itcError && (
-              <div className="animate-pulse space-y-2 py-4">
-                <div className="h-8 rounded bg-emerald-100" />
-                <div className="h-8 rounded bg-emerald-100/80" />
+              <div className="overflow-x-auto rounded border border-emerald-200 bg-white">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b bg-emerald-50/50">
+                    <tr>
+                      {Array.from({ length: 11 }).map((_, i) => (
+                        <th key={i} className="px-2 py-2">
+                          <div className="h-4 w-14 max-w-full animate-pulse rounded bg-gray-200" />
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: 8 }).map((_, r) => (
+                      <tr key={r} className="border-b border-gray-100">
+                        {Array.from({ length: 11 }).map((_, c) => (
+                          <td key={c} className="px-2 py-2">
+                            <div
+                              className={`h-4 max-w-full animate-pulse rounded bg-gray-200 ${
+                                c === 0
+                                  ? "w-4"
+                                  : c === 5
+                                    ? "ml-auto w-20"
+                                    : "w-28"
+                              }`}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
             {itcPageData && !itcError && (
@@ -1736,9 +1769,37 @@ export default function ReconcileResultsPage() {
               />
             )}
             {riskLoading && !riskPageData && !riskError && (
-              <div className="animate-pulse space-y-2 py-4">
-                <div className="h-8 rounded bg-red-100" />
-                <div className="h-8 rounded bg-red-100/80" />
+              <div className="overflow-x-auto rounded border border-red-200 bg-white">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b bg-red-50/50">
+                    <tr>
+                      {Array.from({ length: 12 }).map((_, i) => (
+                        <th key={i} className="px-2 py-2">
+                          <div className="h-4 w-14 max-w-full animate-pulse rounded bg-gray-200" />
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: 8 }).map((_, r) => (
+                      <tr key={r} className="border-b border-gray-100">
+                        {Array.from({ length: 12 }).map((_, c) => (
+                          <td key={c} className="px-2 py-2">
+                            <div
+                              className={`h-4 max-w-full animate-pulse rounded bg-gray-200 ${
+                                c === 0
+                                  ? "w-4"
+                                  : c === 5
+                                    ? "ml-auto w-20"
+                                    : "w-24"
+                              }`}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
             {riskPageData && !riskError && (
