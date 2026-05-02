@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.auth import get_current_active_user
+from app.auth import get_current_active_user, require_admin
 from app.database import get_supabase, get_user_profile
 from app.routers.reconciliation_api import _parse_uuid
 from app.routers.reconciliation_api import _history_row
@@ -84,6 +84,10 @@ class ClientUpdate(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     assigned_to: Optional[str] = None
+
+
+class AssignClientBody(BaseModel):
+    assigned_to: str
 
 
 def _resolve_firm_owner(sb, uid: str) -> str:
@@ -257,6 +261,72 @@ async def update_client(
         updates["assigned_to"] = body.assigned_to
     if updates:
         sb.table("client_gstins").update(updates).eq("id", cid).execute()
+    out = (
+        sb.table("client_gstins")
+        .select("*")
+        .eq("id", cid)
+        .single()
+        .execute()
+    )
+    return out.data
+
+
+@router.patch("/{client_id}/assign")
+async def assign_client(
+    client_id: str,
+    body: AssignClientBody,
+    admin_id: str = Depends(require_admin),
+):
+    cid = _parse_uuid(client_id, "client_id")
+    assignee_id = (body.assigned_to or "").strip()
+    try:
+        UUID(assignee_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid assigned_to",
+        ) from exc
+
+    sb = get_supabase()
+    res = (
+        sb.table("client_gstins")
+        .select("*")
+        .eq("id", cid)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    row = res.data[0]
+    fo = str(row.get("firm_owner_id", ""))
+    if fo != admin_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not allowed")
+    if not row.get("is_active", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+    if assignee_id != fo:
+        tm = (
+            sb.table("team_members")
+            .select("id")
+            .eq("firm_owner_id", fo)
+            .eq("member_user_id", assignee_id)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if not tm.data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="assigned_to is not an active member of this firm",
+            )
+
+    sb.table("client_gstins").update({"assigned_to": assignee_id}).eq("id", cid).execute()
     out = (
         sb.table("client_gstins")
         .select("*")

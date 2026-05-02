@@ -79,5 +79,8 @@ class UserProfileResponse(StrictModel):
     role: str = "staff"
     is_active: bool = True
     created_at: Optional[datetime] = None
+    plan: Optional[str] = None
+    runs_used: Optional[int] = None
+    runs_limit: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
