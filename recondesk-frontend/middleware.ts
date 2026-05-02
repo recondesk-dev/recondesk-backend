@@ -50,8 +50,18 @@ export async function middleware(request: NextRequest) {
   const isAuthCallback =
     pathname === "/auth/callback" || pathname.startsWith("/auth/callback/");
 
+  const isTeamInviteAccept =
+    pathname.startsWith("/team/accept");
+
   // Unauthenticated → redirect to /login (mock dashboard is open without auth)
-  if (!user && !isPublicRoute && !isMockDashboard && !isAccessTokenApi && !isAuthCallback) {
+  if (
+    !user &&
+    !isPublicRoute &&
+    !isMockDashboard &&
+    !isAccessTokenApi &&
+    !isAuthCallback &&
+    !isTeamInviteAccept
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirectTo", pathname);

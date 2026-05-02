@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SWRConfig } from "swr";
 
-type ToastItem = { id: string; message: string; type: "error" | "info" };
+import { useToast } from "@/components/providers/ToastProvider";
 
 function getHttpStatus(err: unknown): number | null {
   if (err && typeof err === "object" && "status" in err) {
@@ -26,29 +26,17 @@ function isLikelyNetworkError(err: unknown): boolean {
 }
 
 export function AppSWRProvider({ children }: { children: ReactNode }) {
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const toast = useToast();
   const [connectionLost, setConnectionLost] = useState(false);
   const redirect401Ref = useRef(false);
   const lastServerErrorToastRef = useRef(0);
-
-  const pushToast = useCallback((message: string, type: ToastItem["type"]) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    setToasts((prev) => [...prev, { id, message, type }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
-  }, []);
-
-  const dismissToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
 
   const onError = useCallback(
     (err: unknown) => {
       const status = getHttpStatus(err);
 
       if (status === 401) {
-        pushToast("Session expired — please sign in again", "error");
+        toast("Session expired — please sign in again", "error");
         if (!redirect401Ref.current) {
           redirect401Ref.current = true;
           window.setTimeout(() => {
@@ -67,11 +55,11 @@ export function AppSWRProvider({ children }: { children: ReactNode }) {
         const now = Date.now();
         if (now - lastServerErrorToastRef.current > 2500) {
           lastServerErrorToastRef.current = now;
-          pushToast("Something went wrong — please try again", "error");
+          toast("Something went wrong — please try again", "error");
         }
       }
     },
-    [pushToast]
+    [toast]
   );
 
   useEffect(() => {
@@ -99,41 +87,13 @@ export function AppSWRProvider({ children }: { children: ReactNode }) {
           <button
             type="button"
             aria-label="Dismiss"
-            className="shrink-0 rounded px-2 py-0.5 text-xs font-semibold text-amber-900 underline hover:bg-amber-100"
+            className="inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-lg px-3 text-xs font-semibold text-amber-900 underline hover:bg-amber-100"
             onClick={() => setConnectionLost(false)}
           >
             Dismiss
           </button>
         </div>
       )}
-      <div
-        className="pointer-events-none fixed bottom-4 right-4 z-[101] flex max-w-sm flex-col gap-2"
-        aria-live="polite"
-      >
-        <div className="pointer-events-auto flex flex-col gap-2">
-          {toasts.map((t) => (
-            <div
-              key={t.id}
-              className={`rounded-lg border px-4 py-3 text-sm shadow-lg ${
-                t.type === "error"
-                  ? "border-red-200 bg-red-50 text-red-900"
-                  : "border-gray-200 bg-white text-gray-900"
-              }`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <p>{t.message}</p>
-                <button
-                  type="button"
-                  className="shrink-0 text-xs font-medium opacity-70 hover:opacity-100"
-                  onClick={() => dismissToast(t.id)}
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
       {children}
     </SWRConfig>
   );
