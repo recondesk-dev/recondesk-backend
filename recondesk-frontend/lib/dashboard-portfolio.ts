@@ -91,8 +91,30 @@ function inferComplianceRisk(
 function matchRateFromRow(row: ReconcileRunListRow): number | null {
   const rs = row.run_summary;
   if (rs && typeof rs === "object") {
-    const v = (rs as { match_rate_percent?: unknown }).match_rate_percent;
+    const m = rs as Record<string, unknown>;
+    const v = m.match_rate_percent;
     if (typeof v === "number" && !Number.isNaN(v)) return Math.round(v * 100) / 100;
+    const mc = row.matched_count ?? m.matched_count;
+    const gstr = m.gstr_in_scope;
+    if (
+      typeof mc === "number" &&
+      typeof gstr === "number" &&
+      gstr > 0 &&
+      !Number.isNaN(mc)
+    ) {
+      return Math.round((mc / gstr) * 10000) / 100;
+    }
+  }
+  return null;
+}
+
+/** Prefer explicit summary keys; list rows omit matched ITC paise columns. */
+function matchedItcPaiseFromSummary(rs: unknown): number | null {
+  if (!rs || typeof rs !== "object") return null;
+  const m = rs as Record<string, unknown>;
+  for (const k of ["matched_itc_paise", "net_claimable_itc_paise", "total_gstr_itc_paise"] as const) {
+    const v = m[k];
+    if (typeof v === "number" && !Number.isNaN(v)) return v;
   }
   return null;
 }
@@ -199,14 +221,13 @@ export function reconcileListRowToUiRun(
   runNumber: number
 ): ReconciliationRun {
   const uiStatus = mapBackendRunStatus(row.status);
-  const missedRupee = paiseToRupee(row.missed_itc_paise);
-  const wrongfulRupee = paiseToRupee(row.wrongful_risk_paise);
+  const missedRupee = paiseToRupee(row.itc_at_risk);
+  const wrongfulRupee = paiseToRupee(row.wrongful_itc);
   const complianceRisk = inferComplianceRisk(missedRupee, wrongfulRupee, uiStatus);
   const ts =
-    row.updated_at ||
-    row.processing_completed_at ||
-    row.completed_at ||
-    row.created_at;
+    row.updated_at || row.completed_at || row.created_at;
+
+  const matchedPaise = matchedItcPaiseFromSummary(row.run_summary);
 
   return {
     id: row.id,
@@ -215,7 +236,7 @@ export function reconcileListRowToUiRun(
     runNumber,
     status: uiStatus,
     matchRate: matchRateFromRow(row),
-    itcClaimed: paiseToRupee(row.matched_itc_paise),
+    itcClaimed: paiseToRupee(matchedPaise ?? undefined),
     missedItc: missedRupee,
     complianceRisk,
     errorMessage:
@@ -442,7 +463,8 @@ export function computeDashboardStats(
       pendingThisMonth += 1;
     }
     if (ui === "FINALIZED") {
-      const rupee = paiseToRupee(r.matched_itc_paise);
+      const paise = matchedItcPaiseFromSummary(r.run_summary);
+      const rupee = paiseToRupee(paise ?? undefined);
       if (rupee != null) totalItcProtected += rupee;
     }
   }

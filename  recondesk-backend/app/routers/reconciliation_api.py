@@ -1584,10 +1584,11 @@ def _list_reconciliation_run_rows_for_clients(
         q = (
             sb.table("reconciliation_run")
             .select(
-                "id, client_gstin_id, period, status, run_summary, created_at, "
-                "updated_at, finalized_at, finalized_by, progress_percent, status_message, "
-                "gstr_records_imported, pr_records_imported, matched_itc_paise, missed_itc_paise, "
-                "wrongful_risk_paise, processing_completed_at, completed_at"
+                "id, client_gstin_id, period, status, progress_percent, status_message, "
+                "gstr_records_imported, pr_records_imported, matched_count, unmatched_count, "
+                "itc_at_risk, wrongful_itc, late_itc, created_at, updated_at, "
+                "processing_started_at, completed_at, run_summary, is_locked, "
+                "finalized_at, finalized_by"
             )
             .in_("client_gstin_id", chunk)
         )
