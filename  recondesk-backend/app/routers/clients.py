@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
@@ -71,18 +72,18 @@ class ClientCreate(BaseModel):
     gstin: str
     trade_name: str
     legal_name: Optional[str] = None
-    contact_name: str
-    contact_email: str
-    contact_phone: str
+    # Accepted for API compatibility; not stored on `client_gstins`.
+    contact_name: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
     assigned_to: Optional[str] = None
 
 
 class ClientUpdate(BaseModel):
     trade_name: Optional[str] = None
     legal_name: Optional[str] = None
-    contact_name: Optional[str] = None
-    contact_email: Optional[str] = None
-    contact_phone: Optional[str] = None
+    state_code: Optional[str] = None
+    registration_type: Optional[str] = None
     assigned_to: Optional[str] = None
 
 
@@ -154,11 +155,10 @@ async def create_client(
         "gstin": g,
         "trade_name": body.trade_name,
         "legal_name": body.legal_name,
-        "contact_name": body.contact_name,
-        "contact_email": body.contact_email,
-        "contact_phone": body.contact_phone,
+        "state_code": g[:2],
         "firm_owner_id": owner,
         "is_active": True,
+        "added_at": datetime.now(timezone.utc).isoformat(),
     }
     if body.assigned_to:
         try:
@@ -170,7 +170,14 @@ async def create_client(
             ) from exc
         ins["assigned_to"] = str(body.assigned_to).strip()
     sb.table("client_gstins").insert(ins).execute()
-    return ins
+    out = (
+        sb.table("client_gstins")
+        .select("*")
+        .eq("id", ins["id"])
+        .single()
+        .execute()
+    )
+    return out.data
 
 
 @router.get("/{client_id}")
@@ -248,7 +255,7 @@ async def update_client(
     elif str(row.get("assigned_to", "")) != uid:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not allowed")
     updates: dict[str, Any] = {}
-    for k in ("trade_name", "legal_name", "contact_name", "contact_email", "contact_phone"):
+    for k in ("trade_name", "legal_name", "state_code", "registration_type"):
         v = getattr(body, k, None)
         if v is not None:
             updates[k] = v
