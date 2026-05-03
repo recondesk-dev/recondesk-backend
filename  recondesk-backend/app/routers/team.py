@@ -22,6 +22,18 @@ router = APIRouter()
 _log = logging.getLogger(__name__)
 
 
+def _pg_unique_violation(exc: BaseException) -> bool:
+    """Detect Postgres unique-violation (23505) from Supabase / PostgREST errors."""
+    code = getattr(exc, "code", None)
+    msg = str(exc).lower()
+    return (
+        code == "23505"
+        or "duplicate key" in msg
+        or "unique constraint" in msg
+        or "already exists" in msg
+    )
+
+
 def _firm_owner_id(sb, uid: str) -> str:
     prof = get_user_profile(uid) or {}
     role = (prof.get("role") or "staff").lower()
@@ -262,7 +274,33 @@ async def invite_team_member(
         "invited_at": invited_iso,
     }
 
-    sb.table("team_members").insert(insert_payload).execute()
+    logged_member_id = row_id
+
+    try:
+        sb.table("team_members").insert(insert_payload).execute()
+    except Exception as exc:
+        if not _pg_unique_violation(exc):
+            raise
+        refreshed = (
+            sb.table("team_members")
+            .update(
+                {
+                    "invite_token": token,
+                    "invite_expires_at": expires_iso,
+                    "role": role_norm,
+                    "invited_at": invited_iso,
+                    "is_active": False,
+                }
+            )
+            .eq("firm_owner_id", admin_id)
+            .eq("invited_email", norm_email)
+            .is_("member_user_id", "null")
+            .select("id")
+            .execute()
+        )
+        if not refreshed.data:
+            raise
+        logged_member_id = str(refreshed.data[0]["id"])
 
     firm_name = str(admin_prof.get("firm_name") or "").strip()
     background_tasks.add_task(
@@ -277,7 +315,7 @@ async def invite_team_member(
         admin_id,
         "TEAM_MEMBER_INVITED",
         "team_member",
-        row_id,
+        logged_member_id,
         {"invited_email": norm_email, "role": role_norm},
     )
 
@@ -293,6 +331,8 @@ async def accept_team_invite(token: str):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid invitation link.",
         )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
 
     res = (
         sb.table("team_members")
@@ -318,18 +358,51 @@ async def accept_team_invite(token: str):
 
     invited_email = str(row.get("invited_email") or "").strip()
     role = str(row.get("role") or "staff")
+    firm_owner_id = str(row.get("firm_owner_id") or "").strip()
 
     uid = _profile_id_for_email(sb, invited_email)
-    row_uuid = str(row.get("id"))
 
     if uid:
-        sb.table("team_members").update(
-            {
-                "member_user_id": uid,
-                "is_active": True,
-                "accepted_at": datetime.now(timezone.utc).isoformat(),
-            }
-        ).eq("id", row_uuid).execute()
+        existing = (
+            sb.table("team_members")
+            .select("id")
+            .eq("firm_owner_id", firm_owner_id)
+            .eq("member_user_id", uid)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            sb.table("team_members").update(
+                {"is_active": False, "accepted_at": now_iso}
+            ).eq("invite_token", token_s).execute()
+            return {"status": "accepted", "redirect": "/dashboard"}
+
+        update_payload = {
+            "member_user_id": uid,
+            "is_active": True,
+            "accepted_at": now_iso,
+        }
+        try:
+            sb.table("team_members").update(update_payload).eq(
+                "invite_token", token_s
+            ).eq("is_active", False).execute()
+        except Exception as exc:
+            if _pg_unique_violation(exc):
+                cleared = (
+                    sb.table("team_members")
+                    .update({"is_active": False, "accepted_at": now_iso})
+                    .eq("invite_token", token_s)
+                    .select("id")
+                    .execute()
+                )
+                if cleared.data:
+                    return {"status": "accepted", "redirect": "/dashboard"}
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Could not accept invitation.",
+            ) from exc
+
         return {"status": "accepted", "redirect": "/dashboard"}
 
     return {
