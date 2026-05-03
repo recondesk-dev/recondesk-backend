@@ -53,12 +53,14 @@ export default function TeamSettingsPage() {
   const toast = useToast();
   const tokenState = useAccessToken();
   const authToken =
-    typeof tokenState === "string" && tokenState.length > 0
-      ? tokenState
+    typeof tokenState === "string" && tokenState.trim().length > 0
+      ? tokenState.trim()
       : null;
 
-  const meKey = authToken ? (["team-me", authToken] as const) : null;
-  const membersKey = authToken ? (["team-members", authToken] as const) : null;
+  const meKey = authToken ? (["/api/v1/auth/me", authToken] as const) : null;
+  const membersKey = authToken
+    ? (["/api/team/members", authToken] as const)
+    : null;
 
   const { data: me } = useSWR(meKey, ([, t]) => authApi.me(t));
   const {
@@ -149,9 +151,24 @@ export default function TeamSettingsPage() {
     return profile.email.toLowerCase().trim() === row.email.toLowerCase().trim();
   };
 
-  const resolvingMe = tokenState === null;
+  if (tokenState === null) {
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-48 animate-pulse rounded bg-[var(--border)]" />
+        <TeamTableSkeleton />
+      </div>
+    );
+  }
 
-  if (resolvingMe || (!me && authToken)) {
+  if (!authToken) {
+    return (
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-8 text-center text-sm text-[var(--text-secondary)]">
+        Sign in required to manage team members.
+      </div>
+    );
+  }
+
+  if (!me) {
     return (
       <div className="space-y-6">
         <div className="h-8 w-48 animate-pulse rounded bg-[var(--border)]" />

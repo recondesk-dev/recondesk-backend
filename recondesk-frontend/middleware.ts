@@ -34,13 +34,6 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
-  const isMockDashboard =
-  pathname === "/" ||
-  pathname.startsWith("/clients") ||
-  pathname.startsWith("/runs") ||
-  pathname.startsWith("/settings") ||
-  pathname.startsWith("/reconcile") ||
-  pathname.startsWith("/results");
 
   /** Let this API return 401 JSON instead of redirecting (client fetch needs a body). */
   const isAccessTokenApi =
@@ -53,11 +46,10 @@ export async function middleware(request: NextRequest) {
   const isTeamInviteAccept =
     pathname.startsWith("/team/accept");
 
-  // Unauthenticated → redirect to /login (mock dashboard is open without auth)
+  // Unauthenticated → redirect to /login
   if (
     !user &&
     !isPublicRoute &&
-    !isMockDashboard &&
     !isAccessTokenApi &&
     !isAuthCallback &&
     !isTeamInviteAccept
