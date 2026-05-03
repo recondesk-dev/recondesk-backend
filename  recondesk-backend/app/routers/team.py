@@ -90,22 +90,72 @@ async def _invite_email_bg(
         _log.exception("team invite email failed to=%s", to)
 
 
-def _profile_id_for_email(sb, email: str) -> Optional[str]:
-    raw = email.strip()
+def _user_profile_row_for_email(sb, email: str) -> Optional[dict]:
+    """Return a *user_profiles* row when email matches invited_email (normalized variants).
+
+    Accept must only promote invites using ids from this table — never raw auth ids alone.
+    """
+    raw = (email or "").strip()
     if not raw:
         return None
-    ne = raw.lower()
-    for candidate in (raw, ne):
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for c in (_norm_email(raw), raw.lower(), raw):
+        if c and c not in seen:
+            seen.add(c)
+            candidates.append(c)
+    for candidate in candidates:
         r = (
             sb.table("user_profiles")
-            .select("id")
+            .select("id, email, full_name")
             .eq("email", candidate)
             .limit(1)
             .execute()
         )
         if r.data:
-            return str(r.data[0]["id"])
+            return r.data[0]
     return None
+
+
+def _profile_id_for_email(sb, email: str) -> Optional[str]:
+    row = _user_profile_row_for_email(sb, email)
+    return str(row["id"]) if row else None
+
+
+def _active_members_inner_join_profiles(
+    sb, firm_owner_id: str
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Rows where team_members is active with member_user_id set AND user_profiles.id matches."""
+    tm_res = (
+        sb.table("team_members")
+        .select("*")
+        .eq("firm_owner_id", firm_owner_id)
+        .eq("is_active", True)
+        .not_.is_("member_user_id", "null")
+        .execute()
+    )
+    rows_tm = list(tm_res.data or [])
+    mids = [
+        str(r["member_user_id"])
+        for r in rows_tm
+        if r.get("member_user_id") not in (None, "")
+    ]
+    if not mids:
+        return []
+    pres = (
+        sb.table("user_profiles")
+        .select("id, email, full_name")
+        .in_("id", mids)
+        .execute()
+    )
+    pmap = {str(p["id"]): p for p in (pres.data or [])}
+    joined: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for r in rows_tm:
+        pid = str(r.get("member_user_id") or "")
+        p = pmap.get(pid)
+        if p:
+            joined.append((r, p))
+    return joined
 
 
 @router.get("/members")
@@ -114,14 +164,8 @@ async def list_team_members(current_user: dict = Depends(get_current_active_user
     uid = str(current_user.get("id", ""))
     owner_id = _firm_owner_id(sb, uid)
 
-    active_res = (
-        sb.table("team_members")
-        .select("*")
-        .eq("firm_owner_id", owner_id)
-        .eq("is_active", True)
-        .not_.is_("member_user_id", "null")
-        .execute()
-    )
+    active_pairs = _active_members_inner_join_profiles(sb, owner_id)
+
     pending_res = (
         sb.table("team_members")
         .select("*")
@@ -130,41 +174,16 @@ async def list_team_members(current_user: dict = Depends(get_current_active_user
         .is_("member_user_id", "null")
         .execute()
     )
-
-    rows_active = list(active_res.data or [])
     rows_pending = [
         r for r in (pending_res.data or []) if _invite_still_valid(r)
     ]
 
-    mids = [
-        str(r["member_user_id"])
-        for r in rows_active
-        if r.get("member_user_id") not in (None, "")
-    ]
-    profiles_by_id: dict[str, dict] = {}
-    if mids:
-        pres = (
-            sb.table("user_profiles")
-            .select("id, email, full_name")
-            .in_("id", mids)
-            .execute()
-        )
-        for p in pres.data or []:
-            profiles_by_id[str(p["id"])] = p
-
-    rows_active = [
-        r
-        for r in rows_active
-        if str(r.get("member_user_id") or "") in profiles_by_id
-    ]
-
     out: list[dict[str, Any]] = []
-    for r in rows_active:
+    for r, prof in active_pairs:
         tid = str(r["id"])
         role = str(r.get("role") or "")
         invite_exp = r.get("invite_expires_at")
         mid = r.get("member_user_id")
-        prof = profiles_by_id[str(mid)]
         joined = r.get("accepted_at") or r.get("invited_at")
         out.append(
             {
@@ -381,53 +400,54 @@ async def accept_team_invite(token: str):
     role = str(row.get("role") or "staff")
     firm_owner_id = str(row.get("firm_owner_id") or "").strip()
 
-    uid = _profile_id_for_email(sb, invited_email)
+    profile_row = _user_profile_row_for_email(sb, invited_email)
+    if not profile_row:
+        return {
+            "status": "signup_required",
+            "redirect": "/signup",
+            "email": invited_email,
+            "role": role,
+            "token": token_s,
+        }
 
-    if uid:
-        existing = (
-            sb.table("team_members")
-            .select("id")
-            .eq("firm_owner_id", firm_owner_id)
-            .eq("member_user_id", uid)
-            .eq("is_active", True)
-            .limit(1)
-            .execute()
-        )
-        if existing.data:
+    profile_user_id = str(profile_row["id"])
+
+    existing = (
+        sb.table("team_members")
+        .select("id")
+        .eq("firm_owner_id", firm_owner_id)
+        .eq("member_user_id", profile_user_id)
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        sb.table("team_members").update(
+            {"is_active": False, "accepted_at": now_iso}
+        ).eq("id", str(row_uuid)).execute()
+        return {"status": "accepted", "redirect": "/dashboard"}
+
+    update_payload = {
+        "member_user_id": profile_user_id,
+        "is_active": True,
+        "accepted_at": now_iso,
+    }
+    try:
+        sb.table("team_members").update(update_payload).eq(
+            "id", str(row_uuid)
+        ).execute()
+    except Exception as exc:
+        if _pg_unique_violation(exc):
             sb.table("team_members").update(
                 {"is_active": False, "accepted_at": now_iso}
             ).eq("id", str(row_uuid)).execute()
             return {"status": "accepted", "redirect": "/dashboard"}
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not accept invitation.",
+        ) from exc
 
-        update_payload = {
-            "member_user_id": str(uid),
-            "is_active": True,
-            "accepted_at": now_iso,
-        }
-        try:
-            sb.table("team_members").update(update_payload).eq(
-                "id", str(row_uuid)
-            ).execute()
-        except Exception as exc:
-            if _pg_unique_violation(exc):
-                sb.table("team_members").update(
-                    {"is_active": False, "accepted_at": now_iso}
-                ).eq("id", str(row_uuid)).execute()
-                return {"status": "accepted", "redirect": "/dashboard"}
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Could not accept invitation.",
-            ) from exc
-
-        return {"status": "accepted", "redirect": "/dashboard"}
-
-    return {
-        "status": "signup_required",
-        "redirect": "/signup",
-        "email": invited_email,
-        "role": role,
-        "token": token_s,
-    }
+    return {"status": "accepted", "redirect": "/dashboard"}
 
 
 @router.delete("/members/{member_id}")
