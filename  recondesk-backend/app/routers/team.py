@@ -281,21 +281,24 @@ async def invite_team_member(
     except Exception as exc:
         if not _pg_unique_violation(exc):
             raise
+        sb.table("team_members").update(
+            {
+                "invite_token": token,
+                "invite_expires_at": expires_iso,
+                "role": role_norm,
+                "invited_at": invited_iso,
+                "is_active": False,
+            }
+        ).eq("firm_owner_id", admin_id).eq("invited_email", norm_email).is_(
+            "member_user_id", "null"
+        ).execute()
         refreshed = (
             sb.table("team_members")
-            .update(
-                {
-                    "invite_token": token,
-                    "invite_expires_at": expires_iso,
-                    "role": role_norm,
-                    "invited_at": invited_iso,
-                    "is_active": False,
-                }
-            )
+            .select("id")
             .eq("firm_owner_id", admin_id)
             .eq("invited_email", norm_email)
             .is_("member_user_id", "null")
-            .select("id")
+            .limit(1)
             .execute()
         )
         if not refreshed.data:
@@ -349,6 +352,13 @@ async def accept_team_invite(token: str):
         )
 
     row = res.data[0]
+    row_uuid = row.get("id")
+    if not row_uuid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invitation not found or already used.",
+        )
+
     exp = _parse_invite_expiry(row.get("invite_expires_at"))
     if exp is not None and exp < datetime.now(timezone.utc):
         raise HTTPException(
@@ -375,29 +385,24 @@ async def accept_team_invite(token: str):
         if existing.data:
             sb.table("team_members").update(
                 {"is_active": False, "accepted_at": now_iso}
-            ).eq("invite_token", token_s).execute()
+            ).eq("id", str(row_uuid)).execute()
             return {"status": "accepted", "redirect": "/dashboard"}
 
         update_payload = {
-            "member_user_id": uid,
+            "member_user_id": str(uid),
             "is_active": True,
             "accepted_at": now_iso,
         }
         try:
             sb.table("team_members").update(update_payload).eq(
-                "invite_token", token_s
-            ).eq("is_active", False).execute()
+                "id", str(row_uuid)
+            ).execute()
         except Exception as exc:
             if _pg_unique_violation(exc):
-                cleared = (
-                    sb.table("team_members")
-                    .update({"is_active": False, "accepted_at": now_iso})
-                    .eq("invite_token", token_s)
-                    .select("id")
-                    .execute()
-                )
-                if cleared.data:
-                    return {"status": "accepted", "redirect": "/dashboard"}
+                sb.table("team_members").update(
+                    {"is_active": False, "accepted_at": now_iso}
+                ).eq("id", str(row_uuid)).execute()
+                return {"status": "accepted", "redirect": "/dashboard"}
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Could not accept invitation.",
