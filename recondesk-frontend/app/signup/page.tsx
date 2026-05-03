@@ -6,6 +6,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Eye, EyeOff, UserPlus } from "lucide-react";
 
+const DEFAULT_API_URL = "http://localhost:8000";
+
 function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -21,10 +23,10 @@ function SignupForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
 
   const inviteRoleRaw =
     searchParams.get("invite_role")?.trim().toLowerCase() ?? "";
+  const inviteToken = searchParams.get("invite_token")?.trim() ?? "";
 
   useEffect(() => {
     const email = searchParams.get("email")?.trim();
@@ -69,31 +71,29 @@ function SignupForm() {
     if (error) {
       setError(error.message);
       setLoading(false);
-    } else {
-      setSuccess(true);
-      setLoading(false);
-      setTimeout(() => router.push("/login"), 3000);
+      return;
     }
-  };
 
-  if (success) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-        <div className="w-full max-w-md text-center">
-          <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-full bg-green-100">
-            <svg className="h-7 w-7 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <h2 className="mb-2 text-xl font-semibold text-gray-900">Check your email</h2>
-          <p className="text-sm text-gray-500">
-            We&apos;ve sent a confirmation link to <strong>{form.email}</strong>.<br />
-            Redirecting to login...
-          </p>
-        </div>
-      </div>
-    );
-  }
+    if (inviteToken) {
+      const apiUrl = (
+        process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL
+      ).replace(/\/$/, "");
+      try {
+        await fetch(
+          `${apiUrl}/api/team/accept/${encodeURIComponent(inviteToken)}`,
+          {
+            method: "POST",
+            headers: { Accept: "application/json" },
+          },
+        );
+      } catch {
+        /* Invitation can be completed via /team/accept/{token} if this fails */
+      }
+    }
+
+    setLoading(false);
+    router.replace("/");
+  };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12">
