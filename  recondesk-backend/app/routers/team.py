@@ -114,27 +114,31 @@ async def list_team_members(current_user: dict = Depends(get_current_active_user
     uid = str(current_user.get("id", ""))
     owner_id = _firm_owner_id(sb, uid)
 
-    res = (
+    active_res = (
         sb.table("team_members")
         .select("*")
         .eq("firm_owner_id", owner_id)
+        .eq("is_active", True)
+        .not_.is_("member_user_id", "null")
         .execute()
     )
-    rows = list(res.data or [])
+    pending_res = (
+        sb.table("team_members")
+        .select("*")
+        .eq("firm_owner_id", owner_id)
+        .eq("is_active", False)
+        .is_("member_user_id", "null")
+        .execute()
+    )
 
-    included: list[dict[str, Any]] = []
-    for r in rows:
-        active = bool(r.get("is_active"))
-        mid = r.get("member_user_id")
-        if active:
-            included.append(r)
-            continue
-        if mid is None or mid == "":
-            included.append(r)
+    rows_active = list(active_res.data or [])
+    rows_pending = [
+        r for r in (pending_res.data or []) if _invite_still_valid(r)
+    ]
 
     mids = [
         str(r["member_user_id"])
-        for r in included
+        for r in rows_active
         if r.get("member_user_id") not in (None, "")
     ]
     profiles_by_id: dict[str, dict] = {}
@@ -148,42 +152,49 @@ async def list_team_members(current_user: dict = Depends(get_current_active_user
         for p in pres.data or []:
             profiles_by_id[str(p["id"])] = p
 
+    rows_active = [
+        r
+        for r in rows_active
+        if str(r.get("member_user_id") or "") in profiles_by_id
+    ]
+
     out: list[dict[str, Any]] = []
-    for r in included:
+    for r in rows_active:
         tid = str(r["id"])
         role = str(r.get("role") or "")
         invite_exp = r.get("invite_expires_at")
         mid = r.get("member_user_id")
-        active = bool(r.get("is_active"))
+        prof = profiles_by_id[str(mid)]
+        joined = r.get("accepted_at") or r.get("invited_at")
+        out.append(
+            {
+                "id": tid,
+                "member_user_id": str(mid),
+                "full_name": prof.get("full_name") or "",
+                "email": prof.get("email") or "",
+                "role": role,
+                "joined_at": joined,
+                "status": "active",
+                "invite_expires_at": invite_exp,
+            }
+        )
 
-        if active and mid not in (None, ""):
-            prof = profiles_by_id.get(str(mid), {})
-            joined = r.get("accepted_at") or r.get("invited_at")
-            out.append(
-                {
-                    "id": tid,
-                    "member_user_id": str(mid),
-                    "full_name": prof.get("full_name") or "",
-                    "email": prof.get("email") or "",
-                    "role": role,
-                    "joined_at": joined,
-                    "status": "active",
-                    "invite_expires_at": invite_exp,
-                }
-            )
-        elif not active and (mid is None or mid == ""):
-            out.append(
-                {
-                    "id": tid,
-                    "member_user_id": None,
-                    "full_name": "",
-                    "email": str(r.get("invited_email") or ""),
-                    "role": role,
-                    "joined_at": None,
-                    "status": "pending",
-                    "invite_expires_at": invite_exp,
-                }
-            )
+    for r in rows_pending:
+        tid = str(r["id"])
+        role = str(r.get("role") or "")
+        invite_exp = r.get("invite_expires_at")
+        out.append(
+            {
+                "id": tid,
+                "member_user_id": None,
+                "full_name": "",
+                "email": str(r.get("invited_email") or ""),
+                "role": role,
+                "joined_at": None,
+                "status": "pending",
+                "invite_expires_at": invite_exp,
+            }
+        )
 
     return out
 
@@ -441,9 +452,9 @@ async def remove_team_member(
             detail="Team member not found",
         )
 
-    sb.table("team_members").update({"is_active": False}).eq("id", mid).eq(
-        "firm_owner_id", admin_id
-    ).execute()
+    sb.table("team_members").update(
+        {"is_active": False, "member_user_id": None}
+    ).eq("id", mid).eq("firm_owner_id", admin_id).execute()
 
     await log_action(
         admin_id,
