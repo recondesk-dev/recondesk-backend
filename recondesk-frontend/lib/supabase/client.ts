@@ -74,6 +74,21 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
     }
   });
 
+  // Immediately check for existing session
+  void supabase.auth.getSession().then(({ data: { session } }) => {
+    if (cancelled) return;
+    if (session?.access_token) {
+      onToken(session.access_token);
+    } else {
+      // Try fetching from server
+      void fetchAccessTokenFromServer().then((token) => {
+        if (cancelled) return;
+        if (token) onToken(token);
+        else onToken(false);
+      });
+    }
+  });
+
   return () => {
     cancelled = true;
     subscription.unsubscribe();
