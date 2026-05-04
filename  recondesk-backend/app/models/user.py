@@ -82,5 +82,8 @@ class UserProfileResponse(StrictModel):
     plan: Optional[str] = None
     runs_used: Optional[int] = None
     runs_limit: Optional[int] = None
+    free_runs_remaining: Optional[int] = None
+    runs_balance: Optional[int] = None
+    firm_city: Optional[str] = Field(default=None, max_length=128)
 
     model_config = ConfigDict(from_attributes=True)
