@@ -150,7 +150,7 @@ def assert_run_accessible(sb: Client, run_id: str, current_user: dict) -> dict:
         sb.table("reconciliation_run")
         .select(
             "id, client_gstin_id, period, status, is_locked, run_summary, "
-            "created_at, completed_at, finalized_at, finalized_by"
+            "created_at, completed_at, finalized_at, finalized_by, paid_at"
         )
         .eq("id", run_id)
         .limit(1)

@@ -8,6 +8,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from pydantic import BaseModel, Field
 from supabase import Client
 
+from app.services.billing_gate import check_run_access, consume_run_credit
+from app.services.firm_access import get_firm_owner_for_client
 from app.auth import get_current_active_user
 from app.database import get_supabase, supabase_client
 from app.routers.import_router import _assigned_client_gstin_id
@@ -241,7 +243,7 @@ async def start_reconciliation_run(
         sb.table("reconciliation_run")
         .select(
             "id, client_gstin_id, status, gstr_records_imported, pr_records_imported, "
-            "is_locked"
+            "is_locked, paid_at"
         )
         .eq("id", run_id)
         .execute()
@@ -275,6 +277,18 @@ async def start_reconciliation_run(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="GSTR and purchase register data must both be imported",
         )
+    firm_owner: str | None = None
+    if not row.get("paid_at"):
+        firm_owner = get_firm_owner_for_client(sb, str(row["client_gstin_id"]))
+        gate = await check_run_access(firm_owner)
+        if not gate.get("allowed"):
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail={
+                    "message": "No reconciliation runs available. Purchase a plan or use a free run.",
+                    "billing": gate,
+                },
+            )
     now = datetime.now(timezone.utc).isoformat()
     # Query 2 — update the run (atomic READY → MATCHING)
     upd = (
@@ -297,6 +311,24 @@ async def start_reconciliation_run(
             status_code=status.HTTP_409_CONFLICT,
             detail="reconciliation is already in progress or not in READY state",
         )
+    if firm_owner:
+        try:
+            await consume_run_credit(firm_owner)
+            sb.table("reconciliation_run").update({"paid_at": now}).eq("id", run_id).execute()
+        except Exception as exc:
+            _log.exception("billing consume after start for run_id=%s", run_id)
+            sb.table("reconciliation_run").update(
+                {
+                    "status": "READY",
+                    "status_message": "Billing error; please retry or contact support.",
+                    "processing_started_at": None,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            ).eq("id", run_id).execute()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Could not apply billing. Try again.",
+            ) from exc
     try:
         execute_reconciliation.delay(run_id)
     except Exception as exc:

@@ -17,6 +17,7 @@ from app.routers import (
     upload,
     reports,
     billing,
+    payments as payments_routes,
     webhooks,
     import_router,
     notes,
@@ -93,6 +94,16 @@ app.include_router(
 app.include_router(upload.router, prefix="/api/v1/upload", tags=["Upload"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
+app.include_router(
+    payments_routes.payments_router,
+    prefix="/api/payments",
+    tags=["Payments"],
+)
+app.include_router(
+    payments_routes.billing_status_router,
+    prefix="/api/billing",
+    tags=["Billing Status"],
+)
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"])
 app.include_router(import_router.router, prefix="/api/import", tags=["Import"])
 app.include_router(
