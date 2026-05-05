@@ -18,11 +18,20 @@ WHITELIST_PATTERN = re.compile(r"[^0-9A-Z]")
 
 
 def _gstin_expected_checksum_char(first_14: str) -> str:
-    """15th GSTIN character: index in CHARSET from weighted sum of first 14 (factors 1,2,1,2,...)."""
+    """15th GSTIN character: Luhn mod 36 over the first 14 (GST/CBIC rule).
+
+    For each position i (0-based) from the left: factor 1 if i is even else 2.
+    ``product = char_index * factor``; while ``product >= 36``, replace with
+    ``(product // 36) + (product % 36)``. Sum folded values, then
+    ``check_index = (36 - (total % 36)) % 36`` in CHARSET.
+    """
     total = 0
     for i, ch in enumerate(first_14):
         factor = 1 if (i % 2 == 0) else 2
-        total += CHAR_INDEX[ch] * factor
+        product = CHAR_INDEX[ch] * factor
+        while product >= 36:
+            product = (product // 36) + (product % 36)
+        total += product
     return CHARSET[(36 - (total % 36)) % 36]
 
 
