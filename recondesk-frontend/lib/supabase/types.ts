@@ -36,6 +36,10 @@ export type Database = {
           plan: string | null;
           runs_used: number | null;
           runs_limit: number | null;
+          free_runs_remaining: number | null;
+          runs_balance: number | null;
+          firm_city: string | null;
+          onboarding_completed: boolean | null;
           created_at: string | null;
         };
         Insert: {
@@ -374,6 +378,11 @@ export type Database = {
           razorpay_payment_id: string | null;
           amount_paise: number;
           status: PaymentStatus;
+          plan: string | null;
+          runs_purchased: number | null;
+          base_amount_paise: number | null;
+          gst_paise: number | null;
+          total_amount_paise: number | null;
           created_at: string;
         };
         Insert: {

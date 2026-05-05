@@ -9,6 +9,7 @@ import { FilterBar } from "@/components/dashboard/FilterBar";
 import { ClientTable, RetryConfirmModal } from "@/components/dashboard/ClientTable";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { StatusBadge } from "@/components/dashboard/StatusBadge";
+import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
   authApi,
@@ -350,6 +351,26 @@ export default function PortfolioDashboardPage() {
     );
   }
 
+  if (isEmptyPortfolio) {
+    return (
+      <div className="flex min-h-[calc(100vh-12rem)] flex-col items-center justify-center px-4">
+        <div className="mx-auto w-full max-w-[400px] text-center">
+          <EmptyStateIllustration className="mx-auto text-gray-400" />
+          <h2 className="mt-4 text-lg font-semibold text-gray-900">No clients yet</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Add your first client to start reconciling their GSTR-2B
+          </p>
+          <Link
+            href="/clients?add=1"
+            className="mt-6 inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white"
+          >
+            Add First Client
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {!portfolioLoading && signals.failedClientCount > 0 && (
@@ -432,24 +453,6 @@ export default function PortfolioDashboardPage() {
           >
             Retry
           </button>
-        </div>
-      )}
-
-      {isEmptyPortfolio && (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] py-16">
-          <svg width="120" height="80" viewBox="0 0 120 80" className="text-[var(--accent-dim)]" aria-hidden>
-            <rect x="10" y="20" width="100" height="50" rx="6" fill="currentColor" opacity="0.35" />
-            <path d="M40 45h40M60 35v20" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" />
-          </svg>
-          <p className="mt-4 text-base font-medium text-[var(--text-primary)]">
-            Add your first client to start reconciling
-          </p>
-          <Link
-            href="/clients"
-            className="mt-4 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white"
-          >
-            Add Client
-          </Link>
         </div>
       )}
 

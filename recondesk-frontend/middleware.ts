@@ -1,82 +1,91 @@
-import { createServerClient } from "@supabase/ssr";
-import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { type NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_ROUTES = ["/login", "/signup", "/forgot-password", "/reset-password"];
+const API_ME = (base: string) =>
+  `${base.replace(/\/+$/, "")}/api/v1/auth/me`;
 
 export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+  let response = NextResponse.next({ request: { headers: request.headers } });
+
+  const pathname = request.nextUrl.pathname;
+
+  const skipRedirect =
+    pathname.startsWith("/onboarding") ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/signup") ||
+    pathname.startsWith("/team") ||
+    pathname.startsWith("/api") ||
+    pathname.startsWith("/_next") ||
+    pathname === "/favicon.ico" ||
+    /\.[a-zA-Z0-9]+$/.test(pathname);
+
+  if (skipRedirect) {
+    return response;
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return request.cookies.getAll();
+        get(name: string) {
+          return request.cookies.get(name)?.value;
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
+        set(name: string, value: string, options: CookieOptions) {
+          request.cookies.set({ name, value, ...options });
+          response = NextResponse.next({ request: { headers: request.headers } });
+          response.cookies.set({ name, value, ...options });
+        },
+        remove(name: string, options: CookieOptions) {
+          request.cookies.set({ name, value: "", ...options });
+          response = NextResponse.next({ request: { headers: request.headers } });
+          response.cookies.set({ name, value: "", ...options });
         },
       },
     }
   );
 
-  // Refresh the session — must not write any other response before this
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const { pathname } = request.nextUrl;
-  const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
-
-  /** Let this API return 401 JSON instead of redirecting (client fetch needs a body). */
-  const isAccessTokenApi =
-    pathname === "/api/auth/access-token" || pathname === "/api/auth/access-token/";
-
-  /** OAuth / magic link must run while still unauthenticated (PKCE code exchange). */
-  const isAuthCallback =
-    pathname === "/auth/callback" || pathname.startsWith("/auth/callback/");
-
-  const isTeamInviteAccept =
-    pathname.startsWith("/team/accept");
-
-  // Unauthenticated → redirect to /login
-  if (
-    !user &&
-    !isPublicRoute &&
-    !isAccessTokenApi &&
-    !isAuthCallback &&
-    !isTeamInviteAccept
-  ) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("redirectTo", pathname);
-    return NextResponse.redirect(url);
+  if (!user) {
+    return response;
   }
 
-  const isInviteSignupCompletion =
-    pathname.startsWith("/signup") &&
-    request.nextUrl.searchParams.has("invite_token");
-
-  // Already authenticated → bounce away from auth pages (except team-invite signup completion)
-  if (user && isPublicRoute && !isInviteSignupCompletion) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
-    url.search = "";
-    return NextResponse.redirect(url);
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) {
+    return response;
   }
 
-  return supabaseResponse;
+  const apiBase =
+    process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000";
+
+  try {
+    const meRes = await fetch(API_ME(apiBase), {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!meRes.ok) {
+      return response;
+    }
+    const me = (await meRes.json()) as { onboarding_completed?: boolean | null };
+    const done = me.onboarding_completed === true;
+    if (!done) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/onboarding";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+  } catch {
+    return response;
+  }
+
+  return response;
 }
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

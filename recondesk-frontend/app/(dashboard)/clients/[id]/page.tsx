@@ -8,6 +8,7 @@ import { useParams } from "next/navigation";
 import { ItcTrendChart } from "@/components/dashboard/ItcTrendChart";
 import { StatusBadge } from "@/components/dashboard/StatusBadge";
 import { Avatar } from "@/components/ui/Avatar";
+import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import {
   authApi,
   clientsApi,
@@ -277,6 +278,24 @@ export default function ClientDetailPage() {
         <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
           {rLoad ? (
             <HistorySkeleton />
+          ) : sortedRuns.length === 0 ? (
+            <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
+              <div className="mx-auto w-full max-w-[400px]">
+                <EmptyStateIllustration className="mx-auto text-gray-400" />
+                <h3 className="mt-4 text-lg font-semibold text-gray-900">
+                  No reconciliations yet
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Start a reconciliation to see results here
+                </p>
+                <Link
+                  href={`/reconcile/${id}/new`}
+                  className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white"
+                >
+                  Start Reconciliation
+                </Link>
+              </div>
+            </div>
           ) : (
             <>
               <div className="overflow-x-auto">
