@@ -4,7 +4,7 @@ All 31 test cases (spec requires at least 24) must pass.
 
 Verified valid GSTINs:
     BUYER_GSTIN  = "27AAAAA1234A1ZP"
-    SUPPLIER_1   = "29ABCDE1234F1ZX"
+    SUPPLIER_1   = "29ABCDE1234F1ZW"
     SUPPLIER_2   = "07CCCCC1234C1Z9"
 """
 
@@ -21,7 +21,7 @@ from app.parsers.gstr2b_parser import _make_skip_entry, parse_gstr2b
 # ---------------------------------------------------------------------------
 
 BUYER_GSTIN = "27AAAAA1234A1ZP"
-SUPPLIER_1 = "29ABCDE1234F1ZX"
+SUPPLIER_1 = "29ABCDE1234F1ZW"
 SUPPLIER_2 = "07CCCCC1234C1Z9"
 
 

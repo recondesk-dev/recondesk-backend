@@ -1,11 +1,11 @@
 """Pytest tests for app/services/normalizer.py.
 
-Pre-verified valid GSTINs used throughout (checksum computed manually):
-  VALID_MH       = "27ABCDE1234F1Z1"  state=27, sum=215, ck=CHARSET[1]='1'
-  VALID_KA       = "29ABCDE1234F1ZX"  state=29, sum=219, ck=CHARSET[33]='X'
-  VALID_CHECK0   = "27ABCDE1234F2Z0"  state=27, sum=216, ck=CHARSET[0]='0'  (sum%36==0)
-  VALID_CHECK9   = "23ABCDE1234F1Z9"  state=23, sum=207, ck=CHARSET[9]='9'
-  VALID_07       = "07ABCDE1234F1Z3"  state=07, sum=213, ck=CHARSET[3]='3'
+Pre-verified valid GSTINs (GSTIN check digit / Luhn mod 36 over 0-9A-Z):
+  VALID_MH     = "27ABCDE1234F1Z0"
+  VALID_KA     = "29ABCDE1234F1ZW"
+  VALID_CHECK0 = "23ABCDE1234F9Z0"  (trailing check character is '0')
+  VALID_CHECK9 = "27ABCDE1234A2Z9"
+  VALID_07     = "07ABCDE1234F1Z2"
 """
 
 import datetime
@@ -26,11 +26,11 @@ from app.services.normalizer import (
 # ---------------------------------------------------------------------------
 # Known-good fixtures
 # ---------------------------------------------------------------------------
-VALID_MH = "27ABCDE1234F1Z1"
-VALID_KA = "29ABCDE1234F1ZX"
-VALID_CHECK0 = "27ABCDE1234F2Z0"
-VALID_CHECK9 = "23ABCDE1234F1Z9"
-VALID_07 = "07ABCDE1234F1Z3"
+VALID_MH = "27ABCDE1234F1Z0"
+VALID_KA = "29ABCDE1234F1ZW"
+VALID_CHECK0 = "23ABCDE1234F9Z0"
+VALID_CHECK9 = "27ABCDE1234A2Z9"
+VALID_07 = "07ABCDE1234F1Z2"
 
 ALL_VALID = [VALID_MH, VALID_KA, VALID_CHECK0, VALID_CHECK9, VALID_07]
 
@@ -49,40 +49,40 @@ def _raises_reason(raw, expected_reason: str) -> None:
 # ===========================================================================
 
 def test_01_lowercase_converted():
-    assert normalize_gstin("27abcde1234f1z1") == VALID_MH
+    assert normalize_gstin("27abcde1234f1z0") == VALID_MH
 
 
 def test_02_dashes_removed():
-    assert normalize_gstin("27-ABCDE-1234-F1Z1") == VALID_MH
+    assert normalize_gstin("27-ABCDE-1234-F1Z0") == VALID_MH
 
 
 def test_03_spaces_removed():
-    assert normalize_gstin("27 ABCDE 1234 F1Z1") == VALID_MH
+    assert normalize_gstin("27 ABCDE 1234 F1Z0") == VALID_MH
 
 
 def test_04_dots_removed():
-    assert normalize_gstin("27.ABCDE.1234.F1Z1") == VALID_MH
+    assert normalize_gstin("27.ABCDE.1234.F1Z0") == VALID_MH
 
 
 def test_05_tab_removed():
-    assert normalize_gstin("27\tABCDE1234F1Z1") == VALID_MH
+    assert normalize_gstin("27\tABCDE1234F1Z0") == VALID_MH
 
 
 def test_06_newline_removed():
-    assert normalize_gstin("27\nABCDE1234F1Z1") == VALID_MH
+    assert normalize_gstin("27\nABCDE1234F1Z0") == VALID_MH
 
 
 def test_07_slash_removed():
-    assert normalize_gstin("27/ABCDE/1234/F1Z1") == VALID_MH
+    assert normalize_gstin("27/ABCDE/1234/F1Z0") == VALID_MH
 
 
 def test_08_underscore_removed():
-    assert normalize_gstin("27_ABCDE_1234_F1Z1") == VALID_MH
+    assert normalize_gstin("27_ABCDE_1234_F1Z0") == VALID_MH
 
 
 def test_09_invisible_unicode_removed():
     # U+200B zero-width space is not in [0-9A-Z] and is silently dropped.
-    assert normalize_gstin("27\u200bABCDE1234F1Z1") == VALID_MH
+    assert normalize_gstin("27\u200bABCDE1234F1Z0") == VALID_MH
 
 
 # ===========================================================================
@@ -99,9 +99,9 @@ def test_10_semantic_empty_after_whitelist():
 # ===========================================================================
 
 def test_11_devanagari_digits_yield_invalid_length():
-    # "२७ABCDE1234F1Z1": the two Devanagari codepoints (non-ASCII) are stripped,
-    # leaving "ABCDE1234F1Z1" = 13 chars → reason "invalid_length"
-    _raises_reason("२७ABCDE1234F1Z1", "invalid_length")
+    # "२७ABCDE1234F1Z0": the two Devanagari codepoints (non-ASCII) are stripped,
+    # leaving "ABCDE1234F1Z0" = 14 chars → reason "invalid_length"
+    _raises_reason("२७ABCDE1234F1Z0", "invalid_length")
 
 
 # ===========================================================================
@@ -132,24 +132,34 @@ def test_16_valid_karnataka_gstin():
     assert normalize_gstin(VALID_KA) == VALID_KA
 
 
+def test_16b_normalize_gstin_tcs_style_pan_karnataka():
+    # Same PAN-style core as often cited for TCS; CBIC Luhn mod-36 check digit is "A".
+    assert normalize_gstin("29AABCT1332L1ZA") == "29AABCT1332L1ZA"
+
+
+def test_16c_wrong_trailing_letter_rejected():
+    with pytest.raises(NormalizationError) as ei:
+        normalize_gstin("29AABCT1332L1ZT")
+    assert ei.value.reason == "invalid_checksum"
+
+
 # ===========================================================================
 # 6. Invalid checksum variants (tests 17–19)
 # ===========================================================================
 
 def test_17_invalid_checksum_variant_1():
-    # VALID_MH with last char changed from '1' to '2'
+    # VALID_MH with last char changed from '0' to '2'
     _raises_reason("27ABCDE1234F1Z2", "invalid_checksum")
 
 
 def test_18_invalid_checksum_variant_2():
-    # VALID_MH with last char changed from '1' to '3'
+    # VALID_MH with last char changed from '0' to '3'
     _raises_reason("27ABCDE1234F1Z3", "invalid_checksum")
 
 
 def test_19_invalid_checksum_variant_3():
     # VALID_CHECK0 with last char changed from '0' to '1'
-    # (sum=216, expected='0', actual='1')
-    _raises_reason("27ABCDE1234F2Z1", "invalid_checksum")
+    _raises_reason("23ABCDE1234F9Z1", "invalid_checksum")
 
 
 # ===========================================================================
@@ -161,7 +171,7 @@ def test_20_wrong_length_14():
 
 
 def test_21_wrong_length_16():
-    _raises_reason("27ABCDE1234F1Z1X", "invalid_length")
+    _raises_reason("27ABCDE1234F1Z0X", "invalid_length")
 
 
 # ===========================================================================
@@ -225,7 +235,7 @@ def test_30_determinism_100_calls():
 # ===========================================================================
 
 def test_31_no_mutation_of_input():
-    raw = "27 ABCDE 1234 F1Z1"
+    raw = "27 ABCDE 1234 F1Z0"
     original = raw  # same object value
     normalize_gstin(raw)
     assert raw == original
@@ -236,7 +246,6 @@ def test_31_no_mutation_of_input():
 # ===========================================================================
 
 def test_32_checksum_boundary_zero():
-    # sum=216, 216 % 36 == 0, CHARSET[(36-0)%36] = CHARSET[0] = '0'
     assert normalize_gstin(VALID_CHECK0) == VALID_CHECK0
     assert VALID_CHECK0[-1] == "0"
 
@@ -246,7 +255,6 @@ def test_32_checksum_boundary_zero():
 # ===========================================================================
 
 def test_33_checksum_boundary_nine():
-    # sum=207, 207 % 36 == 27, CHARSET[(36-27)%36] = CHARSET[9] = '9'
     assert normalize_gstin(VALID_CHECK9) == VALID_CHECK9
     assert VALID_CHECK9[-1] == "9"
 
@@ -256,13 +264,9 @@ def test_33_checksum_boundary_nine():
 # ===========================================================================
 
 def test_34_checksum_correctness_manually_computed():
-    # VALID_MH = "27ABCDE1234F1Z1"
-    # CHARSET indices: 2,7,10,11,12,13,14,1,2,3,4,15,1,35
-    # Factors:         1,2, 1, 2, 1, 2, 1,2,1,2,1, 2,1, 2
-    # Products:        2,14,10,22,12,26,14,2,2,6,4,30,1,70  → sum=215
-    # expected = CHARSET[(36 - 215%36) % 36] = CHARSET[(36-35)%36] = CHARSET[1] = '1'
+    # Fold large products (e.g. 35*2 → 35) before summing; final check digit is '0'.
     result = normalize_gstin(VALID_MH)
-    assert result[-1] == "1"
+    assert result[-1] == "0"
 
 
 # ===========================================================================
@@ -270,9 +274,8 @@ def test_34_checksum_correctness_manually_computed():
 # ===========================================================================
 
 def test_35_adjacent_swap_invalidates_checksum():
-    # Swap positions 2 and 3 in VALID_MH: "27ABCDE1234F1Z1" → "27BACDE1234F1Z1"
-    # New sum: 2+14+11+20+12+26+14+2+2+6+4+30+1+70=214 → expected='2', actual='1'
-    _raises_reason("27BACDE1234F1Z1", "invalid_checksum")
+    # Swap positions 2 and 3 in VALID_MH: "27ABCDE1234F1Z0" → "27BACDE1234F1Z0"
+    _raises_reason("27BACDE1234F1Z0", "invalid_checksum")
 
 
 # ===========================================================================
@@ -280,9 +283,7 @@ def test_35_adjacent_swap_invalidates_checksum():
 # ===========================================================================
 
 def test_36_alternating_factor_direction_starts_with_one():
-    # "27ABCDE1234F1Z5" has checksum '5', which is correct under factors [2,1,...]:
-    #   sum_reversed=175, 175%36=31, CHARSET[(36-31)%36]=CHARSET[5]='5'
-    # Under the correct [1,2,...] factors sum=215, expected='1' ≠ '5' → invalid_checksum.
+    # Wrong trailing digit for this PAN block must fail checksum.
     _raises_reason("27ABCDE1234F1Z5", "invalid_checksum")
 
 
