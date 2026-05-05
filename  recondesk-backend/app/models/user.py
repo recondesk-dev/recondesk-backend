@@ -85,5 +85,6 @@ class UserProfileResponse(StrictModel):
     free_runs_remaining: Optional[int] = None
     runs_balance: Optional[int] = None
     firm_city: Optional[str] = Field(default=None, max_length=128)
+    onboarding_completed: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True)

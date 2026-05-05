@@ -8,12 +8,14 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from gotrue.types import User
+from pydantic import BaseModel, ConfigDict
 
-from app.auth import get_current_active_user, require_admin
+from app.auth import get_current_active_user, get_current_user, require_admin
 from app.database import get_supabase, get_user_profile
 from app.routers.reconciliation_api import _parse_uuid
 from app.routers.reconciliation_api import _history_row
+from app.services.normalizer import NormalizationError, normalize_gstin
 
 router = APIRouter(redirect_slashes=False)
 # Alias for `app.include_router(clients_router, ...)` in main.py
@@ -22,6 +24,48 @@ clients_router = router
 GSTIN_RE = re.compile(
     r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$"
 )
+
+GSTIN_STATE_NAMES: dict[str, str] = {
+    "27": "Maharashtra",
+    "29": "Karnataka",
+    "07": "Delhi",
+    "33": "Tamil Nadu",
+    "09": "Uttar Pradesh",
+    "24": "Gujarat",
+    "06": "Haryana",
+    "19": "West Bengal",
+    "32": "Kerala",
+}
+
+
+def _validate_gstin_error_message(reason: str) -> str:
+    if reason == "invalid_checksum":
+        return "Invalid checksum"
+    if reason == "invalid_length":
+        return "Wrong length"
+    return "Invalid format"
+
+
+class GSTINValidateRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    gstin: str
+
+
+@router.post("/validate-gstin")
+async def validate_gstin_endpoint(
+    body: GSTINValidateRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Normalize GSTIN; always 200 with {valid: bool, ...}."""
+    raw = body.gstin
+    try:
+        normalized = normalize_gstin(raw)
+        code = normalized[:2]
+        state = GSTIN_STATE_NAMES.get(code, code)
+        return {"valid": True, "normalized": normalized, "state": state}
+    except NormalizationError as exc:
+        return {"valid": False, "error": _validate_gstin_error_message(exc.reason)}
 
 
 def _history_for_client(sb, cgid: str) -> list[dict]:

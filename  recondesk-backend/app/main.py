@@ -24,6 +24,7 @@ from app.routers import (
 )
 from app.routers.clients import clients_router
 from app.routers.team import router as team_router
+from app.routers import users as users_router
 from app.utils.rate_limit import limiter
 
 # ── Sentry ────────────────────────────────────────────────────────────────────
@@ -86,6 +87,7 @@ app.include_router(
 app.include_router(notes.router, prefix="/api/notes", tags=["Notes"])
 app.include_router(clients_router, prefix="/api/clients", tags=["Clients"])
 app.include_router(team_router, prefix="/api/team", tags=["Team"])
+app.include_router(users_router.router, prefix="/api/users", tags=["Users"])
 app.include_router(
     intelligence.router,
     prefix="/api/intelligence",
