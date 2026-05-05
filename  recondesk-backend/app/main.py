@@ -231,8 +231,3 @@ async def health_check():
         "environment": env,
         "timestamp": now.isoformat(),
     }
-
-
-@app.get("/sentry-debug", tags=["System"])
-async def sentry_debug():
-    raise Exception("Test Sentry error from ReconDesk production")
