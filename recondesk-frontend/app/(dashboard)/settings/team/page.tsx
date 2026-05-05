@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import useSWR from "swr";
 
 import { Modal } from "@/components/ui/Modal";
+import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
   authApi,
@@ -25,6 +26,11 @@ function formatJoined(iso: string | null): string {
   } catch {
     return "—";
   }
+}
+
+function isSelfRow(row: TeamMemberListItem, profile: AuthMeProfile | undefined) {
+  if (!profile?.email || !row.email) return false;
+  return profile.email.toLowerCase().trim() === row.email.toLowerCase().trim();
 }
 
 function TeamTableSkeleton() {
@@ -92,6 +98,15 @@ export default function TeamSettingsPage() {
     return list;
   }, [members]);
 
+  const showTeamEmpty =
+    !membersLoading &&
+    Array.isArray(members) &&
+    !sortedMembers.some(
+      (r) =>
+        r.status === "pending" ||
+        (r.status === "active" && !isSelfRow(r, me))
+    );
+
   const submitInvite = async () => {
     if (!authToken) return;
     const email = inviteEmail.trim();
@@ -144,11 +159,6 @@ export default function TeamSettingsPage() {
     } finally {
       setActionBusyId(null);
     }
-  };
-
-  const isSelfRow = (row: TeamMemberListItem, profile: AuthMeProfile | undefined) => {
-    if (!profile?.email || !row.email) return false;
-    return profile.email.toLowerCase().trim() === row.email.toLowerCase().trim();
   };
 
   if (tokenState === null) {
@@ -226,6 +236,29 @@ export default function TeamSettingsPage() {
 
       {membersLoading && !members ? (
         <TeamTableSkeleton />
+      ) : showTeamEmpty ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-6 py-16 text-center">
+          <div className="mx-auto w-full max-w-[400px]">
+            <EmptyStateIllustration className="mx-auto text-gray-400" />
+            <h2 className="mt-4 text-lg font-semibold text-gray-900">
+              No team members yet
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Invite your staff to upload files and run reconciliations. You retain admin
+              control — only you can finalize.
+            </p>
+            <button
+              type="button"
+              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white hover:opacity-95"
+              onClick={() => {
+                setInviteError(null);
+                setInviteOpen(true);
+              }}
+            >
+              Invite First Team Member
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
           <div className="overflow-x-auto">

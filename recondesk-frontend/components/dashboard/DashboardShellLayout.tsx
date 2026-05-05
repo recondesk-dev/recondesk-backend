@@ -27,6 +27,7 @@ function pageTitle(pathname: string): string {
   if (pathname === "/") return "Dashboard";
   if (pathname === "/clients") return "Clients";
   if (pathname === "/runs") return "Runs";
+  if (pathname === "/billing") return "Billing";
   if (pathname.startsWith("/settings/team")) return "Team";
   if (pathname.startsWith("/settings")) return "Settings";
   if (/^\/clients\/[^/]+$/.test(pathname)) return "Client Detail";
@@ -68,6 +69,16 @@ function NavIconRefresh({ className }: { className?: string }) {
         strokeWidth="1.5"
         strokeLinecap="round"
       />
+    </svg>
+  );
+}
+
+function NavIconCredit({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M2 10h20" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M6 14h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -190,6 +201,7 @@ export default function DashboardShellLayout({
     { href: "/", label: "Dashboard", Icon: NavIconDashboard },
     { href: "/clients", label: "Clients", Icon: NavIconUsers },
     { href: "/runs", label: "Runs", Icon: NavIconRefresh },
+    { href: "/billing", label: "Billing", Icon: NavIconCredit },
     { href: "/settings", label: "Settings", Icon: NavIconGear },
   ];
 

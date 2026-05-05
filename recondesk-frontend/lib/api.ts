@@ -53,6 +53,10 @@ export interface AuthMeProfile {
   plan?: string | null;
   runs_used?: number | null;
   runs_limit?: number | null;
+  free_runs_remaining?: number | null;
+  runs_balance?: number | null;
+  firm_city?: string | null;
+  onboarding_completed?: boolean | null;
 }
 
 export type AcceptInviteResponse =
@@ -204,9 +208,9 @@ export interface ClientCreatePayload {
   gstin: string;
   trade_name: string;
   legal_name?: string | null;
-  contact_name: string;
-  contact_email: string;
-  contact_phone: string;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
   assigned_to?: string | null;
 }
 
@@ -221,6 +225,16 @@ export const clientsApi = {
     apiFetch<ClientGstin>(clientsApiPath(), {
       method: "POST",
       body: JSON.stringify(data),
+      token,
+    }),
+
+  validateGstin: (token: string, gstin: string) =>
+    apiFetch<
+      | { valid: true; normalized: string; state: string }
+      | { valid: false; error: string }
+    >(clientsApiPath("validate-gstin"), {
+      method: "POST",
+      body: JSON.stringify({ gstin }),
       token,
     }),
 
@@ -352,7 +366,25 @@ export const reconcileRunsApi = {
         body: JSON.stringify({ checklist_snapshot: {} }),
       }
     ),
+
+  /** GET `/api/reconcile/runs/{id}/summary` — same shape as results page `RunSummary`. */
+  runSummary: (token: string, runId: string) =>
+    apiFetch<ReconcileRunSummaryDto>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/summary`,
+      { token }
+    ),
 };
+
+/** Subset of reconciliation run summary for celebrate / widgets. */
+export interface ReconcileRunSummaryDto {
+  run_id: string;
+  matched_count: number;
+  missed_itc_count: number;
+  wrongful_risk_count: number;
+  missed_itc_total_amount?: number;
+  wrongful_risk_total_amount?: number;
+  status?: string;
+}
 
 // ─── Records ──────────────────────────────────────────────────────────────────
 
@@ -415,6 +447,74 @@ export const teamApi = {
   remove: (token: string, memberId: string) =>
     apiFetch<{ removed: boolean }>(`/api/team/members/${memberId}`, {
       method: "DELETE",
+      token,
+    }),
+};
+
+export interface CreditBatchRow {
+  plan: string | null;
+  runs_purchased: number | null;
+  runs_remaining: number | null;
+  expires_at: string | null;
+  purchased_at: string | null;
+  status: string;
+}
+
+export interface BillingStatus {
+  plan: string;
+  free_runs_remaining: number;
+  runs_balance: number;
+  credit_batches: CreditBatchRow[];
+  expiring_soon: CreditBatchRow[];
+  total_spent_paise: number;
+  suggested_upgrade: boolean;
+}
+
+export interface PaymentHistoryRow {
+  payment_id: string;
+  created_at: string | null;
+  trade_name: string | null;
+  period: string | null;
+  plan: string | null;
+  runs_purchased: number | null;
+  base_amount_paise: number | null;
+  gst_paise: number | null;
+  total_amount_paise: number | null;
+  status: string;
+  razorpay_payment_id: string | null;
+}
+
+export const billingApi = {
+  status: (token: string) =>
+    apiFetch<BillingStatus>("/api/billing/status", { token }),
+
+  history: (token: string) =>
+    apiFetch<PaymentHistoryRow[]>("/api/payments/history", { token }),
+};
+
+/** Opens PDF in a new tab (Bearer token). */
+export async function openPaymentReceipt(
+  token: string,
+  paymentId: string
+): Promise<void> {
+  const res = await fetch(
+    `${API_URL}/api/payments/receipt/${encodeURIComponent(paymentId)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) {
+    throw { detail: `Receipt HTTP ${res.status}`, status: res.status } satisfies ApiError;
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export const usersApi = {
+  onboardingComplete: (token: string) =>
+    apiFetch<{ success: boolean }>("/api/users/onboarding-complete", {
+      method: "PATCH",
+      body: JSON.stringify({}),
       token,
     }),
 };

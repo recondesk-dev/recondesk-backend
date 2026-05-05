@@ -31,3 +31,24 @@
     @apply bg-[var(--bg)] font-sans text-[var(--text-primary)];
   }
 }
+
+@keyframes recondesk-celebrate-pop {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@layer utilities {
+  .animate-recondesk-celebrate-pop {
+    animation: recondesk-celebrate-pop 0.6s ease-out;
+  }
+}

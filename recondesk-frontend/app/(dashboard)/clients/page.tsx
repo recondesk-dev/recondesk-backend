@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
-import { Users } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 
 import { Modal } from "@/components/ui/Modal";
+import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import { GstinInput, validateGstin } from "@/components/ui/GstinInput";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
@@ -57,6 +58,7 @@ function assignLabel(
 
 export default function ClientsPage() {
   const toast = useToast();
+  const searchParams = useSearchParams();
   const tokenState = useAccessToken();
   const authToken =
     typeof tokenState === "string" && tokenState.length > 0
@@ -164,6 +166,16 @@ export default function ClientsPage() {
     setFormAssignedTo(assignOptions[0]?.userId ?? "");
   };
 
+  useEffect(() => {
+    if (searchParams.get("add") !== "1") return;
+    resetAddForm();
+    setAddOpen(true);
+    if (typeof window !== "undefined") {
+      window.history.replaceState({}, "", "/clients");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open-once from query; avoid re-running when form changes
+  }, [searchParams]);
+
   const submitAdd = async () => {
     if (!authToken || !canSubmitAdd) return;
     setAddBusy(true);
@@ -263,27 +275,25 @@ export default function ClientsPage() {
 
       {showEmpty ? (
         <div className="flex min-h-[320px] flex-col items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-6 py-16 text-center">
-          <Users
-            className="mb-4 h-14 w-14 text-[var(--text-secondary)]"
-            strokeWidth={1.25}
-            aria-hidden
-          />
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-            No clients yet
-          </h2>
-          <p className="mt-2 max-w-sm text-sm text-[var(--text-secondary)]">
-            Add your first client to start reconciling.
-          </p>
-          <button
-            type="button"
-            className="mt-6 inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white"
-            onClick={() => {
-              resetAddForm();
-              setAddOpen(true);
-            }}
-          >
-            Add Client
-          </button>
+          <div className="mx-auto w-full max-w-[400px]">
+            <EmptyStateIllustration className="mx-auto text-gray-400" />
+            <h2 className="mt-4 text-lg font-semibold text-gray-900">
+              No clients added yet
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Each client is a GSTIN you reconcile monthly
+            </p>
+            <button
+              type="button"
+              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white"
+              onClick={() => {
+                resetAddForm();
+                setAddOpen(true);
+              }}
+            >
+              Add Client
+            </button>
+          </div>
         </div>
       ) : (
         <>

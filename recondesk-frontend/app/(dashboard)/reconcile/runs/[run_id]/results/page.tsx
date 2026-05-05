@@ -1336,14 +1336,19 @@ export default function ReconcileResultsPage() {
 
       <div className="mx-auto max-w-7xl space-y-6 px-4">
         {/* ITC */}
-        {summary && summary.missed_itc_count === 0 && (
+        {summary &&
+          summary.missed_itc_count === 0 &&
+          summary.wrongful_risk_count === 0 && (
           <div className="mb-6 rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4">
             <div className="flex gap-3">
               <Check className="mt-0.5 h-6 w-6 shrink-0 text-emerald-600" />
-              <p className="text-emerald-700">
-                No missed ITC found. All claimable input tax credit has been
-                matched.
-              </p>
+              <div>
+                <h2 className="font-semibold text-emerald-800">Perfect match!</h2>
+                <p className="mt-1 text-sm text-emerald-700">
+                  No ITC missed this month. Every invoice in GSTR-2B is recorded in
+                  your purchase register.
+                </p>
+              </div>
             </div>
           </div>
         )}
@@ -1649,7 +1654,9 @@ export default function ReconcileResultsPage() {
         )}
 
         {/* Risk */}
-        {summary && summary.wrongful_risk_count === 0 && (
+        {summary &&
+          summary.wrongful_risk_count === 0 &&
+          summary.missed_itc_count > 0 && (
           <div className="mb-6 rounded-lg border-l-4 border-red-500 bg-red-50 p-4">
             <div className="flex gap-3">
               <Shield className="mt-0.5 h-6 w-6 shrink-0 text-red-600" />
