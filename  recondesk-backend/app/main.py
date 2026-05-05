@@ -1,3 +1,8 @@
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+
 import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,24 +13,31 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
+from app.database import get_supabase
 from app.routers import (
+    admin,
     auth,
+    billing,
+    import_router,
     intelligence,
+    notes,
     reconciliation,
     reconciliation_api,
     reconciliation_import_wizard,
-    upload,
     reports,
-    billing,
-    payments as payments_routes,
+    upload,
+    users as users_router,
     webhooks,
-    import_router,
-    notes,
 )
+from app.routers import payments as payments_routes
 from app.routers.clients import clients_router
 from app.routers.team import router as team_router
-from app.routers import users as users_router
 from app.utils.rate_limit import limiter
+from app.utils.storage import file_exists
+
+_log = logging.getLogger(__name__)
+
+START_TIME = datetime.now(timezone.utc)
 
 # ── Sentry ────────────────────────────────────────────────────────────────────
 if settings.SENTRY_DSN:
@@ -37,11 +49,79 @@ if settings.SENTRY_DSN:
             FastApiIntegration(transaction_style="endpoint"),
         ],
         traces_sample_rate=0.2,
+        profiles_sample_rate=0.1,
         send_default_pii=False,
     )
 
+_HEALTH_PROBE_KEY = "__recondesk/health_probe__"
+
+_STUCK_STATUSES = ("MATCHING", "PROCESSING", "importing")
+
+
+def _stuck_job_tick() -> None:
+    supabase = get_supabase()
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
+    cutoff_iso = cutoff.isoformat()
+    try:
+        stuck_runs = (
+            supabase.table("reconciliation_run")
+            .select("id, status, processing_started_at")
+            .in_("status", list(_STUCK_STATUSES))
+            .not_.is_("processing_started_at", "null")
+            .lt("processing_started_at", cutoff_iso)
+            .execute()
+        )
+    except Exception:
+        _log.exception("stuck_job_detector: query failed")
+        raise
+
+    for run in stuck_runs.data or []:
+        rid = run.get("id")
+        if not rid:
+            continue
+        try:
+            supabase.table("reconciliation_run").update(
+                {
+                    "status": "FAILED",
+                    "status_message": "Processing timeout — please retry",
+                }
+            ).eq("id", rid).execute()
+        except Exception:
+            _log.exception("stuck_job_detector: failed to update run %s", rid)
+            continue
+        if settings.SENTRY_DSN:
+            sentry_sdk.capture_message(
+                f"Stuck job detected and reset: {rid}",
+                level="error",
+            )
+
+
+async def stuck_job_detector() -> None:
+    while True:
+        await asyncio.sleep(300)
+        try:
+            await asyncio.to_thread(_stuck_job_tick)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            if settings.SENTRY_DSN:
+                sentry_sdk.capture_exception(e)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(stuck_job_detector())
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
+    lifespan=lifespan,
     redirect_slashes=False,
     title="ReconDesk API",
     description="B2B SaaS reconciliation platform API",
@@ -113,9 +193,41 @@ app.include_router(
     prefix="/api",
     tags=["Import Wizard"],
 )
+app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 
 
 # ── Core endpoints ────────────────────────────────────────────────────────────
 @app.get("/health", tags=["System"])
 async def health_check():
-    return {"status": "ok", "version": settings.APP_VERSION}
+    supabase_state = "error"
+    try:
+
+        def _ping_supabase() -> None:
+            get_supabase().table("user_profiles").select("id").limit(1).execute()
+
+        await asyncio.to_thread(_ping_supabase)
+        supabase_state = "ok"
+    except Exception:
+        pass
+
+    r2_state = "error"
+    try:
+        await file_exists(_HEALTH_PROBE_KEY)
+        r2_state = "ok"
+    except Exception:
+        pass
+
+    env = "production" if (settings.APP_ENV or "").lower() == "production" else "development"
+    now = datetime.now(timezone.utc)
+    uptime_seconds = int((now - START_TIME).total_seconds())
+    overall = "ok" if supabase_state == "ok" and r2_state == "ok" else "degraded"
+
+    return {
+        "status": overall,
+        "version": settings.APP_VERSION,
+        "uptime_seconds": uptime_seconds,
+        "supabase": supabase_state,
+        "r2": r2_state,
+        "environment": env,
+        "timestamp": now.isoformat(),
+    }

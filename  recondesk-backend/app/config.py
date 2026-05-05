@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import List
+from typing import List, Optional
 
 import httpx
 from pydantic import AliasChoices, Field, computed_field
@@ -66,8 +66,9 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str = ""
     EMAIL_FROM: str = "ReconDesk <onboarding@resend.dev>"
 
-    # Sentry
-    SENTRY_DSN: str = ""
+    # Sentry / admin
+    SENTRY_DSN: Optional[str] = None
+    ADMIN_USER_ID: Optional[str] = None
 
     @computed_field  # type: ignore[misc]
     @property
