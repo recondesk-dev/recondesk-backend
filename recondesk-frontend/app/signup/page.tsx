@@ -11,7 +11,6 @@ const DEFAULT_API_URL = "http://localhost:8000";
 function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const supabase = createClient();
 
   const [form, setForm] = useState({
     name: "",
@@ -43,6 +42,8 @@ function SignupForm() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    const supabase = createClient();
 
     const metadataRole =
       inviteRoleRaw === "staff"
