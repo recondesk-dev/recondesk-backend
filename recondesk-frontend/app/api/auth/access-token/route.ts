@@ -8,6 +8,9 @@ import { createClient } from "@/lib/supabase/server";
  */
 export async function GET() {
   const supabase = createClient();
+  if (!supabase) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const {
     data: { session },
     error,
