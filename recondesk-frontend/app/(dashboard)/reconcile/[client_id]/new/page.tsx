@@ -718,7 +718,7 @@ export default function NewReconcileWizardPage() {
             Cancel run
           </button>
           <Link
-            href="/"
+            href="/dashboard"
             className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
           >
             Back to Dashboard

@@ -5,7 +5,7 @@ import { type NextRequest, NextResponse } from "next/server";
  * Allow only same-origin relative paths (blocks open redirects).
  */
 function safeRedirectPath(raw: string | null): string {
-  if (!raw) return "/";
+  if (!raw) return "/dashboard";
   let path = raw;
   try {
     path = decodeURIComponent(raw);

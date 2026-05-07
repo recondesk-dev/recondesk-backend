@@ -97,7 +97,9 @@ export default function AcceptInvitePage({
           toast("Welcome — joining your firm workspace.", "success");
           window.setTimeout(() => {
             router.replace(
-              redirectTarget === "/dashboard" ? "/" : redirectTarget || "/"
+              redirectTarget === "/dashboard" || redirectTarget === "/"
+                ? "/dashboard"
+                : redirectTarget || "/dashboard"
             );
           }, 900);
           return;

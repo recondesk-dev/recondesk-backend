@@ -30,8 +30,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${dmSans.variable} ${spaceMono.variable}`}>
-      <body className="min-w-[1280px] font-sans antialiased">
+    <html lang="en" className={`${dmSans.variable} ${spaceMono.variable} scroll-smooth`}>
+      <body className="min-w-0 font-sans antialiased">
         <RootProviders>{children}</RootProviders>
       </body>
     </html>

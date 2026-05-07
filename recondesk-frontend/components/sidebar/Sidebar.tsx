@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 const NAV_ITEMS = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/clients", label: "Clients", icon: Users },
   { href: "/reconciliation", label: "Reconciliation", icon: RefreshCcw },
   { href: "/billing", label: "Billing", icon: CreditCard },
@@ -30,7 +30,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const pathname = usePathname();
 
   const isActive = (href: string) => {
-    if (href === "/") return pathname === "/";
+    if (href === "/dashboard") return pathname === "/dashboard";
     return pathname.startsWith(href);
   };
 
@@ -42,7 +42,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
       {/* Logo */}
       <div className="flex items-center justify-between px-4 h-16 border-b border-white/10 flex-shrink-0">
         {!collapsed && (
-          <Link href="/" className="flex items-center gap-2.5">
+          <Link href="/dashboard" className="flex items-center gap-2.5">
             <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white">
                 <path

@@ -17,6 +17,7 @@ export async function middleware(request: NextRequest) {
       pathname.startsWith("/onboarding") ||
       pathname.startsWith("/login") ||
       pathname.startsWith("/signup") ||
+      pathname.startsWith("/auth") ||
       pathname.startsWith("/team") ||
       pathname.startsWith("/api") ||
       pathname.startsWith("/_next") ||
@@ -84,6 +85,13 @@ export async function middleware(request: NextRequest) {
       if (!done) {
         const url = request.nextUrl.clone();
         url.pathname = "/onboarding";
+        url.search = "";
+        return NextResponse.redirect(url);
+      }
+
+      if (pathname === "/" || pathname === "") {
+        const url = request.nextUrl.clone();
+        url.pathname = "/dashboard";
         url.search = "";
         return NextResponse.redirect(url);
       }

@@ -146,7 +146,7 @@ function CelebrateContent() {
             {excelBusy ? "Preparing…" : "Download your report"}
           </button>
           <Link
-            href="/"
+            href="/dashboard"
             className="inline-flex h-12 min-w-[200px] items-center justify-center rounded-lg border border-gray-300 bg-white px-6 text-sm font-semibold text-gray-800 hover:bg-gray-50"
           >
             Go to dashboard

@@ -24,7 +24,7 @@ function initialsFromDisplayName(name: string): string {
 }
 
 function pageTitle(pathname: string): string {
-  if (pathname === "/") return "Dashboard";
+  if (pathname === "/dashboard") return "Dashboard";
   if (pathname === "/clients") return "Clients";
   if (pathname === "/runs") return "Runs";
   if (pathname === "/billing") return "Billing";
@@ -198,7 +198,7 @@ export default function DashboardShellLayout({
   }
 
   const nav = [
-    { href: "/", label: "Dashboard", Icon: NavIconDashboard },
+    { href: "/dashboard", label: "Dashboard", Icon: NavIconDashboard },
     { href: "/clients", label: "Clients", Icon: NavIconUsers },
     { href: "/runs", label: "Runs", Icon: NavIconRefresh },
     { href: "/billing", label: "Billing", Icon: NavIconCredit },
@@ -217,8 +217,8 @@ export default function DashboardShellLayout({
         <nav className="flex-1 space-y-0.5 px-3">
           {nav.map(({ href, label, Icon }) => {
             const isActive =
-              href === "/"
-                ? pathname === "/"
+              href === "/dashboard"
+                ? pathname === "/dashboard"
                 : pathname === href || pathname.startsWith(`${href}/`);
             return (
               <Link
