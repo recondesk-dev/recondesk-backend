@@ -5,13 +5,20 @@ import type { Database } from "@/lib/supabase/types";
 /**
  * Server-side Supabase client for Server Components, Route Handlers,
  * and Server Actions. Reads and writes session cookies automatically.
+ * Returns null when URL/anon key are missing (no throw).
  */
 export function createClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  if (!url || !key) {
+    return null;
+  }
+
   const cookieStore = cookies();
 
   return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    url,
+    key,
     {
       cookies: {
         getAll() {
