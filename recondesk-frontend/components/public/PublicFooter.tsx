@@ -43,13 +43,13 @@ export function PublicFooter() {
             <span className="hidden text-white/20 sm:inline" aria-hidden>
               |
             </span>
-            <Link href="/pricing" className="hover:text-white">
-              Pricing
+            <Link href="/refund" className="hover:text-white">
+              Refund Policy
             </Link>
             <span className="hidden text-white/20 sm:inline" aria-hidden>
               |
             </span>
-            <a href="mailto:hello@recondesk.in" className="hover:text-white">
+            <a href="mailto:contact@recondesk.in" className="hover:text-white">
               Contact
             </a>
           </div>
