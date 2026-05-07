@@ -93,7 +93,7 @@ function SignupForm() {
     }
 
     setLoading(false);
-    router.replace("/");
+    router.replace("/dashboard");
   };
 
   return (
