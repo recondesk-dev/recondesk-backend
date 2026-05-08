@@ -13,7 +13,7 @@ import {
   type ClientGstin,
   type TeamMemberListItem,
 } from "@/lib/api";
-import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
+import { createClient, fetchAccessTokenFromServer } from "@/lib/supabase/client";
 
 const STEPS = 4;
 
@@ -39,23 +39,73 @@ export default function OnboardingPage() {
   const [gstrFile, setGstrFile] = useState<File | null>(null);
   const [prFile, setPrFile] = useState<File | null>(null);
 
-  useEffect(() => subscribeAccessToken(setAccessToken), []);
+  /** JWT for FastAPI: Supabase session first, then cookie-backed `/api/auth/access-token`. */
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+
+    async function hydrateClients(authToken: string) {
+      try {
+        const clients = await clientsApi.list(authToken);
+        if (!cancelled && clients?.length > 0) {
+          setClientId((prev) => prev ?? clients[0].id);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    async function resolveTokenFromSession(
+      session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"]
+    ): Promise<string | null> {
+      const fromClient = session?.access_token ?? null;
+      if (fromClient) return fromClient;
+      const fromServer = await fetchAccessTokenFromServer();
+      return typeof fromServer === "string" && fromServer.length > 0 ? fromServer : null;
+    }
+
+    async function applySession(
+      session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"]
+    ) {
+      if (cancelled) return;
+      const access = await resolveTokenFromSession(session);
+      if (access) {
+        setAccessToken(access);
+        await hydrateClients(access);
+      } else {
+        setAccessToken(false);
+      }
+    }
+
+    void (async () => {
+      const { data } = await supabase.auth.getSession();
+      await applySession(data.session);
+    })();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      void applySession(session);
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const token = typeof accessToken === "string" ? accessToken : null;
   const meKey = token ? (["onb-me", token] as const) : null;
   const teamKey = token ? (["onb-team", token] as const) : null;
 
   useEffect(() => {
-    if (!token) return;
-    void clientsApi
-      .list(token)
-      .then((clients) => {
-        if (clients && clients.length > 0) {
-          setClientId((prev) => prev ?? clients[0].id);
-        }
-      })
-      .catch(() => {});
-  }, [token]);
+    console.log("onboarding state:", {
+      clientId,
+      hasToken: !!token,
+      gstrFile: !!gstrFile,
+      prFile: !!prFile,
+    });
+  }, [clientId, token, gstrFile, prFile]);
 
   const { data: me } = useSWR(meKey, ([, t]) => authApi.me(t));
   const { data: teamMembers } = useSWR(teamKey, ([, t]) => teamApi.list(t));
