@@ -9,7 +9,7 @@ from typing import Any, Optional
 import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from gotrue.types import User
+from supabase_auth import User
 from jose import ExpiredSignatureError, JWTError, jwk, jwt
 from jose.exceptions import JWEError, JWKError  # type: ignore[attr-defined]
 

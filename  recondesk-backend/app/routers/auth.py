@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
-from gotrue.types import User
+from supabase_auth import User
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.auth import get_current_user, get_current_user_id, get_user_role

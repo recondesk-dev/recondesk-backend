@@ -8,7 +8,7 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from gotrue.types import User
+from supabase_auth import User
 from pydantic import BaseModel, ConfigDict
 
 from app.auth import get_current_active_user, get_current_user, require_admin
