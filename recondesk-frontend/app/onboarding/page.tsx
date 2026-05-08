@@ -45,6 +45,18 @@ export default function OnboardingPage() {
   const meKey = token ? (["onb-me", token] as const) : null;
   const teamKey = token ? (["onb-team", token] as const) : null;
 
+  useEffect(() => {
+    if (!token) return;
+    void clientsApi
+      .list(token)
+      .then((clients) => {
+        if (clients && clients.length > 0) {
+          setClientId((prev) => prev ?? clients[0].id);
+        }
+      })
+      .catch(() => {});
+  }, [token]);
+
   const { data: me } = useSWR(meKey, ([, t]) => authApi.me(t));
   const { data: teamMembers } = useSWR(teamKey, ([, t]) => teamApi.list(t));
 
@@ -153,6 +165,20 @@ export default function OnboardingPage() {
     !!token &&
     (!showAssignDropdown || !!assignedTo);
 
+  const resolveClientIdByGstin = async (authToken: string): Promise<string | null> => {
+    const norm = (gstinNorm || gstin.trim()).replace(/\s/g, "").toUpperCase();
+    if (!norm) return null;
+    try {
+      const clients = await clientsApi.list(authToken);
+      const row = clients.find(
+        (c) => (c.gstin || "").replace(/\s/g, "").toUpperCase() === norm
+      );
+      return row?.id ?? null;
+    } catch {
+      return null;
+    }
+  };
+
   const onAddClient = async () => {
     if (!token || !canAddClient) return;
     setSubmitBusy(true);
@@ -172,11 +198,27 @@ export default function OnboardingPage() {
           : "0000000000";
 
       const created = await clientsApi.create(token, body);
-      setClientId((created as ClientGstin).id);
-      setStep(3);
+      const fromResponse =
+        created && typeof (created as ClientGstin).id === "string"
+          ? (created as ClientGstin).id
+          : null;
+      const resolved = fromResponse?.length ? fromResponse : await resolveClientIdByGstin(token);
+      if (resolved) {
+        setClientId(resolved);
+        setStep(3);
+      } else {
+        setSubmitErr("Could not determine client id after save. Try again or refresh.");
+        toast("Could not determine client id after save.", "error");
+      }
     } catch (e: unknown) {
-      setSubmitErr(isApiError(e) ? e.detail : "Could not add client.");
-      toast(isApiError(e) ? e.detail : "Could not add client.", "error");
+      const existingId = await resolveClientIdByGstin(token);
+      if (existingId) {
+        setClientId(existingId);
+        setStep(3);
+      } else {
+        setSubmitErr(isApiError(e) ? e.detail : "Could not add client.");
+        toast(isApiError(e) ? e.detail : "Could not add client.", "error");
+      }
     } finally {
       setSubmitBusy(false);
     }
