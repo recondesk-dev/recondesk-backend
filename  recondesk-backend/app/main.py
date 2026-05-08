@@ -136,9 +136,26 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
+_EXTRA_CORS_ORIGINS = (
+    "https://recondesk.in",
+    "https://www.recondesk.in",
+)
+
+
+def _cors_allow_origins() -> list[str]:
+    """All env-configured origins plus fixed production frontends (deduplicated)."""
+    merged: list[str] = []
+    seen: set[str] = set()
+    for origin in (*settings.allowed_origins_list, *_EXTRA_CORS_ORIGINS):
+        if origin and origin not in seen:
+            seen.add(origin)
+            merged.append(origin)
+    return merged
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins_list,
+    allow_origins=_cors_allow_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
