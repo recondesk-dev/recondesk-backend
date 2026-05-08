@@ -8,6 +8,7 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from supabase_auth import User
 from pydantic import BaseModel, ConfigDict
 
@@ -24,6 +25,24 @@ clients_router = router
 GSTIN_RE = re.compile(
     r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$"
 )
+
+
+def _pg_unique_violation(exc: BaseException) -> bool:
+    """Detect Postgres unique-violation (23505) from Supabase / PostgREST errors."""
+    code = getattr(exc, "code", None)
+    parts: list[str] = [str(exc).lower()]
+    cause = getattr(exc, "__cause__", None)
+    if cause is not None:
+        parts.append(str(cause).lower())
+        code = code or getattr(cause, "code", None)
+    msg = " ".join(parts)
+    return (
+        code == "23505"
+        or "23505" in msg
+        or "duplicate key" in msg
+        or "unique constraint" in msg
+    )
+
 
 GSTIN_STATE_NAMES: dict[str, str] = {
     "27": "Maharashtra",
@@ -180,7 +199,7 @@ async def list_clients(current_user: dict = Depends(get_current_active_user)):
     return res.data or []
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("")
 async def create_client(
     body: ClientCreate,
     current_user: dict = Depends(get_current_active_user),
@@ -213,7 +232,24 @@ async def create_client(
                 detail="invalid assigned_to",
             ) from exc
         ins["assigned_to"] = str(body.assigned_to).strip()
-    sb.table("client_gstins").insert(ins).execute()
+    try:
+        sb.table("client_gstins").insert(ins).execute()
+    except Exception as e:
+        if _pg_unique_violation(e):
+            existing = (
+                sb.table("client_gstins")
+                .select("*")
+                .eq("firm_owner_id", owner)
+                .eq("gstin", g)
+                .limit(1)
+                .execute()
+            )
+            if existing.data:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content=existing.data[0],
+                )
+        raise
     out = (
         sb.table("client_gstins")
         .select("*")
@@ -221,7 +257,10 @@ async def create_client(
         .single()
         .execute()
     )
-    return out.data
+    return JSONResponse(
+        status_code=status.HTTP_201_CREATED,
+        content=out.data,
+    )
 
 
 @router.get("/{client_id}")
