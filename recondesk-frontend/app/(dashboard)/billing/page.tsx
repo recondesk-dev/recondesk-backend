@@ -239,7 +239,7 @@ export default function BillingPage() {
               }`}
               onClick={() => setBillingTier("solo")}
             >
-              Solo CA
+              Individual
             </button>
             <button
               id="billing-tab-firm"
@@ -252,7 +252,7 @@ export default function BillingPage() {
               }`}
               onClick={() => setBillingTier("firm")}
             >
-              CA Firm
+              Enterprise
             </button>
           </div>
         </div>
