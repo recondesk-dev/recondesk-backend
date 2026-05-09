@@ -76,7 +76,23 @@ def _period_date_iso(period: str) -> str:
     return _parse_period(period)
 
 
-@router.post("/runs", status_code=status.HTTP_201_CREATED)
+def _pg_unique_violation(exc: BaseException) -> bool:
+    code = getattr(exc, "code", None)
+    parts: list[str] = [str(exc).lower()]
+    cause = getattr(exc, "__cause__", None)
+    if cause is not None:
+        parts.append(str(cause).lower())
+        code = code or getattr(cause, "code", None)
+    msg = " ".join(parts)
+    return (
+        code == "23505"
+        or "23505" in msg
+        or "duplicate key" in msg
+        or "unique constraint" in msg
+    )
+
+
+@router.post("/runs")
 async def create_run(
     body: CreateRunBody,
     user_id: str = Depends(get_current_user_id),
@@ -95,16 +111,23 @@ async def create_run(
     try:
         res = sb.table(ws.T_RUNS).insert(row).execute()
     except Exception as exc:  # noqa: BLE001
-        msg = str(exc).lower()
-        if "unique" in msg or "duplicate" in msg:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "An active import already exists for this client and period.",
-            ) from exc
+        if _pg_unique_violation(exc):
+            existing_q = (
+                sb.table(ws.T_RUNS)
+                .select("*")
+                .eq("client_id", str(body.client_id))
+                .eq("period", period_iso)
+                .limit(1)
+                .execute()
+            )
+            if existing_q.data:
+                ex = existing_q.data[0]
+                ws.assert_client_access(sb, ex["client_id"], user_id)
+                return ex
         raise
     data = res.data[0]
     ws.audit(sb, data["id"], user_id, "run_created", {"period": period_iso})
-    return data
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content=data)
 
 
 @router.get("/runs/{run_id}")
