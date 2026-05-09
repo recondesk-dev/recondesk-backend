@@ -561,10 +561,33 @@ export default function OnboardingPage() {
             <button
               type="button"
               disabled={!clientId || !gstrFile || !prFile}
-              onClick={() => {
+              onClick={async () => {
                 const id = clientIdRef.current || clientId;
+                if (!id) return;
+
                 console.log("button clicked, clientId:", clientId, "ref:", clientIdRef.current);
-                if (id) router.push(`/reconcile/${id}/new`);
+
+                const bearer = typeof accessToken === "string" ? accessToken : null;
+                const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+                if (bearer) {
+                  try {
+                    const res = await fetch(`${apiBase}/api/v1/auth/onboarding-complete`, {
+                      method: "POST",
+                      headers: {
+                        Authorization: `Bearer ${bearer}`,
+                        "Content-Type": "application/json",
+                      },
+                    });
+                    if (!res.ok) {
+                      console.error("onboarding-complete failed:", res.status);
+                    }
+                  } catch (e) {
+                    console.error("Failed to mark onboarding complete:", e);
+                  }
+                }
+
+                router.refresh();
+                router.push(`/reconcile/${id}/new`);
               }}
               className="flex h-12 w-full items-center justify-center rounded-lg bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
