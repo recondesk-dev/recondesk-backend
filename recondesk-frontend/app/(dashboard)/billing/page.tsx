@@ -278,7 +278,7 @@ export default function BillingPage() {
               />
               <PlanCard
                 title="Growth"
-                price={`${formatInrWhole(1700)} + GST`}
+                price={`${formatInrWhole(1699)} + GST`}
                 features={[
                   "5 runs/month",
                   "₹340/run — save 15%",
