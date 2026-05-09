@@ -11,8 +11,6 @@ import {
 } from "@/lib/api";
 import { subscribeAccessToken } from "@/lib/supabase/client";
 
-const WA_NUMBER = process.env.NEXT_PUBLIC_BILLING_WHATSAPP ?? "919876543210";
-
 function formatInrPaise(paise: number | null | undefined): string {
   const p = Number(paise ?? 0);
   return new Intl.NumberFormat("en-IN", {
@@ -72,6 +70,7 @@ function TableSkeletonRows() {
 
 export default function BillingPage() {
   const [accessToken, setAccessToken] = useState<string | false | null>(null);
+  const [billingTier, setBillingTier] = useState<"solo" | "firm">("solo");
 
   useEffect(() => subscribeAccessToken(setAccessToken), []);
 
@@ -213,79 +212,143 @@ export default function BillingPage() {
       <section id="buy-runs">
         <h2 className="text-lg font-semibold">Buy more runs</h2>
         <p className="mt-1 max-w-3xl text-sm text-[var(--text-secondary)]">
-          Bundles stack with their own 6-month expiry; we use oldest-expiring credits first (FIFO).
+          Monthly Solo and Firm plans; checkout opens soon. Carryover rules are noted on each card.
         </p>
-        <div className="mt-6 grid gap-5 lg:grid-cols-4">
-          <PlanCard
-            title="Starter"
-            price={`${formatInrWhole(299)} + GST`}
-            perRun={`${formatInrWhole(299)} per run`}
-            runsLabel="1 reconciliation run"
-            anchor="Try it on one client"
-            features={[
-              "Full reconciliation",
-              "Excel + PDF export",
-              "Decision layer",
-              "Carry over for 6 months",
-            ]}
-            cta="Buy 1 run"
-            highlight={false}
-          />
-          <PlanCard
-            title="Growth"
-            price={`${formatInrWhole(1199)} + GST`}
-            perRun={`${formatInrWhole(239)} per run`}
-            runsLabel="5 reconciliation runs"
-            anchor="Pays for itself after 5 clients — save ₹260 vs Starter"
-            features={[
-              "Everything in Starter",
-              "Best for ~5 clients / month",
-              "Most popular for growing firms",
-            ]}
-            cta="Buy 5 runs"
-            highlight="growth"
-            badge={{ text: "Most Popular", className: "bg-violet-600 text-white" }}
-          />
-          <PlanCard
-            title="Pro"
-            price={`${formatInrWhole(2699)} + GST`}
-            perRun={`${formatInrWhole(225)} per run`}
-            runsLabel="12 reconciliation runs"
-            anchor="Best for active firms — save ₹888 vs Starter"
-            features={[
-              "Everything in Growth",
-              "Best for active firms",
-              "Lower cost per reconciliation",
-            ]}
-            cta="Buy 12 runs"
-            highlight="pro"
-            badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
-          />
-          <div className="flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
-            <h3 className="text-lg font-semibold">Enterprise</h3>
-            <p className="mt-3 text-sm text-[var(--text-secondary)]">
-              Custom runs and pricing for high-volume CA firms.
-            </p>
-            <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
-              <li>Unlimited runs (negotiated)</li>
-              <li>SLA & onboarding support</li>
-              <li>GST invoice with your firm GSTIN</li>
-              <li>Dedicated account manager</li>
-            </ul>
-            <a
-              href={`https://wa.me/${WA_NUMBER.replace(/\D/g, "")}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-6 inline-flex w-full items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold text-white"
-              style={{ backgroundColor: "#25D366" }}
+
+        <div className="mx-auto mt-8 flex w-full max-w-md justify-center lg:max-w-none">
+          <div
+            className="relative inline-flex w-full rounded-full border border-[var(--border)] bg-gray-100 p-1 shadow-inner sm:w-auto"
+            role="tablist"
+            aria-label="Plan type"
+          >
+            <span
+              className="pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full bg-violet-600 shadow-md shadow-violet-600/25 transition-transform duration-300 ease-out"
+              style={{
+                transform: billingTier === "solo" ? "translateX(0)" : "translateX(100%)",
+              }}
+              aria-hidden
+            />
+            <button
+              id="billing-tab-solo"
+              type="button"
+              role="tab"
+              aria-selected={billingTier === "solo"}
+              aria-controls="billing-plans-panel"
+              className={`relative z-10 min-h-[44px] flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 sm:flex-none sm:px-8 ${
+                billingTier === "solo" ? "text-white" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              }`}
+              onClick={() => setBillingTier("solo")}
             >
-              Talk to Omkar
-            </a>
+              Solo CA
+            </button>
+            <button
+              id="billing-tab-firm"
+              type="button"
+              role="tab"
+              aria-selected={billingTier === "firm"}
+              aria-controls="billing-plans-panel"
+              className={`relative z-10 min-h-[44px] flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 sm:flex-none sm:px-8 ${
+                billingTier === "firm" ? "text-white" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              }`}
+              onClick={() => setBillingTier("firm")}
+            >
+              CA Firm
+            </button>
           </div>
         </div>
+
+        <div
+          id="billing-plans-panel"
+          role="tabpanel"
+          aria-labelledby={billingTier === "solo" ? "billing-tab-solo" : "billing-tab-firm"}
+          className="mt-6"
+        >
+          {billingTier === "solo" ? (
+            <div key="solo" className="pricing-tier-enter grid gap-5 lg:grid-cols-4">
+              <PlanCard
+                title="Starter"
+                price={`${formatInrWhole(399)} + GST`}
+                features={[
+                  "1 run/month",
+                  "₹399/run",
+                  "Runs expire monthly — no carry over",
+                ]}
+                cta="Buy 1 run"
+                highlight={false}
+              />
+              <PlanCard
+                title="Growth"
+                price={`${formatInrWhole(1700)} + GST`}
+                features={[
+                  "5 runs/month",
+                  "₹340/run — save 15%",
+                  "Runs expire monthly — no carry over",
+                ]}
+                cta="Buy 5 runs"
+                highlight="growth"
+                badge={{ text: "Most Popular", className: "bg-violet-600 text-white" }}
+              />
+              <PlanCard
+                title="Pro"
+                price={`${formatInrWhole(3499)} + GST`}
+                features={[
+                  "12 runs/month",
+                  "₹291/run — save 27%",
+                  "Runs expire monthly — no carry over",
+                ]}
+                cta="Buy 12 runs"
+                highlight="pro"
+                badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
+              />
+              <EnterpriseSoloCard />
+            </div>
+          ) : (
+            <div key="firm" className="pricing-tier-enter grid gap-5 lg:grid-cols-4">
+              <PlanCard
+                title="Starter Firm"
+                price={`${formatInrWhole(9999)} + GST`}
+                features={[
+                  "35 runs/month",
+                  "₹285/run — save 29%",
+                  "Runs expire monthly — no carry over",
+                ]}
+                cta="Coming soon"
+                ctaExact
+                highlight={false}
+              />
+              <PlanCard
+                title="Growth Firm"
+                price={`${formatInrWhole(13999)} + GST`}
+                features={[
+                  "50 runs/month",
+                  "₹279/run — save 30%",
+                  "Unused runs carry over for up to 2 months",
+                ]}
+                cta="Coming soon"
+                ctaExact
+                highlight="growth"
+                badge={{ text: "Most Popular", className: "bg-violet-600 text-white" }}
+              />
+              <PlanCard
+                title="Pro Firm"
+                price={`${formatInrWhole(25999)} + GST`}
+                features={[
+                  "100 runs/month",
+                  "₹259/run — save 35%",
+                  "Unused runs carry over for up to 2 months",
+                ]}
+                cta="Coming soon"
+                ctaExact
+                highlight="pro"
+                badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
+              />
+              <EnterpriseFirmCard />
+            </div>
+          )}
+        </div>
+
         <p className="mt-6 text-xs text-gray-500">
-          All prices exclude GST. 18% GST applicable. Runs carry over for 6 months from purchase
-          date.
+          All prices exclude GST. 18% GST applicable.
         </p>
       </section>
 
@@ -405,38 +468,70 @@ function BillingBanner({
   );
 }
 
+function EnterpriseSoloCard() {
+  return (
+    <div className="flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
+      <h3 className="text-lg font-semibold">Enterprise</h3>
+      <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
+      <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
+        <li>• 100+ runs/month</li>
+        <li>• Unlimited runs (negotiated)</li>
+        <li>• SLA & onboarding support</li>
+        <li>• GST invoice with your firm GSTIN</li>
+        <li>• Dedicated account manager</li>
+      </ul>
+      <a
+        href="mailto:contact@recondesk.in"
+        className="mt-6 inline-flex w-full items-center justify-center rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+      >
+        Talk to Omkar
+      </a>
+    </div>
+  );
+}
+
+function EnterpriseFirmCard() {
+  return (
+    <div className="flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
+      <h3 className="text-lg font-semibold">Enterprise</h3>
+      <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
+      <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
+        <li>• 100+ runs/month</li>
+        <li>• Dedicated support</li>
+        <li>• Custom onboarding</li>
+        <li>• SLA guarantee</li>
+      </ul>
+      <a
+        href="mailto:contact@recondesk.in"
+        className="mt-6 inline-flex w-full items-center justify-center rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+      >
+        Contact Sales
+      </a>
+    </div>
+  );
+}
+
 function PlanCard(props: {
   title: string;
   price: string;
-  perRun: string;
-  runsLabel: string;
-  anchor: string;
   features: string[];
   cta: string;
   highlight: false | "growth" | "pro";
   badge?: { text: string; className: string };
+  /** When true, button label is exactly `cta` (e.g. &quot;Coming soon&quot;). Otherwise appends &quot; — Coming soon&quot;. */
+  ctaExact?: boolean;
 }) {
-  const {
-    title,
-    price,
-    perRun,
-    runsLabel,
-    anchor,
-    features,
-    cta,
-    highlight,
-    badge,
-  } = props;
+  const { title, price, features, cta, highlight, badge, ctaExact } = props;
   const border =
     highlight === "growth"
       ? "border-violet-400 shadow-md ring-1 ring-violet-200"
       : highlight === "pro"
         ? "border-amber-400 shadow-sm ring-1 ring-amber-100"
         : "border-[var(--border)] shadow-sm";
+  const buttonLabel = ctaExact ? cta : `${cta} — Coming soon`;
+
   return (
-    <div
-      className={`relative flex flex-col rounded-xl border bg-white p-6 ${border}`}
-    >
+    <div className={`relative flex flex-col rounded-xl border bg-white p-6 ${border}`}>
       {badge && (
         <span
           className={`absolute -top-3 right-4 rounded-full px-3 py-0.5 text-xs font-semibold ${badge.className}`}
@@ -446,9 +541,6 @@ function PlanCard(props: {
       )}
       <h3 className="text-lg font-semibold">{title}</h3>
       <p className="mt-2 text-2xl font-bold tracking-tight">{price}</p>
-      <p className="mt-1 text-xs text-[var(--text-secondary)]">{perRun}</p>
-      <p className="mt-2 text-sm text-[var(--text-secondary)]">{runsLabel}</p>
-      <p className="mt-2 text-xs text-gray-600">{anchor}</p>
       <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
         {features.map((f) => (
           <li key={f}>• {f}</li>
@@ -459,7 +551,7 @@ function PlanCard(props: {
         disabled
         className="mt-6 w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-500"
       >
-        {cta} — Coming soon
+        {buttonLabel}
       </button>
     </div>
   );
