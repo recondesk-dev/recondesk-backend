@@ -512,7 +512,19 @@ export default function ReconcileResultsPage() {
   const params = useParams();
   const runId = typeof params.run_id === "string" ? params.run_id : "";
 
-  const token = useAccessToken();
+  const tokenState = useAccessToken();
+  const authToken =
+    typeof tokenState === "string" && tokenState.length > 0
+      ? tokenState
+      : null;
+
+  useEffect(() => {
+    console.log(
+      "results page token:",
+      authToken ? authToken.slice(0, 20) : "NULL"
+    );
+  }, [authToken]);
+
   const [riskPage, setRiskPage] = useState(1);
   const [matchedPage, setMatchedPage] = useState(1);
   const [rule37Page, setRule37Page] = useState(1);
@@ -609,13 +621,13 @@ export default function ReconcileResultsPage() {
   const [pdfDownloading, setPdfDownloading] = useState(false);
 
   const downloadItcCsv = useCallback(async () => {
-    if (typeof token !== "string" || !runId) return;
+    if (!authToken || !runId) return;
     setItcCsvDownloading(true);
     try {
       const qs = buildItcExportQueryString(itcSort, debouncedItcFilters);
       const res = await fetch(
         `${API_URL}/api/reconcile/runs/${runId}/export/itc?${qs}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${authToken}` } }
       );
       if (!res.ok) throw new Error("failed");
       const blob = await res.blob();
@@ -632,16 +644,16 @@ export default function ReconcileResultsPage() {
     } finally {
       setItcCsvDownloading(false);
     }
-  }, [addToast, debouncedItcFilters, itcSort, runId, token]);
+  }, [addToast, authToken, debouncedItcFilters, itcSort, runId]);
 
   const downloadRiskCsv = useCallback(async () => {
-    if (typeof token !== "string" || !runId) return;
+    if (!authToken || !runId) return;
     setRiskCsvDownloading(true);
     try {
       const qs = buildRiskExportQueryString(riskSort, debouncedRiskFilters);
       const res = await fetch(
         `${API_URL}/api/reconcile/runs/${runId}/export/risk?${qs}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${authToken}` } }
       );
       if (!res.ok) throw new Error("failed");
       const blob = await res.blob();
@@ -658,15 +670,15 @@ export default function ReconcileResultsPage() {
     } finally {
       setRiskCsvDownloading(false);
     }
-  }, [addToast, debouncedRiskFilters, riskSort, runId, token]);
+  }, [addToast, authToken, debouncedRiskFilters, riskSort, runId]);
 
   const downloadExcelReport = useCallback(async () => {
-    if (typeof token !== "string" || !runId) return;
+    if (!authToken || !runId) return;
     setExcelDownloading(true);
     try {
       const res = await fetch(
         `${API_URL}/api/reconcile/runs/${runId}/export/excel`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${authToken}` } }
       );
       if (!res.ok) throw new Error("failed");
       const blob = await res.blob();
@@ -683,15 +695,15 @@ export default function ReconcileResultsPage() {
     } finally {
       setExcelDownloading(false);
     }
-  }, [addToast, runId, token]);
+  }, [addToast, authToken, runId]);
 
   const downloadPdfReport = useCallback(async () => {
-    if (typeof token !== "string" || !runId) return;
+    if (!authToken || !runId) return;
     setPdfDownloading(true);
     try {
       const res = await fetch(
         `${API_URL}/api/reconcile/runs/${runId}/export/pdf`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${authToken}` } }
       );
       if (!res.ok) throw new Error("failed");
       const blob = await res.blob();
@@ -708,7 +720,7 @@ export default function ReconcileResultsPage() {
     } finally {
       setPdfDownloading(false);
     }
-  }, [addToast, runId, token]);
+  }, [addToast, authToken, runId]);
 
   const [drawerDecisionError, setDrawerDecisionError] = useState<string | null>(
     null
@@ -736,14 +748,14 @@ export default function ReconcileResultsPage() {
     return () => ro.disconnect();
   }, []);
 
-  const authReady = typeof token === "string" && token.length > 0;
+  const authReady = Boolean(authToken);
 
   const summaryKey = useMemo(
     () =>
       authReady && runId
-        ? ([`/api/reconcile/runs/${runId}/summary`, token] as const)
+        ? ([`/api/reconcile/runs/${runId}/summary`, authToken] as const)
         : null,
-    [authReady, runId, token]
+    [authReady, runId, authToken]
   );
 
   const {
@@ -751,7 +763,10 @@ export default function ReconcileResultsPage() {
     error: summaryError,
     isLoading: summaryLoading,
     mutate: mutateSummary,
-  } = useSWR<RunSummary>(summaryKey, authJsonFetcher, { revalidateOnFocus: false });
+  } = useSWR<RunSummary>(summaryKey, authJsonFetcher, {
+    revalidateOnFocus: false,
+    isPaused: () => !authToken || !runId,
+  });
 
   const isRunFinalized = Boolean(
     summary &&
@@ -768,9 +783,9 @@ export default function ReconcileResultsPage() {
       return null;
     return [
       `/api/reconcile/runs/${runId}/itc?${itcListQuery}`,
-      token,
+      authToken,
     ] as const;
-  }, [authReady, runId, summary, itcListQuery, token]);
+  }, [authReady, runId, summary, itcListQuery, authToken]);
 
   const {
     data: itcPageData,
@@ -779,6 +794,7 @@ export default function ReconcileResultsPage() {
     mutate: mutateItc,
   } = useSWR<Paginated<ReconcileRow>>(itcListKey, authJsonFetcher, {
     revalidateOnFocus: false,
+    isPaused: () => !authToken || !runId,
   });
 
   const riskListQuery = useMemo(
@@ -791,9 +807,9 @@ export default function ReconcileResultsPage() {
       return null;
     return [
       `/api/reconcile/runs/${runId}/risk?${riskListQuery}`,
-      token,
+      authToken,
     ] as const;
-  }, [authReady, runId, summary, riskListQuery, token]);
+  }, [authReady, runId, summary, riskListQuery, authToken]);
 
   const {
     data: riskPageData,
@@ -802,6 +818,7 @@ export default function ReconcileResultsPage() {
     mutate: mutateRisk,
   } = useSWR<Paginated<ReconcileRow>>(riskListKey, authJsonFetcher, {
     revalidateOnFocus: false,
+    isPaused: () => !authToken || !runId,
   });
 
   const lateMatchesKey = useMemo(
@@ -811,9 +828,9 @@ export default function ReconcileResultsPage() {
       summary &&
       typeof summary.late_match_count === "number" &&
       summary.late_match_count > 0
-        ? ([`/api/reconcile/runs/${runId}/late-matches`, token] as const)
+        ? ([`/api/reconcile/runs/${runId}/late-matches`, authToken] as const)
         : null,
-    [authReady, runId, summary?.late_match_count, token]
+    [authReady, runId, summary?.late_match_count, authToken]
   );
 
   const {
@@ -826,7 +843,12 @@ export default function ReconcileResultsPage() {
     {
       revalidateOnFocus: false,
       isPaused: () =>
-        !(typeof summary?.late_match_count === "number" && summary.late_match_count > 0),
+        !authToken ||
+        !runId ||
+        !(
+          typeof summary?.late_match_count === "number" &&
+          summary.late_match_count > 0
+        ),
     }
   );
 
@@ -839,9 +861,9 @@ export default function ReconcileResultsPage() {
   const matchedKey = useMemo(
     () =>
       authReady && runId
-        ? ([`/api/reconcile/runs/${runId}/matched?${matchedQuery}`, token] as const)
+        ? ([`/api/reconcile/runs/${runId}/matched?${matchedQuery}`, authToken] as const)
         : null,
-    [authReady, runId, matchedQuery, token]
+    [authReady, runId, matchedQuery, authToken]
   );
 
   const {
@@ -851,6 +873,7 @@ export default function ReconcileResultsPage() {
     mutate: mutateMatched,
   } = useSWR<Paginated<ReconcileRow>>(matchedKey, authJsonFetcher, {
     revalidateOnFocus: false,
+    isPaused: () => !authToken || !runId,
   });
 
   const rule37ListKey = useMemo(
@@ -858,10 +881,10 @@ export default function ReconcileResultsPage() {
       authReady && runId
         ? ([
             `/api/reconcile/runs/${runId}/rule37?page=${rule37Page}&limit=50`,
-            token,
+            authToken,
           ] as const)
         : null,
-    [authReady, runId, rule37Page, token]
+    [authReady, runId, rule37Page, authToken]
   );
 
   const {
@@ -871,7 +894,7 @@ export default function ReconcileResultsPage() {
     mutate: mutateRule37,
   } = useSWR<Paginated<ReconcileRow>>(rule37ListKey, authJsonFetcher, {
     revalidateOnFocus: false,
-    isPaused: () => !rule37Open,
+    isPaused: () => !authToken || !runId || !rule37Open,
   });
 
   const section17ListKey = useMemo(
@@ -879,10 +902,10 @@ export default function ReconcileResultsPage() {
       authReady && runId
         ? ([
             `/api/reconcile/runs/${runId}/section17?page=${section17Page}&limit=50`,
-            token,
+            authToken,
           ] as const)
         : null,
-    [authReady, runId, section17Page, token]
+    [authReady, runId, section17Page, authToken]
   );
 
   const {
@@ -892,22 +915,25 @@ export default function ReconcileResultsPage() {
     mutate: mutateSection17,
   } = useSWR<Paginated<ReconcileRow>>(section17ListKey, authJsonFetcher, {
     revalidateOnFocus: false,
-    isPaused: () => !section17Open,
+    isPaused: () => !authToken || !runId || !section17Open,
   });
 
   const notesKey = useMemo(
     () =>
       authReady && activeRecord
-        ? ([`/api/notes/${activeRecord.id}`, token] as const)
+        ? ([`/api/notes/${activeRecord.id}`, authToken] as const)
         : null,
-    [authReady, activeRecord, token]
+    [authReady, activeRecord, authToken]
   );
 
   const {
     data: drawerNotes = [],
     isLoading: drawerNotesLoading,
     mutate: mutateDrawerNotes,
-  } = useSWR<Note[]>(notesKey, authJsonFetcher, { revalidateOnFocus: false });
+  } = useSWR<Note[]>(notesKey, authJsonFetcher, {
+    revalidateOnFocus: false,
+    isPaused: () => !authToken || !activeRecord,
+  });
 
   const effectiveStatus = useCallback(
     (row: ReconcileRow): DecisionStatus =>
@@ -922,8 +948,8 @@ export default function ReconcileResultsPage() {
       status: DecisionStatus,
       selectedSnapshot: Set<string>
     ) => {
-      if (ids.length === 0 || typeof token !== "string") return;
-      const t = token;
+      if (ids.length === 0 || !authToken) return;
+      const t = authToken;
       let mapBefore = new Map<string, DecisionStatus>();
       setLocalDecisionStatus((prev) => {
         mapBefore = new Map(prev);
@@ -972,14 +998,14 @@ export default function ReconcileResultsPage() {
         addToast("Update failed — changes reversed", "error");
       }
     },
-    [addToast, mutateItc, mutateRisk, token]
+    [addToast, authToken, mutateItc, mutateRisk]
   );
 
   const runSingleDecision = useCallback(
     async (recordId: string, status: DecisionStatus) => {
-      if (typeof token !== "string") return;
+      if (!authToken) return;
       setDrawerDecisionError(null);
-      const t = token;
+      const t = authToken;
       setLocalDecisionStatus((prev) => {
         const next = new Map(prev);
         next.set(recordId, status);
@@ -1029,13 +1055,13 @@ export default function ReconcileResultsPage() {
       mutateRisk,
       mutateRule37,
       mutateSection17,
-      token,
+      authToken,
     ]
   );
 
   const submitNote = useCallback(async () => {
     const text = newNoteText.trim();
-    if (!text || !activeRecord || typeof token !== "string") return;
+    if (!text || !activeRecord || !authToken) return;
     setNotePostError(null);
     setNotePosting(true);
     const tempId = `temp-${Date.now()}`;
@@ -1052,7 +1078,7 @@ export default function ReconcileResultsPage() {
     try {
       const created = await apiFetch<Note>(`/api/notes/${activeRecord.id}`, {
         method: "POST",
-        token,
+        token: authToken,
         body: JSON.stringify({ note_text: text }),
       });
       await mutateDrawerNotes(
@@ -1069,7 +1095,7 @@ export default function ReconcileResultsPage() {
     } finally {
       setNotePosting(false);
     }
-  }, [activeRecord, mutateDrawerNotes, mutateMatched, newNoteText, token]);
+  }, [activeRecord, authToken, mutateDrawerNotes, mutateMatched, newNoteText]);
 
   const itcHeaderRef = useRef<HTMLInputElement>(null);
   const riskHeaderRef = useRef<HTMLInputElement>(null);
@@ -1143,7 +1169,7 @@ export default function ReconcileResultsPage() {
   }, [finalizing]);
 
   const submitFinalize = useCallback(async () => {
-    if (!runId || typeof token !== "string") return;
+    if (!runId || !authToken) return;
     const checkedCount = Object.values(checklist).filter(Boolean).length;
     if (checkedCount !== 5 || finalizing) return;
     setFinalizing(true);
@@ -1152,7 +1178,7 @@ export default function ReconcileResultsPage() {
         `/api/reconcile/runs/${runId}/finalize`,
         {
           method: "POST",
-          token,
+          token: authToken,
           body: JSON.stringify({ checklist_snapshot: checklist }),
         }
       );
@@ -1192,10 +1218,10 @@ export default function ReconcileResultsPage() {
     mutateSection17,
     mutateSummary,
     runId,
-    token,
+    authToken,
   ]);
 
-  if (token === null) {
+  if (tokenState === null) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-gray-500">
         Loading session…
@@ -1203,7 +1229,7 @@ export default function ReconcileResultsPage() {
     );
   }
 
-  if (token === false) {
+  if (tokenState === false) {
     return (
       <div className="p-8 text-center text-gray-600">
         Sign in required to view reconciliation results.
