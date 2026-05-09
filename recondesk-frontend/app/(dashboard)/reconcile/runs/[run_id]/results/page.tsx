@@ -526,6 +526,7 @@ export default function ReconcileResultsPage() {
   }, [authToken]);
 
   const [riskPage, setRiskPage] = useState(1);
+  const [itcPage, setItcPage] = useState(1);
   const [matchedPage, setMatchedPage] = useState(1);
   const [rule37Page, setRule37Page] = useState(1);
   const [section17Page, setSection17Page] = useState(1);
