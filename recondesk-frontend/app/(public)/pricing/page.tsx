@@ -159,7 +159,7 @@ export default function PricingPage() {
               className={`${tabBase} ${tier === "solo" ? tabActive : tabInactive}`}
               onClick={() => setTier("solo")}
             >
-              Solo CA
+              Individual
             </button>
             <button
               id="tab-firm"
@@ -170,7 +170,7 @@ export default function PricingPage() {
               className={`${tabBase} ${tier === "firm" ? tabActive : tabInactive}`}
               onClick={() => setTier("firm")}
             >
-              CA Firm
+              Enterprise
             </button>
           </div>
         </div>
