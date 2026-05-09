@@ -49,14 +49,24 @@ export async function fetchAccessTokenFromServer(): Promise<string | false> {
 export function subscribeAccessToken(onToken: (accessToken: string | false) => void): () => void {
   let cancelled = false;
 
-  const syncFromServer = async () => {
-    const t = await fetchAccessTokenFromServer();
-    if (!cancelled) onToken(t);
-  };
-
-  void syncFromServer();
-
   const supabase = createClient();
+
+  async function resolveToken(): Promise<void> {
+    if (cancelled) return;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData.session;
+    if (cancelled) return;
+    if (session?.access_token) {
+      onToken(session.access_token);
+      return;
+    }
+    const fromServer = await fetchAccessTokenFromServer();
+    if (cancelled) return;
+    onToken(typeof fromServer === "string" && fromServer.length > 0 ? fromServer : false);
+  }
+
+  void resolveToken();
+
   const {
     data: { subscription },
   } = supabase.auth.onAuthStateChange((event, session) => {
@@ -70,22 +80,7 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
       return;
     }
     if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") {
-      void syncFromServer();
-    }
-  });
-
-  // Immediately check for existing session
-  void supabase.auth.getSession().then(({ data: { session } }) => {
-    if (cancelled) return;
-    if (session?.access_token) {
-      onToken(session.access_token);
-    } else {
-      // Try fetching from server
-      void fetchAccessTokenFromServer().then((token) => {
-        if (cancelled) return;
-        if (token) onToken(token);
-        else onToken(false);
-      });
+      void resolveToken();
     }
   });
 

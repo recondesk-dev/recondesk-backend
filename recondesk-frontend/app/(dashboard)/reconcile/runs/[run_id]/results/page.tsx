@@ -13,7 +13,7 @@ import {
 } from "react";
 import useSWR from "swr";
 import { apiFetch } from "@/lib/api";
-import { subscribeAccessToken } from "@/lib/supabase/client";
+import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -512,10 +512,7 @@ export default function ReconcileResultsPage() {
   const params = useParams();
   const runId = typeof params.run_id === "string" ? params.run_id : "";
 
-  const [token, setToken] = useState<string | null | false>(null);
-  useEffect(() => subscribeAccessToken(setToken), []);
-
-  const [itcPage, setItcPage] = useState(1);
+  const token = useAccessToken();
   const [riskPage, setRiskPage] = useState(1);
   const [matchedPage, setMatchedPage] = useState(1);
   const [rule37Page, setRule37Page] = useState(1);
