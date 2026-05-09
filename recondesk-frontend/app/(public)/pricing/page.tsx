@@ -194,7 +194,7 @@ export default function PricingPage() {
             <PlanCard
               name="Growth"
               price="₹1,699"
-              bullets={["5 runs/month", "₹340/run — save 15%", "Runs expire monthly — no carry over"]}
+              bullets={["5 runs/month", "₹339/run — save 15%", "Runs expire monthly — no carry over"]}
               popular
               href="/auth/signup"
               cta="Start Free"

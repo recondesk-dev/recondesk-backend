@@ -281,7 +281,7 @@ export default function BillingPage() {
                 price={`${formatInrWhole(1699)} + GST`}
                 features={[
                   "5 runs/month",
-                  "₹340/run — save 15%",
+                  "₹339/run — save 15%",
                   "Runs expire monthly — no carry over",
                 ]}
                 cta="Buy 5 runs"
@@ -484,7 +484,7 @@ function EnterpriseSoloCard() {
         href="mailto:contact@recondesk.in"
         className="mt-6 inline-flex w-full items-center justify-center rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
       >
-        Talk to Omkar
+        Contact Sales
       </a>
     </div>
   );
