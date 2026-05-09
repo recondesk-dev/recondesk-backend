@@ -7,8 +7,13 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from supabase_auth import User
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from app.auth import get_current_user, get_current_user_id, get_user_role
-from app.database import get_db, get_user_profile
+from app.auth import (
+    get_current_active_user,
+    get_current_user,
+    get_current_user_id,
+    get_user_role,
+)
+from app.database import get_db, get_supabase, get_user_profile
 from app.models.user import (
     LoginRequest,
     LoginResponse,
@@ -170,6 +175,20 @@ async def signup(
         user_id=user_id,
         message="Account created successfully. Please check your email to confirm.",
     )
+
+
+# ── POST /api/v1/auth/onboarding-complete ─────────────────────────────────────
+
+@router.post("/onboarding-complete")
+async def onboarding_complete(
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Set onboarding_completed so middleware allows dashboard / reconcile routes."""
+    uid = str(current_user.get("id", "")).strip()
+    get_supabase().table("user_profiles").update({"onboarding_completed": True}).eq(
+        "id", uid
+    ).execute()
+    return {"success": True}
 
 
 # ── POST /api/auth/webhook/signup (Supabase DB webhook: user_profiles INSERT) ─
