@@ -175,7 +175,7 @@ export default function LandingPage() {
             },
             {
               q: "What happens to unused runs?",
-              a: "Unused runs carry over for up to 2 months automatically.",
+              a: "Solo plans: runs expire monthly. Firm Growth and Pro plans: unused runs carry over for up to 2 months.",
             },
             {
               q: "How does billing work?",
