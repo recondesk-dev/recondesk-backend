@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
 import { useToast } from "@/components/providers/ToastProvider";
@@ -33,11 +33,16 @@ export default function OnboardingPage() {
   const [tradeName, setTradeName] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [clientId, setClientId] = useState<string | null>(null);
+  const clientIdRef = useRef<string | null>(null);
   const [submitBusy, setSubmitBusy] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
 
   const [gstrFile, setGstrFile] = useState<File | null>(null);
   const [prFile, setPrFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    clientIdRef.current = clientId;
+  }, [clientId]);
 
   /** JWT for FastAPI: Supabase session first, then cookie-backed `/api/auth/access-token`. */
   useEffect(() => {
@@ -557,7 +562,9 @@ export default function OnboardingPage() {
               type="button"
               disabled={!clientId || !gstrFile || !prFile}
               onClick={() => {
-                if (clientId) router.push(`/reconcile/${clientId}/new`);
+                const id = clientIdRef.current || clientId;
+                console.log("button clicked, clientId:", clientId, "ref:", clientIdRef.current);
+                if (id) router.push(`/reconcile/${id}/new`);
               }}
               className="flex h-12 w-full items-center justify-center rounded-lg bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
