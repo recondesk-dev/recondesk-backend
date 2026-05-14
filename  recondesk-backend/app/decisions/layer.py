@@ -84,6 +84,6 @@ def populate_decisions(
     return {
         "rows": enriched_rows,
         "rule37": enriched_rule37,
-        "section_17_5": enriched_175,
+        "section_175": enriched_175,
         "credit_note_adjustment": credit_note_adjustment or {},
     }

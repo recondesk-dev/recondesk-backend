@@ -140,7 +140,7 @@ def _invoice_total_paise(rec: Mapping[str, Any]) -> int:
 def _gstin_match_spec(gstr_rec: Mapping[str, Any], pr_rec: Mapping[str, Any]) -> bool:
     g = _supplier_gstin(gstr_rec)
     p = _supplier_gstin(pr_rec)
-    return bool(g) and bool(p) and g == p
+    return bool(g) and bool(p) and g.upper().strip() == p.upper().strip()
 
 
 def _has_explicit_total_tax_line(
@@ -368,6 +368,17 @@ def _match_gstr_to_pr_pair(
 
     g_inv = _invoice_number(gstr_rec)
     p_inv = _invoice_number(pr_rec)
+    if not g_inv or not p_inv:
+        return MatchResult(
+            level=6,
+            matched=False,
+            confidence=0,
+            requires_human_review=False,
+            decision_what="No match found in purchase register",
+            decision_why="Invoice number is missing on one or both sides — cannot match",
+            decision_next="Check source data for missing invoice numbers.",
+            discrepancies=[],
+        )
     g_gst = _supplier_gstin(gstr_rec)
     p_gst = _supplier_gstin(pr_rec)
 
@@ -424,7 +435,7 @@ def _match_gstr_to_pr_pair(
     date_within_l3 = skip_date or date_diff_days <= DATE_TOLERANCE_L3_DAYS
 
     # Rs1 bucket is L1-only when invoice+GSTIN+L1 date would apply; never L2/L3 for that slice.
-    in_l1_rounding_band = (not skip_amount) and amount_diff_paise <= AMOUNT_TOLERANCE_L1_PAISE
+    in_l1_rounding_band = (not skip_amount) and amount_diff_paise < AMOUNT_TOLERANCE_L1_PAISE
     may_use_l2_l3 = skip_amount or not in_l1_rounding_band or not date_within_l1
 
     l2_pct_ok = percentage_diff <= AMOUNT_TOLERANCE_L2_PCT
@@ -515,6 +526,25 @@ def _match_gstr_to_pr_pair(
             enforce_total_tolerance=enforce_total_for_downgrade,
         )
 
+    # Same invoice + GSTIN + amount within L1, but date beyond L2 window — date-only mismatch
+    if (
+        gstin_match
+        and inv_ok
+        and amount_within_l1
+        and not date_within_l2
+    ):
+        return MatchResult(
+            level=3,
+            matched=True,
+            confidence=75,
+            requires_human_review=True,
+            decision_what="Invoice matched but date differs significantly",
+            decision_why="Same invoice number, GSTIN and amount match, but date differs by more than 7 days",
+            decision_next="Verify invoice date in purchase register against physical invoice copy. Correct if needed.",
+            review_reason=f"Date gap: {date_diff_days} days between GSTR-2B and purchase register",
+            discrepancies=discrepancies,
+        )
+
     # Identity + taxable align but invoice total (taxable + tax) differs — match with review, not L6.
     invoice_number_match = inv_ok
     date_match = not skip_date and date_within_l1
@@ -576,6 +606,8 @@ def _match_gstr_to_pr_pair(
         and not inv_ok
         and amount_within_l2
         and date_within_l2
+        and invoice_similarity(g_inv, p_inv) >= 0.40
+        and invoice_similarity(g_inv, p_inv) < INVOICE_SIMILARITY_L5_MIN
     ):
         return MatchResult(
             level=4,
@@ -751,8 +783,14 @@ def match_gstr_to_pr(
 
         best_candidate = min(strong_matches, key=get_date)
 
-        is_late_filing_sel = True
-        original_period_sel: date | None = _parse_invoice_date(best_candidate["pr"])
+        pr_date_sel = _parse_invoice_date(best_candidate["pr"])
+        gstr_date_sel = _parse_invoice_date(gstr_rec)
+        if pr_date_sel and gstr_date_sel:
+            gap_days = abs((gstr_date_sel - pr_date_sel).days)
+            is_late_filing_sel = gap_days > 7
+        else:
+            is_late_filing_sel = False
+        original_period_sel = pr_date_sel
     else:
         # fallback to normal scoring (level → confidence → date signal); ties broken like ``rank_key``
         best_scored = max(candidates, key=lambda x: x["score"])
