@@ -192,8 +192,10 @@ def _financial_downgrade_l13(
     it must not suppress L3 or alter L3 outcomes here.
     """
     unsafe = not gstin_match
-    if enforce_total_tolerance and total_diff > TOTAL_TOLERANCE_PAISE:
-        unsafe = True
+    if enforce_total_tolerance:
+        level_total_tolerance = AMOUNT_TOLERANCE_L2_PAISE if res.level == 2 else TOTAL_TOLERANCE_PAISE
+        if total_diff > level_total_tolerance:
+            unsafe = True
     if res.level not in (1, 2, 3) or not unsafe:
         return res
     return MatchResult(
@@ -396,7 +398,11 @@ def _match_gstr_to_pr_pair(
     l12_total_ok = (
         total_diff <= TOTAL_TOLERANCE_PAISE if has_tax_lines else True
     )
+    l12_total_ok_l2 = (
+        total_diff <= AMOUNT_TOLERANCE_L2_PAISE if has_tax_lines else True
+    )
     l12_finance_ok = l12_total_ok and tax_structure_match
+    l12_finance_ok_l2 = l12_total_ok_l2 and tax_structure_match
     enforce_total_for_downgrade = has_tax_lines
 
     discrepancies = build_discrepancies(
@@ -478,7 +484,7 @@ def _match_gstr_to_pr_pair(
         and amount_within_l2
         and l2_pct_ok
         and date_within_l2
-        and l12_finance_ok
+        and l12_finance_ok_l2
     ):
         return _financial_downgrade_l13(
             MatchResult(
