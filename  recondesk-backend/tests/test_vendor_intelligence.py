@@ -1,338 +1,366 @@
-"""Tests for vendor intelligence scoring (pure functions)."""
-
-from __future__ import annotations
-
+"""
+test_vendor_intelligence.py
+Scenario: Vendor Intelligence scoring — pure function tests.
+Run: PYTHONPATH=. pytest tests/test_vendor_intelligence.py -v
+"""
+import pytest
 from decimal import Decimal
-
 from app.services.vendor_intelligence import (
     calculate_supplier_score,
-    count_ineligible_suppliers,
     dedupe_gstr_rows,
     expand_runs_history,
-    score_to_api_dict,
-    supplier_gstins_from_runs_history,
+    supplier_distinct_run_ids,
+    _is_tolerance_match,
+    _is_l1_exact,
+    _is_mismatch,
 )
 
+GSTIN_A = "27ABCDE1234F1Z0"
+GSTIN_B = "29XYZDE1234F1Z0"
 
-def _row(
-    *,
-    sg: str,
-    inv: str,
-    inv_date: str,
-    run_id: str,
-    adp: int | None,
-    created_at: str,
-    period_end: str = "2024-03-31",
-    reflection: str | None = None,
+
+# ── helpers to build test data ────────────────────────────────────────────────
+
+def make_flat_row(
+    gstin=GSTIN_A,
+    invoice="INV001",
+    invoice_date="2024-04-01",
+    amount_diff_paise=0,
+    run_id="run-001",
+    created_at="2024-05-01T10:00:00",
+    period_end_date="2024-04-30",
 ):
     return {
-        "supplier_gstin": sg,
-        "invoice_number": inv,
-        "invoice_date": inv_date,
+        "supplier_gstin": gstin,
+        "invoice_number": invoice,
+        "invoice_date": invoice_date,
+        "amount_difference_paise": amount_diff_paise,
         "reconciliation_run_id": run_id,
-        "amount_difference_paise": adp,
-        "gstr2b_reflection_date": reflection,
-        "period_end_date": period_end,
         "created_at": created_at,
+        "period_end_date": period_end_date,
     }
 
 
-def test_dedupe_keeps_latest_created_at():
-    rows = [
-        _row(
-            sg="22AAAAA0000A1Z5",
-            inv="A",
-            inv_date="2024-01-15",
-            run_id="r1",
-            adp=0,
-            created_at="2024-01-01T00:00:00Z",
-        ),
-        _row(
-            sg="22AAAAA0000A1Z5",
-            inv="A",
-            inv_date="2024-01-15",
-            run_id="r1",
-            adp=50,
-            created_at="2024-02-01T00:00:00Z",
-        ),
-    ]
-    d = dedupe_gstr_rows(rows)
-    assert len(d) == 1
-    assert d[0]["amount_difference_paise"] == 50
+def make_grouped_run(run_id, records, period_end_date="2024-04-30"):
+    return {
+        "run_id": run_id,
+        "period_end_date": period_end_date,
+        "records": records,
+    }
 
 
-def test_dedupe_different_invoice_date_not_collapsed():
-    rows = [
-        _row(
-            sg="22AAAAA0000A1Z5",
-            inv="A",
-            inv_date="2024-01-15",
-            run_id="r1",
-            adp=0,
-            created_at="2024-01-01T00:00:00Z",
-        ),
-        _row(
-            sg="22AAAAA0000A1Z5",
-            inv="A",
-            inv_date="2024-02-15",
-            run_id="r1",
-            adp=0,
-            created_at="2024-01-02T00:00:00Z",
-        ),
-    ]
-    assert len(dedupe_gstr_rows(rows)) == 2
+# ── _is_tolerance_match ───────────────────────────────────────────────────────
+
+class TestIsToleranceMatch:
+
+    def test_zero_diff_is_tolerance_match(self):
+        assert _is_tolerance_match(0) is True
+
+    def test_exactly_100_paise_is_tolerance_match(self):
+        """₹1 = 100 paise — within TOLERANCE_PAISE."""
+        assert _is_tolerance_match(100) is True
+
+    def test_101_paise_is_not_tolerance_match(self):
+        assert _is_tolerance_match(101) is False
+
+    def test_negative_within_tolerance(self):
+        assert _is_tolerance_match(-100) is True
+
+    def test_none_is_not_tolerance_match(self):
+        assert _is_tolerance_match(None) is False
+
+    def test_string_number_is_handled(self):
+        """String '50' should be handled gracefully."""
+        assert _is_tolerance_match("50") is True
+
+    def test_invalid_string_is_not_tolerance_match(self):
+        assert _is_tolerance_match("abc") is False
 
 
-def test_filing_reliability_requires_80pct_tolerance_per_run():
-    # Run r1: 4 invoices, 3 within tolerance (75%) → not reliable
-    # Run r2: 1 invoice, 1 within tolerance (100%) → reliable
-    hist = [
-        _row(
-            sg="22AAAAA0000A1Z5",
-            inv="1",
-            inv_date="2024-01-01",
-            run_id="r1",
-            adp=0,
-            created_at="a1",
-        ),
-        _row(
-            sg="22AAAAA0000A1Z5",
-            inv="2",
-            inv_date="2024-01-02",
-            run_id="r1",
-            adp=0,
-            created_at="a2",
-        ),
-        _row(
-            sg="22AAAAA0000A1Z5",
-            inv="3",
-            inv_date="2024-01-03",
-            run_id="r1",
-            adp=0,
-            created_at="a3",
-        ),
-        _row(
-            sg="22AAAAA0000A1Z5",
-            inv="4",
-            inv_date="2024-01-04",
-            run_id="r1",
-            adp=500,
-            created_at="a4",
-        ),
-        _row(
-            sg="22AAAAA0000A1Z5",
-            inv="5",
-            inv_date="2024-02-01",
-            run_id="r2",
-            adp=50,
-            created_at="b1",
-        ),
-    ]
-    s = calculate_supplier_score("22AAAAA0000A1Z5", "TN", hist)
-    assert s is not None
-    assert s["runs_appeared_in"] == 2
-    assert s["filing_reliability_pct"] == Decimal("50.00")
-    assert s["risk_level"] == "HIGH"
+# ── _is_l1_exact ──────────────────────────────────────────────────────────────
+
+class TestIsL1Exact:
+
+    def test_zero_is_exact(self):
+        assert _is_l1_exact(0) is True
+
+    def test_one_paise_is_not_exact(self):
+        assert _is_l1_exact(1) is False
+
+    def test_none_is_not_exact(self):
+        assert _is_l1_exact(None) is False
+
+    def test_negative_one_is_not_exact(self):
+        assert _is_l1_exact(-1) is False
 
 
-def test_amount_accuracy_and_mismatch_null_adp():
-    hist = [
-        _row(
-            sg="22BBBBB0000B1Z5",
-            inv="1",
-            inv_date="2024-01-01",
-            run_id="r1",
-            adp=0,
-            created_at="a1",
-        ),
-        _row(
-            sg="22BBBBB0000B1Z5",
-            inv="2",
-            inv_date="2024-01-02",
-            run_id="r1",
-            adp=None,
-            created_at="a2",
-        ),
-        _row(
-            sg="22BBBBB0000B1Z5",
-            inv="3",
-            inv_date="2024-03-01",
-            run_id="r2",
-            adp=0,
-            created_at="b1",
-        ),
-    ]
-    s = calculate_supplier_score("22BBBBB0000B1Z5", "", hist)
-    assert s is not None
-    assert s["amount_accuracy_pct"] == Decimal("66.67")
-    assert s["mismatch_count"] == 1
+# ── _is_mismatch ──────────────────────────────────────────────────────────────
+
+class TestIsMismatch:
+
+    def test_zero_is_not_mismatch(self):
+        assert _is_mismatch(0) is False
+
+    def test_100_paise_is_not_mismatch(self):
+        assert _is_mismatch(100) is False
+
+    def test_101_paise_is_mismatch(self):
+        assert _is_mismatch(101) is True
+
+    def test_none_is_mismatch(self):
+        """None amount_difference means we can't verify — treat as mismatch."""
+        assert _is_mismatch(None) is True
 
 
-def test_grouped_runs_history_eligible_supplier_scored():
-    """Nested *runs_history*: distinct runs counted once per run when supplier appears."""
-    hist = [
-        {
-            "run_id": "r1",
-            "period_end_date": "2024-01-31",
-            "records": [
-                {
-                    "supplier_gstin": "22AAAAA0000A1Z5",
-                    "invoice_number": "1",
-                    "invoice_date": "2024-01-01",
-                    "amount_difference_paise": 0,
-                    "created_at": "a",
-                },
-            ],
-        },
-        {
-            "run_id": "r2",
-            "period_end_date": "2024-02-28",
-            "records": [
-                {
-                    "supplier_gstin": "22AAAAA0000A1Z5",
-                    "invoice_number": "2",
-                    "invoice_date": "2024-02-01",
-                    "amount_difference_paise": 0,
-                    "created_at": "b",
-                },
-            ],
-        },
-    ]
-    flat = expand_runs_history(hist)
-    assert len(flat) == 2
-    assert all(r.get("reconciliation_run_id") for r in flat)
-    s = calculate_supplier_score("22AAAAA0000A1Z5", "TN", hist)
-    assert s is not None
-    assert s["runs_appeared_in"] == 2
-    assert s["filing_reliability_pct"] == Decimal("100.00")
+# ── dedupe_gstr_rows ──────────────────────────────────────────────────────────
+
+class TestDedupeGstrRows:
+
+    def test_no_duplicates_returns_all(self):
+        rows = [
+            make_flat_row(invoice="INV001", run_id="run-001"),
+            make_flat_row(invoice="INV002", run_id="run-001"),
+        ]
+        result = dedupe_gstr_rows(rows)
+        assert len(result) == 2
+
+    def test_exact_duplicate_keeps_one(self):
+        rows = [
+            make_flat_row(invoice="INV001", run_id="run-001", created_at="2024-05-01T10:00:00"),
+            make_flat_row(invoice="INV001", run_id="run-001", created_at="2024-05-01T10:00:00"),
+        ]
+        result = dedupe_gstr_rows(rows)
+        assert len(result) == 1
+
+    def test_duplicate_keeps_latest_created_at(self):
+        """When same dedup key, keep the row with latest created_at."""
+        rows = [
+            make_flat_row(invoice="INV001", run_id="run-001",
+                         created_at="2024-05-01T09:00:00", amount_diff_paise=0),
+            make_flat_row(invoice="INV001", run_id="run-001",
+                         created_at="2024-05-01T11:00:00", amount_diff_paise=500),
+        ]
+        result = dedupe_gstr_rows(rows)
+        assert len(result) == 1
+        assert result[0]["amount_difference_paise"] == 500, (
+            "Must keep the row with latest created_at."
+        )
+
+    def test_same_invoice_different_run_ids_kept_separately(self):
+        """Same invoice in two different runs — both kept."""
+        rows = [
+            make_flat_row(invoice="INV001", run_id="run-001"),
+            make_flat_row(invoice="INV001", run_id="run-002"),
+        ]
+        result = dedupe_gstr_rows(rows)
+        assert len(result) == 2
+
+    def test_empty_input_returns_empty(self):
+        assert dedupe_gstr_rows([]) == []
 
 
-def test_count_ineligible():
-    hist = [
-        _row(
-            sg="22AAAAA0000A1Z5",
-            inv="1",
-            inv_date="2024-01-01",
-            run_id="r1",
-            adp=0,
-            created_at="a",
-        ),
-        _row(
-            sg="22AAAAA0000A1Z5",
-            inv="2",
-            inv_date="2024-02-01",
-            run_id="r2",
-            adp=0,
-            created_at="b",
-        ),
-        _row(
-            sg="22ONLYONERUN0001Z5",
-            inv="1",
-            inv_date="2024-01-01",
-            run_id="r1",
-            adp=0,
-            created_at="c",
-        ),
-    ]
-    el, excl = count_ineligible_suppliers(hist, 2)
-    assert "22AAAAA0000A1Z5" in el
-    assert "22ONLYONERUN0001Z5" not in el
-    assert excl == 1
+# ── expand_runs_history ───────────────────────────────────────────────────────
 
-    grouped = [
-        {"run_id": "r1", "period_end_date": "2024-01-31", "records": [hist[0], hist[2]]},
-        {"run_id": "r2", "period_end_date": "2024-02-28", "records": [hist[1]]},
-    ]
-    el2, excl2 = count_ineligible_suppliers(grouped, 2)
-    assert el2 == el
-    assert excl2 == excl
+class TestExpandRunsHistory:
 
+    def test_flat_input_returns_copies(self):
+        rows = [make_flat_row(invoice="INV001")]
+        result = expand_runs_history(rows)
+        assert len(result) == 1
+        assert result[0] is not rows[0], "Must return copies, not same objects."
 
-def test_calculate_supplier_score_none_when_fewer_than_two_runs():
-    hist = [
-        _row(
-            sg="22BBBBB0000B1Z5",
-            inv="1",
-            inv_date="2024-01-01",
-            run_id="r1",
-            adp=0,
-            created_at="a",
-        ),
-    ]
-    assert calculate_supplier_score("22BBBBB0000B1Z5", "", hist) is None
+    def test_grouped_input_flattens(self):
+        grouped = [
+            make_grouped_run("run-001", [
+                {"supplier_gstin": GSTIN_A, "invoice_number": "INV001"},
+                {"supplier_gstin": GSTIN_A, "invoice_number": "INV002"},
+            ]),
+        ]
+        result = expand_runs_history(grouped)
+        assert len(result) == 2
+
+    def test_grouped_injects_run_id(self):
+        """Each flattened record must have reconciliation_run_id from parent."""
+        grouped = [
+            make_grouped_run("run-001", [
+                {"supplier_gstin": GSTIN_A, "invoice_number": "INV001"},
+            ]),
+        ]
+        result = expand_runs_history(grouped)
+        assert result[0]["reconciliation_run_id"] == "run-001"
+
+    def test_grouped_injects_period_end_date(self):
+        """Each flattened record must have period_end_date from parent."""
+        grouped = [
+            make_grouped_run("run-001", [
+                {"supplier_gstin": GSTIN_A, "invoice_number": "INV001"},
+            ], period_end_date="2024-04-30"),
+        ]
+        result = expand_runs_history(grouped)
+        assert result[0]["period_end_date"] == "2024-04-30"
+
+    def test_empty_input_returns_empty(self):
+        assert expand_runs_history([]) == []
 
 
-def test_supplier_derivation_exclusion_and_risk_sort():
-    """A and B in 2+ runs; C in 1 run only — excluded count 1; response rows all runs_appeared_in >= 2."""
-    hist = [
-        {
-            "run_id": "r1",
-            "period_end_date": "2024-01-31",
-            "records": [
-                {
-                    "supplier_gstin": "SUP_A",
-                    "invoice_number": "1",
-                    "invoice_date": "2024-01-01",
-                    "amount_difference_paise": 0,
-                    "created_at": "a",
-                },
-                {
-                    "supplier_gstin": "SUP_B",
-                    "invoice_number": "1",
-                    "invoice_date": "2024-01-01",
-                    "amount_difference_paise": 50,
-                    "created_at": "b",
-                },
-                {
-                    "supplier_gstin": "SUP_C",
-                    "invoice_number": "1",
-                    "invoice_date": "2024-01-01",
-                    "amount_difference_paise": 0,
-                    "created_at": "c",
-                },
-            ],
-        },
-        {
-            "run_id": "r2",
-            "period_end_date": "2024-02-28",
-            "records": [
-                {
-                    "supplier_gstin": "SUP_A",
-                    "invoice_number": "2",
-                    "invoice_date": "2024-02-01",
-                    "amount_difference_paise": 500,
-                    "created_at": "d",
-                },
-                {
-                    "supplier_gstin": "SUP_B",
-                    "invoice_number": "2",
-                    "invoice_date": "2024-02-01",
-                    "amount_difference_paise": 0,
-                    "created_at": "e",
-                },
-            ],
-        },
-    ]
-    sups = supplier_gstins_from_runs_history(hist)
-    assert sups == {"SUP_A", "SUP_B", "SUP_C"}
+# ── calculate_supplier_score ──────────────────────────────────────────────────
 
-    excluded = 0
-    results: list[dict] = []
-    for sg in sorted(sups):
-        sc = calculate_supplier_score(sg, "", hist)
-        if sc is None:
-            excluded += 1
-            continue
-        results.append(score_to_api_dict(sg, "", sc))
+class TestCalculateSupplierScore:
 
-    assert excluded == 1
-    assert {r["supplier_gstin"] for r in results} == {"SUP_A", "SUP_B"}
-    assert all(r["runs_appeared_in"] >= 2 for r in results)
+    def test_fewer_than_2_runs_returns_none(self):
+        """
+        Supplier must appear in at least 2 distinct runs.
+        With only 1 run, score is not calculable — returns None.
+        """
+        rows = [make_flat_row(run_id="run-001")]
+        result = calculate_supplier_score(GSTIN_A, "Test Supplier", rows)
+        assert result is None, (
+            "Supplier with only 1 run must return None — not enough history."
+        )
 
-    RISK_ORDER = {"HIGH": 1, "MEDIUM": 2, "LOW": 3}
-    results.sort(
-        key=lambda x: (RISK_ORDER[str(x["risk_level"])], x["supplier_gstin"])
-    )
-    # SUP_A: 0% filing reliability → HIGH; SUP_B: both runs within tolerance → LOW
-    assert [r["supplier_gstin"] for r in results] == ["SUP_A", "SUP_B"]
-    assert [r["risk_level"] for r in results] == ["HIGH", "LOW"]
+    def test_zero_runs_returns_none(self):
+        result = calculate_supplier_score(GSTIN_A, "Test Supplier", [])
+        assert result is None
+
+    def test_two_runs_perfect_match_is_LOW_risk(self):
+        """
+        Supplier appears in 2 runs, all invoices within tolerance.
+        Filing reliability = 100% → LOW risk.
+        """
+        rows = [
+            make_flat_row(invoice="INV001", run_id="run-001", amount_diff_paise=0),
+            make_flat_row(invoice="INV002", run_id="run-002", amount_diff_paise=0),
+        ]
+        result = calculate_supplier_score(GSTIN_A, "Test Supplier", rows)
+        assert result is not None
+        assert result["risk_level"] == "LOW", (
+            f"Perfect match supplier must be LOW risk. Got: {result['risk_level']}"
+        )
+
+    def test_two_runs_all_mismatch_is_HIGH_risk(self):
+        """
+        All invoices have large mismatches → filing reliability < 80% → HIGH risk.
+        """
+        rows = [
+            make_flat_row(invoice="INV001", run_id="run-001", amount_diff_paise=50000),
+            make_flat_row(invoice="INV002", run_id="run-002", amount_diff_paise=50000),
+        ]
+        result = calculate_supplier_score(GSTIN_A, "Test Supplier", rows)
+        assert result is not None
+        assert result["risk_level"] == "HIGH", (
+            f"All-mismatch supplier must be HIGH risk. Got: {result['risk_level']}"
+        )
+
+    def test_result_has_required_keys(self):
+        """Score dict must have all required keys for the API."""
+        rows = [
+            make_flat_row(run_id="run-001", amount_diff_paise=0),
+            make_flat_row(run_id="run-002", amount_diff_paise=0),
+        ]
+        result = calculate_supplier_score(GSTIN_A, "Test Supplier", rows)
+        assert result is not None
+        required_keys = {
+            "filing_reliability_pct",
+            "amount_accuracy_pct",
+            "avg_late_days",
+            "mismatch_count",
+            "runs_appeared_in",
+            "risk_level",
+        }
+        missing = required_keys - set(result.keys())
+        assert not missing, f"Score dict missing keys: {missing}"
+
+    def test_filing_reliability_is_decimal(self):
+        """filing_reliability_pct must be a Decimal for precise display."""
+        rows = [
+            make_flat_row(run_id="run-001", amount_diff_paise=0),
+            make_flat_row(run_id="run-002", amount_diff_paise=0),
+        ]
+        result = calculate_supplier_score(GSTIN_A, "Test Supplier", rows)
+        assert isinstance(result["filing_reliability_pct"], Decimal), (
+            "filing_reliability_pct must be Decimal — not float (rounding risk)."
+        )
+
+    def test_different_supplier_gstin_returns_none(self):
+        """
+        Rows are for GSTIN_A but we ask for GSTIN_B.
+        Must return None — not mix up suppliers.
+        """
+        rows = [
+            make_flat_row(gstin=GSTIN_A, run_id="run-001"),
+            make_flat_row(gstin=GSTIN_A, run_id="run-002"),
+        ]
+        result = calculate_supplier_score(GSTIN_B, "Other Supplier", rows)
+        assert result is None, (
+            "Asking for GSTIN_B when all rows are GSTIN_A must return None."
+        )
+
+    def test_lowercase_gstin_in_history_still_matches(self):
+        """
+        History may have lowercase GSTINs from old runs.
+        calculate_supplier_score must normalize before comparing.
+        """
+        rows = [
+            make_flat_row(gstin=GSTIN_A.lower(), run_id="run-001", amount_diff_paise=0),
+            make_flat_row(gstin=GSTIN_A.lower(), run_id="run-002", amount_diff_paise=0),
+        ]
+        result = calculate_supplier_score(GSTIN_A, "Test Supplier", rows)
+        assert result is not None, (
+            "Lowercase GSTIN in history must still match uppercase query GSTIN."
+        )
+
+    def test_mismatch_count_is_correct(self):
+        """mismatch_count must exactly count rows with diff > 100 paise."""
+        rows = [
+            make_flat_row(invoice="INV001", run_id="run-001", amount_diff_paise=0),
+            make_flat_row(invoice="INV002", run_id="run-001", amount_diff_paise=500),
+            make_flat_row(invoice="INV003", run_id="run-002", amount_diff_paise=200),
+        ]
+        result = calculate_supplier_score(GSTIN_A, "Test", rows)
+        assert result is not None
+        assert result["mismatch_count"] == 2, (
+            f"Must count 2 mismatches (500 and 200 paise > 100). Got: {result['mismatch_count']}"
+        )
+
+    def test_runs_appeared_in_counts_distinct_runs(self):
+        """runs_appeared_in must count distinct run IDs, not total rows."""
+        rows = [
+            make_flat_row(invoice="INV001", run_id="run-001"),
+            make_flat_row(invoice="INV002", run_id="run-001"),  # same run
+            make_flat_row(invoice="INV003", run_id="run-002"),
+        ]
+        result = calculate_supplier_score(GSTIN_A, "Test", rows)
+        assert result is not None
+        assert result["runs_appeared_in"] == 2, (
+            f"Must count 2 distinct runs not 3 rows. Got: {result['runs_appeared_in']}"
+        )
+
+    def test_95pct_filing_reliability_is_LOW(self):
+        """Exactly 95% filing reliability → LOW risk (inclusive boundary)."""
+        # 19 out of 20 runs reliable = 95%
+        rows = []
+        for i in range(19):
+            rows.append(make_flat_row(invoice=f"INV{i:03d}", run_id=f"run-{i:03d}", amount_diff_paise=0))
+        rows.append(make_flat_row(invoice="INV019", run_id="run-019", amount_diff_paise=50000))
+        result = calculate_supplier_score(GSTIN_A, "Test", rows)
+        assert result is not None
+        assert result["risk_level"] == "LOW", (
+            f"95% filing reliability must be LOW risk. Got: {result['risk_level']}, "
+            f"filing_pct={result['filing_reliability_pct']}"
+        )
+
+    def test_grouped_format_works(self):
+        """Grouped runs_history format must produce same result as flat."""
+        grouped = [
+            make_grouped_run("run-001", [
+                {"supplier_gstin": GSTIN_A, "invoice_number": "INV001",
+                 "amount_difference_paise": 0, "invoice_date": "2024-04-01"},
+            ]),
+            make_grouped_run("run-002", [
+                {"supplier_gstin": GSTIN_A, "invoice_number": "INV002",
+                 "amount_difference_paise": 0, "invoice_date": "2024-04-05"},
+            ]),
+        ]
+        result = calculate_supplier_score(GSTIN_A, "Test", grouped)
+        assert result is not None, "Grouped format must produce a score."
+        assert result["risk_level"] == "LOW"
