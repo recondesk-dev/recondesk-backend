@@ -613,7 +613,6 @@ def _match_gstr_to_pr_pair(
         and amount_within_l2
         and date_within_l2
         and invoice_similarity(g_inv, p_inv) >= 0.40
-        and invoice_similarity(g_inv, p_inv) < INVOICE_SIMILARITY_L5_MIN
     ):
         return MatchResult(
             level=4,
