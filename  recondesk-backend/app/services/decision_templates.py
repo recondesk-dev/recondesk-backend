@@ -1,6 +1,7 @@
 """Decision templates for GST reconciliation mismatches."""
 from __future__ import annotations
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 
@@ -9,6 +10,11 @@ class DecisionOutput:
     what: str
     why: str
     next: str
+    rule: str  # e.g. "L3_AMOUNT_DIFF"
+    confidence: str  # "HIGH" | "MEDIUM" | "LOW"
+    matched_fields: tuple[str, ...]  # e.g. ("gstin", "invoice_date")
+    differed_fields: tuple[str, ...]  # e.g. ("taxable_amount",)
+    normalized_pairs: tuple[tuple[str, str], ...]  # e.g. (("INV-001", "INV/001"),)
 
 
 TEMPLATES: dict[str, dict[str, str]] = {
@@ -73,6 +79,11 @@ _FALLBACK = DecisionOutput(
     what="Mismatch detected",
     why="Unable to determine specific reason",
     next="Review manually with CA before claiming ITC.",
+    rule="UNKNOWN",
+    confidence="LOW",
+    matched_fields=(),
+    differed_fields=(),
+    normalized_pairs=(),
 )
 
 
@@ -83,12 +94,60 @@ def _safe_format(template: str, **kwargs: object) -> str:
         return re.sub(r"\{[^}]+\}", "?", template)
 
 
-def generate_decision(template_key: str, **kwargs: object) -> DecisionOutput:
+def _as_tuple_strs(fields: Sequence[str] | None) -> tuple[str, ...]:
+    if not fields:
+        return ()
+    return tuple(dict.fromkeys(str(x) for x in fields if x))
+
+
+def _as_pairs(pairs: Sequence[tuple[str, str]] | None) -> tuple[tuple[str, str], ...]:
+    if not pairs:
+        return ()
+    out: list[tuple[str, str]] = []
+    for item in pairs:
+        if len(item) != 2:
+            continue
+        out.append((str(item[0]), str(item[1])))
+    return tuple(out)
+
+
+def generate_decision(
+    template_key: str,
+    *,
+    confidence: str = "LOW",
+    matched_fields: Sequence[str] | None = None,
+    differed_fields: Sequence[str] | None = None,
+    normalized_pairs: Sequence[tuple[str, str]] | None = None,
+    **kwargs: object,
+) -> DecisionOutput:
+    """Render *template_key*. Diagnostic kwargs are not forwarded to str.format.
+
+    ``rule`` is always set to *template_key* for known templates; unknown keys keep
+    *template_key* as ``rule`` for traceability.
+    """
+    mf = _as_tuple_strs(list(matched_fields) if matched_fields is not None else None)
+    df = _as_tuple_strs(list(differed_fields) if differed_fields is not None else None)
+    np = _as_pairs(list(normalized_pairs) if normalized_pairs is not None else None)
+
     tmpl = TEMPLATES.get(template_key)
     if tmpl is None:
-        return _FALLBACK
+        return DecisionOutput(
+            what=_FALLBACK.what,
+            why=_FALLBACK.why,
+            next=_FALLBACK.next,
+            rule=template_key,
+            confidence=confidence,
+            matched_fields=mf,
+            differed_fields=df,
+            normalized_pairs=np,
+        )
     return DecisionOutput(
         what=_safe_format(tmpl["what"], **kwargs),
         why=_safe_format(tmpl["why"], **kwargs),
         next=_safe_format(tmpl["next"], **kwargs),
+        rule=template_key,
+        confidence=confidence,
+        matched_fields=mf,
+        differed_fields=df,
+        normalized_pairs=np,
     )

@@ -37,6 +37,11 @@ type ReconcileRow = {
   decision_what: string | null;
   decision_why: string | null;
   decision_next: string | null;
+  decision_rule?: string | null;
+  decision_confidence?: string | null;
+  decision_matched_fields?: string[] | null;
+  decision_differed_fields?: string[] | null;
+  decision_normalized_pairs?: [string, string][] | null;
   decision_status: DecisionStatus;
   decision_type: DecisionType;
   notes_count: number;
@@ -208,6 +213,35 @@ function readDataField(
 
 function normCompare(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+function DecisionDiagnosticsBlock({ row }: { row: ReconcileRow }) {
+  if (!row.decision_rule) return null;
+  return (
+    <div className="mt-2 space-y-1 text-xs text-gray-500">
+      <div>
+        <span className="font-medium">Rule:</span> {row.decision_rule} ·{" "}
+        {row.decision_confidence ?? "—"}
+      </div>
+      {row.decision_matched_fields != null &&
+        row.decision_matched_fields.length > 0 && (
+          <div>✅ Matched: {row.decision_matched_fields.join(", ")}</div>
+        )}
+      {row.decision_differed_fields != null &&
+        row.decision_differed_fields.length > 0 && (
+          <div>⚠️ Differed: {row.decision_differed_fields.join(", ")}</div>
+        )}
+      {row.decision_normalized_pairs != null &&
+        row.decision_normalized_pairs.length > 0 && (
+          <div>
+            🔄 Normalized:{" "}
+            {row.decision_normalized_pairs
+              .map(([a, b]) => `${a} → ${b}`)
+              .join(", ")}
+          </div>
+        )}
+    </div>
+  );
 }
 
 type FetcherKey = readonly [path: string, token: string];
@@ -2459,6 +2493,7 @@ export default function ReconcileResultsPage() {
                           {row.decision_next ?? "—"}
                         </span>
                       </div>
+                      <DecisionDiagnosticsBlock row={row} />
                     </div>
                   );
                 })}
@@ -2542,6 +2577,7 @@ export default function ReconcileResultsPage() {
                         {row.decision_next ?? "—"}
                       </span>
                     </div>
+                    <DecisionDiagnosticsBlock row={row} />
                   </div>
                 ))}
               {section17Data &&
@@ -2669,6 +2705,7 @@ export default function ReconcileResultsPage() {
                 <p className="mb-3 text-sm text-gray-800">
                   {activeRecord.decision_next ?? "—"}
                 </p>
+                <DecisionDiagnosticsBlock row={activeRecord} />
                 <div className="mb-3 flex flex-wrap gap-2">
                   <DecisionStatusPill
                     status={effectiveStatus(activeRecord)}

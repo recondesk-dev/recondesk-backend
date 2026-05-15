@@ -154,6 +154,8 @@ async def signup(
         "phone": payload.phone,
         "role": "staff",
         "is_active": True,
+        # Free tier: match DB default free_runs_remaining (2) from billing migration.
+        "runs_limit": 2,
     }
 
     try:
