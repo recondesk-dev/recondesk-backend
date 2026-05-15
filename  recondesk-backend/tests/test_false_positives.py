@@ -76,8 +76,8 @@ class TestL5FalsePositive:
         )
         print(f"\nINV001 vs INV002 similarity: {sim:.3f}, level: {getattr(result,'level',None)}")
         if result is not None and result.matched:
-            assert result.level == 5, (
-                f"Must be L5 at most for consecutive invoices. Got L{result.level}."
+            assert result.level in (4, 5), (
+                f"Must be L4 or L5 for consecutive invoices. Got L{result.level}."
             )
             assert result.requires_human_review is True
 

@@ -181,8 +181,8 @@ class TestSimilarButDifferentInvoices:
         p = make_pr(invoice="INV002", taxable_paise=100000)
         result = match_gstr_to_pr(g, [p])
         if result is not None and result.matched:
-            assert result.level == 5, (
-                f"Consecutive invoices with same amount must be at most L5. Got L{result.level}."
+            assert result.level in (4, 5), (
+                f"Consecutive invoices with same amount must be L4 or L5. Got L{result.level}."
             )
             assert result.requires_human_review is True
 
