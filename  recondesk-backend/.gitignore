@@ -51,3 +51,5 @@ logs/
 # Uploads / temp files
 uploads/
 tmp/
+.DS_Store
+../.DS_Store

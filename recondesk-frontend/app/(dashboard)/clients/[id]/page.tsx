@@ -150,16 +150,10 @@ export default function ClientDetailPage() {
     (r) => r.status === "IMPORTING" || r.status === "MATCHING"
   );
 
-  const completeTooFresh =
-    latest?.status === "COMPLETE" &&
-    Date.now() - new Date(latest.updatedAt).getTime() < 24 * 60 * 60 * 1000;
+  const startDisabled = runInProgress;
+  const startTitle = runInProgress ? "Run in progress" : undefined;
 
-  const startDisabled = runInProgress || completeTooFresh;
-  const startTitle = runInProgress
-    ? "Run in progress"
-    : completeTooFresh
-      ? "No change since last run"
-      : undefined;
+  const reconcileNewHref = id ? `/reconcile/${id}/new` : "";
 
   const histTotal = sortedRuns.length;
   const histPages = Math.max(1, Math.ceil(histTotal / HISTORY_PAGE));
@@ -228,15 +222,25 @@ export default function ClientDetailPage() {
               Edit Client
             </Link>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <button
-              type="button"
-              disabled={startDisabled}
-              title={startTitle}
-              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Start New Reconciliation
-            </button>
+          <div className="relative z-10 flex flex-col items-end gap-2">
+            {startDisabled || !reconcileNewHref ? (
+              <button
+                type="button"
+                disabled
+                title={startTitle}
+                className="inline-flex cursor-not-allowed items-center justify-center rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white opacity-50"
+              >
+                Start New Reconciliation
+              </button>
+            ) : (
+              <Link
+                href={reconcileNewHref}
+                title={startTitle}
+                className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white"
+              >
+                Start New Reconciliation
+              </Link>
+            )}
           </div>
         </div>
       )}
@@ -289,7 +293,7 @@ export default function ClientDetailPage() {
                   Start a reconciliation to see results here
                 </p>
                 <Link
-                  href={`/reconcile/${id}/new`}
+                  href={reconcileNewHref}
                   className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white"
                 >
                   Start Reconciliation
