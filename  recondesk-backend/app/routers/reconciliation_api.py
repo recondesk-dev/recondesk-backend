@@ -787,8 +787,26 @@ def _build_missed_itc_records(
         rd = cell.get("record_data") if isinstance(cell.get("record_data"), dict) else {}
         amt_paise = int(mi.get("total_tax_paise") or mt.get("total_tax_paise") or 0)
         amt = _paise_to_rupees(amt_paise)
+        mf_miss: list[str] = []
+        sg_mi = str(mi.get("supplier_gstin") or mt.get("supplier_gstin") or "").strip()
+        if sg_mi:
+            mf_miss.append("gstin")
+        inv_mi = str(
+            mi.get("invoice_number_normalized") or mt.get("invoice_number_normalized") or ""
+        ).strip()
+        if inv_mi:
+            mf_miss.append("invoice_number")
+        id_mi = mi.get("invoice_date") or mt.get("invoice_date")
+        if id_mi not in (None, ""):
+            mf_miss.append("invoice_date")
+        if mi.get("total_tax_paise") is not None or mt.get("total_tax_paise") is not None:
+            mf_miss.append("total_tax")
         dout = generate_decision(
             "MISSED_ITC",
+            confidence="MEDIUM",
+            matched_fields=mf_miss,
+            differed_fields=[],
+            normalized_pairs=[],
             source_software=source_software,
             itc_amount=f"₹{amt:,.2f}",
         )
@@ -818,6 +836,11 @@ def _build_missed_itc_records(
                 "decision_what": dout.what,
                 "decision_why": dout.why,
                 "decision_next": dout.next,
+                "decision_rule": dout.rule,
+                "decision_confidence": dout.confidence,
+                "decision_matched_fields": list(dout.matched_fields),
+                "decision_differed_fields": list(dout.differed_fields),
+                "decision_normalized_pairs": [list(p) for p in dout.normalized_pairs],
                 "decision_status": "pending",
                 "decision_type": None,
                 "notes_count": int(note_counts.get(row_id, 0)),
@@ -847,8 +870,29 @@ def _build_wrongful_risk_records(
         amt = _paise_to_rupees(
             int(w.get("taxable_amount_paise") or mt.get("taxable_amount_paise") or 0)
         )
+        mf_wr: list[str] = []
+        sg_wr = str(w.get("supplier_gstin") or mt.get("supplier_gstin") or "").strip()
+        if sg_wr:
+            mf_wr.append("gstin")
+        inv_wr = str(
+            w.get("invoice_number_normalized") or mt.get("invoice_number_normalized") or ""
+        ).strip()
+        if inv_wr:
+            mf_wr.append("invoice_number")
+        id_wr = w.get("invoice_date") or mt.get("invoice_date")
+        if id_wr not in (None, ""):
+            mf_wr.append("invoice_date")
+        tap_wr = w.get("taxable_amount_paise")
+        if tap_wr is None:
+            tap_wr = mt.get("taxable_amount_paise")
+        if tap_wr is not None:
+            mf_wr.append("taxable_amount")
         dout = generate_decision(
             "WRONGFUL_ITC",
+            confidence="MEDIUM",
+            matched_fields=mf_wr,
+            differed_fields=[],
+            normalized_pairs=[],
             supplier_gstin=str(w.get("supplier_gstin") or mt.get("supplier_gstin") or "?"),
             itc_amount=f"₹{amt:,.2f}",
         )
@@ -875,6 +919,11 @@ def _build_wrongful_risk_records(
                 "decision_what": dout.what,
                 "decision_why": dout.why,
                 "decision_next": dout.next,
+                "decision_rule": dout.rule,
+                "decision_confidence": dout.confidence,
+                "decision_matched_fields": list(dout.matched_fields),
+                "decision_differed_fields": list(dout.differed_fields),
+                "decision_normalized_pairs": [list(p) for p in dout.normalized_pairs],
                 "decision_status": "pending",
                 "decision_type": None,
                 "notes_count": int(note_counts.get(row_id, 0)),
