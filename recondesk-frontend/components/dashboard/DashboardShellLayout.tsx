@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import useSWR, { mutate } from "swr";
 import { Avatar } from "@/components/ui/Avatar";
 import { useToast } from "@/components/providers/ToastProvider";
 import { authApi, isApiError, reconcileRunsApi } from "@/lib/api";
 import { DW, formatPeriodLabel } from "@/lib/dashboard-portfolio";
-import { subscribeAccessToken } from "@/lib/supabase/client";
+import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 
 function initialsFromDisplayName(name: string): string {
   const t = name.trim();
@@ -114,9 +114,13 @@ export default function DashboardShellLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const supabase = createClient();
   const toast = useToast();
   const title = pageTitle(pathname);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
   const [accessToken, setAccessToken] = useState<string | false | null>(null);
   const [currentUser, setCurrentUser] = useState({
     name: "…",
@@ -125,6 +129,16 @@ export default function DashboardShellLayout({
   });
 
   useEffect(() => subscribeAccessToken(setAccessToken), []);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -197,6 +211,11 @@ export default function DashboardShellLayout({
     await mutate((key: unknown) => Array.isArray(key) && key[0] === DW);
   }
 
+  async function handleSignOut(): Promise<void> {
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
+
   const nav = [
     { href: "/dashboard", label: "Dashboard", Icon: NavIconDashboard },
     { href: "/clients", label: "Clients", Icon: NavIconUsers },
@@ -237,14 +256,48 @@ export default function DashboardShellLayout({
           })}
         </nav>
         <div className="border-t border-white/10 p-4">
-          <div className="flex items-center gap-3">
-            <Avatar initials={currentUser.initials} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-white">{currentUser.name}</p>
-              <span className="mt-0.5 inline-block rounded bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
-                {currentUser.role}
-              </span>
-            </div>
+          <div className="relative" ref={profileRef}>
+            {profileOpen && (
+              <div
+                className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-lg border border-white/10 bg-[#1A1D27] py-1 shadow-lg"
+                role="menu"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-white/5"
+                  onClick={() => {
+                    setProfileOpen(false);
+                    router.push("/settings");
+                  }}
+                >
+                  Settings
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full px-4 py-2.5 text-left text-sm text-red-400 transition-colors hover:bg-red-500/10"
+                  onClick={() => void handleSignOut()}
+                >
+                  Sign Out
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 rounded-lg text-left transition-colors hover:bg-white/5"
+              onClick={() => setProfileOpen((open) => !open)}
+              aria-expanded={profileOpen}
+              aria-haspopup="menu"
+            >
+              <Avatar initials={currentUser.initials} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-white">{currentUser.name}</p>
+                <span className="mt-0.5 inline-block rounded bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
+                  {currentUser.role}
+                </span>
+              </div>
+            </button>
           </div>
         </div>
       </aside>
