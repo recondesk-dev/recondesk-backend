@@ -1,13 +1,18 @@
 import logging
 import re
 import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+import boto3
+from botocore.config import Config
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from pydantic import BaseModel, Field
 
 from app.auth import get_current_active_user
-from app.config import get_settings
+from app.config import get_r2_s3_endpoint_url, get_settings
+from app.database import get_supabase
 from app.models.upload import PresignedUrlRequest, PresignedUrlResponse, UploadResponse
 from app.parsers.purchase_register_parser import parse_purchase_register
 from app.services.r2_service import (
@@ -16,12 +21,13 @@ from app.services.r2_service import (
     upload_file_to_r2,
 )
 from app.utils.audit import log_action
-from app.utils.storage import upload_file_raw
 from app.utils.rate_limit import limiter
+from app.utils.storage import upload_file_raw
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+public_router = APIRouter()
 
 ALLOWED_CONTENT_TYPES = {
     "text/csv",
@@ -29,6 +35,36 @@ ALLOWED_CONTENT_TYPES = {
     "application/vnd.ms-excel",
 }
 ALLOWED_PURCHASE_REGISTER_EXTENSIONS = {".xlsx", ".xls", ".csv"}
+
+ALLOWED_CLIENT_CONTENT_TYPES = {
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/csv",
+    "application/pdf",
+    "application/zip",
+    "application/x-zip-compressed",
+}
+
+ALLOWED_CLIENT_EXTENSIONS = {".xlsx", ".csv", ".pdf", ".zip"}
+
+EXTENSION_CONTENT_TYPES: dict[str, set[str]] = {
+    ".xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+    ".csv": {"text/csv"},
+    ".pdf": {"application/pdf"},
+    ".zip": {"application/zip", "application/x-zip-compressed"},
+}
+
+PRESIGNED_URL_EXPIRY_SECONDS = 300
+
+
+class ClientPresignedUrlRequest(BaseModel):
+    token: str = Field(..., min_length=1)
+    filename: str = Field(..., min_length=1)
+    content_type: str = Field(..., min_length=1)
+
+
+class ClientPresignedUrlResponse(BaseModel):
+    upload_url: str
+    public_url: str
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -64,6 +100,103 @@ def _validate_upload_bytes(content: bytes, ext: str) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File exceeds {get_settings().MAX_FILE_SIZE_MB} MB limit",
         )
+
+
+def _get_r2_client():
+    settings = get_settings()
+    return boto3.client(
+        "s3",
+        endpoint_url=get_r2_s3_endpoint_url(),
+        aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+        config=Config(signature_version="s3v4"),
+        region_name="auto",
+    )
+
+
+def _parse_expires_at(value: str) -> datetime:
+    normalized = value.replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _validate_client_upload(payload: ClientPresignedUrlRequest) -> tuple[str, str]:
+    if payload.content_type not in ALLOWED_CLIENT_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File type not allowed",
+        )
+
+    safe_filename = _sanitize_filename(payload.filename)
+    ext = Path(safe_filename).suffix.lower()
+    if ext not in ALLOWED_CLIENT_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File type not allowed",
+        )
+
+    allowed_for_ext = EXTENSION_CONTENT_TYPES.get(ext, set())
+    if payload.content_type not in allowed_for_ext:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File extension does not match content type",
+        )
+
+    return safe_filename, ext
+
+
+def _get_upload_request_by_token(token: str) -> dict:
+    supabase = get_supabase()
+    result = (
+        supabase.table("upload_requests")
+        .select("id, expires_at")
+        .eq("token", token)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Upload link not found",
+        )
+    return rows[0]
+
+
+@public_router.post("/presigned-url", response_model=ClientPresignedUrlResponse)
+async def create_client_presigned_url(payload: ClientPresignedUrlRequest) -> ClientPresignedUrlResponse:
+    upload_request = _get_upload_request_by_token(payload.token.strip())
+
+    expires_at = upload_request.get("expires_at")
+    if expires_at:
+        if _parse_expires_at(str(expires_at)) < datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail="Upload link has expired",
+            )
+
+    safe_filename, _ext = _validate_client_upload(payload)
+    upload_request_id = str(upload_request["id"])
+    object_key = f"uploads/{upload_request_id}/{uuid.uuid4()}_{safe_filename}"
+
+    settings = get_settings()
+    client = _get_r2_client()
+    upload_url = client.generate_presigned_url(
+        "put_object",
+        Params={
+            "Bucket": settings.R2_BUCKET_NAME,
+            "Key": object_key,
+            "ContentType": payload.content_type,
+        },
+        ExpiresIn=PRESIGNED_URL_EXPIRY_SECONDS,
+    )
+
+    public_base = (settings.R2_PUBLIC_URL or "").rstrip("/")
+    public_url = f"{public_base}/{object_key}"
+
+    return ClientPresignedUrlResponse(upload_url=upload_url, public_url=public_url)
 
 
 @router.post("/file", response_model=UploadResponse)
@@ -138,7 +271,6 @@ async def upload_purchase_register(
     current_user: dict = Depends(get_current_active_user),
 ):
     """Parse a purchase-register file; requires authentication and tenant access."""
-    from app.database import get_supabase
     from uuid import UUID
 
     sb = get_supabase()
