@@ -237,9 +237,12 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
         <WhyItMattersCell row={row} />
       </td>
       <td className="px-3 py-3">
-        <div className="text-[14px] font-semibold text-[var(--text-primary)]">
+        <Link
+          href={`/clients/${row.client.id}`}
+          className="font-medium text-[var(--accent)] hover:underline cursor-pointer"
+        >
           {row.client.tradeName}
-        </div>
+        </Link>
       </td>
       <td className="hidden px-3 py-3 font-mono text-[11px] text-[var(--text-secondary)] xl:table-cell">
         {row.client.gstin}

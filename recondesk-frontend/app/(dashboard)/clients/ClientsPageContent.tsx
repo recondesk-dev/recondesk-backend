@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { useSearchParams } from "next/navigation";
@@ -331,8 +332,13 @@ export function ClientsPageContent() {
                         key={row.id}
                         className="border-b border-[var(--border)] last:border-b-0"
                       >
-                        <td className="px-4 py-3 font-medium text-[var(--text-primary)]">
-                          {row.trade_name ?? "—"}
+                        <td className="px-4 py-3">
+                          <Link
+                            href={`/clients/${row.id}`}
+                            className="font-medium text-[var(--accent)] hover:underline cursor-pointer"
+                          >
+                            {row.trade_name ?? "—"}
+                          </Link>
                         </td>
                         <td className="px-4 py-3 font-mono text-xs">
                           {row.gstin}
