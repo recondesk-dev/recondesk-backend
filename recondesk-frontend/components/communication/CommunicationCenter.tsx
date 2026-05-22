@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import GenerateUploadLinkModal from "@/components/communication/GenerateUploadLinkModal";
 import { createClient } from "@/lib/supabase/client";
-import type { Database } from "@/lib/supabase/types";
 
 type UploadRequest = {
   id: string;
@@ -26,30 +25,6 @@ type CommunicationLog = {
   user_profiles: { full_name: string } | null;
 };
 
-type ExtendedDatabase = Database & {
-  public: Database["public"] & {
-    Tables: Database["public"]["Tables"] & {
-      upload_requests: {
-        Row: UploadRequest & {
-          client_id: string;
-          organization_id: string;
-          created_by_user_id: string;
-        };
-        Insert: never;
-        Update: never;
-      };
-      communication_logs: {
-        Row: CommunicationLog & {
-          client_id: string;
-          organization_id: string;
-        };
-        Insert: never;
-        Update: never;
-      };
-    };
-  };
-};
-
 type CommunicationCenterProps = {
   clientId: string;
   organizationId: string;
@@ -59,8 +34,8 @@ type CommunicationCenterProps = {
 const UPLOAD_PAGE_SIZE = 10;
 const LOG_PAGE_SIZE = 20;
 
-function getSupabaseClient(): SupabaseClient<ExtendedDatabase> {
-  return createClient() as SupabaseClient<ExtendedDatabase>;
+function getSupabaseClient(): SupabaseClient {
+  return createClient() as SupabaseClient;
 }
 
 function formatDate(dateStr: string): string {
@@ -221,7 +196,7 @@ export default function CommunicationCenter({
           throw new Error(error.message);
         }
 
-        const rows = (data ?? []) as CommunicationLog[];
+        const rows = (data ?? []) as unknown as CommunicationLog[];
         setCommunicationLogs((prev) => (append ? [...prev, ...rows] : rows));
         setHasMoreLogs(rows.length === LOG_PAGE_SIZE);
       } catch (err: unknown) {
@@ -270,11 +245,12 @@ export default function CommunicationCenter({
         throw new Error(error.message);
       }
 
-      if (data) {
+      const row = data as UploadRequest | null;
+      if (row) {
         setUploadRequests((prev) => {
-          const exists = prev.some((row) => row.id === data.id);
+          const exists = prev.some((item) => item.id === row.id);
           if (exists) return prev;
-          return [data as UploadRequest, ...prev];
+          return [row, ...prev];
         });
       }
     } catch (err: unknown) {
