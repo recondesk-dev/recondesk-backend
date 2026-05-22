@@ -191,6 +191,7 @@ app.include_router(
     tags=["Intelligence"],
 )
 app.include_router(upload.router, prefix="/api/v1/upload", tags=["Upload"])
+app.include_router(upload.public_router, prefix="/upload", tags=["Upload"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
 app.include_router(
