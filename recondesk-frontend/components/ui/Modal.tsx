@@ -28,7 +28,11 @@ export function Modal({
   );
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      prevFocus.current?.focus?.();
+      return;
+    }
+
     prevFocus.current = document.activeElement as HTMLElement;
     const panel = panelRef.current;
     if (!panel) return;
@@ -36,12 +40,23 @@ export function Modal({
     const focusables = panel.querySelectorAll<HTMLElement>(
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
     );
+    focusables[0]?.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const focusables = panel.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
     const first = focusables[0];
-    first?.focus();
+    const last = focusables[focusables.length - 1];
 
     const trap = (e: KeyboardEvent) => {
       if (e.key !== "Tab" || focusables.length === 0) return;
-      const last = focusables[focusables.length - 1];
       if (e.shiftKey && document.activeElement === first) {
         e.preventDefault();
         last.focus();
@@ -56,7 +71,6 @@ export function Modal({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("keydown", trap);
-      prevFocus.current?.focus?.();
     };
   }, [open, handleKeyDown]);
 
