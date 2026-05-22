@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import type { Database } from "@/lib/supabase/types";
 
 type UploadRequest = {
   id: string;
@@ -30,22 +29,9 @@ type CommunicationLog = {
 
 type ModalState = "idle" | "loading" | "error" | "success";
 
-type ExtendedDatabase = Database & {
-  public: Database["public"] & {
-    Tables: Database["public"]["Tables"] & {
-      upload_requests: {
-        Row: UploadRequest;
-        Insert: Omit<UploadRequest, "id" | "created_at">;
-        Update: Partial<Omit<UploadRequest, "id" | "created_at">>;
-      };
-      communication_logs: {
-        Row: CommunicationLog;
-        Insert: Omit<CommunicationLog, "id" | "created_at">;
-        Update: Partial<Omit<CommunicationLog, "id" | "created_at">>;
-      };
-    };
-  };
-};
+type UploadRequestInsert = Omit<UploadRequest, "id" | "created_at">;
+
+type CommunicationLogInsert = Omit<CommunicationLog, "id" | "created_at">;
 
 type GenerateUploadLinkModalProps = {
   clientId: string;
@@ -87,8 +73,8 @@ function generateToken(): string {
     .join("");
 }
 
-function getSupabaseClient(): SupabaseClient<ExtendedDatabase> {
-  return createClient() as SupabaseClient<ExtendedDatabase>;
+function getSupabaseClient(): SupabaseClient {
+  return createClient() as SupabaseClient;
 }
 
 const inputClassName =
@@ -159,17 +145,19 @@ export default function GenerateUploadLinkModal({
       const token = generateToken();
       const expiresAt = expiryDate.trim() ? dateInputToIso(expiryDate) : null;
 
+      const uploadInsert: UploadRequestInsert = {
+        client_id: clientId,
+        organization_id: organizationId,
+        token,
+        title: trimmedTitle,
+        description: description.trim() || null,
+        expires_at: expiresAt,
+        created_by_user_id: createdByUserId,
+      };
+
       const { data, error } = await supabase
         .from("upload_requests")
-        .insert({
-          client_id: clientId,
-          organization_id: organizationId,
-          token,
-          title: trimmedTitle,
-          description: description.trim() || null,
-          expires_at: expiresAt,
-          created_by_user_id: createdByUserId,
-        })
+        .insert(uploadInsert)
         .select("id")
         .single();
 
@@ -177,18 +165,21 @@ export default function GenerateUploadLinkModal({
         throw new Error(error.message);
       }
 
-      if (!data?.id) {
+      const created = data as { id: string } | null;
+      if (!created?.id) {
         throw new Error("Upload request was created but no ID was returned.");
       }
 
-      const { error: logError } = await supabase.from("communication_logs").insert({
+      const logInsert: CommunicationLogInsert = {
         template_type: "upload_request",
         message_content: `Upload request created: ${trimmedTitle}`,
         sent_via: "upload_request",
         client_id: clientId,
         organization_id: organizationId,
         sent_by_user_id: createdByUserId,
-      });
+      };
+
+      const { error: logError } = await supabase.from("communication_logs").insert(logInsert);
 
       if (logError) {
         throw new Error(logError.message);
@@ -197,7 +188,7 @@ export default function GenerateUploadLinkModal({
       const url = `${window.location.origin}/upload/${token}`;
       setShareableUrl(url);
       setModalState("success");
-      onSuccess(data.id);
+      onSuccess(created.id);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Something went wrong";
       setErrorMessage(message);

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import type { Database } from "@/lib/supabase/types";
 
 type UploadRequest = {
   id: string;
@@ -41,22 +40,7 @@ type UploadedFileRecord = {
   created_at: string;
 };
 
-type ExtendedDatabase = Database & {
-  public: Database["public"] & {
-    Tables: Database["public"]["Tables"] & {
-      upload_requests: {
-        Row: UploadRequest;
-        Insert: never;
-        Update: never;
-      };
-      uploaded_files: {
-        Row: UploadedFileRecord;
-        Insert: Omit<UploadedFileRecord, "id" | "created_at">;
-        Update: Partial<Omit<UploadedFileRecord, "id" | "created_at">>;
-      };
-    };
-  };
-};
+type UploadedFileInsert = Omit<UploadedFileRecord, "id" | "created_at">;
 
 type PresignedUrlResponse = {
   upload_url: string;
@@ -76,8 +60,8 @@ const ALLOWED_MIME_TYPES = new Set([
   "application/x-zip-compressed",
 ]);
 
-function getSupabaseClient(): SupabaseClient<ExtendedDatabase> {
-  return createClient() as SupabaseClient<ExtendedDatabase>;
+function getSupabaseClient(): SupabaseClient {
+  return createClient() as SupabaseClient;
 }
 
 function formatFileSize(bytes: number): string {
@@ -191,12 +175,14 @@ export default function UploadPageClient({ token }: { token: string }) {
           return;
         }
 
-        if (data.expires_at && new Date(data.expires_at) < new Date()) {
+        const request = data as UploadRequest;
+
+        if (request.expires_at && new Date(request.expires_at) < new Date()) {
           setPageState("expired");
           return;
         }
 
-        setUploadRequest(data);
+        setUploadRequest(request);
         setPageState("ready");
       } catch {
         if (!cancelled) {
@@ -294,13 +280,14 @@ export default function UploadPageClient({ token }: { token: string }) {
       }
 
       const supabase = getSupabaseClient();
-      const { error: insertError } = await supabase.from("uploaded_files").insert({
+      const fileInsert: UploadedFileInsert = {
         upload_request_id: uploadRequestId,
         filename: item.file.name,
         file_size: item.file.size,
         mime_type: contentType,
         public_url: presignData.public_url,
-      });
+      };
+      const { error: insertError } = await supabase.from("uploaded_files").insert(fileInsert);
 
       if (insertError) {
         throw new Error(insertError.message);
@@ -531,7 +518,7 @@ export default function UploadPageClient({ token }: { token: string }) {
                   </>
                 )}
 
-                {fileQueue.length > 0 && pageState !== "success" && (
+                {fileQueue.length > 0 && (
                   <div className="mt-6">
                     <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">
                       Files
