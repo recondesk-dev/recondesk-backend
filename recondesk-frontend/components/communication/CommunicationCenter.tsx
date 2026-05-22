@@ -25,6 +25,16 @@ type CommunicationLog = {
   user_profiles: { full_name: string } | null;
 };
 
+type UploadedFile = {
+  id: string;
+  filename: string;
+  file_size: number;
+  mime_type: string;
+  public_url: string;
+  uploaded_at: string;
+  upload_requests: { title: string } | null;
+};
+
 type CommunicationCenterProps = {
   clientId: string;
   organizationId: string;
@@ -33,6 +43,7 @@ type CommunicationCenterProps = {
 
 const UPLOAD_PAGE_SIZE = 10;
 const LOG_PAGE_SIZE = 20;
+const UPLOADED_FILES_PAGE_SIZE = 20;
 
 function getSupabaseClient(): SupabaseClient {
   return createClient() as SupabaseClient;
@@ -55,6 +66,25 @@ function formatDateTime(dateStr: string): string {
     minute: "2-digit",
     hour12: true,
   }).format(new Date(dateStr));
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function simplifyMimeType(mimeType: string): string {
+  if (mimeType === "application/pdf") return "PDF";
+  if (mimeType === "text/csv") return "CSV";
+  if (mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") {
+    return "Excel";
+  }
+  if (mimeType === "application/zip" || mimeType === "application/x-zip-compressed") {
+    return "ZIP";
+  }
+  return mimeType;
 }
 
 function isExpired(expiresAt: string | null): boolean {
@@ -125,14 +155,19 @@ export default function CommunicationCenter({
   const [modalOpen, setModalOpen] = useState(false);
   const [successBanner, setSuccessBanner] = useState(false);
   const [uploadRequests, setUploadRequests] = useState<UploadRequest[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [communicationLogs, setCommunicationLogs] = useState<CommunicationLog[]>([]);
   const [uploadsLoading, setUploadsLoading] = useState(true);
+  const [filesLoading, setFilesLoading] = useState(true);
   const [logsLoading, setLogsLoading] = useState(true);
   const [uploadsLoadingMore, setUploadsLoadingMore] = useState(false);
+  const [filesLoadingMore, setFilesLoadingMore] = useState(false);
   const [logsLoadingMore, setLogsLoadingMore] = useState(false);
   const [hasMoreUploads, setHasMoreUploads] = useState(false);
+  const [hasMoreFiles, setHasMoreFiles] = useState(false);
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
   const [uploadsError, setUploadsError] = useState<string | null>(null);
+  const [filesError, setFilesError] = useState<string | null>(null);
   const [logsError, setLogsError] = useState<string | null>(null);
   const [copiedRequestId, setCopiedRequestId] = useState<string | null>(null);
 
@@ -170,6 +205,52 @@ export default function CommunicationCenter({
       }
     },
     [clientId]
+  );
+
+  const fetchUploadedFiles = useCallback(
+    async (offset: number, append: boolean, uploadRequestIds: string[]) => {
+      if (uploadRequestIds.length === 0) {
+        setUploadedFiles([]);
+        setHasMoreFiles(false);
+        setFilesLoading(false);
+        setFilesLoadingMore(false);
+        return;
+      }
+
+      if (append) {
+        setFilesLoadingMore(true);
+      } else {
+        setFilesLoading(true);
+      }
+      setFilesError(null);
+
+      try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+          .from("uploaded_files")
+          .select(
+            "id, filename, file_size, mime_type, public_url, uploaded_at, upload_requests(title)"
+          )
+          .in("upload_request_id", uploadRequestIds)
+          .order("uploaded_at", { ascending: false })
+          .range(offset, offset + UPLOADED_FILES_PAGE_SIZE - 1);
+
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        const rows = (data ?? []) as unknown as UploadedFile[];
+        setUploadedFiles((prev) => (append ? [...prev, ...rows] : rows));
+        setHasMoreFiles(rows.length === UPLOADED_FILES_PAGE_SIZE);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Failed to load uploaded files";
+        setFilesError(message);
+      } finally {
+        setFilesLoading(false);
+        setFilesLoadingMore(false);
+      }
+    },
+    []
   );
 
   const fetchCommunicationLogs = useCallback(
@@ -214,6 +295,13 @@ export default function CommunicationCenter({
     void fetchUploadRequests(0, false);
     void fetchCommunicationLogs(0, false);
   }, [fetchUploadRequests, fetchCommunicationLogs]);
+
+  useEffect(() => {
+    if (uploadsLoading) return;
+
+    const uploadRequestIds = uploadRequests.map((request) => request.id);
+    void fetchUploadedFiles(0, false, uploadRequestIds);
+  }, [uploadRequests, uploadsLoading, fetchUploadedFiles]);
 
   useEffect(() => {
     if (!copiedRequestId) return;
@@ -269,6 +357,8 @@ export default function CommunicationCenter({
       setUploadsError(message);
     }
   }
+
+  const uploadRequestIds = uploadRequests.map((request) => request.id);
 
   return (
     <div className="space-y-8">
@@ -376,6 +466,97 @@ export default function CommunicationCenter({
                   className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
                 >
                   {uploadsLoadingMore ? "Loading…" : "Load more"}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      <section className="mt-10">
+        <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-gray-500">
+          Uploaded Files
+        </h2>
+
+        {filesError && (
+          <p className="mb-3 text-sm text-red-600 dark:text-red-400">{filesError}</p>
+        )}
+
+        {uploadsLoading || filesLoading ? (
+          <TableSkeleton rows={3} />
+        ) : uploadRequests.length === 0 || uploadedFiles.length === 0 ? (
+          <EmptyState message="No files uploaded yet." />
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead className="bg-gray-50 dark:bg-gray-800/50">
+                  <tr>
+                    {[
+                      "File Name",
+                      "Size",
+                      "Type",
+                      "Upload Request",
+                      "Uploaded At",
+                      "Download",
+                    ].map((heading) => (
+                      <th
+                        key={heading}
+                        className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+                      >
+                        {heading}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {uploadedFiles.map((file) => (
+                    <tr
+                      key={file.id}
+                      className="border-t border-gray-100 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50"
+                    >
+                      <td className="px-4 py-3 text-sm text-[var(--text-primary)]">
+                        {file.filename}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">
+                        {formatFileSize(file.file_size)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">
+                        {simplifyMimeType(file.mime_type)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-[var(--text-primary)]">
+                        {file.upload_requests?.title ?? "—"}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">
+                        {formatDateTime(file.uploaded_at)}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <a
+                          href={file.public_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-[var(--accent)] hover:underline"
+                        >
+                          Download
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {hasMoreFiles && (
+              <div className="mt-4 flex justify-center">
+                <button
+                  type="button"
+                  disabled={filesLoadingMore}
+                  onClick={() =>
+                    void fetchUploadedFiles(uploadedFiles.length, true, uploadRequestIds)
+                  }
+                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                >
+                  {filesLoadingMore ? "Loading…" : "Load more"}
                 </button>
               </div>
             )}
