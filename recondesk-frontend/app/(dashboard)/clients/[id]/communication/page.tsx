@@ -25,7 +25,7 @@ export default async function CommunicationPage({
     .from("client_gstins")
     .select("firm_owner_id")
     .eq("id", params.id)
-    .maybeSingle();
+    .maybeSingle() as { data: { firm_owner_id: string } | null; error: unknown };
 
   const organizationId = clientRow?.firm_owner_id ?? user.id;
 
