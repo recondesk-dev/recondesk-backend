@@ -471,15 +471,14 @@ function BillingBanner({
 function EnterpriseSoloCard() {
   return (
     <div className="flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
-      <h3 className="text-lg font-semibold">Enterprise</h3>
+      <h3 className="text-lg font-semibold">Individual</h3>
       <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
       <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
-        <li>• 100+ runs/month</li>
-        <li>• Unlimited runs (negotiated)</li>
-        <li>• SLA & onboarding support</li>
-        <li>• GST invoice with your firm GSTIN</li>
-        <li>• Dedicated account manager</li>
+        <li>• Dedicated support</li>
+        <li>• Custom onboarding</li>
+        <li>• SLA guarantee</li>
       </ul>
+      <p className="mt-6 text-lg font-semibold text-[var(--text-primary)]">Need More?</p>
       <a
         href="mailto:contact@recondesk.in"
         className="mt-6 inline-flex w-full items-center justify-center rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
