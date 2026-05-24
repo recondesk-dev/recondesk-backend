@@ -2,7 +2,7 @@
 
 import { Check, ChevronDown, FileSpreadsheet, FileText, Loader2, Shield, X } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -544,6 +544,7 @@ function SummarySkeleton() {
 
 export default function ReconcileResultsPage() {
   const params = useParams();
+  const router = useRouter();
   const runId = typeof params.run_id === "string" ? params.run_id : "";
 
   const tokenState = useAccessToken();
@@ -765,6 +766,10 @@ export default function ReconcileResultsPage() {
     ...EMPTY_FINALIZE_CHECKLIST,
   }));
   const [finalizing, setFinalizing] = useState(false);
+
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     if (finalizeModalOpen) {
@@ -1203,6 +1208,40 @@ export default function ReconcileResultsPage() {
     setChecklist({ ...EMPTY_FINALIZE_CHECKLIST });
   }, [finalizing]);
 
+  const closeDeleteModal = useCallback(() => {
+    if (deleting) return;
+    setDeleteModalOpen(false);
+    setDeleteError(null);
+  }, [deleting]);
+
+  const submitDeleteRun = useCallback(async () => {
+    if (!runId || !authToken || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await apiFetch<{ message: string }>(
+        `/api/reconcile/runs/${runId}`,
+        {
+          method: "DELETE",
+          token: authToken,
+        }
+      );
+      router.push("/dashboard");
+    } catch (e: unknown) {
+      setDeleting(false);
+      let msg = "Failed to delete run — try again";
+      if (
+        e &&
+        typeof e === "object" &&
+        "detail" in e &&
+        typeof (e as { detail: unknown }).detail === "string"
+      ) {
+        msg = (e as { detail: string }).detail;
+      }
+      setDeleteError(msg);
+    }
+  }, [authToken, deleting, runId, router]);
+
   const submitFinalize = useCallback(async () => {
     if (!runId || !authToken) return;
     const checkedCount = Object.values(checklist).filter(Boolean).length;
@@ -1370,6 +1409,16 @@ export default function ReconcileResultsPage() {
                     <FileText className="h-3.5 w-3.5 shrink-0" />
                   )}
                   PDF
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex min-h-[44px] items-center justify-center rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setDeleteModalOpen(true);
+                  }}
+                >
+                  Delete Run
                 </button>
               </div>
             </div>
@@ -2839,6 +2888,71 @@ export default function ReconcileResultsPage() {
           <p className="text-center text-sm text-blue-700">
             Only your CA principal (admin) can finalize this reconciliation.
           </p>
+        </div>
+      )}
+
+      {deleteModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeDeleteModal();
+          }}
+        >
+          <div
+            className="relative mx-4 w-full max-w-lg rounded-xl bg-white p-6 shadow-xl"
+            role="dialog"
+            aria-labelledby="delete-run-title"
+          >
+            <div className="pr-8">
+              <h2
+                id="delete-run-title"
+                className="text-lg font-semibold text-gray-900"
+              >
+                Delete reconciliation run
+              </h2>
+              <p className="mt-2 text-sm text-gray-600">
+                Delete this reconciliation run? This will permanently delete all
+                matched records, mismatches, and uploaded files. This cannot be
+                undone.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={deleting}
+              className="absolute right-4 top-4 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-gray-500 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Close"
+              onClick={closeDeleteModal}
+            >
+              <X className="h-5 w-5" />
+            </button>
+            {deleteError && (
+              <p className="mt-4 text-sm text-red-600" role="alert">
+                {deleteError}
+              </p>
+            )}
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                disabled={deleting}
+                className="inline-flex min-h-[44px] items-center justify-center rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={closeDeleteModal}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void submitDeleteRun()}
+              >
+                {deleting && (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                )}
+                {deleting ? "Deleting..." : "Delete permanently"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
