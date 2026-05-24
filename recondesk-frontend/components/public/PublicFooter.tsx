@@ -16,7 +16,8 @@ function LogoMark() {
   );
 }
 
-const firmGstin = process.env.NEXT_PUBLIC_FIRM_GSTIN?.trim();
+const DEFAULT_FIRM_GSTIN = "27ISKPK1273H1ZF";
+const firmGstin = process.env.NEXT_PUBLIC_FIRM_GSTIN?.trim() || DEFAULT_FIRM_GSTIN;
 
 export function PublicFooter() {
   return (
@@ -55,9 +56,7 @@ export function PublicFooter() {
           </div>
           <p className="text-sm text-slate-500 lg:text-right">
             GSTIN:{" "}
-            <span className="font-mono text-slate-300">
-              {firmGstin && firmGstin.length > 0 ? firmGstin : "—"}
-            </span>
+            <span className="font-mono text-slate-300">{firmGstin}</span>
           </p>
         </div>
         <p className="mt-10 border-t border-white/5 pt-8 text-center text-xs text-slate-500">
