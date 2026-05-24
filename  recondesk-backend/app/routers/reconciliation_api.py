@@ -32,6 +32,7 @@ from app.services.reconcile_export_workbook import (
     build_pdf_summary_bytes,
 )
 from app.utils.audit import log_action
+from app.utils.storage import delete_file
 from app.worker.reconciliation_task import execute_reconciliation
 from app.services.invoice_results_sync import (
     count_unresolved_rule37,
@@ -1829,6 +1830,69 @@ async def retry_failed_reconcile_run(
             detail="Reconciliation task queue is unavailable. Try again later.",
         ) from exc
     return {"run_id": rid, "status": "MATCHING"}
+
+
+@reconcile_runs_router.delete("/runs/{run_id}")
+async def delete_reconcile_run(
+    request: Request,
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+
+    full = (
+        sb.table("reconciliation_run")
+        .select("id, r2_key, client_gstin_id")
+        .eq("id", rid)
+        .limit(1)
+        .execute()
+    )
+    if not full.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="run not found",
+        )
+    row = full.data[0]
+    r2_keys: list[str] = []
+    stored_key = row.get("r2_key")
+    if stored_key:
+        r2_keys.append(str(stored_key))
+    client_gstin_id = str(row.get("client_gstin_id") or "").strip()
+    if client_gstin_id:
+        for ext in (".xlsx", ".xls", ".csv"):
+            r2_keys.append(
+                f"uploads/{client_gstin_id}/{rid}/purchase_register{ext}"
+            )
+
+    seen: set[str] = set()
+    for key in r2_keys:
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        try:
+            await delete_file(key)
+        except Exception as exc:
+            _log.warning("R2 delete failed for key %s: %s", key, exc)
+
+    del_res = sb.table("reconciliation_run").delete().eq("id", rid).execute()
+    if not del_res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="run not found",
+        )
+
+    uid = str(current_user.get("id", ""))
+    await log_action(
+        uid,
+        "delete_run",
+        "reconciliation_run",
+        rid,
+        {},
+        ip_address=(request.client.host if request.client else None),
+    )
+    return {"message": "Run deleted successfully"}
 
 
 @reconcile_runs_router.get("/runs/{run_id}/summary")
