@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { ClipboardList, GitMerge, Upload } from "lucide-react";
 
+import { FaqAccordion } from "@/components/public/FaqAccordion";
+import { formatInrFull } from "@/lib/format";
+
 function Section({
   id,
   className = "",
@@ -11,9 +14,44 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className={`mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8 ${className}`}>
+    <section id={id} className={`mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8 ${className}`}>
       {children}
     </section>
+  );
+}
+
+function InrAmount({
+  amount,
+  className = "",
+  amountClassName = "font-mono",
+}: {
+  amount: string;
+  className?: string;
+  amountClassName?: string;
+}) {
+  return (
+    <span className={className}>
+      <span className="font-sans">{"\u20B9"}</span>
+      <span className={amountClassName}>{amount}</span>
+    </span>
+  );
+}
+
+function InrFromFormat({
+  value,
+  className = "",
+  amountClassName = "font-mono",
+}: {
+  value: number;
+  className?: string;
+  amountClassName?: string;
+}) {
+  const formatted = formatInrFull(value);
+  return (
+    <span className={className}>
+      <span className="font-sans">{formatted.charAt(0)}</span>
+      <span className={amountClassName}>{formatted.slice(1)}</span>
+    </span>
   );
 }
 
@@ -44,7 +82,7 @@ export default function LandingPage() {
             </a>
           </div>
           <p className="mt-6 text-sm text-slate-400">
-            Plans from ₹399/month · No credit card to start
+            Plans from <InrAmount amount="399/month" amountClassName="" /> · No credit card to start
           </p>
           <div className="mx-auto mt-8 max-w-3xl rounded-xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm text-slate-300 sm:px-6">
             <p className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-6 sm:gap-y-2">
@@ -63,7 +101,7 @@ export default function LandingPage() {
       </Section>
 
       {/* Pain */}
-      <Section className="border-t border-white/10 bg-[#0a0c10]/60 py-14">
+      <Section className="border-t border-white/10 bg-[#0a0c10]/60 py-10 sm:py-12">
         <h2 className="text-center text-2xl font-semibold text-white sm:text-3xl">Sound familiar?</h2>
         <div className="mt-10 grid gap-6 md:grid-cols-3">
           {[
@@ -82,7 +120,7 @@ export default function LandingPage() {
       </Section>
 
       {/* How it works */}
-      <Section id="how-it-works" className="scroll-mt-24">
+      <Section id="how-it-works" className="scroll-mt-24 py-16 sm:py-20">
         <h2 className="text-center text-2xl font-semibold text-white sm:text-3xl">How ReconDesk Works</h2>
         <ul className="mt-12 grid gap-8 md:grid-cols-3">
           <li className="flex flex-col items-center text-center">
@@ -120,7 +158,9 @@ export default function LandingPage() {
           <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div>
               <p className="text-xs text-slate-500">ITC at Risk</p>
-              <p className="mt-1 font-mono text-lg font-semibold text-amber-400">₹1,24,500</p>
+              <p className="mt-1 text-lg font-semibold text-amber-400">
+                <InrFromFormat value={124500} />
+              </p>
             </div>
             <div>
               <p className="text-xs text-slate-500">Matched</p>
@@ -147,51 +187,56 @@ export default function LandingPage() {
       </Section>
 
       {/* FAQ */}
-      <Section className="border-t border-white/10 bg-[#0a0c10]/60">
+      <Section className="border-t border-white/10 bg-[#0a0c10]/60 pt-8 pb-12 sm:pt-10 sm:pb-14">
         <h2 className="text-center text-2xl font-semibold text-white sm:text-3xl">
           Questions CAs Ask Before Signing Up
         </h2>
-        <dl className="mx-auto mt-10 max-w-3xl space-y-6">
-          {[
-            {
-              q: "Is my client's data safe?",
-              a: "Files are deleted after processing. All data is encrypted at rest and in transit. We never share your data with third parties.",
-            },
-            {
-              q: "Which accounting software works?",
-              a: "Tally, Busy, or any Excel format — source software is auto-detected on upload.",
-            },
-            {
-              q: "How long does reconciliation take?",
-              a: "Under 60 seconds for 1,000 invoices.",
-            },
-            {
-              q: "Can I try before paying?",
-              a: "Yes. Your first 2 reconciliations are completely free. No credit card required.",
-            },
-            {
-              q: "Can my staff use it?",
-              a: "Yes. Invite team members. Staff can run reconciliations; you review and finalize results.",
-            },
-            {
-              q: "What happens to unused runs?",
-              a: "Solo plans: runs expire monthly. Firm Growth and Pro plans: unused runs carry over for up to 2 months.",
-            },
-            {
-              q: "How does billing work?",
-              a: "Manual monthly payment via Razorpay. No auto-debit. You choose when to renew.",
-            },
-          ].map(({ q, a }) => (
-            <div key={q} className="rounded-xl border border-white/10 bg-[#13161f] px-5 py-4">
-              <dt className="font-semibold text-white">{q}</dt>
-              <dd className="mt-2 text-sm leading-relaxed text-slate-400">{a}</dd>
-            </div>
-          ))}
-        </dl>
+        <FaqAccordion />
+      </Section>
+
+      {/* Pricing preview */}
+      <Section className="border-t border-white/10 py-12 sm:py-16">
+        <div className="text-center">
+          <h2 className="text-2xl font-semibold text-white sm:text-3xl">Simple, transparent pricing</h2>
+          <p className="mt-3 text-slate-400">Start free. Upgrade when you&apos;re ready.</p>
+        </div>
+        <div className="mx-auto mt-10 grid max-w-3xl gap-6 md:grid-cols-2">
+          <div className="flex flex-col rounded-2xl border border-white/10 bg-[#13161f] p-6">
+            <h3 className="text-lg font-semibold text-white">Solo CA</h3>
+            <p className="mt-2 text-3xl font-semibold text-white">
+              <InrAmount amount="399" amountClassName="font-mono" />
+              <span className="text-base font-normal text-slate-400">/month</span>
+            </p>
+            <p className="mt-4 text-sm text-slate-400">1 client GSTIN · 2 free runs to start</p>
+            <Link
+              href="/signup"
+              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-lg border border-white/15 bg-white/5 text-sm font-semibold text-white transition hover:bg-white/10"
+            >
+              Start Free
+            </Link>
+          </div>
+          <div className="relative flex flex-col rounded-2xl border-2 border-[var(--accent)] bg-[#13161f] p-6 shadow-lg shadow-[var(--accent)]/10">
+            <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[var(--accent)] px-3 py-0.5 text-xs font-semibold text-white">
+              Most Popular
+            </span>
+            <h3 className="text-lg font-semibold text-white">CA Firm</h3>
+            <p className="mt-2 text-3xl font-semibold text-white">
+              <InrAmount amount="9,999" amountClassName="font-mono" />
+              <span className="text-base font-normal text-slate-400">/month</span>
+            </p>
+            <p className="mt-4 text-sm text-slate-400">35 runs/month · Team access included</p>
+            <Link
+              href="/pricing"
+              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-semibold text-white transition hover:opacity-95"
+            >
+              View All Plans
+            </Link>
+          </div>
+        </div>
       </Section>
 
       {/* Final CTA */}
-      <Section className="border-t border-white/10">
+      <Section className="border-t border-white/10 py-16 sm:py-20">
         <div className="mx-auto max-w-2xl rounded-3xl border border-[var(--accent)]/30 bg-gradient-to-b from-[var(--accent)]/10 to-transparent px-6 py-12 text-center sm:px-10">
           <h2 className="text-2xl font-semibold text-white sm:text-3xl">Stop Losing ITC. Start Recovering It.</h2>
           <p className="mt-4 text-slate-400">
