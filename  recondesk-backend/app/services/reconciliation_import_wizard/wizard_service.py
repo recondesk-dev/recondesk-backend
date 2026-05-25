@@ -377,7 +377,6 @@ def schedule_processing_job(run_id: str) -> None:
                         "progress_percent": 0,
                         "created_at": now,
                         "updated_at": now,
-                        "created_by": actor,
                     }
                 ).execute()
 
