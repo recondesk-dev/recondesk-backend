@@ -160,6 +160,8 @@ def _gstr_records_for_sanity(records: list[dict]) -> list[dict]:
 
 
 def _load_and_normalize_gstr2b_body_for_parse(body: bytes) -> dict[str, Any]:
+    from app.parsers.gstr2b_parser import normalize_gstr2b_payload
+
     try:
         data: Any = json.loads(body.decode("utf-8"))
     except json.JSONDecodeError as e:
@@ -172,13 +174,10 @@ def _load_and_normalize_gstr2b_body_for_parse(body: bytes) -> dict[str, Any]:
         raise ValueError("invalid_data_structure")
     if "data" not in data:
         raise ValueError("missing_data_key")
+    data = normalize_gstr2b_payload(data)
     root = data.get("data")
     if not isinstance(root, dict):
         raise ValueError("invalid_data_structure")
-    if not root.get("rtnprd"):
-        fp = data.get("fp") or data.get("ret_period")
-        if fp is not None:
-            root["rtnprd"] = str(fp)
     if not root.get("rtnprd"):
         raise ValueError("Invalid GSTR2B: missing rtnprd")
     return data
