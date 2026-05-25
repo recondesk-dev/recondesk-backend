@@ -240,12 +240,11 @@ async def import_gstr2b(
     start_uid = str(current_user.get("id", "")).strip()
     dup = (
         sb.table("reconciliation_run")
-        .select("id, status, created_by")
+        .select("id, status, created_at")
         .eq("client_gstin_id", cg)
         .eq("period", period_norm)
         .eq("file_hash", file_hash)
         .eq("file_type", "gstr2b")
-        .eq("created_by", start_uid)
         .limit(1)
         .execute()
     )

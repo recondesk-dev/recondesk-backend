@@ -215,7 +215,7 @@ def execute_reconciliation(run_id: str) -> None:
         run_res = (
             client.table("reconciliation_run")
             .select(
-                "id, status, client_gstin_id, period, gstr_records_imported, pr_records_imported, created_by"
+                "id, status, client_gstin_id, period, gstr_records_imported, pr_records_imported, created_at"
             )
             .eq("id", run_id)
             .limit(1)
@@ -597,22 +597,11 @@ def execute_reconciliation(run_id: str) -> None:
                 "updated_at": _now_iso(),
             },
         )
-        created_by = str(run.get("created_by") or "").strip()
         match_rate = round(len(state.matched) / n_gstr * 100, 2) if n_gstr else 0.0
 
         to_email = ""
         full_nm = ""
-        if created_by:
-            prof = (
-                client.table("user_profiles")
-                .select("email, full_name")
-                .eq("id", created_by)
-                .limit(1)
-                .execute()
-            )
-            if prof.data:
-                to_email = str(prof.data[0].get("email") or "").strip()
-                full_nm = str(prof.data[0].get("full_name") or "").strip()
+        created_by = ""  # reconciliation_run has no created_by column; notifications disabled
 
         client_display_name = "Client"
         cg_row = (
