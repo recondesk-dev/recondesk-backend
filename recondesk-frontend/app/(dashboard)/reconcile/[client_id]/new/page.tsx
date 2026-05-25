@@ -564,7 +564,9 @@ export default function NewReconcileWizardPage() {
   const sanityWarnings = checksDisplayed.filter(
     (c) => String(c.status).toLowerCase() === "warning"
   );
-  const warningsOk = sanityWarnings.length === 0 || sanityWarnings.every((w) => w.acknowledged);
+  // Warnings are informational — they never block progression.
+  // Only errors (severity="error") prevent moving to the next step.
+  const warningsOk = true;
 
   const requiredOk =
     !!mappingLocal?.length &&

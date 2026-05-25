@@ -1,7 +1,11 @@
 """Tests for ``app.services.sanity`` — one deliberate failure mode per case where applicable."""
 
 import datetime
+import io
 
+import pandas as pd
+
+from app.parsers.purchase_register_parser import parse_purchase_register
 from app.services.sanity import SanityCheck, detect_duplicates, run_import_sanity
 from app.utils.test_helpers import make_valid_test_gstin
 
@@ -90,6 +94,52 @@ def test_pr_valid_gstin_passes():
     c = _by_name(checks, "GSTIN Validity")
     assert c.passed is True
     assert c.severity == "info"
+
+
+# ── PR parser: malformed GSTIN rows must be INCLUDED, not skipped ─────────────
+
+def _csv_bytes(**row_overrides) -> bytes:
+    """Return a minimal CSV purchase-register with one data row."""
+    defaults = {
+        "Supplier GSTIN": "27AAAPZ1234A1Z5",
+        "Supplier Name": "Test Vendor",
+        "Invoice Number": "INV-001",
+        "Invoice Date": "01/04/2024",
+        "Taxable Amount": "10000",
+        "IGST": "0",
+        "CGST": "900",
+        "SGST": "900",
+        "Total Invoice Value": "11800",
+    }
+    defaults.update(row_overrides)
+    df = pd.DataFrame([defaults])
+    buf = io.StringIO()
+    df.to_csv(buf, index=False)
+    return buf.getvalue().encode()
+
+
+def test_parser_includes_row_with_malformed_gstin():
+    """A row with an invalid (but non-blank) supplier GSTIN must be kept in records.
+
+    Previously the parser added 'invalid GSTIN' to row_errors, causing the row to
+    be silently dropped. If all rows were invalid, valid_rows=0 → success=False →
+    run_import_job raised → wizard showed 'error' and blocked the Start button.
+    """
+    csv_data = _csv_bytes(**{"Supplier GSTIN": "BADINVALIDGSTIN"})
+    result = parse_purchase_register(csv_data, "test.csv")
+    assert result["success"] is True, f"Parse failed unexpectedly: {result['errors']}"
+    assert len(result["records"]) == 1, "Row with malformed GSTIN must be kept"
+    rec = result["records"][0]
+    assert rec["gstin_valid"] is False
+    assert rec["gstin"] == "BADINVALIDGSTIN"
+
+
+def test_parser_skips_row_with_blank_gstin():
+    """A row with a completely blank supplier GSTIN must still be rejected (row is meaningless)."""
+    csv_data = _csv_bytes(**{"Supplier GSTIN": ""})
+    result = parse_purchase_register(csv_data, "test.csv")
+    # valid_rows should be 0 since the only row has a blank GSTIN
+    assert len(result["records"]) == 0, "Row with blank GSTIN must be skipped"
 
 
 def test_tax_math_passes_within_500_paise_tolerance():
