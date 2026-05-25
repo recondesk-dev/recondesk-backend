@@ -15,6 +15,7 @@ from typing import Any
 from supabase import Client
 
 from app.decisions.layer import populate_decisions
+from app.services.matcher import match_gstr_to_pr
 from app.services import reconciliation_record_adapter as rec_adapt
 from app.services.blocked_credit_checker import check_blocked_credits
 from app.services.credit_note_handler import classify_document, net_itc_after_credit_notes
@@ -113,10 +114,12 @@ def _load_pr_for_historical_periods_paged(
     return {k: v for k, v in by_period.items()}
 
 
-def _load_pr_current_paged(
+def _load_pr_matcher_and_raw(
     client: Client, run_id: str
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Matcher rows for the engine plus *id* → *record_data* for post-match upserts."""
     out: list[dict[str, Any]] = []
+    raw_by_id: dict[str, dict[str, Any]] = {}
     offset = 0
     while True:
         r = (
@@ -130,11 +133,31 @@ def _load_pr_current_paged(
         if not rows:
             break
         for row in rows:
+            rid = str(row.get("id", ""))
+            rd = row.get("record_data")
+            if isinstance(rd, dict):
+                raw_by_id[rid] = rd
             out.append(rec_adapt.pr_db_row_to_matcher_row(row))
         if len(rows) < BATCH:
             break
         offset += BATCH
-    return out
+    return (out, raw_by_id)
+
+
+def _pr_match_status_for_record(
+    pr_rec: dict[str, Any],
+    matched_pr_ids: set[str],
+    gstr_by_gstin: dict[str, list[dict[str, Any]]],
+) -> str:
+    """Classify PR row for ``record_data.match_status`` (does not alter pairing)."""
+    pr_id = str(pr_rec["id"])
+    if pr_id in matched_pr_ids:
+        return "matched"
+    gstin = str(pr_rec.get("supplier_gstin") or "")
+    for gstr_rec in gstr_by_gstin.get(gstin, ()):
+        if match_gstr_to_pr(gstr_rec, [pr_rec]) is not None:
+            return "missing_in_2b"
+    return "unmatched"
 
 
 def _load_gstr_matcher_and_raw(
@@ -245,7 +268,7 @@ def execute_reconciliation(run_id: str) -> None:
         n_gstr = int(run.get("gstr_records_imported") or 0)
         n_pr = int(run.get("pr_records_imported") or 0)
 
-        pr_current = _load_pr_current_paged(client, run_id)
+        pr_current, pr_raw_by_id = _load_pr_matcher_and_raw(client, run_id)
         _update_run(
             client,
             run_id,
@@ -408,6 +431,40 @@ def execute_reconciliation(run_id: str) -> None:
                 ).execute()
             except Exception:
                 _log.exception("amount_difference_paise bulk upsert failed")
+
+        gstr_by_gstin: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for ggr in gstr_matcher:
+            gstr_by_gstin[str(ggr.get("supplier_gstin") or "")].append(ggr)
+        pr_match_status_rows: list[dict[str, Any]] = []
+        for pr_rec in pr_current:
+            pid = str(pr_rec["id"])
+            base_rd = pr_raw_by_id.get(pid)
+            merged_rd = dict(base_rd) if isinstance(base_rd, dict) else {}
+            merged_rd["match_status"] = _pr_match_status_for_record(
+                pr_rec, state.matched_pr_ids, gstr_by_gstin
+            )
+            try:
+                pid_int = int(pid)
+            except (TypeError, ValueError):
+                _log.warning(
+                    "skip pr record_data match_status: invalid pr id=%s", pid
+                )
+                continue
+            pr_match_status_rows.append(
+                {"id": pid_int, "record_data": _json_safe(merged_rd)}
+            )
+        if pr_match_status_rows:
+            for i in range(0, len(pr_match_status_rows), BATCH):
+                chunk = pr_match_status_rows[i : i + BATCH]
+                try:
+                    client.table("pr_records").upsert(
+                        chunk,
+                        on_conflict="id",
+                        returning="minimal",
+                    ).execute()
+                except Exception:
+                    _log.exception("pr_records match_status bulk upsert failed")
+
         credit_rows = [
             {**p, "doc_kind": classify_document(p)}
             for p in pr_current
