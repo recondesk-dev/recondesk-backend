@@ -1324,12 +1324,17 @@ export default function ReconcileResultsPage() {
   return (
     <div
       className="min-h-screen bg-gray-50 pb-28"
-      style={{ paddingTop: summaryBarHeight ? summaryBarHeight + 16 : 96 }}
+      style={{
+        // The shell header is h-16 (64px, non-fixed) + main has p-8 (32px top).
+        // Content already starts at ~96px from viewport top — we only need
+        // extra padding when the sticky bar is taller than that baseline.
+        paddingTop: summaryBarHeight > 0 ? Math.max(0, summaryBarHeight - 88) + 8 : 8,
+      }}
     >
-      {/* Sticky summary */}
+      {/* Sticky summary — starts after the sidebar so it never covers the logo */}
       <div
         ref={summaryRef}
-        className="fixed left-0 right-0 top-0 z-50 border-b border-gray-200 bg-white px-4 py-3 shadow-sm"
+        className="fixed left-[240px] right-0 top-0 z-40 border-b border-gray-200 bg-white px-6 py-3 shadow-sm"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
