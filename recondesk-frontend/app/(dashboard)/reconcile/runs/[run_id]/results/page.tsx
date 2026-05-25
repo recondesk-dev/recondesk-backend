@@ -916,15 +916,19 @@ export default function ReconcileResultsPage() {
     isPaused: () => !authToken || !runId,
   });
 
+  // Keys are null until the accordion is opened — this guarantees SWR
+  // triggers a real fetch the moment the user expands the section.
+  // Using isPaused() alone is unreliable in SWR v2: it does not re-trigger
+  // a fetch when its return value changes from true→false.
   const rule37ListKey = useMemo(
     () =>
-      authReady && runId
+      authReady && runId && rule37Open
         ? ([
             `/api/reconcile/runs/${runId}/rule37?page=${rule37Page}&limit=50`,
             authToken,
           ] as const)
         : null,
-    [authReady, runId, rule37Page, authToken]
+    [authReady, runId, rule37Page, authToken, rule37Open]
   );
 
   const {
@@ -934,18 +938,17 @@ export default function ReconcileResultsPage() {
     mutate: mutateRule37,
   } = useSWR<Paginated<ReconcileRow>>(rule37ListKey, authJsonFetcher, {
     revalidateOnFocus: false,
-    isPaused: () => !authToken || !runId || !rule37Open,
   });
 
   const section17ListKey = useMemo(
     () =>
-      authReady && runId
+      authReady && runId && section17Open
         ? ([
             `/api/reconcile/runs/${runId}/section17?page=${section17Page}&limit=50`,
             authToken,
           ] as const)
         : null,
-    [authReady, runId, section17Page, authToken]
+    [authReady, runId, section17Page, authToken, section17Open]
   );
 
   const {
@@ -955,7 +958,6 @@ export default function ReconcileResultsPage() {
     mutate: mutateSection17,
   } = useSWR<Paginated<ReconcileRow>>(section17ListKey, authJsonFetcher, {
     revalidateOnFocus: false,
-    isPaused: () => !authToken || !runId || !section17Open,
   });
 
   const notesKey = useMemo(
@@ -1326,11 +1328,14 @@ export default function ReconcileResultsPage() {
         className="fixed left-0 right-0 top-0 z-50 border-b border-gray-200 bg-white px-4 py-3 shadow-sm"
       >
         {summaryLoading && <SummarySkeleton />}
-        {summaryError && (
+        {!summaryLoading && summaryError && (
           <SectionError
             message="Failed to load summary."
             onRetry={() => void mutateSummary()}
           />
+        )}
+        {!summaryLoading && !summaryError && !summary && (
+          <SummarySkeleton />
         )}
         {summary && !summaryError && (
           <div className="flex flex-wrap items-start justify-between gap-4">
