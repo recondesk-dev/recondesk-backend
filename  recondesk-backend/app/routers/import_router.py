@@ -298,7 +298,6 @@ async def import_gstr2b(
             "progress_percent": 0,
             "created_at": now,
             "updated_at": now,
-            "created_by": start_uid,
         }
         sb.table("reconciliation_run").insert(insert_row).execute()
 
