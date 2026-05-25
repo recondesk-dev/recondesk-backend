@@ -156,12 +156,46 @@ def _alias_matches(col_norm: str, alias_norm: str) -> bool:
     return col_norm == alias_norm or col_norm.startswith(alias_norm + " ")
 
 
+def _alias_match_quality(col_norm: str, alias_norm: str) -> tuple[int, int] | None:
+    """Score how well *alias_norm* matches *col_norm*.
+
+    Returns ``(tier, alias_length)`` where tier ``2`` is an exact header match and
+    tier ``1`` is a prefix match (alias plus trailing descriptor words).
+    ``None`` when there is no match.
+    """
+    if col_norm == alias_norm:
+        return (2, len(alias_norm))
+    if col_norm.startswith(alias_norm + " "):
+        return (1, len(alias_norm))
+    return None
+
+
+# When two standard fields share the same alias (e.g. ``"total amount"`` appears in
+# both ``taxable_amount`` and ``total_amount``), break ties in favour of the field
+# that owns that concept in purchase-register exports.
+_FIELD_MATCH_PRIORITY: dict[str, int] = {
+    "supplier_name": 50,
+    "gstin": 40,
+    "invoice_number": 50,
+    "invoice_date": 50,
+    "total_amount": 50,
+    "total_tax": 45,
+    "taxable_amount": 40,
+    "igst": 50,
+    "cgst": 50,
+    "sgst": 50,
+    "place_of_supply": 50,
+    "reverse_charge": 50,
+}
+
+
 def detect_column_mapping(df: pd.DataFrame) -> dict[str, str]:
     """Map standard field names to the actual column names present in *df*.
 
-    Matching uses a longest-alias-wins strategy so that a column named
-    ``"total tax"`` is preferred for ``total_tax`` (alias length 9) over
-    ``total_amount`` (alias ``"total"``, length 5).
+    Each source column is assigned to the standard field with the best match score:
+    exact header match beats prefix match; longer alias beats shorter; on remaining
+    ties, ``_FIELD_MATCH_PRIORITY`` prefers the more specific field (e.g.
+    ``total_amount`` over ``taxable_amount`` for a column named ``"Total Amount"``).
 
     Returns a dict ``{standard_name: original_column_name}``.
 
@@ -170,36 +204,42 @@ def detect_column_mapping(df: pd.DataFrame) -> dict[str, str]:
     """
     original_cols: list[str] = list(df.columns)
 
-    # Flatten all (std_name, alias_norm) pairs sorted longest alias first.
-    # Longest-first guarantees the most specific alias wins when multiple
-    # standard fields could match the same column.
-    all_aliases: list[tuple[str, str]] = sorted(
-        (
-            (std, normalize_header(a))
-            for std, aliases in COLUMN_ALIASES.items()
-            for a in aliases
-        ),
-        key=lambda t: len(t[1]),
-        reverse=True,
-    )
+    # std_name -> (tier, alias_len, priority, original_column)
+    column_matches: dict[str, tuple[int, int, int, str]] = {}
 
-    # For each column, find the single best (longest) matching standard field.
-    mapping: dict[str, str] = {}  # std_name -> first matched original column
     for orig_col in original_cols:
         col_norm = normalize_header(str(orig_col))
-        for std_name, alias_norm in all_aliases:
-            if _alias_matches(col_norm, alias_norm):
-                if std_name in mapping:
-                    logger.warning(
-                        "Field '%s' matched multiple columns [%s, %s] — "
-                        "using first occurrence.",
-                        std_name,
-                        mapping[std_name],
-                        orig_col,
-                    )
-                else:
-                    mapping[std_name] = orig_col
-                break  # stop at the longest match for this column
+        best: tuple[int, int, int, str] | None = None  # tier, alias_len, priority, std_name
+
+        for std_name, aliases in COLUMN_ALIASES.items():
+            priority = _FIELD_MATCH_PRIORITY.get(std_name, 0)
+            for alias in aliases:
+                alias_norm = normalize_header(alias)
+                quality = _alias_match_quality(col_norm, alias_norm)
+                if quality is None:
+                    continue
+                tier, alias_len = quality
+                candidate = (tier, alias_len, priority, std_name)
+                if best is None or candidate > best:
+                    best = candidate
+
+        if best is None:
+            continue
+
+        tier, alias_len, priority, std_name = best
+        prev = column_matches.get(std_name)
+        if prev is not None:
+            logger.warning(
+                "Field '%s' matched multiple columns [%s, %s] — "
+                "using first occurrence.",
+                std_name,
+                prev[3],
+                orig_col,
+            )
+        else:
+            column_matches[std_name] = (tier, alias_len, priority, orig_col)
+
+    mapping = {std: orig for std, (_, _, _, orig) in column_matches.items()}
 
     if "gstin" not in mapping and "invoice_number" not in mapping:
         raise ParseError("Cannot identify GSTIN or invoice number columns")
@@ -831,3 +871,34 @@ def parse_purchase_register_dataframe(
     if df_out is None:
         raise ParseError("no normalized dataframe produced")
     return df_out
+
+
+if __name__ == "__main__":
+    for key in ("supplier_name", "total_tax", "total_amount"):
+        print(f"COLUMN_ALIASES[{key!r}]:")
+        print(COLUMN_ALIASES[key])
+        print()
+
+    mock_headers = [
+        "Supplier GSTIN",
+        "Supplier Name",
+        "Invoice Number",
+        "Invoice Date",
+        "Taxable Amount",
+        "IGST",
+        "CGST",
+        "SGST",
+        "Total Invoice Value",
+    ]
+    df = pd.DataFrame(columns=mock_headers)
+    mapping = detect_column_mapping(df)
+    print("detect_column_mapping(mock headers):")
+    for std, col in mapping.items():
+        print(f"  {std}: {col!r}")
+
+    assert mapping.get("supplier_name") == "Supplier Name", mapping
+    total_col = mapping.get("total_amount") or mapping.get("total_tax")
+    assert total_col == "Total Invoice Value", mapping
+    assert mapping.get("taxable_amount") == "Taxable Amount", mapping
+    assert mapping.get("gstin") == "Supplier GSTIN", mapping
+    print("\nAll assertions passed.")
