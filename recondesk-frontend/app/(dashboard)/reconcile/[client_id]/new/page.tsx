@@ -15,6 +15,28 @@ import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 const MAX_UPLOAD = 20 * 1024 * 1024;
 const ACTIVE_STATUSES = ["draft", "gstr_uploaded", "pr_uploaded", "pending", "processing"] as const;
 
+const REQUIRED_MAPPING_FIELDS = [
+  "gstin",
+  "invoice_number",
+  "invoice_date",
+  "taxable_value",
+] as const;
+
+const OPTIONAL_MAPPING_FIELDS = ["total_tax", "supplier_name"] as const;
+
+const MAPPING_FIELD_LABELS: Record<string, string> = {
+  gstin: "GSTIN",
+  invoice_number: "Invoice number",
+  invoice_date: "Invoice date",
+  taxable_value: "Taxable value",
+  total_tax: "Total tax",
+  supplier_name: "Supplier name",
+};
+
+function isOptionalMappingField(field: string): boolean {
+  return (OPTIONAL_MAPPING_FIELDS as readonly string[]).includes(field);
+}
+
 function formatBytes(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) return "—";
   if (n < 1024) return `${n} B`;
@@ -544,17 +566,19 @@ export default function NewReconcileWizardPage() {
   );
   const warningsOk = sanityWarnings.length === 0 || sanityWarnings.every((w) => w.acknowledged);
 
-  const gstinRow = mappingLocal?.find((m) => m.standard_field === "gstin");
-  const invRow = mappingLocal?.find((m) => m.standard_field === "invoice_number");
   const requiredOk =
-    !!gstinRow?.detected_column &&
-    !!invRow?.detected_column &&
-    gstinRow.confidence !== "not_found" &&
-    invRow.confidence !== "not_found";
+    !!mappingLocal?.length &&
+    REQUIRED_MAPPING_FIELDS.every((field) => {
+      const row = mappingLocal.find((m) => m.standard_field === field);
+      return !!row?.detected_column && row.confidence !== "not_found";
+    });
   const lowOk =
     !mappingLocal ||
     mappingLocal.every((m) => {
-      if (!m.detected_column) return true;
+      if (isOptionalMappingField(m.standard_field)) {
+        if (!m.detected_column || m.confidence === "not_found") return true;
+      }
+      if (!m.detected_column) return false;
       if (m.confidence !== "low") return true;
       return m.confirmed;
     });
@@ -1054,18 +1078,43 @@ export default function NewReconcileWizardPage() {
                 </thead>
                 <tbody>
                   {mappingLocal.map((row) => {
+                    const optional = isOptionalMappingField(row.standard_field);
+                    const notFound =
+                      row.confidence === "not_found" || !row.detected_column;
+                    const optionalMissing = optional && notFound;
                     const highlight =
-                      row.confidence === "low" || row.confidence === "not_found" ? "bg-amber-50" : "";
-                    const badge =
-                      row.confidence === "high"
+                      optionalMissing
+                        ? ""
+                        : row.confidence === "low" || row.confidence === "not_found"
+                          ? "bg-amber-50"
+                          : "";
+                    const badge = optionalMissing
+                      ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                      : row.confidence === "high"
                         ? "bg-emerald-100 text-emerald-800"
                         : row.confidence === "medium"
                           ? "bg-amber-100 text-amber-900"
                           : "bg-red-100 text-red-800";
+                    const fieldLabel =
+                      MAPPING_FIELD_LABELS[row.standard_field] ?? row.standard_field;
                     return (
                       <tr key={row.standard_field} className={`border-b border-[var(--border)] ${highlight}`}>
-                        <td className="py-2 pr-3 font-medium">{row.standard_field}</td>
-                        <td className="py-2 pr-3">{row.detected_column ?? "—"}</td>
+                        <td className="py-2 pr-3 font-medium">
+                          {fieldLabel}
+                          {optional ? (
+                            <span className="ml-1.5 text-xs font-normal text-gray-500 dark:text-gray-400">
+                              (Optional)
+                            </span>
+                          ) : null}
+                        </td>
+                        <td
+                          className={`py-2 pr-3 ${
+                            optionalMissing ? "text-gray-500 dark:text-gray-400" : ""
+                          }`}
+                        >
+                          {row.detected_column ??
+                            (optionalMissing ? "Not found" : "—")}
+                        </td>
                         <td className="py-2 pr-3">
                           <span className={`rounded px-2 py-0.5 text-xs font-medium capitalize ${badge}`}>
                             {row.confidence.replace("_", " ")}
