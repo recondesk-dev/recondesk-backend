@@ -689,13 +689,19 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
             if "gstin" in column_mapping:
                 raw_gstin = row.get("gstin")
                 if raw_gstin is None:
+                    # Completely blank supplier GSTIN — row is meaningless, skip it.
                     row_errors.append("missing GSTIN")
                 else:
                     try:
                         gstin_value = normalize_gstin(str(raw_gstin))
                         gstin_valid = True
                     except NormalizationError:
-                        row_errors.append("invalid GSTIN")
+                        # Invalid format but non-blank: keep the row.
+                        # The row will be included in reconciliation and will
+                        # produce an "unmatched in 2B" outcome. Do NOT add to
+                        # row_errors — that would silently drop the row.
+                        gstin_value = str(raw_gstin).strip().upper() or None
+                        gstin_valid = False
 
             # invoice_number_normalized
             inv_raw: str | None = None
