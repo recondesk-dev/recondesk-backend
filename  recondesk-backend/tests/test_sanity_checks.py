@@ -64,6 +64,34 @@ def test_gstin_validity_fails_for_invalid_gstin():
     assert len(c.affected_records) >= 1
 
 
+# ── PR-specific GSTIN behaviour ──────────────────────────────────────────────
+
+def test_pr_malformed_gstin_is_warning_not_error():
+    """Malformed (but non-blank) supplier GSTINs in a PR must be warnings so the run is not blocked."""
+    bad = _base(gstin="27AAAPZ1234A1Z5EXTRA")  # too long → invalid format
+    checks = run_import_sanity([bad], expected_count=1, source_type="purchase_register")
+    c = _by_name(checks, "GSTIN Validity")
+    assert c.passed is False
+    assert c.severity == "warning"
+    assert len(c.affected_records) >= 1
+
+
+def test_pr_blank_gstin_is_error():
+    """A completely blank supplier GSTIN in a PR must still be an error — the row is meaningless."""
+    blank = _base(gstin="")
+    checks = run_import_sanity([blank], expected_count=1, source_type="purchase_register")
+    c = _by_name(checks, "GSTIN Validity")
+    assert c.passed is False
+    assert c.severity == "error"
+
+
+def test_pr_valid_gstin_passes():
+    checks = run_import_sanity([_base()], expected_count=1, source_type="purchase_register")
+    c = _by_name(checks, "GSTIN Validity")
+    assert c.passed is True
+    assert c.severity == "info"
+
+
 def test_tax_math_passes_within_500_paise_tolerance():
     # 100000 * 18 / 100 = 18000; off by 500 is still ok
     r = _base(total_tax_paise=18_500, tax_rate=18)

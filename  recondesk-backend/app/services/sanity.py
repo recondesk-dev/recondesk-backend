@@ -149,12 +149,18 @@ def _sample(records: list[dict], cap: int = 10) -> list[dict]:
     return [deepcopy(r) for r in records[:cap]]
 
 
+def _is_blank_gstin(value: Any) -> bool:
+    """True when the GSTIN field is completely absent or a known placeholder."""
+    s = normalize_string(value)
+    return not s or s in GSTIN_PLACEHOLDERS
+
+
 def run_import_sanity(
     records: list[dict],
     expected_count: int,
     source_type: str,
 ) -> list[SanityCheck]:
-    _ = source_type
+    is_pr = source_type == "purchase_register"
     n = len(records)
     out: list[SanityCheck] = []
 
@@ -175,24 +181,80 @@ def run_import_sanity(
     )
 
     # 2 — GSTIN Validity
-    bad_gstin: list[dict] = []
-    for rec in records:
-        if not is_valid_gstin(rec.get("gstin")):
-            bad_gstin.append(rec)
-    g_ok = len(bad_gstin) == 0
-    out.append(
-        SanityCheck(
-            name="GSTIN Validity",
-            passed=g_ok,
-            detail=(
-                "All records have valid normalized GSTIN."
-                if g_ok
-                else f"{len(bad_gstin)} record(s) have invalid GSTIN."
-            ),
-            severity="info" if g_ok else "error",
-            affected_records=_sample(bad_gstin),
+    #
+    # For purchase registers the `gstin` column is the *supplier* GSTIN.
+    # Supplier GSTINs in Tally/Busy exports are often slightly malformed
+    # (extra spaces, wrong check digit, test GSTINs) and must not block the
+    # run — they will simply produce an "unmatched in 2B" outcome.
+    #
+    # Rule applied for purchase_register:
+    #   • Blank / missing GSTIN on a row   → ERROR  (row is meaningless)
+    #   • Present but invalid format        → WARNING (row proceeds, may not match)
+    #
+    # For gstr2b the original strict-error behaviour is preserved.
+    if is_pr:
+        blank_gstin: list[dict] = []
+        malformed_gstin: list[dict] = []
+        for rec in records:
+            raw = rec.get("gstin")
+            if _is_blank_gstin(raw):
+                blank_gstin.append(rec)
+            elif not is_valid_gstin(raw):
+                malformed_gstin.append(rec)
+
+        if blank_gstin:
+            out.append(
+                SanityCheck(
+                    name="GSTIN Validity",
+                    passed=False,
+                    detail=f"{len(blank_gstin)} row(s) have a blank or missing supplier GSTIN and will be skipped.",
+                    severity="error",
+                    affected_records=_sample(blank_gstin),
+                )
+            )
+        elif malformed_gstin:
+            out.append(
+                SanityCheck(
+                    name="GSTIN Validity",
+                    passed=False,
+                    detail=(
+                        f"{len(malformed_gstin)} row(s) have a supplier GSTIN that does not match the "
+                        "standard 15-character format. These rows will be included in reconciliation "
+                        "but will not match any GSTR-2B record."
+                    ),
+                    severity="warning",
+                    affected_records=_sample(malformed_gstin),
+                )
+            )
+        else:
+            out.append(
+                SanityCheck(
+                    name="GSTIN Validity",
+                    passed=True,
+                    detail="All records have valid normalized GSTIN.",
+                    severity="info",
+                    affected_records=[],
+                )
+            )
+    else:
+        bad_gstin: list[dict] = []
+        for rec in records:
+            if not is_valid_gstin(rec.get("gstin")):
+                bad_gstin.append(rec)
+        g_ok = len(bad_gstin) == 0
+        out.append(
+            SanityCheck(
+                name="GSTIN Validity",
+                passed=g_ok,
+                detail=(
+                    "All records have valid normalized GSTIN."
+                    if g_ok
+                    else f"{len(bad_gstin)} record(s) have invalid GSTIN."
+                ),
+                severity="info" if g_ok else "error",
+                affected_records=_sample(bad_gstin),
+            )
         )
-    )
 
     # 3 — Tax Math (only when tax_rate is present: compare taxable × rate / 100 vs total tax)
     # Total tax = total_tax_paise if provided, else cgst + sgst + igst. No rate → skip row (not a failure).
