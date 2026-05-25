@@ -40,29 +40,65 @@ export async function fetchAccessTokenFromServer(): Promise<string | false> {
  * Subscribe to the JWT used for backend API calls.
  *
  * Emits `string` when authenticated, or `false` once we know there is no session
- * (never emits `null` — use React `useState(null)` for “still resolving”).
+ * (never emits `null` — use React `useState(null)` for "still resolving").
  *
  * Primary source: {@link fetchAccessTokenFromServer} (server reads cookies).
  * Secondary: `onAuthStateChange` when the browser client does see the session
  * (sign-in, refresh, sign-out in this tab).
+ *
+ * Safety guarantee: `onToken` is ALWAYS called within AUTH_TIMEOUT_MS even if
+ * Supabase is unreachable or throws — preventing the UI from hanging forever.
  */
+const AUTH_TIMEOUT_MS = 5_000;
+
 export function subscribeAccessToken(onToken: (accessToken: string | false) => void): () => void {
   let cancelled = false;
+  let emitted = false;
+
+  function emit(token: string | false) {
+    if (emitted || cancelled) return;
+    emitted = true;
+    onToken(token);
+  }
 
   const supabase = createClient();
 
+  // Safety net: if the session resolution hangs (network error, Supabase
+  // unreachable, environment misconfiguration), unblock the UI after timeout.
+  const safetyTimer =
+    typeof window !== "undefined"
+      ? window.setTimeout(() => {
+          if (!emitted) {
+            console.warn("[auth] token resolution timed out after", AUTH_TIMEOUT_MS, "ms — emitting false");
+            emit(false);
+          }
+        }, AUTH_TIMEOUT_MS)
+      : null;
+
   async function resolveToken(): Promise<void> {
-    if (cancelled) return;
-    const { data: sessionData } = await supabase.auth.getSession();
-    const session = sessionData.session;
-    if (cancelled) return;
-    if (session?.access_token) {
-      onToken(session.access_token);
-      return;
+    if (cancelled || emitted) return;
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (cancelled || emitted) return;
+      const token = sessionData.session?.access_token;
+      if (token) {
+        emit(token);
+        return;
+      }
+    } catch (err) {
+      // Browser client threw (network error, bad config) — fall through to
+      // the server-side route which reads HttpOnly session cookies.
+      console.warn("[auth] getSession() failed, trying server route:", err);
+      if (cancelled || emitted) return;
     }
-    const fromServer = await fetchAccessTokenFromServer();
-    if (cancelled) return;
-    onToken(typeof fromServer === "string" && fromServer.length > 0 ? fromServer : false);
+    try {
+      const fromServer = await fetchAccessTokenFromServer();
+      if (cancelled || emitted) return;
+      emit(typeof fromServer === "string" && fromServer.length > 0 ? fromServer : false);
+    } catch (err) {
+      console.warn("[auth] fetchAccessTokenFromServer() failed:", err);
+      emit(false);
+    }
   }
 
   void resolveToken();
@@ -72,13 +108,15 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
   } = supabase.auth.onAuthStateChange((event, session) => {
     if (cancelled) return;
     if (event === "SIGNED_OUT") {
-      onToken(false);
+      emit(false);
       return;
     }
     if (session?.access_token) {
-      onToken(session.access_token);
+      emit(session.access_token);
       return;
     }
+    // INITIAL_SESSION or TOKEN_REFRESHED with no browser-visible session:
+    // session may be in HttpOnly cookies — ask the server route.
     if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") {
       void resolveToken();
     }
@@ -86,6 +124,7 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
 
   return () => {
     cancelled = true;
+    if (safetyTimer !== null) window.clearTimeout(safetyTimer);
     subscription.unsubscribe();
   };
 }
