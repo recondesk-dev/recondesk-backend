@@ -548,17 +548,18 @@ export default function ReconcileResultsPage() {
   const runId = typeof params.run_id === "string" ? params.run_id : "";
 
   const tokenState = useAccessToken();
+  // null  = still resolving (show skeleton)
+  // false = resolved, no session (middleware should redirect, but guard anyway)
+  // string = resolved, authenticated
+  const authLoading = tokenState === null;
   const authToken =
     typeof tokenState === "string" && tokenState.length > 0
       ? tokenState
       : null;
 
   useEffect(() => {
-    console.log(
-      "results page token:",
-      authToken ? authToken.slice(0, 20) : "NULL"
-    );
-  }, [authToken]);
+    console.log("[results] tokenState:", tokenState === null ? "null (loading)" : tokenState === false ? "false (no session)" : `"${String(tokenState).slice(0, 20)}..."`);
+  }, [tokenState]);
 
   const [riskPage, setRiskPage] = useState(1);
   const [itcPage, setItcPage] = useState(1);
@@ -798,6 +799,10 @@ export default function ReconcileResultsPage() {
     [authReady, runId, authToken]
   );
 
+  useEffect(() => {
+    console.log("[results] authReady:", authReady, "| summaryKey:", summaryKey ? summaryKey[0] : "null (waiting for auth)");
+  }, [authReady, summaryKey]);
+
   const {
     data: summary,
     error: summaryError,
@@ -805,7 +810,6 @@ export default function ReconcileResultsPage() {
     mutate: mutateSummary,
   } = useSWR<RunSummary>(summaryKey, authJsonFetcher, {
     revalidateOnFocus: false,
-    isPaused: () => !authToken || !runId,
   });
 
   const isRunFinalized = Boolean(
@@ -1327,14 +1331,17 @@ export default function ReconcileResultsPage() {
         ref={summaryRef}
         className="fixed left-0 right-0 top-0 z-50 border-b border-gray-200 bg-white px-4 py-3 shadow-sm"
       >
-        {summaryLoading && <SummarySkeleton />}
-        {!summaryLoading && summaryError && (
+        {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
+        {(authLoading || summaryLoading) && <SummarySkeleton />}
+        {!authLoading && !summaryLoading && summaryError && (
           <SectionError
             message="Failed to load summary."
             onRetry={() => void mutateSummary()}
           />
         )}
-        {!summaryLoading && !summaryError && !summary && (
+        {/* Auth resolved with a token but summary not yet populated — brief
+            retry window; only shown when we are actually authenticated. */}
+        {!authLoading && !summaryLoading && !summaryError && !summary && authReady && (
           <SummarySkeleton />
         )}
         {summary && !summaryError && (
