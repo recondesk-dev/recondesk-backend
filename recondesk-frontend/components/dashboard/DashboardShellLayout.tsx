@@ -226,7 +226,7 @@ export default function DashboardShellLayout({
 
   return (
     <div className="flex min-h-screen min-w-[1280px] bg-[var(--bg)] text-[var(--text-primary)]">
-      <aside className="fixed inset-y-0 left-0 flex w-[240px] flex-col bg-[var(--sidebar)] text-white">
+      <aside className="fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col bg-[var(--sidebar)] text-white">
         <div className="flex items-center gap-2 px-5 py-6">
           <span className="text-lg font-semibold tracking-tight" style={{ fontWeight: 600 }}>
             ReconDesk
