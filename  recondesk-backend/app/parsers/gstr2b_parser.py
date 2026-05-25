@@ -10,8 +10,11 @@ Sections isd and impg are silently ignored.
 
 import datetime
 import json
+import logging
 import re
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from app.services.normalizer import (
     ALLOWED_NOTES,
@@ -639,6 +642,75 @@ def _process_section(
 
 
 # ---------------------------------------------------------------------------
+# Portal layout normalization (fp / gstin aliases)
+# ---------------------------------------------------------------------------
+
+def _resolve_rtnprd(root: dict, parent: dict) -> None:
+    """Set ``root['rtnprd']`` from GST portal period fields if missing.
+
+    GSTN exports use ``fp`` (filing period) as MMYYYY, e.g. ``042026`` for Apr 2026.
+    It may appear on ``data`` (``data.fp``) or the JSON root (``fp``), not only as
+    ``rtnprd``.
+    """
+    if root.get("rtnprd"):
+        return
+    for source in (root, parent):
+        for key in ("fp", "ret_period", "rtnprd"):
+            val = source.get(key)
+            if val is not None and str(val).strip():
+                root["rtnprd"] = str(val).strip()
+                return
+
+
+def normalize_gstr2b_payload(data: dict) -> dict:
+    """Apply portal layout aliases in-place before ``parse_gstr2b``.
+
+    - Buyer GSTIN: ``data.gstin`` or top-level ``gstnId`` / ``gstin``
+    - Period: ``data.fp`` / ``data.rtnprd`` or top-level ``fp`` / ``ret_period``
+    - Sections: ``data.docdata.b2b`` merged into ``data.b2b`` when needed
+    """
+    if not isinstance(data, dict) or "data" not in data:
+        return data
+
+    root = data["data"]
+    if not isinstance(root, dict):
+        return data
+
+    if not root.get("gstin"):
+        top_gst = data.get("gstnId") or data.get("gstin")
+        if top_gst:
+            root["gstin"] = top_gst
+
+    _resolve_rtnprd(root, data)
+
+    docdata = root.get("docdata")
+    if isinstance(docdata, dict):
+        for key in ("b2b", "b2ba", "cdnr", "cdnra"):
+            if key not in root or root.get(key) in (None, [], {}):
+                if docdata.get(key) not in (None, [], {}):
+                    root[key] = docdata[key]
+
+    return data
+
+
+def _parse_rtnprd(rtnprd: str) -> datetime.date:
+    """Parse GST filing period string to the first day of that month.
+
+    Supports MMYYYY (``042026`` → 2026-04-01) and YYYYMM (``202604``).
+    """
+    s = str(rtnprd).strip()
+    if len(s) != 6 or not s.isdigit():
+        raise ValueError("invalid_rtnprd")
+
+    a, b = int(s[:2]), int(s[2:])
+    if 1 <= a <= 12:
+        return datetime.date(b, a, 1)
+    if 1 <= b <= 12:
+        return datetime.date(a, b, 1)
+    raise ValueError("invalid_rtnprd")
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -676,28 +748,11 @@ def parse_gstr2b(file_content) -> dict:
     if "data" not in data:
         raise ValueError("missing_data_key")
 
+    data = normalize_gstr2b_payload(data)
     root = data["data"]
 
     if not isinstance(root, dict):
         raise ValueError("invalid_data_structure")
-
-    # Normalize common GST portal / JSON-tool layouts: gstnId+fp on the parent object,
-    # invoice sections nested under data.docdata.
-    if not root.get("gstin"):
-        top_gst = data.get("gstnId") or data.get("gstin")
-        if top_gst:
-            root["gstin"] = top_gst
-    if not root.get("rtnprd"):
-        fp = data.get("fp") or data.get("ret_period")
-        if fp is not None:
-            root["rtnprd"] = str(fp)
-
-    docdata = root.get("docdata")
-    if isinstance(docdata, dict):
-        for key in ("b2b", "b2ba", "cdnr", "cdnra"):
-            if key not in root or root.get(key) in (None, [], {}):
-                if docdata.get(key) not in (None, [], {}):
-                    root[key] = docdata[key]
 
     if not root.get("gstin"):
         raise ValueError("missing_gstin")
@@ -707,11 +762,17 @@ def parse_gstr2b(file_content) -> dict:
 
     rtnprd = root["rtnprd"]
     try:
-        month = int(rtnprd[:2])
-        year = int(rtnprd[2:])
-        period = datetime.date(year, month, 1)
-    except (ValueError, IndexError):
-        raise ValueError("invalid_rtnprd")
+        period = _parse_rtnprd(rtnprd)
+    except ValueError:
+        raise ValueError("invalid_rtnprd") from None
+
+    logger.debug(
+        "gstr2b parse: buyer_gstin=%s rtnprd=%s period=%s b2b_suppliers=%s",
+        root.get("gstin"),
+        rtnprd,
+        period.isoformat(),
+        len(root.get("b2b") or []) if isinstance(root.get("b2b"), list) else 0,
+    )
 
     raw_buyer_gstin = root["gstin"]
     try:
@@ -777,7 +838,7 @@ def parse_gstr2b(file_content) -> dict:
         "normalization_note_frequency": normalization_note_frequency,
     }
 
-    return {
+    result = {
         "schema_version": SCHEMA_VERSION,
         "buyer_gstin": buyer_gstin,
         "period": period.isoformat() if isinstance(period, datetime.date) else str(period),
@@ -788,3 +849,10 @@ def parse_gstr2b(file_content) -> dict:
         "total_skipped": total_skipped,
         "metrics": metrics,
     }
+    logger.debug(
+        "gstr2b parse result: parsed=%s skipped=%s sections=%s",
+        total_parsed,
+        total_skipped,
+        sections_present,
+    )
+    return result

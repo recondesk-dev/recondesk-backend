@@ -201,6 +201,24 @@ def test_rtnprd_042024_parses_to_april_2024():
     assert result["period"] == "2024-04-01"
 
 
+def test_data_fp_alias_parses_b2b_invoices():
+    """GST portal JSON often uses data.fp (MMYYYY) instead of data.rtnprd."""
+    payload = _enc(
+        {
+            "data": {
+                "gstin": BUYER_GSTIN,
+                "fp": "042024",
+                "b2b": [_supplier(SUPPLIER_1, [_invoice()])],
+            },
+            "status_cd": "P",
+        }
+    )
+    result = parse_gstr2b(payload)
+    assert result["period"] == "2024-04-01"
+    assert result["total_parsed"] == 1
+    assert result["records"][0]["section"] == "b2b"
+
+
 def test_rev_y_sets_reverse_charge_true():
     result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(rev="Y")])]))
     assert result["records"][0]["reverse_charge"] is True

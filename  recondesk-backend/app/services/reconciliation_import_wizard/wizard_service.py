@@ -7,7 +7,6 @@ import io
 import json
 import logging
 import re
-import time
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Optional
@@ -178,10 +177,12 @@ def another_processing_run(sb: Client, client_id: str, period_iso: str, exclude_
 
 
 def run_sanity_gstr2b_json(raw: bytes) -> tuple[list[dict[str, Any]], int]:
-    """Return checks list per API contract and parsed top-level record count."""
+    """Return checks list per API contract and parsed invoice record count."""
+    from app.parsers.gstr2b_parser import parse_gstr2b
+
     checks: list[dict[str, Any]] = []
     try:
-        data = json.loads(raw.decode("utf-8"))
+        json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         checks.append(
             {
@@ -204,34 +205,46 @@ def run_sanity_gstr2b_json(raw: bytes) -> tuple[list[dict[str, Any]], int]:
         }
     )
 
-    # Minimal structure probe (portal exports vary)
-    if isinstance(data, dict):
-        b2b = data.get("data") or data.get("b2b") or data
-        rows = b2b if isinstance(b2b, list) else []
-    elif isinstance(data, list):
-        rows = data
-    else:
-        rows = []
+    try:
+        parsed = parse_gstr2b(raw)
+    except ValueError as exc:
+        checks.append(
+            {
+                "id": "records",
+                "label": "Records present",
+                "status": "error",
+                "detail": str(exc),
+                "affected_records": [],
+            }
+        )
+        return checks, 0
 
-    record_count = len(rows) if rows else 0
+    record_count = int(parsed.get("total_parsed") or 0)
+    skipped = int(parsed.get("total_skipped") or 0)
 
-    if not rows:
+    if record_count == 0:
+        detail = "No B2B/CDN invoices parsed."
+        if skipped:
+            detail += f" {skipped} invoice(s) skipped — check export format."
         checks.append(
             {
                 "id": "records",
                 "label": "Records present",
                 "status": "warning",
-                "detail": "No B2B records found in expected shape; verify portal export.",
+                "detail": detail,
                 "affected_records": [],
             }
         )
     else:
+        detail = f"{record_count} invoice(s) parsed."
+        if skipped:
+            detail += f" {skipped} skipped."
         checks.append(
             {
                 "id": "records",
                 "label": "Records present",
                 "status": "pass",
-                "detail": f"{record_count} top-level entries parsed.",
+                "detail": detail,
                 "affected_records": [],
             }
         )
@@ -308,32 +321,80 @@ def detect_pr_columns_from_r2(key: str, filename: str) -> tuple[list[dict], list
     return columns_out, headers, row_count
 
 
+def _set_wizard_progress(sb: Client, run_id: str, pct: int, msg: str) -> None:
+    sb.table(T_RUNS).update(
+        {
+            "progress_pct": pct,
+            "status_message": msg,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ).eq("id", run_id).execute()
+
+
 def schedule_processing_job(run_id: str) -> None:
-    """Background progress simulation; replace with Celery reconciliation task."""
+    """Parse uploaded files, run reconciliation, and mark wizard run complete."""
 
     def _work() -> None:
+        from app.worker.tasks import run_import_job
+        from app.worker.reconciliation_task import execute_reconciliation
+
         sb = get_supabase()
         row = fetch_run(sb, run_id)
         actor = str(row.get("created_by") or row.get("firm_owner_id") or "")
         if not actor:
             actor = "00000000-0000-0000-0000-000000000000"
-        steps = [
-            (15, "Reading GSTR-2B…"),
-            (40, "Reading purchase register…"),
-            (70, "Matching invoices…"),
-            (95, "Finalising…"),
-            (100, "Complete"),
-        ]
+
         try:
-            for pct, msg in steps:
-                time.sleep(1.5)
-                sb.table(T_RUNS).update(
+            client_id = str(row.get("client_id") or "").strip()
+            period = str(row.get("period") or "").strip()
+            gstr2b_key = str(row.get("gstr2b_r2_key") or "").strip()
+            pr_key = str(row.get("pr_r2_key") or "").strip()
+
+            if not client_id or not period or not gstr2b_key or not pr_key:
+                raise ValueError(
+                    "wizard run is missing required fields "
+                    f"(client_id={client_id!r}, period={period!r}, "
+                    f"gstr2b_r2_key={gstr2b_key!r}, pr_r2_key={pr_key!r})"
+                )
+
+            now = datetime.now(timezone.utc).isoformat()
+
+            # Create the reconciliation_run entry that the results page reads from.
+            existing = (
+                sb.table("reconciliation_run")
+                .select("id, status")
+                .eq("id", run_id)
+                .limit(1)
+                .execute()
+            )
+            if not existing.data:
+                sb.table("reconciliation_run").insert(
                     {
-                        "progress_pct": pct,
-                        "status_message": msg,
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                        "id": run_id,
+                        "client_gstin_id": client_id,
+                        "period": period,
+                        "status": "uploading",
+                        "progress_percent": 0,
+                        "created_at": now,
+                        "updated_at": now,
+                        "created_by": actor,
                     }
-                ).eq("id", run_id).execute()
+                ).execute()
+
+            _set_wizard_progress(sb, run_id, 10, "Reading GSTR-2B…")
+            run_import_job.apply(args=[run_id, "gstr2b", gstr2b_key])
+
+            _set_wizard_progress(sb, run_id, 45, "Reading purchase register…")
+            run_import_job.apply(args=[run_id, "purchase_register", pr_key])
+
+            _set_wizard_progress(sb, run_id, 70, "Matching invoices…")
+            sb.table("reconciliation_run").update(
+                {"status": "MATCHING", "updated_at": datetime.now(timezone.utc).isoformat()}
+            ).eq("id", run_id).execute()
+
+            execute_reconciliation.apply(args=[run_id])
+
+            _set_wizard_progress(sb, run_id, 95, "Finalising…")
             transition_run(
                 sb,
                 run_id,
@@ -346,8 +407,9 @@ def schedule_processing_job(run_id: str) -> None:
                 audit_event="processing_complete",
                 audit_detail={},
             )
+
         except Exception as e:  # noqa: BLE001
-            _log.exception("wizard job failed")
+            _log.exception("wizard job failed for run_id=%s", run_id)
             try:
                 row2 = fetch_run(sb, run_id)
                 actor2 = str(row2.get("created_by") or row2.get("firm_owner_id") or actor)
