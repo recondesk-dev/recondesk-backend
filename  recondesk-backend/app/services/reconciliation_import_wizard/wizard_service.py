@@ -346,16 +346,19 @@ def schedule_processing_job(run_id: str) -> None:
 
         try:
             client_id = str(row.get("client_id") or "").strip()
-            period = str(row.get("period") or "").strip()
+            period_raw = str(row.get("period") or "").strip()
             gstr2b_key = str(row.get("gstr2b_r2_key") or "").strip()
             pr_key = str(row.get("pr_r2_key") or "").strip()
 
-            if not client_id or not period or not gstr2b_key or not pr_key:
+            if not client_id or not period_raw or not gstr2b_key or not pr_key:
                 raise ValueError(
                     "wizard run is missing required fields "
-                    f"(client_id={client_id!r}, period={period!r}, "
+                    f"(client_id={client_id!r}, period={period_raw!r}, "
                     f"gstr2b_r2_key={gstr2b_key!r}, pr_r2_key={pr_key!r})"
                 )
+
+            # reconciliation_task._parse_period expects "YYYY-MM"; wizard stores "YYYY-MM-DD".
+            period = period_raw[:7]
 
             now = datetime.now(timezone.utc).isoformat()
 
@@ -381,17 +384,17 @@ def schedule_processing_job(run_id: str) -> None:
                 ).execute()
 
             _set_wizard_progress(sb, run_id, 10, "Reading GSTR-2B…")
-            run_import_job.apply(args=[run_id, "gstr2b", gstr2b_key])
+            run_import_job.apply(args=[run_id, "gstr2b", gstr2b_key]).get()
 
             _set_wizard_progress(sb, run_id, 45, "Reading purchase register…")
-            run_import_job.apply(args=[run_id, "purchase_register", pr_key])
+            run_import_job.apply(args=[run_id, "purchase_register", pr_key]).get()
 
             _set_wizard_progress(sb, run_id, 70, "Matching invoices…")
             sb.table("reconciliation_run").update(
                 {"status": "MATCHING", "updated_at": datetime.now(timezone.utc).isoformat()}
             ).eq("id", run_id).execute()
 
-            execute_reconciliation.apply(args=[run_id])
+            execute_reconciliation.apply(args=[run_id]).get()
 
             _set_wizard_progress(sb, run_id, 95, "Finalising…")
             transition_run(
