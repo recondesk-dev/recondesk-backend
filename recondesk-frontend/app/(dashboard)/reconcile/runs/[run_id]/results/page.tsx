@@ -838,7 +838,6 @@ export default function ReconcileResultsPage() {
     mutate: mutateItc,
   } = useSWR<Paginated<ReconcileRow>>(itcListKey, authJsonFetcher, {
     revalidateOnFocus: false,
-    isPaused: () => !authToken || !runId,
   });
 
   const riskListQuery = useMemo(
@@ -862,7 +861,6 @@ export default function ReconcileResultsPage() {
     mutate: mutateRisk,
   } = useSWR<Paginated<ReconcileRow>>(riskListKey, authJsonFetcher, {
     revalidateOnFocus: false,
-    isPaused: () => !authToken || !runId,
   });
 
   const lateMatchesKey = useMemo(
@@ -884,16 +882,7 @@ export default function ReconcileResultsPage() {
   } = useSWR<{ data: LateMatchRow[]; total: number }>(
     lateMatchesKey,
     authJsonFetcher,
-    {
-      revalidateOnFocus: false,
-      isPaused: () =>
-        !authToken ||
-        !runId ||
-        !(
-          typeof summary?.late_match_count === "number" &&
-          summary.late_match_count > 0
-        ),
-    }
+    { revalidateOnFocus: false }
   );
 
   const matchedQuery = useMemo(
@@ -910,6 +899,13 @@ export default function ReconcileResultsPage() {
     [authReady, runId, matchedQuery, authToken]
   );
 
+  useEffect(() => {
+    console.log(
+      "[results] matchedKey:",
+      matchedKey ? matchedKey[0] : "null (waiting for auth)"
+    );
+  }, [matchedKey]);
+
   const {
     data: matchedData,
     error: matchedError,
@@ -917,7 +913,10 @@ export default function ReconcileResultsPage() {
     mutate: mutateMatched,
   } = useSWR<Paginated<ReconcileRow>>(matchedKey, authJsonFetcher, {
     revalidateOnFocus: false,
-    isPaused: () => !authToken || !runId,
+    // isPaused removed: key is already null when auth isn't ready, so isPaused
+    // is redundant. In SWR v2 the isPaused closure can capture a stale
+    // authToken=null when the key transitions null→non-null, silently blocking
+    // the fetch and leaving matchedData undefined forever.
   });
 
   // Keys are null until the accordion is opened — this guarantees SWR
@@ -978,7 +977,6 @@ export default function ReconcileResultsPage() {
     mutate: mutateDrawerNotes,
   } = useSWR<Note[]>(notesKey, authJsonFetcher, {
     revalidateOnFocus: false,
-    isPaused: () => !authToken || !activeRecord,
   });
 
   const effectiveStatus = useCallback(
