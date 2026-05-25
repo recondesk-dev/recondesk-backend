@@ -6,7 +6,6 @@ import { useParams, useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -779,15 +778,6 @@ export default function ReconcileResultsPage() {
   }, [finalizeModalOpen]);
 
   const summaryRef = useRef<HTMLDivElement>(null);
-  const [summaryBarHeight, setSummaryBarHeight] = useState(0);
-  useLayoutEffect(() => {
-    const el = summaryRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setSummaryBarHeight(el.offsetHeight));
-    ro.observe(el);
-    setSummaryBarHeight(el.offsetHeight);
-    return () => ro.disconnect();
-  }, []);
 
   const authReady = Boolean(authToken);
 
@@ -1320,19 +1310,17 @@ export default function ReconcileResultsPage() {
   }
 
   return (
-    <div
-      className="min-h-screen bg-gray-50 pb-28"
-      style={{
-        // The shell header is h-16 (64px, non-fixed) + main has p-8 (32px top).
-        // Content already starts at ~96px from viewport top — we only need
-        // extra padding when the sticky bar is taller than that baseline.
-        paddingTop: summaryBarHeight > 0 ? Math.max(0, summaryBarHeight - 88) + 8 : 8,
-      }}
-    >
-      {/* Sticky summary — starts after the sidebar so it never covers the logo */}
+    <div className="min-h-screen bg-gray-50 pb-28">
+      {/*
+        Summary bar — sticky (not fixed) so it lives in normal document flow.
+        -mt-8 and -mx-8 cancel main's p-8 padding so the bar is flush with
+        the shell header's bottom edge and spans the full content column width.
+        -top-8 makes it stick at the header's bottom (y=64) rather than the
+        content-box top (y=96), so the dashboard header stays fully visible.
+      */}
       <div
         ref={summaryRef}
-        className="fixed left-[240px] right-0 top-0 z-40 border-b border-gray-200 bg-white px-6 py-3 shadow-sm"
+        className="sticky -top-8 -mx-8 -mt-8 z-40 border-b border-gray-200 bg-white px-6 py-3 shadow-sm"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
