@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DM_Sans, Space_Mono } from "next/font/google";
 
+import { KeepAlive } from "@/components/KeepAlive";
 import { RootProviders } from "@/components/providers/RootProviders";
 
 import "./globals.css";
@@ -33,6 +34,7 @@ export default function RootLayout({
     <html lang="en" className={`${dmSans.variable} ${spaceMono.variable} scroll-smooth`}>
       <body className="min-w-0 font-sans antialiased">
         <RootProviders>{children}</RootProviders>
+        <KeepAlive />
       </body>
     </html>
   );
