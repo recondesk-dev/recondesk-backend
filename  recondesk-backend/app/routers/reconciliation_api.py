@@ -693,9 +693,16 @@ def _build_reconcile_summary(
 ) -> dict[str, Any]:
     rid = str(run_row.get("id", "")).strip()
     engine = payload.get("engine") or {}
-    gstr_m = ro.load_gstr_map(sb, rid)
     matched_n = len(engine.get("matched") or [])
-    n_g = len(gstr_m)
+    # Count gstr_records with a single COUNT query instead of fetching all rows.
+    _cnt = (
+        sb.table("gstr_records")
+        .select("id", count="exact")
+        .eq("run_id", rid)
+        .limit(1)
+        .execute()
+    )
+    n_g = int(_cnt.count if getattr(_cnt, "count", None) is not None else len(_cnt.data or []))
 
     matched_count = matched_n
     missed_list = engine.get("missed_itc") or []
