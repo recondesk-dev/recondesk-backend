@@ -83,7 +83,8 @@ function itcAtRiskRupee(row: ReconcileRunListRow): number | null {
     for (const k of ["itc_at_risk_paise", "itc_at_risk", "missed_itc_paise"] as const) {
       const v = m[k];
       if (typeof v === "number" && !Number.isNaN(v)) {
-        return k.includes("paise") ? v / 100 : v;
+        // All backend *_paise and itc_at_risk fields are stored as integer paise.
+        return paiseToRupee(v);
       }
     }
   }
