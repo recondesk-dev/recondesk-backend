@@ -11,6 +11,7 @@ import re
 from collections import Counter
 from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional, TypeVar
+from urllib.parse import unquote
 
 TSeq = TypeVar("TSeq")
 
@@ -673,6 +674,172 @@ def _notes_count_for_run(sb, run_id: str) -> Counter[str]:
         if cid is not None and str(cid):
             c[str(cid)] += 1
     return c
+
+
+def _normalize_record_id(record_id: str) -> str:
+    """URL-decode a path ``record_id`` (handles single and double encoding)."""
+    decoded = str(record_id or "").strip()
+    for _ in range(3):
+        next_val = unquote(decoded)
+        if next_val == decoded:
+            break
+        decoded = next_val
+    return decoded
+
+
+def _is_schema_compat_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return any(
+        token in msg
+        for token in (
+            "pgrst204",
+            "42703",
+            "column",
+            "note_type",
+            "firm_owner_id",
+            "severity",
+            "status",
+        )
+    )
+
+
+def _upsert_rule37_action(
+    sb,
+    *,
+    run_id: str,
+    record_id: str,
+    status_value: str,
+    user_id: str,
+) -> None:
+    """Persist a Rule 37 action in ``mismatch_notes`` (schema-tolerant)."""
+    now = datetime.now(timezone.utc).isoformat()
+    note_id: str | None = None
+
+    for use_note_type in (True, False):
+        try:
+            q = (
+                sb.table("mismatch_notes")
+                .select("id")
+                .eq("run_id", run_id)
+                .eq("record_id", record_id)
+            )
+            if use_note_type:
+                q = q.eq("note_type", "rule37_action")
+            res = q.limit(1).execute()
+            if res.data:
+                note_id = str((res.data[0] or {}).get("id") or "")
+            break
+        except Exception as exc:
+            if use_note_type and _is_schema_compat_error(exc):
+                _log.warning(
+                    "rule37 action lookup: note_type filter unavailable run_id=%s",
+                    run_id,
+                )
+                continue
+            _log.exception(
+                "rule37 action lookup failed run_id=%s record_id=%s",
+                run_id,
+                record_id,
+            )
+            raise
+
+    if note_id:
+        for fields in (
+            {"note": status_value, "user_id": user_id, "severity": "low", "created_at": now},
+            {"note": status_value, "user_id": user_id, "status": status_value},
+            {"note": status_value, "user_id": user_id},
+        ):
+            try:
+                sb.table("mismatch_notes").update(fields).eq("id", note_id).execute()
+                return
+            except Exception as exc:
+                if _is_schema_compat_error(exc):
+                    continue
+                _log.exception(
+                    "rule37 action update failed run_id=%s record_id=%s",
+                    run_id,
+                    record_id,
+                )
+                raise
+        return
+
+    ins: dict[str, Any] = {
+        "record_id": record_id,
+        "run_id": run_id,
+        "user_id": user_id,
+        "firm_owner_id": user_id,
+        "note": status_value,
+        "record_type": "pr",
+        "note_type": "rule37_action",
+        "severity": "low",
+        "status": status_value,
+        "created_at": now,
+    }
+    while True:
+        try:
+            sb.table("mismatch_notes").insert(ins).execute()
+            return
+        except Exception as exc:
+            msg = str(exc)
+            _log.warning(
+                "rule37 action insert attempt failed run_id=%s record_id=%s keys=%s err=%s",
+                run_id,
+                record_id,
+                sorted(ins.keys()),
+                msg,
+            )
+            if "firm_owner_id" in msg and "firm_owner_id" in ins:
+                ins.pop("firm_owner_id", None)
+                continue
+            if "note_type" in msg and "note_type" in ins:
+                ins.pop("note_type", None)
+                continue
+            if "severity" in msg and "severity" in ins:
+                ins.pop("severity", None)
+                continue
+            if "status" in msg and "status" in ins:
+                ins.pop("status", None)
+                continue
+            _log.exception(
+                "rule37 action insert failed run_id=%s record_id=%s",
+                run_id,
+                record_id,
+            )
+            raise
+
+
+def _rule37_record_exists_in_run(
+    sb,
+    rid: str,
+    rec_id: str,
+    payload: dict[str, Any],
+    notes: Counter[str],
+) -> bool:
+    rows_payload = _build_rule37_rows(sb, rid, payload, notes)
+    if any(_normalize_record_id(str(row.get("id") or "")) == rec_id for row in rows_payload):
+        return True
+    if not rec_id.startswith("r37:"):
+        return False
+    pr_id_part = rec_id[4:]
+    # Hash-based ids (r37:h:…) only exist in the payload JSON.
+    if pr_id_part.startswith("h:"):
+        return False
+    for run_col in ("run_id", "reconciliation_run_id"):
+        for col in ("pr_id", "id"):
+            try:
+                res = (
+                    sb.table("rule37_warnings")
+                    .select("id")
+                    .eq(run_col, rid)
+                    .eq(col, pr_id_part)
+                    .limit(1)
+                    .execute()
+                )
+                if res.data:
+                    return True
+            except Exception:
+                continue
+    return False
 
 
 def _rule37_actions_for_run(sb, run_id: str) -> dict[str, str]:
@@ -2408,126 +2575,64 @@ async def reconcile_run_rule37_action(
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
-    rec_id = str(record_id).strip()
+    rec_id = _normalize_record_id(record_id)
     if not rec_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="missing record_id",
         )
-    sb = get_supabase()
-    run_row = assert_run_accessible(sb, rid, current_user)
-    if bool(run_row.get("is_locked")) or str(run_row.get("status") or "").upper() == RunStatus.FINAL:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="locked or final runs cannot be modified",
+    try:
+        sb = get_supabase()
+        run_row = assert_run_accessible(sb, rid, current_user)
+        if bool(run_row.get("is_locked")) or str(run_row.get("status") or "").upper() == RunStatus.FINAL:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="locked or final runs cannot be modified",
+            )
+
+        p = _payload_or_404(sb, rid)
+        notes = _notes_count_for_run(sb, rid)
+
+        if not _rule37_record_exists_in_run(sb, rid, rec_id, p, notes):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="rule37 record not found",
+            )
+
+        uid = str(current_user.get("id") or "").strip()
+        if not uid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="missing user id",
+            )
+
+        _upsert_rule37_action(
+            sb,
+            run_id=rid,
+            record_id=rec_id,
+            status_value=body.status,
+            user_id=uid,
         )
-
-    p = _payload_or_404(sb, rid)
-    notes = _notes_count_for_run(sb, rid)
-
-    # Validate that the record belongs to this run.
-    # The GET endpoint uses _try_rule37_via_table first (rule37_warnings table),
-    # then falls back to _build_rule37_rows (payload JSON). The PATCH must
-    # accept records from either source.
-    rows_payload = _build_rule37_rows(sb, rid, p, notes)
-    record_found = any(str(row.get("id") or "") == rec_id for row in rows_payload)
-    if not record_found:
-        # Try the table-based source: extract pr_id from "r37:{pr_id}" and
-        # check the rule37_warnings table directly.
-        pr_id_part = rec_id[4:] if rec_id.startswith("r37:") else ""
-        if pr_id_part:
-            for col in ("pr_id", "id"):
-                try:
-                    res = (
-                        sb.table("rule37_warnings")
-                        .select("id")
-                        .eq("run_id", rid)
-                        .eq(col, pr_id_part)
-                        .limit(1)
-                        .execute()
-                    )
-                    if res.data:
-                        record_found = True
-                        break
-                except Exception:
-                    continue
-            if not record_found:
-                # Also try the reconciliation_run_id column name variant
-                for col in ("pr_id", "id"):
-                    try:
-                        res = (
-                            sb.table("rule37_warnings")
-                            .select("id")
-                            .eq("reconciliation_run_id", rid)
-                            .eq(col, pr_id_part)
-                            .limit(1)
-                            .execute()
-                        )
-                        if res.data:
-                            record_found = True
-                            break
-                    except Exception:
-                        continue
-
-    if not record_found:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="rule37 record not found",
+        now = datetime.now(timezone.utc).isoformat()
+        return Rule37ActionResponse(
+            id=rec_id,
+            status=body.status,
+            acted_by=uid,
+            acted_at=now,
         )
-
-    uid = str(current_user.get("id") or "").strip()
-    if not uid:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="missing user id",
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _log.exception(
+            "rule37 PATCH failed run_id=%s record_id=%s (raw=%s)",
+            run_id,
+            rec_id,
+            record_id,
         )
-
-    now = datetime.now(timezone.utc).isoformat()
-    existing = (
-        sb.table("mismatch_notes")
-        .select("id")
-        .eq("run_id", rid)
-        .eq("record_id", rec_id)
-        .eq("note_type", "rule37_action")
-        .limit(1)
-        .execute()
-    )
-    patch = {
-        "note": body.status,
-        "user_id": uid,
-        "severity": "low",
-        "created_at": now,
-    }
-    if existing.data:
-        note_id = str((existing.data[0] or {}).get("id") or "")
-        sb.table("mismatch_notes").update(patch).eq("id", note_id).execute()
-    else:
-        ins = {
-            "record_id": rec_id,
-            "run_id": rid,
-            "user_id": uid,
-            "firm_owner_id": uid,
-            "note": body.status,
-            "record_type": "pr",
-            "note_type": "rule37_action",
-            "severity": "low",
-            "created_at": now,
-        }
-        try:
-            sb.table("mismatch_notes").insert(ins).execute()
-        except Exception as exc:
-            # Older deployments may not have firm_owner_id on mismatch_notes.
-            if "firm_owner_id" not in str(exc):
-                raise
-            ins.pop("firm_owner_id", None)
-            sb.table("mismatch_notes").insert(ins).execute()
-
-    return Rule37ActionResponse(
-        id=rec_id,
-        status=body.status,
-        acted_by=uid,
-        acted_at=now,
-    )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="failed to update rule37 status",
+        ) from exc
 
 
 @reconcile_runs_router.get("/runs/{run_id}/section17")
