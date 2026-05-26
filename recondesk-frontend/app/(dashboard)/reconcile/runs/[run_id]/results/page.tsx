@@ -2140,7 +2140,7 @@ export default function ReconcileResultsPage() {
                 </div>
                 <div className="mt-3 text-right">
                   <Link
-                    href="/intelligence"
+                    href={`/reconcile/runs/${runId}/vendors`}
                     className="text-sm font-medium text-blue-700 hover:underline"
                   >
                     View full vendor intelligence →
