@@ -26,6 +26,7 @@ from app.services.billing_gate import (
     consume_run_credit,
     forfeit_expired_credit_batches,
     resolve_firm_owner_for_billing,
+    sync_billing_credits,
 )
 from app.services.billing_service import verify_payment_signature
 from app.services.firm_access import assert_run_accessible, user_can_access_firm
@@ -437,11 +438,11 @@ async def billing_status(
     db: Client = Depends(supabase_client),
 ):
     firm_owner = resolve_firm_owner_for_billing(db, current_user)
-    forfeit_expired_credit_batches(db, firm_owner)
+    synced = await sync_billing_credits(firm_owner)
     prof = get_user_profile(firm_owner) or {}
     plan_name = (prof.get("plan") or "free").strip() or "free"
-    free_runs = int(prof.get("free_runs_remaining") or 0)
-    runs_balance = int(prof.get("runs_balance") or 0)
+    free_runs = synced["free_runs_remaining"]
+    runs_balance = synced["runs_balance"]
 
     batches_res = (
         db.table("run_credits")

@@ -35,6 +35,10 @@ PLAN_CONFIG: dict[str, dict[str, int]] = {
 }
 
 BATCH_VALID_DAYS = 183  # ~6 months
+FREE_RUNS_ALLOCATION = 2
+_SUCCESSFUL_RUN_STATUSES = frozenset(
+    {"COMPLETED", "FINAL", "COMPLETE", "FINALIZED"}
+)
 
 
 def _utcnow() -> datetime:
@@ -132,12 +136,131 @@ def _profile_int(sb: Client, firm_owner_id: str, key: str) -> int:
     return int(res.data[0].get(key) or 0)
 
 
+def _is_successful_run_status(status: Any) -> bool:
+    return str(status or "").strip().upper() in _SUCCESSFUL_RUN_STATUSES
+
+
+def _client_gstin_ids_for_firm(sb: Client, firm_owner_id: str) -> list[str]:
+    res = (
+        sb.table("client_gstins")
+        .select("id")
+        .eq("firm_owner_id", firm_owner_id)
+        .execute()
+    )
+    return [str(row["id"]) for row in (res.data or []) if row.get("id")]
+
+
+def count_successful_reconciliation_runs(sb: Client, firm_owner_id: str) -> int:
+    """Count reconciliation runs with status COMPLETED or FINAL for the firm."""
+    client_ids = _client_gstin_ids_for_firm(sb, firm_owner_id)
+    if not client_ids:
+        return 0
+    total = 0
+    status_values = ["COMPLETED", "FINAL", "complete", "final", "finalized"]
+    for i in range(0, len(client_ids), 100):
+        chunk = client_ids[i : i + 100]
+        res = (
+            sb.table("reconciliation_run")
+            .select("id", count="exact")
+            .in_("client_gstin_id", chunk)
+            .in_("status", status_values)
+            .limit(0)
+            .execute()
+        )
+        total += int(res.count or 0)
+    return total
+
+
+def _decrement_oldest_credit_batch(sb: Client, firm_owner_id: str) -> bool:
+    batches = (
+        sb.table("run_credits")
+        .select("id, runs_remaining, expires_at")
+        .eq("firm_owner_id", firm_owner_id)
+        .gt("runs_remaining", 0)
+        .order("expires_at", desc=False)
+        .execute()
+    )
+    now = _utcnow()
+    for batch in batches.data or []:
+        exp = _parse_ts(batch.get("expires_at"))
+        if exp is None or exp <= now:
+            continue
+        cid = str(batch["id"])
+        rem = int(batch.get("runs_remaining") or 0) - 1
+        sb.table("run_credits").update({"runs_remaining": max(0, rem)}).eq("id", cid).execute()
+        return True
+    return False
+
+
+async def sync_billing_credits(firm_owner_id: str) -> dict[str, int]:
+    """Backfill billing for completed runs and align free-run counters."""
+    sb = get_supabase()
+    forfeit_expired_credit_batches(sb, firm_owner_id)
+
+    client_ids = _client_gstin_ids_for_firm(sb, firm_owner_id)
+    orphans: list[dict[str, Any]] = []
+    if client_ids:
+        status_values = ["COMPLETED", "FINAL", "complete", "final", "finalized"]
+        for i in range(0, len(client_ids), 100):
+            chunk = client_ids[i : i + 100]
+            res = (
+                sb.table("reconciliation_run")
+                .select("id, status, created_at, paid_at")
+                .in_("client_gstin_id", chunk)
+                .in_("status", status_values)
+                .is_("paid_at", "null")
+                .order("created_at", desc=False)
+                .execute()
+            )
+            for row in res.data or []:
+                if _is_successful_run_status(row.get("status")):
+                    orphans.append(row)
+
+    free_n = _profile_int(sb, firm_owner_id, "free_runs_remaining")
+    balance = _profile_int(sb, firm_owner_id, "runs_balance")
+    now = _utcnow().isoformat()
+    credits_touched = False
+
+    for orphan in orphans:
+        rid = str(orphan["id"])
+        if free_n > 0:
+            free_n -= 1
+        elif balance > 0 and _decrement_oldest_credit_batch(sb, firm_owner_id):
+            balance -= 1
+            credits_touched = True
+        sb.table("reconciliation_run").update({"paid_at": now}).eq("id", rid).execute()
+
+    successful = count_successful_reconciliation_runs(sb, firm_owner_id)
+    expected_free = max(
+        0,
+        FREE_RUNS_ALLOCATION - min(successful, FREE_RUNS_ALLOCATION),
+    )
+    free_n = min(free_n, expected_free)
+
+    if orphans or free_n != _profile_int(sb, firm_owner_id, "free_runs_remaining"):
+        sb.table("user_profiles").update({"free_runs_remaining": free_n}).eq(
+            "id", firm_owner_id
+        ).execute()
+
+    if credits_touched:
+        forfeit_expired_credit_batches(sb, firm_owner_id)
+        balance = _profile_int(sb, firm_owner_id, "runs_balance")
+    elif orphans:
+        sb.table("user_profiles").update({"runs_balance": balance}).eq(
+            "id", firm_owner_id
+        ).execute()
+
+    return {
+        "free_runs_remaining": free_n,
+        "runs_balance": balance,
+        "successful_runs": successful,
+    }
+
+
 async def check_run_access(user_id: str) -> dict[str, Any]:
     """user_id = firm_owner_id for credits."""
-    sb = get_supabase()
-    forfeit_expired_credit_batches(sb, user_id)
-
-    free_n = _profile_int(sb, user_id, "free_runs_remaining")
+    synced = await sync_billing_credits(user_id)
+    free_n = synced["free_runs_remaining"]
     if free_n > 0:
         return {
             "allowed": True,
@@ -145,7 +268,7 @@ async def check_run_access(user_id: str) -> dict[str, Any]:
             "free_runs_remaining": free_n,
         }
 
-    balance = _profile_int(sb, user_id, "runs_balance")
+    balance = synced["runs_balance"]
     if balance > 0:
         return {
             "allowed": True,
