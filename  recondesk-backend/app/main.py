@@ -181,6 +181,11 @@ app.include_router(
     prefix="/api/reconcile",
     tags=["Reconcile Runs"],
 )
+app.include_router(
+    reconciliation_api.reconcile_runs_router,
+    prefix="/api/v1/reconcile",
+    tags=["Reconcile Runs"],
+)
 app.include_router(notes.router, prefix="/api/notes", tags=["Notes"])
 app.include_router(clients_router, prefix="/api/clients", tags=["Clients"])
 app.include_router(team_router, prefix="/api/team", tags=["Team"])
