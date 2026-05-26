@@ -2999,7 +2999,7 @@ export default function ReconcileResultsPage() {
 
       {/* Finalize bar */}
       {finalizeBarVisible && (
-        <div className="fixed bottom-0 left-[224px] right-0 z-40 border-t border-gray-200 bg-white py-3 px-4 shadow-lg">
+        <div className="fixed bottom-0 left-56 right-0 z-40 border-t border-gray-200 bg-white py-3 px-4 shadow-lg">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-gray-500">
               Review all sections before finalizing
