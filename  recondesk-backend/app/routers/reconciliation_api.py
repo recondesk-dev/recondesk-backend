@@ -732,6 +732,12 @@ def _is_schema_compat_error(exc: BaseException) -> bool:
     )
 
 
+def _rule37_record_hash(record_id: str) -> str:
+    """Strip the ``r37:`` prefix → bare TEXT key for ``rule37_actions.record_hash``."""
+    rid = _normalize_record_id(record_id)
+    return rid[4:] if rid.startswith("r37:") else rid
+
+
 def _upsert_rule37_action(
     sb,
     *,
@@ -740,75 +746,33 @@ def _upsert_rule37_action(
     status_value: str,
     user_id: str,
 ) -> None:
-    """Persist a Rule 37 action in ``mismatch_notes``.
+    """Persist a Rule 37 action in the dedicated ``rule37_actions`` table.
 
-    ``record_id`` is the synthetic API key (``r37:…``) — it is stored as
-    plain TEXT, which is what the column type is. We store the full string
-    including the prefix so reads never need to reconstruct it.
-
-    Strategy: delete-then-insert so we never do a SELECT that passes the
-    synthetic id through PostgREST type-coercion (which can misinterpret a
-    bare UUID-shaped string even in a TEXT column filter).
+    Uses an upsert keyed on (run_id, record_hash) so clicking the same button
+    twice is idempotent.  ``record_hash`` is the bare string after stripping
+    the ``r37:`` prefix — it is plain TEXT, never treated as UUID by PostgREST.
     """
-    now = datetime.now(timezone.utc).isoformat()
-    # Use the full "r37:…" string as the TEXT record_id — the column is TEXT.
-    db_key = _normalize_record_id(record_id)
-
-    # ── Step 1: delete any prior action for this exact (run, record) pair ────
-    # Filter only by run_id (UUID) to avoid any casting on the TEXT column;
-    # restrict by note to the action note_type via the note field.
+    record_hash = _rule37_record_hash(record_id)
+    _log.debug(
+        "rule37 action upsert run_id=%s record_id=%s hash=%s status=%s",
+        run_id, record_id, record_hash, status_value,
+    )
     try:
-        sb.table("mismatch_notes").delete().eq("run_id", run_id).eq(
-            "record_id", db_key
+        sb.table("rule37_actions").upsert(
+            {
+                "run_id": run_id,
+                "record_hash": record_hash,
+                "status": status_value,
+                "user_id": user_id,
+            },
+            on_conflict="run_id,record_hash",
         ).execute()
-    except Exception:
-        # Non-fatal: if delete fails the insert below will still succeed
-        # (idempotency is nice but not required for correctness).
-        _log.warning(
-            "rule37 action delete failed (non-fatal) run_id=%s record_id=%s",
-            run_id,
-            db_key,
+    except Exception as exc:
+        _log.exception(
+            "rule37 action upsert failed run_id=%s record_id=%s hash=%s err=%s",
+            run_id, record_id, record_hash, exc,
         )
-
-    # ── Step 2: insert the new action ─────────────────────────────────────
-    ins: dict[str, Any] = {
-        "record_id": db_key,
-        "run_id": run_id,
-        "user_id": user_id,
-        "firm_owner_id": user_id,
-        "note": status_value,
-        "record_type": "pr",
-        "note_type": "rule37_action",
-        "severity": "low",
-        "created_at": now,
-    }
-    while True:
-        try:
-            sb.table("mismatch_notes").insert(ins).execute()
-            return
-        except Exception as exc:
-            msg = str(exc)
-            _log.warning(
-                "rule37 action insert attempt failed run_id=%s record_id=%s keys=%s err=%s",
-                run_id,
-                db_key,
-                sorted(ins.keys()),
-                msg,
-            )
-            removed = False
-            for col in ("firm_owner_id", "note_type", "severity"):
-                if col in msg and col in ins:
-                    ins.pop(col, None)
-                    removed = True
-                    break
-            if removed:
-                continue
-            _log.exception(
-                "rule37 action insert failed run_id=%s record_id=%s",
-                run_id,
-                db_key,
-            )
-            raise
+        raise
 
 
 def _rule37_record_exists_in_run(
@@ -846,23 +810,29 @@ def _rule37_record_exists_in_run(
 
 
 def _rule37_actions_for_run(sb, run_id: str) -> dict[str, str]:
+    """Return {api_record_id: status} for all Rule 37 actions on this run.
+
+    Reads from the dedicated ``rule37_actions`` table.  The ``record_hash``
+    stored there is the bare value without the ``r37:`` prefix; we re-attach
+    it here so callers get the full API id back.
+    """
     try:
         r = (
-            sb.table("mismatch_notes")
-            .select("record_id, note")
+            sb.table("rule37_actions")
+            .select("record_hash, status")
             .eq("run_id", run_id)
-            .eq("note_type", "rule37_action")
             .execute()
         )
     except Exception:
-        _log.exception("rule37 actions reconciliation_run=%s", run_id)
+        _log.exception("rule37 actions read failed reconciliation_run=%s", run_id)
         return {}
     out: dict[str, str] = {}
     for row in r.data or []:
-        record_id = _rule37_api_record_id(str(row.get("record_id") or "").strip())
-        note = str(row.get("note") or "").strip().lower()
-        if record_id and note in {"resolved", "acknowledged"}:
-            out[record_id] = note
+        record_hash = str(row.get("record_hash") or "").strip()
+        status = str(row.get("status") or "").strip().lower()
+        if record_hash and status in {"resolved", "acknowledged"}:
+            api_id = record_hash if record_hash.startswith("r37:") else f"r37:{record_hash}"
+            out[api_id] = status
     return out
 
 

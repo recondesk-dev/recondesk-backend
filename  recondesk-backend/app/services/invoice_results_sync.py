@@ -82,12 +82,12 @@ def _rule37_record_id(item: dict[str, Any]) -> str | None:
 
 
 def _rule37_action_record_ids(sb: Client, run_id: str) -> set[str]:
+    """Return the set of API record ids (``r37:…``) that have been acted on."""
     try:
         r = (
-            sb.table("mismatch_notes")
-            .select("record_id, note")
+            sb.table("rule37_actions")
+            .select("record_hash, status")
             .eq("run_id", run_id)
-            .eq("note_type", "rule37_action")
             .execute()
         )
     except Exception:
@@ -96,13 +96,11 @@ def _rule37_action_record_ids(sb: Client, run_id: str) -> set[str]:
     for row in r.data or []:
         if not isinstance(row, dict):
             continue
-        status = str(row.get("note") or "").strip().lower()
-        db_record_id = str(row.get("record_id") or "").strip()
-        record_id = db_record_id
-        if db_record_id and not db_record_id.startswith("r37:"):
-            record_id = f"r37:{db_record_id}"
-        if status in {"resolved", "acknowledged"} and record_id:
-            acted.add(record_id)
+        status = str(row.get("status") or "").strip().lower()
+        record_hash = str(row.get("record_hash") or "").strip()
+        if status in {"resolved", "acknowledged"} and record_hash:
+            api_id = record_hash if record_hash.startswith("r37:") else f"r37:{record_hash}"
+            acted.add(api_id)
     return acted
 
 
