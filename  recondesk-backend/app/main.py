@@ -4,8 +4,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 import sentry_sdk
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
 from slowapi import _rate_limit_exceeded_handler
@@ -157,9 +159,22 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allow_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    if isinstance(exc, HTTPException):
+        return await http_exception_handler(request, exc)
+    _log.exception("Unhandled %s %s", request.method, request.url.path)
+    if settings.SENTRY_DSN:
+        sentry_sdk.capture_exception(exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
