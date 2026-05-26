@@ -80,15 +80,15 @@ function itcAtRiskRupee(row: ReconcileRunListRow): number | null {
   const rs = row.run_summary;
   if (rs && typeof rs === "object") {
     const m = rs as Record<string, unknown>;
-    for (const k of ["itc_at_risk_paise", "itc_at_risk", "missed_itc_paise"] as const) {
+    // Same metric as results summary bar "At Risk" (wrongful_risk_total_amount).
+    for (const k of ["wrongful_itc", "wrongful_itc_paise", "wrongful_risk_paise"] as const) {
       const v = m[k];
       if (typeof v === "number" && !Number.isNaN(v)) {
-        // All backend *_paise and itc_at_risk fields are stored as integer paise.
         return paiseToRupee(v);
       }
     }
   }
-  return paiseToRupee(row.itc_at_risk);
+  return paiseToRupee(row.wrongful_itc);
 }
 
 export function RunsPageContent() {
