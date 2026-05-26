@@ -1320,7 +1320,7 @@ export default function ReconcileResultsPage() {
       */}
       <div
         ref={summaryRef}
-        className="sticky -top-8 -mx-8 -mt-8 z-40 border-b border-gray-200 bg-white px-4 py-2 shadow-sm"
+        className="sticky -top-8 -mx-8 -mt-8 z-40 border-b border-gray-200 bg-white px-8 py-2 shadow-sm"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
