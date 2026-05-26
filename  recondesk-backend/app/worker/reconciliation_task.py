@@ -383,10 +383,11 @@ def execute_reconciliation(run_id: str) -> None:
             ],
             [],
         )
-        r37_itc = sum(
+        rule37_itc_paise = sum(
             int(r.get("itc_at_risk_paise") or 0) for r in (rule37 or [])
         )
-        itc_at_risk_total = r37_itc if r37_itc else itc_missed
+        # Runs-list "ITC at risk" = missed ITC (GSTR-2B invoices with no PR match).
+        itc_at_risk_total = itc_missed
 
         gstr_invoices_for_blocked: list[dict[str, Any]] = []
         for ggr in gstr_matcher:
@@ -530,6 +531,8 @@ def execute_reconciliation(run_id: str) -> None:
             "matched_count": len(state.matched),
             "unmatched_count": len(state.missed_itc) + len(wrongful_itc),
             "itc_at_risk": itc_at_risk_total,
+            "missed_itc_paise": itc_missed,
+            "rule37_itc_paise": rule37_itc_paise,
             "wrongful_itc": wrongful_paise,
             "late_itc": late_itc_paise,
             "late_match_count": late_itc,
