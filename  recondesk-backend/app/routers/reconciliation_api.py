@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import logging
 import math
@@ -1593,6 +1594,28 @@ async def _reconcile_finalize_core(
 
 
 
+def _rule37_stable_id(item: dict[str, Any]) -> str:
+    """Return a stable r37:<id> for a rule37 payload entry.
+
+    Uses ``pr_id`` when present; otherwise hashes the invoice identifiers so
+    the same entry produces the same id across requests. ``id(item)`` (the
+    Python object memory address) is NOT stable and must not be used.
+    """
+    pid = str(item.get("pr_id") or "").strip()
+    if pid:
+        return f"r37:{pid}"
+    key = "|".join(
+        [
+            str(item.get("supplier_gstin") or ""),
+            str(item.get("invoice_number") or ""),
+            str(item.get("invoice_date") or ""),
+            str(item.get("itc_at_risk_paise") or 0),
+        ]
+    )
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+    return f"r37:h:{digest}"
+
+
 def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Counter[str]) -> list[dict[str, Any]]:
     actions = _rule37_actions_for_run(sb, rid)
     dec = payload.get("decisions") if isinstance(payload.get("decisions"), dict) else {}
@@ -1604,16 +1627,13 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
     for item in lst:
         if not isinstance(item, dict):
             continue
-        pid = str(item.get("pr_id") or "").strip()
-        key = pid or id(item)
-        if key in uniq:
+        stable = _rule37_stable_id(item)
+        if stable in uniq:
             continue
-        uniq[str(key)] = item
+        uniq[stable] = item
     out: list[dict[str, Any]] = []
-    for ru in uniq.values():
-        pr_id_actual = ru.get("pr_id")
+    for row_id, ru in uniq.items():
         amt = _paise_to_rupees(int(ru.get("itc_at_risk_paise") or 0))
-        row_id = f"r37:{pr_id_actual or id(ru)}"
         ur = _rule37_urgency_from_status(ru.get("status"))
         action_status = actions.get(row_id)
         out.append(
