@@ -740,63 +740,39 @@ def _upsert_rule37_action(
     status_value: str,
     user_id: str,
 ) -> None:
-    """Persist a Rule 37 action in ``mismatch_notes`` (schema-tolerant)."""
+    """Persist a Rule 37 action in ``mismatch_notes``.
+
+    ``record_id`` is the synthetic API key (``r37:…``) — it is stored as
+    plain TEXT, which is what the column type is. We store the full string
+    including the prefix so reads never need to reconstruct it.
+
+    Strategy: delete-then-insert so we never do a SELECT that passes the
+    synthetic id through PostgREST type-coercion (which can misinterpret a
+    bare UUID-shaped string even in a TEXT column filter).
+    """
     now = datetime.now(timezone.utc).isoformat()
-    db_record_key = _rule37_db_record_key(record_id)
-    lookup_keys = _rule37_db_record_lookup_keys(record_id)
-    note_id: str | None = None
+    # Use the full "r37:…" string as the TEXT record_id — the column is TEXT.
+    db_key = _normalize_record_id(record_id)
 
-    for use_note_type in (True, False):
-        try:
-            q = (
-                sb.table("mismatch_notes")
-                .select("id")
-                .eq("run_id", run_id)
-                .in_("record_id", lookup_keys)
-            )
-            if use_note_type:
-                q = q.eq("note_type", "rule37_action")
-            res = q.limit(1).execute()
-            if res.data:
-                note_id = str((res.data[0] or {}).get("id") or "")
-            break
-        except Exception as exc:
-            if use_note_type and _is_schema_compat_error(exc):
-                _log.warning(
-                    "rule37 action lookup: note_type filter unavailable run_id=%s",
-                    run_id,
-                )
-                continue
-            _log.exception(
-                "rule37 action lookup failed run_id=%s record_id=%s db_key=%s",
-                run_id,
-                record_id,
-                db_record_key,
-            )
-            raise
+    # ── Step 1: delete any prior action for this exact (run, record) pair ────
+    # Filter only by run_id (UUID) to avoid any casting on the TEXT column;
+    # restrict by note to the action note_type via the note field.
+    try:
+        sb.table("mismatch_notes").delete().eq("run_id", run_id).eq(
+            "record_id", db_key
+        ).execute()
+    except Exception:
+        # Non-fatal: if delete fails the insert below will still succeed
+        # (idempotency is nice but not required for correctness).
+        _log.warning(
+            "rule37 action delete failed (non-fatal) run_id=%s record_id=%s",
+            run_id,
+            db_key,
+        )
 
-    if note_id:
-        for fields in (
-            {"note": status_value, "user_id": user_id, "severity": "low", "created_at": now},
-            {"note": status_value, "user_id": user_id, "status": status_value},
-            {"note": status_value, "user_id": user_id},
-        ):
-            try:
-                sb.table("mismatch_notes").update(fields).eq("id", note_id).execute()
-                return
-            except Exception as exc:
-                if _is_schema_compat_error(exc):
-                    continue
-                _log.exception(
-                    "rule37 action update failed run_id=%s record_id=%s",
-                    run_id,
-                    record_id,
-                )
-                raise
-        return
-
+    # ── Step 2: insert the new action ─────────────────────────────────────
     ins: dict[str, Any] = {
-        "record_id": db_record_key,
+        "record_id": db_key,
         "run_id": run_id,
         "user_id": user_id,
         "firm_owner_id": user_id,
@@ -804,7 +780,6 @@ def _upsert_rule37_action(
         "record_type": "pr",
         "note_type": "rule37_action",
         "severity": "low",
-        "status": status_value,
         "created_at": now,
     }
     while True:
@@ -816,26 +791,22 @@ def _upsert_rule37_action(
             _log.warning(
                 "rule37 action insert attempt failed run_id=%s record_id=%s keys=%s err=%s",
                 run_id,
-                record_id,
+                db_key,
                 sorted(ins.keys()),
                 msg,
             )
-            if "firm_owner_id" in msg and "firm_owner_id" in ins:
-                ins.pop("firm_owner_id", None)
-                continue
-            if "note_type" in msg and "note_type" in ins:
-                ins.pop("note_type", None)
-                continue
-            if "severity" in msg and "severity" in ins:
-                ins.pop("severity", None)
-                continue
-            if "status" in msg and "status" in ins:
-                ins.pop("status", None)
+            removed = False
+            for col in ("firm_owner_id", "note_type", "severity"):
+                if col in msg and col in ins:
+                    ins.pop(col, None)
+                    removed = True
+                    break
+            if removed:
                 continue
             _log.exception(
                 "rule37 action insert failed run_id=%s record_id=%s",
                 run_id,
-                record_id,
+                db_key,
             )
             raise
 
