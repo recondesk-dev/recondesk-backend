@@ -22,6 +22,7 @@ type MatchLevel = "EXACT" | "FUZZY" | "MANUAL" | "UNMATCHED";
 type DecisionStatus = "pending" | "acted" | "ignored";
 type DecisionType = "claim" | "follow_up" | "escalate" | "ignore" | null;
 type Rule37Urgency = "CRITICAL" | "HIGH" | "MEDIUM";
+type Rule37ActionStatus = "resolved" | "acknowledged";
 
 type ReconcileRow = {
   id: string;
@@ -47,6 +48,7 @@ type ReconcileRow = {
   gstr2b_data: Record<string, string | number>;
   purchase_register_data: Record<string, string | number>;
   rule37_urgency?: Rule37Urgency;
+  rule37_action_status?: Rule37ActionStatus | null;
   section_17_5_category?: string;
 };
 
@@ -641,6 +643,12 @@ export default function ReconcileResultsPage() {
   const [localDecisionStatus, setLocalDecisionStatus] = useState<
     Map<string, DecisionStatus>
   >(() => new Map());
+  const [localRule37ActionStatus, setLocalRule37ActionStatus] = useState<
+    Map<string, Rule37ActionStatus>
+  >(() => new Map());
+  const [rule37UpdatingIds, setRule37UpdatingIds] = useState<Set<string>>(
+    () => new Set()
+  );
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const addToast = useCallback((message: string, type: Toast["type"]) => {
@@ -1191,6 +1199,15 @@ export default function ReconcileResultsPage() {
     el.indeterminate = n > 0 && n < riskRows.length;
   }, [selectedIds.risk, riskRows]);
 
+  const unresolvedRule37Count = useMemo(() => {
+    const rows = rule37Data?.data ?? [];
+    return rows.filter((row) => {
+      const status =
+        localRule37ActionStatus.get(row.id) ?? row.rule37_action_status;
+      return status !== "resolved" && status !== "acknowledged";
+    }).length;
+  }, [localRule37ActionStatus, rule37Data?.data]);
+
   const finalizeBarVisible =
     summary?.user_role === "admin" && !isRunFinalized;
   const staffFinalizeMessageVisible =
@@ -1207,6 +1224,69 @@ export default function ReconcileResultsPage() {
     setDeleteModalOpen(false);
     setDeleteError(null);
   }, [deleting]);
+
+  const actOnRule37 = useCallback(
+    async (recordId: string, status: Rule37ActionStatus) => {
+      if (!runId || !authToken || rule37UpdatingIds.has(recordId)) return;
+      setRule37UpdatingIds((prev) => {
+        const next = new Set(prev);
+        next.add(recordId);
+        return next;
+      });
+      try {
+        await apiFetch<{
+          id: string;
+          status: Rule37ActionStatus;
+          acted_by: string;
+          acted_at: string;
+        }>(`/api/reconcile/runs/${runId}/rule37/${encodeURIComponent(recordId)}`, {
+          method: "PATCH",
+          token: authToken,
+          body: JSON.stringify({ status }),
+        });
+        setLocalRule37ActionStatus((prev) => {
+          const next = new Map(prev);
+          next.set(recordId, status);
+          return next;
+        });
+        await mutateRule37((current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            data: current.data.map((row) =>
+              row.id === recordId
+                ? { ...row, rule37_action_status: status }
+                : row
+            ),
+          };
+        }, { revalidate: false });
+        addToast(
+          status === "resolved"
+            ? "Rule 37 marked paid"
+            : "Rule 37 ITC reversal noted",
+          "success"
+        );
+      } catch (e: unknown) {
+        let msg = "Failed to update Rule 37 status";
+        if (
+          e &&
+          typeof e === "object" &&
+          "detail" in e &&
+          typeof (e as { detail: unknown }).detail === "string"
+        ) {
+          msg = (e as { detail: string }).detail;
+        }
+        addToast(msg, "error");
+      } finally {
+        setRule37UpdatingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(recordId);
+          return next;
+        });
+      }
+    },
+    [addToast, authToken, mutateRule37, rule37UpdatingIds, runId]
+  );
 
   const submitDeleteRun = useCallback(async () => {
     if (!runId || !authToken || deleting) return;
@@ -2476,6 +2556,14 @@ export default function ReconcileResultsPage() {
                   {rule37Data.total}
                 </span>
               )}
+              {rule37Data != null &&
+              rule37Data.data.length === rule37Data.total &&
+              unresolvedRule37Count === 0 &&
+              rule37Data.total > 0 ? (
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-normal text-emerald-800">
+                  all acted
+                </span>
+              ) : null}
             </span>
             <ChevronDown
               className={`h-5 w-5 shrink-0 text-gray-500 transition-transform ${
@@ -2503,8 +2591,17 @@ export default function ReconcileResultsPage() {
                 !rule37Error &&
                 rule37Data.data.map((row) => {
                   const u = row.rule37_urgency ?? "MEDIUM";
+                  const actionStatus =
+                    localRule37ActionStatus.get(row.id) ??
+                    row.rule37_action_status ??
+                    null;
+                  const acted =
+                    actionStatus === "resolved" ||
+                    actionStatus === "acknowledged";
                   const border =
-                    u === "CRITICAL"
+                    acted
+                      ? "border-l-4 border-gray-200 bg-gray-50"
+                      : u === "CRITICAL"
                       ? "border-l-4 border-red-500 bg-red-50"
                       : u === "HIGH"
                         ? "border-l-4 border-orange-400 bg-orange-50"
@@ -2543,6 +2640,38 @@ export default function ReconcileResultsPage() {
                         </span>
                       </div>
                       <DecisionDiagnosticsBlock row={row} />
+                      <div className="mt-3 flex justify-end">
+                        {actionStatus === "resolved" && (
+                          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                            Paid ✓
+                          </span>
+                        )}
+                        {actionStatus === "acknowledged" && (
+                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                            ITC Reversal Noted ✓
+                          </span>
+                        )}
+                        {!acted && (
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              disabled={rule37UpdatingIds.has(row.id)}
+                              className="inline-flex min-h-[36px] items-center rounded border border-emerald-600 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => void actOnRule37(row.id, "resolved")}
+                            >
+                              Mark Paid
+                            </button>
+                            <button
+                              type="button"
+                              disabled={rule37UpdatingIds.has(row.id)}
+                              className="inline-flex min-h-[36px] items-center rounded border border-red-600 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => void actOnRule37(row.id, "acknowledged")}
+                            >
+                              Reverse ITC
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
