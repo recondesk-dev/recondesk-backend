@@ -1320,7 +1320,7 @@ export default function ReconcileResultsPage() {
       */}
       <div
         ref={summaryRef}
-        className="sticky -top-8 -mx-8 -mt-8 z-40 border-b border-gray-200 bg-white px-6 py-3 shadow-sm"
+        className="sticky -top-8 -mx-8 -mt-8 z-40 border-b border-gray-200 bg-white px-4 py-2 shadow-sm"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
@@ -1336,13 +1336,10 @@ export default function ReconcileResultsPage() {
           <SummarySkeleton />
         )}
         {summary && !summaryError && (
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-lg font-semibold text-gray-900">
-                {summary.client_name}
-              </p>
-              <p className="text-sm text-gray-500">{summary.period}</p>
-              <p className="text-xs text-gray-400">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-900">{summary.period}</p>
+              <p className="text-xs text-gray-500">
                 Assigned to:{" "}
                 {summary.assigned_to_name?.trim() ? (
                   summary.assigned_to_name
@@ -1359,31 +1356,31 @@ export default function ReconcileResultsPage() {
                   </span>
                 )}
             </div>
-            <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-end">
-              <div className="flex flex-wrap gap-4">
+            <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:justify-end">
+              <div className="flex flex-wrap gap-3">
                 <div>
-                  <p className="text-sm text-gray-700">Total GSTR Records</p>
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-xs text-gray-600">Total GSTR Records</p>
+                  <p className="text-base font-semibold text-gray-900">
                     {summary.total_gstr_records.toLocaleString("en-IN")}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-700">Matched</p>
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-xs text-gray-600">Matched</p>
+                  <p className="text-base font-semibold text-gray-900">
                     {summary.matched_count.toLocaleString("en-IN")}
                   </p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-emerald-600">
+                  <p className="text-xl font-bold text-emerald-600">
                     {formatINR(summary.missed_itc_total_amount)}
                   </p>
-                  <p className="text-xs text-gray-400">Missed ITC</p>
+                  <p className="text-xs text-gray-500">Missed ITC</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-red-600">
+                  <p className="text-xl font-bold text-red-600">
                     {formatINR(summary.wrongful_risk_total_amount)}
                   </p>
-                  <p className="text-xs text-gray-400">At Risk</p>
+                  <p className="text-xs text-gray-500">At Risk</p>
                 </div>
               </div>
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
@@ -1428,7 +1425,7 @@ export default function ReconcileResultsPage() {
           </div>
         )}
         {summary && !summaryError && (
-          <div className="mt-3">
+          <div className="mt-2">
             <div className="h-1 w-full rounded-full bg-gray-200">
               <div
                 className="h-1 rounded-full bg-emerald-500 transition-all"
@@ -1444,12 +1441,12 @@ export default function ReconcileResultsPage() {
         )}
       </div>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-4">
+      <div className="mx-auto max-w-7xl space-y-4 pt-2">
         {/* ITC */}
         {summary &&
           summary.missed_itc_count === 0 &&
           summary.wrongful_risk_count === 0 && (
-          <div className="mb-6 rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4">
+          <div className="rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4">
             <div className="flex gap-3">
               <Check className="mt-0.5 h-6 w-6 shrink-0 text-emerald-600" />
               <div>
@@ -1464,13 +1461,13 @@ export default function ReconcileResultsPage() {
         )}
 
         {summary && summary.missed_itc_count > 0 && (
-          <div className="mb-6 rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-semibold text-emerald-800">
                 ITC You Can Still Claim
               </h2>
               <div className="flex flex-wrap items-center gap-3">
-                <span className="text-2xl font-bold text-emerald-700">
+                <span className="text-xl font-bold text-emerald-700">
                   Total: {formatINR(summary.missed_itc_total_amount)}
                 </span>
                 <button
@@ -1487,7 +1484,7 @@ export default function ReconcileResultsPage() {
               </div>
             </div>
 
-            <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
+            <div className="mb-2 flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
               <div className="flex w-full flex-col flex-wrap gap-2 sm:flex-row sm:items-center">
                 <input
                   type="text"
@@ -1767,7 +1764,7 @@ export default function ReconcileResultsPage() {
         {summary &&
           summary.wrongful_risk_count === 0 &&
           summary.missed_itc_count > 0 && (
-          <div className="mb-6 rounded-lg border-l-4 border-red-500 bg-red-50 p-4">
+          <div className="rounded-lg border-l-4 border-red-500 bg-red-50 p-4">
             <div className="flex gap-3">
               <Shield className="mt-0.5 h-6 w-6 shrink-0 text-red-600" />
               <p className="text-red-800">
@@ -1778,13 +1775,13 @@ export default function ReconcileResultsPage() {
         )}
 
         {summary && summary.wrongful_risk_count > 0 && (
-          <div className="mb-6 rounded-lg border-l-4 border-red-500 bg-red-50 p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="rounded-lg border-l-4 border-red-500 bg-red-50 p-4">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-semibold text-red-800">
                 ITC at Risk — Supplier Has Not Filed
               </h2>
               <div className="flex flex-wrap items-center gap-3">
-                <span className="text-2xl font-bold text-red-700">
+                <span className="text-xl font-bold text-red-700">
                   Total: {formatINR(summary.wrongful_risk_total_amount)}
                 </span>
                 <button
@@ -1801,7 +1798,7 @@ export default function ReconcileResultsPage() {
               </div>
             </div>
 
-            <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
+            <div className="mb-2 flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
               <div className="flex w-full flex-col flex-wrap gap-2 sm:flex-row sm:items-center">
                 <input
                   type="text"
@@ -2089,8 +2086,8 @@ export default function ReconcileResultsPage() {
         )}
 
         {summary && summary.wrongful_risk_count > 0 && (
-          <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-lg font-semibold text-gray-900">
+          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+            <h2 className="mb-2 text-base font-semibold text-gray-900">
               Top Suppliers by ITC at Risk
             </h2>
             {riskLoading && !riskPageData && (
@@ -2157,8 +2154,8 @@ export default function ReconcileResultsPage() {
         {summary &&
           typeof summary.late_match_count === "number" &&
           summary.late_match_count > 0 && (
-            <div className="mb-6 rounded-lg border-l-4 border-emerald-400 bg-emerald-50 p-4">
-              <p className="mb-3 font-semibold text-emerald-800">
+            <div className="rounded-lg border-l-4 border-emerald-400 bg-emerald-50 p-4">
+              <p className="mb-2 font-semibold text-emerald-800">
                 {summary.late_match_count.toLocaleString("en-IN")} invoices
                 matched from previous periods
               </p>
@@ -2215,8 +2212,8 @@ export default function ReconcileResultsPage() {
           )}
 
         {/* Matched */}
-        <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="mb-3 text-lg font-semibold text-gray-900">
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <h2 className="mb-2 text-base font-semibold text-gray-900">
             Matched Records{" "}
             {matchedData != null && (
               <span className="font-normal text-gray-500">
@@ -2225,7 +2222,7 @@ export default function ReconcileResultsPage() {
             )}
           </h2>
 
-          <div className="mb-3 space-y-2">
+          <div className="mb-2 space-y-2">
             <input
               type="search"
               className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
@@ -2359,7 +2356,7 @@ export default function ReconcileResultsPage() {
           {matchedData &&
             !matchedError &&
             matchedData.data.length === 0 && (
-              <div className="rounded border border-gray-100 bg-gray-50 p-6 text-center">
+              <div className="rounded border border-gray-100 bg-gray-50 p-4 text-center">
                 <p className="text-gray-600">
                   No records match your filters. Try adjusting the search or
                   filters.
@@ -2466,7 +2463,7 @@ export default function ReconcileResultsPage() {
         </div>
 
         {/* Rule 37 */}
-        <div className="mb-6 rounded-lg border border-gray-200 bg-white">
+        <div className="rounded-lg border border-gray-200 bg-white">
           <button
             type="button"
             className="flex min-h-[44px] w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50"
@@ -2570,7 +2567,7 @@ export default function ReconcileResultsPage() {
         </div>
 
         {/* Section 17(5) */}
-        <div className="mb-6 rounded-lg border border-gray-200 bg-white">
+        <div className="rounded-lg border border-gray-200 bg-white">
           <button
             type="button"
             className="flex min-h-[44px] w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50"
