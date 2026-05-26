@@ -2404,8 +2404,52 @@ async def reconcile_run_rule37_action(
 
     p = _payload_or_404(sb, rid)
     notes = _notes_count_for_run(sb, rid)
-    rows = _build_rule37_rows(sb, rid, p, notes)
-    if not any(str(row.get("id") or "") == rec_id for row in rows):
+
+    # Validate that the record belongs to this run.
+    # The GET endpoint uses _try_rule37_via_table first (rule37_warnings table),
+    # then falls back to _build_rule37_rows (payload JSON). The PATCH must
+    # accept records from either source.
+    rows_payload = _build_rule37_rows(sb, rid, p, notes)
+    record_found = any(str(row.get("id") or "") == rec_id for row in rows_payload)
+    if not record_found:
+        # Try the table-based source: extract pr_id from "r37:{pr_id}" and
+        # check the rule37_warnings table directly.
+        pr_id_part = rec_id[4:] if rec_id.startswith("r37:") else ""
+        if pr_id_part:
+            for col in ("pr_id", "id"):
+                try:
+                    res = (
+                        sb.table("rule37_warnings")
+                        .select("id")
+                        .eq("run_id", rid)
+                        .eq(col, pr_id_part)
+                        .limit(1)
+                        .execute()
+                    )
+                    if res.data:
+                        record_found = True
+                        break
+                except Exception:
+                    continue
+            if not record_found:
+                # Also try the reconciliation_run_id column name variant
+                for col in ("pr_id", "id"):
+                    try:
+                        res = (
+                            sb.table("rule37_warnings")
+                            .select("id")
+                            .eq("reconciliation_run_id", rid)
+                            .eq(col, pr_id_part)
+                            .limit(1)
+                            .execute()
+                        )
+                        if res.data:
+                            record_found = True
+                            break
+                    except Exception:
+                        continue
+
+    if not record_found:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="rule37 record not found",
