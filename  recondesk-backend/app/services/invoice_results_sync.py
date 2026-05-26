@@ -6,6 +6,7 @@ Per-line fields such as pr_id or rule37_flag are **inside** the JSON, not table 
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any, Optional, Tuple
 
@@ -59,10 +60,25 @@ def _is_rule37_concern(item: dict[str, Any]) -> bool:
 
 
 def _rule37_record_id(item: dict[str, Any]) -> str | None:
+    """Stable record id for a rule37 payload entry.
+
+    Must match the id format produced by ``_rule37_stable_id`` in
+    ``app.routers.reconciliation_api``. When ``pr_id`` is missing we hash the
+    invoice identifiers so the id stays stable across requests.
+    """
     pr_id = str(item.get("pr_id") or "").strip()
-    if not pr_id:
-        return None
-    return f"r37:{pr_id}"
+    if pr_id:
+        return f"r37:{pr_id}"
+    key = "|".join(
+        [
+            str(item.get("supplier_gstin") or ""),
+            str(item.get("invoice_number") or ""),
+            str(item.get("invoice_date") or ""),
+            str(item.get("itc_at_risk_paise") or 0),
+        ]
+    )
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+    return f"r37:h:{digest}"
 
 
 def _rule37_action_record_ids(sb: Client, run_id: str) -> set[str]:
