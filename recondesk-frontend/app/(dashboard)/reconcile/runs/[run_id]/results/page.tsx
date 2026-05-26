@@ -1011,6 +1011,7 @@ export default function ReconcileResultsPage() {
             method: "PATCH",
             token: t,
             body: JSON.stringify({
+              run_id: runId,
               record_ids: ids,
               decision_status: status,
             }),
@@ -1040,7 +1041,7 @@ export default function ReconcileResultsPage() {
         addToast("Update failed — changes reversed", "error");
       }
     },
-    [addToast, authToken, mutateItc, mutateRisk]
+    [addToast, authToken, mutateItc, mutateRisk, runId]
   );
 
   const runSingleDecision = useCallback(
@@ -1060,6 +1061,7 @@ export default function ReconcileResultsPage() {
             method: "PATCH",
             token: t,
             body: JSON.stringify({
+              run_id: runId,
               record_ids: [recordId],
               decision_status: status,
             }),
@@ -1098,6 +1100,7 @@ export default function ReconcileResultsPage() {
       mutateRule37,
       mutateSection17,
       authToken,
+      runId,
     ]
   );
 

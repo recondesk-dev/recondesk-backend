@@ -527,6 +527,26 @@ class Rule37ActionResponse(BaseModel):
     acted_at: str
 
 
+class DecisionStatusPatch(BaseModel):
+    status: Optional[Literal["acted", "ignored", "pending"]] = None
+    decision_status: Optional[Literal["acted", "ignored", "pending"]] = None
+
+
+class DecisionBulkUpdateBody(BaseModel):
+    run_id: Optional[str] = None
+    record_ids: list[str] = Field(default_factory=list, min_length=1)
+    decision_status: Literal["acted", "ignored", "pending"]
+
+
+class DecisionStatusResponse(BaseModel):
+    id: str
+    status: Literal["acted", "ignored", "pending"]
+
+
+class DecisionBulkUpdateResponse(BaseModel):
+    updated_count: int
+
+
 @router.post(
     "/runs/{run_id}/rule37/{pr_id}/resolve",
     response_model=Rule37ResolveResponse,
@@ -675,6 +695,70 @@ def _rule37_actions_for_run(sb, run_id: str) -> dict[str, str]:
     return out
 
 
+def _decision_statuses_for_run(sb, run_id: str) -> dict[str, str]:
+    try:
+        r = (
+            sb.table("mismatch_notes")
+            .select("record_id, note")
+            .eq("run_id", run_id)
+            .eq("note_type", "decision_status")
+            .execute()
+        )
+    except Exception:
+        _log.exception("decision statuses reconciliation_run=%s", run_id)
+        return {}
+    out: dict[str, str] = {}
+    for row in r.data or []:
+        record_id = str(row.get("record_id") or "").strip()
+        note = str(row.get("note") or "").strip().lower()
+        if record_id and note in {"acted", "ignored", "pending"}:
+            out[record_id] = note
+    return out
+
+
+def _upsert_decision_status(sb, *, run_id: str, record_id: str, status_value: str, user_id: str) -> None:
+    existing = (
+        sb.table("mismatch_notes")
+        .select("id")
+        .eq("run_id", run_id)
+        .eq("record_id", record_id)
+        .eq("note_type", "decision_status")
+        .limit(1)
+        .execute()
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    patch = {
+        "note": status_value,
+        "user_id": user_id,
+        "severity": "low",
+        "created_at": now,
+    }
+    if existing.data:
+        note_id = str((existing.data[0] or {}).get("id") or "")
+        sb.table("mismatch_notes").update(patch).eq("id", note_id).execute()
+        return
+
+    ins = {
+        "record_id": record_id,
+        "run_id": run_id,
+        "user_id": user_id,
+        "firm_owner_id": user_id,
+        "note": status_value,
+        "record_type": "pr",
+        "note_type": "decision_status",
+        "severity": "low",
+        "created_at": now,
+    }
+    try:
+        sb.table("mismatch_notes").insert(ins).execute()
+    except Exception as exc:
+        # Older deployments may not have firm_owner_id on mismatch_notes.
+        if "firm_owner_id" not in str(exc):
+            raise
+        ins.pop("firm_owner_id", None)
+        sb.table("mismatch_notes").insert(ins).execute()
+
+
 def _merged_record_data(rd: Optional[dict[str, Any]], matcher: Optional[dict[str, Any]]) -> dict[str, Any]:
     if not matcher and not rd:
         return {}
@@ -819,6 +903,7 @@ def _build_missed_itc_records(
 ) -> list[dict[str, Any]]:
     engine = payload.get("engine") or {}
     gstr_db = ro.load_gstr_map(sb, rid)
+    decision_statuses = _decision_statuses_for_run(sb, rid)
     out = []
     for mi in engine.get("missed_itc") or []:
         gid = str(mi.get("gstr_id", "")).strip()
@@ -858,6 +943,7 @@ def _build_missed_itc_records(
             if v:
                 trade_name = str(v).strip()[:200]
                 break
+        decision_status = decision_statuses.get(row_id, "pending")
         out.append(
             {
                 "id": row_id,
@@ -881,7 +967,7 @@ def _build_missed_itc_records(
                 "decision_matched_fields": list(dout.matched_fields),
                 "decision_differed_fields": list(dout.differed_fields),
                 "decision_normalized_pairs": [list(p) for p in dout.normalized_pairs],
-                "decision_status": "pending",
+                "decision_status": decision_status,
                 "decision_type": None,
                 "notes_count": int(note_counts.get(row_id, 0)),
                 "gstr2b_data": gd2,
@@ -900,6 +986,7 @@ def _build_wrongful_risk_records(
 ) -> list[dict[str, Any]]:
     engine = payload.get("engine") or {}
     pr_db = ro.load_pr_map(sb, rid)
+    decision_statuses = _decision_statuses_for_run(sb, rid)
     out = []
     for w in engine.get("wrongful_itc_risk") or []:
         pid = str(w.get("id", "")).strip()
@@ -943,6 +1030,7 @@ def _build_wrongful_risk_records(
             if v:
                 trade_name = str(v).strip()[:200]
                 break
+        decision_status = decision_statuses.get(row_id, "pending")
         out.append(
             {
                 "id": row_id,
@@ -964,7 +1052,7 @@ def _build_wrongful_risk_records(
                 "decision_matched_fields": list(dout.matched_fields),
                 "decision_differed_fields": list(dout.differed_fields),
                 "decision_normalized_pairs": [list(p) for p in dout.normalized_pairs],
-                "decision_status": "pending",
+                "decision_status": decision_status,
                 "decision_type": None,
                 "notes_count": int(note_counts.get(row_id, 0)),
                 "gstr2b_data": {},
@@ -1221,6 +1309,68 @@ def _filter_risk_by_level(
         for r in rows
         if _risk_impact_level(float(r.get("amount") or 0), mx) == lvl
     ]
+
+
+def _assert_record_ids_in_run(sb, rid: str, record_ids: list[str]) -> None:
+    wanted = {str(x).strip() for x in record_ids if str(x).strip()}
+    if not wanted:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="record_ids cannot be empty",
+        )
+
+    p = _payload_or_404(sb, rid)
+    notes = _notes_count_for_run(sb, rid)
+    source_software = _source_software_for_run(sb, rid)
+    valid: set[str] = set()
+    if any(x.startswith("mi:") for x in wanted):
+        valid.update(
+            str(row.get("id") or "")
+            for row in _build_missed_itc_records(
+                sb,
+                rid=rid,
+                payload=p,
+                note_counts=notes,
+                source_software=source_software,
+            )
+        )
+    if any(x.startswith("wr:") for x in wanted):
+        valid.update(
+            str(row.get("id") or "")
+            for row in _build_wrongful_risk_records(
+                sb,
+                rid=rid,
+                payload=p,
+                note_counts=notes,
+            )
+        )
+    if any(x.startswith("pm:") for x in wanted):
+        valid.update(
+            str(row.get("id") or "")
+            for row, _ in _build_matched_pair_records(
+                sb,
+                rid=rid,
+                payload=p,
+                note_counts=notes,
+            )
+        )
+    if any(x.startswith("r37:") for x in wanted):
+        valid.update(
+            str(row.get("id") or "")
+            for row in _build_rule37_rows(sb, rid, p, notes)
+        )
+    if any(x.startswith("s175:") or x.startswith("s175-db:") for x in wanted):
+        valid.update(
+            str(row.get("id") or "")
+            for row in _build_section175_rows(sb, rid, p, notes)
+        )
+
+    missing = sorted(x for x in wanted if x not in valid)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"record not found in this run: {missing[0]}",
+        )
 
 
 def _sort_reconcile_bucket_rows(rows: list[dict[str, Any]], sort: str) -> None:
@@ -1976,6 +2126,51 @@ def _payload_or_404(sb, rid: str) -> dict[str, Any]:
     return p
 
 
+@reconcile_runs_router.patch(
+    "/records/bulk-update",
+    response_model=DecisionBulkUpdateResponse,
+)
+async def reconcile_records_bulk_update(
+    body: DecisionBulkUpdateBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    if not body.run_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="run_id is required",
+        )
+    rid = _parse_uuid(body.run_id, "run_id")
+    ids = [str(x).strip() for x in body.record_ids if str(x).strip()]
+    if not ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="record_ids cannot be empty",
+        )
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, rid, current_user)
+    if bool(run_row.get("is_locked")) or str(run_row.get("status") or "").upper() == RunStatus.FINAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="locked or final runs cannot be modified",
+        )
+    uid = str(current_user.get("id") or "").strip()
+    if not uid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing user id",
+        )
+    _assert_record_ids_in_run(sb, rid, ids)
+    for record_id in ids:
+        _upsert_decision_status(
+            sb,
+            run_id=rid,
+            record_id=record_id,
+            status_value=body.decision_status,
+            user_id=uid,
+        )
+    return DecisionBulkUpdateResponse(updated_count=len(ids))
+
+
 @reconcile_runs_router.get("/runs/{run_id}/itc")
 async def reconcile_run_itc_bucket(
     run_id: str,
@@ -2045,6 +2240,48 @@ async def reconcile_run_risk_bucket(
     rows = _filter_risk_by_level(rows, risk_level)
     _sort_reconcile_bucket_rows(rows, sort)
     return _paginated_body(rows, page, limit)
+
+
+@reconcile_runs_router.patch(
+    "/runs/{run_id}/risk/{record_id}",
+    response_model=DecisionStatusResponse,
+)
+async def reconcile_run_risk_status(
+    run_id: str,
+    record_id: str,
+    body: DecisionStatusPatch,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    rec_id = str(record_id).strip()
+    new_status = body.status or body.decision_status
+    if new_status is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="status is required",
+        )
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, rid, current_user)
+    if bool(run_row.get("is_locked")) or str(run_row.get("status") or "").upper() == RunStatus.FINAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="locked or final runs cannot be modified",
+        )
+    uid = str(current_user.get("id") or "").strip()
+    if not uid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing user id",
+        )
+    _assert_record_ids_in_run(sb, rid, [rec_id])
+    _upsert_decision_status(
+        sb,
+        run_id=rid,
+        record_id=rec_id,
+        status_value=new_status,
+        user_id=uid,
+    )
+    return DecisionStatusResponse(id=rec_id, status=new_status)
 
 
 @reconcile_runs_router.get("/runs/{run_id}/late-matches")
