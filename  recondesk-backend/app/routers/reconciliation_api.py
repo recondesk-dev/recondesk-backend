@@ -867,19 +867,29 @@ def _rule37_actions_for_run(sb, run_id: str) -> dict[str, str]:
 
 
 def _decision_statuses_for_run(sb, run_id: str) -> dict[str, str]:
-    try:
-        r = (
-            sb.table("mismatch_notes")
-            .select("record_id, note")
-            .eq("run_id", run_id)
-            .eq("note_type", "decision_status")
-            .execute()
-        )
-    except Exception:
-        _log.exception("decision statuses reconciliation_run=%s", run_id)
-        return {}
+    rows: list[dict] = []
+    for use_note_type in (True, False):
+        try:
+            q = (
+                sb.table("mismatch_notes")
+                .select("record_id, note")
+                .eq("run_id", run_id)
+            )
+            if use_note_type:
+                q = q.eq("note_type", "decision_status")
+            r = q.execute()
+            rows = r.data or []
+            break
+        except Exception as exc:
+            if use_note_type and _is_schema_compat_error(exc):
+                _log.warning(
+                    "decision_statuses: note_type filter unavailable run_id=%s", run_id
+                )
+                continue
+            _log.exception("decision statuses reconciliation_run=%s", run_id)
+            return {}
     out: dict[str, str] = {}
-    for row in r.data or []:
+    for row in rows:
         record_id = str(row.get("record_id") or "").strip()
         note = str(row.get("note") or "").strip().lower()
         if record_id and note in {"acted", "ignored", "pending"}:
@@ -887,29 +897,31 @@ def _decision_statuses_for_run(sb, run_id: str) -> dict[str, str]:
     return out
 
 
-def _upsert_decision_status(sb, *, run_id: str, record_id: str, status_value: str, user_id: str) -> None:
-    existing = (
-        sb.table("mismatch_notes")
-        .select("id")
-        .eq("run_id", run_id)
-        .eq("record_id", record_id)
-        .eq("note_type", "decision_status")
-        .limit(1)
-        .execute()
-    )
-    now = datetime.now(timezone.utc).isoformat()
-    patch = {
-        "note": status_value,
-        "user_id": user_id,
-        "severity": "low",
-        "created_at": now,
-    }
-    if existing.data:
-        note_id = str((existing.data[0] or {}).get("id") or "")
-        sb.table("mismatch_notes").update(patch).eq("id", note_id).execute()
-        return
+def _upsert_decision_status(
+    sb, *, run_id: str, record_id: str, status_value: str, user_id: str
+) -> None:
+    """Persist a decision status in ``mismatch_notes`` (schema-tolerant).
 
-    ins = {
+    Uses delete-then-insert (same pattern as ``_upsert_rule37_action``) to
+    avoid PostgREST coercing a TEXT record_id through UUID type-checking and
+    to eliminate the unprotected SELECT that previously caused unhandled 500s.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+
+    # ── Step 1: remove any prior status row for this (run, record) pair ──
+    try:
+        sb.table("mismatch_notes").delete().eq("run_id", run_id).eq(
+            "record_id", record_id
+        ).execute()
+    except Exception:
+        _log.warning(
+            "decision_status delete failed (non-fatal) run_id=%s record_id=%s",
+            run_id,
+            record_id,
+        )
+
+    # ── Step 2: insert the fresh status row ───────────────────────────────
+    ins: dict[str, Any] = {
         "record_id": record_id,
         "run_id": run_id,
         "user_id": user_id,
@@ -920,14 +932,33 @@ def _upsert_decision_status(sb, *, run_id: str, record_id: str, status_value: st
         "severity": "low",
         "created_at": now,
     }
-    try:
-        sb.table("mismatch_notes").insert(ins).execute()
-    except Exception as exc:
-        # Older deployments may not have firm_owner_id on mismatch_notes.
-        if "firm_owner_id" not in str(exc):
+    while True:
+        try:
+            sb.table("mismatch_notes").insert(ins).execute()
+            return
+        except Exception as exc:
+            msg = str(exc)
+            _log.warning(
+                "decision_status insert attempt failed run_id=%s record_id=%s keys=%s err=%s",
+                run_id,
+                record_id,
+                sorted(ins.keys()),
+                msg,
+            )
+            removed = False
+            for col in ("firm_owner_id", "note_type", "severity"):
+                if col in msg and col in ins:
+                    ins.pop(col, None)
+                    removed = True
+                    break
+            if removed:
+                continue
+            _log.exception(
+                "decision_status insert failed run_id=%s record_id=%s",
+                run_id,
+                record_id,
+            )
             raise
-        ins.pop("firm_owner_id", None)
-        sb.table("mismatch_notes").insert(ins).execute()
 
 
 def _merged_record_data(rd: Optional[dict[str, Any]], matcher: Optional[dict[str, Any]]) -> dict[str, Any]:
