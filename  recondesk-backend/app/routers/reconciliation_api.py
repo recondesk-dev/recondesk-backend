@@ -687,6 +687,35 @@ def _normalize_record_id(record_id: str) -> str:
     return decoded
 
 
+def _rule37_db_record_key(record_id: str) -> str:
+    """``mismatch_notes.record_id`` is a UUID column — strip the ``r37:`` API prefix."""
+    rid = _normalize_record_id(record_id)
+    if rid.startswith("r37:"):
+        return rid[4:]
+    return rid
+
+
+def _rule37_api_record_id(db_record_id: str) -> str:
+    """Map a DB ``record_id`` back to the frontend ``r37:…`` identifier."""
+    rid = str(db_record_id or "").strip()
+    if not rid:
+        return rid
+    if rid.startswith("r37:"):
+        return rid
+    return f"r37:{rid}"
+
+
+def _rule37_db_record_lookup_keys(record_id: str) -> list[str]:
+    """Candidate keys for lookup (stripped UUID plus legacy full ``r37:`` value)."""
+    full = _normalize_record_id(record_id)
+    bare = _rule37_db_record_key(full)
+    keys: list[str] = []
+    for key in (bare, full):
+        if key and key not in keys:
+            keys.append(key)
+    return keys
+
+
 def _is_schema_compat_error(exc: BaseException) -> bool:
     msg = str(exc).lower()
     return any(
@@ -713,6 +742,8 @@ def _upsert_rule37_action(
 ) -> None:
     """Persist a Rule 37 action in ``mismatch_notes`` (schema-tolerant)."""
     now = datetime.now(timezone.utc).isoformat()
+    db_record_key = _rule37_db_record_key(record_id)
+    lookup_keys = _rule37_db_record_lookup_keys(record_id)
     note_id: str | None = None
 
     for use_note_type in (True, False):
@@ -721,7 +752,7 @@ def _upsert_rule37_action(
                 sb.table("mismatch_notes")
                 .select("id")
                 .eq("run_id", run_id)
-                .eq("record_id", record_id)
+                .in_("record_id", lookup_keys)
             )
             if use_note_type:
                 q = q.eq("note_type", "rule37_action")
@@ -737,9 +768,10 @@ def _upsert_rule37_action(
                 )
                 continue
             _log.exception(
-                "rule37 action lookup failed run_id=%s record_id=%s",
+                "rule37 action lookup failed run_id=%s record_id=%s db_key=%s",
                 run_id,
                 record_id,
+                db_record_key,
             )
             raise
 
@@ -764,7 +796,7 @@ def _upsert_rule37_action(
         return
 
     ins: dict[str, Any] = {
-        "record_id": record_id,
+        "record_id": db_record_key,
         "run_id": run_id,
         "user_id": user_id,
         "firm_owner_id": user_id,
@@ -856,7 +888,7 @@ def _rule37_actions_for_run(sb, run_id: str) -> dict[str, str]:
         return {}
     out: dict[str, str] = {}
     for row in r.data or []:
-        record_id = str(row.get("record_id") or "").strip()
+        record_id = _rule37_api_record_id(str(row.get("record_id") or "").strip())
         note = str(row.get("note") or "").strip().lower()
         if record_id and note in {"resolved", "acknowledged"}:
             out[record_id] = note

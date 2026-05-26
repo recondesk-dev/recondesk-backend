@@ -97,7 +97,10 @@ def _rule37_action_record_ids(sb: Client, run_id: str) -> set[str]:
         if not isinstance(row, dict):
             continue
         status = str(row.get("note") or "").strip().lower()
-        record_id = str(row.get("record_id") or "").strip()
+        db_record_id = str(row.get("record_id") or "").strip()
+        record_id = db_record_id
+        if db_record_id and not db_record_id.startswith("r37:"):
+            record_id = f"r37:{db_record_id}"
         if status in {"resolved", "acknowledged"} and record_id:
             acted.add(record_id)
     return acted
