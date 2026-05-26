@@ -141,6 +141,18 @@ function normalizeApiPath(path: string): string {
   return p.replace(/\/+$/, "");
 }
 
+/** Resolve fetch URL — browser reconcile calls go through same-origin Next.js proxy. */
+function resolveApiUrl(path: string): string {
+  const normalized = normalizeApiPath(path);
+  if (
+    typeof window !== "undefined" &&
+    normalized.startsWith("/api/reconcile")
+  ) {
+    return normalized;
+  }
+  return `${API_URL}${normalized}`;
+}
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit & { token?: string } = {}
@@ -172,7 +184,7 @@ export async function apiFetch<T>(
     headers.set("Authorization", `Bearer ${bearer}`);
   }
 
-  const res = await fetch(`${API_URL}${normalizeApiPath(path)}`, {
+  const res = await fetch(resolveApiUrl(path), {
     ...fetchOptions,
     headers,
   });
