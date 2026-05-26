@@ -58,6 +58,35 @@ def _is_rule37_concern(item: dict[str, Any]) -> bool:
     return False
 
 
+def _rule37_record_id(item: dict[str, Any]) -> str | None:
+    pr_id = str(item.get("pr_id") or "").strip()
+    if not pr_id:
+        return None
+    return f"r37:{pr_id}"
+
+
+def _rule37_action_record_ids(sb: Client, run_id: str) -> set[str]:
+    try:
+        r = (
+            sb.table("mismatch_notes")
+            .select("record_id, note")
+            .eq("run_id", run_id)
+            .eq("note_type", "rule37_action")
+            .execute()
+        )
+    except Exception:
+        return set()
+    acted: set[str] = set()
+    for row in r.data or []:
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("note") or "").strip().lower()
+        record_id = str(row.get("record_id") or "").strip()
+        if status in {"resolved", "acknowledged"} and record_id:
+            acted.add(record_id)
+    return acted
+
+
 def count_rule37_needs_in_doc(doc: dict[str, Any]) -> int:
     """Count Rule 37 line items in *doc* that require resolution (flag or concern status)."""
     return sum(1 for it in _rule37_items(doc) if _is_rule37_concern(it))
@@ -96,9 +125,17 @@ def count_unresolved_rule37(sb: Client, run_id: str) -> Tuple[int, int, int]:
     """
     sync_rule37_invoice_results(sb, run_id)
     need = 0
+    acted = _rule37_action_record_ids(sb, run_id)
+    acted_needed = 0
     for row in _fetch_result_docs(sb, run_id):
         doc = _merged_result_doc(row.get("record_data"), row.get("payload"))
-        need += count_rule37_needs_in_doc(doc)
+        for item in _rule37_items(doc):
+            if not _is_rule37_concern(item):
+                continue
+            need += 1
+            record_id = _rule37_record_id(item)
+            if record_id and record_id in acted:
+                acted_needed += 1
 
     n2 = (
         sb.table("rule37_resolutions")
@@ -107,7 +144,8 @@ def count_unresolved_rule37(sb: Client, run_id: str) -> Tuple[int, int, int]:
         .limit(0)
         .execute()
     )
-    have = int(n2.count or 0)
+    legacy_have = int(n2.count or 0)
+    have = min(need, acted_needed + legacy_have)
     return need, have, max(0, need - have)
 
 

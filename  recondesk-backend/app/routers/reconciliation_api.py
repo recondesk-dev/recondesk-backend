@@ -516,6 +516,17 @@ class Rule37ResolveResponse(BaseModel):
     resolution_note: Optional[str] = None
 
 
+class Rule37ActionPatch(BaseModel):
+    status: Literal["resolved", "acknowledged"]
+
+
+class Rule37ActionResponse(BaseModel):
+    id: str
+    status: Literal["resolved", "acknowledged"]
+    acted_by: str
+    acted_at: str
+
+
 @router.post(
     "/runs/{run_id}/rule37/{pr_id}/resolve",
     response_model=Rule37ResolveResponse,
@@ -641,6 +652,27 @@ def _notes_count_for_run(sb, run_id: str) -> Counter[str]:
         if cid is not None and str(cid):
             c[str(cid)] += 1
     return c
+
+
+def _rule37_actions_for_run(sb, run_id: str) -> dict[str, str]:
+    try:
+        r = (
+            sb.table("mismatch_notes")
+            .select("record_id, note")
+            .eq("run_id", run_id)
+            .eq("note_type", "rule37_action")
+            .execute()
+        )
+    except Exception:
+        _log.exception("rule37 actions reconciliation_run=%s", run_id)
+        return {}
+    out: dict[str, str] = {}
+    for row in r.data or []:
+        record_id = str(row.get("record_id") or "").strip()
+        note = str(row.get("note") or "").strip().lower()
+        if record_id and note in {"resolved", "acknowledged"}:
+            out[record_id] = note
+    return out
 
 
 def _merged_record_data(rd: Optional[dict[str, Any]], matcher: Optional[dict[str, Any]]) -> dict[str, Any]:
@@ -1412,6 +1444,7 @@ async def _reconcile_finalize_core(
 
 
 def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Counter[str]) -> list[dict[str, Any]]:
+    actions = _rule37_actions_for_run(sb, rid)
     dec = payload.get("decisions") if isinstance(payload.get("decisions"), dict) else {}
     comp = payload.get("compliance") if isinstance(payload.get("compliance"), dict) else {}
     lst = []
@@ -1432,6 +1465,7 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
         amt = _paise_to_rupees(int(ru.get("itc_at_risk_paise") or 0))
         row_id = f"r37:{pr_id_actual or id(ru)}"
         ur = _rule37_urgency_from_status(ru.get("status"))
+        action_status = actions.get(row_id)
         out.append(
             {
                 "id": row_id,
@@ -1451,6 +1485,7 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
                 "gstr2b_data": {},
                 "purchase_register_data": {},
                 "rule37_urgency": ur,
+                "rule37_action_status": action_status,
             }
         )
     out.sort(key=lambda x: (-x["amount"], x["id"]))
@@ -1458,6 +1493,7 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
 
 
 def _try_rule37_via_table(sb, rid: str, page: int, limit: int) -> Optional[dict[str, Any]]:
+    actions = _rule37_actions_for_run(sb, rid)
     for col in ("reconciliation_run_id", "run_id"):
         try:
             off = max(0, (page - 1) * limit)
@@ -1467,6 +1503,10 @@ def _try_rule37_via_table(sb, rid: str, page: int, limit: int) -> Optional[dict[
             total = exe.count if getattr(exe, "count", None) is not None else len(exe.data or [])
             chunk = exe.data or []
             body = [_db_rule37_warning_to_frontend(row) for row in chunk]
+            for row in body:
+                record_id = str(row.get("id") or "")
+                if record_id in actions:
+                    row["rule37_action_status"] = actions[record_id]
             return {
                 "data": body,
                 "total": int(total),
@@ -1491,6 +1531,9 @@ def _db_rule37_warning_to_frontend(row: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         ar = _paise_to_rupees(int(row.get("itc_at_risk_paise") or 0))
     rid_str = f"r37:{pr_id}"
+    action_status = str(row.get("action_status") or "").strip().lower()
+    if action_status not in {"resolved", "acknowledged"}:
+        action_status = None
     return {
         "id": rid_str,
         "supplier_gstin": str(row.get("supplier_gstin") or ""),
@@ -1509,6 +1552,7 @@ def _db_rule37_warning_to_frontend(row: dict[str, Any]) -> dict[str, Any]:
         "gstr2b_data": {},
         "purchase_register_data": {},
         "rule37_urgency": _rule37_urgency_from_status(row.get("status")),
+        "rule37_action_status": action_status,
     }
 
 
@@ -2094,6 +2138,95 @@ async def reconcile_run_rule37(
     notes = _notes_count_for_run(sb, rid)
     rows = _build_rule37_rows(sb, rid, p, notes)
     return _paginated_body(rows, page, limit)
+
+
+@reconcile_runs_router.patch(
+    "/runs/{run_id}/rule37/{record_id}",
+    response_model=Rule37ActionResponse,
+)
+async def reconcile_run_rule37_action(
+    run_id: str,
+    record_id: str,
+    body: Rule37ActionPatch,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    rec_id = str(record_id).strip()
+    if not rec_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="missing record_id",
+        )
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, rid, current_user)
+    if bool(run_row.get("is_locked")) or str(run_row.get("status") or "").upper() == RunStatus.FINAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="locked or final runs cannot be modified",
+        )
+
+    p = _payload_or_404(sb, rid)
+    notes = _notes_count_for_run(sb, rid)
+    rows = _build_rule37_rows(sb, rid, p, notes)
+    if not any(str(row.get("id") or "") == rec_id for row in rows):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="rule37 record not found",
+        )
+
+    uid = str(current_user.get("id") or "").strip()
+    if not uid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing user id",
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    existing = (
+        sb.table("mismatch_notes")
+        .select("id")
+        .eq("run_id", rid)
+        .eq("record_id", rec_id)
+        .eq("note_type", "rule37_action")
+        .limit(1)
+        .execute()
+    )
+    patch = {
+        "note": body.status,
+        "user_id": uid,
+        "severity": "low",
+        "created_at": now,
+    }
+    if existing.data:
+        note_id = str((existing.data[0] or {}).get("id") or "")
+        sb.table("mismatch_notes").update(patch).eq("id", note_id).execute()
+    else:
+        ins = {
+            "record_id": rec_id,
+            "run_id": rid,
+            "user_id": uid,
+            "firm_owner_id": uid,
+            "note": body.status,
+            "record_type": "pr",
+            "note_type": "rule37_action",
+            "severity": "low",
+            "created_at": now,
+        }
+        try:
+            sb.table("mismatch_notes").insert(ins).execute()
+        except Exception as exc:
+            # Older deployments may not have firm_owner_id on mismatch_notes.
+            if "firm_owner_id" not in str(exc):
+                raise
+            ins.pop("firm_owner_id", None)
+            sb.table("mismatch_notes").insert(ins).execute()
+
+    return Rule37ActionResponse(
+        id=rec_id,
+        status=body.status,
+        acted_by=uid,
+        acted_at=now,
+    )
 
 
 @reconcile_runs_router.get("/runs/{run_id}/section17")
