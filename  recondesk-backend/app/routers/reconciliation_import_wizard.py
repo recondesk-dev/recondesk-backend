@@ -17,6 +17,8 @@ from app.routers.import_router import (
     _gstin_norm_for_compare,
     _gstr2b_buyer_gstin_from_raw,
 )
+from app.services.billing_gate import check_run_access, consume_run_credit, sync_billing_credits
+from app.services.firm_access import get_firm_owner_for_client
 from app.services.reconciliation_import_wizard import wizard_service as ws
 
 router = APIRouter()
@@ -461,6 +463,49 @@ async def start_reconciliation(
             status.HTTP_409_CONFLICT,
             "A reconciliation is already running for this period.",
         )
+    firm_owner = get_firm_owner_for_client(sb, str(r["client_id"]))
+    await sync_billing_credits(firm_owner)
+    rec = (
+        sb.table("reconciliation_run")
+        .select("id, paid_at")
+        .eq("id", str(run_id))
+        .limit(1)
+        .execute()
+    )
+    if not (rec.data and rec.data[0].get("paid_at")):
+        gate = await check_run_access(firm_owner)
+        if not gate.get("allowed"):
+            raise HTTPException(
+                status.HTTP_402_PAYMENT_REQUIRED,
+                detail={
+                    "message": "No reconciliation runs available. Purchase a plan or use a free run.",
+                    "billing": gate,
+                },
+            )
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            await consume_run_credit(firm_owner)
+        except Exception as exc:
+            raise HTTPException(
+                status.HTTP_402_PAYMENT_REQUIRED,
+                detail="No reconciliation runs available.",
+            ) from exc
+        period = str(r.get("period") or "")[:7]
+        if rec.data:
+            sb.table("reconciliation_run").update({"paid_at": now}).eq("id", str(run_id)).execute()
+        else:
+            sb.table("reconciliation_run").insert(
+                {
+                    "id": str(run_id),
+                    "client_gstin_id": str(r["client_id"]),
+                    "period": period,
+                    "status": "uploading",
+                    "progress_percent": 0,
+                    "paid_at": now,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            ).execute()
     gstr_n = int(r.get("gstr2b_record_count") or 0)
     pr_n = int(r.get("pr_record_count") or 0)
     ws.transition_run(
