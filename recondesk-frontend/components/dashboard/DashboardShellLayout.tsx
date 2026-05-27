@@ -226,9 +226,9 @@ export default function DashboardShellLayout({
 
   return (
     <div className="flex min-h-screen min-w-[1280px] bg-[var(--bg)] text-[var(--text-primary)]">
-      <aside className="fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col bg-[var(--sidebar)] text-white">
+      <aside className="fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col bg-white border-r border-gray-100">
         <div className="flex items-center gap-2 px-5 py-6">
-          <span className="text-lg font-semibold tracking-tight" style={{ fontWeight: 600 }}>
+          <span className="text-lg font-semibold tracking-tight text-gray-900" style={{ fontWeight: 600 }}>
             ReconDesk
           </span>
           <span className="h-2 w-2 rounded-full bg-[var(--accent)]" aria-hidden />
@@ -243,29 +243,29 @@ export default function DashboardShellLayout({
               <Link
                 key={href}
                 href={href}
-                className={`flex items-center gap-3 border-l-4 px-3 py-2.5 text-sm font-medium transition-colors ${
+                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${
                   isActive
-                    ? "border-[var(--accent)] bg-[rgba(108,99,255,0.1)] text-white"
-                    : "border-transparent text-[#6B7280] hover:text-white"
+                    ? "bg-gray-100 font-semibold text-gray-900"
+                    : "font-medium text-gray-400 hover:bg-gray-50 hover:text-gray-700"
                 }`}
               >
-                <Icon className="shrink-0 opacity-90" />
+                <Icon className={`shrink-0 ${isActive ? "text-gray-900" : "text-gray-400"}`} />
                 {label}
               </Link>
             );
           })}
         </nav>
-        <div className="border-t border-white/10 p-4">
+        <div className="border-t border-gray-100 p-4">
           <div className="relative" ref={profileRef}>
             {profileOpen && (
               <div
-                className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-lg border border-white/10 bg-[#1A1D27] py-1 shadow-lg"
+                className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg"
                 role="menu"
               >
                 <button
                   type="button"
                   role="menuitem"
-                  className="flex w-full px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-white/5"
+                  className="flex w-full px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50"
                   onClick={() => {
                     setProfileOpen(false);
                     router.push("/settings");
@@ -276,7 +276,7 @@ export default function DashboardShellLayout({
                 <button
                   type="button"
                   role="menuitem"
-                  className="flex w-full px-4 py-2.5 text-left text-sm text-red-400 transition-colors hover:bg-red-500/10"
+                  className="flex w-full px-4 py-2.5 text-left text-sm text-red-500 transition-colors hover:bg-red-50"
                   onClick={() => void handleSignOut()}
                 >
                   Sign Out
@@ -285,15 +285,15 @@ export default function DashboardShellLayout({
             )}
             <button
               type="button"
-              className="flex w-full items-center gap-3 rounded-lg text-left transition-colors hover:bg-white/5"
+              className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition-colors hover:bg-gray-50"
               onClick={() => setProfileOpen((open) => !open)}
               aria-expanded={profileOpen}
               aria-haspopup="menu"
             >
               <Avatar initials={currentUser.initials} />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-white">{currentUser.name}</p>
-                <span className="mt-0.5 inline-block rounded bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
+                <p className="truncate text-sm font-medium text-gray-900">{currentUser.name}</p>
+                <span className="mt-0.5 inline-block rounded bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
                   {currentUser.role}
                 </span>
               </div>
@@ -303,14 +303,14 @@ export default function DashboardShellLayout({
       </aside>
 
       <div className="ml-[240px] flex min-h-screen flex-1 flex-col">
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-8">
-          <h1 className="text-lg font-semibold text-[var(--text-primary)]" style={{ fontSize: 18, fontWeight: 600 }}>
+        <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-8">
+          <h1 className="text-lg font-semibold text-gray-900" style={{ fontSize: 18, fontWeight: 600 }}>
             {title}
           </h1>
           <div className="flex items-center gap-4">
             <button
               type="button"
-              className="relative rounded-lg p-2 text-[var(--text-secondary)] hover:bg-[var(--bg)]"
+              className="relative rounded-xl p-2 text-gray-400 hover:bg-gray-50 transition-colors"
               aria-label="Notifications"
               onClick={() => setPanelOpen(true)}
             >
@@ -325,7 +325,7 @@ export default function DashboardShellLayout({
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-8">{children}</main>
+        <main className="flex-1 overflow-y-auto bg-gray-50/50 p-8">{children}</main>
       </div>
 
       {panelOpen && (
@@ -336,12 +336,12 @@ export default function DashboardShellLayout({
             aria-label="Close notifications"
             onClick={() => setPanelOpen(false)}
           />
-          <div className="fixed inset-y-0 right-0 z-[90] flex w-full max-w-md flex-col border-l border-[var(--border)] bg-[var(--surface)] shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
-              <h2 className="text-base font-semibold">Failed reconciliations</h2>
+          <div className="fixed inset-y-0 right-0 z-[90] flex w-full max-w-md flex-col border-l border-gray-100 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+              <h2 className="text-base font-semibold text-gray-900">Failed reconciliations</h2>
               <button
                 type="button"
-                className="rounded p-1 text-[var(--text-secondary)] hover:bg-[var(--bg)]"
+                className="rounded-xl p-1.5 text-gray-400 hover:bg-gray-50 transition-colors"
                 onClick={() => setPanelOpen(false)}
                 aria-label="Close"
               >
@@ -352,10 +352,10 @@ export default function DashboardShellLayout({
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               {failuresLoading && (
-                <p className="text-sm text-[var(--text-secondary)]">Loading failed runs…</p>
+                <p className="text-sm text-gray-400">Loading failed runs…</p>
               )}
               {failuresError && (
-                <p className="text-sm text-[var(--danger)]">
+                <p className="text-sm text-red-500">
                   Could not load failures.{" "}
                   <button
                     type="button"
@@ -370,17 +370,17 @@ export default function DashboardShellLayout({
                 !failuresError &&
                 failures &&
                 failures.items.length === 0 && (
-                  <p className="text-sm text-[var(--text-secondary)]">No failed runs.</p>
+                  <p className="text-sm text-gray-400">No failed runs.</p>
                 )}
               <ul className="space-y-3">
                 {failures?.items.map((item) => (
                   <li
                     key={item.runId}
-                    className="rounded-lg border border-[var(--border)] p-3"
+                    className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm"
                   >
-                    <p className="font-medium text-[var(--text-primary)]">{item.tradeName}</p>
-                    <p className="text-xs text-[var(--text-secondary)]">{item.period}</p>
-                    <p className="mt-1 line-clamp-2 text-xs text-[var(--danger)]">{item.errorSnippet}</p>
+                    <p className="font-medium text-gray-900">{item.tradeName}</p>
+                    <p className="text-xs text-gray-400">{item.period}</p>
+                    <p className="mt-1 line-clamp-2 text-xs text-red-500">{item.errorSnippet}</p>
                     <button
                       type="button"
                       className="mt-2 text-sm font-semibold text-[var(--accent)] hover:underline"
