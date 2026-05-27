@@ -8,14 +8,14 @@ export function StatCard({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
+    <div className="flex items-start justify-between rounded-2xl bg-white p-6 shadow-sm">
       <div>
-        <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">
+        <p className="text-[11px] font-medium uppercase tracking-widest text-gray-400">
           {label}
         </p>
-        <p className="mt-2 font-mono text-2xl font-semibold text-[var(--text-primary)]">{value}</p>
+        <p className="mt-2 font-mono text-3xl font-semibold text-gray-900">{value}</p>
       </div>
-      <div className="rounded-lg bg-[var(--accent-dim)] p-2.5 text-[var(--accent)]">{icon}</div>
+      <div className="rounded-xl bg-gray-100 p-2.5 text-gray-500">{icon}</div>
     </div>
   );
 }
