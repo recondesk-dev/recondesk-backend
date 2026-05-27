@@ -332,20 +332,20 @@ export default function PortfolioDashboardPage() {
 
   if (tokenState === null) {
     return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="h-24 animate-pulse rounded-xl bg-[#E5E7EB]" />
-          <div className="h-24 animate-pulse rounded-xl bg-[#E5E7EB]" />
+      <div className="space-y-8">
+        <div className="grid grid-cols-2 gap-6">
+          <div className="h-28 animate-pulse rounded-2xl bg-gray-100" />
+          <div className="h-28 animate-pulse rounded-2xl bg-gray-100" />
         </div>
-        <div className="h-40 animate-pulse rounded-xl bg-[#E5E7EB]" />
-        <div className="h-72 animate-pulse rounded-xl bg-[#E5E7EB]" />
+        <div className="h-40 animate-pulse rounded-2xl bg-gray-100" />
+        <div className="h-72 animate-pulse rounded-2xl bg-gray-100" />
       </div>
     );
   }
 
   if (tokenState === false) {
     return (
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--text-secondary)]">
+      <div className="rounded-2xl bg-white px-6 py-10 text-center text-sm font-medium text-gray-400 shadow-sm">
         Sign in required to view the dashboard.
       </div>
     );
@@ -355,14 +355,14 @@ export default function PortfolioDashboardPage() {
     return (
       <div className="flex min-h-[calc(100vh-12rem)] flex-col items-center justify-center px-4">
         <div className="mx-auto w-full max-w-[400px] text-center">
-          <EmptyStateIllustration className="mx-auto text-gray-400" />
-          <h2 className="mt-4 text-lg font-semibold text-gray-900">No clients yet</h2>
-          <p className="mt-1 text-sm text-gray-500">
+          <EmptyStateIllustration className="mx-auto text-gray-300" />
+          <h2 className="mt-6 text-xl font-semibold text-gray-900">No clients yet</h2>
+          <p className="mt-2 text-sm text-gray-500">
             Add your first client to start reconciling their GSTR-2B
           </p>
           <Link
             href="/clients?add=1"
-            className="mt-6 inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white"
+            className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-xl bg-[var(--accent)] px-6 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-opacity"
           >
             Add First Client
           </Link>
@@ -372,9 +372,9 @@ export default function PortfolioDashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {!portfolioLoading && signals.failedClientCount > 0 && (
-        <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+        <div className="flex items-center justify-between rounded-2xl bg-red-50 px-5 py-4 text-sm text-red-900">
           <span>
             <strong>{signals.failedClientCount}</strong> client(s) have failed reconciliations.{" "}
             <button
@@ -393,22 +393,22 @@ export default function PortfolioDashboardPage() {
       {!portfolioLoading &&
         signals.failedClientCount === 0 &&
         signals.completeReadyCount > 0 && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <div className="rounded-2xl bg-amber-50 px-5 py-4 text-sm text-amber-950">
             <strong>{signals.completeReadyCount}</strong> reconciliation(s) are ready for your review.
           </div>
         )}
       {!portfolioLoading && signals.showAllFinalizedBanner && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900">
+        <div className="rounded-2xl bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-900">
           All clients reconciled for this period 🎉
         </div>
       )}
 
-      <p className="text-sm text-[var(--text-secondary)]">
+      <p className="text-sm text-gray-500">
         Where should you act right now? Open the highest-priority client and start or continue their
         reconciliation.
       </p>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-6">
         <StatCard
           label="Needs Attention"
           value={
@@ -444,7 +444,7 @@ export default function PortfolioDashboardPage() {
       </div>
 
       {loadError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="rounded-2xl bg-red-50 px-5 py-4 text-sm text-red-800">
           Could not load data.{" "}
           <button
             type="button"
@@ -460,48 +460,49 @@ export default function PortfolioDashboardPage() {
         <>
           {startHereRow && (
             <div>
-              <p
-                className="mb-2 text-[11px] font-semibold tracking-wide text-[var(--text-secondary)] [font-variant:small-caps]"
-              >
-                Start here
-              </p>
-              <div
-                className={`flex flex-col gap-4 rounded-xl border-l-4 bg-[var(--surface)] p-5 shadow-md sm:flex-row sm:items-center sm:justify-between ${
-                  startHereRow.latestRun?.status === "FAILED"
-                    ? "border-l-[var(--danger)]"
-                    : "border-l-[var(--accent)]"
-                }`}
-              >
+              <div className="mb-3 flex items-center gap-2">
+                <span
+                  className={`inline-block h-2 w-2 rounded-full ${
+                    startHereRow.latestRun?.status === "FAILED"
+                      ? "bg-[var(--danger)]"
+                      : "bg-[var(--accent)]"
+                  }`}
+                />
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">
+                  Start here
+                </p>
+              </div>
+              <div className="flex flex-col gap-4 rounded-2xl bg-white p-6 shadow-md sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <p
-                    className="truncate text-lg font-semibold text-[var(--text-primary)]"
+                    className="truncate text-lg font-semibold text-gray-900"
                     style={{ fontSize: 18, fontWeight: 600 }}
                   >
                     {startHereRow.client.tradeName}
                   </p>
-                  <p className="mt-1 font-mono text-sm text-[var(--text-primary)]">
+                  <p className="mt-1 font-mono text-sm text-gray-500">
                     {startHereRow.client.gstin}
                   </p>
                 </div>
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2 text-sm text-[var(--text-primary)]">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2 text-sm text-gray-700">
                   {startHereRow.latestRun?.status === "FAILED" ? (
                     <>
                       <span>Failed — needs retry</span>
-                      <span className="text-[var(--text-secondary)]">•</span>
+                      <span className="text-gray-300">•</span>
                       <StatusBadge status="FAILED" />
                     </>
                   ) : !startHereRow.latestRun ? (
-                    <span className="text-[var(--text-secondary)]">No reconciliations yet</span>
+                    <span className="text-gray-400">No reconciliations yet</span>
                   ) : (
                     <>
                       {startHereRow.latestRun.missedItc != null && (
                         <>
                           <span>{formatMissedSnippet(startHereRow.latestRun.missedItc)}</span>
-                          <span className="text-[var(--text-secondary)]">•</span>
+                          <span className="text-gray-300">•</span>
                         </>
                       )}
                       <span>{complianceRiskWords(startHereRow.latestRun.complianceRisk)}</span>
-                      <span className="text-[var(--text-secondary)]">•</span>
+                      <span className="text-gray-300">•</span>
                       <StatusBadge status={startHereRow.latestRun.status} />
                     </>
                   )}
@@ -510,7 +511,7 @@ export default function PortfolioDashboardPage() {
                   {startHereRow.latestRun?.status === "FAILED" && (
                     <button
                       type="button"
-                      className="rounded-lg bg-[var(--danger)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-95"
+                      className="rounded-xl bg-[var(--danger)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-opacity"
                       onClick={() => setRetryRow(startHereRow)}
                     >
                       Retry Now
@@ -519,7 +520,7 @@ export default function PortfolioDashboardPage() {
                   {startHereRow.latestRun?.status === "COMPLETE" && (
                     <button
                       type="button"
-                      className="rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-95"
+                      className="rounded-xl bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-opacity"
                       onClick={() => router.push(`/clients/${startHereRow.client.id}`)}
                     >
                       Review Now
@@ -531,7 +532,7 @@ export default function PortfolioDashboardPage() {
                     <button
                       type="button"
                       disabled
-                      className="cursor-not-allowed rounded-lg bg-[#E5E7EB] px-5 py-2.5 text-sm font-semibold text-[var(--text-secondary)]"
+                      className="cursor-not-allowed rounded-xl bg-gray-100 px-5 py-2.5 text-sm font-semibold text-gray-400"
                     >
                       In Progress
                     </button>
@@ -539,7 +540,7 @@ export default function PortfolioDashboardPage() {
                   {!startHereRow.latestRun && (
                     <button
                       type="button"
-                      className="rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-95"
+                      className="rounded-xl bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-opacity"
                       onClick={() => router.push(`/clients/${startHereRow.client.id}`)}
                     >
                       Start
@@ -551,7 +552,7 @@ export default function PortfolioDashboardPage() {
           )}
 
           {directoryLoading ? (
-            <div className="h-[72px] animate-pulse rounded-xl bg-[#E5E7EB]" aria-hidden />
+            <div className="h-[72px] animate-pulse rounded-2xl bg-gray-100" aria-hidden />
           ) : (
             <FilterBar
               filters={filters}
@@ -569,7 +570,7 @@ export default function PortfolioDashboardPage() {
             portfolio &&
             portfolio.total === 0 &&
             showReset && (
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--text-secondary)]">
+              <div className="rounded-2xl bg-white px-6 py-10 text-center text-sm text-gray-400 shadow-sm">
                 No clients match your filters.{" "}
                 <button
                   type="button"
@@ -602,7 +603,7 @@ export default function PortfolioDashboardPage() {
       )}
 
       {!isEmptyPortfolio && !directoryLoading && staff.length === 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        <div className="rounded-2xl bg-amber-50 px-5 py-4 text-sm text-amber-950">
           Team directory is empty — add staff in Settings → Team before using assign filters.
         </div>
       )}
@@ -616,12 +617,12 @@ export default function PortfolioDashboardPage() {
       />
 
       {selectedIds.size > 0 && staff.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-3 shadow-lg">
-          <span className="text-sm font-medium text-[var(--text-primary)]">
+        <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 flex-wrap items-center gap-3 rounded-2xl border border-white/20 bg-white/80 px-5 py-3.5 shadow-xl backdrop-blur-xl">
+          <span className="text-sm font-semibold text-gray-800">
             {selectedIds.size} selected
           </span>
           <select
-            className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm"
+            className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 focus:outline-none"
             defaultValue=""
             onChange={(e) => {
               if (e.target.value) void onBulkAssign(e.target.value);
@@ -640,7 +641,7 @@ export default function PortfolioDashboardPage() {
             type="button"
             disabled={!canBulkFinalize}
             title={!canBulkFinalize ? "Select only COMPLETE rows" : undefined}
-            className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40"
+            className="rounded-xl bg-[var(--accent)] px-5 py-2 text-sm font-semibold text-white disabled:opacity-40 transition-opacity hover:opacity-90"
             onClick={() => void onBulkFinalize()}
           >
             Mark Selected as Finalized
@@ -649,14 +650,14 @@ export default function PortfolioDashboardPage() {
             type="button"
             disabled={!canBulkRetry}
             title={!canBulkRetry ? "Select only FAILED rows" : undefined}
-            className="rounded-lg border border-[var(--danger)] px-3 py-1.5 text-sm font-semibold text-[var(--danger)] disabled:opacity-40"
+            className="rounded-xl border border-[var(--danger)] px-5 py-2 text-sm font-semibold text-[var(--danger)] disabled:opacity-40 transition-opacity hover:bg-red-50"
             onClick={() => void onBulkRetry()}
           >
             Retry Selected
           </button>
           <button
             type="button"
-            className="text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            className="text-sm font-medium text-gray-400 hover:text-gray-700 transition-colors"
             onClick={() => setSelectedIds(new Set())}
           >
             Clear
