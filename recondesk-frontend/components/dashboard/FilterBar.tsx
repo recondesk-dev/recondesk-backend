@@ -32,15 +32,15 @@ export function FilterBar({
   onReset: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-end gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+    <div className="flex flex-wrap items-end gap-4 rounded-2xl bg-white p-5 shadow-sm">
       <div>
-        <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Status</label>
+        <label className="mb-1 block text-[11px] font-medium uppercase tracking-widest text-gray-400">Status</label>
         <select
           value={filters.status}
           onChange={(e) =>
             onChange({ ...filters, status: e.target.value as PortfolioStatusFilter })
           }
-          className="min-w-[140px] rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          className="min-w-[140px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-[var(--accent)]"
         >
           {STATUS_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
@@ -50,7 +50,7 @@ export function FilterBar({
         </select>
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+        <label className="mb-1 block text-[11px] font-medium uppercase tracking-widest text-gray-400">
           Assigned To
         </label>
         <select
@@ -58,7 +58,7 @@ export function FilterBar({
           onChange={(e) =>
             onChange({ ...filters, assignedStaffId: e.target.value as PortfolioFilters["assignedStaffId"] })
           }
-          className="min-w-[160px] rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          className="min-w-[160px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-[var(--accent)]"
         >
           <option value="ALL">All</option>
           {staff.map((s) => (
@@ -69,11 +69,11 @@ export function FilterBar({
         </select>
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Period</label>
+        <label className="mb-1 block text-[11px] font-medium uppercase tracking-widest text-gray-400">Period</label>
         <select
           value={filters.period}
           onChange={(e) => onChange({ ...filters, period: e.target.value })}
-          className="min-w-[120px] rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          className="min-w-[120px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-[var(--accent)]"
         >
           <option value="ALL">All</option>
           {periods.map((p) => (
@@ -84,13 +84,13 @@ export function FilterBar({
         </select>
       </div>
       <div className="min-w-[200px] flex-1">
-        <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Search</label>
+        <label className="mb-1 block text-[11px] font-medium uppercase tracking-widest text-gray-400">Search</label>
         <input
           type="search"
           value={searchInput}
           onChange={(e) => onSearchInputChange(e.target.value)}
           placeholder="Name or GSTIN"
-          className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-[var(--accent)]"
         />
       </div>
       {showReset && (
