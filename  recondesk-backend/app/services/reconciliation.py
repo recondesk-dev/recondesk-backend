@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 from app.services.matching_core import THRESHOLD, choose_best_candidate, compute_match_score
@@ -17,6 +17,7 @@ from app.services.matcher import (
     invoice_similarity,
     match_gstr_to_pr,
 )
+from app.services.vendor_name_matcher import find_best_vendor_match
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,7 @@ def process_gstr_records_chunk(
         best_result: MatchResult | None = None
         best_pr: dict | None = None
         best_key: tuple[int, int, int] | None = None
+        tied_at_best: list[tuple[MatchResult, dict]] = []
 
         for pr_rec in candidates:
             pr_id = str(pr_rec["id"])
@@ -193,8 +195,39 @@ def process_gstr_records_chunk(
             key = _tie_key(result, gstr_record, pr_rec)
             if best_key is None or key < best_key:
                 best_key = key
-                best_result = result
-                best_pr = pr_rec
+                tied_at_best = [(result, pr_rec)]
+            elif key == best_key:
+                tied_at_best.append((result, pr_rec))
+
+        if tied_at_best:
+            if len(tied_at_best) > 1 and tied_at_best[0][0].level == 5:
+                vendor_pick = find_best_vendor_match(
+                    gstr_record.get("supplier_name", ""),
+                    [
+                        {
+                            "vendor_name": pr.get("vendor_name", ""),
+                            "record": pr,
+                        }
+                        for _, pr in tied_at_best
+                    ],
+                    threshold=0.82,
+                )
+                if vendor_pick is not None:
+                    picked_pr = vendor_pick["record"]
+                    for result, pr_rec in tied_at_best:
+                        if pr_rec is picked_pr:
+                            best_result = replace(
+                                result,
+                                vendor_similarity_score=vendor_pick[
+                                    "vendor_similarity_score"
+                                ],
+                            )
+                            best_pr = pr_rec
+                            break
+                else:
+                    best_result, best_pr = tied_at_best[0]
+            else:
+                best_result, best_pr = tied_at_best[0]
 
         if best_result is not None and best_pr is not None:
             score = compute_match_score(best_result)
@@ -208,6 +241,7 @@ def process_gstr_records_chunk(
                     "original_period": None,
                     "late_months": 0,
                     "match_status_text": "Matched",
+                    "vendor_similarity_score": best_result.vendor_similarity_score,
                 }
             )
             state.matched_pr_ids.add(str(best_pr["id"]))
@@ -279,6 +313,7 @@ def process_gstr_records_chunk(
                     "match_status_text": (
                         f"Matched -- Late Supplier Filing ({late_months} months late)"
                     ),
+                    "vendor_similarity_score": final_mr.vendor_similarity_score,
                 }
             )
             state.matched_pr_ids.add(str(best_p["id"]))
