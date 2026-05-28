@@ -39,6 +39,7 @@ sentry-sdk[fastapi]>=2.0.0
 
 # Fuzzy matching
 Levenshtein>=0.25.0
+rapidfuzz>=3.0.0
 
 # Payments
 razorpay>=1.4.0

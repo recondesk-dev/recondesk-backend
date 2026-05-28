@@ -203,6 +203,7 @@ app.include_router(
 )
 app.include_router(notes.router, prefix="/api/notes", tags=["Notes"])
 app.include_router(clients_router, prefix="/api/clients", tags=["Clients"])
+app.include_router(clients_router, prefix="/api/v1/clients", tags=["Clients v1"])
 app.include_router(team_router, prefix="/api/team", tags=["Team"])
 app.include_router(users_router.router, prefix="/api/users", tags=["Users"])
 app.include_router(

@@ -9,6 +9,11 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Mapping
 
+from app.services.vendor_name_matcher import (
+    find_best_vendor_match,
+    vendor_name_similarity,
+)
+
 AMOUNT_TOLERANCE_L1_PAISE = 100
 AMOUNT_TOLERANCE_L2_PAISE = 10000
 AMOUNT_TOLERANCE_L3_PCT = 0.05
@@ -122,6 +127,7 @@ class MatchResult:
     is_late_filing: bool = False
     original_period: date | None = None
     late_months: int = 0
+    vendor_similarity_score: float | None = None
 
 
 def _safe_paise_field(rec: Mapping[str, Any], key: str) -> int:
@@ -614,6 +620,10 @@ def _match_gstr_to_pr_pair(
         and date_within_l2
         and invoice_similarity(g_inv, p_inv) >= 0.40
     ):
+        vendor_sim = vendor_name_similarity(
+            pr_rec.get("vendor_name", ""),
+            gstr_rec.get("supplier_name", ""),
+        )
         return MatchResult(
             level=4,
             matched=True,
@@ -624,6 +634,7 @@ def _match_gstr_to_pr_pair(
             decision_next="Verify invoice number with supplier. May be a typo or amended invoice.",
             review_reason=f"Invoice number mismatch: GSTR has {g_inv}, PR has {p_inv}",
             discrepancies=discrepancies,
+            vendor_similarity_score=vendor_sim,
         )
 
     # L5 — Fuzzy invoice (after L1–L4; GSTIN + Rs50 + normalized similarity)
@@ -635,6 +646,10 @@ def _match_gstr_to_pr_pair(
         and amount_within_l5
         and inv_sim >= INVOICE_SIMILARITY_L5_MIN
     ):
+        vendor_sim = vendor_name_similarity(
+            pr_rec.get("vendor_name", ""),
+            gstr_rec.get("supplier_name", ""),
+        )
         return MatchResult(
             level=5,
             matched=True,
@@ -654,6 +669,7 @@ def _match_gstr_to_pr_pair(
                 f"{explain_invoice_difference(g_inv, p_inv)}"
             ),
             discrepancies=discrepancies,
+            vendor_similarity_score=vendor_sim,
         )
 
     # L6 — No match
@@ -800,7 +816,34 @@ def match_gstr_to_pr(
         # fallback to normal scoring (level → confidence → date signal); ties broken like ``rank_key``
         best_scored = max(candidates, key=lambda x: x["score"])
         tied = [c for c in candidates if c["score"] == best_scored["score"]]
-        best_candidate = min(tied, key=lambda x: x["rank_key"])
+        if len(tied) > 1 and tied[0]["r"].level == 5:
+            vendor_pick = find_best_vendor_match(
+                gstr_rec.get("supplier_name", ""),
+                [
+                    {
+                        "vendor_name": c["pr"].get("vendor_name", ""),
+                        "record": c["pr"],
+                    }
+                    for c in tied
+                ],
+                threshold=0.82,
+            )
+            if vendor_pick is not None:
+                picked_pr = vendor_pick["record"]
+                best_candidate = next(
+                    c for c in tied if c["pr"] is picked_pr
+                )
+                best_candidate = {
+                    **best_candidate,
+                    "r": replace(
+                        best_candidate["r"],
+                        vendor_similarity_score=vendor_pick["vendor_similarity_score"],
+                    ),
+                }
+            else:
+                best_candidate = min(tied, key=lambda x: x["rank_key"])
+        else:
+            best_candidate = min(tied, key=lambda x: x["rank_key"])
         is_late_filing_sel = best_candidate["is_late_filing"]
         original_period_sel = best_candidate["original_period"]
 
