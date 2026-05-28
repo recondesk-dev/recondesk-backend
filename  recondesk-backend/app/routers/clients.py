@@ -16,7 +16,8 @@ from app.auth import get_current_active_user, get_current_user, require_admin
 from app.database import get_supabase, get_user_profile
 from app.routers.reconciliation_api import _parse_uuid
 from app.routers.reconciliation_api import _history_row
-from app.services.normalizer import NormalizationError, normalize_gstin
+from app.services.firm_access import list_accessible_client_gstin_ids
+from app.services.carry_forward import get_chronic_risks
 
 router = APIRouter(redirect_slashes=False)
 # Alias for `app.include_router(clients_router, ...)` in main.py
@@ -454,3 +455,21 @@ async def delete_client(
             detail="Access denied",
         )
     return None
+
+
+@router.get("/{client_gstin_id}/chronic-risks")
+async def list_chronic_risks(
+    client_gstin_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Invoices unmatched for >= 3 consecutive reconciliation runs."""
+    cg = _parse_uuid(client_gstin_id, "client_gstin_id")
+    sb = get_supabase()
+    allowed = list_accessible_client_gstin_ids(sb, current_user)
+    if cg not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="not allowed for this client",
+        )
+    risks = await get_chronic_risks(UUID(cg))
+    return {"client_gstin_id": cg, "chronic_risks": risks}
