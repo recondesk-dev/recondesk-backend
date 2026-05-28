@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import calendar
 import json
 import logging
@@ -26,7 +27,9 @@ from app.services.reconciliation import (
     notify_reconciliation_run_completed_email_maybe,
     process_gstr_records_chunk,
 )
-from app.constants import RunStatus
+from uuid import UUID
+
+from app.services.carry_forward import update_invoice_tracking
 from app.services.rule37_tracker import check_rule_37_compliance
 from app.worker.celery_app import celery_app
 from app.worker.tasks import _json_safe, _supabase, _update_run
@@ -436,13 +439,34 @@ def execute_reconciliation(run_id: str) -> None:
         gstr_by_gstin: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for ggr in gstr_matcher:
             gstr_by_gstin[str(ggr.get("supplier_gstin") or "")].append(ggr)
+        vendor_sim_by_pr_id: dict[str, float | None] = {
+            str(m.get("pr_id")): m.get("vendor_similarity_score")
+            for m in state.matched
+            if m.get("pr_id") is not None
+        }
         pr_match_status_rows: list[dict[str, Any]] = []
+        pr_rows_for_tracking: list[dict[str, Any]] = []
         for pr_rec in pr_current:
             pid = str(pr_rec["id"])
             base_rd = pr_raw_by_id.get(pid)
             merged_rd = dict(base_rd) if isinstance(base_rd, dict) else {}
-            merged_rd["match_status"] = _pr_match_status_for_record(
+            match_st = _pr_match_status_for_record(
                 pr_rec, state.matched_pr_ids, gstr_by_gstin
+            )
+            merged_rd["match_status"] = match_st
+            if pid in vendor_sim_by_pr_id:
+                merged_rd["vendor_similarity_score"] = vendor_sim_by_pr_id[pid]
+            rd = base_rd if isinstance(base_rd, dict) else {}
+            pr_rows_for_tracking.append(
+                {
+                    "invoice_number": rd.get("invoice_number")
+                    or rd.get("invoice_number_normalized")
+                    or pr_rec.get("invoice_number_normalized"),
+                    "supplier_gstin": rd.get("gstin") or pr_rec.get("supplier_gstin"),
+                    "taxable_amount": rd.get("taxable_amount_paise")
+                    or pr_rec.get("taxable_amount_paise"),
+                    "match_status": match_st,
+                }
             )
             try:
                 pid_int = int(pid)
@@ -465,6 +489,18 @@ def execute_reconciliation(run_id: str) -> None:
                     ).execute()
                 except Exception:
                     _log.exception("pr_records match_status bulk upsert failed")
+
+        try:
+            carry_forward_summary = asyncio.run(
+                update_invoice_tracking(
+                    client_gstin_id=UUID(client_gstin_id),
+                    run_id=UUID(run_id),
+                    pr_records=pr_rows_for_tracking,
+                )
+            )
+            _log.info("Carry-forward summary: %s", carry_forward_summary)
+        except Exception:
+            _log.exception("carry_forward failed run_id=%s", run_id)
 
         credit_rows = [
             {**p, "doc_kind": classify_document(p)}
