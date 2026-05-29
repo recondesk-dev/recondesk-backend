@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
 import { useToast } from "@/components/providers/ToastProvider";
-import { isValidGSTIN } from "@/components/ui/GstinInput";
+import { getGstStateName, isValidGSTIN } from "@/components/ui/GstinInput";
 import {
   authApi,
   clientsApi,
@@ -236,6 +236,8 @@ export default function OnboardingPage() {
 
   const firstName = me?.full_name?.trim()?.split(/\s+/)[0] || "there";
   const progressPct = (step / STEPS) * 100;
+  const gstStateName =
+    gstinValid === true && isValidGSTIN(gstin) ? getGstStateName(gstin) : null;
 
   return (
     <div className="flex min-h-screen flex-col bg-white">
@@ -366,9 +368,9 @@ export default function OnboardingPage() {
                   ) : null}
                 </div>
               </div>
-              {gstinValid === true && gstinStateLabel && (
-                <p className="mt-1 text-xs text-emerald-700">
-                  {gstinStateLabel} · Valid GSTIN
+              {gstStateName && (
+                <p className="mt-1 text-xs text-gray-500">
+                  This GSTIN belongs to {gstStateName}
                 </p>
               )}
               {gstinValid === false && gstinError && (
