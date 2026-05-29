@@ -635,10 +635,37 @@ export default function NewReconcileWizardPage() {
       pollStartRef.current = Date.now();
       setPollSlow(false);
       setPoll({ pct: 0, message: "Starting…", status: r.status });
-    } catch (e) {
-      const ae = e as ApiError;
-      if (ae.status === 409) setStart409(extractErrorMessage(e, "Cannot start."));
-      else setErr(extractErrorMessage(e, "Start failed."));
+    } catch (err: unknown) {
+      const e = err as {
+        response?: { status?: number; data?: { detail?: unknown } };
+        status?: number;
+        detail?: unknown;
+        message?: string;
+      };
+      const status = e?.response?.status ?? e?.status;
+
+      if (status === 402) {
+        setErr("No runs remaining on your current plan. Please upgrade to continue.");
+        return;
+      }
+      if (status === 429) {
+        setErr("Too many requests. Please wait a moment and try again.");
+        return;
+      }
+
+      const rawDetail = e?.response?.data?.detail ?? e?.detail;
+      const message =
+        (typeof rawDetail === "string" ? rawDetail : null) ||
+        (rawDetail &&
+        typeof rawDetail === "object" &&
+        typeof (rawDetail as { message?: unknown }).message === "string"
+          ? (rawDetail as { message: string }).message
+          : null) ||
+        e?.message ||
+        "Something went wrong. Please try again.";
+
+      if (status === 409) setStart409(message);
+      else setErr(message);
     } finally {
       setStartBusy(false);
     }
