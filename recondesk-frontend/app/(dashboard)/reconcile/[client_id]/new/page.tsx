@@ -138,6 +138,26 @@ async function withRetries<T>(fn: () => Promise<T>, attempts = 3, delayMs = 2000
   throw last;
 }
 
+function extractErrorMessage(error: unknown, fallback: string): string {
+  const e = error as { message?: unknown; detail?: unknown };
+  if (typeof e?.message === "string" && e.message) return e.message;
+  if (typeof e?.detail === "string" && e.detail) return e.detail;
+  if (e?.detail && typeof e.detail === "object") {
+    const detailMessage = (e.detail as { message?: unknown }).message;
+    if (typeof detailMessage === "string" && detailMessage) return detailMessage;
+    return JSON.stringify(e.detail);
+  }
+  if (typeof error === "string" && error) return error;
+  if (error != null) {
+    try {
+      return JSON.stringify(error);
+    } catch {
+      /* ignore */
+    }
+  }
+  return fallback;
+}
+
 function StepIndicator({ step }: { step: number }) {
   const labels = ["Select Period", "GSTR-2B", "Purchase Register", "Start"];
   return (
@@ -617,8 +637,8 @@ export default function NewReconcileWizardPage() {
       setPoll({ pct: 0, message: "Starting…", status: r.status });
     } catch (e) {
       const ae = e as ApiError;
-      if (ae.status === 409) setStart409(ae.detail ?? "Cannot start.");
-      else setErr(ae.detail ?? "Start failed.");
+      if (ae.status === 409) setStart409(extractErrorMessage(e, "Cannot start."));
+      else setErr(extractErrorMessage(e, "Start failed."));
     } finally {
       setStartBusy(false);
     }
@@ -646,8 +666,7 @@ export default function NewReconcileWizardPage() {
       setRun(r);
       setStart409(null);
     } catch (e) {
-      const ae = e as ApiError;
-      setErr(ae.detail ?? "Retry failed.");
+      setErr(extractErrorMessage(e, "Retry failed."));
     }
   };
 
@@ -1186,7 +1205,7 @@ export default function NewReconcileWizardPage() {
 
           {run?.status === "error" ? (
             <div className="rounded-lg border border-[var(--danger)] bg-red-50 p-3 text-sm text-red-900">
-              {run.error_detail || "Processing failed."}
+              {extractErrorMessage(run.error_detail, "Processing failed.")}
               <div className="mt-2">
                 <button
                   type="button"
@@ -1219,7 +1238,9 @@ export default function NewReconcileWizardPage() {
           </div>
 
           {start409 ? (
-            <div className="rounded-lg border border-[var(--warning)] bg-amber-50 p-3 text-sm">{start409}</div>
+            <div className="rounded-lg border border-[var(--warning)] bg-amber-50 p-3 text-sm">
+              {extractErrorMessage(start409, "Cannot start.")}
+            </div>
           ) : null}
 
           <button
