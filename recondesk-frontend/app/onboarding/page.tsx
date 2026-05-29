@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
 import { useToast } from "@/components/providers/ToastProvider";
+import { isValidGSTIN } from "@/components/ui/GstinInput";
 import {
   authApi,
   clientsApi,
@@ -145,73 +146,27 @@ export default function OnboardingPage() {
     }
   }, [showAssignDropdown, assignOptions, assignedTo, me?.id]);
 
-  const validateGstinRemote = useCallback(async () => {
+  const validateGstinRemote = useCallback(() => {
     const raw = gstin.trim();
     if (!raw) {
       setGstinValid(null);
       setGstinError("");
+      setGstinNorm("");
+      setGstinStateLabel("");
       return;
     }
-    const supabase = createClient();
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const bearer = session?.access_token ?? token;
-    if (!bearer) {
-      setGstinValid(null);
-      setGstinError("");
-      return;
-    }
-    setGstinLoading(true);
     setGstinError("");
-    try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-      const response = await fetch(
-        `${apiBase}/api/clients/validate-gstin`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${bearer}`,
-          },
-          body: JSON.stringify({ gstin: raw }),
-        }
-      );
-      if (!response.ok) {
-        setGstinValid(false);
-        setGstinNorm("");
-        setGstinStateLabel("");
-        setGstinError(
-          `Could not validate GSTIN (${response.status}).`
-        );
-        return;
-      }
-      const res = (await response.json()) as
-        | { valid: true; normalized: string; state: string }
-        | { valid: false; error: string };
-      if (res.valid) {
-        setGstinValid(true);
-        setGstinNorm(res.normalized);
-        setGstinStateLabel(res.state);
-      } else {
-        setGstinValid(false);
-        setGstinNorm("");
-        setGstinStateLabel("");
-        setGstinError(
-          res.error === "Invalid checksum"
-            ? "Invalid checksum — please check and re-enter"
-            : `${res.error} — please check and re-enter`
-        );
-      }
-    } catch {
+    if (isValidGSTIN(raw)) {
+      setGstinValid(true);
+      setGstinNorm(raw.toUpperCase());
+      setGstinStateLabel("");
+    } else {
       setGstinValid(false);
       setGstinNorm("");
       setGstinStateLabel("");
-      setGstinError("Could not validate GSTIN.");
-    } finally {
-      setGstinLoading(false);
+      setGstinError("Invalid GSTIN format — please check and re-enter");
     }
-  }, [gstin, token]);
+  }, [gstin]);
 
   const tradeOk = tradeName.trim().length >= 2;
   const canAddClient =
@@ -395,7 +350,7 @@ export default function OnboardingPage() {
                     setGstinValid(null);
                     setGstinError("");
                   }}
-                  onBlur={() => void validateGstinRemote()}
+                  onBlur={validateGstinRemote}
                 />
                 <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
                   {gstinLoading ? (

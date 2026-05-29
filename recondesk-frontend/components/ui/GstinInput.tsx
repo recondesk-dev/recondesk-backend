@@ -2,9 +2,12 @@
 
 import { useState, useCallback } from "react";
 
-/** 15-char GSTIN pattern (user-specified). */
-const GSTIN_REGEX =
-  /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9][Z][0-9A-Z]$/;
+export function isValidGSTIN(gstin: string): boolean {
+  if (!gstin) return false;
+  const cleaned = gstin.trim().toUpperCase();
+  const regex = /^[0-3][0-9][A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+  return regex.test(cleaned);
+}
 
 export type GstinFieldStatus = "idle" | "valid" | "invalid";
 
@@ -14,10 +17,7 @@ export function validateGstin(value: string): {
 } {
   const v = value.trim().toUpperCase();
   if (!v) return { status: "idle", message: null };
-  if (v.length !== 15) {
-    return { status: "invalid", message: "Invalid GSTIN format" };
-  }
-  if (!GSTIN_REGEX.test(v)) {
+  if (!isValidGSTIN(v)) {
     return { status: "invalid", message: "Invalid GSTIN format" };
   }
   return { status: "valid", message: null };
