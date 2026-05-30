@@ -207,7 +207,7 @@ def _build_pr_post_match_upsert_row(
         merged_rd["vendor_similarity_score"] = meta["vendor_similarity_score"]
 
     row: dict[str, Any] = {
-        "id": int(pr_id),
+        "id": pr_id,
         "record_data": _json_safe(merged_rd),
         "match_status": match_status,
     }

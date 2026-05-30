@@ -47,7 +47,7 @@ def test_build_pr_post_match_upsert_row_sets_column_and_jsonb():
         {"match_level": 1, "vendor_similarity_score": 0.91},
     )
 
-    assert row["id"] == 42
+    assert row["id"] == "42"
     assert row["match_status"] == "matched"
     assert row["match_level"] == 1
     assert row["record_data"]["match_status"] == "matched"
