@@ -38,6 +38,7 @@ from app.worker.tasks import _json_safe, _supabase, _update_run
 _log = logging.getLogger(__name__)
 
 BATCH = 2_000
+CHUNK_SIZE = 500
 RULES_VERSION = "1.0.0"
 DECISION_VERSION = "1.0.0"
 MATCHING_VERSION = "1.0.0"
@@ -146,6 +147,95 @@ def _load_pr_matcher_and_raw(
             break
         offset += BATCH
     return (out, raw_by_id)
+
+
+def _load_pr_matcher_and_raw_page(
+    client: Client, run_id: str, offset: int, limit: int
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Load one page of PR matcher rows + raw ``record_data`` for chunked processing."""
+    out: list[dict[str, Any]] = []
+    raw_by_id: dict[str, dict[str, Any]] = {}
+    r = (
+        client.table("pr_records")
+        .select("id, record_data")
+        .eq("run_id", run_id)
+        .range(offset, offset + limit - 1)
+        .execute()
+    )
+    rows = r.data or []
+    for row in rows:
+        rid = str(row.get("id", ""))
+        rd = row.get("record_data")
+        if isinstance(rd, dict):
+            raw_by_id[rid] = rd
+        out.append(rec_adapt.pr_db_row_to_matcher_row(row))
+    return (out, raw_by_id)
+
+
+def _write_pr_match_status_chunk(
+    client: Client,
+    *,
+    run_id: str,
+    pr_chunk: list[dict[str, Any]],
+    pr_raw_by_id: dict[str, dict[str, Any]],
+    matched_pr_ids: set[str],
+    gstr_by_gstin: dict[str, list[dict[str, Any]]],
+    gstr_by_id: dict[str, dict[str, Any]],
+    matched: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Build and upsert match fields for one PR chunk; returns tracking rows + counts."""
+    engine_meta_by_pr_id = _matched_engine_meta_by_pr_id(
+        matched,
+        gstr_by_id,
+        {str(p["id"]): p for p in pr_chunk},
+    )
+    pr_match_status_rows: list[dict[str, Any]] = []
+    pr_rows_for_tracking: list[dict[str, Any]] = []
+    chunk_matched = 0
+    for pr_rec in pr_chunk:
+        pid = str(pr_rec["id"])
+        base_rd = pr_raw_by_id.get(pid)
+        match_st = _pr_match_status_for_record(
+            pr_rec, matched_pr_ids, gstr_by_gstin
+        )
+        if match_st == "matched":
+            chunk_matched += 1
+        engine_meta = engine_meta_by_pr_id.get(pid)
+        rd = base_rd if isinstance(base_rd, dict) else {}
+        pr_rows_for_tracking.append(
+            {
+                "invoice_number": rd.get("invoice_number")
+                or rd.get("invoice_number_normalized")
+                or pr_rec.get("invoice_number_normalized"),
+                "supplier_gstin": rd.get("gstin") or pr_rec.get("supplier_gstin"),
+                "taxable_amount": rd.get("taxable_amount_paise")
+                or pr_rec.get("taxable_amount_paise"),
+                "match_status": match_st,
+            }
+        )
+        try:
+            pr_match_status_rows.append(
+                _build_pr_post_match_upsert_row(
+                    pid, run_id, base_rd, match_st, engine_meta
+                )
+            )
+        except (TypeError, ValueError):
+            _log.warning(
+                "skip pr record_data match_status: invalid pr id=%s", pid
+            )
+            continue
+    if pr_match_status_rows:
+        for i in range(0, len(pr_match_status_rows), BATCH):
+            chunk = pr_match_status_rows[i : i + BATCH]
+            try:
+                client.table("pr_records").upsert(
+                    chunk,
+                    on_conflict="id",
+                    returning="minimal",
+                ).execute()
+            except Exception:
+                _log.exception("pr_records match_status bulk upsert failed")
+    return (pr_rows_for_tracking, chunk_matched, len(pr_match_status_rows))
 
 
 def _pr_match_status_for_record(
@@ -326,7 +416,20 @@ def execute_reconciliation(run_id: str) -> None:
         n_gstr = int(run.get("gstr_records_imported") or 0)
         n_pr = int(run.get("pr_records_imported") or 0)
 
-        pr_current, pr_raw_by_id = _load_pr_matcher_and_raw(client, run_id)
+        months_back = previous_n_calendar_months(period, 6)
+        historical = _load_pr_for_historical_periods_paged(
+            client, client_gstin_id, run_id, months_back
+        )
+
+        gstr_p = gstr_start
+        pr_index_by_period = _build_pr_index_by_period(dict(historical))
+
+        gstr_matcher, gstr_raw_by_id = _load_gstr_matcher_and_raw(client, run_id)
+        _log.info(
+            "[PERF] gstr_count=%d pr_count=%d",
+            len(gstr_matcher),
+            n_pr,
+        )
         _update_run(
             client,
             run_id,
@@ -335,31 +438,6 @@ def execute_reconciliation(run_id: str) -> None:
                 "status_message": "Data loaded",
                 "updated_at": _now_iso(),
             },
-        )
-
-        months_back = previous_n_calendar_months(period, 6)
-        historical = _load_pr_for_historical_periods_paged(
-            client, client_gstin_id, run_id, months_back
-        )
-
-        gstr_p = gstr_start
-        pr_by_period: dict[date, list[dict]] = {gstr_p: list(pr_current)}
-        for d0, prs in historical.items():
-            k = date(d0.year, d0.month, 1)
-            pr_by_period.setdefault(k, []).extend(prs)
-
-        pr_index_by_period = _build_pr_index_by_period(pr_by_period)
-        pr_index_current: dict[str, list[dict]] = defaultdict(list)
-        for pr_rec in pr_current:
-            pr_index_current[str(pr_rec.get("supplier_gstin") or "")].append(
-                pr_rec
-            )
-
-        gstr_matcher, gstr_raw_by_id = _load_gstr_matcher_and_raw(client, run_id)
-        _log.info(
-            "[PERF] gstr_count=%d pr_count=%d",
-            len(gstr_matcher),
-            len(pr_current),
         )
         _phase("file_load")
         for rec in gstr_matcher:
@@ -378,44 +456,104 @@ def execute_reconciliation(run_id: str) -> None:
         )
 
         state = ReconState()
-        n_chunks = max(1, (len(gstr_matcher) + BATCH - 1) // BATCH)
+        gstr_by_gstin: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for ggr in gstr_matcher:
+            gstr_by_gstin[str(ggr.get("supplier_gstin") or "")].append(ggr)
+        gstr_by_id: dict[str, dict] = {str(x.get("id")): x for x in gstr_matcher}
+
+        pr_index_current: dict[str, list[dict]] = defaultdict(list)
+        pr_total_chunks = max(1, (n_pr + CHUNK_SIZE - 1) // CHUNK_SIZE)
+        for chunk_idx in range(pr_total_chunks):
+            offset = chunk_idx * CHUNK_SIZE
+            pr_chunk, _ = _load_pr_matcher_and_raw_page(
+                client, run_id, offset, CHUNK_SIZE
+            )
+            if not pr_chunk:
+                break
+            for pr_rec in pr_chunk:
+                pr_index_current[str(pr_rec.get("supplier_gstin") or "")].append(
+                    pr_rec
+                )
+
+        n_gstr_chunks = max(1, (len(gstr_matcher) + BATCH - 1) // BATCH)
         _update_run(
             client,
             run_id,
             {
-                "progress_percent": 30,
+                "progress_percent": 25,
                 "status_message": "Matching started",
                 "updated_at": _now_iso(),
             },
         )
-        mid_done = (n_chunks + 1) // 2
+        mid_done = (n_gstr_chunks + 1) // 2
         for i in range(0, len(gstr_matcher), BATCH):
-            chunk = gstr_matcher[i : i + BATCH]
+            gstr_batch = gstr_matcher[i : i + BATCH]
             process_gstr_records_chunk(
-                chunk,
+                gstr_batch,
                 gstr_p,
                 pr_index_current,
                 pr_index_by_period,
                 state,
             )
             done = i // BATCH + 1
-            if done == n_chunks:
-                pct = 70
-            elif n_chunks > 1 and done == mid_done and done < n_chunks:
+            if done == n_gstr_chunks:
                 pct = 50
+            elif n_gstr_chunks > 1 and done == mid_done and done < n_gstr_chunks:
+                pct = 38
             else:
-                pct = min(69, 30 + int(40 * done / n_chunks))
+                pct = min(49, 25 + int(25 * done / n_gstr_chunks))
             _update_run(
                 client,
                 run_id,
                 {
                     "progress_percent": pct,
-                    "status_message": f"Matching ({min(done, n_chunks)}/{n_chunks} batches)",
+                    "status_message": f"Matching ({min(done, n_gstr_chunks)}/{n_gstr_chunks} batches)",
+                    "updated_at": _now_iso(),
+                },
+            )
+
+        pr_rows_for_tracking: list[dict[str, Any]] = []
+        for chunk_idx in range(pr_total_chunks):
+            offset = chunk_idx * CHUNK_SIZE
+            pr_chunk, pr_raw_chunk = _load_pr_matcher_and_raw_page(
+                client, run_id, offset, CHUNK_SIZE
+            )
+            if not pr_chunk:
+                break
+
+            tracking_rows, chunk_matched, chunk_written = _write_pr_match_status_chunk(
+                client,
+                run_id=run_id,
+                pr_chunk=pr_chunk,
+                pr_raw_by_id=pr_raw_chunk,
+                matched_pr_ids=state.matched_pr_ids,
+                gstr_by_gstin=gstr_by_gstin,
+                gstr_by_id=gstr_by_id,
+                matched=state.matched,
+            )
+            pr_rows_for_tracking.extend(tracking_rows)
+
+            chunk_num = chunk_idx + 1
+            pct = int(100 * chunk_num / pr_total_chunks)
+            _log.info(
+                "chunk %d/%d matched=%d written=%d",
+                chunk_num,
+                pr_total_chunks,
+                chunk_matched,
+                chunk_written,
+            )
+            _update_run(
+                client,
+                run_id,
+                {
+                    "progress_percent": min(70, 50 + int(20 * chunk_num / pr_total_chunks)),
+                    "status_message": f"PR chunk {chunk_num}/{pr_total_chunks} complete ({pct}%)",
                     "updated_at": _now_iso(),
                 },
             )
 
         _phase("matching")
+        pr_current, pr_raw_by_id = _load_pr_matcher_and_raw(client, run_id)
         wrongful_itc = build_wrongful_itc_risk(pr_current, state.matched_pr_ids)
         late_itc = sum(
             1
@@ -490,56 +628,6 @@ def execute_reconciliation(run_id: str) -> None:
                 ).execute()
             except Exception:
                 _log.exception("amount_difference_paise bulk upsert failed")
-
-        gstr_by_gstin: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for ggr in gstr_matcher:
-            gstr_by_gstin[str(ggr.get("supplier_gstin") or "")].append(ggr)
-        engine_meta_by_pr_id = _matched_engine_meta_by_pr_id(
-            state.matched, gstr_by_id, pr_by_id
-        )
-        pr_match_status_rows: list[dict[str, Any]] = []
-        pr_rows_for_tracking: list[dict[str, Any]] = []
-        for pr_rec in pr_current:
-            pid = str(pr_rec["id"])
-            base_rd = pr_raw_by_id.get(pid)
-            match_st = _pr_match_status_for_record(
-                pr_rec, state.matched_pr_ids, gstr_by_gstin
-            )
-            engine_meta = engine_meta_by_pr_id.get(pid)
-            rd = base_rd if isinstance(base_rd, dict) else {}
-            pr_rows_for_tracking.append(
-                {
-                    "invoice_number": rd.get("invoice_number")
-                    or rd.get("invoice_number_normalized")
-                    or pr_rec.get("invoice_number_normalized"),
-                    "supplier_gstin": rd.get("gstin") or pr_rec.get("supplier_gstin"),
-                    "taxable_amount": rd.get("taxable_amount_paise")
-                    or pr_rec.get("taxable_amount_paise"),
-                    "match_status": match_st,
-                }
-            )
-            try:
-                pr_match_status_rows.append(
-                    _build_pr_post_match_upsert_row(
-                        pid, run_id, base_rd, match_st, engine_meta
-                    )
-                )
-            except (TypeError, ValueError):
-                _log.warning(
-                    "skip pr record_data match_status: invalid pr id=%s", pid
-                )
-                continue
-        if pr_match_status_rows:
-            for i in range(0, len(pr_match_status_rows), BATCH):
-                chunk = pr_match_status_rows[i : i + BATCH]
-                try:
-                    client.table("pr_records").upsert(
-                        chunk,
-                        on_conflict="id",
-                        returning="minimal",
-                    ).execute()
-                except Exception:
-                    _log.exception("pr_records match_status bulk upsert failed")
 
         try:
             carry_forward_summary = asyncio.run(
