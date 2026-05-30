@@ -193,6 +193,7 @@ def _matched_engine_meta_by_pr_id(
 
 def _build_pr_post_match_upsert_row(
     pr_id: str,
+    run_id: str,
     base_record_data: dict[str, Any] | None,
     match_status: str,
     engine_meta: dict[str, Any] | None,
@@ -208,6 +209,7 @@ def _build_pr_post_match_upsert_row(
 
     row: dict[str, Any] = {
         "id": pr_id,
+        "run_id": run_id,
         "record_data": _json_safe(merged_rd),
         "match_status": match_status,
     }
@@ -519,7 +521,7 @@ def execute_reconciliation(run_id: str) -> None:
             try:
                 pr_match_status_rows.append(
                     _build_pr_post_match_upsert_row(
-                        pid, base_rd, match_st, engine_meta
+                        pid, run_id, base_rd, match_st, engine_meta
                     )
                 )
             except (TypeError, ValueError):
@@ -531,11 +533,13 @@ def execute_reconciliation(run_id: str) -> None:
             for i in range(0, len(pr_match_status_rows), BATCH):
                 chunk = pr_match_status_rows[i : i + BATCH]
                 try:
-                    for row in chunk:
-                        row_id = row.pop("id")
-                        client.table("pr_records").update(row).eq("id", row_id).execute()
+                    client.table("pr_records").upsert(
+                        chunk,
+                        on_conflict="id",
+                        returning="minimal",
+                    ).execute()
                 except Exception:
-                    _log.exception("pr_records match_status bulk update failed")
+                    _log.exception("pr_records match_status bulk upsert failed")
 
         try:
             carry_forward_summary = asyncio.run(

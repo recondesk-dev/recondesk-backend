@@ -42,12 +42,14 @@ def _pr(**kwargs):
 def test_build_pr_post_match_upsert_row_sets_column_and_jsonb():
     row = _build_pr_post_match_upsert_row(
         "42",
+        "d2cfc3af-cf2a-4c16-906f-a69cdc1cf913",
         {"gstin": "27ABCDE1234F1Z0", "invoice_number": "INV001"},
         "matched",
         {"match_level": 1, "vendor_similarity_score": 0.91},
     )
 
     assert row["id"] == "42"
+    assert row["run_id"] == "d2cfc3af-cf2a-4c16-906f-a69cdc1cf913"
     assert row["match_status"] == "matched"
     assert row["match_level"] == 1
     assert row["record_data"]["match_status"] == "matched"
@@ -59,6 +61,7 @@ def test_build_pr_post_match_upsert_row_sets_column_and_jsonb():
 def test_build_pr_post_match_upsert_row_unmatched_omits_match_level():
     row = _build_pr_post_match_upsert_row(
         "7",
+        "d2cfc3af-cf2a-4c16-906f-a69cdc1cf913",
         {"gstin": "27ABCDE1234F1Z0"},
         "unmatched",
         None,
