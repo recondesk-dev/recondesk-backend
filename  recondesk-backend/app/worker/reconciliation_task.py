@@ -164,6 +164,58 @@ def _pr_match_status_for_record(
     return "unmatched"
 
 
+def _matched_engine_meta_by_pr_id(
+    matched: list[dict[str, Any]],
+    gstr_by_id: dict[str, dict[str, Any]],
+    pr_by_id: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Map PR id → engine metadata (match_level, vendor_similarity_score) for persistence."""
+    out: dict[str, dict[str, Any]] = {}
+    for m in matched:
+        pid = str(m.get("pr_id") or "")
+        if not pid:
+            continue
+        gid = str(m.get("gstr_id") or "")
+        ggr = gstr_by_id.get(gid, {})
+        pr = pr_by_id.get(pid, {})
+        meta: dict[str, Any] = {}
+        if ggr and pr:
+            mr = match_gstr_to_pr(ggr, [pr])
+            if mr is not None:
+                meta["match_level"] = mr.level
+        vss = m.get("vendor_similarity_score")
+        if vss is not None:
+            meta["vendor_similarity_score"] = vss
+        if meta:
+            out[pid] = meta
+    return out
+
+
+def _build_pr_post_match_upsert_row(
+    pr_id: str,
+    base_record_data: dict[str, Any] | None,
+    match_status: str,
+    engine_meta: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build ``pr_records`` upsert payload with JSONB + top-level match fields."""
+    merged_rd = dict(base_record_data) if isinstance(base_record_data, dict) else {}
+    merged_rd["match_status"] = match_status
+    meta = engine_meta or {}
+    if "match_level" in meta:
+        merged_rd["match_level"] = meta["match_level"]
+    if meta.get("vendor_similarity_score") is not None:
+        merged_rd["vendor_similarity_score"] = meta["vendor_similarity_score"]
+
+    row: dict[str, Any] = {
+        "id": int(pr_id),
+        "record_data": _json_safe(merged_rd),
+        "match_status": match_status,
+    }
+    if "match_level" in meta:
+        row["match_level"] = meta["match_level"]
+    return row
+
+
 def _load_gstr_matcher_and_raw(
     client: Client, run_id: str
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
@@ -440,23 +492,18 @@ def execute_reconciliation(run_id: str) -> None:
         gstr_by_gstin: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for ggr in gstr_matcher:
             gstr_by_gstin[str(ggr.get("supplier_gstin") or "")].append(ggr)
-        vendor_sim_by_pr_id: dict[str, float | None] = {
-            str(m.get("pr_id")): m.get("vendor_similarity_score")
-            for m in state.matched
-            if m.get("pr_id") is not None
-        }
+        engine_meta_by_pr_id = _matched_engine_meta_by_pr_id(
+            state.matched, gstr_by_id, pr_by_id
+        )
         pr_match_status_rows: list[dict[str, Any]] = []
         pr_rows_for_tracking: list[dict[str, Any]] = []
         for pr_rec in pr_current:
             pid = str(pr_rec["id"])
             base_rd = pr_raw_by_id.get(pid)
-            merged_rd = dict(base_rd) if isinstance(base_rd, dict) else {}
             match_st = _pr_match_status_for_record(
                 pr_rec, state.matched_pr_ids, gstr_by_gstin
             )
-            merged_rd["match_status"] = match_st
-            if pid in vendor_sim_by_pr_id:
-                merged_rd["vendor_similarity_score"] = vendor_sim_by_pr_id[pid]
+            engine_meta = engine_meta_by_pr_id.get(pid)
             rd = base_rd if isinstance(base_rd, dict) else {}
             pr_rows_for_tracking.append(
                 {
@@ -470,15 +517,16 @@ def execute_reconciliation(run_id: str) -> None:
                 }
             )
             try:
-                pid_int = int(pid)
+                pr_match_status_rows.append(
+                    _build_pr_post_match_upsert_row(
+                        pid, base_rd, match_st, engine_meta
+                    )
+                )
             except (TypeError, ValueError):
                 _log.warning(
                     "skip pr record_data match_status: invalid pr id=%s", pid
                 )
                 continue
-            pr_match_status_rows.append(
-                {"id": pid_int, "record_data": _json_safe(merged_rd)}
-            )
         if pr_match_status_rows:
             for i in range(0, len(pr_match_status_rows), BATCH):
                 chunk = pr_match_status_rows[i : i + BATCH]
