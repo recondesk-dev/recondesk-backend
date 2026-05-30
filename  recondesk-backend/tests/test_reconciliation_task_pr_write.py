@@ -58,6 +58,22 @@ def test_build_pr_post_match_upsert_row_sets_column_and_jsonb():
     assert row["record_data"]["gstin"] == "27ABCDE1234F1Z0"
 
 
+def test_build_pr_post_match_upsert_row_id_is_uuid_string_not_int():
+    """Regression: int(pr_id) raises ValueError on UUIDs and skips every upsert row."""
+    pr_uuid = "d2cfc3af-cf2a-4c16-906f-a69cdc1cf913"
+    row = _build_pr_post_match_upsert_row(
+        pr_uuid,
+        "581f94f1-a2da-4756-87b5-c2d534f28a13",
+        {"gstin": "27ABCDE1234F1Z0"},
+        "matched",
+        {"match_level": 1},
+    )
+
+    assert isinstance(row["id"], str)
+    assert not isinstance(row["id"], int)
+    assert row["id"] == pr_uuid
+
+
 def test_build_pr_post_match_upsert_row_unmatched_omits_match_level():
     row = _build_pr_post_match_upsert_row(
         "7",
