@@ -298,6 +298,7 @@ def _build_pr_post_match_upsert_row(
         merged_rd["vendor_similarity_score"] = meta["vendor_similarity_score"]
 
     row: dict[str, Any] = {
+        # pr_id is a UUID string — do NOT cast to int
         "id": pr_id,
         "run_id": run_id,
         "record_data": _json_safe(merged_rd),
