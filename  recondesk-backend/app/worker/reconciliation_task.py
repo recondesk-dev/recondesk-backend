@@ -531,13 +531,11 @@ def execute_reconciliation(run_id: str) -> None:
             for i in range(0, len(pr_match_status_rows), BATCH):
                 chunk = pr_match_status_rows[i : i + BATCH]
                 try:
-                    client.table("pr_records").upsert(
-                        chunk,
-                        on_conflict="id",
-                        returning="minimal",
-                    ).execute()
+                    for row in chunk:
+                        row_id = row.pop("id")
+                        client.table("pr_records").update(row).eq("id", row_id).execute()
                 except Exception:
-                    _log.exception("pr_records match_status bulk upsert failed")
+                    _log.exception("pr_records match_status bulk update failed")
 
         try:
             carry_forward_summary = asyncio.run(
