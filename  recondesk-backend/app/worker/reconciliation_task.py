@@ -172,6 +172,7 @@ def _load_pr_matcher_and_raw_page(
         client.table("pr_records")
         .select("id, record_data")
         .eq("run_id", run_id)
+        .order("id")
         .range(offset, offset + limit - 1)
         .execute()
     )
@@ -205,6 +206,7 @@ def _write_pr_match_status_chunk(
     gstr_by_id: dict[str, dict[str, Any]],
     matched: list[dict[str, Any]],
     skipped_pr_ids: set[str] | None = None,
+    chunk_idx: int | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Build and upsert match fields for one PR chunk; returns tracking rows + counts."""
     skipped_pr_ids = skipped_pr_ids or set()
@@ -282,6 +284,12 @@ def _write_pr_match_status_chunk(
                 ).execute()
             except Exception:
                 _log.exception("pr_records match_status bulk upsert failed")
+    if chunk_idx is not None:
+        _log.info(
+            "wrote chunk %d match_status for %d rows",
+            chunk_idx,
+            len(pr_match_status_rows),
+        )
     return (pr_rows_for_tracking, chunk_matched, len(pr_match_status_rows))
 
 
@@ -514,10 +522,10 @@ def execute_reconciliation(run_id: str) -> None:
         pr_total_chunks = max(1, (n_pr + CHUNK_SIZE - 1) // CHUNK_SIZE)
         for chunk_idx in range(pr_total_chunks):
             offset = chunk_idx * CHUNK_SIZE
-            pr_chunk, _, _ = _load_pr_matcher_and_raw_page(
+            pr_chunk, _, skipped = _load_pr_matcher_and_raw_page(
                 client, run_id, offset, CHUNK_SIZE
             )
-            if not pr_chunk:
+            if not pr_chunk and not skipped:
                 break
             for pr_rec in pr_chunk:
                 pr_index_current[str(pr_rec.get("supplier_gstin") or "")].append(
@@ -574,6 +582,13 @@ def execute_reconciliation(run_id: str) -> None:
             if not pr_chunk and not skipped:
                 break
 
+            _log.info(
+                "processing chunk %d offset=%d pr_chunk_size=%d",
+                chunk_idx,
+                offset,
+                len(pr_chunk),
+            )
+
             tracking_rows, chunk_matched, chunk_written = _write_pr_match_status_chunk(
                 client,
                 run_id=run_id,
@@ -584,6 +599,7 @@ def execute_reconciliation(run_id: str) -> None:
                 gstr_by_id=gstr_by_id,
                 matched=state.matched,
                 skipped_pr_ids=skipped,
+                chunk_idx=chunk_idx,
             )
             pr_rows_for_tracking.extend(tracking_rows)
 
