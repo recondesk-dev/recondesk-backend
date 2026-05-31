@@ -702,10 +702,20 @@ export default function NewReconcileWizardPage() {
     if (run?.status !== "pending" && run?.status !== "processing") return;
 
     let cancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
     const t0 = pollStartRef.current ?? Date.now();
     pollStartRef.current = t0;
+    const POLL_INTERVAL_MS = 3000;
+
+    const scheduleNext = () => {
+      if (cancelled) return;
+      pollTimer = setTimeout(() => {
+        void tick();
+      }, POLL_INTERVAL_MS);
+    };
 
     const tick = async () => {
+      if (cancelled) return;
       try {
         const s = await importWizardApi.pollStatus(token, runId);
         if (cancelled) return;
@@ -719,16 +729,18 @@ export default function NewReconcileWizardPage() {
           return;
         }
         if (Date.now() - t0 > 5 * 60 * 1000) setPollSlow(true);
+        scheduleNext();
       } catch {
-        /* ignore transient poll errors */
+        /* ignore transient poll errors, keep polling */
+        scheduleNext();
       }
     };
 
-    tick();
-    const id = setInterval(tick, 3000);
+    void tick();
+
     return () => {
       cancelled = true;
-      clearInterval(id);
+      if (pollTimer != null) clearTimeout(pollTimer);
     };
   }, [token, runId, run?.status, router, refreshRun]);
 
