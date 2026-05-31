@@ -1,7 +1,9 @@
 """PR post-match upsert payload tests (reconciliation_task write step)."""
 
 from app.worker.reconciliation_task import (
+    _build_pr_index_for_matching,
     _build_pr_post_match_upsert_row,
+    _load_pr_matcher_and_raw_page,
     _matched_engine_meta_by_pr_id,
     _pr_match_status_for_record,
     _pr_record_data_missing_invoice_number,
@@ -178,3 +180,151 @@ def test_write_pr_match_status_chunk_writes_unmatched_for_skipped_ids():
     assert upserted[0]["id"] == "bad-id"
     assert upserted[0]["match_status"] == "unmatched"
     assert upserted[0]["record_data"]["match_status"] == "unmatched"
+
+
+def test_load_pr_matcher_and_raw_page_returns_db_row_count():
+    class _Exec:
+        data = [
+            {"id": "a", "record_data": {"invoice_number": "INV1", "gstin": "27ABCDE1234F1Z0"}},
+            {"id": "b", "record_data": {"gstin": "27ABCDE1234F1Z0"}},
+        ]
+
+        def execute(self):
+            return self
+
+    class _Query:
+        def select(self, *args, **kwargs):
+            return self
+
+        def eq(self, *args, **kwargs):
+            return self
+
+        def order(self, *args, **kwargs):
+            return self
+
+        def range(self, *args, **kwargs):
+            return _Exec()
+
+    class _Client:
+        def table(self, name):
+            assert name == "pr_records"
+            return _Query()
+
+    chunk, raw, skipped, fetched = _load_pr_matcher_and_raw_page(
+        _Client(), "run-1", 0, 500
+    )
+    assert fetched == 2
+    assert len(chunk) == 1
+    assert skipped == {"b"}
+    assert "a" in raw
+
+
+def test_build_pr_index_paginates_until_empty():
+    pages = [
+        [
+            {
+                "id": "1",
+                "record_data": {
+                    "invoice_number": "INV1",
+                    "gstin": "27ABCDE1234F1Z0",
+                },
+            },
+        ],
+        [],
+    ]
+    offsets: list[int] = []
+
+    class _Exec:
+        def __init__(self, rows):
+            self.data = rows
+
+        def execute(self):
+            return self
+
+    class _Query:
+        def __init__(self, client):
+            self._client = client
+
+        def select(self, *args, **kwargs):
+            return self
+
+        def eq(self, *args, **kwargs):
+            return self
+
+        def order(self, *args, **kwargs):
+            return self
+
+        def range(self, offset, end):
+            offsets.append(offset)
+            idx = len(offsets) - 1
+            rows = pages[idx] if idx < len(pages) else []
+            return _Exec(rows)
+
+    class _Client:
+        def table(self, name):
+            assert name == "pr_records"
+            return _Query(self)
+
+    index, loaded = _build_pr_index_for_matching(_Client(), "run-1")
+    assert loaded == 1
+    assert len(index["27ABCDE1234F1Z0"]) == 1
+    assert offsets == [0]
+
+
+def test_build_pr_index_advances_offset_by_db_rows_not_matcher_rows():
+    """Invoice-less rows still occupy pagination slots; offset must skip them."""
+    full_page = [
+        {"id": str(i), "record_data": {"gstin": "27ABCDE1234F1Z0"}}
+        for i in range(499)
+    ] + [
+        {
+            "id": "499",
+            "record_data": {
+                "invoice_number": "INV499",
+                "gstin": "27ABCDE1234F1Z0",
+            },
+        },
+    ]
+    second_page = [
+        {
+            "id": "500",
+            "record_data": {
+                "invoice_number": "INV500",
+                "gstin": "27ABCDE1234F1Z0",
+            },
+        },
+    ]
+    pages = [full_page, second_page]
+    offsets: list[int] = []
+
+    class _Exec:
+        def __init__(self, rows):
+            self.data = rows
+
+        def execute(self):
+            return self
+
+    class _Query:
+        def range(self, offset, end):
+            offsets.append(offset)
+            idx = len(offsets) - 1
+            rows = pages[idx] if idx < len(pages) else []
+            return _Exec(rows)
+
+        def select(self, *args, **kwargs):
+            return self
+
+        def eq(self, *args, **kwargs):
+            return self
+
+        def order(self, *args, **kwargs):
+            return self
+
+    class _Client:
+        def table(self, name):
+            return _Query()
+
+    index, loaded = _build_pr_index_for_matching(_Client(), "run-1")
+    assert loaded == 2
+    assert len(index["27ABCDE1234F1Z0"]) == 2
+    assert offsets == [0, 500]
