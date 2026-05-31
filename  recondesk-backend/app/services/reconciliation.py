@@ -154,6 +154,46 @@ def _build_pr_index_by_period(
     return pr_index_by_period
 
 
+def build_gstr_by_invoice(gstr_records: list[dict]) -> dict[str, dict]:
+    """Normalized invoice number → GSTR matcher row (built once per run)."""
+    gstr_by_invoice: dict[str, dict] = {}
+    for rec in gstr_records:
+        inv = str(rec.get("invoice_number_normalized") or rec.get("invoice_number") or "")
+        if inv:
+            gstr_by_invoice[inv] = rec
+    return gstr_by_invoice
+
+
+def build_pr_by_invoice(
+    pr_index: dict[str, list[dict]],
+) -> dict[str, dict[str, dict]]:
+    """GSTIN → normalized invoice number → PR matcher row."""
+    out: dict[str, dict[str, dict]] = defaultdict(dict)
+    for gstin, prs in pr_index.items():
+        for pr in prs:
+            inv = str(pr.get("invoice_number_normalized") or "")
+            if inv:
+                out[gstin][inv] = pr
+    return {g: dict(inv_map) for g, inv_map in out.items()}
+
+
+def _order_pr_candidates(
+    candidates: list[dict],
+    *,
+    gstin: str,
+    inv_norm: str,
+    pr_by_invoice: dict[str, dict[str, dict]] | None,
+) -> list[dict]:
+    """Put hash-index hit first so L1 pairs resolve without scanning the full GSTIN bucket."""
+    if not pr_by_invoice or not inv_norm:
+        return candidates
+    direct = pr_by_invoice.get(gstin, {}).get(inv_norm)
+    if direct is None:
+        return candidates
+    direct_id = str(direct["id"])
+    return [direct] + [p for p in candidates if str(p["id"]) != direct_id]
+
+
 @dataclass
 class ReconState:
     """Mutable state for multi-chunk GSTR↔PR matching (avoids re-processing or duplicate PR use)."""
@@ -170,24 +210,37 @@ def process_gstr_records_chunk(
     pr_index: dict[str, list[dict]],
     pr_index_by_period: dict[date, dict[str, dict[str, list[dict]]]],
     state: ReconState,
+    *,
+    gstr_by_invoice: dict[str, dict] | None = None,
+    pr_by_invoice: dict[str, dict[str, dict]] | None = None,
 ) -> None:
     """Match a chunk of GSTR rows using shared *state* (same invariants as full run)."""
     gstr_period = date(effective_gstr_period.year, effective_gstr_period.month, 1)
     for gstr_record in gstr_records:
         gstr_id = str(gstr_record["id"])
         gstin = gstr_record.get("supplier_gstin") or ""
-        candidates = pr_index.get(str(gstin), [])
+        gstin_str = str(gstin)
+        candidates = pr_index.get(gstin_str, [])
+        inv_norm = str(gstr_record.get("invoice_number_normalized") or "")
+        ordered_candidates = _order_pr_candidates(
+            candidates,
+            gstin=gstin_str,
+            inv_norm=inv_norm,
+            pr_by_invoice=pr_by_invoice,
+        )
 
         best_result: MatchResult | None = None
         best_pr: dict | None = None
         best_key: tuple[int, int, int] | None = None
         tied_at_best: list[tuple[MatchResult, dict]] = []
 
-        for pr_rec in candidates:
+        for pr_rec in ordered_candidates:
             pr_id = str(pr_rec["id"])
             if pr_id in state.matched_pr_ids:
                 continue
-            result = match_gstr_to_pr(gstr_record, [pr_rec])
+            result = match_gstr_to_pr(
+                gstr_record, [pr_rec], gstr_by_invoice=gstr_by_invoice
+            )
             if result is None or not _accept_reconciliation_pair(
                 gstr_record, pr_rec, result
             ):
@@ -283,18 +336,24 @@ def process_gstr_records_chunk(
             candidates_cp = sorted(raw_candidates, key=lambda x: x["id"])
             acceptable: list[dict] = []
             for p in candidates_cp:
-                r = match_gstr_to_pr(gstr_record, [p])
+                r = match_gstr_to_pr(
+                    gstr_record, [p], gstr_by_invoice=gstr_by_invoice
+                )
                 if r is None or not _accept_reconciliation_pair(gstr_record, p, r):
                     continue
                 acceptable.append(p)
             if not acceptable:
                 continue
 
-            best_p, score, _ = choose_best_candidate(gstr_record, acceptable)
+            best_p, score, _ = choose_best_candidate(
+                gstr_record, acceptable, gstr_by_invoice=gstr_by_invoice
+            )
             if best_p is None or score < THRESHOLD:
                 continue
 
-            final_mr = match_gstr_to_pr(gstr_record, [best_p])
+            final_mr = match_gstr_to_pr(
+                gstr_record, [best_p], gstr_by_invoice=gstr_by_invoice
+            )
             if final_mr is None:
                 continue
 
@@ -463,9 +522,18 @@ def run_bidirectional_reconciliation(
         gstin = pr_rec.get("supplier_gstin") or ""
         pr_index[str(gstin)].append(pr_rec)
 
+    gstr_by_invoice = build_gstr_by_invoice(gstr_records)
+    pr_by_invoice = build_pr_by_invoice(pr_index)
+
     state = ReconState()
     process_gstr_records_chunk(
-        gstr_records, gstr_p, pr_index, pr_index_by_period, state
+        gstr_records,
+        gstr_p,
+        pr_index,
+        pr_index_by_period,
+        state,
+        gstr_by_invoice=gstr_by_invoice,
+        pr_by_invoice=pr_by_invoice,
     )
     wrongful_itc_risk = build_wrongful_itc_risk(pr_records, state.matched_pr_ids)
     return _finalize_reconciliation_result(

@@ -368,6 +368,7 @@ def build_discrepancies(
 def _match_gstr_to_pr_pair(
     gstr_rec: Mapping[str, Any],
     pr_rec: Mapping[str, Any],
+    gstr_by_invoice: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> MatchResult:
     tg = _optional_taxable(gstr_rec)
     tp = _optional_taxable(pr_rec)
@@ -445,6 +446,35 @@ def _match_gstr_to_pr_pair(
     date_within_l1 = skip_date or date_diff_days <= DATE_TOLERANCE_L1_DAYS
     date_within_l2 = skip_date or date_diff_days <= DATE_TOLERANCE_L2_DAYS
     date_within_l3 = skip_date or date_diff_days <= DATE_TOLERANCE_L3_DAYS
+
+    # Fast path — L1 exact match via hash lookup (skip L2–L5 when hash + L1 criteria align)
+    if gstr_by_invoice is not None:
+        pr_inv = invoice_match_key_for_record(pr_rec)
+        if pr_inv and pr_inv in gstr_by_invoice:
+            candidate = gstr_by_invoice[pr_inv]
+            if (
+                str(candidate.get("id")) == str(gstr_rec.get("id"))
+                and gstin_match
+                and inv_ok
+                and amount_within_l1
+                and date_within_l1
+                and l12_finance_ok
+            ):
+                return _financial_downgrade_l13(
+                    MatchResult(
+                        level=1,
+                        matched=True,
+                        confidence=100,
+                        requires_human_review=False,
+                        decision_what="Exact match found",
+                        decision_why="Invoice number, amount, and date all match within rounding tolerance",
+                        decision_next="No action required",
+                        discrepancies=discrepancies,
+                    ),
+                    gstin_match=gstin_match,
+                    total_diff=total_diff,
+                    enforce_total_tolerance=enforce_total_for_downgrade,
+                )
 
     # Rs1 bucket is L1-only when invoice+GSTIN+L1 date would apply; never L2/L3 for that slice.
     in_l1_rounding_band = (not skip_amount) and amount_diff_paise < AMOUNT_TOLERANCE_L1_PAISE
@@ -688,6 +718,7 @@ def _match_gstr_to_pr_pair(
 def match_gstr_to_pr(
     gstr_rec: Mapping[str, Any],
     pr_records: list[Mapping[str, Any]],
+    gstr_by_invoice: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> MatchResult | None:
     """Compare one GSTR row to many PR rows; return the best match or ``None``.
 
@@ -700,7 +731,7 @@ def match_gstr_to_pr(
         return None
     candidates: list[dict[str, Any]] = []
     for pr_rec in pr_records:
-        r = _match_gstr_to_pr_pair(gstr_rec, pr_rec)
+        r = _match_gstr_to_pr_pair(gstr_rec, pr_rec, gstr_by_invoice)
         if not r.matched:
             continue
         gstr = gstr_rec

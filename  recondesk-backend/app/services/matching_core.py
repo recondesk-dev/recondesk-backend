@@ -13,10 +13,10 @@ def compute_match_score(result: MatchResult) -> int:
     return max(0, 100 - 20 * (result.level - 1))
 
 
-def choose_best_candidate(g, candidates):
+def choose_best_candidate(g, candidates, gstr_by_invoice=None):
     scored = []
     for p in candidates:
-        result = match_gstr_to_pr(g, [p])
+        result = match_gstr_to_pr(g, [p], gstr_by_invoice=gstr_by_invoice)
         if result is None or result.level == 6:
             continue
         scored.append((p, compute_match_score(result)))
