@@ -9,7 +9,13 @@ import type {
   MatchStatus,
 } from "@/lib/supabase/types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(
+  /\/+$/,
+  ""
+);
+
+/** Default timeout for short status polls (must stay well under Vercel's 300s limit). */
+export const STATUS_POLL_REQUEST_TIMEOUT_MS = 10_000;
 
 // ─── Re-export DB row types for convenience ───────────────────────────────────
 
@@ -141,23 +147,37 @@ function normalizeApiPath(path: string): string {
   return p.replace(/\/+$/, "");
 }
 
+/** Railway (or local) backend base — never routes through the Next.js `/api/reconcile` proxy. */
+export function backendApiUrl(path: string): string {
+  return `${API_URL}${normalizeApiPath(path)}`;
+}
+
 /** Resolve fetch URL — browser reconcile calls go through same-origin Next.js proxy. */
-function resolveApiUrl(path: string): string {
+function resolveApiUrl(path: string, directBackend = false): string {
   const normalized = normalizeApiPath(path);
+  if (directBackend) {
+    return backendApiUrl(normalized);
+  }
   if (
     typeof window !== "undefined" &&
     normalized.startsWith("/api/reconcile")
   ) {
     return normalized;
   }
-  return `${API_URL}${normalized}`;
+  return backendApiUrl(normalized);
 }
 
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit & { token?: string } = {}
+  options: RequestInit & {
+    token?: string;
+    /** Always call Railway directly; required for run status polling. */
+    directBackend?: boolean;
+    /** Abort the request after this many ms (e.g. status polls). */
+    timeoutMs?: number;
+  } = {}
 ): Promise<T> {
-  const { token, ...fetchOptions } = options;
+  const { token, directBackend = false, timeoutMs, ...fetchOptions } = options;
 
   const headers = new Headers();
 
@@ -184,10 +204,31 @@ export async function apiFetch<T>(
     headers.set("Authorization", `Bearer ${bearer}`);
   }
 
-  const res = await fetch(resolveApiUrl(path), {
-    ...fetchOptions,
-    headers,
-  });
+  const controller =
+    timeoutMs != null && timeoutMs > 0 ? new AbortController() : null;
+  const timeoutId =
+    controller != null
+      ? setTimeout(() => controller.abort(), timeoutMs)
+      : undefined;
+
+  let res: Response;
+  try {
+    res = await fetch(resolveApiUrl(path, directBackend), {
+      ...fetchOptions,
+      headers,
+      signal: controller?.signal ?? fetchOptions.signal,
+    });
+  } catch (err) {
+    if (controller?.signal.aborted) {
+      throw {
+        detail: "Request timed out",
+        status: 408,
+      } satisfies ApiError;
+    }
+    throw err;
+  } finally {
+    if (timeoutId != null) clearTimeout(timeoutId);
+  }
 
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
@@ -730,8 +771,13 @@ export const importWizardApi = {
       token,
     }),
 
+  /** Short poll: one fast GET to Railway — never via Next.js proxy (avoids 300s Vercel timeout). */
   pollStatus: (token: string, runId: string) =>
-    apiFetch<RunPollStatus>(`/api/runs/${runId}/status`, { token }),
+    apiFetch<RunPollStatus>(`/api/runs/${runId}/status`, {
+      token,
+      directBackend: true,
+      timeoutMs: STATUS_POLL_REQUEST_TIMEOUT_MS,
+    }),
 
   retry: (token: string, runId: string) =>
     apiFetch<ImportWizardRun>(`/api/runs/${runId}/retry`, {
