@@ -133,6 +133,7 @@ def _load_pr_matcher_and_raw(
             client.table("pr_records")
             .select("id, record_data")
             .eq("run_id", run_id)
+            .order("id")
             .range(offset, offset + BATCH - 1)
             .execute()
         )
@@ -163,8 +164,13 @@ def _pr_record_data_missing_invoice_number(record_data: object) -> bool:
 
 def _load_pr_matcher_and_raw_page(
     client: Client, run_id: str, offset: int, limit: int
-) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], set[str]]:
-    """Load one page of PR matcher rows + raw ``record_data`` for chunked processing."""
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], set[str], int]:
+    """Load one page of PR matcher rows + raw ``record_data`` for chunked processing.
+
+    Returns ``(matcher_rows, raw_by_id, skipped_ids, db_rows_fetched)``. Pagination
+    callers must advance *offset* by ``db_rows_fetched``, not ``len(matcher_rows)``,
+    so invoice-less rows do not cause duplicate/missing pages.
+    """
     out: list[dict[str, Any]] = []
     raw_by_id: dict[str, dict[str, Any]] = {}
     skipped_ids: set[str] = set()
@@ -192,7 +198,29 @@ def _load_pr_matcher_and_raw_page(
         if isinstance(rd, dict):
             raw_by_id[rid] = rd
         out.append(rec_adapt.pr_db_row_to_matcher_row(row))
-    return (out, raw_by_id, skipped_ids)
+    return (out, raw_by_id, skipped_ids, len(rows))
+
+
+def _build_pr_index_for_matching(
+    client: Client, run_id: str
+) -> tuple[dict[str, list[dict[str, Any]]], int]:
+    """Load every PR matcher row for this run (paginate until DB returns no rows)."""
+    pr_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    offset = 0
+    loaded = 0
+    while True:
+        pr_chunk, _, _skipped, fetched = _load_pr_matcher_and_raw_page(
+            client, run_id, offset, CHUNK_SIZE
+        )
+        if fetched == 0:
+            break
+        for pr_rec in pr_chunk:
+            pr_index[str(pr_rec.get("supplier_gstin") or "")].append(pr_rec)
+            loaded += 1
+        offset += fetched
+        if fetched < CHUNK_SIZE:
+            break
+    return (dict(pr_index), loaded)
 
 
 def _write_pr_match_status_chunk(
@@ -376,6 +404,7 @@ def _load_gstr_matcher_and_raw(
             client.table("gstr_records")
             .select("id, record_data")
             .eq("run_id", run_id)
+            .order("id")
             .range(offset, offset + BATCH - 1)
             .execute()
         )
@@ -518,20 +547,38 @@ def execute_reconciliation(run_id: str) -> None:
         gstr_by_invoice = build_gstr_by_invoice(gstr_matcher)
         gstr_by_id: dict[str, dict] = {str(x.get("id")): x for x in gstr_matcher}
 
-        pr_index_current: dict[str, list[dict]] = defaultdict(list)
-        pr_total_chunks = max(1, (n_pr + CHUNK_SIZE - 1) // CHUNK_SIZE)
-        for chunk_idx in range(pr_total_chunks):
-            offset = chunk_idx * CHUNK_SIZE
-            pr_chunk, _, skipped = _load_pr_matcher_and_raw_page(
-                client, run_id, offset, CHUNK_SIZE
+        pr_index_current, pr_index_loaded = _build_pr_index_for_matching(
+            client, run_id
+        )
+        if n_pr and pr_index_loaded < n_pr:
+            _log.warning(
+                "PR index load shortfall: matcher_rows=%d pr_records_imported=%d run_id=%s",
+                pr_index_loaded,
+                n_pr,
+                run_id,
             )
-            if not pr_chunk and not skipped:
-                break
-            for pr_rec in pr_chunk:
-                pr_index_current[str(pr_rec.get("supplier_gstin") or "")].append(
-                    pr_rec
-                )
+        elif n_pr and pr_index_loaded > n_pr:
+            _log.warning(
+                "PR index load exceeds metadata: matcher_rows=%d pr_records_imported=%d run_id=%s",
+                pr_index_loaded,
+                n_pr,
+                run_id,
+            )
+        if len(gstr_matcher) != n_gstr:
+            _log.warning(
+                "GSTR load count mismatch: loaded=%d gstr_records_imported=%d run_id=%s",
+                len(gstr_matcher),
+                n_gstr,
+                run_id,
+            )
+        _log.info(
+            "[PERF] pr_index_loaded=%d pr_records_imported=%d gstr_loaded=%d",
+            pr_index_loaded,
+            n_pr,
+            len(gstr_matcher),
+        )
         pr_by_invoice = build_pr_by_invoice(pr_index_current)
+        pr_total_chunks = max(1, (pr_index_loaded + CHUNK_SIZE - 1) // CHUNK_SIZE)
 
         n_gstr_chunks = max(1, (len(gstr_matcher) + BATCH - 1) // BATCH)
         _update_run(
@@ -573,20 +620,22 @@ def execute_reconciliation(run_id: str) -> None:
             )
 
         pr_rows_for_tracking: list[dict[str, Any]] = []
-        for chunk_idx in range(pr_total_chunks):
+        pr_write_offset = 0
+        chunk_idx = 0
+        while True:
             chunk_started = time.perf_counter()
-            offset = chunk_idx * CHUNK_SIZE
-            pr_chunk, pr_raw_chunk, skipped = _load_pr_matcher_and_raw_page(
-                client, run_id, offset, CHUNK_SIZE
+            pr_chunk, pr_raw_chunk, skipped, fetched = _load_pr_matcher_and_raw_page(
+                client, run_id, pr_write_offset, CHUNK_SIZE
             )
-            if not pr_chunk and not skipped:
+            if fetched == 0:
                 break
 
             _log.info(
-                "processing chunk %d offset=%d pr_chunk_size=%d",
+                "processing chunk %d offset=%d pr_chunk_size=%d fetched=%d",
                 chunk_idx,
-                offset,
+                pr_write_offset,
                 len(pr_chunk),
+                fetched,
             )
 
             tracking_rows, chunk_matched, chunk_written = _write_pr_match_status_chunk(
@@ -623,6 +672,10 @@ def execute_reconciliation(run_id: str) -> None:
                     "updated_at": _now_iso(),
                 },
             )
+            pr_write_offset += fetched
+            chunk_idx += 1
+            if fetched < CHUNK_SIZE:
+                break
 
         _phase("matching")
         pr_current, pr_raw_by_id = _load_pr_matcher_and_raw(client, run_id)
