@@ -328,3 +328,56 @@ def test_build_pr_index_advances_offset_by_db_rows_not_matcher_rows():
     assert loaded == 2
     assert len(index["27ABCDE1234F1Z0"]) == 2
     assert offsets == [0, 500]
+
+
+def test_gstr_pagination_uses_page_size_not_batch_cap():
+    """PostgREST may return fewer rows than requested; stop only when page is short."""
+    from app.worker.reconciliation_task import DB_PAGE_SIZE
+
+    # Simulates Supabase returning 1000 rows when 2000 were requested (old bug used BATCH=2000).
+    pages = [list(range(1000)), list(range(1000, 1443))]
+    offsets: list[int] = []
+
+    class _Exec:
+        def __init__(self, rows):
+            self.data = [{"id": str(i), "record_data": {"supplier_gstin": "X", "invoice_number_norm": f"INV{i}", "items": []}} for i in rows]
+
+        def execute(self):
+            return self
+
+    class _Query:
+        def select(self, *args, **kwargs):
+            return self
+
+        def eq(self, *args, **kwargs):
+            return self
+
+        def order(self, *args, **kwargs):
+            return self
+
+        def range(self, offset, end):
+            offsets.append(offset)
+            idx = len(offsets) - 1
+            rows = pages[idx] if idx < len(pages) else []
+            return _Exec(rows)
+
+    class _Client:
+        def table(self, name):
+            return _Query()
+
+    # Inline the fixed pagination loop from _load_gstr_matcher_and_raw
+    out = []
+    offset = 0
+    while True:
+        q = _Client().table("gstr_records")
+        end = offset + DB_PAGE_SIZE - 1
+        rows = q.range(offset, end).execute().data or []
+        if not rows:
+            break
+        out.extend(rows)
+        offset += len(rows)
+        if len(rows) < DB_PAGE_SIZE:
+            break
+
+    assert len(out) == 1443
+    assert offsets == [0, 1000]

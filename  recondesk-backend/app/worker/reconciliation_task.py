@@ -41,6 +41,9 @@ _log = logging.getLogger(__name__)
 
 BATCH = 2_000
 CHUNK_SIZE = 500
+# Supabase/PostgREST caps each ``.range()`` response (~1000 rows). Never request
+# more than CHUNK_SIZE in one query or pagination stops early and drops records.
+DB_PAGE_SIZE = CHUNK_SIZE
 RULES_VERSION = "1.0.0"
 DECISION_VERSION = "1.0.0"
 MATCHING_VERSION = "1.0.0"
@@ -105,7 +108,8 @@ def _load_pr_for_historical_periods_paged(
                 .eq("client_gstin_id", client_gstin_id)
                 .eq("period", mo)
                 .neq("run_id", run_id)
-                .range(offset, offset + BATCH - 1)
+                .order("id")
+                .range(offset, offset + DB_PAGE_SIZE - 1)
                 .execute()
             )
             rows = r.data or []
@@ -115,9 +119,9 @@ def _load_pr_for_historical_periods_paged(
             pdate = date(pkey[0], pkey[1], 1)
             for row in rows:
                 by_period[pdate].append(rec_adapt.pr_db_row_to_matcher_row(row))
-            if len(rows) < BATCH:
+            offset += len(rows)
+            if len(rows) < DB_PAGE_SIZE:
                 break
-            offset += BATCH
     return {k: v for k, v in by_period.items()}
 
 
@@ -134,7 +138,7 @@ def _load_pr_matcher_and_raw(
             .select("id, record_data")
             .eq("run_id", run_id)
             .order("id")
-            .range(offset, offset + BATCH - 1)
+            .range(offset, offset + DB_PAGE_SIZE - 1)
             .execute()
         )
         rows = r.data or []
@@ -146,9 +150,9 @@ def _load_pr_matcher_and_raw(
             if isinstance(rd, dict):
                 raw_by_id[rid] = rd
             out.append(rec_adapt.pr_db_row_to_matcher_row(row))
-        if len(rows) < BATCH:
+        offset += len(rows)
+        if len(rows) < DB_PAGE_SIZE:
             break
-        offset += BATCH
     return (out, raw_by_id)
 
 
@@ -405,7 +409,7 @@ def _load_gstr_matcher_and_raw(
             .select("id, record_data")
             .eq("run_id", run_id)
             .order("id")
-            .range(offset, offset + BATCH - 1)
+            .range(offset, offset + DB_PAGE_SIZE - 1)
             .execute()
         )
         rows = r.data or []
@@ -417,9 +421,9 @@ def _load_gstr_matcher_and_raw(
             if isinstance(rd, dict):
                 raw_by_id[rid] = rd
             out.append(rec_adapt.gstr_db_row_to_matcher_row(row))
-        if len(rows) < BATCH:
+        offset += len(rows)
+        if len(rows) < DB_PAGE_SIZE:
             break
-        offset += BATCH
     return (out, raw_by_id)
 
 
