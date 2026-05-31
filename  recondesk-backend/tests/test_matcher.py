@@ -76,11 +76,22 @@ def _base_rec(
 def test_l1_exact_match_all_fields():
     g = _base_rec()
     p = _base_rec(supplier_gstin=g["supplier_gstin"])
-    r = match_gstr_to_pr(g, [p])
+    gstr_by_invoice = {g["invoice_number_normalized"]: g}
+    r = match_gstr_to_pr(g, [p], gstr_by_invoice=gstr_by_invoice)
     assert r.level == 1
     assert r.matched is True
     assert r.confidence == 100
     assert r.requires_human_review is False
+
+
+def test_l1_hash_index_fast_path_skips_full_loop():
+    g = _base_rec()
+    p = _base_rec(supplier_gstin=g["supplier_gstin"])
+    gstr_by_invoice = {g["invoice_number_normalized"]: g}
+    r = match_gstr_to_pr(g, [p], gstr_by_invoice=gstr_by_invoice)
+    assert r is not None
+    assert r.level == 1
+    assert r.matched is True
 
 
 def test_l1_match_differing_only_by_invoice_punctuation():

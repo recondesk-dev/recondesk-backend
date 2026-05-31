@@ -24,6 +24,8 @@ from app.services.credit_note_handler import classify_document, net_itc_after_cr
 from app.services.reconciliation import (
     ReconState,
     _build_pr_index_by_period,
+    build_gstr_by_invoice,
+    build_pr_by_invoice,
     build_wrongful_itc_risk,
     notify_reconciliation_run_completed_email_maybe,
     process_gstr_records_chunk,
@@ -505,6 +507,7 @@ def execute_reconciliation(run_id: str) -> None:
         gstr_by_gstin: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for ggr in gstr_matcher:
             gstr_by_gstin[str(ggr.get("supplier_gstin") or "")].append(ggr)
+        gstr_by_invoice = build_gstr_by_invoice(gstr_matcher)
         gstr_by_id: dict[str, dict] = {str(x.get("id")): x for x in gstr_matcher}
 
         pr_index_current: dict[str, list[dict]] = defaultdict(list)
@@ -520,6 +523,7 @@ def execute_reconciliation(run_id: str) -> None:
                 pr_index_current[str(pr_rec.get("supplier_gstin") or "")].append(
                     pr_rec
                 )
+        pr_by_invoice = build_pr_by_invoice(pr_index_current)
 
         n_gstr_chunks = max(1, (len(gstr_matcher) + BATCH - 1) // BATCH)
         _update_run(
@@ -540,6 +544,8 @@ def execute_reconciliation(run_id: str) -> None:
                 pr_index_current,
                 pr_index_by_period,
                 state,
+                gstr_by_invoice=gstr_by_invoice,
+                pr_by_invoice=pr_by_invoice,
             )
             done = i // BATCH + 1
             if done == n_gstr_chunks:
@@ -560,6 +566,7 @@ def execute_reconciliation(run_id: str) -> None:
 
         pr_rows_for_tracking: list[dict[str, Any]] = []
         for chunk_idx in range(pr_total_chunks):
+            chunk_started = time.perf_counter()
             offset = chunk_idx * CHUNK_SIZE
             pr_chunk, pr_raw_chunk, skipped = _load_pr_matcher_and_raw_page(
                 client, run_id, offset, CHUNK_SIZE
@@ -582,10 +589,12 @@ def execute_reconciliation(run_id: str) -> None:
 
             chunk_num = chunk_idx + 1
             pct = int(100 * chunk_num / pr_total_chunks)
+            elapsed = time.perf_counter() - chunk_started
             _log.info(
-                "chunk %d/%d matched=%d written=%d",
+                "chunk %d/%d completed in %.2fs matched=%d written=%d",
                 chunk_num,
                 pr_total_chunks,
+                elapsed,
                 chunk_matched,
                 chunk_written,
             )
