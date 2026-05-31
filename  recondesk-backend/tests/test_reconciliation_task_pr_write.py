@@ -4,6 +4,8 @@ from app.worker.reconciliation_task import (
     _build_pr_post_match_upsert_row,
     _matched_engine_meta_by_pr_id,
     _pr_match_status_for_record,
+    _pr_record_data_missing_invoice_number,
+    _write_pr_match_status_chunk,
 )
 
 
@@ -122,3 +124,57 @@ def test_pr_match_status_for_record_classifies_matched_and_unmatched():
         == "missing_in_2b"
     )
     assert _pr_match_status_for_record(pr, set(), {}) == "unmatched"
+
+
+def test_pr_record_data_missing_invoice_number():
+    assert _pr_record_data_missing_invoice_number(None) is True
+    assert _pr_record_data_missing_invoice_number({}) is True
+    assert _pr_record_data_missing_invoice_number({"gstin": "27ABCDE1234F1Z0"}) is True
+    assert (
+        _pr_record_data_missing_invoice_number({"invoice_number": "INV001"}) is False
+    )
+    assert (
+        _pr_record_data_missing_invoice_number(
+            {"invoice_number_normalized": "INV001"}
+        )
+        is False
+    )
+
+
+def test_write_pr_match_status_chunk_writes_unmatched_for_skipped_ids():
+    upserted: list[dict] = []
+
+    class _Exec:
+        def execute(self):
+            return self
+
+    class _Table:
+        def upsert(self, chunk, **kwargs):
+            upserted.extend(chunk)
+            return _Exec()
+
+    class _Client:
+        def table(self, name):
+            assert name == "pr_records"
+            return _Table()
+
+    tracking, matched, written = _write_pr_match_status_chunk(
+        _Client(),
+        run_id="581f94f1-a2da-4756-87b5-c2d534f28a13",
+        pr_chunk=[],
+        pr_raw_by_id={"bad-id": {"gstin": "27ABCDE1234F1Z0"}},
+        matched_pr_ids=set(),
+        gstr_by_gstin={},
+        gstr_by_id={},
+        matched=[],
+        skipped_pr_ids={"bad-id"},
+    )
+
+    assert matched == 0
+    assert written == 1
+    assert len(tracking) == 1
+    assert tracking[0]["match_status"] == "unmatched"
+    assert len(upserted) == 1
+    assert upserted[0]["id"] == "bad-id"
+    assert upserted[0]["match_status"] == "unmatched"
+    assert upserted[0]["record_data"]["match_status"] == "unmatched"

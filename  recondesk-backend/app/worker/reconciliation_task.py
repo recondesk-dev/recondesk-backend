@@ -149,12 +149,23 @@ def _load_pr_matcher_and_raw(
     return (out, raw_by_id)
 
 
+def _pr_record_data_missing_invoice_number(record_data: object) -> bool:
+    """True when ``record_data`` lacks both invoice number fields."""
+    if not isinstance(record_data, dict):
+        return True
+    return not (
+        record_data.get("invoice_number")
+        or record_data.get("invoice_number_normalized")
+    )
+
+
 def _load_pr_matcher_and_raw_page(
     client: Client, run_id: str, offset: int, limit: int
-) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], set[str]]:
     """Load one page of PR matcher rows + raw ``record_data`` for chunked processing."""
     out: list[dict[str, Any]] = []
     raw_by_id: dict[str, dict[str, Any]] = {}
+    skipped_ids: set[str] = set()
     r = (
         client.table("pr_records")
         .select("id, record_data")
@@ -166,10 +177,19 @@ def _load_pr_matcher_and_raw_page(
     for row in rows:
         rid = str(row.get("id", ""))
         rd = row.get("record_data")
+        if _pr_record_data_missing_invoice_number(rd):
+            skipped_ids.add(rid)
+            _log.warning(
+                "skip pr matcher load: record_data missing invoice_number for pr id=%s",
+                rid,
+            )
+            if isinstance(rd, dict):
+                raw_by_id[rid] = rd
+            continue
         if isinstance(rd, dict):
             raw_by_id[rid] = rd
         out.append(rec_adapt.pr_db_row_to_matcher_row(row))
-    return (out, raw_by_id)
+    return (out, raw_by_id, skipped_ids)
 
 
 def _write_pr_match_status_chunk(
@@ -182,8 +202,10 @@ def _write_pr_match_status_chunk(
     gstr_by_gstin: dict[str, list[dict[str, Any]]],
     gstr_by_id: dict[str, dict[str, Any]],
     matched: list[dict[str, Any]],
+    skipped_pr_ids: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Build and upsert match fields for one PR chunk; returns tracking rows + counts."""
+    skipped_pr_ids = skipped_pr_ids or set()
     engine_meta_by_pr_id = _matched_engine_meta_by_pr_id(
         matched,
         gstr_by_id,
@@ -217,6 +239,29 @@ def _write_pr_match_status_chunk(
             pr_match_status_rows.append(
                 _build_pr_post_match_upsert_row(
                     pid, run_id, base_rd, match_st, engine_meta
+                )
+            )
+        except (TypeError, ValueError):
+            _log.warning(
+                "skip pr record_data match_status: invalid pr id=%s", pid
+            )
+            continue
+    for pid in skipped_pr_ids:
+        base_rd = pr_raw_by_id.get(pid)
+        rd = base_rd if isinstance(base_rd, dict) else {}
+        pr_rows_for_tracking.append(
+            {
+                "invoice_number": rd.get("invoice_number")
+                or rd.get("invoice_number_normalized"),
+                "supplier_gstin": rd.get("gstin") or rd.get("supplier_gstin"),
+                "taxable_amount": rd.get("taxable_amount_paise"),
+                "match_status": "unmatched",
+            }
+        )
+        try:
+            pr_match_status_rows.append(
+                _build_pr_post_match_upsert_row(
+                    pid, run_id, base_rd, "unmatched", None
                 )
             )
         except (TypeError, ValueError):
@@ -466,7 +511,7 @@ def execute_reconciliation(run_id: str) -> None:
         pr_total_chunks = max(1, (n_pr + CHUNK_SIZE - 1) // CHUNK_SIZE)
         for chunk_idx in range(pr_total_chunks):
             offset = chunk_idx * CHUNK_SIZE
-            pr_chunk, _ = _load_pr_matcher_and_raw_page(
+            pr_chunk, _, _ = _load_pr_matcher_and_raw_page(
                 client, run_id, offset, CHUNK_SIZE
             )
             if not pr_chunk:
@@ -516,10 +561,10 @@ def execute_reconciliation(run_id: str) -> None:
         pr_rows_for_tracking: list[dict[str, Any]] = []
         for chunk_idx in range(pr_total_chunks):
             offset = chunk_idx * CHUNK_SIZE
-            pr_chunk, pr_raw_chunk = _load_pr_matcher_and_raw_page(
+            pr_chunk, pr_raw_chunk, skipped = _load_pr_matcher_and_raw_page(
                 client, run_id, offset, CHUNK_SIZE
             )
-            if not pr_chunk:
+            if not pr_chunk and not skipped:
                 break
 
             tracking_rows, chunk_matched, chunk_written = _write_pr_match_status_chunk(
@@ -531,6 +576,7 @@ def execute_reconciliation(run_id: str) -> None:
                 gstr_by_gstin=gstr_by_gstin,
                 gstr_by_id=gstr_by_id,
                 matched=state.matched,
+                skipped_pr_ids=skipped,
             )
             pr_rows_for_tracking.extend(tracking_rows)
 
