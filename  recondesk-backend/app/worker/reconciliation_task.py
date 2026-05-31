@@ -30,6 +30,11 @@ from app.services.reconciliation import (
     notify_reconciliation_run_completed_email_maybe,
     process_gstr_records_chunk,
 )
+from app.services.reconciliation_payload_store import (
+    build_run_summary_metrics,
+    build_stored_results_payload,
+    save_reconciliation_results,
+)
 from uuid import UUID
 
 from app.services.carry_forward import update_invoice_tracking
@@ -830,64 +835,45 @@ def execute_reconciliation(run_id: str) -> None:
             for m in state.matched
             if m.get("is_late_filing")
         )
-        run_summary = {
-            "total_records": total_invoices,
-            "matched_count": len(state.matched),
-            "unmatched_count": len(state.missed_itc) + len(wrongful_itc),
-            "itc_at_risk": itc_at_risk_total,
-            "missed_itc_paise": itc_missed,
-            "rule37_itc_paise": rule37_itc_paise,
-            "wrongful_itc": wrongful_paise,
-            "late_itc": late_itc_paise,
-            "late_match_count": late_itc,
-            "gstr_in_scope": n_gstr,
-            "pr_in_scope": n_pr,
-            "compliance": {
-                "rule37": rule37,
-                "section_17_5": s175,
-            },
-            "decisions": decision_payload,
-        }
+        matched_count = len(state.matched)
+        missed_itc_count = len(state.missed_itc)
+        wrongful_count = len(wrongful_itc)
+        run_summary = build_run_summary_metrics(
+            n_gstr=n_gstr,
+            n_pr=n_pr,
+            matched_count=matched_count,
+            missed_itc_count=missed_itc_count,
+            wrongful_count=wrongful_count,
+            itc_missed=itc_missed,
+            wrongful_paise=wrongful_paise,
+            rule37_itc_paise=rule37_itc_paise,
+            itc_at_risk_total=itc_at_risk_total,
+            late_itc_paise=late_itc_paise,
+            late_match_count=late_itc,
+        )
 
         payload = _json_safe(
-            {
-                "engine": {
-                    "matched": state.matched,
-                    "missed_itc": state.missed_itc,
-                    "wrongful_itc_risk": wrongful_itc,
-                },
-                "compliance": {
-                    "rule37": rule37,
-                    "section_17_5": s175,
-                    "credit_notes": cn_net,
-                },
-                "decisions": decision_payload,
-                "summary": run_summary,
-                "meta": {
-                    "matching_version": MATCHING_VERSION,
-                    "rules_version": RULES_VERSION,
-                    "decision_version": DECISION_VERSION,
-                },
-            }
+            build_stored_results_payload(
+                matched=state.matched,
+                missed_itc=state.missed_itc,
+                wrongful_itc_risk=wrongful_itc,
+                rule37=rule37,
+                section_175_warnings=s175,
+                credit_note_adjustment=cn_net,
+                decision_payload=decision_payload,
+                matching_version=MATCHING_VERSION,
+                rules_version=RULES_VERSION,
+                decision_version=DECISION_VERSION,
+            )
         )
         if isinstance(payload, str):
             payload = json.loads(payload)
-        client.table("reconciliation_results").delete().eq("run_id", run_id).execute()
-        res_ins = (
-            client.table("reconciliation_results")
-            .insert(
-                {
-                    "run_id": run_id,
-                    "payload": payload,
-                    "created_at": _now_iso(),
-                }
-            )
-            .execute()
+        save_reconciliation_results(
+            client,
+            run_id,
+            payload,
+            created_at=_now_iso(),
         )
-        if res_ins.data is None and getattr(res_ins, "error", None):
-            raise RuntimeError(
-                f"reconciliation_results insert failed: {res_ins.error}"
-            )
 
         _update_run(
             client,
