@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, FileSpreadsheet, FileText, Loader2, Shield, X } from "lucide-react";
+import { Check, ChevronDown, FileSpreadsheet, FileText, Loader2, Shield, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -70,6 +70,13 @@ type RunSummary = {
   match_rate_percent: number;
   user_role: "admin" | "staff";
 };
+
+/** Shared action button styles for results header / exports */
+const actionBtnBase =
+  "inline-flex h-9 items-center justify-center gap-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+const exportToolbarBtn = `${actionBtnBase} rounded-md px-3 text-gray-600 hover:bg-gray-50 hover:text-gray-900`;
+const deleteRunBtn = `${actionBtnBase} rounded-lg border border-gray-200 bg-white px-3.5 text-gray-600 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-600`;
+const sectionExportBtn = `${actionBtnBase} rounded-lg border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:border-gray-300 hover:bg-gray-50`;
 
 type Paginated<T> = {
   data: T[];
@@ -1419,93 +1426,111 @@ export default function ReconcileResultsPage() {
           <SummarySkeleton />
         )}
         {summary && !summaryError && (
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-gray-900">{summary.period}</p>
-              <p className="text-xs text-gray-500">
-                Assigned to:{" "}
-                {summary.assigned_to_name?.trim() ? (
-                  summary.assigned_to_name
-                ) : (
-                  <span className="italic text-gray-400">Unassigned</span>
-                )}
-              </p>
-              {isRunFinalized &&
-                summary.finalized_by_name &&
-                summary.finalized_at && (
-                  <span className="mt-2 inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                    Finalized by {summary.finalized_by_name} on{" "}
-                    {formatDate(summary.finalized_at)}
-                  </span>
-                )}
-            </div>
-            <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:justify-end">
-              <div className="flex flex-wrap gap-3">
-                <div>
-                  <p className="text-xs text-gray-600">Total GSTR Records</p>
-                  <p className="text-base font-semibold text-gray-900">
-                    {summary.total_gstr_records.toLocaleString("en-IN")}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-600">Matched</p>
-                  <p className="text-base font-semibold text-gray-900">
-                    {summary.matched_count.toLocaleString("en-IN")}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xl font-bold text-emerald-600">
-                    {formatINR(summary.missed_itc_total_amount)}
-                  </p>
-                  <p className="text-xs text-gray-500">Missed ITC</p>
-                </div>
-                <div>
-                  <p className="text-xl font-bold text-red-600">
-                    {formatINR(summary.wrongful_risk_total_amount)}
-                  </p>
-                  <p className="text-xs text-gray-500">At Risk</p>
-                </div>
+          <>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-900">{summary.period}</p>
+                <p className="text-xs text-gray-500">
+                  Assigned to:{" "}
+                  {summary.assigned_to_name?.trim() ? (
+                    summary.assigned_to_name
+                  ) : (
+                    <span className="italic text-gray-400">Unassigned</span>
+                  )}
+                </p>
+                {isRunFinalized &&
+                  summary.finalized_by_name &&
+                  summary.finalized_at && (
+                    <span className="mt-2 inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                      Finalized by {summary.finalized_by_name} on{" "}
+                      {formatDate(summary.finalized_at)}
+                    </span>
+                  )}
               </div>
-              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
-                <button
-                  type="button"
-                  disabled={excelDownloading}
-                  className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded border border-emerald-600 px-2 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => void downloadExcelReport()}
+
+              <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-3">
+                <div
+                  className="inline-flex items-center rounded-lg border border-gray-200 bg-white p-1 shadow-sm"
+                  role="group"
+                  aria-label="Export reports"
                 >
-                  {excelDownloading ? (
-                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-                  ) : (
-                    <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
-                  )}
-                  Excel
-                </button>
+                  <button
+                    type="button"
+                    disabled={excelDownloading}
+                    className={exportToolbarBtn}
+                    onClick={() => void downloadExcelReport()}
+                  >
+                    {excelDownloading ? (
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" />
+                    ) : (
+                      <FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-600" />
+                    )}
+                    Excel
+                  </button>
+                  <span className="mx-0.5 h-5 w-px bg-gray-200" aria-hidden />
+                  <button
+                    type="button"
+                    disabled={pdfDownloading}
+                    className={exportToolbarBtn}
+                    onClick={() => void downloadPdfReport()}
+                  >
+                    {pdfDownloading ? (
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" />
+                    ) : (
+                      <FileText className="h-4 w-4 shrink-0 text-gray-500" />
+                    )}
+                    PDF
+                  </button>
+                </div>
                 <button
                   type="button"
-                  disabled={pdfDownloading}
-                  className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded border border-red-600 px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => void downloadPdfReport()}
-                >
-                  {pdfDownloading ? (
-                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-                  ) : (
-                    <FileText className="h-3.5 w-3.5 shrink-0" />
-                  )}
-                  PDF
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex min-h-[44px] items-center justify-center rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={deleteRunBtn}
                   onClick={() => {
                     setDeleteError(null);
                     setDeleteModalOpen(true);
                   }}
                 >
-                  Delete Run
+                  <Trash2 className="h-4 w-4 shrink-0" />
+                  Delete run
                 </button>
               </div>
             </div>
-          </div>
+
+            <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-2 border-t border-gray-100 pt-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Total GSTR
+                </p>
+                <p className="text-lg font-semibold tabular-nums text-gray-900">
+                  {summary.total_gstr_records.toLocaleString("en-IN")}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Matched
+                </p>
+                <p className="text-lg font-semibold tabular-nums text-gray-900">
+                  {summary.matched_count.toLocaleString("en-IN")}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Missed ITC
+                </p>
+                <p className="text-lg font-semibold tabular-nums text-emerald-600">
+                  {formatINR(summary.missed_itc_total_amount)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  At Risk
+                </p>
+                <p className="text-lg font-semibold tabular-nums text-red-600">
+                  {formatINR(summary.wrongful_risk_total_amount)}
+                </p>
+              </div>
+            </div>
+          </>
         )}
         {summary && !summaryError && (
           <div className="mt-2">
@@ -1556,11 +1581,11 @@ export default function ReconcileResultsPage() {
                 <button
                   type="button"
                   disabled={itcCsvDownloading}
-                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded border border-emerald-700 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                  className={sectionExportBtn}
                   onClick={() => void downloadItcCsv()}
                 >
                   {itcCsvDownloading ? (
-                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" />
                   ) : null}
                   Download CSV
                 </button>
@@ -1870,11 +1895,11 @@ export default function ReconcileResultsPage() {
                 <button
                   type="button"
                   disabled={riskCsvDownloading}
-                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded border border-red-700 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-60"
+                  className={sectionExportBtn}
                   onClick={() => void downloadRiskCsv()}
                 >
                   {riskCsvDownloading ? (
-                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" />
                   ) : null}
                   Download CSV
                 </button>
