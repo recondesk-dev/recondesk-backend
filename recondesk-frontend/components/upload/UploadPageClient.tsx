@@ -374,7 +374,7 @@ export default function UploadPageClient({ token }: { token: string }) {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <div className="mx-auto max-w-lg px-4 py-16">
-        <p className="text-lg font-semibold text-indigo-600">ReconDesk</p>
+        <p className="font-brand text-lg font-semibold text-indigo-600">ReconDesk</p>
         {/* TODO: Replace with organization logo and name */}
 
         <div className="mt-8 rounded-xl border border-gray-200 bg-white p-8 dark:border-gray-800 dark:bg-gray-900">

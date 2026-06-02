@@ -56,7 +56,7 @@ export default function ForgotPasswordPage() {
               />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">RECONDESK</h1>
+          <h1 className="font-brand text-2xl font-bold text-gray-900 tracking-tight">RECONDESK</h1>
           <p className="text-sm text-gray-500 mt-1">Reconciliation made simple</p>
         </div>
 
