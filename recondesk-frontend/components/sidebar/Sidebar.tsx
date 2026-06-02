@@ -54,7 +54,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                 />
               </svg>
             </div>
-            <span className="text-white font-bold text-sm tracking-widest">RECONDESK</span>
+            <span className="font-brand text-white font-bold text-sm tracking-widest">RECONDESK</span>
           </Link>
         )}
         {collapsed && (

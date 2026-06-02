@@ -27,7 +27,7 @@ export function PublicFooter() {
           <div className="max-w-sm">
             <div className="flex items-center gap-2.5 text-white">
               <LogoMark />
-              <span className="text-sm font-bold tracking-[0.2em]">RECONDESK</span>
+              <span className="font-brand text-sm font-bold tracking-[0.2em]">RECONDESK</span>
             </div>
             <p className="mt-3 text-sm text-slate-400">GST reconciliation built for CA firms.</p>
           </div>

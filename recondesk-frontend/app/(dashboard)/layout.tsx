@@ -8,7 +8,9 @@ export default function DashboardLayout({
 }) {
   return (
     <AppSWRProvider>
-      <DashboardShellLayout>{children}</DashboardShellLayout>
+      <div className="font-sans">
+        <DashboardShellLayout>{children}</DashboardShellLayout>
+      </div>
     </AppSWRProvider>
   );
 }

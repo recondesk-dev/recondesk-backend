@@ -250,7 +250,7 @@ export default function OnboardingPage() {
 
       <header className="border-b border-gray-100 px-6 py-4">
         <div className="mx-auto flex max-w-[560px] items-center justify-between">
-          <span className="text-lg font-semibold tracking-tight text-gray-900">
+          <span className="font-brand text-lg font-semibold tracking-tight text-gray-900">
             ReconDesk
           </span>
           <span className="text-xs text-gray-500">

@@ -24,7 +24,7 @@ export function PublicNavbar() {
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <Link href="/" className="flex items-center gap-2.5 text-white">
           <LogoMark />
-          <span className="text-sm font-bold tracking-[0.2em]">RECONDESK</span>
+          <span className="font-brand text-sm font-bold tracking-[0.2em]">RECONDESK</span>
         </Link>
         <nav className="flex items-center gap-3 sm:gap-6">
           <Link
