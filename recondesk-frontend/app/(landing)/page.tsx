@@ -111,7 +111,7 @@ export default function LandingPage() {
           ].map((text) => (
             <div
               key={text}
-              className="rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-6 text-[#3A3A3A] shadow-sm"
+              className="landing-card rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-6 text-[#3A3A3A]"
             >
               <p className="text-sm leading-relaxed sm:text-base">{text}</p>
             </div>
@@ -153,7 +153,7 @@ export default function LandingPage() {
         </ul>
 
         {/* Mock result card */}
-        <div className="mx-auto mt-14 max-w-lg rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-6 text-center shadow-xl">
+        <div className="landing-card mx-auto mt-14 max-w-lg rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-6 text-center">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#6B6B6B]">Sample run summary</p>
           <div className="mt-4 flex flex-wrap items-start justify-center gap-8 sm:gap-12">
             <div>
@@ -190,7 +190,7 @@ export default function LandingPage() {
           <p className="mt-3 text-[#6B6B6B]">Start free. Upgrade when you&apos;re ready.</p>
         </div>
         <div className="mx-auto mt-10 grid max-w-3xl gap-6 md:grid-cols-2">
-          <div className="flex flex-col rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-6">
+          <div className="landing-card flex flex-col rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-6">
             <h3 className="text-lg font-semibold text-[#0A0A0A]">Solo CA</h3>
             <p className="mt-2 text-3xl font-semibold text-[#0A0A0A]">
               <InrAmount amount="399" amountClassName="font-mono" />
@@ -204,7 +204,7 @@ export default function LandingPage() {
               Start Free
             </Link>
           </div>
-          <div className="relative flex flex-col rounded-2xl border-2 border-[var(--accent)] bg-[#F5F5F5] p-6 shadow-lg shadow-[var(--accent)]/10">
+          <div className="landing-card relative flex flex-col rounded-2xl border-2 border-[var(--accent)] bg-[#F5F5F5] p-6">
             <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[var(--accent)] px-3 py-0.5 text-xs font-semibold text-white">
               Most Popular
             </span>
@@ -226,7 +226,7 @@ export default function LandingPage() {
 
       {/* Final CTA */}
       <Section className="border-t border-[#E5E5E5] bg-white py-16 sm:py-20">
-        <div className="mx-auto max-w-2xl rounded-3xl border border-[#E5E5E5] bg-[#F5F5F5] px-6 py-12 text-center sm:px-10">
+        <div className="landing-card mx-auto max-w-2xl rounded-3xl border border-[#E5E5E5] bg-[#F5F5F5] px-6 py-12 text-center sm:px-10">
           <h2 className="text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">Stop Losing ITC. Start Recovering It.</h2>
           <p className="mt-4 text-[#3A3A3A]">
             First 2 reconciliations free. No credit card required.
