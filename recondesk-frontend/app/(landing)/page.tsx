@@ -65,7 +65,7 @@ export default function LandingPage() {
             Find the ITC Your Clients Are Missing Every Month
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-[#3A3A3A] sm:mt-5 sm:text-xl">
-            GSTR-2B reconciliation for CA firms. Upload 2 files. Results in 60 seconds.
+            GSTR-2B reconciliation for CA firms. Upload 2 files. Result in minutes.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
             <Link
