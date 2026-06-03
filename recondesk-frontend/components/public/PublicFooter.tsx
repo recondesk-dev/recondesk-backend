@@ -9,9 +9,9 @@ export function PublicFooter() {
       <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between lg:gap-8">
           <div className="max-w-sm">
-            <div className="inline-flex items-baseline gap-0 text-xl font-bold tracking-tight text-white sm:text-2xl">
+            <div className="inline-flex items-baseline gap-0 text-2xl font-bold tracking-tight text-white sm:text-3xl">
               <span>ReconDesk</span>
-              <span className="text-xl leading-none text-purple-600 sm:text-2xl" aria-hidden="true">
+              <span className="text-2xl leading-none text-purple-600 sm:text-3xl" aria-hidden="true">
                 •
               </span>
             </div>

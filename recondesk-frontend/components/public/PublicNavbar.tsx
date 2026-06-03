@@ -6,10 +6,10 @@ export function PublicNavbar() {
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <Link
           href="/"
-          className="font-brand inline-flex items-baseline gap-0 text-xl font-bold tracking-tight text-white sm:text-2xl"
+          className="font-brand inline-flex items-baseline gap-0 text-2xl font-bold tracking-tight text-white sm:text-3xl"
         >
           <span>ReconDesk</span>
-          <span className="text-xl leading-none text-purple-600 sm:text-2xl" aria-hidden="true">
+          <span className="text-2xl leading-none text-purple-600 sm:text-3xl" aria-hidden="true">
             •
           </span>
         </Link>
