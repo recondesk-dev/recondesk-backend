@@ -168,7 +168,6 @@ export default function LoginPage() {
                       });
                     }
                   }}
-                  placeholder="••••••••"
                   className={`input-field pr-11${fieldErrors.password ? ` ${INPUT_ERROR_CLASS}` : ""}`}
                   aria-invalid={fieldErrors.password ? true : undefined}
                 />
