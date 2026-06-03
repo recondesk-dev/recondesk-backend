@@ -138,7 +138,7 @@ export default function LandingPage() {
             </div>
             <h3 className="mt-4 text-base font-semibold text-white">2. Match</h3>
             <p className="mt-2 text-sm leading-relaxed text-slate-400">
-              ReconDesk matches 5,000+ invoices in 60 seconds using 5-level matching
+              ReconDesk matches 5,000+ invoices using 5-level matching.
             </p>
           </li>
           <li className="flex flex-col items-center text-center">
