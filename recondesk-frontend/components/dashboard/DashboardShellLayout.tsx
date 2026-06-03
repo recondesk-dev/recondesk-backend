@@ -6,7 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import useSWR, { mutate } from "swr";
 import { Avatar } from "@/components/ui/Avatar";
 import { useToast } from "@/components/providers/ToastProvider";
-import { authApi, isApiError, reconcileRunsApi } from "@/lib/api";
+import { authApi, isApiError, reconcileRunsApi, type AuthMeProfile } from "@/lib/api";
+import { displayPlanName } from "@/lib/plan-display";
 import { DW, formatPeriodLabel } from "@/lib/dashboard-portfolio";
 import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 
@@ -21,6 +22,16 @@ function initialsFromDisplayName(name: string): string {
   }
   if (parts[0].length >= 2) return parts[0].slice(0, 2).toUpperCase();
   return parts[0][0]?.toUpperCase() ?? "?";
+}
+
+function subscriptionFromMe(me: AuthMeProfile) {
+  const runsLimit = me.runs_limit ?? 2;
+  const runsUsed = Math.max(0, me.runs_used ?? 0);
+  return {
+    plan: me.plan ?? null,
+    runsUsed,
+    runsLimit: Math.max(runsLimit, 1),
+  };
 }
 
 function pageTitle(pathname: string): string {
@@ -127,6 +138,11 @@ export default function DashboardShellLayout({
     role: "…",
     initials: "··",
   });
+  const [subscription, setSubscription] = useState<{
+    plan: string | null;
+    runsUsed: number;
+    runsLimit: number;
+  } | null>(null);
 
   useEffect(() => subscribeAccessToken(setAccessToken), []);
 
@@ -140,6 +156,17 @@ export default function DashboardShellLayout({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  function applyMeProfile(me: AuthMeProfile) {
+    const name = me.full_name?.trim() || me.email?.trim() || "User";
+    const role = (me.role ?? "staff").toUpperCase();
+    setCurrentUser({
+      name,
+      role,
+      initials: initialsFromDisplayName(name),
+    });
+    setSubscription(subscriptionFromMe(me));
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -148,19 +175,14 @@ export default function DashboardShellLayout({
 
       if (accessToken === false) {
         setCurrentUser({ name: "Guest", role: "—", initials: "?" });
+        setSubscription(null);
         return;
       }
 
       try {
         const me = await authApi.me(accessToken);
         if (cancelled) return;
-        const name = me.full_name?.trim() || me.email?.trim() || "User";
-        const role = (me.role ?? "staff").toUpperCase();
-        setCurrentUser({
-          name,
-          role,
-          initials: initialsFromDisplayName(name),
-        });
+        applyMeProfile(me);
       } catch {
         if (cancelled) return;
         setCurrentUser({
@@ -168,6 +190,7 @@ export default function DashboardShellLayout({
           role: "STAFF",
           initials: "?",
         });
+        setSubscription(null);
       }
     }
 
@@ -176,6 +199,11 @@ export default function DashboardShellLayout({
       cancelled = true;
     };
   }, [accessToken]);
+
+  const runsUsed = subscription?.runsUsed ?? 0;
+  const runsLimit = subscription?.runsLimit ?? 2;
+  const runsLeft = Math.max(0, runsLimit - runsUsed);
+  const runsUsedPct = Math.min(100, Math.round((runsUsed / runsLimit) * 100));
 
   const failuresKey =
     typeof accessToken === "string" && accessToken.length > 0
@@ -262,9 +290,58 @@ export default function DashboardShellLayout({
           <div className="relative" ref={profileRef}>
             {profileOpen && (
               <div
-                className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg"
+                className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm"
                 role="menu"
               >
+                <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
+                  <Avatar initials={currentUser.initials} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-gray-900">
+                      {currentUser.name}
+                    </p>
+                    <span className="mt-0.5 inline-block rounded bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                      {currentUser.role}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2.5 border-b border-gray-100 px-4 py-3">
+                  <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                    {subscription ? displayPlanName(subscription.plan) : "…"}
+                  </span>
+                  <div>
+                    <div className="flex items-baseline justify-between gap-2 text-xs text-gray-500">
+                      <span>
+                        {subscription ? (
+                          <>
+                            {runsUsed} of {runsLimit} runs used
+                          </>
+                        ) : (
+                          "Loading usage…"
+                        )}
+                      </span>
+                      {subscription && (
+                        <span className="shrink-0 font-medium text-gray-700">
+                          {runsLeft} left
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      className="mt-1.5 h-1 overflow-hidden rounded-full bg-gray-100"
+                      role="progressbar"
+                      aria-valuenow={runsUsed}
+                      aria-valuemin={0}
+                      aria-valuemax={runsLimit}
+                      aria-label={`${runsUsed} of ${runsLimit} runs used`}
+                    >
+                      <div
+                        className="h-full rounded-full bg-emerald-500 transition-[width] duration-300"
+                        style={{ width: subscription ? `${runsUsedPct}%` : "0%" }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <button
                   type="button"
                   role="menuitem"
