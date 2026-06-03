@@ -70,13 +70,13 @@ export default function LandingPage() {
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
             <Link
               href="/auth/signup"
-              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-lg bg-[var(--accent)] px-6 text-sm font-semibold text-white shadow-lg shadow-[var(--accent)]/25 transition hover:opacity-95 sm:w-auto"
+              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-[var(--accent)] px-6 text-sm font-semibold text-white shadow-lg shadow-[var(--accent)]/25 transition hover:opacity-95 sm:w-auto"
             >
               Start Free — First 2 Runs Free
             </Link>
             <a
               href="#how-it-works"
-              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-lg border border-[#E5E5E5] bg-white px-6 text-sm font-semibold text-[#0A0A0A] transition hover:bg-[#F5F5F5] sm:w-auto"
+              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full border border-[#E5E5E5] bg-white px-6 text-sm font-semibold text-[#0A0A0A] transition hover:bg-[#F5F5F5] sm:w-auto"
             >
               See How It Works
             </a>
@@ -199,7 +199,7 @@ export default function LandingPage() {
             <p className="mt-4 text-sm text-[#6B6B6B]">1 client GSTIN · 2 free runs to start</p>
             <Link
               href="/signup"
-              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-lg border border-[#E5E5E5] bg-white text-sm font-semibold text-[#0A0A0A] transition hover:bg-[#EBEBEB]"
+              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full border border-[#E5E5E5] bg-white text-sm font-semibold text-[#0A0A0A] transition hover:bg-[#EBEBEB]"
             >
               Start Free
             </Link>
@@ -216,7 +216,7 @@ export default function LandingPage() {
             <p className="mt-4 text-sm text-[#6B6B6B]">35 runs/month · Team access included</p>
             <Link
               href="/pricing"
-              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-semibold text-white transition hover:opacity-95"
+              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--accent)] text-sm font-semibold text-white transition hover:opacity-95"
             >
               View All Plans
             </Link>
@@ -233,7 +233,7 @@ export default function LandingPage() {
           </p>
           <Link
             href="/auth/signup"
-            className="mt-8 inline-flex min-h-[48px] w-full items-center justify-center rounded-lg bg-[var(--accent)] px-8 text-sm font-semibold text-white transition hover:opacity-95 sm:w-auto"
+            className="mt-8 inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-[var(--accent)] px-8 text-sm font-semibold text-white transition hover:opacity-95 sm:w-auto"
           >
             Get Started Free →
           </Link>

@@ -245,7 +245,7 @@ export function ClientsPageContent() {
       <div className="flex flex-wrap justify-end gap-3">
         <button
           type="button"
-          className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white"
           onClick={() => {
             resetAddForm();
             setAddOpen(true);
@@ -286,7 +286,7 @@ export function ClientsPageContent() {
             </p>
             <button
               type="button"
-              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white"
+              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white"
               onClick={() => {
                 resetAddForm();
                 setAddOpen(true);
@@ -373,7 +373,7 @@ export function ClientsPageContent() {
                           <td className="px-4 py-3 text-right">
                             <button
                               type="button"
-                              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg px-3 text-sm font-semibold text-[var(--danger)] hover:bg-red-50"
+                              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full px-3 text-sm font-semibold text-[var(--danger)] hover:bg-red-50"
                               onClick={() => void handleDelete(row)}
                             >
                               Remove
@@ -404,7 +404,7 @@ export function ClientsPageContent() {
             <button
               type="button"
               disabled={addBusy}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-[var(--border)] px-4 text-sm font-medium"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[var(--border)] px-4 text-sm font-medium"
               onClick={() => setAddOpen(false)}
             >
               Cancel
@@ -412,7 +412,7 @@ export function ClientsPageContent() {
             <button
               type="button"
               disabled={!canSubmitAdd || addBusy}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white disabled:opacity-40"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white disabled:opacity-40"
               onClick={() => void submitAdd()}
             >
               {addBusy ? "Saving…" : "Add Client"}

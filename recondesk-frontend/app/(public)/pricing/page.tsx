@@ -57,8 +57,8 @@ type PlanCardProps = {
 
 function PlanCard({ name, price, priceSuffix = "/month", bullets, popular, cta, href }: PlanCardProps) {
   const ctaClasses = popular
-    ? "mt-8 inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-semibold text-white transition hover:opacity-95"
-    : "mt-8 inline-flex min-h-[44px] items-center justify-center rounded-lg border border-white/15 bg-white/5 text-sm font-semibold text-white transition hover:bg-white/10";
+    ? "mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--accent)] text-sm font-semibold text-white transition hover:opacity-95"
+    : "mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full border border-white/15 bg-white/5 text-sm font-semibold text-white transition hover:bg-white/10";
 
   const shell = popular
     ? "relative flex flex-col rounded-2xl border-2 border-[var(--accent)] bg-[#13161f] p-6 shadow-lg shadow-[var(--accent)]/10"
@@ -112,7 +112,7 @@ function EnterpriseCard() {
       <div className="flex shrink-0 flex-col justify-end sm:w-48">
         <a
           href="mailto:contact@recondesk.in"
-          className="inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-semibold text-white transition hover:opacity-95"
+          className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-[var(--accent)] text-sm font-semibold text-white transition hover:opacity-95"
         >
           Contact Sales
         </a>

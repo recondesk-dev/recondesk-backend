@@ -305,7 +305,7 @@ export default function OnboardingPage() {
             <button
               type="button"
               onClick={() => setStep(2)}
-              className="flex h-12 w-full items-center justify-center rounded-lg bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2"
+              className="flex h-12 w-full items-center justify-center rounded-full bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2"
             >
               Get Started →
             </button>
@@ -415,7 +415,7 @@ export default function OnboardingPage() {
               type="button"
               disabled={!canAddClient || submitBusy}
               onClick={() => void onAddClient()}
-              className="flex h-12 w-full items-center justify-center rounded-lg bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2"
+              className="flex h-12 w-full items-center justify-center rounded-full bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2"
             >
               {submitBusy ? "Saving…" : "Add Client →"}
             </button>
@@ -477,7 +477,7 @@ export default function OnboardingPage() {
             <button
               type="button"
               onClick={() => setStep(4)}
-              className="flex h-12 w-full items-center justify-center rounded-lg bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700"
+              className="flex h-12 w-full items-center justify-center rounded-full bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700"
             >
               I have the file →
             </button>
@@ -546,7 +546,7 @@ export default function OnboardingPage() {
                 router.refresh();
                 router.push(`/reconcile/${id}/new`);
               }}
-              className="flex h-12 w-full items-center justify-center rounded-lg bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-12 w-full items-center justify-center rounded-full bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Start Reconciliation →
             </button>

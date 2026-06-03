@@ -141,13 +141,13 @@ function CelebrateContent() {
             type="button"
             disabled={excelBusy || !summary}
             onClick={() => void downloadExcel()}
-            className="inline-flex h-12 min-w-[200px] items-center justify-center rounded-lg bg-violet-600 px-6 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-12 min-w-[200px] items-center justify-center rounded-full bg-violet-600 px-6 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {excelBusy ? "Preparing…" : "Download your report"}
           </button>
           <Link
             href="/dashboard"
-            className="inline-flex h-12 min-w-[200px] items-center justify-center rounded-lg border border-gray-300 bg-white px-6 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+            className="inline-flex h-12 min-w-[200px] items-center justify-center rounded-full border border-gray-300 bg-white px-6 text-sm font-semibold text-gray-800 hover:bg-gray-50"
           >
             Go to dashboard
           </Link>

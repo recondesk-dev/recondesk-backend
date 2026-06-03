@@ -168,7 +168,7 @@ export function RunsPageContent() {
             </p>
             <Link
               href="/clients"
-              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white"
+              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white"
             >
               Go to Clients
             </Link>
@@ -228,7 +228,7 @@ export function RunsPageContent() {
                       <td className="px-4 py-3 text-right">
                         <Link
                           href={`/reconcile/runs/${row.id}/results`}
-                          className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-[var(--border)] px-4 text-sm font-medium text-[var(--text-primary)] hover:bg-gray-50"
+                          className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[var(--border)] px-4 text-sm font-medium text-[var(--text-primary)] hover:bg-gray-50"
                         >
                           View Results
                         </Link>

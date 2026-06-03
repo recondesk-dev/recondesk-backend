@@ -87,7 +87,7 @@ export function AppSWRProvider({ children }: { children: ReactNode }) {
           <button
             type="button"
             aria-label="Dismiss"
-            className="inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-lg px-3 text-xs font-semibold text-amber-900 underline hover:bg-amber-100"
+            className="inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-full px-3 text-xs font-semibold text-amber-900 underline hover:bg-amber-100"
             onClick={() => setConnectionLost(false)}
           >
             Dismiss
