@@ -96,7 +96,7 @@ export default function LoginPage() {
               •
             </span>
           </h1>
-          <p className="mt-2 text-sm text-gray-500">Reconciliation made simple</p>
+          <p className="mt-2 text-sm text-gray-900">Protect your clients&apos; ITC. Every month.</p>
         </div>
 
         {/* Card */}

@@ -218,7 +218,7 @@ function SignupForm() {
               •
             </span>
           </h1>
-          <p className="mt-2 text-sm text-gray-500">Reconciliation made simple</p>
+          <p className="mt-2 text-sm text-gray-900">Protect your clients&apos; ITC. Every month.</p>
         </div>
 
         <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-md">
