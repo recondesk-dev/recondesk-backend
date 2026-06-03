@@ -16,6 +16,7 @@ import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
 } from "@/lib/auth-profile";
+import { createClient } from "@/lib/supabase/client";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { normalizeProfilePhone, validateIndianPhone } from "@/lib/profile-validation";
 
@@ -50,10 +51,10 @@ function emptyProfileForm(): ProfileFormValues {
   return { ...EMPTY_PROFILE_FORM };
 }
 
-function valuesFromProfile(me: AuthMeProfile): ProfileFormValues {
+function valuesFromProfile(me: AuthMeProfile, fallbackEmail = ""): ProfileFormValues {
   return {
     fullName: (me.full_name ?? "").trim(),
-    email: (me.email ?? "").trim(),
+    email: (me.email ?? fallbackEmail).trim(),
     phone: me.phone ? normalizeProfilePhone(String(me.phone)) : "",
     firmName: (me.firm_name ?? "").trim(),
     icaiMembershipNumber: (me.icai_membership_number ?? "").trim(),
@@ -78,7 +79,6 @@ function payloadFromValues(v: ProfileFormValues): ProfileUpdatePayload {
   const n = normalizeForCompare(v);
   return {
     full_name: n.fullName,
-    email: n.email,
     phone: n.phone || null,
     firm_name: n.firmName || null,
     icai_membership_number: n.icaiMembershipNumber || null,
@@ -144,6 +144,18 @@ export default function ProfileSettingsPage() {
   const [errors, setErrors] = useState<FieldErrors>({});
   const [saving, setSaving] = useState(false);
   const [loadSettled, setLoadSettled] = useState(false);
+  const [authEmail, setAuthEmail] = useState("");
+
+  useEffect(() => {
+    if (!authToken) {
+      setAuthEmail("");
+      return;
+    }
+    const supabase = createClient();
+    void supabase.auth.getUser().then(({ data: { user } }) => {
+      setAuthEmail((user?.email ?? "").trim());
+    });
+  }, [authToken]);
 
   useEffect(() => {
     if (!authToken) {
@@ -160,32 +172,40 @@ export default function ProfileSettingsPage() {
 
   useEffect(() => {
     if (!me) return;
-    const next = valuesFromProfile(me);
+    const next = valuesFromProfile(me, authEmail);
     setValues(next);
     setBaseline(next);
     setErrors({});
     setLoadSettled(true);
-  }, [me]);
+  }, [me, authEmail]);
+
+  useEffect(() => {
+    if (!authEmail || !values) return;
+    if (values.email.trim()) return;
+    setValues((prev) => (prev ? { ...prev, email: authEmail } : prev));
+    setBaseline((prev) => (prev ? { ...prev, email: authEmail } : prev));
+  }, [authEmail, values]);
 
   useEffect(() => {
     if (!authToken || loadSettled || meLoading) return;
     if (meError || !me) {
-      const empty = emptyProfileForm();
+      const empty = { ...emptyProfileForm(), email: authEmail };
       setValues(empty);
       setBaseline(empty);
       setLoadSettled(true);
     }
-  }, [authToken, loadSettled, meLoading, meError, me]);
+  }, [authToken, loadSettled, meLoading, meError, me, authEmail]);
 
   useEffect(() => {
     if (!authToken || loadSettled) return;
     const timer = window.setTimeout(() => {
-      setValues((current) => current ?? emptyProfileForm());
-      setBaseline((current) => current ?? emptyProfileForm());
+      const empty = { ...emptyProfileForm(), email: authEmail };
+      setValues((current) => current ?? empty);
+      setBaseline((current) => current ?? empty);
       setLoadSettled(true);
     }, 5000);
     return () => window.clearTimeout(timer);
-  }, [authToken, loadSettled]);
+  }, [authToken, loadSettled, authEmail]);
 
   const isDirty = useMemo(() => {
     if (!values || !baseline) return false;
@@ -251,7 +271,7 @@ export default function ProfileSettingsPage() {
     setSaving(true);
     try {
       const updated = await usersApi.updateProfile(authToken, payloadFromValues(values));
-      const next = valuesFromProfile(updated);
+      const next = valuesFromProfile(updated, authEmail);
       setValues(next);
       setBaseline(next);
       setErrors({});
@@ -298,7 +318,8 @@ export default function ProfileSettingsPage() {
     );
   }
 
-  const formValues = values ?? emptyProfileForm();
+  const formValues = values ?? { ...emptyProfileForm(), email: authEmail };
+  const displayEmail = (formValues.email || authEmail || me?.email || "").trim();
 
   const inputClass = (key: FieldKey) =>
     `${FIELD_CLASS}${errors[key] ? " border-red-300" : ""}`;
@@ -345,7 +366,7 @@ export default function ProfileSettingsPage() {
               <input
                 id="profile-email"
                 type="email"
-                value={formValues.email}
+                value={displayEmail}
                 readOnly
                 disabled
                 className={`${inputClass("email")} cursor-not-allowed bg-gray-50 text-[var(--text-secondary)]`}
