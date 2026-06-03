@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -12,6 +13,7 @@ from app.database import get_supabase, get_user_profile
 from app.models.user import ProfileUpdateRequest, UserProfileResponse
 
 router = APIRouter()
+_log = logging.getLogger(__name__)
 
 _GSTIN_RE = re.compile(
     r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$"
@@ -84,6 +86,7 @@ async def update_profile(
     email = str(payload.email).strip().lower()
 
     row = {
+        "id": uid,
         "full_name": full_name,
         "email": email,
         "phone": phone,
@@ -91,39 +94,39 @@ async def update_profile(
         "icai_membership_number": icai,
         "firm_gstin": firm_gstin,
         "firm_city": firm_city,
+        "is_active": True,
     }
 
     sb = get_supabase()
     existing = get_user_profile(uid)
-    if existing is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User profile not found",
-        )
-
-    prev_email = str(existing.get("email") or "").strip().lower()
+    prev_email = str(
+        (existing or {}).get("email") or current_user.get("email") or ""
+    ).strip().lower()
     if email != prev_email:
         try:
             sb.auth.admin.update_user_by_id(uid, {"email": email})
         except Exception as exc:  # noqa: BLE001
+            _log.exception("Auth email update failed for user_id=%s", uid)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Could not update email. It may already be in use.",
+                detail=f"Could not update email: {exc}",
             ) from exc
 
     try:
-        sb.table("user_profiles").update(row).eq("id", uid).execute()
+        sb.table("user_profiles").upsert(row, on_conflict="id").execute()
     except Exception as exc:  # noqa: BLE001
+        _log.exception("Profile upsert failed for user_id=%s", uid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not save profile",
+            detail=str(exc),
         ) from exc
 
     profile = get_user_profile(uid)
     if profile is None:
+        _log.error("Profile upsert succeeded but reload failed for user_id=%s", uid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Profile saved but could not be loaded",
+            detail="Profile saved but could not be loaded after upsert",
         )
-    profile["role"] = str(profile.get("role") or existing.get("role") or "admin")
+    profile["role"] = str(profile.get("role") or (existing or {}).get("role") or "admin")
     return UserProfileResponse(**profile)
