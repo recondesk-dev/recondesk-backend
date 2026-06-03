@@ -8,6 +8,45 @@ import { EMAIL_VALIDATION_MESSAGE, isValidEmail } from "@/lib/auth-validation";
 import { Eye, EyeOff, LogIn } from "lucide-react";
 import React from "react";
 
+const INPUT_ERROR_CLASS =
+  "border-red-300 focus:border-red-400 focus:ring-red-500/20";
+
+type LoginFieldErrors = {
+  email?: string;
+  password?: string;
+};
+
+function validateLoginForm(email: string, password: string): LoginFieldErrors {
+  const errors: LoginFieldErrors = {};
+
+  if (!email.trim() || !isValidEmail(email)) {
+    errors.email = EMAIL_VALIDATION_MESSAGE;
+  }
+  if (!password) {
+    errors.password = "Password is required";
+  }
+
+  return errors;
+}
+
+function RequiredLabel({
+  htmlFor,
+  children,
+}: {
+  htmlFor: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label htmlFor={htmlFor} className="mb-1 block text-sm font-medium text-gray-700">
+      {children}
+      <span className="text-red-600" aria-hidden="true">
+        {" "}
+        *
+      </span>
+    </label>
+  );
+}
+
 export default function LoginPage() {
   const router = useRouter();
 
@@ -16,26 +55,18 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [emailError, setEmailError] = useState<string | null>(null);
-
-  const validateEmailField = (value: string) => {
-    if (!isValidEmail(value)) {
-      return EMAIL_VALIDATION_MESSAGE;
-    }
-    return null;
-  };
-
-  const handleEmailBlur = () => {
-    setEmailError(validateEmailField(email));
-  };
+  const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    const nextEmailError = validateEmailField(email);
-    setEmailError(nextEmailError);
-    if (nextEmailError) return;
+    const validationErrors = validateLoginForm(email, password);
+    if (Object.keys(validationErrors).length > 0) {
+      setFieldErrors(validationErrors);
+      return;
+    }
+    setFieldErrors({});
 
     setLoading(true);
 
@@ -81,9 +112,7 @@ export default function LoginPage() {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-700">
-                Email address
-              </label>
+              <RequiredLabel htmlFor="email">Email address</RequiredLabel>
               <input
                 id="email"
                 type="email"
@@ -91,15 +120,19 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
-                  if (emailError) setEmailError(null);
+                  if (fieldErrors.email) {
+                    setFieldErrors((prev) => {
+                      const next = { ...prev };
+                      delete next.email;
+                      return next;
+                    });
+                  }
                 }}
-                onBlur={handleEmailBlur}
-                placeholder="you@example.com"
-                className={`input-field${emailError ? " border-red-300" : ""}`}
-                aria-invalid={emailError ? true : undefined}
+                className={`input-field${fieldErrors.email ? ` ${INPUT_ERROR_CLASS}` : ""}`}
+                aria-invalid={fieldErrors.email ? true : undefined}
               />
-              {emailError && (
-                <p className="mt-1 text-xs text-red-600">{emailError}</p>
+              {fieldErrors.email && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
               )}
             </div>
 
@@ -107,6 +140,10 @@ export default function LoginPage() {
               <div className="mb-1 flex items-center justify-between">
                 <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                   Password
+                  <span className="text-red-600" aria-hidden="true">
+                    {" "}
+                    *
+                  </span>
                 </label>
                 <Link
                   href="/forgot-password"
@@ -120,11 +157,20 @@ export default function LoginPage() {
                   id="password"
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
-                  required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (fieldErrors.password) {
+                      setFieldErrors((prev) => {
+                        const next = { ...prev };
+                        delete next.password;
+                        return next;
+                      });
+                    }
+                  }}
                   placeholder="••••••••"
-                  className="input-field pr-11"
+                  className={`input-field pr-11${fieldErrors.password ? ` ${INPUT_ERROR_CLASS}` : ""}`}
+                  aria-invalid={fieldErrors.password ? true : undefined}
                 />
                 <button
                   type="button"
@@ -134,6 +180,9 @@ export default function LoginPage() {
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
+              {fieldErrors.password && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
+              )}
             </div>
 
             <button
