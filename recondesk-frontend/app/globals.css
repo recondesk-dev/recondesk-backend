@@ -62,6 +62,15 @@
   }
 }
 
+@keyframes landing-trust-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
 @layer components {
   .input-field {
     @apply w-full min-h-[44px] rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 shadow-sm transition-colors placeholder:text-gray-400;
@@ -107,6 +116,35 @@
         0 2px 8px rgba(0, 0, 0, 0.06);
       transform: translateY(-2px);
     }
+  }
+
+  .landing-trust-marquee::before,
+  .landing-trust-marquee::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 80px;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .landing-trust-marquee::before {
+    left: 0;
+    background: linear-gradient(to right, #ffffff 0%, rgba(255, 255, 255, 0) 100%);
+  }
+
+  .landing-trust-marquee::after {
+    right: 0;
+    background: linear-gradient(to left, #ffffff 0%, rgba(255, 255, 255, 0) 100%);
+  }
+
+  .landing-trust-track {
+    animation: landing-trust-marquee 28s linear infinite;
+  }
+
+  .landing-trust-marquee:hover .landing-trust-track {
+    animation-play-state: paused;
   }
 
   .animate-recondesk-celebrate-pop {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ClipboardList, GitMerge, Upload } from "lucide-react";
 
 import { FaqAccordion } from "@/components/public/FaqAccordion";
+import { SecurityTrustStrip } from "@/components/public/SecurityTrustStrip";
 import { formatInrFull } from "@/lib/format";
 
 function Section({
@@ -99,6 +100,8 @@ export default function LandingPage() {
           </div>
         </div>
       </Section>
+
+      <SecurityTrustStrip />
 
       {/* Pain */}
       <Section className="border-t border-[#E5E5E5] bg-white py-10 sm:py-12">
