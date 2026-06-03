@@ -152,7 +152,7 @@ async def signup(
         "full_name": payload.full_name,
         "firm_name": payload.firm_name,
         "phone": payload.phone,
-        "role": "staff",
+        "role": "admin",
         "is_active": True,
         # Free tier: match DB default free_runs_remaining (2) from billing migration.
         "runs_limit": 2,

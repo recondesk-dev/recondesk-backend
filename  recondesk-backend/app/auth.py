@@ -14,7 +14,7 @@ from jose import ExpiredSignatureError, JWTError, jwk, jwt
 from jose.exceptions import JWEError, JWKError  # type: ignore[attr-defined]
 
 from app.config import settings
-from app.database import get_user_profile
+from app.database import get_user_profile, get_supabase, _is_invited_user
 from app.utils.errors import http_401, http_403
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -173,8 +173,11 @@ async def get_current_user_id(user: User = Depends(get_current_user)) -> str:
 async def get_user_role(user_id: str) -> str:
     profile = get_user_profile(user_id)
     if profile:
-        return str(profile.get("role", "staff") or "staff")
-    return "staff"
+        return str(profile.get("role") or "admin")
+    sb = get_supabase()
+    if _is_invited_user(sb, user_id=user_id, email=None):
+        return "staff"
+    return "admin"
 
 
 def require_role(*allowed: str):
