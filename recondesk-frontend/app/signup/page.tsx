@@ -5,14 +5,75 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import {
+  EMAIL_VALIDATION_MESSAGE,
   getPasswordStrengthLabel,
   getPasswordStrengthScore,
   getUnmetPasswordRules,
+  isValidEmail,
   isValidPassword,
 } from "@/lib/auth-validation";
 import { Eye, EyeOff, UserPlus } from "lucide-react";
 
 const DEFAULT_API_URL = "http://localhost:8000";
+
+type SignupFieldErrors = {
+  name?: string;
+  phone?: string;
+  firmName?: string;
+  email?: string;
+  password?: string;
+};
+
+const INPUT_ERROR_CLASS =
+  "border-red-300 focus:border-red-400 focus:ring-red-500/20";
+
+function RequiredLabel({
+  htmlFor,
+  children,
+}: {
+  htmlFor: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label htmlFor={htmlFor} className="mb-1 block text-sm font-medium text-gray-700">
+      {children}
+      <span className="text-red-600" aria-hidden="true">
+        {" "}
+        *
+      </span>
+    </label>
+  );
+}
+
+function validateSignupForm(form: {
+  name: string;
+  firmName: string;
+  phone: string;
+  email: string;
+  password: string;
+}): SignupFieldErrors {
+  const errors: SignupFieldErrors = {};
+
+  if (!form.name.trim()) {
+    errors.name = "Name is required";
+  }
+  if (!/^\d{10}$/.test(form.phone)) {
+    errors.phone = "Enter a valid 10-digit mobile number";
+  }
+  if (!form.firmName.trim()) {
+    errors.firmName = "Firm or company name is required";
+  }
+  if (!isValidEmail(form.email)) {
+    errors.email = EMAIL_VALIDATION_MESSAGE;
+  }
+  if (!form.password.trim()) {
+    errors.password = "Password is required";
+  } else if (!isValidPassword(form.password)) {
+    errors.password = "Password is required";
+  }
+
+  return errors;
+}
 
 function SignupForm() {
   const router = useRouter();
@@ -28,6 +89,7 @@ function SignupForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<SignupFieldErrors>({});
 
   const inviteRoleRaw =
     searchParams.get("invite_role")?.trim().toLowerCase() ?? "";
@@ -40,8 +102,25 @@ function SignupForm() {
     }
   }, [searchParams]);
 
+  const clearFieldError = (name: keyof SignupFieldErrors) => {
+    setFieldErrors((prev) => {
+      if (!prev[name]) return prev;
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+    clearFieldError(name as keyof SignupFieldErrors);
+  };
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+    setForm((prev) => ({ ...prev, phone: digits }));
+    clearFieldError("phone");
   };
 
   const passwordStrengthScore = getPasswordStrengthScore(form.password);
@@ -67,7 +146,12 @@ function SignupForm() {
     e.preventDefault();
     setError(null);
 
-    if (!isValidPassword(form.password)) return;
+    const validationErrors = validateSignupForm(form);
+    if (Object.keys(validationErrors).length > 0) {
+      setFieldErrors(validationErrors);
+      return;
+    }
+    setFieldErrors({});
 
     setLoading(true);
 
@@ -160,80 +244,91 @@ function SignupForm() {
           <form onSubmit={handleSignup} className="space-y-5">
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-4">
               <div>
-                <label htmlFor="name" className="mb-1 block text-sm font-medium text-gray-700">
-                  Full name
-                </label>
+                <RequiredLabel htmlFor="name">Name</RequiredLabel>
                 <input
                   id="name"
                   name="name"
                   type="text"
-                  required
                   value={form.name}
                   onChange={handleChange}
-                  className="input-field"
+                  className={`input-field${fieldErrors.name ? ` ${INPUT_ERROR_CLASS}` : ""}`}
+                  aria-invalid={fieldErrors.name ? true : undefined}
                 />
+                {fieldErrors.name && (
+                  <p className="mt-1 text-xs text-red-600">{fieldErrors.name}</p>
+                )}
               </div>
               <div>
-                <label htmlFor="phone" className="mb-1 block text-sm font-medium text-gray-700">
-                  Phone number
-                </label>
+                <RequiredLabel htmlFor="phone">Phone number</RequiredLabel>
                 <input
                   id="phone"
                   name="phone"
-                  type="tel"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  maxLength={10}
                   value={form.phone}
-                  onChange={handleChange}
-                  placeholder="+91 98765 43210"
-                  className="input-field"
+                  onChange={handlePhoneChange}
+                  className={`input-field${fieldErrors.phone ? ` ${INPUT_ERROR_CLASS}` : ""}`}
+                  aria-invalid={fieldErrors.phone ? true : undefined}
                 />
+                {fieldErrors.phone && (
+                  <p className="mt-1 text-xs text-red-600">{fieldErrors.phone}</p>
+                )}
               </div>
             </div>
 
             <div>
-              <label htmlFor="firmName" className="mb-1 block text-sm font-medium text-gray-700">
-                Firm / Company name (If any)
-              </label>
+              <RequiredLabel htmlFor="firmName">Firm / Company name</RequiredLabel>
               <input
                 id="firmName"
                 name="firmName"
                 type="text"
                 value={form.firmName}
                 onChange={handleChange}
-                className="input-field"
+                className={`input-field${fieldErrors.firmName ? ` ${INPUT_ERROR_CLASS}` : ""}`}
+                aria-invalid={fieldErrors.firmName ? true : undefined}
               />
+              {fieldErrors.firmName && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.firmName}</p>
+              )}
             </div>
 
             <div>
-              <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-700">
-                Work email
-              </label>
+              <RequiredLabel htmlFor="email">Work email</RequiredLabel>
               <input
                 id="email"
                 name="email"
                 type="email"
                 autoComplete="email"
-                required
                 value={form.email}
                 onChange={handleChange}
-                className="input-field"
+                className={`input-field${fieldErrors.email ? ` ${INPUT_ERROR_CLASS}` : ""}`}
+                aria-invalid={fieldErrors.email ? true : undefined}
               />
+              {fieldErrors.email && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
+              )}
             </div>
 
             <div>
-              <label htmlFor="password" className="mb-1 block text-sm font-medium text-gray-700">
-                Password
-              </label>
+              <RequiredLabel htmlFor="password">Password</RequiredLabel>
               <div className="relative">
                 <input
                   id="password"
                   name="password"
                   type={showPassword ? "text" : "password"}
                   autoComplete="new-password"
-                  required
                   value={form.password}
                   onChange={handleChange}
                   placeholder="Create a password"
-                  className={`input-field pr-11${unmetPasswordRules.length > 0 && showPasswordFeedback ? " border-red-300 focus:border-red-400 focus:ring-red-500/20" : ""}`}
+                  className={`input-field pr-11${
+                    fieldErrors.password ||
+                    (unmetPasswordRules.length > 0 && showPasswordFeedback)
+                      ? ` ${INPUT_ERROR_CLASS}`
+                      : ""
+                  }`}
+                  aria-invalid={fieldErrors.password ? true : undefined}
                 />
                 <button
                   type="button"
@@ -244,6 +339,9 @@ function SignupForm() {
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
+              {fieldErrors.password && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
+              )}
               {showPasswordFeedback && (
                 <div className="mt-2 space-y-2">
                   <div className="flex items-center gap-2">
@@ -274,7 +372,7 @@ function SignupForm() {
 
             <button
               type="submit"
-              disabled={loading || !isValidPassword(form.password)}
+              disabled={loading}
               className="btn-primary mt-1"
             >
               {loading ? (
