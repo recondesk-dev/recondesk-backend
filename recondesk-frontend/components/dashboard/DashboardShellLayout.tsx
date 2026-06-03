@@ -306,14 +306,16 @@ export default function DashboardShellLayout({
   return (
     <div className="flex min-h-screen min-w-[1280px] bg-[var(--bg)] text-[var(--text-primary)]">
       <aside className="fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col bg-white border-r border-gray-100">
-        <div className="flex items-center gap-2 px-5 py-6">
-          <span
-            className="font-brand text-lg font-semibold tracking-tight text-gray-900"
-            style={{ fontWeight: 600 }}
+        <div className="px-5 py-6">
+          <Link
+            href="/dashboard"
+            className="font-brand inline-flex items-baseline gap-0 text-lg font-semibold tracking-tight text-gray-900"
           >
-            ReconDesk
-          </span>
-          <span className="h-2 w-2 rounded-full bg-[var(--accent)]" aria-hidden />
+            <span>ReconDesk</span>
+            <span className="-ml-1.5 text-lg leading-none text-purple-600" aria-hidden="true">
+              •
+            </span>
+          </Link>
         </div>
         <nav className="flex-1 space-y-0.5 px-3">
           {nav.map(({ href, label, Icon }) => {
