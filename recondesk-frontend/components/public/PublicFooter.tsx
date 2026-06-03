@@ -1,21 +1,5 @@
 import Link from "next/link";
 
-function LogoMark() {
-  return (
-    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent)]">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white" aria-hidden>
-        <path
-          d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </div>
-  );
-}
-
 const DEFAULT_FIRM_GSTIN = "27ISKPK1273H1ZF";
 const firmGstin = process.env.NEXT_PUBLIC_FIRM_GSTIN?.trim() || DEFAULT_FIRM_GSTIN;
 
@@ -25,9 +9,11 @@ export function PublicFooter() {
       <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between lg:gap-8">
           <div className="max-w-sm">
-            <div className="flex items-center gap-2.5 text-white">
-              <LogoMark />
-              <span className="font-brand text-sm font-bold tracking-[0.2em]">RECONDESK</span>
+            <div className="inline-flex items-baseline gap-0 text-xl font-bold tracking-tight text-white sm:text-2xl">
+              <span>ReconDesk</span>
+              <span className="text-xl leading-none text-purple-600 sm:text-2xl" aria-hidden="true">
+                •
+              </span>
             </div>
             <p className="mt-3 text-sm text-slate-400">GST reconciliation built for CA firms.</p>
           </div>
