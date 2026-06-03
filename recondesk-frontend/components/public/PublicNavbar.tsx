@@ -32,13 +32,15 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
         <Link
           href="/"
           className={`font-brand inline-flex shrink-0 items-baseline gap-0 font-bold tracking-tight ${
-            isLight ? "text-xl text-[#0A0A0A] sm:text-3xl" : "text-2xl text-white sm:text-3xl"
+            isLight ? "text-[#0A0A0A]" : "text-white"
           }`}
           onClick={() => setMobileMenuOpen(false)}
         >
-          <span>ReconDesk</span>
+          <span className={isLight ? "text-xl sm:text-3xl" : "text-2xl sm:text-3xl"}>ReconDesk</span>
           <span
-            className={`leading-none text-purple-600 ${isLight ? "text-xl sm:text-3xl" : "text-2xl sm:text-3xl"}`}
+            className={`-ml-1.5 leading-none text-purple-600 sm:ml-0 ${
+              isLight ? "text-xl sm:text-3xl" : "text-2xl sm:text-3xl"
+            }`}
             aria-hidden="true"
           >
             •

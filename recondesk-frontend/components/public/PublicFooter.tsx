@@ -20,12 +20,12 @@ export function PublicFooter({ theme = "dark" }: PublicFooterProps) {
         >
           <div className={`max-w-sm ${isLight ? "max-sm:mx-auto max-sm:text-center" : ""}`}>
             <div
-              className={`inline-flex items-baseline gap-0 text-2xl font-bold tracking-tight sm:text-3xl ${
+              className={`inline-flex items-baseline gap-0 font-bold tracking-tight ${
                 isLight ? "text-[#0A0A0A]" : "text-white"
               }`}
             >
-              <span>ReconDesk</span>
-              <span className="text-2xl leading-none text-purple-600 sm:text-3xl" aria-hidden="true">
+              <span className="text-2xl sm:text-3xl">ReconDesk</span>
+              <span className="-ml-1.5 text-2xl leading-none text-purple-600 sm:ml-0 sm:text-3xl" aria-hidden="true">
                 •
               </span>
             </div>
