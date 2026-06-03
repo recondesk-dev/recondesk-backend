@@ -34,6 +34,7 @@ from app.routers import (
 from app.routers import payments as payments_routes
 from app.routers.clients import clients_router
 from app.routers.team import router as team_router
+from app.routers.rules import router as rules_router
 from app.utils.rate_limit import limiter
 from app.utils.storage import file_exists
 
@@ -214,6 +215,7 @@ app.include_router(
 app.include_router(upload.router, prefix="/api/v1/upload", tags=["Upload"])
 app.include_router(upload.public_router, prefix="/upload", tags=["Upload"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
+app.include_router(rules_router, prefix="/api/rules", tags=["rules"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
 app.include_router(
     payments_routes.payments_router,
