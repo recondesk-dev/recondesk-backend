@@ -69,7 +69,6 @@ export interface AuthMeProfile {
 
 export interface ProfileUpdatePayload {
   full_name: string;
-  email: string;
   phone?: string | null;
   firm_name?: string | null;
   icai_membership_number?: string | null;

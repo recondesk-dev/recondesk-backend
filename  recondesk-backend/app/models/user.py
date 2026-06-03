@@ -94,7 +94,6 @@ class UserProfileResponse(StrictModel):
 
 class ProfileUpdateRequest(StrictModel):
     full_name: str = Field(min_length=1, max_length=255)
-    email: EmailStr
     phone: Optional[str] = Field(default=None, max_length=32)
     firm_name: Optional[str] = Field(default=None, max_length=255)
     icai_membership_number: Optional[str] = Field(default=None, max_length=64)
