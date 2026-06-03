@@ -6,7 +6,6 @@ import logging
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import EmailStr
 
 from app.auth import get_current_active_user
 from app.database import get_supabase, get_user_profile
@@ -19,6 +18,17 @@ _GSTIN_RE = re.compile(
     r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$"
 )
 _PHONE_DIGITS_RE = re.compile(r"^[6-9]\d{9}$")
+
+
+def _pg_unique_violation(exc: BaseException) -> bool:
+    code = getattr(exc, "code", None)
+    msg = str(exc).lower()
+    return (
+        code == "23505"
+        or "duplicate key" in msg
+        or "unique constraint" in msg
+        or "already exists" in msg
+    )
 
 
 def _normalize_phone(raw: str | None) -> str | None:
@@ -83,12 +93,15 @@ async def update_profile(
     firm_name = (payload.firm_name or "").strip() or None
     icai = (payload.icai_membership_number or "").strip() or None
     firm_city = (payload.firm_city or "").strip() or None
-    email = str(payload.email).strip().lower()
 
-    row = {
-        "id": uid,
+    sb = get_supabase()
+    existing = get_user_profile(uid)
+    stored_email = str(
+        (existing or {}).get("email") or current_user.get("email") or ""
+    ).strip().lower()
+
+    profile_fields = {
         "full_name": full_name,
-        "email": email,
         "phone": phone,
         "firm_name": firm_name,
         "icai_membership_number": icai,
@@ -97,23 +110,22 @@ async def update_profile(
         "is_active": True,
     }
 
-    sb = get_supabase()
-    existing = get_user_profile(uid)
-    prev_email = str(
-        (existing or {}).get("email") or current_user.get("email") or ""
-    ).strip().lower()
-    if email != prev_email:
-        try:
-            sb.auth.admin.update_user_by_id(uid, {"email": email})
-        except Exception as exc:  # noqa: BLE001
-            _log.exception("Auth email update failed for user_id=%s", uid)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Could not update email: {exc}",
-            ) from exc
-
     try:
-        sb.table("user_profiles").upsert(row, on_conflict="id").execute()
+        if existing:
+            sb.table("user_profiles").update(profile_fields).eq("id", uid).execute()
+        else:
+            insert_row = {"id": uid, **profile_fields}
+            if stored_email:
+                insert_row["email"] = stored_email
+            try:
+                sb.table("user_profiles").insert(insert_row).execute()
+            except Exception as exc:  # noqa: BLE001
+                if _pg_unique_violation(exc):
+                    sb.table("user_profiles").update(profile_fields).eq(
+                        "id", uid
+                    ).execute()
+                else:
+                    raise
     except Exception as exc:  # noqa: BLE001
         _log.exception("Profile upsert failed for user_id=%s", uid)
         raise HTTPException(
