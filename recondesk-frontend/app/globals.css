@@ -76,6 +76,15 @@
 }
 
 @layer utilities {
+  .landing-page {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue",
+      Arial, sans-serif;
+  }
+
+  .landing-page * {
+    font-family: inherit;
+  }
+
   .animate-recondesk-celebrate-pop {
     animation: recondesk-celebrate-pop 0.6s ease-out;
   }

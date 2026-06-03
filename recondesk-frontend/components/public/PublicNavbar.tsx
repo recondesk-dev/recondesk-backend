@@ -1,30 +1,17 @@
 import Link from "next/link";
 
-function LogoMark({ className = "" }: { className?: string }) {
-  return (
-    <div
-      className={`flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)] ${className}`}
-    >
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-white" aria-hidden>
-        <path
-          d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </div>
-  );
-}
-
 export function PublicNavbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0a0c10]/85 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link href="/" className="flex items-center gap-2.5 text-white">
-          <LogoMark />
-          <span className="font-brand text-sm font-bold tracking-[0.2em]">RECONDESK</span>
+        <Link
+          href="/"
+          className="font-brand inline-flex items-baseline gap-0 text-xl font-bold tracking-tight text-white sm:text-2xl"
+        >
+          <span>ReconDesk</span>
+          <span className="text-xl leading-none text-purple-600 sm:text-2xl" aria-hidden="true">
+            •
+          </span>
         </Link>
         <nav className="flex items-center gap-3 sm:gap-6">
           <Link
