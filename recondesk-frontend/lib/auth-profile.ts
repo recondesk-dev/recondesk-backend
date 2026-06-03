@@ -74,3 +74,25 @@ export async function fetchFreshAuthProfile(token: string): Promise<AuthMeProfil
 export function authProfileFetcher(token: string): Promise<AuthMeProfile> {
   return fetchFreshAuthProfile(token);
 }
+
+/** Display name priority: profile → auth metadata → email local-part. */
+export function resolveDisplayName(input: {
+  profileFullName?: string | null;
+  metadataFullName?: string | null;
+  email?: string | null;
+}): string {
+  const fromProfile = (input.profileFullName ?? "").trim();
+  if (fromProfile) return fromProfile;
+
+  const fromMeta = (input.metadataFullName ?? "").trim();
+  if (fromMeta) return fromMeta;
+
+  const email = (input.email ?? "").trim().toLowerCase();
+  if (email.includes("@")) {
+    const local = email.split("@")[0]?.trim();
+    if (local) return local;
+  }
+  if (email) return email;
+
+  return "Account";
+}
