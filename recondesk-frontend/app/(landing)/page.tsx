@@ -61,10 +61,10 @@ export default function LandingPage() {
       {/* Hero */}
       <Section className="pb-12 pt-10 sm:pb-16 sm:pt-14">
         <div className="text-center">
-          <h1 className="mx-auto max-w-4xl text-3xl font-semibold tracking-tight text-white sm:text-4xl lg:text-5xl">
+          <h1 className="mx-auto max-w-4xl text-3xl font-semibold tracking-tight text-[#0A0A0A] sm:text-4xl lg:text-5xl">
             Find the ITC Your Clients Are Missing Every Month
           </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-lg text-slate-400 sm:text-xl">
+          <p className="mx-auto mt-5 max-w-2xl text-lg text-[#3A3A3A] sm:text-xl">
             GSTR-2B reconciliation for CA firms. Upload 2 files. Results in 60 seconds.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
@@ -76,22 +76,22 @@ export default function LandingPage() {
             </Link>
             <a
               href="#how-it-works"
-              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-lg border border-white/15 bg-white/5 px-6 text-sm font-semibold text-white transition hover:bg-white/10 sm:w-auto"
+              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-lg border border-[#E5E5E5] bg-white px-6 text-sm font-semibold text-[#0A0A0A] transition hover:bg-[#F5F5F5] sm:w-auto"
             >
               See How It Works
             </a>
           </div>
-          <p className="mt-6 text-sm text-slate-400">
+          <p className="mt-6 text-sm text-[#6B6B6B]">
             Plans from <InrAmount amount="399/month" amountClassName="" /> · No credit card to start
           </p>
-          <div className="mx-auto mt-8 max-w-3xl rounded-xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm text-slate-300 sm:px-6">
+          <div className="mx-auto mt-8 max-w-3xl rounded-xl border border-[#E5E5E5] bg-[#F5F5F5] px-4 py-4 text-sm text-[#3A3A3A] sm:px-6">
             <p className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-6 sm:gap-y-2">
               <span>✓ No credit card required</span>
-              <span className="hidden text-white/25 sm:inline" aria-hidden>
+              <span className="hidden text-[#E5E5E5] sm:inline" aria-hidden>
                 ·
               </span>
               <span>✓ Works with Tally, Busy &amp; Excel</span>
-              <span className="hidden text-white/25 sm:inline" aria-hidden>
+              <span className="hidden text-[#E5E5E5] sm:inline" aria-hidden>
                 ·
               </span>
               <span>✓ First 2 runs completely free</span>
@@ -101,8 +101,8 @@ export default function LandingPage() {
       </Section>
 
       {/* Pain */}
-      <Section className="border-t border-white/10 bg-[#0a0c10]/60 py-10 sm:py-12">
-        <h2 className="text-center text-2xl font-semibold text-white sm:text-3xl">Sound familiar?</h2>
+      <Section className="border-t border-[#E5E5E5] bg-white py-10 sm:py-12">
+        <h2 className="text-center text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">Sound familiar?</h2>
         <div className="mt-10 grid gap-6 md:grid-cols-3">
           {[
             "3–8 hours per client, per month on manual VLOOKUP reconciliation",
@@ -111,7 +111,7 @@ export default function LandingPage() {
           ].map((text) => (
             <div
               key={text}
-              className="rounded-2xl border border-white/10 bg-[#13161f] p-6 text-slate-300 shadow-sm"
+              className="rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-6 text-[#3A3A3A] shadow-sm"
             >
               <p className="text-sm leading-relaxed sm:text-base">{text}</p>
             </div>
@@ -120,15 +120,15 @@ export default function LandingPage() {
       </Section>
 
       {/* How it works */}
-      <Section id="how-it-works" className="scroll-mt-24 py-16 sm:py-20">
-        <h2 className="text-center text-2xl font-semibold text-white sm:text-3xl">How ReconDesk Works</h2>
+      <Section id="how-it-works" className="scroll-mt-24 bg-white py-16 sm:py-20">
+        <h2 className="text-center text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">How ReconDesk Works</h2>
         <ul className="mt-12 grid gap-8 md:grid-cols-3">
           <li className="flex flex-col items-center text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--accent)]/15 text-[var(--accent)]">
               <Upload className="h-7 w-7" aria-hidden />
             </div>
-            <h3 className="mt-4 text-base font-semibold text-white">1. Upload</h3>
-            <p className="mt-2 text-sm leading-relaxed text-slate-400">
+            <h3 className="mt-4 text-base font-semibold text-[#0A0A0A]">1. Upload</h3>
+            <p className="mt-2 text-sm leading-relaxed text-[#3A3A3A]">
               GSTR-2B JSON + Purchase Register (Tally, Busy, or any Excel — auto-detected)
             </p>
           </li>
@@ -136,8 +136,8 @@ export default function LandingPage() {
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--accent)]/15 text-[var(--accent)]">
               <GitMerge className="h-7 w-7" aria-hidden />
             </div>
-            <h3 className="mt-4 text-base font-semibold text-white">2. Match</h3>
-            <p className="mt-2 text-sm leading-relaxed text-slate-400">
+            <h3 className="mt-4 text-base font-semibold text-[#0A0A0A]">2. Match</h3>
+            <p className="mt-2 text-sm leading-relaxed text-[#3A3A3A]">
               ReconDesk matches 5,000+ invoices using 5-level matching.
             </p>
           </li>
@@ -145,75 +145,75 @@ export default function LandingPage() {
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--accent)]/15 text-[var(--accent)]">
               <ClipboardList className="h-7 w-7" aria-hidden />
             </div>
-            <h3 className="mt-4 text-base font-semibold text-white">3. Decide</h3>
-            <p className="mt-2 text-sm leading-relaxed text-slate-400">
+            <h3 className="mt-4 text-base font-semibold text-[#0A0A0A]">3. Decide</h3>
+            <p className="mt-2 text-sm leading-relaxed text-[#3A3A3A]">
               Every mismatch explained: What is wrong, Why it happened, What to do next
             </p>
           </li>
         </ul>
 
         {/* Mock result card */}
-        <div className="mx-auto mt-14 max-w-lg rounded-2xl border border-white/10 bg-[#13161f] p-6 text-center shadow-xl">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sample run summary</p>
+        <div className="mx-auto mt-14 max-w-lg rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-6 text-center shadow-xl">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#6B6B6B]">Sample run summary</p>
           <div className="mt-4 flex flex-wrap items-start justify-center gap-8 sm:gap-12">
             <div>
-              <p className="text-xs text-slate-500">ITC at Risk</p>
-              <p className="mt-1 text-lg font-semibold text-amber-400">
+              <p className="text-xs text-[#6B6B6B]">ITC at Risk</p>
+              <p className="mt-1 text-lg font-semibold text-amber-500">
                 <InrFromFormat value={124500} />
               </p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">Matched</p>
-              <p className="mt-1 font-mono text-lg font-semibold text-emerald-400">847</p>
-              <p className="text-[10px] text-slate-500">invoices</p>
+              <p className="text-xs text-[#6B6B6B]">Matched</p>
+              <p className="mt-1 font-mono text-lg font-semibold text-emerald-600">847</p>
+              <p className="text-[10px] text-[#6B6B6B]">invoices</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">Mismatches</p>
-              <p className="mt-1 font-mono text-lg font-semibold text-white">23</p>
+              <p className="text-xs text-[#6B6B6B]">Mismatches</p>
+              <p className="mt-1 font-mono text-lg font-semibold text-[#0A0A0A]">23</p>
             </div>
           </div>
         </div>
       </Section>
 
       {/* FAQ */}
-      <Section className="border-t border-white/10 bg-[#0a0c10]/60 pt-8 pb-12 sm:pt-10 sm:pb-14">
-        <h2 className="text-center text-2xl font-semibold text-white sm:text-3xl">
+      <Section className="border-t border-[#E5E5E5] bg-white pt-8 pb-12 sm:pt-10 sm:pb-14">
+        <h2 className="text-center text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">
           Questions CAs Ask Before Signing Up
         </h2>
         <FaqAccordion />
       </Section>
 
       {/* Pricing preview */}
-      <Section className="border-t border-white/10 py-12 sm:py-16">
+      <Section className="border-t border-[#E5E5E5] bg-white py-12 sm:py-16">
         <div className="text-center">
-          <h2 className="text-2xl font-semibold text-white sm:text-3xl">Simple, transparent pricing</h2>
-          <p className="mt-3 text-slate-400">Start free. Upgrade when you&apos;re ready.</p>
+          <h2 className="text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">Simple, transparent pricing</h2>
+          <p className="mt-3 text-[#6B6B6B]">Start free. Upgrade when you&apos;re ready.</p>
         </div>
         <div className="mx-auto mt-10 grid max-w-3xl gap-6 md:grid-cols-2">
-          <div className="flex flex-col rounded-2xl border border-white/10 bg-[#13161f] p-6">
-            <h3 className="text-lg font-semibold text-white">Solo CA</h3>
-            <p className="mt-2 text-3xl font-semibold text-white">
+          <div className="flex flex-col rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-6">
+            <h3 className="text-lg font-semibold text-[#0A0A0A]">Solo CA</h3>
+            <p className="mt-2 text-3xl font-semibold text-[#0A0A0A]">
               <InrAmount amount="399" amountClassName="font-mono" />
-              <span className="text-base font-normal text-slate-400">/month</span>
+              <span className="text-base font-normal text-[#6B6B6B]">/month</span>
             </p>
-            <p className="mt-4 text-sm text-slate-400">1 client GSTIN · 2 free runs to start</p>
+            <p className="mt-4 text-sm text-[#6B6B6B]">1 client GSTIN · 2 free runs to start</p>
             <Link
               href="/signup"
-              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-lg border border-white/15 bg-white/5 text-sm font-semibold text-white transition hover:bg-white/10"
+              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-lg border border-[#E5E5E5] bg-white text-sm font-semibold text-[#0A0A0A] transition hover:bg-[#EBEBEB]"
             >
               Start Free
             </Link>
           </div>
-          <div className="relative flex flex-col rounded-2xl border-2 border-[var(--accent)] bg-[#13161f] p-6 shadow-lg shadow-[var(--accent)]/10">
+          <div className="relative flex flex-col rounded-2xl border-2 border-[var(--accent)] bg-[#F5F5F5] p-6 shadow-lg shadow-[var(--accent)]/10">
             <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[var(--accent)] px-3 py-0.5 text-xs font-semibold text-white">
               Most Popular
             </span>
-            <h3 className="text-lg font-semibold text-white">CA Firm</h3>
-            <p className="mt-2 text-3xl font-semibold text-white">
+            <h3 className="text-lg font-semibold text-[#0A0A0A]">CA Firm</h3>
+            <p className="mt-2 text-3xl font-semibold text-[#0A0A0A]">
               <InrAmount amount="9,999" amountClassName="font-mono" />
-              <span className="text-base font-normal text-slate-400">/month</span>
+              <span className="text-base font-normal text-[#6B6B6B]">/month</span>
             </p>
-            <p className="mt-4 text-sm text-slate-400">35 runs/month · Team access included</p>
+            <p className="mt-4 text-sm text-[#6B6B6B]">35 runs/month · Team access included</p>
             <Link
               href="/pricing"
               className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-semibold text-white transition hover:opacity-95"
@@ -225,10 +225,10 @@ export default function LandingPage() {
       </Section>
 
       {/* Final CTA */}
-      <Section className="border-t border-white/10 py-16 sm:py-20">
-        <div className="mx-auto max-w-2xl rounded-3xl border border-[var(--accent)]/30 bg-gradient-to-b from-[var(--accent)]/10 to-transparent px-6 py-12 text-center sm:px-10">
-          <h2 className="text-2xl font-semibold text-white sm:text-3xl">Stop Losing ITC. Start Recovering It.</h2>
-          <p className="mt-4 text-slate-400">
+      <Section className="border-t border-[#E5E5E5] bg-white py-16 sm:py-20">
+        <div className="mx-auto max-w-2xl rounded-3xl border border-[#E5E5E5] bg-[#F5F5F5] px-6 py-12 text-center sm:px-10">
+          <h2 className="text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">Stop Losing ITC. Start Recovering It.</h2>
+          <p className="mt-4 text-[#3A3A3A]">
             First 2 reconciliations free. No credit card required.
           </p>
           <Link

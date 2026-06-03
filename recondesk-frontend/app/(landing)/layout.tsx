@@ -11,10 +11,10 @@ export const metadata: Metadata = {
 
 export default function LandingLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="landing-page min-h-screen min-w-0 bg-[#0f1117] text-slate-100 antialiased">
-      <PublicNavbar />
+    <div className="landing-page min-h-screen min-w-0 bg-white text-[#3A3A3A] antialiased">
+      <PublicNavbar theme="light" />
       <main className="min-w-0">{children}</main>
-      <PublicFooter />
+      <PublicFooter theme="light" />
     </div>
   );
 }
