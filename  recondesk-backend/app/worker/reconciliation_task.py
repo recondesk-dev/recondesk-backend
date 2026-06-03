@@ -38,7 +38,10 @@ from app.services.reconciliation_payload_store import (
 from uuid import UUID
 
 from app.services.carry_forward import update_invoice_tracking
-from app.services.rule37_tracker import check_rule_37_compliance
+from app.services.rule37_tracker import (
+    build_payment_records_from_pr,
+    check_rule_37_compliance,
+)
 from app.worker.celery_app import celery_app
 from app.worker.tasks import _json_safe, _supabase, _update_run
 
@@ -701,17 +704,21 @@ def execute_reconciliation(run_id: str) -> None:
 
         pr_by_id: dict[str, dict] = {str(p["id"]): p for p in pr_current}
         gstr_by_id: dict[str, dict] = {str(x.get("id")): x for x in gstr_matcher}
+        pr_for_rule37 = [
+            {
+                **p,
+                "id": p["id"],
+                "invoice_date": p.get("invoice_date")
+                or gstr_start.isoformat(),
+            }
+            for p in pr_current
+        ]
+        payment_records = build_payment_records_from_pr(
+            pr_current, pr_raw_by_id
+        )
         rule37 = check_rule_37_compliance(
-            [
-                {
-                    **p,
-                    "id": p["id"],
-                    "invoice_date": p.get("invoice_date")
-                    or gstr_start.isoformat(),
-                }
-                for p in pr_current
-            ],
-            [],
+            pr_for_rule37,
+            payment_records,
         )
         rule37_itc_paise = sum(
             int(r.get("itc_at_risk_paise") or 0) for r in (rule37 or [])

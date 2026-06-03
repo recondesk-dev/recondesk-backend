@@ -56,6 +56,9 @@ STANDARD_TO_CANONICAL: dict[str, str] = {
     "supplier_name": "supplier_name",
     "place_of_supply": "place_of_supply",
     "reverse_charge": "reverse_charge",
+    "payment_status": "payment_status",
+    "payment_date": "payment_date",
+    "amount_paid": "amount_paid_paise",
 }
 
 COLUMN_ALIASES: dict[str, list[str]] = {
@@ -96,6 +99,18 @@ COLUMN_ALIASES: dict[str, list[str]] = {
     ],
     "place_of_supply": ["place of supply", "pos", "state"],
     "reverse_charge": ["reverse charge", "rcm", "reverse charge applicable"],
+    "payment_status": [
+        "payment status", "paid status", "paid/unpaid", "payment flag",
+        "supplier payment status", "vendor payment status",
+    ],
+    "payment_date": [
+        "payment date", "paid date", "date of payment", "payment dt",
+        "supplier payment date", "vendor payment date",
+    ],
+    "amount_paid": [
+        "amount paid", "paid amount", "payment amount", "amount remitted",
+        "supplier payment amount",
+    ],
 }
 
 # Sheets whose normalised name contains any of these words are skipped.
@@ -186,6 +201,9 @@ _FIELD_MATCH_PRIORITY: dict[str, int] = {
     "sgst": 50,
     "place_of_supply": 50,
     "reverse_charge": 50,
+    "payment_status": 50,
+    "payment_date": 50,
+    "amount_paid": 45,
 }
 
 
@@ -307,6 +325,25 @@ def _normalize_reverse_charge(val: Any) -> bool | None:
     if s is None:
         return None
     return s.lower().strip() in {"y", "yes", "1", "true", "applicable"}
+
+
+def _normalize_payment_status(val: Any) -> str | None:
+    """Return ``paid`` / ``unpaid`` / ``partial``, or None when blank/unknown."""
+    s = _safe_cell(val)
+    if s is None:
+        return None
+    low = s.lower().strip()
+    if low in {"paid", "yes", "y", "p", "1", "true", "received", "cleared"}:
+        return "paid"
+    if low in {"unpaid", "no", "n", "0", "false", "pending", "outstanding", "due"}:
+        return "unpaid"
+    if low in {"partial", "part", "partly paid", "partially paid"} or "partial" in low:
+        return "partial"
+    if low.startswith("paid"):
+        return "paid"
+    if low.startswith("unpaid"):
+        return "unpaid"
+    return None
 
 
 def _preprocess_amount(raw: str) -> str:
@@ -441,6 +478,12 @@ def normalize_dataframe_to_canonical_schema(
             out_cols[canon] = ser.map(_safe_cell)
         elif canon == "reverse_charge":
             out_cols[canon] = ser.map(_normalize_reverse_charge)
+        elif canon == "payment_status":
+            out_cols[canon] = ser.map(_normalize_payment_status)
+        elif canon == "payment_date":
+            out_cols[canon] = ser.map(_safe_cell)
+        elif canon == "amount_paid_paise":
+            out_cols[canon] = ser.map(_amount_int_unsigned)
 
     if not out_cols:
         return pd.DataFrame(index=df.index)
@@ -765,6 +808,31 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
             else:
                 reverse_out = _rcell  # type: ignore[assignment]
 
+            payment_status: str | None = None
+            if "payment_status" in column_mapping:
+                _ps = row.get("payment_status")
+                if _ps is None or (isinstance(_ps, float) and pd.isna(_ps)):
+                    payment_status = None
+                else:
+                    payment_status = str(_ps)
+
+            payment_date: str | None = None
+            if "payment_date" in column_mapping:
+                raw_pay_date = _safe_cell(
+                    orig_row.get(column_mapping["payment_date"])
+                )
+                if raw_pay_date is not None:
+                    try:
+                        payment_date = normalize_date(raw_pay_date).value.isoformat()
+                    except NormalizationError:
+                        errors.append(
+                            f"Row {row_number}: invalid payment date (ignored for Rule 37)"
+                        )
+
+            amount_paid_paise: int | None = None
+            if "amount_paid" in column_mapping:
+                amount_paid_paise = _df_cell_int(row.get("amount_paid_paise"))
+
             # ---- Build output record (only reached when row is fully valid) ----
             out: dict[str, Any] = {
                 "row_number": row_number,
@@ -786,6 +854,12 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 "reverse_charge": reverse_out,
                 "source_file": filename,
             }
+            if payment_status is not None:
+                out["payment_status"] = payment_status
+            if payment_date is not None:
+                out["payment_date"] = payment_date
+            if amount_paid_paise is not None:
+                out["amount_paid_paise"] = amount_paid_paise
 
             records.append(out)
 
