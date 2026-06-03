@@ -568,6 +568,40 @@ def _match_gstr_to_pr_pair(
             enforce_total_tolerance=enforce_total_for_downgrade,
         )
 
+    # L2 — Near taxable (≤ Rs100, ≤1%) with tax structure or total discrepancies.
+    # Standard L2 requires l12_finance_ok_l2; this path pairs same GSTIN+invoice when
+    # taxable is close but IGST vs CGST+SGST or invoice total diverges (e.g. INV-003).
+    if (
+        gstin_match
+        and inv_ok
+        and may_use_l2_l3
+        and amount_within_l2
+        and l2_pct_ok
+        and date_within_l2
+        and not l12_finance_ok_l2
+    ):
+        return _financial_downgrade_l13(
+            MatchResult(
+                level=2,
+                matched=True,
+                confidence=90,
+                requires_human_review=False,
+                decision_what="Near match found",
+                decision_why=(
+                    "Invoice number matches with small taxable difference, "
+                    "but tax structure or total value differs"
+                ),
+                decision_next=(
+                    "Verify tax lines and total with supplier; "
+                    "reconcile IGST vs CGST+SGST if needed"
+                ),
+                discrepancies=discrepancies,
+            ),
+            gstin_match=gstin_match,
+            total_diff=total_diff,
+            enforce_total_tolerance=enforce_total_for_downgrade,
+        )
+
     # Same invoice + GSTIN + amount within L1, but date beyond L2 window — date-only mismatch
     if (
         gstin_match

@@ -226,6 +226,31 @@ def test_l2_boundary_amount_10000_paise_and_date_7_days():
     assert r.requires_human_review is False
 
 
+def test_l2_near_taxable_with_tax_structure_mismatch():
+    """Same GSTIN+invoice, taxable within Rs100, IGST vs CGST+SGST → L2 with review."""
+    g = _base_rec(
+        invoice_number="INV-003",
+        invoice_date="2026-05-04",
+        taxable_paise=2_010_000,
+    )
+    g["cgst_paise"] = 180_900
+    g["sgst_paise"] = 180_900
+    g["total_tax_paise"] = 361_800
+    p = _base_rec(
+        supplier_gstin=g["supplier_gstin"],
+        invoice_number="INV-003",
+        invoice_date="2026-05-04",
+        taxable_paise=2_000_000,
+    )
+    p["igst_paise"] = 359_100
+    p["total_tax_paise"] = 359_100
+    r = match_gstr_to_pr(g, [p])
+    assert r.matched is True
+    assert r.level in (2, 3)
+    assert r.requires_human_review is True
+    assert any("tax_structure" in d for d in r.discrepancies)
+
+
 # --- L3 (4) ---
 
 
