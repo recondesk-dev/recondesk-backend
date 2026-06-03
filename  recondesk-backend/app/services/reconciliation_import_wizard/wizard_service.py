@@ -20,6 +20,7 @@ from supabase import Client
 
 from app.config import settings
 from app.database import get_supabase
+from app.parsers.purchase_register_parser import ParseError, detect_column_mapping
 from app.services.reconciliation_import_wizard import state_machine
 
 _log = logging.getLogger(__name__)
@@ -36,6 +37,49 @@ STANDARD_FIELDS = [
     "total_tax",
     "supplier_name",
 ]
+
+# Parser field names from ``detect_column_mapping`` → wizard ``standard_field`` keys.
+_PARSER_TO_WIZARD_FIELD: dict[str, str] = {
+    "gstin": "gstin",
+    "invoice_number": "invoice_number",
+    "invoice_date": "invoice_date",
+    "taxable_amount": "taxable_value",
+    "total_tax": "total_tax",
+    "supplier_name": "supplier_name",
+}
+
+
+def _wizard_columns_from_dataframe(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Build wizard column-mapping rows using the purchase-register parser detector."""
+    try:
+        parser_mapping = detect_column_mapping(df)
+    except ParseError:
+        parser_mapping = {}
+
+    wizard_detected: dict[str, str] = {
+        wizard_field: parser_mapping[parser_field]
+        for parser_field, wizard_field in _PARSER_TO_WIZARD_FIELD.items()
+        if parser_field in parser_mapping
+    }
+
+    columns_out: list[dict[str, Any]] = []
+    for field in STANDARD_FIELDS:
+        detected = wizard_detected.get(field)
+        confidence = "high" if detected else "not_found"
+        samples: list[str] = []
+        if detected and detected in df.columns:
+            ser = df[detected].dropna().head(3)
+            samples = [str(x) for x in ser.tolist()]
+        columns_out.append(
+            {
+                "standard_field": field,
+                "detected_column": detected,
+                "confidence": confidence,
+                "sample_values": samples,
+                "confirmed": confidence == "high",
+            }
+        )
+    return columns_out
 
 
 def _r2():
@@ -275,49 +319,7 @@ def detect_pr_columns_from_r2(key: str, filename: str) -> tuple[list[dict], list
     row_count = int(len(df_full))
     df = df_full.head(50)
     headers = [str(h).strip() for h in df.columns.tolist()]
-    columns_out: list[dict[str, Any]] = []
-
-    def norm(s: str) -> str:
-        return re.sub(r"[^a-z0-9]", "", s.lower())
-
-    header_norms = {h: norm(h) for h in headers}
-
-    synonyms = {
-        "gstin": ["gstin", "gst", "suppliergstin", "ctin", "vendorgstin"],
-        "invoice_number": ["invoiceno", "invoice_no", "invoicenumber", "docno", "documentno"],
-        "invoice_date": ["invoicedate", "date", "documentdate"],
-        "taxable_value": ["taxable", "taxableval", "taxablevalue", "assessable"],
-        "total_tax": ["tax", "totaltax", "igst", "taxamount"],
-        "supplier_name": ["supplier", "vendor", "tradename", "suppliername"],
-    }
-
-    for field in STANDARD_FIELDS:
-        detected: Optional[str] = None
-        confidence = "not_found"
-        syns = synonyms.get(field, [field.replace("_", "")])
-        for h in headers:
-            hn = header_norms.get(h, "")
-            for syn in syns:
-                if syn in hn or hn in syn:
-                    detected = h
-                    confidence = "high"
-                    break
-            if detected:
-                break
-        samples: list[str] = []
-        if detected and detected in df.columns:
-            ser = df[detected].dropna().head(3)
-            samples = [str(x) for x in ser.tolist()]
-        columns_out.append(
-            {
-                "standard_field": field,
-                "detected_column": detected,
-                "confidence": confidence,
-                "sample_values": samples,
-                "confirmed": confidence == "high",
-            }
-        )
-
+    columns_out = _wizard_columns_from_dataframe(df)
     return columns_out, headers, row_count
 
 
