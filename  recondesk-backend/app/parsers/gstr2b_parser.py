@@ -93,6 +93,36 @@ def _hsn_str_or_none(v: Any) -> str | None:
     return str(v).strip()
 
 
+def _first_present(mapping: dict, *keys: str) -> Any:
+    """Return the first key present with a non-None value."""
+    for key in keys:
+        if key in mapping and mapping[key] is not None:
+            return mapping[key]
+    return None
+
+
+def _invoice_date_value(invoice: dict, *, is_cdnr: bool) -> Any:
+    """Invoice/note date from GSTN portal or legacy field names."""
+    if is_cdnr:
+        return _first_present(invoice, "nt_dt", "dt", "idt")
+    return _first_present(invoice, "dt", "idt")
+
+
+def _reverse_charge_value(invoice: dict) -> bool:
+    raw = _first_present(invoice, "rev", "rchrg") or "N"
+    return str(raw).strip().upper() == "Y"
+
+
+def _item_tax_value(itm: dict, field: str) -> str:
+    aliases = {
+        "igst": ("igst", "iamt"),
+        "cgst": ("cgst", "camt"),
+        "sgst": ("sgst", "samt"),
+        "cess": ("cess", "csamt"),
+    }
+    return _parse_numeric_field(_first_present(itm, *aliases[field]), field)
+
+
 # ---------------------------------------------------------------------------
 # Item-level parsing
 # ---------------------------------------------------------------------------
@@ -133,10 +163,10 @@ def _parse_items(items_list: list) -> tuple:
                 raise ValueError(f"unparseable rt value: {raw_rt!r}")
 
         raw_txval = _parse_numeric_field(itm.get("txval"), "txval")
-        raw_igst  = _parse_numeric_field(itm.get("igst"),  "igst")
-        raw_cgst  = _parse_numeric_field(itm.get("cgst"),  "cgst")
-        raw_sgst  = _parse_numeric_field(itm.get("sgst"),  "sgst")
-        raw_cess  = _parse_numeric_field(itm.get("cess"),  "cess")
+        raw_igst = _item_tax_value(itm, "igst")
+        raw_cgst = _item_tax_value(itm, "cgst")
+        raw_sgst = _item_tax_value(itm, "sgst")
+        raw_cess = _item_tax_value(itm, "cess")
 
         raw_txvals.append(raw_txval)
 
@@ -248,7 +278,7 @@ def _parse_b2b_invoice(
         normalization_notes["invoice_number"] = result.notes
     invoice_number = result.value
 
-    raw_dt = invoice.get("dt")
+    raw_dt = _invoice_date_value(invoice, is_cdnr=False)
     if raw_dt is None:
         raise ValueError("missing_field for dt")
     result = _validate_result(normalize_date(raw_dt), "invoice_date")
@@ -266,7 +296,7 @@ def _parse_b2b_invoice(
         raise ValueError("Invalid value format for invoice amount") from e
 
     pos = str(invoice.get("pos", ""))
-    reverse_charge = invoice.get("rev", "N") == "Y"
+    reverse_charge = _reverse_charge_value(invoice)
     itc_available = invoice.get("itcavl", "N") == "Y"
 
     original_invoice_number_raw = None
@@ -354,8 +384,7 @@ def _parse_cdnr_invoice(
         normalization_notes["invoice_number"] = result.notes
     invoice_number = result.value
 
-    # Support both "nt_dt" (current GSTN API) and "dt" (legacy)
-    raw_dt = invoice.get("nt_dt") or invoice.get("dt")
+    raw_dt = _invoice_date_value(invoice, is_cdnr=True)
     if raw_dt is None:
         raise ValueError("missing_field for dt")
     result = _validate_result(normalize_date(raw_dt), "invoice_date")
@@ -373,7 +402,7 @@ def _parse_cdnr_invoice(
         raise ValueError("Invalid value format for invoice amount") from e
 
     pos = str(invoice.get("pos", ""))
-    reverse_charge = invoice.get("rev", "N") == "Y"
+    reverse_charge = _reverse_charge_value(invoice)
     itc_available = invoice.get("itcavl", "N") == "Y"
 
     original_invoice_number_raw = None
