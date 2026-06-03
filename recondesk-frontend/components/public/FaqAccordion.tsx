@@ -55,11 +55,13 @@ export function FaqAccordion() {
           <div key={q}>
             <button
               type="button"
-              className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-[#EBEBEB]"
+              className="flex w-full items-start justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[#EBEBEB] sm:items-center sm:gap-4 sm:px-5 sm:py-4"
               aria-expanded={open}
               onClick={() => setOpenIndex(open ? -1 : index)}
             >
-              <span className="font-semibold text-[#0A0A0A]">{q}</span>
+              <span className="min-w-0 flex-1 pr-1 text-sm font-semibold leading-snug text-[#0A0A0A] sm:text-base">
+                {q}
+              </span>
               <ToggleIcon open={open} />
             </button>
             <div
@@ -68,7 +70,7 @@ export function FaqAccordion() {
               }`}
             >
               <div className="overflow-hidden">
-                <p className="px-5 pb-4 text-sm leading-relaxed text-[#3A3A3A]">{a}</p>
+                <p className="px-4 pb-4 text-sm leading-relaxed text-[#3A3A3A] sm:px-5">{a}</p>
               </div>
             </div>
           </div>

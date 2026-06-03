@@ -12,9 +12,13 @@ export function PublicFooter({ theme = "dark" }: PublicFooterProps) {
 
   return (
     <footer className={isLight ? "border-t border-[#E8E8E8] bg-[#F5F5F5]" : "border-t border-white/10 bg-[#080a0e]"}>
-      <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between lg:gap-8">
-          <div className="max-w-sm">
+      <div className={`mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 ${isLight ? "py-10 sm:py-12" : "py-12"}`}>
+        <div
+          className={`flex flex-col lg:flex-row lg:items-start lg:justify-between lg:gap-8 ${
+            isLight ? "gap-8 sm:gap-10" : "gap-10"
+          }`}
+        >
+          <div className={`max-w-sm ${isLight ? "max-sm:mx-auto max-sm:text-center" : ""}`}>
             <div
               className={`inline-flex items-baseline gap-0 text-2xl font-bold tracking-tight sm:text-3xl ${
                 isLight ? "text-[#0A0A0A]" : "text-white"
@@ -30,7 +34,9 @@ export function PublicFooter({ theme = "dark" }: PublicFooterProps) {
             </p>
           </div>
           <div
-            className={`flex flex-wrap gap-x-6 gap-y-2 text-sm ${isLight ? "text-[#3A3A3A]" : "text-slate-400"}`}
+            className={`flex flex-wrap gap-x-6 gap-y-2 text-sm ${
+              isLight ? "max-sm:justify-center max-sm:text-center text-[#3A3A3A]" : "text-slate-400"
+            }`}
           >
             <Link href="/privacy" className={isLight ? "hover:text-[#0A0A0A]" : "hover:text-white"}>
               Privacy Policy
@@ -54,7 +60,9 @@ export function PublicFooter({ theme = "dark" }: PublicFooterProps) {
               Contact
             </a>
           </div>
-          <p className={`text-sm lg:text-right ${isLight ? "text-[#6B6B6B]" : "text-slate-500"}`}>
+          <p
+            className={`text-sm max-sm:text-center lg:text-right ${isLight ? "text-[#6B6B6B]" : "text-slate-500"}`}
+          >
             GSTIN:{" "}
             <span className={`font-mono ${isLight ? "text-[#3A3A3A]" : "text-slate-300"}`}>{firmGstin}</span>
           </p>
