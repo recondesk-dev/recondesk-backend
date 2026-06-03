@@ -42,7 +42,7 @@ export function SecurityTrustStrip() {
 
   return (
     <section className="landing-trust-strip border-y border-[#E8E8E8] bg-white py-5" aria-label="Security and data protection">
-      <p className="text-center text-[11px] font-medium uppercase tracking-[0.08em] text-[#6B6B6B]">
+      <p className="text-center text-[11px] font-medium uppercase tracking-[0.08em] text-[#0A0A0A]">
         YOUR CLIENTS&apos; DATA IS PROTECTED
       </p>
       <div className="landing-trust-marquee relative mt-4 overflow-hidden">
