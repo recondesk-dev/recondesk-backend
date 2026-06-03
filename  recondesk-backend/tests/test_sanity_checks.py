@@ -142,6 +142,41 @@ def test_parser_skips_row_with_blank_gstin():
     assert len(result["records"]) == 0, "Row with blank GSTIN must be skipped"
 
 
+def test_parser_keeps_conflicting_duplicate_invoices():
+    """Duplicate invoice numbers with different amounts are flagged but kept."""
+    rows = [
+        {
+            "Supplier GSTIN": "27AAAPZ1234A1Z5",
+            "Supplier Name": "Test Vendor",
+            "Invoice Number": "DUP-001",
+            "Invoice Date": "13/05/2026",
+            "Taxable Amount": "10000",
+            "IGST": "0",
+            "CGST": "900",
+            "SGST": "900",
+            "Total Invoice Value": "11800",
+        },
+        {
+            "Supplier GSTIN": "27AAAPZ1234A1Z5",
+            "Supplier Name": "Test Vendor",
+            "Invoice Number": "DUP-001",
+            "Invoice Date": "14/05/2026",
+            "Taxable Amount": "20000",
+            "IGST": "0",
+            "CGST": "1800",
+            "SGST": "1800",
+            "Total Invoice Value": "23600",
+        },
+    ]
+    buf = io.StringIO()
+    pd.DataFrame(rows).to_csv(buf, index=False)
+    result = parse_purchase_register(buf.getvalue().encode(), "dup.csv")
+    assert result["success"] is True
+    assert len(result["records"]) == 2
+    assert any("conflicting duplicate" in e for e in result["errors"])
+    assert result.get("skipped_rows", 0) == 0
+
+
 def test_tax_math_passes_within_500_paise_tolerance():
     # 100000 * 18 / 100 = 18000; off by 500 is still ok
     r = _base(total_tax_paise=18_500, tax_rate=18)

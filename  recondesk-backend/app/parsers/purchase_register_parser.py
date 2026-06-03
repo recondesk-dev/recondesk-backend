@@ -791,10 +791,8 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
 
         # ------------------------------------------------------------------
         # STEP 3b — DUPLICATE DETECTION
-        # First occurrence of a (gstin, invoice_number) key is kept as the
-        # canonical record.  Every subsequent occurrence is an error — if
-        # the values differ it is a conflict; if identical it is a redundant
-        # duplicate.  Either way only the later rows are rejected.
+        # Flag duplicate (gstin, invoice_number) keys but keep every row so
+        # reconciliation can pair by amount/date when suppliers reuse numbers.
         # ------------------------------------------------------------------
         seen_keys: dict[tuple, dict] = {}  # key → first record seen
         clean: list[dict] = []
@@ -808,24 +806,20 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 seen_keys[key] = rec       # first occurrence → keep
                 clean.append(rec)
             else:
-                # Subsequent occurrence — decide conflict vs exact duplicate
                 first = seen_keys[key]
                 if rec.get("taxable_amount_paise") != first.get("taxable_amount_paise"):
-                    label = "conflicting duplicate"
+                    errors.append(
+                        f"Row {rec['row_number']}: conflicting duplicate invoice "
+                        f"'{rec['invoice_number_normalized']}' for GSTIN '{rec['gstin']}' "
+                        f"(first seen at row {first['row_number']}; kept for reconciliation)"
+                    )
                 else:
-                    label = "duplicate"
-                reason_key = (
-                    "conflicting_duplicate_invoice"
-                    if label == "conflicting duplicate"
-                    else "duplicate_invoice"
-                )
-                errors.append(
-                    f"Row {rec['row_number']}: {label} invoice "
-                    f"'{rec['invoice_number_normalized']}' for GSTIN '{rec['gstin']}' "
-                    f"(first seen at row {first['row_number']})"
-                )
-                skipped_rows += 1
-                _bump_skip(reason_key)
+                    errors.append(
+                        f"Row {rec['row_number']}: duplicate invoice "
+                        f"'{rec['invoice_number_normalized']}' for GSTIN '{rec['gstin']}' "
+                        f"(first seen at row {first['row_number']}; kept for reconciliation)"
+                    )
+                clean.append(rec)
 
         records = clean
 
