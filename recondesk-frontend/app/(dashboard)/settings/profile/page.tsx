@@ -36,6 +36,20 @@ type FieldErrors = Partial<Record<FieldKey, string>>;
 const FIELD_CLASS =
   "min-h-[44px] w-full rounded-lg border border-[var(--border)] bg-white px-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/60 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/25";
 
+const EMPTY_PROFILE_FORM: ProfileFormValues = {
+  fullName: "",
+  email: "",
+  phone: "",
+  firmName: "",
+  icaiMembershipNumber: "",
+  firmGstin: "",
+  state: "",
+};
+
+function emptyProfileForm(): ProfileFormValues {
+  return { ...EMPTY_PROFILE_FORM };
+}
+
 function valuesFromProfile(me: AuthMeProfile): ProfileFormValues {
   return {
     fullName: (me.full_name ?? "").trim(),
@@ -119,7 +133,7 @@ export default function ProfileSettingsPage() {
       : null;
 
   const meKey = authToken ? (["/api/v1/auth/me", authToken] as const) : null;
-  const { data: me, isLoading: meLoading } = useSWR(
+  const { data: me, error: meError, isLoading: meLoading } = useSWR(
     meKey,
     ([, t]) => authProfileFetcher(t),
     AUTH_PROFILE_SWR_OPTIONS
@@ -129,6 +143,20 @@ export default function ProfileSettingsPage() {
   const [baseline, setBaseline] = useState<ProfileFormValues | null>(null);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [saving, setSaving] = useState(false);
+  const [loadSettled, setLoadSettled] = useState(false);
+
+  useEffect(() => {
+    if (!authToken) {
+      setValues(null);
+      setBaseline(null);
+      setLoadSettled(false);
+      return;
+    }
+    setValues(null);
+    setBaseline(null);
+    setLoadSettled(false);
+    setErrors({});
+  }, [authToken]);
 
   useEffect(() => {
     if (!me) return;
@@ -136,7 +164,28 @@ export default function ProfileSettingsPage() {
     setValues(next);
     setBaseline(next);
     setErrors({});
+    setLoadSettled(true);
   }, [me]);
+
+  useEffect(() => {
+    if (!authToken || loadSettled || meLoading) return;
+    if (meError || !me) {
+      const empty = emptyProfileForm();
+      setValues(empty);
+      setBaseline(empty);
+      setLoadSettled(true);
+    }
+  }, [authToken, loadSettled, meLoading, meError, me]);
+
+  useEffect(() => {
+    if (!authToken || loadSettled) return;
+    const timer = window.setTimeout(() => {
+      setValues((current) => current ?? emptyProfileForm());
+      setBaseline((current) => current ?? emptyProfileForm());
+      setLoadSettled(true);
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [authToken, loadSettled]);
 
   const isDirty = useMemo(() => {
     if (!values || !baseline) return false;
@@ -222,7 +271,7 @@ export default function ProfileSettingsPage() {
     }
   };
 
-  if (tokenState === null || (meLoading && !me)) {
+  if (tokenState === null || (authToken && !loadSettled)) {
     return (
       <div className="space-y-6">
         <Link
@@ -253,20 +302,7 @@ export default function ProfileSettingsPage() {
     );
   }
 
-  if (!values) {
-    return (
-      <div className="space-y-6">
-        <Link
-          href="/settings"
-          className="inline-flex min-h-[44px] items-center text-sm font-semibold text-[var(--accent)] underline"
-        >
-          ← Back to settings
-        </Link>
-        <h1 className="text-xl font-semibold text-[var(--text-primary)]">Profile</h1>
-        <ProfileFormSkeleton />
-      </div>
-    );
-  }
+  const formValues = values ?? emptyProfileForm();
 
   const inputClass = (key: FieldKey) =>
     `${FIELD_CLASS}${errors[key] ? " border-red-300" : ""}`;
@@ -297,7 +333,7 @@ export default function ProfileSettingsPage() {
                 id="profile-full-name"
                 type="text"
                 required
-                value={values.fullName}
+                value={formValues.fullName}
                 onChange={(e) => setField("fullName", e.target.value)}
                 onBlur={() => handleBlurRequired("fullName")}
                 className={inputClass("fullName")}
@@ -316,7 +352,7 @@ export default function ProfileSettingsPage() {
                 id="profile-email"
                 type="email"
                 required
-                value={values.email}
+                value={formValues.email}
                 onChange={(e) => setField("email", e.target.value)}
                 onBlur={() => handleBlurRequired("email")}
                 className={inputClass("email")}
@@ -333,7 +369,7 @@ export default function ProfileSettingsPage() {
                 id="profile-phone"
                 type="tel"
                 inputMode="numeric"
-                value={values.phone}
+                value={formValues.phone}
                 onChange={(e) =>
                   setField("phone", e.target.value.replace(/[^\d+\s-]/g, ""))
                 }
@@ -352,7 +388,7 @@ export default function ProfileSettingsPage() {
               <input
                 id="profile-firm-name"
                 type="text"
-                value={values.firmName}
+                value={formValues.firmName}
                 onChange={(e) => setField("firmName", e.target.value)}
                 className={inputClass("firmName")}
                 autoComplete="organization"
@@ -364,7 +400,7 @@ export default function ProfileSettingsPage() {
               <input
                 id="profile-icai"
                 type="text"
-                value={values.icaiMembershipNumber}
+                value={formValues.icaiMembershipNumber}
                 onChange={(e) => setField("icaiMembershipNumber", e.target.value)}
                 className={inputClass("icaiMembershipNumber")}
               />
@@ -375,7 +411,7 @@ export default function ProfileSettingsPage() {
               <input
                 id="profile-firm-gstin"
                 type="text"
-                value={values.firmGstin}
+                value={formValues.firmGstin}
                 onChange={(e) => setField("firmGstin", e.target.value.toUpperCase())}
                 onBlur={handleGstinBlur}
                 className={inputClass("firmGstin")}
@@ -392,7 +428,7 @@ export default function ProfileSettingsPage() {
               <FieldLabel htmlFor="profile-state">State</FieldLabel>
               <select
                 id="profile-state"
-                value={values.state}
+                value={formValues.state}
                 onChange={(e) => setField("state", e.target.value)}
                 className={inputClass("state")}
               >
