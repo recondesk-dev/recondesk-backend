@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { EMAIL_VALIDATION_MESSAGE, isValidEmail } from "@/lib/auth-validation";
 import { Eye, EyeOff, LogIn } from "lucide-react";
 import React from "react";
 
@@ -15,17 +16,37 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+
+  const validateEmailField = (value: string) => {
+    if (!isValidEmail(value)) {
+      return EMAIL_VALIDATION_MESSAGE;
+    }
+    return null;
+  };
+
+  const handleEmailBlur = () => {
+    setEmailError(validateEmailField(email));
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError(null);
 
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const nextEmailError = validateEmailField(email);
+    setEmailError(nextEmailError);
+    if (nextEmailError) return;
 
-    if (error) {
-      setError(error.message);
+    setLoading(true);
+
+    const supabase = createClient();
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+
+    if (authError) {
+      setError("Incorrect email or password");
       setLoading(false);
     } else {
       router.push("/dashboard");
@@ -38,13 +59,8 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-purple-600 rounded-xl mb-4">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-white">
-              <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </div>
           <h1 className="font-brand text-2xl font-bold text-gray-900 tracking-tight">
-            RECONDESK
+            ReconDesk<span className="text-purple-600">•</span>
           </h1>
           <p className="text-sm text-gray-500 mt-1">Reconciliation made simple</p>
         </div>
@@ -69,12 +85,19 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 autoComplete="email"
-                required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (emailError) setEmailError(null);
+                }}
+                onBlur={handleEmailBlur}
                 placeholder="you@example.com"
-                className="input-field"
+                className={`input-field${emailError ? " border-red-300" : ""}`}
+                aria-invalid={emailError ? true : undefined}
               />
+              {emailError && (
+                <p className="mt-1 text-xs text-red-600">{emailError}</p>
+              )}
             </div>
 
             <div>

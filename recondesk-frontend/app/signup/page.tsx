@@ -4,6 +4,12 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import {
+  getPasswordStrengthLabel,
+  getPasswordStrengthScore,
+  getUnmetPasswordRules,
+  isValidPassword,
+} from "@/lib/auth-validation";
 import { Eye, EyeOff, UserPlus } from "lucide-react";
 
 const DEFAULT_API_URL = "http://localhost:8000";
@@ -38,10 +44,32 @@ function SignupForm() {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
+  const passwordStrengthScore = getPasswordStrengthScore(form.password);
+  const passwordStrengthLabel = getPasswordStrengthLabel(passwordStrengthScore);
+  const unmetPasswordRules = getUnmetPasswordRules(form.password);
+  const showPasswordFeedback = form.password.length > 0;
+
+  const strengthBarColor =
+    passwordStrengthScore <= 1
+      ? "bg-red-500"
+      : passwordStrengthScore <= 3
+        ? "bg-amber-500"
+        : "bg-green-500";
+
+  const strengthTextColor =
+    passwordStrengthScore <= 1
+      ? "text-red-600"
+      : passwordStrengthScore <= 3
+        ? "text-amber-600"
+        : "text-green-600";
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError(null);
+
+    if (!isValidPassword(form.password)) return;
+
+    setLoading(true);
 
     const supabase = createClient();
 
@@ -206,11 +234,10 @@ function SignupForm() {
                   type={showPassword ? "text" : "password"}
                   autoComplete="new-password"
                   required
-                  minLength={8}
                   value={form.password}
                   onChange={handleChange}
-                  placeholder="Min. 8 characters"
-                  className="input-field min-h-[44px] pr-12"
+                  placeholder="Create a strong password"
+                  className={`input-field min-h-[44px] pr-12${unmetPasswordRules.length > 0 && showPasswordFeedback ? " border-red-300" : ""}`}
                 />
                 <button
                   type="button"
@@ -221,12 +248,37 @@ function SignupForm() {
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
-              <p className="mt-1.5 text-xs text-gray-400">At least 8 characters</p>
+              {showPasswordFeedback && (
+                <div className="mt-2 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-1 flex-1 gap-0.5 overflow-hidden rounded-full bg-gray-100">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className={`h-full flex-1 rounded-full transition-colors ${
+                            i < passwordStrengthScore ? strengthBarColor : "bg-gray-200"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <span className={`text-xs font-medium ${strengthTextColor}`}>
+                      {passwordStrengthLabel}
+                    </span>
+                  </div>
+                  {unmetPasswordRules.length > 0 && (
+                    <ul className="space-y-0.5 text-xs text-red-600">
+                      {unmetPasswordRules.map((rule) => (
+                        <li key={rule.id}>{rule.label}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !isValidPassword(form.password)}
               className="btn-primary mt-2 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
             >
               {loading ? (
