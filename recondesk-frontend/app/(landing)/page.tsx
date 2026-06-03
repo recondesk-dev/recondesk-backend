@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ClipboardList, GitMerge, Upload } from "lucide-react";
 
 import { FaqAccordion } from "@/components/public/FaqAccordion";
+import { FeatureStatsStrip } from "@/components/public/FeatureStatsStrip";
 import { SecurityTrustStrip } from "@/components/public/SecurityTrustStrip";
 import { formatInrFull } from "@/lib/format";
 
@@ -98,6 +99,7 @@ export default function LandingPage() {
               <span>✓ First 2 runs completely free</span>
             </p>
           </div>
+          <FeatureStatsStrip />
         </div>
       </Section>
 
