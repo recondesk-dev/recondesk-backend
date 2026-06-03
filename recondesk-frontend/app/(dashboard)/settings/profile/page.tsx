@@ -205,10 +205,6 @@ export default function ProfileSettingsPage() {
   const validateRequired = useCallback((v: ProfileFormValues): FieldErrors => {
     const next: FieldErrors = {};
     if (!v.fullName.trim()) next.fullName = "Full name is required";
-    if (!v.email.trim()) next.email = "Email is required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email.trim())) {
-      next.email = "Enter a valid email address";
-    }
     const phoneErr = validateIndianPhone(v.phone);
     if (phoneErr) next.phone = phoneErr;
     const gst = v.firmGstin.trim().replace(/\s/g, "").toUpperCase();
@@ -228,7 +224,7 @@ export default function ProfileSettingsPage() {
   }, [values]);
 
   const handleBlurRequired = useCallback(
-    (key: "fullName" | "email" | "phone") => {
+    (key: "fullName" | "phone") => {
       if (!values) return;
       const fieldErrors = validateRequired(values);
       const msg = fieldErrors[key];
@@ -345,22 +341,19 @@ export default function ProfileSettingsPage() {
             </div>
 
             <div>
-              <FieldLabel htmlFor="profile-email" required>
-                Email
-              </FieldLabel>
+              <FieldLabel htmlFor="profile-email">Email</FieldLabel>
               <input
                 id="profile-email"
                 type="email"
-                required
                 value={formValues.email}
-                onChange={(e) => setField("email", e.target.value)}
-                onBlur={() => handleBlurRequired("email")}
-                className={inputClass("email")}
+                readOnly
+                disabled
+                className={`${inputClass("email")} cursor-not-allowed bg-gray-50 text-[var(--text-secondary)]`}
                 autoComplete="email"
               />
-              {errors.email && (
-                <p className="mt-1 text-xs text-red-600">{errors.email}</p>
-              )}
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                To change your email, contact support.
+              </p>
             </div>
 
             <div>
