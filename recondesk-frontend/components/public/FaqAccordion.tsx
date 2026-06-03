@@ -48,7 +48,7 @@ export function FaqAccordion() {
   const [openIndex, setOpenIndex] = useState(0);
 
   return (
-    <div className="mx-auto mt-10 max-w-3xl divide-y divide-[#E5E5E5] rounded-xl border border-[#E5E5E5] bg-[#F5F5F5]">
+    <div className="landing-card mx-auto mt-10 max-w-3xl divide-y divide-[#E5E5E5] rounded-xl border border-[#E5E5E5] bg-[#F5F5F5]">
       {FAQ_ITEMS.map(({ q, a }, index) => {
         const open = openIndex === index;
         return (
