@@ -177,6 +177,30 @@ def test_parser_keeps_conflicting_duplicate_invoices():
     assert result.get("skipped_rows", 0) == 0
 
 
+def test_parser_reads_payment_status_unpaid():
+    rows = [
+        {
+            "Supplier GSTIN": "27AAAPZ1234A1Z5",
+            "Supplier Name": "Test Vendor",
+            "Invoice Number": "INV-012",
+            "Invoice Date": "30/10/2025",
+            "Taxable Amount": "15000",
+            "IGST": "0",
+            "CGST": "1350",
+            "SGST": "1350",
+            "Total Invoice Value": "17700",
+            "Payment Status": "Unpaid",
+        },
+    ]
+    buf = io.StringIO()
+    pd.DataFrame(rows).to_csv(buf, index=False)
+    result = parse_purchase_register(buf.getvalue().encode(), "rule37.csv")
+    assert result["success"] is True
+    rec = result["records"][0]
+    assert rec.get("payment_status") == "unpaid"
+    assert "payment_date" not in rec
+
+
 def test_tax_math_passes_within_500_paise_tolerance():
     # 100000 * 18 / 100 = 18000; off by 500 is still ok
     r = _base(total_tax_paise=18_500, tax_rate=18)
