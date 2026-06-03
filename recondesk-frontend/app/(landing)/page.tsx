@@ -14,7 +14,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className={`mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8 ${className}`}>
+    <section id={id} className={`mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8 ${className}`}>
       {children}
     </section>
   );
@@ -61,10 +61,10 @@ export default function LandingPage() {
       {/* Hero */}
       <Section className="pb-12 pt-10 sm:pb-16 sm:pt-14">
         <div className="text-center">
-          <h1 className="mx-auto max-w-4xl text-3xl font-semibold tracking-tight text-[#0A0A0A] sm:text-4xl lg:text-5xl">
+          <h1 className="mx-auto max-w-4xl text-[1.75rem] font-semibold leading-tight tracking-tight text-[#0A0A0A] sm:text-4xl sm:leading-tight lg:text-5xl">
             Find the ITC Your Clients Are Missing Every Month
           </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-lg text-[#3A3A3A] sm:text-xl">
+          <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-[#3A3A3A] sm:mt-5 sm:text-xl">
             GSTR-2B reconciliation for CA firms. Upload 2 files. Results in 60 seconds.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
@@ -81,7 +81,7 @@ export default function LandingPage() {
               See How It Works
             </a>
           </div>
-          <p className="mt-6 text-sm text-[#6B6B6B]">
+          <p className="mt-6 px-1 text-sm leading-relaxed text-[#6B6B6B]">
             Plans from <InrAmount amount="399/month" amountClassName="" /> · No credit card to start
           </p>
           <div className="mx-auto mt-8 max-w-3xl rounded-xl border border-[#E5E5E5] bg-[#F5F5F5] px-4 py-4 text-sm text-[#3A3A3A] sm:px-6">
@@ -111,7 +111,7 @@ export default function LandingPage() {
           ].map((text) => (
             <div
               key={text}
-              className="landing-card rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-6 text-[#3A3A3A]"
+              className="landing-card rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-5 text-[#3A3A3A] sm:p-6"
             >
               <p className="text-sm leading-relaxed sm:text-base">{text}</p>
             </div>
@@ -120,7 +120,7 @@ export default function LandingPage() {
       </Section>
 
       {/* How it works */}
-      <Section id="how-it-works" className="scroll-mt-24 bg-white py-16 sm:py-20">
+      <Section id="how-it-works" className="scroll-mt-20 bg-white py-12 sm:scroll-mt-24 sm:py-20">
         <h2 className="text-center text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">How ReconDesk Works</h2>
         <ul className="mt-12 grid gap-8 md:grid-cols-3">
           <li className="flex flex-col items-center text-center">
@@ -153,9 +153,9 @@ export default function LandingPage() {
         </ul>
 
         {/* Mock result card */}
-        <div className="landing-card mx-auto mt-14 max-w-lg rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-6 text-center">
+        <div className="landing-card mx-auto mt-10 max-w-lg rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-5 text-center sm:mt-14 sm:p-6">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#6B6B6B]">Sample run summary</p>
-          <div className="mt-4 flex flex-wrap items-start justify-center gap-8 sm:gap-12">
+          <div className="mt-4 grid grid-cols-3 gap-3 sm:flex sm:flex-wrap sm:items-start sm:justify-center sm:gap-12">
             <div>
               <p className="text-xs text-[#6B6B6B]">ITC at Risk</p>
               <p className="mt-1 text-lg font-semibold text-amber-500">
@@ -177,7 +177,7 @@ export default function LandingPage() {
 
       {/* FAQ */}
       <Section className="border-t border-[#E5E5E5] bg-white pt-8 pb-12 sm:pt-10 sm:pb-14">
-        <h2 className="text-center text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">
+        <h2 className="px-2 text-center text-2xl font-semibold text-[#0A0A0A] sm:px-0 sm:text-3xl">
           Questions CAs Ask Before Signing Up
         </h2>
         <FaqAccordion />
@@ -190,7 +190,7 @@ export default function LandingPage() {
           <p className="mt-3 text-[#6B6B6B]">Start free. Upgrade when you&apos;re ready.</p>
         </div>
         <div className="mx-auto mt-10 grid max-w-3xl gap-6 md:grid-cols-2">
-          <div className="landing-card flex flex-col rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-6">
+          <div className="landing-card flex flex-col rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-5 sm:p-6">
             <h3 className="text-lg font-semibold text-[#0A0A0A]">Solo CA</h3>
             <p className="mt-2 text-3xl font-semibold text-[#0A0A0A]">
               <InrAmount amount="399" amountClassName="font-mono" />
@@ -204,7 +204,7 @@ export default function LandingPage() {
               Start Free
             </Link>
           </div>
-          <div className="landing-card relative flex flex-col rounded-2xl border-2 border-[var(--accent)] bg-[#F5F5F5] p-6">
+          <div className="landing-card relative flex flex-col rounded-2xl border-2 border-[var(--accent)] bg-[#F5F5F5] p-5 pt-7 sm:p-6 sm:pt-6">
             <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[var(--accent)] px-3 py-0.5 text-xs font-semibold text-white">
               Most Popular
             </span>
@@ -226,14 +226,14 @@ export default function LandingPage() {
 
       {/* Final CTA */}
       <Section className="border-t border-[#E5E5E5] bg-white py-16 sm:py-20">
-        <div className="landing-card mx-auto max-w-2xl rounded-3xl border border-[#E5E5E5] bg-[#F5F5F5] px-6 py-12 text-center sm:px-10">
+        <div className="landing-card mx-auto max-w-2xl rounded-3xl border border-[#E5E5E5] bg-[#F5F5F5] px-5 py-10 text-center sm:px-10 sm:py-12">
           <h2 className="text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">Stop Losing ITC. Start Recovering It.</h2>
-          <p className="mt-4 text-[#3A3A3A]">
+          <p className="mt-4 text-base leading-relaxed text-[#3A3A3A] sm:text-base">
             First 2 reconciliations free. No credit card required.
           </p>
           <Link
             href="/auth/signup"
-            className="mt-8 inline-flex min-h-[48px] items-center justify-center rounded-lg bg-[var(--accent)] px-8 text-sm font-semibold text-white transition hover:opacity-95"
+            className="mt-8 inline-flex min-h-[48px] w-full items-center justify-center rounded-lg bg-[var(--accent)] px-8 text-sm font-semibold text-white transition hover:opacity-95 sm:w-auto"
           >
             Get Started Free →
           </Link>
