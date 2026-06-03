@@ -11,7 +11,7 @@ export function PublicFooter({ theme = "dark" }: PublicFooterProps) {
   const isLight = theme === "light";
 
   return (
-    <footer className={isLight ? "border-t border-[#E5E5E5] bg-white" : "border-t border-white/10 bg-[#080a0e]"}>
+    <footer className={isLight ? "border-t border-[#E8E8E8] bg-[#F5F5F5]" : "border-t border-white/10 bg-[#080a0e]"}>
       <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between lg:gap-8">
           <div className="max-w-sm">
