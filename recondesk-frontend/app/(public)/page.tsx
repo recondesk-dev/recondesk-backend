@@ -171,17 +171,6 @@ export default function LandingPage() {
               <p className="text-xs text-slate-500">Mismatches</p>
               <p className="mt-1 font-mono text-lg font-semibold text-white">23</p>
             </div>
-            <div className="col-span-2 flex flex-wrap gap-2 sm:col-span-1 sm:flex-col sm:justify-end">
-              <span className="inline-flex rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-300">
-                Claim Now
-              </span>
-              <span className="inline-flex rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-200">
-                Chase Supplier
-              </span>
-              <span className="inline-flex rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-xs font-medium text-rose-200">
-                Reverse Entry
-              </span>
-            </div>
           </div>
         </div>
       </Section>
