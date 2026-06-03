@@ -4,7 +4,11 @@ import Link from "next/link";
 import useSWR from "swr";
 import { Bell, ChevronRight, CreditCard, UserCircle, Users } from "lucide-react";
 
-import { authApi, teamApi, type AuthMeProfile, type TeamMemberListItem } from "@/lib/api";
+import { teamApi, type AuthMeProfile, type TeamMemberListItem } from "@/lib/api";
+import {
+  AUTH_PROFILE_SWR_OPTIONS,
+  authProfileFetcher,
+} from "@/lib/auth-profile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 /** Backend exposes `/api/v1/auth/me`; same payload as documented “auth/me”. */
@@ -48,8 +52,8 @@ export default function SettingsHubPage() {
 
   const { data: me, isLoading: meLoading } = useSWR(
     meKey,
-    ([, t]) => authApi.me(t),
-    { keepPreviousData: true }
+    ([, t]) => authProfileFetcher(t),
+    AUTH_PROFILE_SWR_OPTIONS
   );
 
   const { data: teamMembers, isLoading: teamLoading } = useSWR(

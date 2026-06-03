@@ -7,12 +7,16 @@ import { Modal } from "@/components/ui/Modal";
 import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
-  authApi,
   isApiError,
   teamApi,
   type AuthMeProfile,
   type TeamMemberListItem,
 } from "@/lib/api";
+import {
+  AUTH_PROFILE_SWR_OPTIONS,
+  authProfileFetcher,
+  normalizeAuthRole,
+} from "@/lib/auth-profile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 function formatJoined(iso: string | null): string {
@@ -68,7 +72,11 @@ export default function TeamSettingsPage() {
     ? (["/api/team/members", authToken] as const)
     : null;
 
-  const { data: me } = useSWR(meKey, ([, t]) => authApi.me(t));
+  const { data: me } = useSWR(
+    meKey,
+    ([, t]) => authProfileFetcher(t),
+    AUTH_PROFILE_SWR_OPTIONS
+  );
   const {
     data: members,
     error: membersError,
@@ -76,7 +84,7 @@ export default function TeamSettingsPage() {
     mutate: mutateMembers,
   } = useSWR(membersKey, ([, t]) => teamApi.list(t));
 
-  const roleNorm = (me?.role ?? "staff").toLowerCase();
+  const roleNorm = normalizeAuthRole(me?.role);
   const isAdmin = roleNorm === "admin";
 
   const [inviteOpen, setInviteOpen] = useState(false);

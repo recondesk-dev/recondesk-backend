@@ -187,9 +187,16 @@ export async function apiFetch<T>(
     directBackend?: boolean;
     /** Abort the request after this many ms (e.g. status polls). */
     timeoutMs?: number;
+    cache?: RequestCache;
   } = {}
 ): Promise<T> {
-  const { token, directBackend = false, timeoutMs, ...fetchOptions } = options;
+  const {
+    token,
+    directBackend = false,
+    timeoutMs,
+    cache,
+    ...fetchOptions
+  } = options;
 
   const headers = new Headers();
 
@@ -229,6 +236,7 @@ export async function apiFetch<T>(
       ...fetchOptions,
       headers,
       signal: controller?.signal ?? fetchOptions.signal,
+      cache: cache ?? fetchOptions.cache,
     });
   } catch (err) {
     if (controller?.signal.aborted) {
@@ -494,8 +502,17 @@ const AUTH_ROUTER_PREFIX = "/api/v1/auth";
 
 export const authApi = {
   /** GET `/me` on the main auth router → `/api/v1/auth/me`. */
-  me: (token: string) =>
-    apiFetch<AuthMeProfile>(`${AUTH_ROUTER_PREFIX}/me`, { token }),
+  me: (token: string, options?: { fresh?: boolean }) => {
+    const suffix = options?.fresh ? `?_=${Date.now()}` : "";
+    return apiFetch<AuthMeProfile>(`${AUTH_ROUTER_PREFIX}/me${suffix}`, {
+      token,
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+    });
+  },
 };
 
 export const teamApi = {

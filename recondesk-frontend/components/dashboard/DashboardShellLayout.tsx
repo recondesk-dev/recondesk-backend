@@ -7,13 +7,16 @@ import useSWR, { mutate } from "swr";
 import { Avatar } from "@/components/ui/Avatar";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
-  authApi,
   billingApi,
   isApiError,
   reconcileRunsApi,
   type BillingStatus,
   type CreditBatchRow,
 } from "@/lib/api";
+import {
+  fetchFreshAuthProfile,
+  normalizeAuthRole,
+} from "@/lib/auth-profile";
 import { DW, formatPeriodLabel } from "@/lib/dashboard-portfolio";
 import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 
@@ -196,11 +199,13 @@ export default function DashboardShellLayout({
         return;
       }
 
+      setCurrentUser({ name: "…", role: "…", initials: "··" });
+
       try {
-        const me = await authApi.me(accessToken);
+        const me = await fetchFreshAuthProfile(accessToken);
         if (cancelled) return;
         const name = me.full_name?.trim() || me.email?.trim() || "User";
-        const role = (me.role ?? "staff").toUpperCase();
+        const role = normalizeAuthRole(me.role).toUpperCase();
         setCurrentUser({
           name,
           role,
@@ -210,7 +215,7 @@ export default function DashboardShellLayout({
         if (cancelled) return;
         setCurrentUser({
           name: "User",
-          role: "STAFF",
+          role: "ADMIN",
           initials: "?",
         });
       }

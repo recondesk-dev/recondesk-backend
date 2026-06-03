@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from supabase_auth import User
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -376,9 +376,11 @@ async def logout(
 @limiter.limit("200/minute")
 async def get_me(
     request: Request,  # noqa: ARG001
+    response: Response,
     user_id: str = Depends(get_current_user_id),
 ):
     """Return the authenticated user's profile including their role."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     profile = get_user_profile(user_id)
     if profile is None:
         raise HTTPException(

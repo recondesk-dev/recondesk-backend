@@ -10,13 +10,16 @@ import { StatusBadge } from "@/components/dashboard/StatusBadge";
 import { Avatar } from "@/components/ui/Avatar";
 import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import {
-  authApi,
   clientsApi,
   reconcileRunsApi,
   teamApi,
   type ClientGstin,
   type ReconcileRunListRow,
 } from "@/lib/api";
+import {
+  AUTH_PROFILE_SWR_OPTIONS,
+  authProfileFetcher,
+} from "@/lib/auth-profile";
 import {
   DW,
   buildRunRowsForClient,
@@ -111,9 +114,11 @@ export default function ClientDetailPage() {
     revalidateOnFocus: false,
   });
 
-  const { data: me } = useSWR(meKey, ([, , t]) => authApi.me(t), {
-    revalidateOnFocus: false,
-  });
+  const { data: me } = useSWR(
+    meKey,
+    ([, , t]) => authProfileFetcher(t),
+    AUTH_PROFILE_SWR_OPTIONS
+  );
 
   const staff = useMemo(
     () => buildStaffRoster(teamMembers ?? [], me ?? null),

@@ -5,6 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import {
+  clearCachedAuthRole,
+  invalidateAuthProfileCache,
+} from "@/lib/auth-profile";
+import {
   EMAIL_VALIDATION_MESSAGE,
   getPasswordStrengthLabel,
   getPasswordStrengthScore,
@@ -203,6 +207,9 @@ function SignupForm() {
         /* Invitation can be completed via /team/accept/{token} if this fails */
       }
     }
+
+    clearCachedAuthRole();
+    await invalidateAuthProfileCache();
 
     setLoading(false);
     router.replace("/dashboard");

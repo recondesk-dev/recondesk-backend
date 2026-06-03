@@ -10,13 +10,17 @@ import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import { GstinInput, validateGstin } from "@/components/ui/GstinInput";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
-  authApi,
   clientsApi,
   isApiError,
   teamApi,
   type ClientGstin,
   type TeamMemberListItem,
 } from "@/lib/api";
+import {
+  AUTH_PROFILE_SWR_OPTIONS,
+  authProfileFetcher,
+  normalizeAuthRole,
+} from "@/lib/auth-profile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 const CLIENTS_KEY = "backend-clients-list";
@@ -71,7 +75,11 @@ export function ClientsPageContent() {
   const clientsKey =
     authToken ? ([CLIENTS_KEY, authToken] as const) : null;
 
-  const { data: me } = useSWR(meKey, ([, t]) => authApi.me(t));
+  const { data: me } = useSWR(
+    meKey,
+    ([, t]) => authProfileFetcher(t),
+    AUTH_PROFILE_SWR_OPTIONS
+  );
   const { data: teamMembers } = useSWR(teamKey, ([, t]) => teamApi.list(t));
   const {
     data: clients,
@@ -84,7 +92,7 @@ export function ClientsPageContent() {
     { keepPreviousData: true }
   );
 
-  const roleNorm = (me?.role ?? "staff").toLowerCase();
+  const roleNorm = normalizeAuthRole(me?.role);
   const isAdmin = roleNorm === "admin";
 
   const assigneeNames = useMemo(() => {
