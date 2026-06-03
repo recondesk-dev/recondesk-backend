@@ -13,6 +13,7 @@ import {
 import { Eye, EyeOff, UserPlus } from "lucide-react";
 
 const DEFAULT_API_URL = "http://localhost:8000";
+const signupInputClass = "input-field min-h-[44px] px-3 py-2";
 
 function SignupForm() {
   const router = useRouter();
@@ -128,12 +129,9 @@ function SignupForm() {
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-purple-600">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-white">
-              <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </div>
-          <h1 className="font-brand text-2xl font-bold tracking-tight text-gray-900">RECONDESK</h1>
+          <h1 className="font-brand text-[2rem] font-bold tracking-tight text-gray-900">
+            ReconDesk<span className="text-purple-600">•</span>
+          </h1>
           <p className="mt-1 text-sm text-gray-500">Reconciliation made simple</p>
         </div>
 
@@ -170,8 +168,7 @@ function SignupForm() {
                   required
                   value={form.name}
                   onChange={handleChange}
-                  placeholder="Jane Smith"
-                  className="input-field min-h-[44px]"
+                  className={signupInputClass}
                 />
               </div>
               <div>
@@ -185,14 +182,14 @@ function SignupForm() {
                   value={form.phone}
                   onChange={handleChange}
                   placeholder="+91 98765 43210"
-                  className="input-field min-h-[44px]"
+                  className={signupInputClass}
                 />
               </div>
             </div>
 
             <div>
               <label htmlFor="firmName" className="mb-1.5 block text-sm font-medium text-gray-700">
-                Firm / Company name
+                Firm / Company name (If any)
               </label>
               <input
                 id="firmName"
@@ -201,8 +198,7 @@ function SignupForm() {
                 required
                 value={form.firmName}
                 onChange={handleChange}
-                placeholder="Acme Accounting LLP"
-                className="input-field min-h-[44px]"
+                className={signupInputClass}
               />
             </div>
 
@@ -218,8 +214,7 @@ function SignupForm() {
                 required
                 value={form.email}
                 onChange={handleChange}
-                placeholder="you@company.com"
-                className="input-field min-h-[44px]"
+                className={signupInputClass}
               />
             </div>
 
@@ -236,8 +231,8 @@ function SignupForm() {
                   required
                   value={form.password}
                   onChange={handleChange}
-                  placeholder="Create a strong password"
-                  className={`input-field min-h-[44px] pr-12${unmetPasswordRules.length > 0 && showPasswordFeedback ? " border-red-300" : ""}`}
+                  placeholder="Create a password"
+                  className={`${signupInputClass} pr-12${unmetPasswordRules.length > 0 && showPasswordFeedback ? " border-red-300" : ""}`}
                 />
                 <button
                   type="button"
