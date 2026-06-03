@@ -54,6 +54,11 @@ export function getGstStateName(gstin: string): string | null {
   return GST_STATE_CODES[gstin.trim().toUpperCase().slice(0, 2)] ?? null;
 }
 
+/** Sorted Indian state / UT names for profile and address dropdowns. */
+export const INDIAN_STATE_NAMES = [...new Set(Object.values(GST_STATE_CODES))].sort(
+  (a, b) => a.localeCompare(b)
+);
+
 export type GstinFieldStatus = "idle" | "valid" | "invalid";
 
 export function validateGstin(value: string): {
