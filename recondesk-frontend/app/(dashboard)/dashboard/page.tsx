@@ -12,7 +12,6 @@ import { StatusBadge } from "@/components/dashboard/StatusBadge";
 import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
-  authApi,
   clientsApi,
   isApiError,
   reconcileRunsApi,
@@ -20,6 +19,10 @@ import {
   type ClientGstin,
   type ReconcileRunListRow,
 } from "@/lib/api";
+import {
+  AUTH_PROFILE_SWR_OPTIONS,
+  authProfileFetcher,
+} from "@/lib/auth-profile";
 import {
   DW,
   buildPortfolioRows,
@@ -146,9 +149,11 @@ export default function PortfolioDashboardPage() {
     { revalidateOnFocus: false }
   );
 
-  const { data: me, isLoading: meLoading } = useSWR(meKey, ([, , t]) => authApi.me(t), {
-    revalidateOnFocus: false,
-  });
+  const { data: me, isLoading: meLoading } = useSWR(
+    meKey,
+    ([, , t]) => authProfileFetcher(t),
+    AUTH_PROFILE_SWR_OPTIONS
+  );
 
   useEffect(() => {
     setPage(1);

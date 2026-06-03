@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { EMAIL_VALIDATION_MESSAGE, isValidEmail } from "@/lib/auth-validation";
+import {
+  clearCachedAuthRole,
+  invalidateAuthProfileCache,
+} from "@/lib/auth-profile";
 import { Eye, EyeOff, LogIn } from "lucide-react";
 import React from "react";
 
@@ -80,6 +84,8 @@ export default function LoginPage() {
       setError("Incorrect email or password");
       setLoading(false);
     } else {
+      clearCachedAuthRole();
+      await invalidateAuthProfileCache();
       router.push("/dashboard");
       router.refresh();
     }

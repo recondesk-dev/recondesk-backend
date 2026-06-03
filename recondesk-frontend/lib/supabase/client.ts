@@ -1,5 +1,9 @@
 import { createBrowserClient } from "@supabase/ssr";
 import type { Database } from "@/lib/supabase/types";
+import {
+  clearCachedAuthRole,
+  invalidateAuthProfileCache,
+} from "@/lib/auth-profile";
 
 /**
  * Browser-side Supabase client for Client Components.
@@ -108,8 +112,14 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
   } = supabase.auth.onAuthStateChange((event, session) => {
     if (cancelled) return;
     if (event === "SIGNED_OUT") {
+      clearCachedAuthRole();
+      void invalidateAuthProfileCache();
       emit(false);
       return;
+    }
+    if (event === "SIGNED_IN") {
+      clearCachedAuthRole();
+      void invalidateAuthProfileCache();
     }
     if (session?.access_token) {
       emit(session.access_token);

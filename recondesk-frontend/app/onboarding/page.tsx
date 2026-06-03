@@ -7,13 +7,16 @@ import useSWR from "swr";
 import { useToast } from "@/components/providers/ToastProvider";
 import { getGstStateName, isValidGSTIN } from "@/components/ui/GstinInput";
 import {
-  authApi,
   clientsApi,
   isApiError,
   teamApi,
   type ClientGstin,
   type TeamMemberListItem,
 } from "@/lib/api";
+import {
+  AUTH_PROFILE_SWR_OPTIONS,
+  authProfileFetcher,
+} from "@/lib/auth-profile";
 import { createClient, fetchAccessTokenFromServer } from "@/lib/supabase/client";
 
 const STEPS = 4;
@@ -113,7 +116,11 @@ export default function OnboardingPage() {
     });
   }, [clientId, token, gstrFile, prFile]);
 
-  const { data: me } = useSWR(meKey, ([, t]) => authApi.me(t));
+  const { data: me } = useSWR(
+    meKey,
+    ([, t]) => authProfileFetcher(t),
+    AUTH_PROFILE_SWR_OPTIONS
+  );
   const { data: teamMembers } = useSWR(teamKey, ([, t]) => teamApi.list(t));
 
   const assignOptions = useMemo(() => {

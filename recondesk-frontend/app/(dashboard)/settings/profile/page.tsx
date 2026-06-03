@@ -7,12 +7,15 @@ import useSWR, { mutate } from "swr";
 import { useToast } from "@/components/providers/ToastProvider";
 import { INDIAN_STATE_NAMES, isValidGSTIN } from "@/components/ui/GstinInput";
 import {
-  authApi,
   isApiError,
   usersApi,
   type AuthMeProfile,
   type ProfileUpdatePayload,
 } from "@/lib/api";
+import {
+  AUTH_PROFILE_SWR_OPTIONS,
+  authProfileFetcher,
+} from "@/lib/auth-profile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { normalizeProfilePhone, validateIndianPhone } from "@/lib/profile-validation";
 
@@ -118,8 +121,8 @@ export default function ProfileSettingsPage() {
   const meKey = authToken ? (["/api/v1/auth/me", authToken] as const) : null;
   const { data: me, isLoading: meLoading } = useSWR(
     meKey,
-    ([, t]) => authApi.me(t),
-    { revalidateOnFocus: false }
+    ([, t]) => authProfileFetcher(t),
+    AUTH_PROFILE_SWR_OPTIONS
   );
 
   const [values, setValues] = useState<ProfileFormValues | null>(null);
