@@ -53,10 +53,3 @@ uploads/
 tmp/
 .DS_Store
 ../.DS_Store
-
-# Supabase CLI local cache
-supabase/.temp/
-
-# Local test fixtures (not used in production)
-test_fixtures/
-
