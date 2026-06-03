@@ -59,7 +59,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <h1 className="font-brand text-[2rem] font-bold text-gray-900 tracking-tight">
+          <h1 className="font-brand text-[3rem] font-bold text-gray-900 tracking-tight">
             ReconDesk<span className="text-purple-600">•</span>
           </h1>
           <p className="text-sm text-gray-500 mt-1">Reconciliation made simple</p>
