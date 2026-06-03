@@ -85,6 +85,18 @@ class UserProfileResponse(StrictModel):
     free_runs_remaining: Optional[int] = None
     runs_balance: Optional[int] = None
     firm_city: Optional[str] = Field(default=None, max_length=128)
+    icai_membership_number: Optional[str] = Field(default=None, max_length=64)
+    firm_gstin: Optional[str] = Field(default=None, max_length=15)
     onboarding_completed: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProfileUpdateRequest(StrictModel):
+    full_name: str = Field(min_length=1, max_length=255)
+    email: EmailStr
+    phone: Optional[str] = Field(default=None, max_length=32)
+    firm_name: Optional[str] = Field(default=None, max_length=255)
+    icai_membership_number: Optional[str] = Field(default=None, max_length=64)
+    firm_gstin: Optional[str] = Field(default=None, max_length=15)
+    firm_city: Optional[str] = Field(default=None, max_length=128)

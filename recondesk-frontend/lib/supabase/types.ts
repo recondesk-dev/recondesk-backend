@@ -39,6 +39,8 @@ export type Database = {
           free_runs_remaining: number | null;
           runs_balance: number | null;
           firm_city: string | null;
+          icai_membership_number: string | null;
+          firm_gstin: string | null;
           onboarding_completed: boolean | null;
           created_at: string | null;
         };
@@ -53,6 +55,9 @@ export type Database = {
           plan?: string | null;
           runs_used?: number | null;
           runs_limit?: number | null;
+          firm_city?: string | null;
+          icai_membership_number?: string | null;
+          firm_gstin?: string | null;
           created_at?: string | null;
         };
         Update: {
@@ -65,6 +70,9 @@ export type Database = {
           plan?: string | null;
           runs_used?: number | null;
           runs_limit?: number | null;
+          firm_city?: string | null;
+          icai_membership_number?: string | null;
+          firm_gstin?: string | null;
         };
       };
 

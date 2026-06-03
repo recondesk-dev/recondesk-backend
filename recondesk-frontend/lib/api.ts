@@ -62,7 +62,19 @@ export interface AuthMeProfile {
   free_runs_remaining?: number | null;
   runs_balance?: number | null;
   firm_city?: string | null;
+  icai_membership_number?: string | null;
+  firm_gstin?: string | null;
   onboarding_completed?: boolean | null;
+}
+
+export interface ProfileUpdatePayload {
+  full_name: string;
+  email: string;
+  phone?: string | null;
+  firm_name?: string | null;
+  icai_membership_number?: string | null;
+  firm_gstin?: string | null;
+  firm_city?: string | null;
 }
 
 export type AcceptInviteResponse =
@@ -568,6 +580,13 @@ export const usersApi = {
     apiFetch<{ success: boolean }>("/api/users/onboarding-complete", {
       method: "PATCH",
       body: JSON.stringify({}),
+      token,
+    }),
+
+  updateProfile: (token: string, data: ProfileUpdatePayload) =>
+    apiFetch<AuthMeProfile>("/api/users/profile", {
+      method: "PATCH",
+      body: JSON.stringify(data),
       token,
     }),
 };
