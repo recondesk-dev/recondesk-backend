@@ -153,9 +153,9 @@ export default function LandingPage() {
         </ul>
 
         {/* Mock result card */}
-        <div className="mx-auto mt-14 max-w-lg rounded-2xl border border-white/10 bg-[#13161f] p-6 shadow-xl">
+        <div className="mx-auto mt-14 max-w-lg rounded-2xl border border-white/10 bg-[#13161f] p-6 text-center shadow-xl">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sample run summary</p>
-          <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="mt-4 flex flex-wrap items-start justify-center gap-8 sm:gap-12">
             <div>
               <p className="text-xs text-slate-500">ITC at Risk</p>
               <p className="mt-1 text-lg font-semibold text-amber-400">
