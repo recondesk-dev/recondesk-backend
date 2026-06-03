@@ -563,7 +563,7 @@ export function ClientTable({
             type="button"
             disabled={page <= 1 || loading}
             onClick={() => onPageChange(page - 1)}
-            className="rounded-xl border border-gray-200 px-4 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+            className="rounded-full border border-gray-200 px-4 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors"
           >
             Previous
           </button>
@@ -571,7 +571,7 @@ export function ClientTable({
             type="button"
             disabled={page >= maxPage || loading}
             onClick={() => onPageChange(page + 1)}
-            className="rounded-xl border border-gray-200 px-4 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+            className="rounded-full border border-gray-200 px-4 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors"
           >
             Next
           </button>
@@ -604,7 +604,7 @@ export function RetryConfirmModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+            className="rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
           >
             Cancel
           </button>
@@ -612,7 +612,7 @@ export function RetryConfirmModal({
             type="button"
             disabled={loading}
             onClick={onConfirm}
-            className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:opacity-90 transition-opacity"
+            className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:opacity-90 transition-opacity"
           >
             Retry
           </button>

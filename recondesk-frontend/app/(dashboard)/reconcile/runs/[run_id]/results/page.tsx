@@ -74,9 +74,9 @@ type RunSummary = {
 /** Shared action button styles for results header / exports */
 const actionBtnBase =
   "inline-flex h-9 items-center justify-center gap-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
-const exportToolbarBtn = `${actionBtnBase} rounded-md px-3 text-gray-600 hover:bg-gray-50 hover:text-gray-900`;
-const deleteRunBtn = `${actionBtnBase} rounded-lg border border-gray-200 bg-white px-3.5 text-gray-600 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-600`;
-const sectionExportBtn = `${actionBtnBase} rounded-lg border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:border-gray-300 hover:bg-gray-50`;
+const exportToolbarBtn = `${actionBtnBase} rounded-full px-3 text-gray-600 hover:bg-gray-50 hover:text-gray-900`;
+const deleteRunBtn = `${actionBtnBase} rounded-full border border-gray-200 bg-white px-3.5 text-gray-600 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-600`;
+const sectionExportBtn = `${actionBtnBase} rounded-full border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:border-gray-300 hover:bg-gray-50`;
 
 type Paginated<T> = {
   data: T[];
@@ -3031,7 +3031,7 @@ export default function ReconcileResultsPage() {
             </p>
             <button
               type="button"
-              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2 text-white hover:bg-emerald-700"
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-emerald-600 px-6 py-2 text-white hover:bg-emerald-700"
               onClick={() => setFinalizeModalOpen(true)}
             >
               Finalize Reconciliation
@@ -3092,7 +3092,7 @@ export default function ReconcileResultsPage() {
               <button
                 type="button"
                 disabled={deleting}
-                className="inline-flex min-h-[44px] items-center justify-center rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={closeDeleteModal}
               >
                 Cancel
@@ -3100,7 +3100,7 @@ export default function ReconcileResultsPage() {
               <button
                 type="button"
                 disabled={deleting}
-                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void submitDeleteRun()}
               >
                 {deleting && (
@@ -3201,7 +3201,7 @@ export default function ReconcileResultsPage() {
               <button
                 type="button"
                 disabled={finalizing}
-                className="min-h-[44px] rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-[44px] rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={closeFinalizeModal}
               >
                 Cancel
@@ -3212,7 +3212,7 @@ export default function ReconcileResultsPage() {
                   finalizing ||
                   Object.values(checklist).filter(Boolean).length !== 5
                 }
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void submitFinalize()}
               >
                 {finalizing && (

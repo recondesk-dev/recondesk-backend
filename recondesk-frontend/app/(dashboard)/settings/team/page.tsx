@@ -203,7 +203,7 @@ export default function TeamSettingsPage() {
         </h1>
         <button
           type="button"
-          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white hover:opacity-95"
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white hover:opacity-95"
           onClick={() => {
             setInviteError(null);
             setInviteOpen(true);
@@ -249,7 +249,7 @@ export default function TeamSettingsPage() {
             </p>
             <button
               type="button"
-              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white hover:opacity-95"
+              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white hover:opacity-95"
               onClick={() => {
                 setInviteError(null);
                 setInviteOpen(true);
@@ -317,7 +317,7 @@ export default function TeamSettingsPage() {
                           <button
                             type="button"
                             disabled={actionBusyId === row.id}
-                            className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-[var(--border)] px-4 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--accent-dim)] disabled:opacity-50"
+                            className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[var(--border)] px-4 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--accent-dim)] disabled:opacity-50"
                             onClick={() => void resendInvite(row)}
                           >
                             {actionBusyId === row.id ? "Sending…" : "Resend Invite"}
@@ -326,7 +326,7 @@ export default function TeamSettingsPage() {
                           <button
                             type="button"
                             disabled={selfRow || actionBusyId === row.id}
-                            className="inline-flex min-h-[44px] items-center justify-center rounded-lg px-4 text-sm font-semibold text-[var(--danger)] hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-35"
+                            className="inline-flex min-h-[44px] items-center justify-center rounded-full px-4 text-sm font-semibold text-[var(--danger)] hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-35"
                             title={selfRow ? "You cannot remove yourself" : undefined}
                             onClick={() => void removeMember(row)}
                           >
@@ -352,7 +352,7 @@ export default function TeamSettingsPage() {
             <button
               type="button"
               disabled={inviteSubmitting}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-[var(--border)] px-4 text-sm font-medium"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[var(--border)] px-4 text-sm font-medium"
               onClick={() => setInviteOpen(false)}
             >
               Cancel
@@ -360,7 +360,7 @@ export default function TeamSettingsPage() {
             <button
               type="button"
               disabled={inviteSubmitting}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white disabled:opacity-50"
               onClick={() => void submitInvite()}
             >
               {inviteSubmitting ? "Sending…" : "Send Invite"}

@@ -58,7 +58,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
               </Link>
               <Link
                 href="/auth/signup"
-                className="inline-flex min-h-[40px] items-center justify-center rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
+                className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-[var(--accent)] px-4 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
               >
                 Start Free
               </Link>
@@ -66,7 +66,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
 
             <button
               type="button"
-              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-[#E5E5E5] text-[#0A0A0A] sm:hidden"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-[#E5E5E5] text-[#0A0A0A] sm:hidden"
               aria-expanded={mobileMenuOpen}
               aria-controls="landing-mobile-nav"
               aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
@@ -85,7 +85,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
             </Link>
             <Link
               href="/auth/signup"
-              className="inline-flex min-h-[40px] items-center justify-center rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
+              className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-[var(--accent)] px-4 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
             >
               Start Free
             </Link>
@@ -107,7 +107,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
             </Link>
             <Link
               href="/auth/signup"
-              className="mt-2 inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-white transition hover:opacity-95"
+              className="mt-2 inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--accent)] px-4 text-sm font-semibold text-white transition hover:opacity-95"
               onClick={() => setMobileMenuOpen(false)}
             >
               Start Free

@@ -797,13 +797,13 @@ export default function NewReconcileWizardPage() {
           <button
             type="button"
             onClick={onCancelRun}
-            className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg)]"
+            className="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg)]"
           >
             Cancel run
           </button>
           <Link
             href="/dashboard"
-            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+            className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
           >
             Back to Dashboard
           </Link>
@@ -840,7 +840,7 @@ export default function NewReconcileWizardPage() {
             <button
               type="button"
               onClick={onResume}
-              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+              className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
             >
               Resume
             </button>
@@ -848,7 +848,7 @@ export default function NewReconcileWizardPage() {
               type="button"
               onClick={onStartFresh}
               disabled={busy}
-              className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium"
+              className="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-medium"
             >
               Start fresh
             </button>
@@ -889,7 +889,7 @@ export default function NewReconcileWizardPage() {
             type="button"
             disabled={!period || busy}
             onClick={onConfirmPeriod}
-            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             Continue
           </button>
@@ -931,7 +931,7 @@ export default function NewReconcileWizardPage() {
                 type="button"
                 disabled={!gstrFile || busy}
                 onClick={onGstrUpload}
-                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
                 Upload &amp; verify
               </button>
@@ -939,7 +939,7 @@ export default function NewReconcileWizardPage() {
                 <button
                   type="button"
                   onClick={onGstrUpload}
-                  className="ml-2 rounded-lg border px-4 py-2 text-sm"
+                  className="ml-2 rounded-full border px-4 py-2 text-sm"
                 >
                   Retry upload
                 </button>
@@ -1065,7 +1065,7 @@ export default function NewReconcileWizardPage() {
             type="button"
             disabled={!canGoToStep3}
             onClick={() => setUiStep(3)}
-            className="rounded-lg bg-[var(--text-primary)] px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-400 disabled:text-gray-100 disabled:opacity-90"
+            className="rounded-full bg-[var(--text-primary)] px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-400 disabled:text-gray-100 disabled:opacity-90"
           >
             Continue to purchase register
           </button>
@@ -1104,12 +1104,12 @@ export default function NewReconcileWizardPage() {
                 type="button"
                 disabled={!prFile || busy}
                 onClick={onPrUpload}
-                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
                 Upload &amp; detect columns
               </button>
               {prUploadFailed ? (
-                <button type="button" onClick={onPrUpload} className="ml-2 rounded-lg border px-4 py-2 text-sm">
+                <button type="button" onClick={onPrUpload} className="ml-2 rounded-full border px-4 py-2 text-sm">
                   Retry upload
                 </button>
               ) : null}
@@ -1226,7 +1226,7 @@ export default function NewReconcileWizardPage() {
             type="button"
             disabled={!canGoToStep4}
             onClick={() => setUiStep(4)}
-            className="rounded-lg bg-[var(--text-primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-full bg-[var(--text-primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             Continue to start
           </button>
@@ -1286,7 +1286,7 @@ export default function NewReconcileWizardPage() {
             type="button"
             disabled={startBusy || run?.status === "error"}
             onClick={onStart}
-            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             Start reconciliation
           </button>

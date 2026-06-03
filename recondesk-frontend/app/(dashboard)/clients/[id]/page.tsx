@@ -228,7 +228,7 @@ export default function ClientDetailPage() {
                 type="button"
                 disabled
                 title={startTitle}
-                className="inline-flex cursor-not-allowed items-center justify-center rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white opacity-50"
+                className="inline-flex cursor-not-allowed items-center justify-center rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white opacity-50"
               >
                 Start New Reconciliation
               </button>
@@ -236,7 +236,7 @@ export default function ClientDetailPage() {
               <Link
                 href={reconcileNewHref}
                 title={startTitle}
-                className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white"
+                className="inline-flex cursor-pointer items-center justify-center rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white"
               >
                 Start New Reconciliation
               </Link>
@@ -294,7 +294,7 @@ export default function ClientDetailPage() {
                 </p>
                 <Link
                   href={reconcileNewHref}
-                  className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white"
+                  className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white"
                 >
                   Start Reconciliation
                 </Link>

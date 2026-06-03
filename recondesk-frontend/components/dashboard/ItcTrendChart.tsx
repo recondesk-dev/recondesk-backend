@@ -35,7 +35,7 @@ export function ItcTrendChart({ data }: { data: ItcTrendPoint[] }) {
 
   if (allZero) {
     return (
-      <div className="flex h-[200px] items-center justify-center rounded-lg border border-[var(--border)] bg-[#F0FDF4] text-sm font-medium text-[var(--success)]">
+      <div className="flex h-[200px] items-center justify-center rounded-full border border-[var(--border)] bg-[#F0FDF4] text-sm font-medium text-[var(--success)]">
         No missed ITC in the last 6 months ✓
       </div>
     );

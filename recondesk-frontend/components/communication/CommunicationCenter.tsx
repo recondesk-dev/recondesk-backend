@@ -378,7 +378,7 @@ export default function CommunicationCenter({
         <button
           type="button"
           onClick={() => setModalOpen(true)}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
+          className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
         >
           Generate Upload Link
         </button>
@@ -463,7 +463,7 @@ export default function CommunicationCenter({
                   type="button"
                   disabled={uploadsLoadingMore}
                   onClick={() => void fetchUploadRequests(uploadRequests.length, true)}
-                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                  className="rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
                 >
                   {uploadsLoadingMore ? "Loading…" : "Load more"}
                 </button>
@@ -554,7 +554,7 @@ export default function CommunicationCenter({
                   onClick={() =>
                     void fetchUploadedFiles(uploadedFiles.length, true, uploadRequestIds)
                   }
-                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                  className="rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
                 >
                   {filesLoadingMore ? "Loading…" : "Load more"}
                 </button>
@@ -626,7 +626,7 @@ export default function CommunicationCenter({
                   type="button"
                   disabled={logsLoadingMore}
                   onClick={() => void fetchCommunicationLogs(communicationLogs.length, true)}
-                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                  className="rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
                 >
                   {logsLoadingMore ? "Loading…" : "Load more"}
                 </button>

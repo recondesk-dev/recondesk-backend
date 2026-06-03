@@ -460,7 +460,7 @@ function BillingBanner({
       <button
         type="button"
         onClick={onBuyRuns}
-        className="rounded-lg bg-orange-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-orange-700"
+        className="rounded-full bg-orange-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-orange-700"
       >
         Buy runs
       </button>
@@ -481,7 +481,7 @@ function EnterpriseSoloCard() {
       <p className="mt-6 text-lg font-semibold text-[var(--text-primary)]">Need More?</p>
       <a
         href="mailto:contact@recondesk.in"
-        className="mt-6 inline-flex w-full items-center justify-center rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+        className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
       >
         Contact Sales
       </a>
@@ -502,7 +502,7 @@ function EnterpriseFirmCard() {
       </ul>
       <a
         href="mailto:contact@recondesk.in"
-        className="mt-6 inline-flex w-full items-center justify-center rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+        className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
       >
         Contact Sales
       </a>
@@ -548,7 +548,7 @@ function PlanCard(props: {
       <button
         type="button"
         disabled
-        className="mt-6 w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-500"
+        className="mt-6 w-full cursor-not-allowed rounded-full border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-500"
       >
         {buttonLabel}
       </button>

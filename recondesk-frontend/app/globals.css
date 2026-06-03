@@ -69,9 +69,15 @@
   }
 
   .btn-primary {
-    @apply inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors;
+    @apply inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-full bg-purple-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors;
     @apply hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500/40 focus:ring-offset-2;
     @apply disabled:cursor-not-allowed disabled:bg-purple-400 disabled:opacity-70;
+  }
+
+  .btn-secondary {
+    @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full border border-gray-300 bg-white px-6 py-2.5 text-sm font-semibold text-gray-900 shadow-sm transition-colors;
+    @apply hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:ring-offset-2;
+    @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 }
 

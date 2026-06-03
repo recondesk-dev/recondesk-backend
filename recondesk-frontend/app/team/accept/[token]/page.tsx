@@ -152,7 +152,7 @@ export default function AcceptInvitePage({
             <p className="mt-2 text-sm text-[var(--text-secondary)]">{errorMsg}</p>
             <button
               type="button"
-              className="mt-8 inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-white"
+              className="mt-8 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-[var(--accent)] px-4 text-sm font-semibold text-white"
               onClick={() => router.replace("/login")}
             >
               Back to sign in
