@@ -36,7 +36,7 @@ const FAQ_ITEMS = [
 function ToggleIcon({ open }: { open: boolean }) {
   return (
     <span
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/15 text-sm font-medium text-slate-300"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[#E5E5E5] text-sm font-medium text-[#3A3A3A]"
       aria-hidden
     >
       {open ? "−" : "+"}
@@ -48,18 +48,18 @@ export function FaqAccordion() {
   const [openIndex, setOpenIndex] = useState(0);
 
   return (
-    <div className="mx-auto mt-10 max-w-3xl divide-y divide-white/10 rounded-xl border border-white/10 bg-[#13161f]">
+    <div className="mx-auto mt-10 max-w-3xl divide-y divide-[#E5E5E5] rounded-xl border border-[#E5E5E5] bg-[#F5F5F5]">
       {FAQ_ITEMS.map(({ q, a }, index) => {
         const open = openIndex === index;
         return (
           <div key={q}>
             <button
               type="button"
-              className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-white/[0.03]"
+              className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-[#EBEBEB]"
               aria-expanded={open}
               onClick={() => setOpenIndex(open ? -1 : index)}
             >
-              <span className="font-semibold text-white">{q}</span>
+              <span className="font-semibold text-[#0A0A0A]">{q}</span>
               <ToggleIcon open={open} />
             </button>
             <div
@@ -68,7 +68,7 @@ export function FaqAccordion() {
               }`}
             >
               <div className="overflow-hidden">
-                <p className="px-5 pb-4 text-sm leading-relaxed text-slate-400">{a}</p>
+                <p className="px-5 pb-4 text-sm leading-relaxed text-[#3A3A3A]">{a}</p>
               </div>
             </div>
           </div>
