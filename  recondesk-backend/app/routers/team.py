@@ -34,6 +34,18 @@ def _pg_unique_violation(exc: BaseException) -> bool:
     )
 
 
+def _apply_invited_staff_role(sb, profile_user_id: str) -> None:
+    """Team invite signups are firm members, not workspace owners."""
+    try:
+        sb.table("user_profiles").update({"role": "staff"}).eq(
+            "id", profile_user_id
+        ).execute()
+    except Exception:
+        _log.exception(
+            "failed to set staff role for invited user id=%s", profile_user_id
+        )
+
+
 def _firm_owner_id(sb, uid: str) -> str:
     prof = get_user_profile(uid) or {}
     role = (prof.get("role") or "staff").lower()
@@ -425,6 +437,7 @@ async def accept_team_invite(token: str):
         sb.table("team_members").update(
             {"is_active": False, "accepted_at": now_iso}
         ).eq("id", str(row_uuid)).execute()
+        _apply_invited_staff_role(sb, profile_user_id)
         return {"status": "accepted", "redirect": "/dashboard"}
 
     update_payload = {
@@ -441,12 +454,14 @@ async def accept_team_invite(token: str):
             sb.table("team_members").update(
                 {"is_active": False, "accepted_at": now_iso}
             ).eq("id", str(row_uuid)).execute()
+            _apply_invited_staff_role(sb, profile_user_id)
             return {"status": "accepted", "redirect": "/dashboard"}
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not accept invitation.",
         ) from exc
 
+    _apply_invited_staff_role(sb, profile_user_id)
     return {"status": "accepted", "redirect": "/dashboard"}
 
 

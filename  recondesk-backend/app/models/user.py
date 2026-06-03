@@ -76,7 +76,7 @@ class UserProfileResponse(StrictModel):
     full_name: Optional[str] = Field(default=None, max_length=255)
     firm_name: Optional[str] = Field(default=None, max_length=255)
     phone: Optional[str] = Field(default=None, max_length=32)
-    role: str = "staff"
+    role: str = "admin"
     is_active: bool = True
     created_at: Optional[datetime] = None
     plan: Optional[str] = None

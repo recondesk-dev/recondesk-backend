@@ -125,5 +125,5 @@ async def update_profile(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Profile saved but could not be loaded",
         )
-    profile["role"] = str(existing.get("role") or "staff")
+    profile["role"] = str(profile.get("role") or existing.get("role") or "admin")
     return UserProfileResponse(**profile)
