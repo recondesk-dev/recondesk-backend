@@ -55,7 +55,7 @@ export function getGstStateName(gstin: string): string | null {
 }
 
 /** Sorted Indian state / UT names for profile and address dropdowns. */
-export const INDIAN_STATE_NAMES = [...new Set(Object.values(GST_STATE_CODES))].sort(
+export const INDIAN_STATE_NAMES = Array.from(new Set(Object.values(GST_STATE_CODES))).sort(
   (a, b) => a.localeCompare(b)
 );
 
