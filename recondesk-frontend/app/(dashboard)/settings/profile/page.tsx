@@ -51,10 +51,10 @@ function emptyProfileForm(): ProfileFormValues {
   return { ...EMPTY_PROFILE_FORM };
 }
 
-function valuesFromProfile(me: AuthMeProfile, fallbackEmail = ""): ProfileFormValues {
+function valuesFromProfile(me: AuthMeProfile): ProfileFormValues {
   return {
     fullName: (me.full_name ?? "").trim(),
-    email: (me.email ?? fallbackEmail).trim(),
+    email: "",
     phone: me.phone ? normalizeProfilePhone(String(me.phone)) : "",
     firmName: (me.firm_name ?? "").trim(),
     icaiMembershipNumber: (me.icai_membership_number ?? "").trim(),
@@ -152,9 +152,18 @@ export default function ProfileSettingsPage() {
       return;
     }
     const supabase = createClient();
-    void supabase.auth.getUser().then(({ data: { user } }) => {
-      setAuthEmail((user?.email ?? "").trim());
+    const syncAuthEmail = () => {
+      void supabase.auth.getUser().then(({ data: { user } }) => {
+        setAuthEmail((user?.email ?? "").trim());
+      });
+    };
+    syncAuthEmail();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      syncAuthEmail();
     });
+    return () => subscription.unsubscribe();
   }, [authToken]);
 
   useEffect(() => {
@@ -172,40 +181,33 @@ export default function ProfileSettingsPage() {
 
   useEffect(() => {
     if (!me) return;
-    const next = valuesFromProfile(me, authEmail);
+    const next = valuesFromProfile(me);
     setValues(next);
     setBaseline(next);
     setErrors({});
     setLoadSettled(true);
-  }, [me, authEmail]);
-
-  useEffect(() => {
-    if (!authEmail || !values) return;
-    if (values.email.trim()) return;
-    setValues((prev) => (prev ? { ...prev, email: authEmail } : prev));
-    setBaseline((prev) => (prev ? { ...prev, email: authEmail } : prev));
-  }, [authEmail, values]);
+  }, [me]);
 
   useEffect(() => {
     if (!authToken || loadSettled || meLoading) return;
     if (meError || !me) {
-      const empty = { ...emptyProfileForm(), email: authEmail };
+      const empty = emptyProfileForm();
       setValues(empty);
       setBaseline(empty);
       setLoadSettled(true);
     }
-  }, [authToken, loadSettled, meLoading, meError, me, authEmail]);
+  }, [authToken, loadSettled, meLoading, meError, me]);
 
   useEffect(() => {
     if (!authToken || loadSettled) return;
     const timer = window.setTimeout(() => {
-      const empty = { ...emptyProfileForm(), email: authEmail };
+      const empty = emptyProfileForm();
       setValues((current) => current ?? empty);
       setBaseline((current) => current ?? empty);
       setLoadSettled(true);
     }, 5000);
     return () => window.clearTimeout(timer);
-  }, [authToken, loadSettled, authEmail]);
+  }, [authToken, loadSettled]);
 
   const isDirty = useMemo(() => {
     if (!values || !baseline) return false;
@@ -271,7 +273,7 @@ export default function ProfileSettingsPage() {
     setSaving(true);
     try {
       const updated = await usersApi.updateProfile(authToken, payloadFromValues(values));
-      const next = valuesFromProfile(updated, authEmail);
+      const next = valuesFromProfile(updated);
       setValues(next);
       setBaseline(next);
       setErrors({});
@@ -318,8 +320,8 @@ export default function ProfileSettingsPage() {
     );
   }
 
-  const formValues = values ?? { ...emptyProfileForm(), email: authEmail };
-  const displayEmail = (formValues.email || authEmail || me?.email || "").trim();
+  const formValues = values ?? emptyProfileForm();
+  const displayEmail = authEmail.trim();
 
   const inputClass = (key: FieldKey) =>
     `${FIELD_CLASS}${errors[key] ? " border-red-300" : ""}`;
