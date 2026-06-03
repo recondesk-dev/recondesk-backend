@@ -6,8 +6,14 @@ import { useEffect, useRef, useState } from "react";
 import useSWR, { mutate } from "swr";
 import { Avatar } from "@/components/ui/Avatar";
 import { useToast } from "@/components/providers/ToastProvider";
-import { authApi, isApiError, reconcileRunsApi, type AuthMeProfile } from "@/lib/api";
-import { displayPlanName } from "@/lib/plan-display";
+import {
+  authApi,
+  billingApi,
+  isApiError,
+  reconcileRunsApi,
+  type BillingStatus,
+  type CreditBatchRow,
+} from "@/lib/api";
 import { DW, formatPeriodLabel } from "@/lib/dashboard-portfolio";
 import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 
@@ -24,14 +30,36 @@ function initialsFromDisplayName(name: string): string {
   return parts[0][0]?.toUpperCase() ?? "?";
 }
 
-function subscriptionFromMe(me: AuthMeProfile) {
-  const runsLimit = me.runs_limit ?? 2;
-  const runsUsed = Math.max(0, me.runs_used ?? 0);
-  return {
-    plan: me.plan ?? null,
-    runsUsed,
-    runsLimit: Math.max(runsLimit, 1),
-  };
+function capitalizePlanName(plan: string): string {
+  const t = plan.trim();
+  if (!t) return "Free";
+  return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+}
+
+function planFromCreditBatches(batches: CreditBatchRow[]): string | null {
+  const active = batches.find(
+    (b) =>
+      (b.runs_remaining ?? 0) > 0 && (b.status || "").toLowerCase() !== "expired"
+  );
+  const plan = active?.plan?.trim();
+  return plan ? capitalizePlanName(plan) : null;
+}
+
+function runsAvailableFromBilling(status: BillingStatus): number {
+  return (status.free_runs_remaining ?? 0) + (status.runs_balance ?? 0);
+}
+
+function runsRemainingLabel(count: number): string {
+  return count === 1 ? "1 run remaining" : `${count} runs remaining`;
+}
+
+function ProfileBillingSkeleton() {
+  return (
+    <div className="space-y-2 border-b border-gray-100 px-4 py-3" aria-hidden>
+      <div className="h-5 w-14 animate-pulse rounded-full bg-gray-100" />
+      <div className="h-3.5 w-28 animate-pulse rounded bg-gray-100" />
+    </div>
+  );
 }
 
 function pageTitle(pathname: string): string {
@@ -138,11 +166,12 @@ export default function DashboardShellLayout({
     role: "…",
     initials: "··",
   });
-  const [subscription, setSubscription] = useState<{
-    plan: string | null;
-    runsUsed: number;
-    runsLimit: number;
-  } | null>(null);
+  const [profileBilling, setProfileBilling] = useState<
+    | { status: "idle" }
+    | { status: "loading" }
+    | { status: "ready"; planLabel: string; runsAvailable: number }
+    | { status: "error" }
+  >({ status: "idle" });
 
   useEffect(() => subscribeAccessToken(setAccessToken), []);
 
@@ -156,17 +185,6 @@ export default function DashboardShellLayout({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  function applyMeProfile(me: AuthMeProfile) {
-    const name = me.full_name?.trim() || me.email?.trim() || "User";
-    const role = (me.role ?? "staff").toUpperCase();
-    setCurrentUser({
-      name,
-      role,
-      initials: initialsFromDisplayName(name),
-    });
-    setSubscription(subscriptionFromMe(me));
-  }
-
   useEffect(() => {
     let cancelled = false;
 
@@ -175,14 +193,19 @@ export default function DashboardShellLayout({
 
       if (accessToken === false) {
         setCurrentUser({ name: "Guest", role: "—", initials: "?" });
-        setSubscription(null);
         return;
       }
 
       try {
         const me = await authApi.me(accessToken);
         if (cancelled) return;
-        applyMeProfile(me);
+        const name = me.full_name?.trim() || me.email?.trim() || "User";
+        const role = (me.role ?? "staff").toUpperCase();
+        setCurrentUser({
+          name,
+          role,
+          initials: initialsFromDisplayName(name),
+        });
       } catch {
         if (cancelled) return;
         setCurrentUser({
@@ -190,7 +213,6 @@ export default function DashboardShellLayout({
           role: "STAFF",
           initials: "?",
         });
-        setSubscription(null);
       }
     }
 
@@ -200,10 +222,39 @@ export default function DashboardShellLayout({
     };
   }, [accessToken]);
 
-  const runsUsed = subscription?.runsUsed ?? 0;
-  const runsLimit = subscription?.runsLimit ?? 2;
-  const runsLeft = Math.max(0, runsLimit - runsUsed);
-  const runsUsedPct = Math.min(100, Math.round((runsUsed / runsLimit) * 100));
+  useEffect(() => {
+    if (!profileOpen) {
+      setProfileBilling({ status: "idle" });
+      return;
+    }
+
+    if (typeof accessToken !== "string" || accessToken.length === 0) {
+      setProfileBilling({ status: "error" });
+      return;
+    }
+
+    let cancelled = false;
+    setProfileBilling({ status: "loading" });
+
+    void billingApi
+      .status(accessToken)
+      .then((status) => {
+        if (cancelled) return;
+        setProfileBilling({
+          status: "ready",
+          planLabel: planFromCreditBatches(status.credit_batches) ?? "Free",
+          runsAvailable: runsAvailableFromBilling(status),
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProfileBilling({ status: "error" });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profileOpen, accessToken]);
 
   const failuresKey =
     typeof accessToken === "string" && accessToken.length > 0
@@ -305,42 +356,17 @@ export default function DashboardShellLayout({
                   </div>
                 </div>
 
-                <div className="space-y-2.5 border-b border-gray-100 px-4 py-3">
-                  <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
-                    {subscription ? displayPlanName(subscription.plan) : "…"}
-                  </span>
-                  <div>
-                    <div className="flex items-baseline justify-between gap-2 text-xs text-gray-500">
-                      <span>
-                        {subscription ? (
-                          <>
-                            {runsUsed} of {runsLimit} runs used
-                          </>
-                        ) : (
-                          "Loading usage…"
-                        )}
-                      </span>
-                      {subscription && (
-                        <span className="shrink-0 font-medium text-gray-700">
-                          {runsLeft} left
-                        </span>
-                      )}
-                    </div>
-                    <div
-                      className="mt-1.5 h-1 overflow-hidden rounded-full bg-gray-100"
-                      role="progressbar"
-                      aria-valuenow={runsUsed}
-                      aria-valuemin={0}
-                      aria-valuemax={runsLimit}
-                      aria-label={`${runsUsed} of ${runsLimit} runs used`}
-                    >
-                      <div
-                        className="h-full rounded-full bg-emerald-500 transition-[width] duration-300"
-                        style={{ width: subscription ? `${runsUsedPct}%` : "0%" }}
-                      />
-                    </div>
+                {profileBilling.status === "loading" && <ProfileBillingSkeleton />}
+                {profileBilling.status === "ready" && (
+                  <div className="space-y-1.5 border-b border-gray-100 px-4 py-3">
+                    <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                      {profileBilling.planLabel}
+                    </span>
+                    <p className="text-xs text-gray-500">
+                      {runsRemainingLabel(profileBilling.runsAvailable)}
+                    </p>
                   </div>
-                </div>
+                )}
 
                 <button
                   type="button"
