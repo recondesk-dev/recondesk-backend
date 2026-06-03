@@ -7,8 +7,6 @@ from supabase.lib.client_options import SyncClientOptions
 
 from app.config import get_settings, httpx_timeout_client
 
-_VALID_PROFILE_ROLES = frozenset({"admin", "staff"})
-
 
 @lru_cache
 def get_supabase() -> Client:
@@ -102,10 +100,8 @@ def resolve_user_role(
     email: str | None,
     client: Client | None = None,
 ) -> str:
-    """Return a normalized role; infer admin vs staff when missing or invalid."""
-    role = str(raw_role or "").strip().lower()
-    if role in _VALID_PROFILE_ROLES:
-        return role
+    """Return canonical role: staff if invited, otherwise admin (workspace owner)."""
+    del raw_role  # stored value may be wrong; always derive from invite status
     sb = client or get_supabase()
     if _is_invited_user(sb, user_id=user_id, email=email):
         return "staff"
@@ -138,7 +134,8 @@ def get_user_profile(user_id: str) -> Optional[dict]:
             client=client,
         )
         profile["role"] = resolved
-        if str(raw_role or "").strip().lower() not in _VALID_PROFILE_ROLES:
+        stored = str(raw_role or "").strip().lower()
+        if stored != resolved:
             try:
                 client.table("user_profiles").update({"role": resolved}).eq(
                     "id", user_id
