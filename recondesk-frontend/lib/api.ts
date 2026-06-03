@@ -236,7 +236,7 @@ export async function apiFetch<T>(
       ...fetchOptions,
       headers,
       signal: controller?.signal ?? fetchOptions.signal,
-      cache: cache ?? fetchOptions.cache,
+      ...(cache ? { cache: cache as RequestCache } : {}),
     });
   } catch (err) {
     if (controller?.signal.aborted) {
