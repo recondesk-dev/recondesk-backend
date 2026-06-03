@@ -224,6 +224,82 @@ def test_rev_y_sets_reverse_charge_true():
     assert result["records"][0]["reverse_charge"] is True
 
 
+def test_gstn_portal_b2b_aliases_idt_rchrg_and_tax_fields():
+    """GST portal exports use idt, rchrg, and iamt/camt/samt/csamt."""
+    portal_item = {
+        "num": 1,
+        "itm_det": {
+            "rt": 18.0,
+            "txval": 10000.0,
+            "iamt": 0.0,
+            "camt": 900.0,
+            "samt": 900.0,
+            "csamt": 0.0,
+        },
+    }
+    inv = {
+        "inum": "INV-001",
+        "idt": "03-04-2026",
+        "val": 11800.0,
+        "pos": "27",
+        "rchrg": "Y",
+        "itcavl": "Y",
+        "itms": [portal_item],
+    }
+    result = parse_gstr2b(_payload(rtnprd="042026", b2b=[_supplier(SUPPLIER_1, [inv])]))
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 0
+    rec = result["records"][0]
+    assert rec["invoice_date_norm"] == "2026-04-03"
+    assert rec["reverse_charge"] is True
+    item = rec["items"][0]
+    assert item["cgst_paise"] == 90000
+    assert item["sgst_paise"] == 90000
+
+
+def test_gstn_portal_docdata_layout():
+    payload = _enc(
+        {
+            "status_cd": "1",
+            "data": {
+                "gstin": BUYER_GSTIN,
+                "fp": "042026",
+                "docdata": {
+                    "b2b": [
+                        {
+                            "ctin": SUPPLIER_1,
+                            "inv": [
+                                {
+                                    "inum": "INV-001",
+                                    "idt": "03-04-2026",
+                                    "val": 11800.0,
+                                    "pos": "27",
+                                    "rchrg": "N",
+                                    "itcavl": "Y",
+                                    "itms": [
+                                        {
+                                            "num": 1,
+                                            "itm_det": {
+                                                "rt": 18.0,
+                                                "txval": 10000.0,
+                                                "camt": 900.0,
+                                                "samt": 900.0,
+                                            },
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
+        }
+    )
+    result = parse_gstr2b(payload)
+    assert result["total_parsed"] == 1
+    assert result["records"][0]["invoice_number"] == "INV001"
+
+
 def test_itcavl_n_sets_itc_available_false():
     result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itcavl="N")])]))
     assert result["records"][0]["itc_available"] is False
