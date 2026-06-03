@@ -159,7 +159,9 @@ async def signup(
     }
 
     try:
-        db.table("user_profiles").insert(profile).execute()
+        db.table("user_profiles").upsert(profile, on_conflict="id").execute()
+        # Direct signup API always creates a workspace owner.
+        db.table("user_profiles").update({"role": "admin"}).eq("id", user_id).execute()
     except Exception as exc:  # noqa: BLE001
         _log.error("Profile insert failed: %s", type(exc).__name__)
         raise HTTPException(
