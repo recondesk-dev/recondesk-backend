@@ -13,7 +13,6 @@ import {
 import { Eye, EyeOff, UserPlus } from "lucide-react";
 
 const DEFAULT_API_URL = "http://localhost:8000";
-const signupInputClass = "input-field min-h-[44px] px-3 py-2";
 
 function SignupForm() {
   const router = useRouter();
@@ -128,14 +127,17 @@ function SignupForm() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12">
       <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
-          <h1 className="font-brand text-[2rem] font-bold tracking-tight text-gray-900">
-            ReconDesk<span className="text-purple-600">•</span>
+        <div className="mb-10 text-center">
+          <h1 className="font-brand inline-flex items-baseline justify-center gap-0 text-[64px] leading-none font-bold tracking-tight text-gray-900">
+            <span>ReconDesk</span>
+            <span className="text-[64px] leading-none text-purple-600" aria-hidden="true">
+              •
+            </span>
           </h1>
-          <p className="mt-1 text-sm text-gray-500">Reconciliation made simple</p>
+          <p className="mt-2 text-sm text-gray-500">Reconciliation made simple</p>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-md">
           <h2 className="mb-1 text-xl font-semibold text-gray-900">Create your account</h2>
           <p className="mb-6 text-sm text-gray-500">Get started with ReconDesk for free</p>
 
@@ -155,10 +157,10 @@ function SignupForm() {
             </div>
           )}
 
-          <form onSubmit={handleSignup} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+          <form onSubmit={handleSignup} className="space-y-5">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-4">
               <div>
-                <label htmlFor="name" className="mb-1.5 block text-sm font-medium text-gray-700">
+                <label htmlFor="name" className="mb-1 block text-sm font-medium text-gray-700">
                   Full name
                 </label>
                 <input
@@ -168,11 +170,11 @@ function SignupForm() {
                   required
                   value={form.name}
                   onChange={handleChange}
-                  className={signupInputClass}
+                  className="input-field"
                 />
               </div>
               <div>
-                <label htmlFor="phone" className="mb-1.5 block text-sm font-medium text-gray-700">
+                <label htmlFor="phone" className="mb-1 block text-sm font-medium text-gray-700">
                   Phone number
                 </label>
                 <input
@@ -182,28 +184,27 @@ function SignupForm() {
                   value={form.phone}
                   onChange={handleChange}
                   placeholder="+91 98765 43210"
-                  className={signupInputClass}
+                  className="input-field"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="firmName" className="mb-1.5 block text-sm font-medium text-gray-700">
+              <label htmlFor="firmName" className="mb-1 block text-sm font-medium text-gray-700">
                 Firm / Company name (If any)
               </label>
               <input
                 id="firmName"
                 name="firmName"
                 type="text"
-                required
                 value={form.firmName}
                 onChange={handleChange}
-                className={signupInputClass}
+                className="input-field"
               />
             </div>
 
             <div>
-              <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-gray-700">
+              <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-700">
                 Work email
               </label>
               <input
@@ -214,12 +215,12 @@ function SignupForm() {
                 required
                 value={form.email}
                 onChange={handleChange}
-                className={signupInputClass}
+                className="input-field"
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-gray-700">
+              <label htmlFor="password" className="mb-1 block text-sm font-medium text-gray-700">
                 Password
               </label>
               <div className="relative">
@@ -232,12 +233,12 @@ function SignupForm() {
                   value={form.password}
                   onChange={handleChange}
                   placeholder="Create a password"
-                  className={`${signupInputClass} pr-12${unmetPasswordRules.length > 0 && showPasswordFeedback ? " border-red-300" : ""}`}
+                  className={`input-field pr-11${unmetPasswordRules.length > 0 && showPasswordFeedback ? " border-red-300 focus:border-red-400 focus:ring-red-500/20" : ""}`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-1 top-1/2 inline-flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -274,7 +275,7 @@ function SignupForm() {
             <button
               type="submit"
               disabled={loading || !isValidPassword(form.password)}
-              className="btn-primary mt-2 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
+              className="btn-primary mt-1"
             >
               {loading ? (
                 <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">

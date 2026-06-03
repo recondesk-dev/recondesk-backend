@@ -58,15 +58,18 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="w-full max-w-md">
         {/* Logo */}
-        <div className="text-center mb-8">
-          <h1 className="font-brand text-[3rem] font-bold text-gray-900 tracking-tight">
-            ReconDesk<span className="text-purple-600">•</span>
+        <div className="mb-10 text-center">
+          <h1 className="font-brand inline-flex items-baseline justify-center gap-0 text-[64px] leading-none font-bold tracking-tight text-gray-900">
+            <span>ReconDesk</span>
+            <span className="text-[64px] leading-none text-purple-600" aria-hidden="true">
+              •
+            </span>
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Reconciliation made simple</p>
+          <p className="mt-2 text-sm text-gray-500">Reconciliation made simple</p>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-md">
           <h2 className="text-xl font-semibold text-gray-900 mb-1">Welcome back</h2>
           <p className="text-sm text-gray-500 mb-6">Sign in to your account</p>
 
@@ -78,7 +81,7 @@ export default function LoginPage() {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-700">
                 Email address
               </label>
               <input
@@ -101,7 +104,7 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-1.5">
+              <div className="mb-1 flex items-center justify-between">
                 <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                   Password
                 </label>
@@ -121,12 +124,12 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="input-field pr-10"
+                  className="input-field pr-11"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
