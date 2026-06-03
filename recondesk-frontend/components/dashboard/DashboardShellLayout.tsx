@@ -309,12 +309,13 @@ export default function DashboardShellLayout({
         <div className="px-5 py-6">
           <Link
             href="/dashboard"
-            className="font-brand inline-flex items-baseline gap-0 text-lg font-semibold tracking-tight text-gray-900"
+            className="font-brand inline-flex items-center gap-1.5 text-lg font-semibold tracking-tight text-gray-900"
           >
             <span>ReconDesk</span>
-            <span className="-ml-1.5 text-lg leading-none text-purple-600" aria-hidden="true">
-              •
-            </span>
+            <span
+              className="h-2 w-2 shrink-0 rounded-full bg-violet-600"
+              aria-hidden="true"
+            />
           </Link>
         </div>
         <nav className="flex-1 space-y-0.5 px-3">
