@@ -103,9 +103,23 @@ async def signup(
     """Register a new user and create their profile row."""
     db = get_db()
     ip = _client_ip(request)
+    full_name = str(payload.full_name or "").strip()
+    firm_name = str(payload.firm_name or "").strip()
+    phone = str(payload.phone or "").strip() if payload.phone else ""
+
     try:
         auth_response = db.auth.sign_up(
-            {"email": payload.email, "password": payload.password}
+            {
+                "email": payload.email,
+                "password": payload.password,
+                "options": {
+                    "data": {
+                        "full_name": full_name,
+                        "firm_name": firm_name,
+                        "phone": phone,
+                    }
+                },
+            }
         )
     except Exception as exc:  # noqa: BLE001
         _log.debug("sign_up failed: %s", type(exc).__name__)
@@ -149,9 +163,9 @@ async def signup(
     profile = {
         "id": user_id,
         "email": payload.email,
-        "full_name": payload.full_name,
-        "firm_name": payload.firm_name,
-        "phone": payload.phone,
+        "full_name": full_name or None,
+        "firm_name": firm_name or None,
+        "phone": phone or None,
         "role": "admin",
         "is_active": True,
         # Free tier: match DB default free_runs_remaining (2) from billing migration.
@@ -161,7 +175,9 @@ async def signup(
     try:
         db.table("user_profiles").upsert(profile, on_conflict="id").execute()
         # Direct signup API always creates a workspace owner.
-        db.table("user_profiles").update({"role": "admin"}).eq("id", user_id).execute()
+        db.table("user_profiles").update(
+            {"role": "admin", "full_name": full_name or None}
+        ).eq("id", user_id).execute()
     except Exception as exc:  # noqa: BLE001
         _log.error("Profile insert failed: %s", type(exc).__name__)
         raise HTTPException(

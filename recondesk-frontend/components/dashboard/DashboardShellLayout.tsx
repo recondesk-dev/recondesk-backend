@@ -16,6 +16,7 @@ import {
 import {
   fetchFreshAuthProfile,
   normalizeAuthRole,
+  resolveDisplayName,
 } from "@/lib/auth-profile";
 import { DW, formatPeriodLabel } from "@/lib/dashboard-portfolio";
 import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
@@ -204,7 +205,15 @@ export default function DashboardShellLayout({
       try {
         const me = await fetchFreshAuthProfile(accessToken);
         if (cancelled) return;
-        const name = me.full_name?.trim() || me.email?.trim() || "User";
+        const {
+          data: { user: authUser },
+        } = await supabase.auth.getUser();
+        const metadata = authUser?.user_metadata as { full_name?: string } | undefined;
+        const name = resolveDisplayName({
+          profileFullName: me.full_name,
+          metadataFullName: metadata?.full_name,
+          email: me.email ?? authUser?.email,
+        });
         const role = normalizeAuthRole(me.role).toUpperCase();
         setCurrentUser({
           name,
@@ -213,10 +222,18 @@ export default function DashboardShellLayout({
         });
       } catch {
         if (cancelled) return;
+        const {
+          data: { user: authUser },
+        } = await supabase.auth.getUser();
+        const metadata = authUser?.user_metadata as { full_name?: string } | undefined;
+        const name = resolveDisplayName({
+          metadataFullName: metadata?.full_name,
+          email: authUser?.email,
+        });
         setCurrentUser({
-          name: "User",
+          name,
           role: "ADMIN",
-          initials: "?",
+          initials: initialsFromDisplayName(name),
         });
       }
     }
