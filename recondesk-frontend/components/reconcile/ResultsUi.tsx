@@ -57,7 +57,7 @@ export const tableStickyCheckboxCellClass =
 export const topSuppliersTableClass = tableClass;
 
 export const topSuppliersThGstin = `${tableHeadCellClass} min-w-[170px] w-[170px]`;
-export const topSuppliersTdGstin = `${tableCellClass} min-w-[170px] w-[170px] font-mono text-[12px] text-gray-500`;
+export const topSuppliersTdGstin = `${tableCellClass} min-w-[170px] w-[170px] overflow-visible font-mono text-[12px] text-gray-500`;
 export const topSuppliersThTradeName = `${tableHeadCellClass} min-w-[180px]`;
 export const topSuppliersTdTradeName = `${tableCellClass} min-w-[180px] font-medium text-gray-800 overflow-hidden text-ellipsis whitespace-nowrap`;
 export const topSuppliersThInvoiceCount = `${tableHeadCellClass} min-w-[120px] w-[120px] text-center`;
@@ -70,7 +70,7 @@ export const topSuppliersTdImpact = `${tableCellClass} min-w-[90px] w-[90px] tex
 export const matchedTableClass = tableClass;
 
 export const matchedThGstin = `${tableHeadCellClass} min-w-[160px] w-[160px]`;
-export const matchedTdGstin = `${tableCellClass} min-w-[160px] w-[160px] font-mono text-[12px] text-gray-500`;
+export const matchedTdGstin = `${tableCellClass} min-w-[160px] w-[160px] overflow-visible font-mono text-[12px] text-gray-500`;
 export const matchedThInvoice = `${tableHeadCellClass} min-w-[110px] w-[110px]`;
 export const matchedTdInvoice = `${tableCellClass} min-w-[110px] w-[110px] font-medium text-gray-800`;
 export const matchedThDate = `${tableHeadCellClass} min-w-[100px] w-[100px]`;
@@ -130,7 +130,7 @@ export function decisionTd(
     return `${tableCellClass} w-[110px] min-w-[110px] overflow-visible whitespace-nowrap text-right font-semibold`;
   }
   if (col === "gstin") {
-    return `${tableCellClass} max-w-[130px] overflow-hidden text-ellipsis whitespace-nowrap`;
+    return `${tableCellClass} max-w-[130px] overflow-visible`;
   }
   if (col === "status") {
     return `${tableCellClass} overflow-visible whitespace-nowrap`;
