@@ -32,6 +32,7 @@ import {
   rule37BorderClass,
   Rule37SeverityLabel,
   sectionContainerClass,
+  SectionAmountBadge,
   SectionHeader,
   StatCard,
   statCardsGridClass,
@@ -1189,6 +1190,12 @@ export default function ReconcileResultsPage() {
     el.indeterminate = n > 0 && n < riskRows.length;
   }, [selectedIds.risk, riskRows]);
 
+  const rule37TotalAmount = useMemo(() => {
+    const rows = rule37Data?.data ?? [];
+    if (rows.length === 0) return null;
+    return rows.reduce((sum, row) => sum + row.amount, 0);
+  }, [rule37Data?.data]);
+
   const unresolvedRule37Count = useMemo(() => {
     const rows = rule37Data?.data ?? [];
     return rows.filter((row) => {
@@ -1890,6 +1897,7 @@ export default function ReconcileResultsPage() {
               dotColor="#DC2626"
               amount={summary.wrongful_risk_total_amount}
               amountLabel="TOTAL AT RISK"
+              badgeVariant="risk"
               actions={
                 <button
                   type="button"
@@ -2600,10 +2608,10 @@ export default function ReconcileResultsPage() {
         <div className={sectionContainerClass}>
           <button
             type="button"
-            className="flex w-full items-center justify-between text-left transition-all duration-150"
+            className="flex w-full items-center justify-between gap-3 text-left transition-all duration-150"
             onClick={() => setRule37Open((o) => !o)}
           >
-            <span className="flex flex-wrap items-center gap-2">
+            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
               <span
                 className="h-2 w-2 shrink-0 rounded-full bg-[#D97706]"
                 aria-hidden
@@ -2625,6 +2633,20 @@ export default function ReconcileResultsPage() {
                 </span>
               ) : null}
             </span>
+            {rule37TotalAmount != null && (
+              <span
+                className="mx-auto shrink-0"
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+                role="presentation"
+              >
+                <SectionAmountBadge
+                  label="AMOUNT AT RISK"
+                  amount={rule37TotalAmount}
+                  variant="rule37"
+                />
+              </span>
+            )}
             <ChevronDown
               className={`h-5 w-5 shrink-0 text-gray-400 transition-transform duration-150 ${
                 rule37Open ? "rotate-180" : ""
