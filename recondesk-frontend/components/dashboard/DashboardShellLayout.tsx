@@ -432,7 +432,7 @@ export default function DashboardShellLayout({
         </div>
       </aside>
 
-      <div className="ml-[240px] flex min-h-screen flex-1 flex-col">
+      <div className="ml-[240px] flex min-h-screen w-0 min-w-0 flex-1 flex-col overflow-x-hidden">
         <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-8">
           <h1 className="text-lg font-semibold text-gray-900" style={{ fontSize: 18, fontWeight: 600 }}>
             {title}
@@ -455,7 +455,9 @@ export default function DashboardShellLayout({
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-[#F7F7F8] p-8">{children}</main>
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-[#F7F7F8] p-8">
+          {children}
+        </main>
       </div>
 
       {panelOpen && (
