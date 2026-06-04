@@ -14,8 +14,8 @@ const config: Config = {
       colors: {
         brand: {
           DEFAULT: brandColors.DEFAULT,
+          hover: brandColors.hover,
           dim: brandColors.dim,
-          dark: brandColors.dark,
         },
         sidebar: "#0F1117",
       },

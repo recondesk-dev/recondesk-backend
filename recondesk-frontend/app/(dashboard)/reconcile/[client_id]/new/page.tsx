@@ -803,7 +803,7 @@ export default function NewReconcileWizardPage() {
           </button>
           <Link
             href="/dashboard"
-            className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white"
+            className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
           >
             Back to Dashboard
           </Link>
@@ -840,7 +840,7 @@ export default function NewReconcileWizardPage() {
             <button
               type="button"
               onClick={onResume}
-              className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white"
+              className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
             >
               Resume
             </button>
@@ -889,7 +889,7 @@ export default function NewReconcileWizardPage() {
             type="button"
             disabled={!period || busy}
             onClick={onConfirmPeriod}
-            className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
           >
             Continue
           </button>
@@ -931,7 +931,7 @@ export default function NewReconcileWizardPage() {
                 type="button"
                 disabled={!gstrFile || busy}
                 onClick={onGstrUpload}
-                className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
               >
                 Upload &amp; verify
               </button>
@@ -1104,7 +1104,7 @@ export default function NewReconcileWizardPage() {
                 type="button"
                 disabled={!prFile || busy}
                 onClick={onPrUpload}
-                className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
               >
                 Upload &amp; detect columns
               </button>
@@ -1286,7 +1286,7 @@ export default function NewReconcileWizardPage() {
             type="button"
             disabled={startBusy || run?.status === "error"}
             onClick={onStart}
-            className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
           >
             Start reconciliation
           </button>

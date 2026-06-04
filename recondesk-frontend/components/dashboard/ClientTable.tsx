@@ -291,7 +291,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           {status === "PENDING" && (
             <button
               type="button"
-              className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
+              className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-hover transition-opacity"
               onClick={() => navigateDetail()}
             >
               Start
@@ -300,7 +300,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           {!latest && (
             <button
               type="button"
-              className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
+              className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-hover transition-opacity"
               onClick={() => navigateDetail()}
             >
               Start
@@ -612,7 +612,7 @@ export function RetryConfirmModal({
             type="button"
             disabled={loading}
             onClick={onConfirm}
-            className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:opacity-90 transition-opacity"
+            className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:bg-brand-hover transition-opacity"
           >
             Retry
           </button>
