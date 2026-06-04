@@ -1474,6 +1474,7 @@ export default function ReconcileResultsPage() {
               />
               <StatCard
                 label="Matched"
+                accent="matched"
                 value={summary.matched_count.toLocaleString("en-IN")}
               />
               <StatCard
