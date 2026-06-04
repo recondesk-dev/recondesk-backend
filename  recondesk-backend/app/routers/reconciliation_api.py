@@ -57,6 +57,48 @@ def _parse_uuid(s: str, name: str = "id") -> str:
         ) from exc
 
 
+def _safe_int_paise(val: Any, default: int = 0) -> int:
+    """Coerce engine/DB paise fields without raising during record assembly."""
+    if val is None or val == "":
+        return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        try:
+            return int(float(val))
+        except (TypeError, ValueError):
+            return default
+
+
+def _wrongful_risk_record_ids_for_run(sb, rid: str) -> set[str]:
+    """API record ids (``wr:{pr_id}``) from stored engine payload — no PR table scan."""
+    p = _payload_or_404(sb, rid)
+    engine = p.get("engine") or {}
+    out: set[str] = set()
+    for w in engine.get("wrongful_itc_risk") or []:
+        pid = str(w.get("id", "")).strip()
+        if pid:
+            out.add(f"wr:{pid}")
+    return out
+
+
+def _assert_wr_record_ids_in_run(sb, rid: str, record_ids: list[str]) -> None:
+    """Validate wrongful-ITC ids without rebuilding full display rows."""
+    wanted = {str(x).strip() for x in record_ids if str(x).strip()}
+    if not wanted:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="record_ids cannot be empty",
+        )
+    valid = _wrongful_risk_record_ids_for_run(sb, rid)
+    missing = sorted(x for x in wanted if x not in valid)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"record not found in this run: {missing[0]}",
+        )
+
+
 def _require_completed_run(row: dict) -> None:
     st = str(row.get("status") or "").strip().upper()
     if st != RunStatus.COMPLETED:
@@ -1199,7 +1241,10 @@ def _build_wrongful_risk_records(
         mt = cell.get("matcher") or {}
         rd = cell.get("record_data") if isinstance(cell.get("record_data"), dict) else {}
         amt = _paise_to_rupees(
-            int(w.get("taxable_amount_paise") or mt.get("taxable_amount_paise") or 0)
+            _safe_int_paise(
+                w.get("taxable_amount_paise"),
+                _safe_int_paise(mt.get("taxable_amount_paise"), 0),
+            )
         )
         mf_wr: list[str] = []
         sg_wr = str(w.get("supplier_gstin") or mt.get("supplier_gstin") or "").strip()
@@ -2476,6 +2521,33 @@ async def log_supplier_followup_audit(
     current_user: dict = Depends(get_current_active_user),
 ):
     """Persist supplier follow-up letter audit (snapshot from client at action time)."""
+    try:
+        return _log_supplier_followup_audit_impl(
+            run_id, body, current_user=current_user
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        detail = supabase_error_message(
+            exc, context="supplier_followup_audit failed"
+        )
+        _log.exception(
+            "supplier_followup_audit unhandled run_id=%s detail=%s",
+            run_id,
+            detail,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=detail,
+        ) from exc
+
+
+def _log_supplier_followup_audit_impl(
+    run_id: str,
+    body: SupplierFollowupAuditBody,
+    *,
+    current_user: dict,
+) -> SupplierFollowupAuditResponse:
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
     run_row = assert_run_accessible(sb, rid, current_user)
@@ -2504,7 +2576,7 @@ async def log_supplier_followup_audit(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="follow-up audit only supports wrongful ITC (wr:) records",
         )
-    _assert_record_ids_in_run(sb, rid, record_ids)
+    _assert_wr_record_ids_in_run(sb, rid, record_ids)
 
     sg = body.supplier_gstin.strip().upper()
     if not sg:

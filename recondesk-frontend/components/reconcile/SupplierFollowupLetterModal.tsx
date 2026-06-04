@@ -40,17 +40,20 @@ export function SupplierFollowupLetterModal({
   const [supplierName, setSupplierName] = useState("");
   const [body, setBody] = useState("");
   const [auditBusy, setAuditBusy] = useState(false);
+  const [auditWarning, setAuditWarning] = useState<string | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [copyOk, setCopyOk] = useState(false);
 
-  const supplierGstin = rows[0]?.supplier_gstin?.trim() ?? "";
+  const supplierGstin = (rows[0]?.supplier_gstin?.trim() ?? "").toUpperCase();
 
   const postAudit = useCallback(
-    async (status: "generated" | "downloaded" | "copied") => {
+    async (
+      status: "generated" | "downloaded" | "copied"
+    ): Promise<boolean> => {
       const snap = snapshotRef.current;
-      if (!snap.length || !token) return;
+      if (!snap.length || !token) return false;
       setAuditBusy(true);
-      setAuditError(null);
+      if (status !== "generated") setAuditError(null);
       try {
         const display = defaultSupplierDisplayName(rows, supplierName);
         await apiFetch<{ id: string; status: string; generated_at: string }>(
@@ -69,14 +72,22 @@ export function SupplierFollowupLetterModal({
             }),
           }
         );
+        if (status === "generated") setAuditWarning(null);
+        return true;
       } catch (e) {
-        setAuditError(
-          isApiError(e)
-            ? e.detail
-            : e instanceof Error
-              ? e.message
-              : "Could not save audit record"
-        );
+        const msg = isApiError(e)
+          ? e.detail
+          : e instanceof Error
+            ? e.message
+            : "Could not save audit record";
+        if (status === "generated") {
+          setAuditWarning(
+            `${msg} You can still copy or download the letter.`
+          );
+        } else {
+          setAuditError(msg);
+        }
+        return false;
       } finally {
         setAuditBusy(false);
       }
@@ -88,6 +99,7 @@ export function SupplierFollowupLetterModal({
     if (!open || rows.length === 0) return;
     const snap = buildInvoiceSnapshot(rows);
     snapshotRef.current = snap;
+    setAuditWarning(null);
     setAuditError(null);
     setCopyOk(false);
 
@@ -251,6 +263,9 @@ export function SupplierFollowupLetterModal({
             />
           </div>
 
+          {auditWarning && (
+            <p className="text-[13px] text-amber-800">{auditWarning}</p>
+          )}
           {auditError && (
             <p className="text-[13px] text-red-600">{auditError}</p>
           )}

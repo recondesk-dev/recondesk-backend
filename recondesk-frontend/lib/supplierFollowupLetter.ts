@@ -44,7 +44,7 @@ export function buildInvoiceSnapshot(
 ): FollowupInvoiceSnapshotItem[] {
   return rows.map((row) => ({
     record_id: row.id,
-    supplier_gstin: row.supplier_gstin,
+    supplier_gstin: row.supplier_gstin.trim().toUpperCase(),
     invoice_number: row.invoice_number,
     invoice_date: row.invoice_date,
     amount: row.amount,
