@@ -26,6 +26,7 @@ import {
   filterInputClass,
   filterRowClass,
   formatINRPlain,
+  InrAmount,
   ImpactBadge,
   pageContentClass,
   rule37BorderClass,
@@ -467,9 +468,7 @@ function PaginationFooter({
   return (
     <div className="mt-3 flex w-full flex-wrap items-center justify-between gap-2">
       {summary != null ? (
-        <p className="min-w-0 truncate text-[13px] font-medium text-gray-600">
-          {summary}
-        </p>
+        <p className="min-w-0 truncate text-[13px]">{summary}</p>
       ) : (
         <p className="min-w-0 truncate text-sm text-gray-500">
           Showing {from}–{to} of {total} records
@@ -1489,10 +1488,11 @@ export default function ReconcileResultsPage() {
                   label="Missed ITC"
                   accent="missed"
                   value={
-                    <>
-                      <span className="font-normal text-gray-300">₹</span>
-                      {formatINRPlain(summary.missed_itc_total_amount)}
-                    </>
+                    <InrAmount
+                      amount={summary.missed_itc_total_amount}
+                      sizeClass="text-3xl font-bold"
+                      numberColorClass="text-[#E05252]"
+                    />
                   }
                 />
               </div>
@@ -1501,10 +1501,11 @@ export default function ReconcileResultsPage() {
                   label="At Risk"
                   accent="risk"
                   value={
-                    <>
-                      <span className="font-normal text-gray-300">₹</span>
-                      {formatINRPlain(summary.wrongful_risk_total_amount)}
-                    </>
+                    <InrAmount
+                      amount={summary.wrongful_risk_total_amount}
+                      sizeClass="text-3xl font-bold"
+                      numberColorClass="text-[#E09A3A]"
+                    />
                   }
                 />
               </div>
@@ -1554,7 +1555,8 @@ export default function ReconcileResultsPage() {
             <SectionHeader
               title="ITC You Can Still Claim"
               dotColor="#16A34A"
-              amount={`₹${formatINRPlain(summary.missed_itc_total_amount)}`}
+              amount={summary.missed_itc_total_amount}
+              amountLabel="TOTAL RECOVERABLE"
               actions={
                 <button
                   type="button"
@@ -1797,7 +1799,10 @@ export default function ReconcileResultsPage() {
                           <td className={`${decisionTd("num")} text-[13px] text-gray-500`}>
                             {(itcPage - 1) * 50 + i + 1}
                           </td>
-                          <td className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}>
+                          <td
+                            title={row.supplier_gstin}
+                            className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}
+                          >
                             {row.supplier_gstin}
                           </td>
                           <td className={`${decisionTd("invoice")} font-medium text-gray-800`}>
@@ -1806,7 +1811,7 @@ export default function ReconcileResultsPage() {
                           <td className={`${decisionTd("date")} text-[13px] text-gray-500`}>
                             {formatDate(row.invoice_date)}
                           </td>
-                          <td className={decisionTd("amount", { align: "right" })}>
+                          <td className={decisionTd("amount")}>
                             <AmountDisplay amount={row.amount} />
                           </td>
                           <td className={decisionTd("impact")}>
@@ -1824,7 +1829,9 @@ export default function ReconcileResultsPage() {
                             {row.decision_next ?? "—"}
                           </td>
                           <td className={decisionTd("status")}>
-                            <DecisionStatusPill status={effectiveStatus(row)} />
+                            <span className="inline-flex">
+                              <DecisionStatusPill status={effectiveStatus(row)} />
+                            </span>
                           </td>
                         </tr>
                       ))}
@@ -1844,11 +1851,16 @@ export default function ReconcileResultsPage() {
                   }
                   summary={
                     <>
-                      <span className="text-gray-900">
-                        ₹{formatINRPlain(summary.missed_itc_total_amount)}
-                      </span>{" "}
-                      ITC recoverable across{" "}
-                      {itcPageData.total.toLocaleString("en-IN")} invoices
+                      <InrAmount
+                        amount={summary.missed_itc_total_amount}
+                        sizeClass="text-[13px] font-semibold"
+                        numberColorClass="font-semibold text-gray-800"
+                      />
+                      <span className="text-gray-400">
+                        {" "}
+                        ITC recoverable across{" "}
+                        {itcPageData.total.toLocaleString("en-IN")} invoices
+                      </span>
                     </>
                   }
                 />
@@ -1876,7 +1888,8 @@ export default function ReconcileResultsPage() {
             <SectionHeader
               title="ITC at Risk — Supplier Has Not Filed"
               dotColor="#DC2626"
-              amount={`₹${formatINRPlain(summary.wrongful_risk_total_amount)}`}
+              amount={summary.wrongful_risk_total_amount}
+              amountLabel="TOTAL AT RISK"
               actions={
                 <button
                   type="button"
@@ -2120,7 +2133,10 @@ export default function ReconcileResultsPage() {
                           <td className={`${decisionTd("num")} text-[13px] text-gray-500`}>
                             {(riskPage - 1) * 50 + i + 1}
                           </td>
-                          <td className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}>
+                          <td
+                            title={row.supplier_gstin}
+                            className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}
+                          >
                             {row.supplier_gstin}
                           </td>
                           <td className={`${decisionTd("invoice")} font-medium text-gray-800`}>
@@ -2129,7 +2145,7 @@ export default function ReconcileResultsPage() {
                           <td className={`${decisionTd("date")} text-[13px] text-gray-500`}>
                             {formatDate(row.invoice_date)}
                           </td>
-                          <td className={decisionTd("amount", { align: "right" })}>
+                          <td className={decisionTd("amount")}>
                             <AmountDisplay amount={row.amount} />
                           </td>
                           <td className={decisionTd("impact")}>
@@ -2147,7 +2163,9 @@ export default function ReconcileResultsPage() {
                             {row.decision_next ?? "—"}
                           </td>
                           <td className={decisionTd("status")}>
-                            <DecisionStatusPill status={effectiveStatus(row)} />
+                            <span className="inline-flex">
+                              <DecisionStatusPill status={effectiveStatus(row)} />
+                            </span>
                           </td>
                           <td className={decisionTd("notice", { align: "right" })}>
                             <button
@@ -2177,11 +2195,16 @@ export default function ReconcileResultsPage() {
                   }
                   summary={
                     <>
-                      <span className="text-[#DC2626]">
-                        ₹{formatINRPlain(summary.wrongful_risk_total_amount)}
-                      </span>{" "}
-                      ITC at risk across{" "}
-                      {riskPageData.total.toLocaleString("en-IN")} invoices
+                      <InrAmount
+                        amount={summary.wrongful_risk_total_amount}
+                        sizeClass="text-[13px] font-semibold"
+                        numberColorClass="font-semibold text-gray-800"
+                      />
+                      <span className="text-gray-400">
+                        {" "}
+                        ITC at risk across{" "}
+                        {riskPageData.total.toLocaleString("en-IN")} invoices
+                      </span>
                     </>
                   }
                 />
