@@ -9,11 +9,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import useSWR from "swr";
 import {
   AmountDisplay,
   csvDownloadBtnClass,
+  DecisionTableColGroup,
   decisionTd,
   decisionTh,
   DecisionStatusPill,
@@ -449,6 +451,7 @@ function PaginationFooter({
   onPrev,
   onNext,
   disabled,
+  summary,
 }: {
   page: number;
   totalPages: number;
@@ -457,15 +460,22 @@ function PaginationFooter({
   onPrev: () => void;
   onNext: () => void;
   disabled?: boolean;
+  summary?: ReactNode;
 }) {
   const from = total === 0 ? 0 : (page - 1) * limit + 1;
   const to = Math.min(page * limit, total);
   return (
-    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-      <p className="text-sm text-gray-500">
-        Showing {from}–{to} of {total} records
-      </p>
-      <div className="flex gap-2">
+    <div className="mt-3 flex w-full flex-wrap items-center justify-between gap-2">
+      {summary != null ? (
+        <p className="min-w-0 truncate text-[13px] font-medium text-gray-600">
+          {summary}
+        </p>
+      ) : (
+        <p className="min-w-0 truncate text-sm text-gray-500">
+          Showing {from}–{to} of {total} records
+        </p>
+      )}
+      <div className="flex shrink-0 gap-2">
         <button
           type="button"
           disabled={disabled || page <= 1}
@@ -1371,7 +1381,7 @@ export default function ReconcileResultsPage() {
   }
 
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#F7F7F8] pb-28">
+    <div className="box-border min-h-screen w-full max-w-full overflow-x-hidden bg-[#F7F7F8] pb-28">
       {/*
         Summary bar — sticky (not fixed) so it lives in normal document flow.
         -mt-8 and -mx-8 cancel main's p-8 padding so the bar is flush with
@@ -1381,7 +1391,7 @@ export default function ReconcileResultsPage() {
       */}
       <div
         ref={summaryRef}
-        className="sticky -top-8 -mx-8 -mt-8 z-40 w-full max-w-full overflow-x-hidden border-b border-[#F0F0F0] bg-white px-8 py-4 box-border"
+        className="sticky -top-8 -mx-8 -mt-8 z-40 box-border w-full max-w-full overflow-x-hidden border-b border-[#F0F0F0] bg-white px-8 py-4"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
@@ -1501,16 +1511,18 @@ export default function ReconcileResultsPage() {
           </>
         )}
         {summary && !summaryError && (
-          <div className="mt-3 w-full overflow-hidden">
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F0F0F0]">
-              <div
-                className="h-1.5 max-w-full rounded-full bg-brand transition-all duration-150"
-                style={{
-                  width: `${Math.min(100, Math.max(0, summary.match_rate_percent))}%`,
-                }}
-              />
+          <div className="mt-3 flex w-full items-center gap-3">
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F0F0F0]">
+                <div
+                  className="h-1.5 max-w-full rounded-full bg-brand transition-all duration-150"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, summary.match_rate_percent))}%`,
+                  }}
+                />
+              </div>
             </div>
-            <p className="mt-1.5 truncate text-right text-[12px] font-medium text-gray-400">
+            <p className="shrink-0 whitespace-nowrap text-[12px] font-medium text-gray-400">
               {summary.match_rate_percent}% matched
             </p>
           </div>
@@ -1644,6 +1656,7 @@ export default function ReconcileResultsPage() {
             {itcLoading && !itcPageData && !itcError && (
               <div className={tableWrapClass}>
                 <table className={tableClass}>
+                  <DecisionTableColGroup />
                   <thead className={tableHeadClass}>
                     <tr>
                       {Array.from({ length: 11 }).map((_, i) => (
@@ -1717,6 +1730,7 @@ export default function ReconcileResultsPage() {
                 )}
                 <div className={tableWrapClass}>
                   <table className={tableClass}>
+                    <DecisionTableColGroup />
                     <thead className={tableHeadClass}>
                       <tr>
                         <th className={tableStickyCheckboxHeadClass}>
@@ -1827,14 +1841,16 @@ export default function ReconcileResultsPage() {
                       Math.min(itcPageData.total_pages, p + 1)
                     )
                   }
+                  summary={
+                    <>
+                      <span className="text-gray-900">
+                        ₹{formatINRPlain(summary.missed_itc_total_amount)}
+                      </span>{" "}
+                      ITC recoverable across{" "}
+                      {itcPageData.total.toLocaleString("en-IN")} invoices
+                    </>
+                  }
                 />
-                <p className="mt-3 text-right text-[13px] font-medium text-gray-600">
-                  <span className="text-gray-900">
-                    ₹{formatINRPlain(summary.missed_itc_total_amount)}
-                  </span>{" "}
-                  ITC recoverable across{" "}
-                  {itcPageData.total.toLocaleString("en-IN")} invoices
-                </p>
               </>
             )}
           </div>
@@ -1960,6 +1976,7 @@ export default function ReconcileResultsPage() {
             {riskLoading && !riskPageData && !riskError && (
               <div className={tableWrapClass}>
                 <table className={tableClass}>
+                  <DecisionTableColGroup includeNotice />
                   <thead className={tableHeadClass}>
                     <tr>
                       {Array.from({ length: 12 }).map((_, i) => (
@@ -2031,6 +2048,7 @@ export default function ReconcileResultsPage() {
                 )}
                 <div className={tableWrapClass}>
                   <table className={tableClass}>
+                    <DecisionTableColGroup includeNotice />
                     <thead className={tableHeadClass}>
                       <tr>
                         <th className={tableStickyCheckboxHeadClass}>
@@ -2156,14 +2174,16 @@ export default function ReconcileResultsPage() {
                       Math.min(riskPageData.total_pages, p + 1)
                     )
                   }
+                  summary={
+                    <>
+                      <span className="text-[#DC2626]">
+                        ₹{formatINRPlain(summary.wrongful_risk_total_amount)}
+                      </span>{" "}
+                      ITC at risk across{" "}
+                      {riskPageData.total.toLocaleString("en-IN")} invoices
+                    </>
+                  }
                 />
-                <p className="mt-3 text-right text-[13px] font-medium text-gray-600">
-                  <span className="text-[#DC2626]">
-                    ₹{formatINRPlain(summary.wrongful_risk_total_amount)}
-                  </span>{" "}
-                  ITC at risk across{" "}
-                  {riskPageData.total.toLocaleString("en-IN")} invoices
-                </p>
               </>
             )}
           </div>
