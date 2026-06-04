@@ -53,6 +53,7 @@ import {
   SectionAmountBadge,
   SectionHeader,
   StatCard,
+  statCardValueClass,
   statCardsGridClass,
   tableCellClass,
   tableClass,
@@ -1526,7 +1527,7 @@ export default function ReconcileResultsPage() {
                   value={
                     <InrAmount
                       amount={summary.missed_itc_total_amount}
-                      sizeClass="text-3xl font-bold"
+                      sizeClass={statCardValueClass}
                       numberColorClass="text-gray-900"
                     />
                   }
@@ -1539,7 +1540,7 @@ export default function ReconcileResultsPage() {
                   value={
                     <InrAmount
                       amount={summary.wrongful_risk_total_amount}
-                      sizeClass="text-3xl font-bold"
+                      sizeClass={statCardValueClass}
                       numberColorClass="text-gray-900"
                     />
                   }
