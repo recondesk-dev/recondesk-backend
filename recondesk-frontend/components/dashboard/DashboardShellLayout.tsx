@@ -326,7 +326,7 @@ export default function DashboardShellLayout({
   ];
 
   return (
-    <div className="flex min-h-screen min-w-[1280px] bg-[var(--bg)] text-[var(--text-primary)]">
+    <div className="flex min-h-screen w-full min-w-0 bg-[var(--bg)] text-[var(--text-primary)]">
       <aside className="fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col border-r border-[#F0F0F0] bg-white">
         <div className="px-5 py-6">
           <Link
@@ -432,7 +432,7 @@ export default function DashboardShellLayout({
         </div>
       </aside>
 
-      <div className="ml-[240px] flex min-h-screen w-0 min-w-0 flex-1 flex-col overflow-x-hidden">
+      <div className="box-border flex min-h-screen min-w-0 w-full flex-1 flex-col overflow-x-hidden pl-[240px]">
         <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-8">
           <h1 className="text-lg font-semibold text-gray-900" style={{ fontSize: 18, fontWeight: 600 }}>
             {title}

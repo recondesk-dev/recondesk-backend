@@ -25,7 +25,7 @@ export const sectionContainerClass =
   "mb-6 box-border w-full max-w-full rounded-2xl border border-[#F0F0F0] bg-white p-6 transition-all duration-150";
 
 export const pageContentClass =
-  "box-border w-full max-w-full space-y-4 overflow-x-hidden px-6 pt-2";
+  "box-border w-full max-w-full space-y-4 overflow-x-hidden pt-2";
 
 export const statCardsGridClass =
   "mt-4 grid w-full min-w-0 grid-cols-2 gap-3 border-t border-[#F0F0F0] pt-4 md:[grid-template-columns:repeat(4,minmax(0,1fr))]";
