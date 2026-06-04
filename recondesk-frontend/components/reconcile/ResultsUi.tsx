@@ -179,54 +179,99 @@ export function StatCard({
   );
 }
 
+type SectionAmountBadgeVariant = "claim" | "risk" | "rule37";
+
+const sectionAmountBadgeStyles: Record<
+  SectionAmountBadgeVariant,
+  { card: string; label: string; amount: string }
+> = {
+  claim: {
+    card: "bg-green-50 border-green-100",
+    label: "text-green-500",
+    amount: "text-green-700",
+  },
+  risk: {
+    card: "bg-red-50 border-red-100",
+    label: "text-red-400",
+    amount: "text-red-600",
+  },
+  rule37: {
+    card: "bg-amber-50 border-amber-100",
+    label: "text-amber-500",
+    amount: "text-amber-700",
+  },
+};
+
+export function SectionAmountBadge({
+  label,
+  amount,
+  variant,
+}: {
+  label: string;
+  amount: number;
+  variant: SectionAmountBadgeVariant;
+}) {
+  const styles = sectionAmountBadgeStyles[variant];
+  return (
+    <div
+      className={`inline-flex min-w-[120px] flex-col items-center justify-center rounded-2xl border px-5 py-3 ${styles.card}`}
+    >
+      <span
+        className={`text-[10px] font-semibold uppercase tracking-widest ${styles.label}`}
+      >
+        {label}
+      </span>
+      <InrAmount
+        amount={amount}
+        sizeClass="whitespace-nowrap text-xl font-bold"
+        numberColorClass={styles.amount}
+      />
+    </div>
+  );
+}
+
 export function SectionHeader({
   title,
   dotColor,
   amount,
   amountLabel,
+  badgeVariant = "claim",
   actions,
 }: {
   title: string;
   dotColor: string;
   amount?: number;
   amountLabel?: string;
+  badgeVariant?: SectionAmountBadgeVariant;
   actions?: ReactNode;
 }) {
   return (
-    <div className="mb-5 w-full">
-      <div className="flex w-full items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{ backgroundColor: dotColor }}
-            aria-hidden
-          />
-          <h2 className="min-w-0 truncate text-lg font-semibold text-gray-900">
-            {title}
-          </h2>
-        </div>
-        {actions != null && (
-          <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-            {actions}
-          </div>
-        )}
+    <div className="mb-5 flex w-full items-center justify-between gap-3">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <span
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ backgroundColor: dotColor }}
+          aria-hidden
+        />
+        <h2 className="min-w-0 truncate text-lg font-semibold text-gray-900">
+          {title}
+        </h2>
       </div>
-      {amount != null && (
-        <div className="mt-3 min-w-0">
-          {amountLabel != null && (
-            <p className="text-[11px] font-medium uppercase tracking-wider text-gray-400">
-              {amountLabel}
-            </p>
-          )}
-          <p className="mt-0.5">
-            <InrAmount
-              amount={amount}
-              sizeClass="text-2xl font-bold"
-              numberColorClass=""
-              numberStyle={{ color: dotColor }}
-            />
-          </p>
+      {amount != null && amountLabel != null && (
+        <div className="mx-auto shrink-0">
+          <SectionAmountBadge
+            label={amountLabel}
+            amount={amount}
+            variant={badgeVariant}
+          />
         </div>
+      )}
+      {actions != null ? (
+        <div className="flex flex-1 shrink-0 items-center justify-end gap-2 whitespace-nowrap">
+          {actions}
+        </div>
+      ) : (
+        <div className="flex-1" aria-hidden />
       )}
     </div>
   );
