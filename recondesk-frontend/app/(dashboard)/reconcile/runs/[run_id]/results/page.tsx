@@ -1560,7 +1560,7 @@ export default function ReconcileResultsPage() {
                 />
               </div>
             </div>
-            <p className="shrink-0 whitespace-nowrap text-[12px] font-medium text-gray-400">
+            <p className="shrink-0 whitespace-nowrap rounded-md bg-brand/10 px-2 py-0.5 text-[12px] font-medium text-brand">
               {summary.match_rate_percent}% matched
             </p>
           </div>
