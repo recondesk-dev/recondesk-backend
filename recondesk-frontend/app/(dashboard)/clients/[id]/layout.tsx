@@ -14,6 +14,7 @@ export default function ClientWorkspaceLayout({
 
   const tabs = [
     { label: "Overview", href: `/clients/${id}` },
+    { label: "Follow-up History", href: `/clients/${id}/follow-up` },
     { label: "Communication", href: `/clients/${id}/communication` },
   ] as const;
 

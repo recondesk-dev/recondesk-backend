@@ -29,6 +29,7 @@ from app.services.firm_access import (
     assert_run_accessible,
     list_accessible_client_gstin_ids,
 )
+from app.services.followup_audit_export import build_followup_history_xlsx_bytes
 from app.services.reconcile_export_workbook import (
     build_excel_workbook_bytes,
     build_pdf_summary_bytes,
@@ -618,6 +619,119 @@ class SupplierFollowupAuditResponse(BaseModel):
     id: str
     status: str
     generated_at: str
+
+
+class SupplierFollowupAuditListItem(BaseModel):
+    id: str
+    run_id: str
+    tax_period: str
+    supplier_gstin: str
+    supplier_name_display: Optional[str] = None
+    template_type: str
+    status: str
+    generated_by: str
+    generated_by_name: str
+    generated_at: str
+
+
+_FOLLOWUP_AUDIT_STATUSES = frozenset({"generated", "downloaded", "copied"})
+_FOLLOWUP_AUDIT_RUN_CHUNK = 100
+
+
+def _followup_audit_user_names(uids: set[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for uid in uids:
+        if not uid:
+            continue
+        prof = get_user_profile(uid) or {}
+        fn = (prof.get("full_name") or "").strip()
+        out[uid] = fn or uid
+    return out
+
+
+def _followup_audit_query(
+    sb,
+    *,
+    run_id: Optional[str] = None,
+    run_ids: Optional[list[str]] = None,
+    status: Optional[str] = None,
+    supplier_gstin: Optional[str] = None,
+    tax_period: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    if run_id:
+        ids = [run_id]
+    elif run_ids is not None:
+        ids = [str(x).strip() for x in run_ids if str(x).strip()]
+        if not ids:
+            return []
+    else:
+        return []
+
+    st = (status or "").strip().lower() or None
+    sg = (supplier_gstin or "").strip().upper() or None
+    tp = (tax_period or "").strip() or None
+
+    rows: list[dict[str, Any]] = []
+    for i in range(0, len(ids), _FOLLOWUP_AUDIT_RUN_CHUNK):
+        chunk = ids[i : i + _FOLLOWUP_AUDIT_RUN_CHUNK]
+        q = (
+            sb.table("supplier_followup_audit")
+            .select(
+                "id, run_id, tax_period, supplier_gstin, supplier_name_display, "
+                "template_type, status, generated_by, generated_at"
+            )
+            .in_("run_id", chunk)
+        )
+        if st:
+            q = q.eq("status", st)
+        if sg:
+            q = q.eq("supplier_gstin", sg)
+        if tp:
+            q = q.eq("tax_period", tp)
+        res = q.order("generated_at", desc=True).execute()
+        rows.extend(list(res.data or []))
+
+    rows.sort(key=lambda r: str(r.get("generated_at") or ""), reverse=True)
+    return rows
+
+
+def _followup_audit_list_response(rows: list[dict[str, Any]]) -> list[SupplierFollowupAuditListItem]:
+    uids = {
+        str(r.get("generated_by") or "").strip()
+        for r in rows
+        if r.get("generated_by")
+    }
+    names = _followup_audit_user_names(uids)
+    out: list[SupplierFollowupAuditListItem] = []
+    for r in rows:
+        gb = str(r.get("generated_by") or "").strip()
+        out.append(
+            SupplierFollowupAuditListItem(
+                id=str(r.get("id") or ""),
+                run_id=str(r.get("run_id") or ""),
+                tax_period=str(r.get("tax_period") or ""),
+                supplier_gstin=str(r.get("supplier_gstin") or ""),
+                supplier_name_display=r.get("supplier_name_display"),
+                template_type=str(r.get("template_type") or ""),
+                status=str(r.get("status") or ""),
+                generated_by=gb,
+                generated_by_name=names.get(gb, ""),
+                generated_at=str(r.get("generated_at") or ""),
+            )
+        )
+    return out
+
+
+def _parse_followup_audit_status_filter(status: Optional[str]) -> Optional[str]:
+    if not status or not str(status).strip():
+        return None
+    st = str(status).strip().lower()
+    if st not in _FOLLOWUP_AUDIT_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="status must be generated, downloaded, or copied",
+        )
+    return st
 
 
 @router.post(
@@ -2658,6 +2772,116 @@ def _log_supplier_followup_audit_impl(
         id=str(out.get("id") or ""),
         status=str(out.get("status") or body.status),
         generated_at=str(out.get("generated_at") or now),
+    )
+
+
+@reconcile_runs_router.get(
+    "/runs/{run_id}/supplier-followup/audit",
+    response_model=list[SupplierFollowupAuditListItem],
+)
+async def list_run_supplier_followup_audit(
+    run_id: str,
+    status: Optional[str] = Query(None),
+    supplier_gstin: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    st = _parse_followup_audit_status_filter(status)
+    sg = (supplier_gstin or "").strip().upper() or None
+    rows = _followup_audit_query(
+        sb, run_id=rid, status=st, supplier_gstin=sg
+    )
+    return _followup_audit_list_response(rows)
+
+
+@reconcile_runs_router.get(
+    "/clients/{client_gstin_id}/supplier-followup/audit",
+    response_model=list[SupplierFollowupAuditListItem],
+)
+async def list_client_supplier_followup_audit(
+    client_gstin_id: str,
+    status: Optional[str] = Query(None),
+    tax_period: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_active_user),
+):
+    cid = _parse_uuid(client_gstin_id, "client_gstin_id")
+    sb = get_supabase()
+    accessible = list_accessible_client_gstin_ids(sb, current_user)
+    if cid not in accessible:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="not allowed for this client",
+        )
+    st = _parse_followup_audit_status_filter(status)
+    tp = (tax_period or "").strip() or None
+    runs_res = (
+        sb.table("reconciliation_run")
+        .select("id")
+        .eq("client_gstin_id", cid)
+        .execute()
+    )
+    run_ids = [str(r.get("id") or "") for r in (runs_res.data or []) if r.get("id")]
+    rows = _followup_audit_query(
+        sb, run_ids=run_ids, status=st, tax_period=tp
+    )
+    return _followup_audit_list_response(rows)
+
+
+@reconcile_runs_router.get(
+    "/clients/{client_gstin_id}/supplier-followup/audit/export",
+)
+async def export_client_supplier_followup_audit(
+    client_gstin_id: str,
+    status: Optional[str] = Query(None),
+    tax_period: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_active_user),
+):
+    cid = _parse_uuid(client_gstin_id, "client_gstin_id")
+    sb = get_supabase()
+    accessible = list_accessible_client_gstin_ids(sb, current_user)
+    if cid not in accessible:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="not allowed for this client",
+        )
+    st = _parse_followup_audit_status_filter(status)
+    tp = (tax_period or "").strip() or None
+    cg_res = (
+        sb.table("client_gstins")
+        .select("gstin")
+        .eq("id", cid)
+        .limit(1)
+        .execute()
+    )
+    if not cg_res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="client not found",
+        )
+    client_gstin = str(cg_res.data[0].get("gstin") or "").strip()
+    runs_res = (
+        sb.table("reconciliation_run")
+        .select("id")
+        .eq("client_gstin_id", cid)
+        .execute()
+    )
+    run_ids = [str(r.get("id") or "") for r in (runs_res.data or []) if r.get("id")]
+    rows = _followup_audit_query(
+        sb, run_ids=run_ids, status=st, tax_period=tp
+    )
+    items = _followup_audit_list_response(rows)
+    blob, fn = build_followup_history_xlsx_bytes(
+        [x.model_dump() for x in items],
+        client_gstin=client_gstin,
+        include_tax_period=True,
+    )
+    headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
+    return StreamingResponse(
+        io.BytesIO(blob),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
     )
 
 
