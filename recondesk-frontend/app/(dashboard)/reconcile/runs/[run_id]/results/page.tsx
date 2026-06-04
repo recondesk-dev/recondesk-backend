@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, ChevronDown, FileSpreadsheet, FileText, Loader2, Shield, Trash2, X } from "lucide-react";
+import { GstinCell } from "@/components/ui/GstinCell";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -1834,11 +1835,8 @@ export default function ReconcileResultsPage() {
                           <td className={`${decisionTd("num")} text-[13px] text-gray-500`}>
                             {(itcPage - 1) * 50 + i + 1}
                           </td>
-                          <td
-                            title={row.supplier_gstin}
-                            className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}
-                          >
-                            {row.supplier_gstin}
+                          <td className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}>
+                            <GstinCell gstin={row.supplier_gstin} />
                           </td>
                           <td className={`${decisionTd("invoice")} font-medium text-gray-800`}>
                             {row.invoice_number}
@@ -2169,11 +2167,8 @@ export default function ReconcileResultsPage() {
                           <td className={`${decisionTd("num")} text-[13px] text-gray-500`}>
                             {(riskPage - 1) * 50 + i + 1}
                           </td>
-                          <td
-                            title={row.supplier_gstin}
-                            className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}
-                          >
-                            {row.supplier_gstin}
+                          <td className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}>
+                            <GstinCell gstin={row.supplier_gstin} />
                           </td>
                           <td className={`${decisionTd("invoice")} font-medium text-gray-800`}>
                             {row.invoice_number}
@@ -2280,7 +2275,9 @@ export default function ReconcileResultsPage() {
                     <tbody>
                       {topSuppliersByRisk.map((s) => (
                         <tr key={s.gstin} className={tableRowClass}>
-                          <td className={topSuppliersTdGstin}>{s.gstin}</td>
+                          <td className={topSuppliersTdGstin}>
+                            <GstinCell gstin={s.gstin} />
+                          </td>
                           <td className={topSuppliersTdTradeName}>
                             {s.tradeName || "—"}
                           </td>
@@ -2573,7 +2570,9 @@ export default function ReconcileResultsPage() {
                           setNotePostError(null);
                         }}
                       >
-                        <td className={matchedTdGstin}>{row.supplier_gstin}</td>
+                        <td className={matchedTdGstin}>
+                          <GstinCell gstin={row.supplier_gstin} />
+                        </td>
                         <td className={matchedTdInvoice}>{row.invoice_number}</td>
                         <td className={matchedTdDate}>
                           {formatDate(row.invoice_date)}
@@ -2707,9 +2706,10 @@ export default function ReconcileResultsPage() {
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
-                          <span className="font-mono text-[12px] text-gray-400">
-                            {row.supplier_gstin}
-                          </span>
+                          <GstinCell
+                            gstin={row.supplier_gstin}
+                            className="font-mono text-[12px] text-gray-400"
+                          />
                           <span className="font-medium text-gray-800">
                             {row.invoice_number}
                           </span>
