@@ -10,7 +10,7 @@ import {
   type FollowupInvoiceSnapshotItem,
   type RiskRowForFollowup,
 } from "@/lib/supplierFollowupLetter";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, isApiError } from "@/lib/api";
 
 const DISCLAIMER_MODAL =
   "This is a system-generated follow-up draft. Please review before sending. This letter is generated for informational and communication purposes. It does not constitute legal advice.";
@@ -71,7 +71,11 @@ export function SupplierFollowupLetterModal({
         );
       } catch (e) {
         setAuditError(
-          e instanceof Error ? e.message : "Could not save audit record"
+          isApiError(e)
+            ? e.detail
+            : e instanceof Error
+              ? e.message
+              : "Could not save audit record"
         );
       } finally {
         setAuditBusy(false);
