@@ -7,31 +7,89 @@ import type { ReactNode } from "react";
 export const filterInputClass =
   "border border-[#E5E7EB] rounded-xl text-[13px] px-3 py-2 bg-white focus:ring-2 focus:ring-brand/20 focus:border-brand outline-none transition-all duration-150";
 
+export const filterRowClass = "flex flex-wrap gap-2 w-full";
+
+export const filterAmountInputClass = `${filterInputClass} max-w-[100px] w-full min-w-0`;
+
+export const filterDateInputClass = `${filterInputClass} max-w-[140px] w-full min-w-0`;
+
+export const filterGstinInputClass = `${filterInputClass} min-w-[160px] flex-1`;
+
+export const filterDropdownClass = `${filterInputClass} max-w-[160px] w-full min-w-0`;
+
 export const csvDownloadBtnClass =
-  "inline-flex items-center justify-center gap-2 border border-[#E5E7EB] bg-white text-gray-600 text-[13px] font-medium rounded-xl px-4 py-2 hover:bg-gray-50 transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex shrink-0 items-center justify-center gap-2 border border-[#E5E7EB] bg-white text-gray-600 text-[13px] font-medium rounded-xl px-4 py-2 hover:bg-gray-50 transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50";
 
 export const sectionContainerClass =
-  "bg-white rounded-2xl border border-[#F0F0F0] p-6 mb-6 transition-all duration-150";
+  "w-full box-border bg-white rounded-2xl border border-[#F0F0F0] p-6 mb-6 transition-all duration-150";
 
-export const tableWrapClass = "overflow-x-auto";
+export const pageContentClass =
+  "mx-auto box-border w-full max-w-full space-y-4 overflow-x-hidden pt-2 lg:max-w-7xl";
 
-export const tableClass = "min-w-full text-left";
+export const statCardsGridClass =
+  "mt-4 grid w-full grid-cols-2 gap-3 border-t border-[#F0F0F0] pt-4 sm:grid-cols-4";
+
+export const tableWrapClass = "w-full overflow-x-auto";
+
+export const tableClass = "min-w-[800px] w-full table-fixed text-left";
 
 export const tableHeadClass =
   "bg-[#FAFAFA] text-[11px] font-semibold uppercase tracking-wider text-gray-400";
 
-export const tableHeadCellClass = "px-4 py-3 text-left";
+export const tableHeadCellClass =
+  "px-4 py-3 text-left overflow-hidden text-ellipsis whitespace-nowrap";
 
 export const tableRowClass =
   "border-b border-[#F5F5F5] bg-white hover:bg-[#FAFAFA] transition-all duration-150";
 
 export const tableCellClass = "px-4 py-4 align-middle";
 
+export const tableTruncateCellClass =
+  `${tableCellClass} overflow-hidden text-ellipsis whitespace-nowrap`;
+
 export const tableStickyCheckboxHeadClass =
-  "sticky left-0 z-10 bg-[#FAFAFA] px-4 py-3";
+  "sticky left-0 z-10 bg-[#FAFAFA] px-4 py-3 w-10";
 
 export const tableStickyCheckboxCellClass =
-  "sticky left-0 z-10 bg-white px-4 py-4 transition-all duration-150 group-hover:bg-[#FAFAFA]";
+  "sticky left-0 z-10 w-10 bg-white px-4 py-4 transition-all duration-150 group-hover:bg-[#FAFAFA]";
+
+/** Fixed column widths for ITC / risk decision tables */
+export const decisionTableCol = {
+  checkbox: "w-10",
+  num: "w-8",
+  gstin: "w-[160px]",
+  invoice: "w-[110px]",
+  date: "w-[100px]",
+  amount: "w-[90px]",
+  impact: "w-[70px]",
+  what: "w-[160px]",
+  why: "w-[140px]",
+  next: "w-[140px]",
+  status: "w-[80px]",
+  notice: "w-[120px]",
+} as const;
+
+export function decisionTh(
+  col: keyof typeof decisionTableCol,
+  align?: "right"
+): string {
+  return `${tableHeadCellClass} ${decisionTableCol[col]}${align === "right" ? " text-right" : ""}`;
+}
+
+export function decisionTd(
+  col: keyof typeof decisionTableCol,
+  opts?: { truncate?: boolean; align?: "right" }
+): string {
+  const truncate =
+    opts?.truncate ??
+    (col === "what" ||
+      col === "why" ||
+      col === "next" ||
+      col === "gstin" ||
+      col === "invoice");
+  const base = truncate ? tableTruncateCellClass : tableCellClass;
+  return `${base} ${decisionTableCol[col]}${opts?.align === "right" ? " text-right" : ""}`;
+}
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
 
@@ -69,11 +127,13 @@ export function StatCard({
 }) {
   const colors = statAccentValue[accent];
   return (
-    <div className="relative flex min-w-[140px] flex-1 flex-col rounded-2xl border border-[#F0F0F0] bg-white px-5 py-4">
-      <p className="text-[11px] font-medium uppercase tracking-widest text-gray-400">
+    <div className="relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[#F0F0F0] bg-white px-5 py-4">
+      <p className="truncate text-[11px] font-medium uppercase tracking-widest text-gray-400">
         {label}
       </p>
-      <p className={`mt-1 text-3xl font-bold tabular-nums ${colors.value}`}>
+      <p
+        className={`mt-1 truncate text-3xl font-bold tabular-nums ${colors.value}`}
+      >
         {value}
       </p>
       <span
@@ -96,23 +156,28 @@ export function SectionHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-      <div className="flex min-w-0 items-center gap-2.5">
+    <div className="mb-5 flex w-full flex-wrap items-center justify-between gap-2">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
         <span
           className="h-2 w-2 shrink-0 rounded-full"
           style={{ backgroundColor: dotColor }}
           aria-hidden
         />
-        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-      </div>
-      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="min-w-0 truncate text-lg font-semibold text-gray-900">
+          {title}
+        </h2>
         {amount != null && (
-          <span className="text-xl font-bold tabular-nums" style={{ color: dotColor }}>
+          <span
+            className="shrink-0 text-xl font-bold tabular-nums"
+            style={{ color: dotColor }}
+          >
             {amount}
           </span>
         )}
-        {actions}
       </div>
+      {actions != null && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+      )}
     </div>
   );
 }

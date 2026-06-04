@@ -14,15 +14,24 @@ import useSWR from "swr";
 import {
   AmountDisplay,
   csvDownloadBtnClass,
+  decisionTd,
+  decisionTh,
   DecisionStatusPill,
+  filterAmountInputClass,
+  filterDateInputClass,
+  filterDropdownClass,
+  filterGstinInputClass,
   filterInputClass,
+  filterRowClass,
   formatINRPlain,
   ImpactBadge,
+  pageContentClass,
   rule37BorderClass,
   Rule37SeverityLabel,
   sectionContainerClass,
   SectionHeader,
   StatCard,
+  statCardsGridClass,
   tableCellClass,
   tableClass,
   tableHeadCellClass,
@@ -1362,7 +1371,7 @@ export default function ReconcileResultsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F7F7F8] pb-28">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#F7F7F8] pb-28">
       {/*
         Summary bar — sticky (not fixed) so it lives in normal document flow.
         -mt-8 and -mx-8 cancel main's p-8 padding so the bar is flush with
@@ -1372,7 +1381,7 @@ export default function ReconcileResultsPage() {
       */}
       <div
         ref={summaryRef}
-        className="sticky -top-8 -mx-8 -mt-8 z-40 border-b border-[#F0F0F0] bg-white px-8 py-4"
+        className="sticky -top-8 -mx-8 -mt-8 z-40 w-full max-w-full overflow-x-hidden border-b border-[#F0F0F0] bg-white px-8 py-4 box-border"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
@@ -1458,7 +1467,7 @@ export default function ReconcileResultsPage() {
               </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-3 border-t border-[#F0F0F0] pt-4">
+            <div className={statCardsGridClass}>
               <StatCard
                 label="Total GSTR"
                 value={summary.total_gstr_records.toLocaleString("en-IN")}
@@ -1491,23 +1500,23 @@ export default function ReconcileResultsPage() {
           </>
         )}
         {summary && !summaryError && (
-          <div className="mt-3">
-            <div className="h-1.5 w-full rounded-full bg-[#F0F0F0]">
+          <div className="mt-3 w-full overflow-hidden">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F0F0F0]">
               <div
-                className="h-1.5 rounded-full bg-brand transition-all duration-150"
+                className="h-1.5 max-w-full rounded-full bg-brand transition-all duration-150"
                 style={{
                   width: `${Math.min(100, Math.max(0, summary.match_rate_percent))}%`,
                 }}
               />
             </div>
-            <p className="mt-1.5 text-right text-[12px] font-medium text-gray-400">
+            <p className="mt-1.5 truncate text-right text-[12px] font-medium text-gray-400">
               {summary.match_rate_percent}% matched
             </p>
           </div>
         )}
       </div>
 
-      <div className="mx-auto max-w-7xl space-y-4 pt-2">
+      <div className={pageContentClass}>
         {/* ITC */}
         {summary &&
           summary.missed_itc_count === 0 &&
@@ -1547,12 +1556,11 @@ export default function ReconcileResultsPage() {
               }
             />
 
-            <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center">
-              <div className="flex w-full flex-col flex-wrap gap-2 sm:flex-row sm:items-center">
+            <div className={`${filterRowClass} mb-4 items-center`}>
                 <input
                   type="text"
                   inputMode="decimal"
-                  className={`w-full min-w-[6rem] sm:w-28 ${filterInputClass}`}
+                  className={filterAmountInputClass}
                   placeholder="₹ Min"
                   value={itcFilters.amount_min}
                   onChange={(e) =>
@@ -1562,7 +1570,7 @@ export default function ReconcileResultsPage() {
                 <input
                   type="text"
                   inputMode="decimal"
-                  className={`w-full min-w-[6rem] sm:w-28 ${filterInputClass}`}
+                  className={filterAmountInputClass}
                   placeholder="₹ Max"
                   value={itcFilters.amount_max}
                   onChange={(e) =>
@@ -1571,7 +1579,7 @@ export default function ReconcileResultsPage() {
                 />
                 <input
                   type="text"
-                  className={`w-full min-w-[10rem] sm:min-w-[12rem] ${filterInputClass}`}
+                  className={filterGstinInputClass}
                   placeholder="Filter by GSTIN..."
                   value={itcFilters.supplier_gstin}
                   onChange={(e) =>
@@ -1583,7 +1591,7 @@ export default function ReconcileResultsPage() {
                 />
                 <input
                   type="date"
-                  className={`w-full sm:w-auto ${filterInputClass}`}
+                  className={filterDateInputClass}
                   value={itcFilters.date_from}
                   onChange={(e) =>
                     setItcFilters((f) => ({ ...f, date_from: e.target.value }))
@@ -1591,7 +1599,7 @@ export default function ReconcileResultsPage() {
                 />
                 <input
                   type="date"
-                  className={`w-full sm:w-auto ${filterInputClass}`}
+                  className={filterDateInputClass}
                   value={itcFilters.date_to}
                   onChange={(e) =>
                     setItcFilters((f) => ({ ...f, date_to: e.target.value }))
@@ -1614,9 +1622,8 @@ export default function ReconcileResultsPage() {
                     Clear filters
                   </button>
                 )}
-              </div>
               <select
-                className={`w-full lg:w-auto lg:min-w-[12rem] ${filterInputClass}`}
+                className={filterDropdownClass}
                 value={itcSort}
                 onChange={(e) => setItcSort(e.target.value)}
               >
@@ -1737,16 +1744,16 @@ export default function ReconcileResultsPage() {
                             className="rounded border-gray-300"
                           />
                         </th>
-                        <th className={tableHeadCellClass}>#</th>
-                        <th className={tableHeadCellClass}>Supplier GSTIN</th>
-                        <th className={tableHeadCellClass}>Invoice#</th>
-                        <th className={tableHeadCellClass}>Date</th>
-                        <th className={`${tableHeadCellClass} text-right`}>Amount</th>
-                        <th className={tableHeadCellClass}>Impact</th>
-                        <th className={tableHeadCellClass}>WHAT</th>
-                        <th className={tableHeadCellClass}>WHY</th>
-                        <th className={tableHeadCellClass}>NEXT</th>
-                        <th className={tableHeadCellClass}>Status</th>
+                        <th className={decisionTh("num")}>#</th>
+                        <th className={decisionTh("gstin")}>Supplier GSTIN</th>
+                        <th className={decisionTh("invoice")}>Invoice#</th>
+                        <th className={decisionTh("date")}>Date</th>
+                        <th className={decisionTh("amount", "right")}>Amount</th>
+                        <th className={decisionTh("impact")}>Impact</th>
+                        <th className={decisionTh("what")}>WHAT</th>
+                        <th className={decisionTh("why")}>WHY</th>
+                        <th className={decisionTh("next")}>NEXT</th>
+                        <th className={decisionTh("status")}>Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1771,36 +1778,36 @@ export default function ReconcileResultsPage() {
                               className="rounded border-gray-300"
                             />
                           </td>
-                          <td className={`${tableCellClass} text-[13px] text-gray-500`}>
+                          <td className={`${decisionTd("num")} text-[13px] text-gray-500`}>
                             {(itcPage - 1) * 50 + i + 1}
                           </td>
-                          <td className={`${tableCellClass} font-mono text-[13px] text-gray-500`}>
+                          <td className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}>
                             {row.supplier_gstin}
                           </td>
-                          <td className={`${tableCellClass} font-medium text-gray-800`}>
+                          <td className={`${decisionTd("invoice")} font-medium text-gray-800`}>
                             {row.invoice_number}
                           </td>
-                          <td className={`${tableCellClass} text-[13px] text-gray-500`}>
+                          <td className={`${decisionTd("date")} text-[13px] text-gray-500`}>
                             {formatDate(row.invoice_date)}
                           </td>
-                          <td className={`${tableCellClass} text-right`}>
+                          <td className={decisionTd("amount", { align: "right" })}>
                             <AmountDisplay amount={row.amount} />
                           </td>
-                          <td className={tableCellClass}>
+                          <td className={decisionTd("impact")}>
                             <ImpactBadge
                               level={getImpactLevel(row.amount, itcMax)}
                             />
                           </td>
-                          <td className={`${tableCellClass} max-w-[140px] truncate text-[13px] text-gray-600`}>
+                          <td className={`${decisionTd("what")} text-[13px] text-gray-600`}>
                             {row.decision_what ?? "—"}
                           </td>
-                          <td className={`${tableCellClass} max-w-[140px] truncate text-[13px] italic text-gray-400`}>
+                          <td className={`${decisionTd("why")} text-[13px] italic text-gray-400`}>
                             {row.decision_why ?? "—"}
                           </td>
-                          <td className={`${tableCellClass} max-w-[140px] truncate text-[13px] font-medium text-brand hover:underline cursor-pointer`}>
+                          <td className={`${decisionTd("next")} text-[13px] font-medium text-brand hover:underline cursor-pointer`}>
                             {row.decision_next ?? "—"}
                           </td>
-                          <td className={tableCellClass}>
+                          <td className={decisionTd("status")}>
                             <DecisionStatusPill status={effectiveStatus(row)} />
                           </td>
                         </tr>
@@ -1867,12 +1874,11 @@ export default function ReconcileResultsPage() {
               }
             />
 
-            <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center">
-              <div className="flex w-full flex-col flex-wrap gap-2 sm:flex-row sm:items-center">
+            <div className={`${filterRowClass} mb-4 items-center`}>
                 <input
                   type="text"
                   inputMode="decimal"
-                  className={`w-full min-w-[6rem] sm:w-28 ${filterInputClass}`}
+                  className={filterAmountInputClass}
                   placeholder="₹ Min"
                   value={riskFilters.amount_min}
                   onChange={(e) =>
@@ -1882,7 +1888,7 @@ export default function ReconcileResultsPage() {
                 <input
                   type="text"
                   inputMode="decimal"
-                  className={`w-full min-w-[6rem] sm:w-28 ${filterInputClass}`}
+                  className={filterAmountInputClass}
                   placeholder="₹ Max"
                   value={riskFilters.amount_max}
                   onChange={(e) =>
@@ -1891,7 +1897,7 @@ export default function ReconcileResultsPage() {
                 />
                 <input
                   type="text"
-                  className={`w-full min-w-[10rem] sm:min-w-[12rem] ${filterInputClass}`}
+                  className={filterGstinInputClass}
                   placeholder="Filter by GSTIN..."
                   value={riskFilters.supplier_gstin}
                   onChange={(e) =>
@@ -1902,7 +1908,7 @@ export default function ReconcileResultsPage() {
                   }
                 />
                 <select
-                  className={`w-full sm:w-auto sm:min-w-[8rem] ${filterInputClass}`}
+                  className={filterDropdownClass}
                   value={riskFilters.risk_level}
                   onChange={(e) =>
                     setRiskFilters((f) => ({
@@ -1932,9 +1938,8 @@ export default function ReconcileResultsPage() {
                     Clear filters
                   </button>
                 )}
-              </div>
               <select
-                className={`w-full lg:w-auto lg:min-w-[12rem] ${filterInputClass}`}
+                className={filterDropdownClass}
                 value={riskSort}
                 onChange={(e) => setRiskSort(e.target.value)}
               >
@@ -2055,17 +2060,17 @@ export default function ReconcileResultsPage() {
                             className="rounded border-gray-300"
                           />
                         </th>
-                        <th className={tableHeadCellClass}>#</th>
-                        <th className={tableHeadCellClass}>Supplier GSTIN</th>
-                        <th className={tableHeadCellClass}>Invoice#</th>
-                        <th className={tableHeadCellClass}>Date</th>
-                        <th className={`${tableHeadCellClass} text-right`}>Amount</th>
-                        <th className={tableHeadCellClass}>Impact</th>
-                        <th className={tableHeadCellClass}>WHAT</th>
-                        <th className={tableHeadCellClass}>WHY</th>
-                        <th className={tableHeadCellClass}>NEXT</th>
-                        <th className={tableHeadCellClass}>Status</th>
-                        <th className={`${tableHeadCellClass} text-right`}>
+                        <th className={decisionTh("num")}>#</th>
+                        <th className={decisionTh("gstin")}>Supplier GSTIN</th>
+                        <th className={decisionTh("invoice")}>Invoice#</th>
+                        <th className={decisionTh("date")}>Date</th>
+                        <th className={decisionTh("amount", "right")}>Amount</th>
+                        <th className={decisionTh("impact")}>Impact</th>
+                        <th className={decisionTh("what")}>WHAT</th>
+                        <th className={decisionTh("why")}>WHY</th>
+                        <th className={decisionTh("next")}>NEXT</th>
+                        <th className={decisionTh("status")}>Status</th>
+                        <th className={decisionTh("notice", "right")}>
                           Generate Notice
                         </th>
                       </tr>
@@ -2092,39 +2097,39 @@ export default function ReconcileResultsPage() {
                               className="rounded border-gray-300"
                             />
                           </td>
-                          <td className={`${tableCellClass} text-[13px] text-gray-500`}>
+                          <td className={`${decisionTd("num")} text-[13px] text-gray-500`}>
                             {(riskPage - 1) * 50 + i + 1}
                           </td>
-                          <td className={`${tableCellClass} font-mono text-[13px] text-gray-500`}>
+                          <td className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}>
                             {row.supplier_gstin}
                           </td>
-                          <td className={`${tableCellClass} font-medium text-gray-800`}>
+                          <td className={`${decisionTd("invoice")} font-medium text-gray-800`}>
                             {row.invoice_number}
                           </td>
-                          <td className={`${tableCellClass} text-[13px] text-gray-500`}>
+                          <td className={`${decisionTd("date")} text-[13px] text-gray-500`}>
                             {formatDate(row.invoice_date)}
                           </td>
-                          <td className={`${tableCellClass} text-right`}>
+                          <td className={decisionTd("amount", { align: "right" })}>
                             <AmountDisplay amount={row.amount} />
                           </td>
-                          <td className={tableCellClass}>
+                          <td className={decisionTd("impact")}>
                             <ImpactBadge
                               level={getImpactLevel(row.amount, riskMax)}
                             />
                           </td>
-                          <td className={`${tableCellClass} max-w-[140px] truncate text-[13px] text-gray-600`}>
+                          <td className={`${decisionTd("what")} text-[13px] text-gray-600`}>
                             {row.decision_what ?? "—"}
                           </td>
-                          <td className={`${tableCellClass} max-w-[140px] truncate text-[13px] italic text-gray-400`}>
+                          <td className={`${decisionTd("why")} text-[13px] italic text-gray-400`}>
                             {row.decision_why ?? "—"}
                           </td>
-                          <td className={`${tableCellClass} max-w-[140px] truncate text-[13px] font-medium text-brand hover:underline cursor-pointer`}>
+                          <td className={`${decisionTd("next")} text-[13px] font-medium text-brand hover:underline cursor-pointer`}>
                             {row.decision_next ?? "—"}
                           </td>
-                          <td className={tableCellClass}>
+                          <td className={decisionTd("status")}>
                             <DecisionStatusPill status={effectiveStatus(row)} />
                           </td>
-                          <td className={`${tableCellClass} text-right`}>
+                          <td className={decisionTd("notice", { align: "right" })}>
                             <button
                               type="button"
                               disabled
