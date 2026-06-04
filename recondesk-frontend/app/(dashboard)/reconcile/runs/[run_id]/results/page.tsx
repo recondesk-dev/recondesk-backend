@@ -2,6 +2,7 @@
 
 import { Check, ChevronDown, FileSpreadsheet, FileText, Loader2, Shield, Trash2, X } from "lucide-react";
 import { GstinCell } from "@/components/ui/GstinCell";
+import { HoverTextCell } from "@/components/ui/HoverTextCell";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -17,6 +18,8 @@ import {
   AmountDisplay,
   csvDownloadBtnClass,
   DecisionTableColGroup,
+  decisionTableClass,
+  decisionTableWrapClass,
   decisionTd,
   decisionTh,
   DecisionStatusPill,
@@ -56,7 +59,6 @@ import {
   statCardValueClass,
   statCardsGridClass,
   tableCellClass,
-  tableClass,
   tableHeadCellClass,
   tableHeadClass,
   tableRowClass,
@@ -1694,8 +1696,8 @@ export default function ReconcileResultsPage() {
               />
             )}
             {itcLoading && !itcPageData && !itcError && (
-              <div className={tableWrapClass}>
-                <table className={tableClass}>
+              <div className={decisionTableWrapClass}>
+                <table className={decisionTableClass}>
                   <DecisionTableColGroup />
                   <thead className={tableHeadClass}>
                     <tr>
@@ -1768,8 +1770,8 @@ export default function ReconcileResultsPage() {
                     </button>
                   </div>
                 )}
-                <div className={tableWrapClass}>
-                  <table className={tableClass}>
+                <div className={decisionTableWrapClass}>
+                  <table className={decisionTableClass}>
                     <DecisionTableColGroup />
                     <thead className={tableHeadClass}>
                       <tr>
@@ -1839,8 +1841,11 @@ export default function ReconcileResultsPage() {
                           <td className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}>
                             <GstinCell gstin={row.supplier_gstin} />
                           </td>
-                          <td className={`${decisionTd("invoice")} font-medium text-gray-800`}>
-                            {row.invoice_number}
+                          <td className={decisionTd("invoice")}>
+                            <HoverTextCell
+                              text={row.invoice_number}
+                              displayClassName="text-[13px] font-medium text-gray-800"
+                            />
                           </td>
                           <td className={`${decisionTd("date")} text-[13px] text-gray-500`}>
                             {formatDate(row.invoice_date)}
@@ -1853,14 +1858,23 @@ export default function ReconcileResultsPage() {
                               level={getImpactLevel(row.amount, itcMax)}
                             />
                           </td>
-                          <td className={`${decisionTd("what")} text-[13px] text-gray-600`}>
-                            {row.decision_what ?? "—"}
+                          <td className={decisionTd("what")}>
+                            <HoverTextCell
+                              text={row.decision_what}
+                              displayClassName="text-[13px] text-gray-600"
+                            />
                           </td>
-                          <td className={`${decisionTd("why")} text-[13px] italic text-gray-400`}>
-                            {row.decision_why ?? "—"}
+                          <td className={decisionTd("why")}>
+                            <HoverTextCell
+                              text={row.decision_why}
+                              displayClassName="text-[13px] italic text-gray-400"
+                            />
                           </td>
-                          <td className={`${decisionTd("next")} text-[13px] font-medium text-brand hover:underline cursor-pointer`}>
-                            {row.decision_next ?? "—"}
+                          <td className={decisionTd("next")}>
+                            <HoverTextCell
+                              text={row.decision_next}
+                              displayClassName="text-[13px] font-medium text-brand"
+                            />
                           </td>
                           <td className={decisionTd("status")}>
                             <span className="inline-flex">
@@ -2023,8 +2037,8 @@ export default function ReconcileResultsPage() {
               />
             )}
             {riskLoading && !riskPageData && !riskError && (
-              <div className={tableWrapClass}>
-                <table className={tableClass}>
+              <div className={decisionTableWrapClass}>
+                <table className={decisionTableClass}>
                   <DecisionTableColGroup includeNotice />
                   <thead className={tableHeadClass}>
                     <tr>
@@ -2095,8 +2109,8 @@ export default function ReconcileResultsPage() {
                     </button>
                   </div>
                 )}
-                <div className={tableWrapClass}>
-                  <table className={tableClass}>
+                <div className={decisionTableWrapClass}>
+                  <table className={decisionTableClass}>
                     <DecisionTableColGroup includeNotice />
                     <thead className={tableHeadClass}>
                       <tr>
@@ -2171,8 +2185,11 @@ export default function ReconcileResultsPage() {
                           <td className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}>
                             <GstinCell gstin={row.supplier_gstin} />
                           </td>
-                          <td className={`${decisionTd("invoice")} font-medium text-gray-800`}>
-                            {row.invoice_number}
+                          <td className={decisionTd("invoice")}>
+                            <HoverTextCell
+                              text={row.invoice_number}
+                              displayClassName="text-[13px] font-medium text-gray-800"
+                            />
                           </td>
                           <td className={`${decisionTd("date")} text-[13px] text-gray-500`}>
                             {formatDate(row.invoice_date)}
@@ -2185,14 +2202,23 @@ export default function ReconcileResultsPage() {
                               level={getImpactLevel(row.amount, riskMax)}
                             />
                           </td>
-                          <td className={`${decisionTd("what")} text-[13px] text-gray-600`}>
-                            {row.decision_what ?? "—"}
+                          <td className={decisionTd("what")}>
+                            <HoverTextCell
+                              text={row.decision_what}
+                              displayClassName="text-[13px] text-gray-600"
+                            />
                           </td>
-                          <td className={`${decisionTd("why")} text-[13px] italic text-gray-400`}>
-                            {row.decision_why ?? "—"}
+                          <td className={decisionTd("why")}>
+                            <HoverTextCell
+                              text={row.decision_why}
+                              displayClassName="text-[13px] italic text-gray-400"
+                            />
                           </td>
-                          <td className={`${decisionTd("next")} text-[13px] font-medium text-brand hover:underline cursor-pointer`}>
-                            {row.decision_next ?? "—"}
+                          <td className={decisionTd("next")}>
+                            <HoverTextCell
+                              text={row.decision_next}
+                              displayClassName="text-[13px] font-medium text-brand"
+                            />
                           </td>
                           <td className={decisionTd("status")}>
                             <span className="inline-flex">
@@ -2204,7 +2230,7 @@ export default function ReconcileResultsPage() {
                               type="button"
                               disabled
                               title="Coming Soon — Phase 7"
-                              className="whitespace-nowrap rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-[11px] font-medium text-gray-500 disabled:cursor-not-allowed disabled:opacity-60"
+                              className="max-w-full rounded-lg border border-[#E5E7EB] bg-white px-2 py-1.5 text-[10px] font-medium leading-tight text-gray-500 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               Generate Notice
                             </button>
@@ -2280,7 +2306,10 @@ export default function ReconcileResultsPage() {
                             <GstinCell gstin={s.gstin} />
                           </td>
                           <td className={topSuppliersTdTradeName}>
-                            {s.tradeName || "—"}
+                            <HoverTextCell
+                              text={s.tradeName}
+                              displayClassName="text-[13px] font-medium text-gray-800"
+                            />
                           </td>
                           <td className={topSuppliersTdInvoiceCount}>
                             {s.count.toLocaleString("en-IN")}
@@ -2332,15 +2361,17 @@ export default function ReconcileResultsPage() {
                 )}
               {!lateMatchesLoading &&
                 (lateMatchesData?.data?.length ?? 0) > 0 && (
-                  <div className={tableWrapClass}>
-                    <table className={tableClass}>
+                  <div className={decisionTableWrapClass}>
+                    <table className={decisionTableClass}>
                       <thead className={tableHeadClass}>
                         <tr>
-                          <th className={tableStickyCheckboxHeadClass}>Supplier</th>
-                          <th className={tableHeadCellClass}>Invoice#</th>
-                          <th className={tableHeadCellClass}>Original Period</th>
-                          <th className={tableHeadCellClass}>GSTR-2B Period</th>
-                          <th className={`${tableHeadCellClass} text-right`}>Months Late</th>
+                          <th className={`${tableHeadCellClass} w-[22%]`}>Supplier</th>
+                          <th className={`${tableHeadCellClass} w-[18%]`}>Invoice#</th>
+                          <th className={`${tableHeadCellClass} w-[22%]`}>Original Period</th>
+                          <th className={`${tableHeadCellClass} w-[22%]`}>GSTR-2B Period</th>
+                          <th className={`${tableHeadCellClass} w-[16%] text-right`}>
+                            Months Late
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2349,11 +2380,14 @@ export default function ReconcileResultsPage() {
                             key={`${row.supplier_gstin}-${row.invoice_number}-${idx}`}
                             className={tableRowClass}
                           >
-                            <td className={`${tableStickyCheckboxCellClass} font-mono text-[13px] text-gray-500`}>
-                              {row.supplier_gstin || "—"}
+                            <td className={`${tableCellClass} max-w-0 overflow-visible font-mono text-[13px] text-gray-500`}>
+                              <GstinCell gstin={row.supplier_gstin} />
                             </td>
-                            <td className={`${tableCellClass} font-medium text-gray-800`}>
-                              {row.invoice_number || "—"}
+                            <td className={`${tableCellClass} max-w-0 overflow-visible`}>
+                              <HoverTextCell
+                                text={row.invoice_number}
+                                displayClassName="text-[13px] font-medium text-gray-800"
+                              />
                             </td>
                             <td className={`${tableCellClass} text-[13px] text-gray-500`}>
                               {row.original_period || "—"}
@@ -2574,7 +2608,12 @@ export default function ReconcileResultsPage() {
                         <td className={matchedTdGstin}>
                           <GstinCell gstin={row.supplier_gstin} />
                         </td>
-                        <td className={matchedTdInvoice}>{row.invoice_number}</td>
+                        <td className={matchedTdInvoice}>
+                          <HoverTextCell
+                            text={row.invoice_number}
+                            displayClassName="text-[13px] font-medium text-gray-800"
+                          />
+                        </td>
                         <td className={matchedTdDate}>
                           {formatDate(row.invoice_date)}
                         </td>
@@ -2592,7 +2631,10 @@ export default function ReconcileResultsPage() {
                           %
                         </td>
                         <td className={matchedTdDiscrepancy}>
-                          {row.discrepancy_note ?? "—"}
+                          <HoverTextCell
+                            text={row.discrepancy_note}
+                            displayClassName="text-[13px] text-gray-600"
+                          />
                         </td>
                         <td className={matchedTdNotes}>
                           {row.notes_count > 0 ? (
