@@ -194,7 +194,11 @@ export function StatCard({
   const colors = statAccentValue[accent];
   const isCurrency = accent === "missed" || accent === "risk";
   return (
-    <div className="box-border flex min-w-0 w-full flex-col gap-2 overflow-hidden rounded-2xl border border-[#F0F0F0] bg-white px-4 py-3.5">
+    <div
+      className={`box-border flex min-w-0 w-full flex-col gap-2 overflow-hidden rounded-2xl border border-[#F0F0F0] bg-white py-3.5 ${
+        isCurrency ? "px-4" : "pl-5 pr-4"
+      }`}
+    >
       <div className="flex min-w-0 items-center gap-1.5">
         <span
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${colors.dot}`}
