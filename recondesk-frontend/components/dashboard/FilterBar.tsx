@@ -40,7 +40,7 @@ export function FilterBar({
           onChange={(e) =>
             onChange({ ...filters, status: e.target.value as PortfolioStatusFilter })
           }
-          className="min-w-[140px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          className="min-w-[140px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-brand"
         >
           {STATUS_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
@@ -58,7 +58,7 @@ export function FilterBar({
           onChange={(e) =>
             onChange({ ...filters, assignedStaffId: e.target.value as PortfolioFilters["assignedStaffId"] })
           }
-          className="min-w-[160px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          className="min-w-[160px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-brand"
         >
           <option value="ALL">All</option>
           {staff.map((s) => (
@@ -73,7 +73,7 @@ export function FilterBar({
         <select
           value={filters.period}
           onChange={(e) => onChange({ ...filters, period: e.target.value })}
-          className="min-w-[120px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          className="min-w-[120px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-brand"
         >
           <option value="ALL">All</option>
           {periods.map((p) => (
@@ -90,14 +90,14 @@ export function FilterBar({
           value={searchInput}
           onChange={(e) => onSearchInputChange(e.target.value)}
           placeholder="Name or GSTIN"
-          className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-brand"
         />
       </div>
       {showReset && (
         <button
           type="button"
           onClick={onReset}
-          className="text-sm font-medium text-[var(--accent)] hover:underline"
+          className="text-sm font-medium text-brand hover:underline"
         >
           Reset Filters
         </button>

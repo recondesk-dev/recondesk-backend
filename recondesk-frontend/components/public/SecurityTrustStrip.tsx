@@ -28,7 +28,7 @@ const SECURITY_BADGES: SecurityBadge[] = [
 function SecurityBadgeCard({ icon: Icon, label, subtitle }: SecurityBadge) {
   return (
     <div className="landing-trust-badge mx-[3px] flex shrink-0 items-center gap-2 rounded-xl border border-[#E8E8E8] bg-white px-5 py-2">
-      <Icon className="h-4 w-4 shrink-0 text-[#534AB7]" aria-hidden />
+      <Icon className="h-4 w-4 shrink-0 text-brand" aria-hidden />
       <div className="whitespace-nowrap">
         <p className="text-[13px] font-medium leading-tight text-[#0A0A0A]">{label}</p>
         <p className="text-[11px] leading-tight text-[#6B6B6B]">{subtitle}</p>

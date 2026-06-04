@@ -129,7 +129,7 @@ export default function AcceptInvitePage({
         {phase === "loading" && (
           <>
             <div
-              className="mx-auto mb-6 h-12 w-12 animate-spin rounded-full border-4 border-[var(--accent)] border-t-transparent"
+              className="mx-auto mb-6 h-12 w-12 animate-spin rounded-full border-4 border-brand border-t-transparent"
               aria-hidden
             />
             <h1 className="text-lg font-semibold text-[var(--text-primary)]">
@@ -152,7 +152,7 @@ export default function AcceptInvitePage({
             <p className="mt-2 text-sm text-[var(--text-secondary)]">{errorMsg}</p>
             <button
               type="button"
-              className="mt-8 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-[var(--accent)] px-4 text-sm font-semibold text-white"
+              className="mt-8 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-brand px-4 text-sm font-semibold text-white"
               onClick={() => router.replace("/login")}
             >
               Back to sign in

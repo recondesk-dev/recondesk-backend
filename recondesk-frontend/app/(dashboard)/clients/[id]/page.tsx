@@ -223,7 +223,7 @@ export default function ClientDetailPage() {
                 <span className="text-sm">{assigned.name}</span>
               </div>
             )}
-            <Link href="/clients" className="text-sm font-medium text-[var(--accent)] hover:underline">
+            <Link href="/clients" className="text-sm font-medium text-brand hover:underline">
               Edit Client
             </Link>
           </div>
@@ -233,7 +233,7 @@ export default function ClientDetailPage() {
                 type="button"
                 disabled
                 title={startTitle}
-                className="inline-flex cursor-not-allowed items-center justify-center rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white opacity-50"
+                className="inline-flex cursor-not-allowed items-center justify-center rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white opacity-50"
               >
                 Start New Reconciliation
               </button>
@@ -241,7 +241,7 @@ export default function ClientDetailPage() {
               <Link
                 href={reconcileNewHref}
                 title={startTitle}
-                className="inline-flex cursor-pointer items-center justify-center rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white"
+                className="inline-flex cursor-pointer items-center justify-center rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white"
               >
                 Start New Reconciliation
               </Link>
@@ -253,7 +253,7 @@ export default function ClientDetailPage() {
       {latest?.status === "FAILED" && latest.errorMessage && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
           Last reconciliation failed. {latest.errorMessage}{" "}
-          <Link href="#history" className="font-semibold text-[var(--accent)] underline">
+          <Link href="#history" className="font-semibold text-brand underline">
             Retry →
           </Link>
         </div>
@@ -299,7 +299,7 @@ export default function ClientDetailPage() {
                 </p>
                 <Link
                   href={reconcileNewHref}
-                  className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white"
+                  className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white"
                 >
                   Start Reconciliation
                 </Link>
@@ -326,7 +326,7 @@ export default function ClientDetailPage() {
                       const fin = run.status === "FINALIZED";
                       const fail = run.status === "FAILED";
                       const border = fin
-                        ? "border-l-4 border-l-[var(--accent)]"
+                        ? "border-l-4 border-l-brand"
                         : fail
                           ? "border-l-4 border-l-[var(--danger)]"
                           : "";

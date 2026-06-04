@@ -253,7 +253,7 @@ export function ClientsPageContent() {
       <div className="flex flex-wrap justify-end gap-3">
         <button
           type="button"
-          className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white"
           onClick={() => {
             resetAddForm();
             setAddOpen(true);
@@ -268,7 +268,7 @@ export function ClientsPageContent() {
           Could not load clients.{" "}
           <button
             type="button"
-            className="font-semibold text-[var(--accent)] underline"
+            className="font-semibold text-brand underline"
             onClick={() => void mutateClients()}
           >
             Retry
@@ -294,7 +294,7 @@ export function ClientsPageContent() {
             </p>
             <button
               type="button"
-              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white"
+              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white"
               onClick={() => {
                 resetAddForm();
                 setAddOpen(true);
@@ -343,7 +343,7 @@ export function ClientsPageContent() {
                         <td className="px-4 py-3">
                           <Link
                             href={`/clients/${row.id}`}
-                            className="font-medium text-[var(--accent)] hover:underline cursor-pointer"
+                            className="font-medium text-brand hover:underline cursor-pointer"
                           >
                             {row.trade_name ?? "—"}
                           </Link>
@@ -420,7 +420,7 @@ export function ClientsPageContent() {
             <button
               type="button"
               disabled={!canSubmitAdd || addBusy}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white disabled:opacity-40"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white disabled:opacity-40"
               onClick={() => void submitAdd()}
             >
               {addBusy ? "Saving…" : "Add Client"}

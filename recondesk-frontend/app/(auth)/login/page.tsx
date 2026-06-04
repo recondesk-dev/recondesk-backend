@@ -98,7 +98,7 @@ export default function LoginPage() {
         <div className="mb-10 text-center">
           <h1 className="font-brand inline-flex items-baseline justify-center gap-0 text-[64px] leading-none font-bold tracking-tight text-gray-900">
             <span>ReconDesk</span>
-            <span className="text-[64px] leading-none text-purple-600" aria-hidden="true">
+            <span className="text-[64px] leading-none text-brand" aria-hidden="true">
               •
             </span>
           </h1>
@@ -153,7 +153,7 @@ export default function LoginPage() {
                 </label>
                 <Link
                   href="/forgot-password"
-                  className="text-xs text-purple-600 hover:text-purple-700 font-medium"
+                  className="text-xs text-brand hover:text-brand-dark font-medium"
                 >
                   Forgot password?
                 </Link>
@@ -210,7 +210,7 @@ export default function LoginPage() {
 
         <p className="text-center text-sm text-gray-500 mt-6">
           Don&apos;t have an account?{" "}
-          <Link href="/signup" className="text-purple-600 hover:text-purple-700 font-medium">
+          <Link href="/signup" className="text-brand hover:text-brand-dark font-medium">
             Create account
           </Link>
         </p>

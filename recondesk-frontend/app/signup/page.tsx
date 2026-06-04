@@ -221,7 +221,7 @@ function SignupForm() {
         <div className="mb-10 text-center">
           <h1 className="font-brand inline-flex items-baseline justify-center gap-0 text-[64px] leading-none font-bold tracking-tight text-gray-900">
             <span>ReconDesk</span>
-            <span className="text-[64px] leading-none text-purple-600" aria-hidden="true">
+            <span className="text-[64px] leading-none text-brand" aria-hidden="true">
               •
             </span>
           </h1>
@@ -233,7 +233,7 @@ function SignupForm() {
           <p className="mb-6 text-sm text-gray-500">Get started with ReconDesk for free</p>
 
           {inviteRoleRaw ? (
-            <div className="mb-4 rounded-lg border border-purple-100 bg-purple-50 px-3 py-2 text-sm text-purple-950">
+            <div className="mb-4 rounded-lg border border-brand-dim bg-brand-dim px-3 py-2 text-sm text-[#111827]">
               You&apos;re signing up from a team invitation
               {inviteRoleRaw === "admin" || inviteRoleRaw === "staff"
                 ? ` (${inviteRoleRaw})`
@@ -395,16 +395,16 @@ function SignupForm() {
 
             <p className="text-center text-xs text-gray-400">
               By signing up, you agree to our{" "}
-              <Link href="/terms" className="text-purple-600 hover:underline">Terms</Link>{" "}
+              <Link href="/terms" className="text-brand hover:underline">Terms</Link>{" "}
               and{" "}
-              <Link href="/privacy" className="text-purple-600 hover:underline">Privacy Policy</Link>.
+              <Link href="/privacy" className="text-brand hover:underline">Privacy Policy</Link>.
             </p>
           </form>
         </div>
 
         <p className="mt-6 text-center text-sm text-gray-500">
           Already have an account?{" "}
-          <Link href="/login" className="font-medium text-purple-600 hover:text-purple-700">
+          <Link href="/login" className="font-medium text-brand hover:text-brand-dark">
             Sign in
           </Link>
         </p>
@@ -418,7 +418,7 @@ export default function SignupPage() {
     <Suspense
       fallback={
         <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-purple-600 border-t-transparent" />
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-brand border-t-transparent" />
         </div>
       }
     >

@@ -15,7 +15,7 @@ import { Modal } from "@/components/ui/Modal";
 
 function SortArrow({ active, dir }: { active: boolean; dir: SortDirection }) {
   if (!active) return <span className="ml-1 text-gray-300">↕</span>;
-  return <span className="ml-1 text-[var(--accent)]">{dir === "asc" ? "↑" : "↓"}</span>;
+  return <span className="ml-1 text-brand">{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
 function MatchRateBar({ rate }: { rate: number | null }) {
@@ -224,7 +224,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           type="checkbox"
           checked={selected}
           onChange={() => onToggleSelect(row.client.id)}
-          className="h-4 w-4 rounded border-gray-200 accent-[var(--accent)]"
+          className="h-4 w-4 rounded border-gray-200 accent-brand"
           aria-label={`Select ${row.client.tradeName}`}
         />
       </td>
@@ -234,7 +234,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
       <td className="px-4 py-3.5">
         <Link
           href={`/clients/${row.client.id}`}
-          className="font-medium text-[var(--accent)] hover:underline cursor-pointer"
+          className="font-medium text-brand hover:underline cursor-pointer"
         >
           {row.client.tradeName}
         </Link>
@@ -273,7 +273,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           {status === "COMPLETE" && (
             <button
               type="button"
-              className="rounded-full border border-[var(--accent)] bg-transparent px-4 py-1.5 text-xs font-semibold text-[var(--accent)] hover:bg-[var(--accent-dim)] transition-colors"
+              className="rounded-full border border-brand bg-transparent px-4 py-1.5 text-xs font-semibold text-brand hover:bg-brand-dim transition-colors"
               onClick={() => navigateDetail()}
             >
               Review
@@ -291,7 +291,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           {status === "PENDING" && (
             <button
               type="button"
-              className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
+              className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
               onClick={() => navigateDetail()}
             >
               Start
@@ -300,7 +300,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           {!latest && (
             <button
               type="button"
-              className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
+              className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
               onClick={() => navigateDetail()}
             >
               Start
@@ -395,7 +395,7 @@ function PreviewPopover({
       </p>
       <Link
         href={`/clients/${row.client.id}`}
-        className="mt-3 inline-block text-xs font-semibold text-[var(--accent)] hover:underline"
+        className="mt-3 inline-block text-xs font-semibold text-brand hover:underline"
       >
         Open Full Report →
       </Link>
@@ -486,7 +486,7 @@ export function ClientTable({
                   checked={allSelected}
                   disabled={loading || rows.length === 0}
                   onChange={(e) => onToggleAllOnPage(pageIds, e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-200 accent-[var(--accent)]"
+                  className="h-4 w-4 rounded border-gray-200 accent-brand"
                   aria-label="Select all on page"
                 />
               </th>
@@ -612,7 +612,7 @@ export function RetryConfirmModal({
             type="button"
             disabled={loading}
             onClick={onConfirm}
-            className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:opacity-90 transition-opacity"
+            className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:opacity-90 transition-opacity"
           >
             Retry
           </button>

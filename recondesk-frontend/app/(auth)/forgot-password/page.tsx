@@ -45,7 +45,7 @@ export default function ForgotPasswordPage() {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-purple-600 rounded-xl mb-4">
+          <div className="inline-flex items-center justify-center w-12 h-12 bg-brand rounded-xl mb-4">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-white">
               <path
                 d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"
@@ -127,7 +127,7 @@ export default function ForgotPasswordPage() {
         </div>
 
         <p className="text-center text-sm text-gray-500 mt-6">
-          <Link href="/login" className="text-purple-600 hover:text-purple-700 font-medium">
+          <Link href="/login" className="text-brand hover:text-brand-dark font-medium">
             Back to login
           </Link>
         </p>

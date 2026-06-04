@@ -173,7 +173,7 @@ function StepIndicator({ step }: { step: number }) {
                 done
                   ? "bg-[var(--success)] text-white"
                   : active
-                    ? "bg-[var(--accent)] text-white"
+                    ? "bg-brand text-white"
                     : "bg-[var(--border)] text-[var(--text-secondary)]"
               }`}
             >
@@ -748,7 +748,7 @@ export default function NewReconcileWizardPage() {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8 text-[var(--text-secondary)]">
         <svg
-          className="h-8 w-8 animate-spin text-[var(--accent)]"
+          className="h-8 w-8 animate-spin text-brand"
           xmlns="http://www.w3.org/2000/svg"
           fill="none"
           viewBox="0 0 24 24"
@@ -783,7 +783,7 @@ export default function NewReconcileWizardPage() {
         <p className="text-[var(--text-primary)]">{msg}</p>
         <div className="h-3 w-full overflow-hidden rounded-full bg-[var(--border)]">
           <div
-            className="h-full bg-[var(--accent)] transition-all"
+            className="h-full bg-brand transition-all"
             style={{ width: `${Math.min(100, pct)}%` }}
           />
         </div>
@@ -803,7 +803,7 @@ export default function NewReconcileWizardPage() {
           </button>
           <Link
             href="/dashboard"
-            className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+            className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white"
           >
             Back to Dashboard
           </Link>
@@ -823,7 +823,7 @@ export default function NewReconcileWizardPage() {
         </div>
         <Link
           href={`/clients/${clientId}`}
-          className="text-sm font-medium text-[var(--accent)] hover:underline"
+          className="text-sm font-medium text-brand hover:underline"
         >
           ← Back to client
         </Link>
@@ -840,7 +840,7 @@ export default function NewReconcileWizardPage() {
             <button
               type="button"
               onClick={onResume}
-              className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+              className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white"
             >
               Resume
             </button>
@@ -889,7 +889,7 @@ export default function NewReconcileWizardPage() {
             type="button"
             disabled={!period || busy}
             onClick={onConfirmPeriod}
-            className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             Continue
           </button>
@@ -900,7 +900,7 @@ export default function NewReconcileWizardPage() {
         <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-[var(--text-primary)]">Upload GSTR-2B JSON</h2>
-            <button type="button" onClick={onBack} className="text-sm text-[var(--accent)] hover:underline">
+            <button type="button" onClick={onBack} className="text-sm text-brand hover:underline">
               Back
             </button>
           </div>
@@ -920,7 +920,7 @@ export default function NewReconcileWizardPage() {
                 <div className="space-y-1">
                   <div className="h-2 w-full overflow-hidden rounded bg-[var(--border)]">
                     <div
-                      className="h-full bg-[var(--accent)]"
+                      className="h-full bg-brand"
                       style={{ width: `${gstrProgress}%` }}
                     />
                   </div>
@@ -931,7 +931,7 @@ export default function NewReconcileWizardPage() {
                 type="button"
                 disabled={!gstrFile || busy}
                 onClick={onGstrUpload}
-                className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
                 Upload &amp; verify
               </button>
@@ -1048,7 +1048,7 @@ export default function NewReconcileWizardPage() {
                     setGstrFile(null);
                     setSanityChecks(null);
                   }}
-                  className="text-sm font-medium text-[var(--accent)]"
+                  className="text-sm font-medium text-brand"
                 >
                   Re-upload GSTR-2B
                 </button>
@@ -1076,7 +1076,7 @@ export default function NewReconcileWizardPage() {
         <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-[var(--text-primary)]">Upload purchase register</h2>
-            <button type="button" onClick={onBack} className="text-sm text-[var(--accent)] hover:underline">
+            <button type="button" onClick={onBack} className="text-sm text-brand hover:underline">
               Back
             </button>
           </div>
@@ -1095,7 +1095,7 @@ export default function NewReconcileWizardPage() {
               {prProgress > 0 && prProgress < 100 ? (
                 <div className="space-y-1">
                   <div className="h-2 w-full overflow-hidden rounded bg-[var(--border)]">
-                    <div className="h-full bg-[var(--accent)]" style={{ width: `${prProgress}%` }} />
+                    <div className="h-full bg-brand" style={{ width: `${prProgress}%` }} />
                   </div>
                   <p className="font-mono text-xs text-[var(--text-secondary)]">{prProgress}%</p>
                 </div>
@@ -1104,7 +1104,7 @@ export default function NewReconcileWizardPage() {
                 type="button"
                 disabled={!prFile || busy}
                 onClick={onPrUpload}
-                className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
                 Upload &amp; detect columns
               </button>
@@ -1237,7 +1237,7 @@ export default function NewReconcileWizardPage() {
         <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-[var(--text-primary)]">Start reconciliation</h2>
-            <button type="button" onClick={onBack} className="text-sm text-[var(--accent)] hover:underline">
+            <button type="button" onClick={onBack} className="text-sm text-brand hover:underline">
               Back
             </button>
           </div>
@@ -1286,7 +1286,7 @@ export default function NewReconcileWizardPage() {
             type="button"
             disabled={startBusy || run?.status === "error"}
             onClick={onStart}
-            className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             Start reconciliation
           </button>

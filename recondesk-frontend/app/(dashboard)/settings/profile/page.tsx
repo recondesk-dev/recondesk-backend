@@ -35,7 +35,7 @@ type FieldKey = keyof ProfileFormValues;
 type FieldErrors = Partial<Record<FieldKey, string>>;
 
 const FIELD_CLASS =
-  "min-h-[44px] w-full rounded-lg border border-[var(--border)] bg-white px-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/60 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/25";
+  "min-h-[44px] w-full rounded-lg border border-[var(--border)] bg-white px-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/60 focus:outline-none focus:ring-2 focus:ring-brand/25";
 
 const EMPTY_PROFILE_FORM: ProfileFormValues = {
   fullName: "",
@@ -294,7 +294,7 @@ export default function ProfileSettingsPage() {
       <div className="space-y-6">
         <Link
           href="/settings"
-          className="inline-flex min-h-[44px] items-center text-sm font-semibold text-[var(--accent)] underline"
+          className="inline-flex min-h-[44px] items-center text-sm font-semibold text-brand underline"
         >
           ← Back to settings
         </Link>
@@ -309,7 +309,7 @@ export default function ProfileSettingsPage() {
       <div className="space-y-4">
         <Link
           href="/settings"
-          className="inline-flex min-h-[44px] items-center text-sm font-semibold text-[var(--accent)] underline"
+          className="inline-flex min-h-[44px] items-center text-sm font-semibold text-brand underline"
         >
           ← Back to settings
         </Link>
@@ -330,7 +330,7 @@ export default function ProfileSettingsPage() {
     <div className="space-y-6">
       <Link
         href="/settings"
-        className="inline-flex min-h-[44px] items-center text-sm font-semibold text-[var(--accent)] underline"
+        className="inline-flex min-h-[44px] items-center text-sm font-semibold text-brand underline"
       >
         ← Back to settings
       </Link>
@@ -462,7 +462,7 @@ export default function ProfileSettingsPage() {
             <button
               type="submit"
               disabled={!isDirty || saving}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--accent)] px-6 text-sm font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-6 text-sm font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save changes"}
             </button>

@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import type { ItcTrendPoint } from "@/lib/types";
+import { brandColors } from "@/lib/brand";
 import { formatInrAxis, formatInrFull } from "@/lib/format";
 
 function TrendTooltip({
@@ -58,7 +59,7 @@ export function ItcTrendChart({ data }: { data: ItcTrendPoint[] }) {
             width={56}
           />
           <Tooltip content={<TrendTooltip />} />
-          <Bar dataKey="missedItc" fill="#6C63FF" radius={[4, 4, 0, 0]} maxBarSize={48} />
+          <Bar dataKey="missedItc" fill={brandColors.DEFAULT} radius={[4, 4, 0, 0]} maxBarSize={48} />
         </BarChart>
       </ResponsiveContainer>
     </div>

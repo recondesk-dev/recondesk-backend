@@ -514,7 +514,7 @@ export default function DashboardShellLayout({
                     <p className="mt-1 line-clamp-2 text-xs text-red-500">{item.errorSnippet}</p>
                     <button
                       type="button"
-                      className="mt-2 text-sm font-semibold text-[var(--accent)] hover:underline"
+                      className="mt-2 text-sm font-semibold text-brand hover:underline"
                       onClick={() => {
                         if (typeof accessToken !== "string") return;
                         void (async () => {

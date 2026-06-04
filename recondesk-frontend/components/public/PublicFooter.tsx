@@ -25,7 +25,7 @@ export function PublicFooter({ theme = "dark" }: PublicFooterProps) {
               }`}
             >
               <span className="text-2xl sm:text-3xl">ReconDesk</span>
-              <span className="-ml-1.5 text-2xl leading-none text-purple-600 sm:ml-0 sm:text-3xl" aria-hidden="true">
+              <span className="-ml-1.5 text-2xl leading-none text-brand sm:ml-0 sm:text-3xl" aria-hidden="true">
                 •
               </span>
             </div>
