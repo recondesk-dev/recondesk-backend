@@ -200,7 +200,7 @@ export function StatCard({
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${colors.dot}`}
           aria-hidden
         />
-        <p className="min-w-0 truncate text-[11px] font-medium uppercase tracking-widest text-gray-300">
+        <p className="min-w-0 truncate text-[11px] font-medium uppercase tracking-widest text-gray-900">
           {label}
         </p>
       </div>
