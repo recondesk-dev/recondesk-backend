@@ -22,8 +22,8 @@ const STYLES: Record<
     dot: "bg-[#10B981]",
   },
   FINALIZED: {
-    wrap: "bg-[#EDE9FF] text-[#6C63FF]",
-    dot: "bg-[#6C63FF]",
+    wrap: "bg-brand-dim text-brand",
+    dot: "bg-brand",
   },
   FAILED: {
     wrap: "bg-[#FEF2F2] text-[#EF4444]",

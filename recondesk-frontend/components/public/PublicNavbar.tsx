@@ -38,7 +38,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
         >
           <span className={isLight ? "text-xl sm:text-3xl" : "text-2xl sm:text-3xl"}>ReconDesk</span>
           <span
-            className={`-ml-1.5 leading-none text-purple-600 sm:ml-0 ${
+            className={`-ml-1.5 leading-none text-brand sm:ml-0 ${
               isLight ? "text-xl sm:text-3xl" : "text-2xl sm:text-3xl"
             }`}
             aria-hidden="true"
@@ -58,7 +58,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
               </Link>
               <Link
                 href="/auth/signup"
-                className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-[var(--accent)] px-4 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
+                className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-brand px-4 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
               >
                 Start Free
               </Link>
@@ -85,7 +85,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
             </Link>
             <Link
               href="/auth/signup"
-              className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-[var(--accent)] px-4 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
+              className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-brand px-4 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
             >
               Start Free
             </Link>
@@ -107,7 +107,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
             </Link>
             <Link
               href="/auth/signup"
-              className="mt-2 inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--accent)] px-4 text-sm font-semibold text-white transition hover:opacity-95"
+              className="mt-2 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-4 text-sm font-semibold text-white transition hover:opacity-95"
               onClick={() => setMobileMenuOpen(false)}
             >
               Start Free

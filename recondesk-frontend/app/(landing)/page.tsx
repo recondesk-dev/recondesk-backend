@@ -72,7 +72,7 @@ export default function LandingPage() {
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
             <Link
               href="/auth/signup"
-              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-[var(--accent)] px-6 text-sm font-semibold text-white shadow-lg shadow-[var(--accent)]/25 transition hover:opacity-95 sm:w-auto"
+              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-brand px-6 text-sm font-semibold text-white shadow-lg shadow-brand/25 transition hover:opacity-95 sm:w-auto"
             >
               Start Free — First 2 Runs Free
             </Link>
@@ -129,7 +129,7 @@ export default function LandingPage() {
         <h2 className="text-center text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">How ReconDesk Works</h2>
         <ul className="mt-12 grid gap-8 md:grid-cols-3">
           <li className="flex flex-col items-center text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--accent)]/15 text-[var(--accent)]">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand/15 text-brand">
               <Upload className="h-7 w-7" aria-hidden />
             </div>
             <h3 className="mt-4 text-base font-semibold text-[#0A0A0A]">1. Upload</h3>
@@ -138,7 +138,7 @@ export default function LandingPage() {
             </p>
           </li>
           <li className="flex flex-col items-center text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--accent)]/15 text-[var(--accent)]">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand/15 text-brand">
               <GitMerge className="h-7 w-7" aria-hidden />
             </div>
             <h3 className="mt-4 text-base font-semibold text-[#0A0A0A]">2. Match</h3>
@@ -147,7 +147,7 @@ export default function LandingPage() {
             </p>
           </li>
           <li className="flex flex-col items-center text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--accent)]/15 text-[var(--accent)]">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand/15 text-brand">
               <ClipboardList className="h-7 w-7" aria-hidden />
             </div>
             <h3 className="mt-4 text-base font-semibold text-[#0A0A0A]">3. Decide</h3>
@@ -209,8 +209,8 @@ export default function LandingPage() {
               Start Free
             </Link>
           </div>
-          <div className="landing-card relative flex flex-col rounded-2xl border-2 border-[var(--accent)] bg-[#F5F5F5] p-5 pt-7 sm:p-6 sm:pt-6">
-            <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[var(--accent)] px-3 py-0.5 text-xs font-semibold text-white">
+          <div className="landing-card relative flex flex-col rounded-2xl border-2 border-brand bg-[#F5F5F5] p-5 pt-7 sm:p-6 sm:pt-6">
+            <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand px-3 py-0.5 text-xs font-semibold text-white">
               Most Popular
             </span>
             <h3 className="text-lg font-semibold text-[#0A0A0A]">CA Firm</h3>
@@ -221,7 +221,7 @@ export default function LandingPage() {
             <p className="mt-4 text-sm text-[#6B6B6B]">35 runs/month · Team access included</p>
             <Link
               href="/pricing"
-              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--accent)] text-sm font-semibold text-white transition hover:opacity-95"
+              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand text-sm font-semibold text-white transition hover:opacity-95"
             >
               View All Plans
             </Link>
@@ -238,7 +238,7 @@ export default function LandingPage() {
           </p>
           <Link
             href="/auth/signup"
-            className="mt-8 inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-[var(--accent)] px-8 text-sm font-semibold text-white transition hover:opacity-95 sm:w-auto"
+            className="mt-8 inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-brand px-8 text-sm font-semibold text-white transition hover:opacity-95 sm:w-auto"
           >
             Get Started Free →
           </Link>

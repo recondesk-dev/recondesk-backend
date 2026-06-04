@@ -114,7 +114,7 @@ export function GstinInput({
             onChange(e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 15))
           }
           onBlur={onBlur}
-          className={`w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono text-sm tracking-wide text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)] ${
+          className={`w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono text-sm tracking-wide text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-brand ${
             showValidInline ? "pr-10" : showInvalidInline ? "pr-10" : ""
           }`}
           maxLength={15}

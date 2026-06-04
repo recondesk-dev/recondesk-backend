@@ -18,7 +18,7 @@ interface HeaderProps {
 }
 
 const ROLE_BADGE = {
-  Admin: "bg-purple-100 text-purple-700 border-purple-200",
+  Admin: "bg-brand-dim text-brand-dark border-brand/20",
   Staff: "bg-amber-100 text-amber-700 border-amber-200",
 };
 
@@ -71,7 +71,7 @@ export default function Header({ user, onMenuToggle }: HeaderProps) {
         {/* Notifications */}
         <button className="relative p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
           <Bell size={18} />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-purple-600 rounded-full" />
+          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-brand rounded-full" />
         </button>
 
         {/* Avatar dropdown */}
@@ -81,7 +81,7 @@ export default function Header({ user, onMenuToggle }: HeaderProps) {
             className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
           >
             {/* Avatar circle */}
-            <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+            <div className="w-8 h-8 rounded-full bg-brand flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
               {initials}
             </div>
             <div className="hidden sm:block text-left">

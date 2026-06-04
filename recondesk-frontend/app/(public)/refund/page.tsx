@@ -65,7 +65,7 @@ export default function RefundPage() {
               Email{" "}
               <a
                 href="mailto:contact@recondesk.in?subject=Refund%20Request"
-                className="font-medium text-[var(--accent)] hover:underline"
+                className="font-medium text-brand hover:underline"
               >
                 contact@recondesk.in
               </a>{" "}
@@ -104,7 +104,7 @@ export default function RefundPage() {
             <strong className="text-slate-200">Email:</strong>{" "}
             <a
               href="mailto:contact@recondesk.in"
-              className="font-medium text-[var(--accent)] hover:underline"
+              className="font-medium text-brand hover:underline"
             >
               contact@recondesk.in
             </a>
@@ -115,7 +115,7 @@ export default function RefundPage() {
         </section>
 
         <p className="pt-4 text-slate-500">
-          <Link href="/" className="text-[var(--accent)] hover:underline">
+          <Link href="/" className="text-brand hover:underline">
             ← Back to home
           </Link>
         </p>

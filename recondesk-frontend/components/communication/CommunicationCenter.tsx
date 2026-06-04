@@ -535,7 +535,7 @@ export default function CommunicationCenter({
                           href={file.public_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="font-medium text-[var(--accent)] hover:underline"
+                          className="font-medium text-brand hover:underline"
                         >
                           Download
                         </a>

@@ -142,7 +142,7 @@ export function RunsPageContent() {
           Could not load runs.{" "}
           <button
             type="button"
-            className="font-semibold text-[var(--accent)] underline"
+            className="font-semibold text-brand underline"
             onClick={() => void mutateRuns()}
           >
             Retry
@@ -168,7 +168,7 @@ export function RunsPageContent() {
             </p>
             <Link
               href="/clients"
-              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white"
+              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white"
             >
               Go to Clients
             </Link>

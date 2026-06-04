@@ -36,7 +36,7 @@ export default function ClientWorkspaceLayout({
                 href={href}
                 className={
                   active
-                    ? "-mb-px border-b-2 border-[var(--accent)] py-3 text-sm font-medium text-[var(--text-primary)]"
+                    ? "-mb-px border-b-2 border-brand py-3 text-sm font-medium text-[var(--text-primary)]"
                     : "py-3 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
                 }
               >

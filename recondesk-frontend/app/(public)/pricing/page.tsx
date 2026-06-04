@@ -57,17 +57,17 @@ type PlanCardProps = {
 
 function PlanCard({ name, price, priceSuffix = "/month", bullets, popular, cta, href }: PlanCardProps) {
   const ctaClasses = popular
-    ? "mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--accent)] text-sm font-semibold text-white transition hover:opacity-95"
+    ? "mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand text-sm font-semibold text-white transition hover:opacity-95"
     : "mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full border border-white/15 bg-white/5 text-sm font-semibold text-white transition hover:bg-white/10";
 
   const shell = popular
-    ? "relative flex flex-col rounded-2xl border-2 border-[var(--accent)] bg-[#13161f] p-6 shadow-lg shadow-[var(--accent)]/10"
+    ? "relative flex flex-col rounded-2xl border-2 border-brand bg-[#13161f] p-6 shadow-lg shadow-brand/10"
     : "flex flex-col rounded-2xl border border-white/10 bg-[#13161f] p-6";
 
   return (
     <div className={shell}>
       {popular ? (
-        <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[var(--accent)] px-3 py-0.5 text-xs font-semibold text-white">
+        <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand px-3 py-0.5 text-xs font-semibold text-white">
           Most Popular
         </span>
       ) : null}
@@ -99,7 +99,7 @@ function EnterpriseCard() {
   ];
 
   return (
-    <div className="lg:col-span-3 flex flex-col gap-6 rounded-2xl border border-[var(--accent)]/35 bg-gradient-to-br from-[var(--accent)]/12 via-[#13161f] to-[#13161f] p-6 shadow-lg shadow-black/20 sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
+    <div className="lg:col-span-3 flex flex-col gap-6 rounded-2xl border border-brand/35 bg-gradient-to-br from-brand/12 via-[#13161f] to-[#13161f] p-6 shadow-lg shadow-black/20 sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
       <div className="flex min-w-0 flex-1 flex-col">
         <h2 className="text-lg font-semibold text-white">Enterprise</h2>
         <p className="mt-2 font-mono text-3xl font-semibold text-white">Custom pricing</p>
@@ -112,7 +112,7 @@ function EnterpriseCard() {
       <div className="flex shrink-0 flex-col justify-end sm:w-48">
         <a
           href="mailto:contact@recondesk.in"
-          className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-[var(--accent)] text-sm font-semibold text-white transition hover:opacity-95"
+          className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-brand text-sm font-semibold text-white transition hover:opacity-95"
         >
           Contact Sales
         </a>
@@ -125,7 +125,7 @@ export default function PricingPage() {
   const [tier, setTier] = useState<"solo" | "firm">("solo");
 
   const tabBase =
-    "relative z-10 min-h-[44px] flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] sm:flex-none sm:px-8";
+    "relative z-10 min-h-[44px] flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:flex-none sm:px-8";
   const tabActive = "text-white";
   const tabInactive = "text-slate-400 hover:text-slate-200";
 
@@ -144,7 +144,7 @@ export default function PricingPage() {
             aria-label="Plan type"
           >
             <span
-              className="pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full bg-[var(--accent)] shadow-md shadow-[var(--accent)]/25 transition-transform duration-300 ease-out"
+              className="pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full bg-brand shadow-md shadow-brand/25 transition-transform duration-300 ease-out"
               style={{
                 transform: tier === "solo" ? "translateX(0)" : "translateX(100%)",
               }}

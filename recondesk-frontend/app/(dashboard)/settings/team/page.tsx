@@ -211,7 +211,7 @@ export default function TeamSettingsPage() {
         </h1>
         <button
           type="button"
-          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white hover:opacity-95"
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white hover:opacity-95"
           onClick={() => {
             setInviteError(null);
             setInviteOpen(true);
@@ -257,7 +257,7 @@ export default function TeamSettingsPage() {
             </p>
             <button
               type="button"
-              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white hover:opacity-95"
+              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white hover:opacity-95"
               onClick={() => {
                 setInviteError(null);
                 setInviteOpen(true);
@@ -299,7 +299,7 @@ export default function TeamSettingsPage() {
                         <span
                           className={`inline-flex min-h-[28px] items-center rounded-full px-3 py-1 text-xs font-semibold ${
                             adminBadge
-                              ? "bg-[var(--accent-dim)] text-[var(--accent)]"
+                              ? "bg-brand-dim text-brand"
                               : "bg-gray-100 text-gray-700"
                           }`}
                         >
@@ -325,7 +325,7 @@ export default function TeamSettingsPage() {
                           <button
                             type="button"
                             disabled={actionBusyId === row.id}
-                            className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[var(--border)] px-4 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--accent-dim)] disabled:opacity-50"
+                            className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[var(--border)] px-4 text-sm font-medium text-[var(--text-primary)] hover:bg-brand-dim disabled:opacity-50"
                             onClick={() => void resendInvite(row)}
                           >
                             {actionBusyId === row.id ? "Sending…" : "Resend Invite"}
@@ -368,7 +368,7 @@ export default function TeamSettingsPage() {
             <button
               type="button"
               disabled={inviteSubmitting}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white disabled:opacity-50"
               onClick={() => void submitInvite()}
             >
               {inviteSubmitting ? "Sending…" : "Send Invite"}
@@ -405,7 +405,7 @@ export default function TeamSettingsPage() {
               Role
             </span>
             <div className="space-y-3">
-              <label className="flex cursor-pointer gap-3 rounded-lg border border-[var(--border)] p-3 hover:bg-[var(--accent-dim)]/40">
+              <label className="flex cursor-pointer gap-3 rounded-lg border border-[var(--border)] p-3 hover:bg-brand-dim/40">
                 <input
                   type="radio"
                   name="invite-role"
@@ -422,7 +422,7 @@ export default function TeamSettingsPage() {
                   </span>
                 </span>
               </label>
-              <label className="flex cursor-pointer gap-3 rounded-lg border border-[var(--border)] p-3 hover:bg-[var(--accent-dim)]/40">
+              <label className="flex cursor-pointer gap-3 rounded-lg border border-[var(--border)] p-3 hover:bg-brand-dim/40">
                 <input
                   type="radio"
                   name="invite-role"

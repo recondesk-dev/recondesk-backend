@@ -11,7 +11,7 @@ export default function NotificationsSettingsPlaceholderPage() {
       </p>
       <Link
         href="/settings"
-        className="inline-flex min-h-[44px] items-center text-sm font-semibold text-[var(--accent)] underline"
+        className="inline-flex min-h-[44px] items-center text-sm font-semibold text-brand underline"
       >
         ← Back to settings
       </Link>

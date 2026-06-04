@@ -119,9 +119,9 @@ export default function SettingsHubPage() {
               <Link
                 key={href}
                 href={href}
-                className="group flex flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm transition hover:border-[var(--accent)] hover:shadow-md"
+                className="group flex flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm transition hover:border-brand hover:shadow-md"
               >
-                <div className="mb-4 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-[var(--accent-dim)] text-[var(--accent)]">
+                <div className="mb-4 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-brand-dim text-brand">
                   <Icon className="h-6 w-6" aria-hidden />
                 </div>
                 <h2 className="text-base font-semibold text-[var(--text-primary)]">
@@ -130,7 +130,7 @@ export default function SettingsHubPage() {
                 <p className="mt-1 flex-1 text-sm text-[var(--text-secondary)]">
                   {description}
                 </p>
-                <span className="mt-4 inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-[var(--accent)]">
+                <span className="mt-4 inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-brand">
                   Open
                   <ChevronRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                 </span>
