@@ -2,6 +2,8 @@
 
 import type { CSSProperties, ReactNode } from "react";
 
+import { formatINRNumber } from "@/lib/format";
+
 // ─── Shared class tokens ─────────────────────────────────────────────────────
 
 export const filterInputClass =
@@ -153,12 +155,6 @@ export function decisionTd(
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
 
-export function formatINRPlain(amount: number): string {
-  return amount.toLocaleString("en-IN", {
-    maximumFractionDigits: 0,
-  });
-}
-
 export function InrAmount({
   amount,
   sizeClass = "text-[13px] font-semibold",
@@ -174,7 +170,7 @@ export function InrAmount({
     <span className={`inline-flex tabular-nums ${sizeClass}`}>
       <span className={`text-gray-400 ${sizeClass}`}>₹</span>
       <span className={numberColorClass} style={numberStyle}>
-        {formatINRPlain(amount)}
+        {formatINRNumber(amount)}
       </span>
     </span>
   );

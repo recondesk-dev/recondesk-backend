@@ -1,5 +1,7 @@
 /** Supplier follow-up letter — types and draft builder (ITC at risk). */
 
+import { formatINR } from "@/lib/format";
+
 export type FollowupTemplateType = "wrongful_itc_single" | "wrongful_itc_bulk";
 
 export type FollowupAuditStatus = "generated" | "downloaded" | "copied";
@@ -67,10 +69,6 @@ export function defaultSupplierDisplayName(
   return gstin ? `M/s ${gstin}` : "Supplier";
 }
 
-function formatInr(amount: number): string {
-  return amount.toLocaleString("en-IN", { maximumFractionDigits: 0 });
-}
-
 function formatLetterDate(iso: string): string {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -117,7 +115,7 @@ export function buildFollowupLetterDraft(opts: {
         snapshot
           .map(
             (inv, i) =>
-              `${i + 1}. Invoice ${inv.invoice_number} | Date: ${formatLetterDate(inv.invoice_date)} | Amount: ₹${formatInr(inv.amount)}`
+              `${i + 1}. Invoice ${inv.invoice_number} | Date: ${formatLetterDate(inv.invoice_date)} | Amount: ${formatINR(inv.amount)}`
           )
           .join("\n");
 
