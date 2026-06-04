@@ -1408,8 +1408,8 @@ export default function ReconcileResultsPage() {
         )}
         {summary && !summaryError && (
           <>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
+            <div className="flex w-full flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0 shrink">
                 <p className="text-sm font-semibold text-gray-900">{summary.period}</p>
                 <p className="text-xs text-gray-500">
                   Assigned to:{" "}
@@ -1429,7 +1429,7 @@ export default function ReconcileResultsPage() {
                   )}
               </div>
 
-              <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-3">
+              <div className="flex shrink-0 items-center gap-2">
                 <div
                   className="inline-flex items-center rounded-xl border border-[#E5E7EB] bg-white p-1"
                   role="group"
@@ -1478,35 +1478,43 @@ export default function ReconcileResultsPage() {
             </div>
 
             <div className={statCardsGridClass}>
-              <StatCard
-                label="Total GSTR"
-                value={summary.total_gstr_records.toLocaleString("en-IN")}
-              />
-              <StatCard
-                label="Matched"
-                accent="matched"
-                value={summary.matched_count.toLocaleString("en-IN")}
-              />
-              <StatCard
-                label="Missed ITC"
-                accent="missed"
-                value={
-                  <>
-                    <span className="font-normal text-gray-400">₹</span>
-                    {formatINRPlain(summary.missed_itc_total_amount)}
-                  </>
-                }
-              />
-              <StatCard
-                label="At Risk"
-                accent="risk"
-                value={
-                  <>
-                    <span className="font-normal text-gray-400">₹</span>
-                    {formatINRPlain(summary.wrongful_risk_total_amount)}
-                  </>
-                }
-              />
+              <div className="min-w-0 overflow-hidden rounded-2xl">
+                <StatCard
+                  label="Total GSTR"
+                  value={summary.total_gstr_records.toLocaleString("en-IN")}
+                />
+              </div>
+              <div className="min-w-0 overflow-hidden rounded-2xl">
+                <StatCard
+                  label="Matched"
+                  accent="matched"
+                  value={summary.matched_count.toLocaleString("en-IN")}
+                />
+              </div>
+              <div className="min-w-0 overflow-hidden rounded-2xl">
+                <StatCard
+                  label="Missed ITC"
+                  accent="missed"
+                  value={
+                    <>
+                      <span className="font-normal text-gray-300">₹</span>
+                      {formatINRPlain(summary.missed_itc_total_amount)}
+                    </>
+                  }
+                />
+              </div>
+              <div className="min-w-0 overflow-hidden rounded-2xl">
+                <StatCard
+                  label="At Risk"
+                  accent="risk"
+                  value={
+                    <>
+                      <span className="font-normal text-gray-300">₹</span>
+                      {formatINRPlain(summary.wrongful_risk_total_amount)}
+                    </>
+                  }
+                />
+              </div>
             </div>
           </>
         )}

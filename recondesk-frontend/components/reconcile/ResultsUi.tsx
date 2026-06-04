@@ -118,10 +118,10 @@ export function AmountDisplay({ amount }: { amount: number }) {
 type StatAccent = "neutral" | "matched" | "missed" | "risk";
 
 const statAccentValue: Record<StatAccent, { value: string; dot: string }> = {
-  neutral: { value: "text-gray-900", dot: "bg-gray-300" },
-  matched: { value: "text-gray-900", dot: "bg-brand" },
-  missed: { value: "text-[#DC2626]", dot: "bg-red-500" },
-  risk: { value: "text-[#D97706]", dot: "bg-amber-500" },
+  neutral: { value: "text-gray-800", dot: "bg-gray-300" },
+  matched: { value: "text-gray-800", dot: "bg-brand" },
+  missed: { value: "text-[#E05252]", dot: "bg-red-500" },
+  risk: { value: "text-[#E09A3A]", dot: "bg-amber-500" },
 };
 
 export function StatCard({
@@ -137,10 +137,10 @@ export function StatCard({
   return (
     <div className="relative box-border flex min-w-0 w-full flex-col overflow-hidden rounded-2xl border border-[#F0F0F0] bg-white px-5 py-4">
       <span
-        className={`absolute top-3 left-3 h-2 w-2 rounded-full ${colors.dot}`}
+        className={`absolute left-3 top-3 h-1.5 w-1.5 rounded-full ${colors.dot}`}
         aria-hidden
       />
-      <p className="truncate text-[11px] font-medium uppercase tracking-widest text-gray-400">
+      <p className="truncate text-[11px] font-medium uppercase tracking-widest text-gray-300">
         {label}
       </p>
       <p
