@@ -392,3 +392,54 @@ export function rule37BorderClass(
   if (urgency === "HIGH") return "border-l-[#D97706]";
   return "border-l-[#6B7280]";
 }
+
+export type ResultsBucketTabId =
+  | "matched"
+  | "risk"
+  | "itc"
+  | "rule37"
+  | "followup";
+
+const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
+  { id: "matched", label: "Matched" },
+  { id: "risk", label: "ITC at Risk" },
+  { id: "itc", label: "Missed ITC" },
+  { id: "rule37", label: "Rule 37" },
+  { id: "followup", label: "Follow-up Log" },
+];
+
+export function ResultsBucketTabs({
+  active,
+  onChange,
+}: {
+  active: ResultsBucketTabId;
+  onChange: (tab: ResultsBucketTabId) => void;
+}) {
+  return (
+    <nav
+      className="mb-6 flex flex-wrap gap-1 border-b border-[#F0F0F0]"
+      role="tablist"
+      aria-label="Reconciliation results"
+    >
+      {RESULTS_BUCKET_TABS.map(({ id, label }) => {
+        const isActive = active === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            className={
+              isActive
+                ? "-mb-px border-b-2 border-brand px-4 py-2.5 text-[13px] font-medium text-gray-900"
+                : "px-4 py-2.5 text-[13px] font-medium text-gray-500 transition-colors hover:text-gray-800"
+            }
+            onClick={() => onChange(id)}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}

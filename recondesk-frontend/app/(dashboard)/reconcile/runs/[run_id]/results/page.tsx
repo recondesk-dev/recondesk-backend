@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, ChevronDown, FileSpreadsheet, FileText, Loader2, Shield, Trash2, X } from "lucide-react";
+import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
 import { GstinCell } from "@/components/ui/GstinCell";
 import { HoverTextCell } from "@/components/ui/HoverTextCell";
@@ -51,7 +52,9 @@ import {
   matchedThMatchLevel,
   matchedThNotes,
   pageContentClass,
+  ResultsBucketTabs,
   rule37BorderClass,
+  type ResultsBucketTabId,
   Rule37SeverityLabel,
   sectionContainerClass,
   SectionAmountBadge,
@@ -590,8 +593,15 @@ export default function ReconcileResultsPage() {
   const [rule37Page, setRule37Page] = useState(1);
   const [section17Page, setSection17Page] = useState(1);
 
+  const [resultsTab, setResultsTab] = useState<ResultsBucketTabId>("matched");
   const [rule37Open, setRule37Open] = useState(false);
   const [section17Open, setSection17Open] = useState(false);
+
+  useEffect(() => {
+    if (resultsTab === "rule37") {
+      setRule37Open(true);
+    }
+  }, [resultsTab]);
 
   const [selectedIds, setSelectedIds] = useState<{
     itc: Set<string>;
@@ -1629,8 +1639,13 @@ export default function ReconcileResultsPage() {
       </div>
 
       <div className={pageContentClass}>
+        {summary && (
+          <ResultsBucketTabs active={resultsTab} onChange={setResultsTab} />
+        )}
+
         {/* ITC */}
-        {summary &&
+        {resultsTab === "itc" &&
+          summary &&
           summary.missed_itc_count === 0 &&
           summary.wrongful_risk_count === 0 && (
           <div className={sectionContainerClass}>
@@ -1647,7 +1662,7 @@ export default function ReconcileResultsPage() {
           </div>
         )}
 
-        {summary && summary.missed_itc_count > 0 && (
+        {resultsTab === "itc" && summary && summary.missed_itc_count > 0 && (
           <div className={sectionContainerClass}>
             <SectionHeader
               title="ITC You Can Still Claim"
@@ -1976,7 +1991,8 @@ export default function ReconcileResultsPage() {
         )}
 
         {/* Risk */}
-        {summary &&
+        {resultsTab === "risk" &&
+          summary &&
           summary.wrongful_risk_count === 0 &&
           summary.missed_itc_count > 0 && (
           <div className={sectionContainerClass}>
@@ -1989,7 +2005,7 @@ export default function ReconcileResultsPage() {
           </div>
         )}
 
-        {summary && summary.wrongful_risk_count > 0 && (
+        {resultsTab === "risk" && summary && summary.wrongful_risk_count > 0 && (
           <div className={sectionContainerClass}>
             <SectionHeader
               title="ITC at Risk — Supplier Has Not Filed"
@@ -2487,6 +2503,7 @@ export default function ReconcileResultsPage() {
           )}
 
         {/* Matched */}
+        {resultsTab === "matched" && (
         <div className={sectionContainerClass}>
           <h2 className="mb-4 text-lg font-semibold text-gray-900">
             Matched Records{" "}
@@ -2744,8 +2761,14 @@ export default function ReconcileResultsPage() {
             </>
           )}
         </div>
+        )}
+
+        {resultsTab === "followup" && authToken && (
+          <SupplierFollowupAuditLogPanel runId={runId} authToken={authToken} />
+        )}
 
         {/* Rule 37 */}
+        {resultsTab === "rule37" && (
         <div className={sectionContainerClass}>
           <button
             type="button"
@@ -2906,6 +2929,7 @@ export default function ReconcileResultsPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* Section 17(5) */}
         <div className={sectionContainerClass}>

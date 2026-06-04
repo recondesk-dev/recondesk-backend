@@ -457,6 +457,22 @@ export const reconcileRunsApi = {
     ),
 };
 
+export type { SupplierFollowupAuditRow } from "@/lib/followupAudit";
+
+export const followupAuditApi = {
+  listForRun: (token: string, runId: string, query = "") =>
+    apiFetch<import("@/lib/followupAudit").SupplierFollowupAuditRow[]>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/supplier-followup/audit${query}`,
+      { token }
+    ),
+
+  listForClient: (token: string, clientGstinId: string, query = "") =>
+    apiFetch<import("@/lib/followupAudit").SupplierFollowupAuditRow[]>(
+      `/api/reconcile/clients/${encodeURIComponent(clientGstinId)}/supplier-followup/audit${query}`,
+      { token }
+    ),
+};
+
 /** Subset of reconciliation run summary for celebrate / widgets. */
 export interface ReconcileRunSummaryDto {
   run_id: string;

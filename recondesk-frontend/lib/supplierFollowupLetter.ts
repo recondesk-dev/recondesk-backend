@@ -160,3 +160,50 @@ This letter is generated for informational and communication purposes. It does n
 export function templateTypeForRowCount(count: number): FollowupTemplateType {
   return count === 1 ? "wrongful_itc_single" : "wrongful_itc_bulk";
 }
+
+export function followupPdfFilename(supplierGstin: string): string {
+  const safe =
+    (supplierGstin || "supplier").replace(/[^A-Za-z0-9]/g, "") || "supplier";
+  return `supplier-followup-${safe}.pdf`;
+}
+
+/** Build a PDF blob from letter text (client-only; dynamic import). */
+export async function buildFollowupLetterPdfBlob(
+  letterBody: string,
+  disclaimer: string
+): Promise<Blob> {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const margin = 18;
+  const lineHeight = 5.5;
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const maxWidth = doc.internal.pageSize.getWidth() - margin * 2;
+  const fullText = `${letterBody}\n\n${disclaimer}`;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  const lines = doc.splitTextToSize(fullText, maxWidth);
+  let y = margin;
+  for (let i = 0; i < lines.length; i++) {
+    if (y > pageHeight - margin) {
+      doc.addPage();
+      y = margin;
+    }
+    doc.text(lines[i], margin, y);
+    y += lineHeight;
+  }
+  return doc.output("blob");
+}
+
+/** Trigger a direct file download via a temporary anchor (no window.open). */
+export function downloadBlobAsFile(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}

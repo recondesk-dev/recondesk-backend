@@ -4,8 +4,11 @@ import { Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   buildFollowupLetterDraft,
+  buildFollowupLetterPdfBlob,
   buildInvoiceSnapshot,
   defaultSupplierDisplayName,
+  downloadBlobAsFile,
+  followupPdfFilename,
   templateTypeForRowCount,
   type FollowupInvoiceSnapshotItem,
   type RiskRowForFollowup,
@@ -165,28 +168,15 @@ export function SupplierFollowupLetterModal({
     }
   };
 
-  const handleDownloadPdf = () => {
-    const printHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Supplier follow-up</title>
-<style>
-  body { font-family: system-ui, sans-serif; font-size: 12pt; line-height: 1.5; color: #111; padding: 24px; max-width: 720px; margin: 0 auto; }
-  pre { white-space: pre-wrap; font-family: inherit; margin: 0; }
-  .disclaimer { margin-top: 24px; font-size: 9pt; color: #666; border-top: 1px solid #ddd; padding-top: 12px; }
-</style></head><body>
-<pre>${body.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>
-<p class="disclaimer">${DISCLAIMER_MODAL}</p>
-</body></html>`;
-    const w = window.open("", "_blank", "noopener,noreferrer");
-    if (!w) {
-      setAuditError("Pop-up blocked — allow pop-ups to print or save as PDF");
-      return;
+  const handleDownloadPdf = async () => {
+    setAuditError(null);
+    try {
+      const blob = await buildFollowupLetterPdfBlob(body, DISCLAIMER_MODAL);
+      downloadBlobAsFile(blob, followupPdfFilename(supplierGstin));
+      void postAudit("downloaded");
+    } catch {
+      setAuditError("Could not generate PDF. Please try again or use Copy message.");
     }
-    w.document.write(printHtml);
-    w.document.close();
-    w.focus();
-    w.onload = () => {
-      w.print();
-    };
-    void postAudit("downloaded");
   };
 
   if (!open) return null;
@@ -294,7 +284,7 @@ export function SupplierFollowupLetterModal({
           </button>
           <button
             type="button"
-            onClick={handleDownloadPdf}
+            onClick={() => void handleDownloadPdf()}
             className="rounded-xl bg-brand px-4 py-2 text-[13px] font-semibold text-white hover:bg-brand-hover"
           >
             Download PDF
