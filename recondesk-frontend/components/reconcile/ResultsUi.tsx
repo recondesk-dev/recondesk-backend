@@ -176,8 +176,8 @@ type StatAccent = "neutral" | "matched" | "missed" | "risk";
 const statAccentValue: Record<StatAccent, { value: string; dot: string }> = {
   neutral: { value: "text-gray-800", dot: "bg-gray-300" },
   matched: { value: "text-gray-800", dot: "bg-brand" },
-  missed: { value: "text-[#E05252]", dot: "bg-red-500" },
-  risk: { value: "text-[#E09A3A]", dot: "bg-amber-500" },
+  missed: { value: "text-gray-900", dot: "bg-red-500" },
+  risk: { value: "text-gray-900", dot: "bg-amber-500" },
 };
 
 export function StatCard({

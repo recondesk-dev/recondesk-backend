@@ -1526,7 +1526,7 @@ export default function ReconcileResultsPage() {
                     <InrAmount
                       amount={summary.missed_itc_total_amount}
                       sizeClass="text-3xl font-bold"
-                      numberColorClass="text-[#E05252]"
+                      numberColorClass="text-gray-900"
                     />
                   }
                 />
@@ -1539,7 +1539,7 @@ export default function ReconcileResultsPage() {
                     <InrAmount
                       amount={summary.wrongful_risk_total_amount}
                       sizeClass="text-3xl font-bold"
-                      numberColorClass="text-[#E09A3A]"
+                      numberColorClass="text-gray-900"
                     />
                   }
                 />
