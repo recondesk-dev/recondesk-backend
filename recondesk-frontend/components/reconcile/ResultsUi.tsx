@@ -32,9 +32,14 @@ export const statCardsGridClass =
 
 export const statCardValueClass = "text-xl font-semibold tabular-nums";
 
-export const tableWrapClass = "w-full overflow-x-auto";
+export const tableWrapClass = "w-full min-w-0 overflow-x-hidden";
 
 export const tableClass = "w-full table-auto border-collapse text-left";
+
+export const decisionTableWrapClass = tableWrapClass;
+
+export const decisionTableClass =
+  "w-full table-fixed border-collapse text-left";
 
 export const tableHeadClass =
   "bg-[#FAFAFA] text-[11px] font-semibold uppercase tracking-wider text-gray-400";
@@ -56,37 +61,37 @@ export const tableStickyCheckboxHeadClass =
 export const tableStickyCheckboxCellClass =
   "sticky left-0 z-10 w-8 bg-white px-3 py-3 transition-all duration-150 group-hover:bg-[#FAFAFA]";
 
-export const topSuppliersTableClass = tableClass;
+export const topSuppliersTableClass = decisionTableClass;
 
-export const topSuppliersThGstin = `${tableHeadCellClass} min-w-[170px] w-[170px]`;
-export const topSuppliersTdGstin = `${tableCellClass} min-w-[170px] w-[170px] overflow-visible font-mono text-[12px] text-gray-500`;
-export const topSuppliersThTradeName = `${tableHeadCellClass} min-w-[180px]`;
-export const topSuppliersTdTradeName = `${tableCellClass} min-w-[180px] font-medium text-gray-800 overflow-hidden text-ellipsis whitespace-nowrap`;
-export const topSuppliersThInvoiceCount = `${tableHeadCellClass} min-w-[120px] w-[120px] text-center`;
-export const topSuppliersTdInvoiceCount = `${tableCellClass} min-w-[120px] w-[120px] text-center text-[13px] text-gray-600 tabular-nums`;
-export const topSuppliersThTotal = `${tableHeadCellClass} min-w-[140px] w-[140px] text-right`;
-export const topSuppliersTdTotal = `${tableCellClass} min-w-[140px] w-[140px] text-right font-semibold`;
-export const topSuppliersThImpact = `${tableHeadCellClass} min-w-[90px] w-[90px] text-right`;
-export const topSuppliersTdImpact = `${tableCellClass} min-w-[90px] w-[90px] text-right`;
+export const topSuppliersThGstin = `${tableHeadCellClass} w-[18%]`;
+export const topSuppliersTdGstin = `${tableCellClass} max-w-0 overflow-visible font-mono text-[12px] text-gray-500`;
+export const topSuppliersThTradeName = `${tableHeadCellClass} w-[32%]`;
+export const topSuppliersTdTradeName = `${tableCellClass} max-w-0 overflow-visible`;
+export const topSuppliersThInvoiceCount = `${tableHeadCellClass} w-[14%] text-center`;
+export const topSuppliersTdInvoiceCount = `${tableCellClass} text-center text-[13px] text-gray-600 tabular-nums`;
+export const topSuppliersThTotal = `${tableHeadCellClass} w-[22%] text-right`;
+export const topSuppliersTdTotal = `${tableCellClass} text-right font-semibold`;
+export const topSuppliersThImpact = `${tableHeadCellClass} w-[14%] text-right`;
+export const topSuppliersTdImpact = `${tableCellClass} text-right`;
 
-export const matchedTableClass = tableClass;
+export const matchedTableClass = decisionTableClass;
 
-export const matchedThGstin = `${tableHeadCellClass} min-w-[160px] w-[160px]`;
-export const matchedTdGstin = `${tableCellClass} min-w-[160px] w-[160px] overflow-visible font-mono text-[12px] text-gray-500`;
-export const matchedThInvoice = `${tableHeadCellClass} min-w-[110px] w-[110px]`;
-export const matchedTdInvoice = `${tableCellClass} min-w-[110px] w-[110px] font-medium text-gray-800`;
-export const matchedThDate = `${tableHeadCellClass} min-w-[100px] w-[100px]`;
-export const matchedTdDate = `${tableCellClass} min-w-[100px] w-[100px] text-[13px] text-gray-500`;
-export const matchedThAmount = `${tableHeadCellClass} min-w-[90px] w-[90px] text-right`;
-export const matchedTdAmount = `${tableCellClass} min-w-[90px] w-[90px] text-right`;
-export const matchedThMatchLevel = `${tableHeadCellClass} min-w-[100px] w-[100px] text-center`;
-export const matchedTdMatchLevel = `${tableCellClass} min-w-[100px] w-[100px] text-center`;
-export const matchedThConfidence = `${tableHeadCellClass} min-w-[100px] w-[100px] text-center`;
-export const matchedTdConfidence = `${tableCellClass} min-w-[100px] w-[100px] text-center text-[13px] text-gray-600`;
-export const matchedThDiscrepancy = `${tableHeadCellClass} min-w-[150px]`;
-export const matchedTdDiscrepancy = `${tableCellClass} min-w-[150px] overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-gray-600`;
-export const matchedThNotes = `${tableHeadCellClass} min-w-[80px] w-[80px]`;
-export const matchedTdNotes = `${tableCellClass} min-w-[80px] w-[80px]`;
+export const matchedThGstin = `${tableHeadCellClass} w-[16%]`;
+export const matchedTdGstin = `${tableCellClass} max-w-0 overflow-visible font-mono text-[12px] text-gray-500`;
+export const matchedThInvoice = `${tableHeadCellClass} w-[12%]`;
+export const matchedTdInvoice = `${tableCellClass} max-w-0 overflow-visible`;
+export const matchedThDate = `${tableHeadCellClass} w-[10%]`;
+export const matchedTdDate = `${tableCellClass} text-[13px] text-gray-500`;
+export const matchedThAmount = `${tableHeadCellClass} w-[10%] text-right`;
+export const matchedTdAmount = `${tableCellClass} text-right`;
+export const matchedThMatchLevel = `${tableHeadCellClass} w-[10%] text-center`;
+export const matchedTdMatchLevel = `${tableCellClass} text-center`;
+export const matchedThConfidence = `${tableHeadCellClass} w-[10%] text-center`;
+export const matchedTdConfidence = `${tableCellClass} text-center text-[13px] text-gray-600`;
+export const matchedThDiscrepancy = `${tableHeadCellClass} w-[22%]`;
+export const matchedTdDiscrepancy = `${tableCellClass} max-w-0 overflow-visible text-[13px] text-gray-600`;
+export const matchedThNotes = `${tableHeadCellClass} w-[10%]`;
+export const matchedTdNotes = `${tableCellClass}`;
 
 export function DecisionTableColGroup({
   includeNotice = false,
@@ -95,24 +100,18 @@ export function DecisionTableColGroup({
 }) {
   return (
     <colgroup>
-      <col style={{ width: 32 }} />
-      <col style={{ width: 32 }} />
-      <col style={{ width: 130 }} />
+      <col style={{ width: 40 }} />
+      <col style={{ width: 36 }} />
       <col style={{ width: "11%" }} />
-      <col style={{ width: "10%" }} />
-      <col style={{ width: 110 }} />
-      <col style={{ width: "7%" }} />
-      <col style={{ width: "16%" }} />
-      <col style={{ width: "13%" }} />
-      <col style={{ width: "14%" }} />
-      {includeNotice ? (
-        <>
-          <col style={{ width: "8%" }} />
-          <col />
-        </>
-      ) : (
-        <col />
-      )}
+      <col style={{ width: "9%" }} />
+      <col style={{ width: "8%" }} />
+      <col style={{ width: "8%" }} />
+      <col style={{ width: "6%" }} />
+      <col style={{ width: includeNotice ? "13%" : "15%" }} />
+      <col style={{ width: includeNotice ? "12%" : "14%" }} />
+      <col style={{ width: includeNotice ? "11%" : "13%" }} />
+      <col style={{ width: includeNotice ? "7%" : "8%" }} />
+      {includeNotice ? <col style={{ width: "10%" }} /> : null}
     </colgroup>
   );
 }
@@ -132,12 +131,24 @@ export function decisionTd(
     return `${tableCellClass} w-[110px] min-w-[110px] overflow-visible whitespace-nowrap text-right font-semibold`;
   }
   if (col === "gstin") {
-    return `${tableCellClass} max-w-[130px] overflow-visible`;
+    return `${tableCellClass} max-w-0 overflow-visible`;
   }
-  if (col === "status") {
+  if (col === "status" || col === "notice") {
     return `${tableCellClass} overflow-visible whitespace-nowrap`;
   }
-  return `${tableTruncateCellClass}${opts?.align === "right" ? " text-right" : ""}`;
+  if (
+    col === "invoice" ||
+    col === "what" ||
+    col === "why" ||
+    col === "next" ||
+    col === "num" ||
+    col === "date"
+  ) {
+    return `${tableTruncateCellClass} max-w-0 overflow-visible${
+      opts?.align === "right" ? " text-right" : ""
+    }`;
+  }
+  return `${tableTruncateCellClass} max-w-0${opts?.align === "right" ? " text-right" : ""}`;
 }
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
