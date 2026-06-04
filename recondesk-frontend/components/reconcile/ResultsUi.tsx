@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 // ─── Shared class tokens ─────────────────────────────────────────────────────
 
@@ -64,10 +64,10 @@ export function DecisionTableColGroup({
     <colgroup>
       <col style={{ width: 32 }} />
       <col style={{ width: 32 }} />
-      <col style={{ width: "15%" }} />
+      <col style={{ width: 130 }} />
       <col style={{ width: "11%" }} />
       <col style={{ width: "10%" }} />
-      <col style={{ width: "9%" }} />
+      <col style={{ width: 110 }} />
       <col style={{ width: "7%" }} />
       <col style={{ width: "16%" }} />
       <col style={{ width: "13%" }} />
@@ -92,9 +92,18 @@ export function decisionTh(
 }
 
 export function decisionTd(
-  _col?: string,
+  col?: "amount" | "gstin" | "status" | string,
   opts?: { align?: "right" }
 ): string {
+  if (col === "amount") {
+    return `${tableCellClass} w-[110px] min-w-[110px] overflow-visible whitespace-nowrap text-right font-semibold`;
+  }
+  if (col === "gstin") {
+    return `${tableCellClass} max-w-[130px] overflow-hidden text-ellipsis whitespace-nowrap`;
+  }
+  if (col === "status") {
+    return `${tableCellClass} overflow-visible whitespace-nowrap`;
+  }
   return `${tableTruncateCellClass}${opts?.align === "right" ? " text-right" : ""}`;
 }
 
@@ -106,13 +115,29 @@ export function formatINRPlain(amount: number): string {
   });
 }
 
-export function AmountDisplay({ amount }: { amount: number }) {
+export function InrAmount({
+  amount,
+  sizeClass = "text-[13px] font-semibold",
+  numberColorClass = "text-gray-900",
+  numberStyle,
+}: {
+  amount: number;
+  sizeClass?: string;
+  numberColorClass?: string;
+  numberStyle?: CSSProperties;
+}) {
   return (
-    <span className="font-semibold text-gray-900 tabular-nums">
-      <span className="font-normal text-gray-400">₹</span>
-      {formatINRPlain(amount)}
+    <span className={`inline-flex tabular-nums ${sizeClass}`}>
+      <span className={`text-gray-400 ${sizeClass}`}>₹</span>
+      <span className={numberColorClass} style={numberStyle}>
+        {formatINRPlain(amount)}
+      </span>
     </span>
   );
+}
+
+export function AmountDisplay({ amount }: { amount: number }) {
+  return <InrAmount amount={amount} />;
 }
 
 type StatAccent = "neutral" | "matched" | "missed" | "risk";
@@ -144,7 +169,9 @@ export function StatCard({
         {label}
       </p>
       <p
-        className={`mt-1 truncate text-3xl font-bold tabular-nums ${colors.value}`}
+        className={`mt-1 truncate tabular-nums ${
+          accent === "missed" || accent === "risk" ? "" : `text-3xl font-bold ${colors.value}`
+        }`}
       >
         {value}
       </p>
@@ -156,36 +183,49 @@ export function SectionHeader({
   title,
   dotColor,
   amount,
+  amountLabel,
   actions,
 }: {
   title: string;
   dotColor: string;
-  amount?: ReactNode;
+  amount?: number;
+  amountLabel?: string;
   actions?: ReactNode;
 }) {
   return (
-    <div className="mb-5 flex w-full flex-nowrap items-center justify-between gap-3">
-      <div className="flex min-w-0 shrink items-center gap-2">
-        <span
-          className="h-2 w-2 shrink-0 rounded-full"
-          style={{ backgroundColor: dotColor }}
-          aria-hidden
-        />
-        <h2 className="min-w-0 truncate text-lg font-semibold text-gray-900">
-          {title}
-        </h2>
+    <div className="mb-5 w-full">
+      <div className="flex w-full items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ backgroundColor: dotColor }}
+            aria-hidden
+          />
+          <h2 className="min-w-0 truncate text-lg font-semibold text-gray-900">
+            {title}
+          </h2>
+        </div>
+        {actions != null && (
+          <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+            {actions}
+          </div>
+        )}
       </div>
       {amount != null && (
-        <span
-          className="shrink-0 text-xl font-bold tabular-nums"
-          style={{ color: dotColor }}
-        >
-          {amount}
-        </span>
-      )}
-      {actions != null && (
-        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-          {actions}
+        <div className="mt-3 min-w-0">
+          {amountLabel != null && (
+            <p className="text-[11px] font-medium uppercase tracking-wider text-gray-400">
+              {amountLabel}
+            </p>
+          )}
+          <p className="mt-0.5">
+            <InrAmount
+              amount={amount}
+              sizeClass="text-2xl font-bold"
+              numberColorClass=""
+              numberStyle={{ color: dotColor }}
+            />
+          </p>
         </div>
       )}
     </div>
