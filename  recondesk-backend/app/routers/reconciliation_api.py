@@ -34,6 +34,7 @@ from app.services.reconcile_export_workbook import (
     build_pdf_summary_bytes,
 )
 from app.utils.audit import log_action
+from app.utils.supabase_errors import supabase_error_message
 from app.utils.storage import delete_file
 from app.worker.reconciliation_task import execute_reconciliation
 from app.services.invoice_results_sync import (
@@ -2525,16 +2526,11 @@ async def log_supplier_followup_audit(
                 detail="invoice_snapshot supplier_gstin must match request",
             )
 
-    if body.template_type == "wrongful_itc_single" and len(record_ids) != 1:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="wrongful_itc_single requires exactly one record_id",
-        )
-    if body.template_type == "wrongful_itc_bulk" and len(record_ids) < 2:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="wrongful_itc_bulk requires two or more record_ids",
-        )
+    template_type = body.template_type
+    if len(record_ids) == 1:
+        template_type = "wrongful_itc_single"
+    elif len(record_ids) >= 2:
+        template_type = "wrongful_itc_bulk"
 
     snapshot_json = [
         {
@@ -2558,19 +2554,27 @@ async def log_supplier_followup_audit(
         "supplier_gstin": sg,
         "record_ids": record_ids,
         "invoice_snapshot": snapshot_json,
-        "template_type": body.template_type,
+        "template_type": template_type,
         "generated_by": uid,
-        "generated_at": now,
         "status": body.status,
         "supplier_name_display": (body.supplier_name_display or "").strip() or None,
     }
     try:
         ins = sb.table("supplier_followup_audit").insert(row_ins).execute()
+    except HTTPException:
+        raise
     except Exception as exc:
-        _log.exception("supplier_followup_audit insert failed run_id=%s", rid)
+        detail = supabase_error_message(
+            exc, context="supplier_followup_audit insert failed"
+        )
+        _log.exception(
+            "supplier_followup_audit insert failed run_id=%s detail=%s",
+            rid,
+            detail,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="failed to record follow-up audit",
+            detail=detail,
         ) from exc
     if not ins.data:
         raise HTTPException(
