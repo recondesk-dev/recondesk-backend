@@ -30,6 +30,8 @@ export const pageContentClass =
 export const statCardsGridClass =
   "mt-4 grid w-full min-w-0 grid-cols-2 gap-3 border-t border-[#F0F0F0] pt-4 md:[grid-template-columns:repeat(4,minmax(0,1fr))]";
 
+export const statCardValueClass = "text-xl font-semibold tabular-nums";
+
 export const tableWrapClass = "w-full overflow-x-auto";
 
 export const tableClass = "w-full table-auto border-collapse text-left";
@@ -190,22 +192,25 @@ export function StatCard({
   accent?: StatAccent;
 }) {
   const colors = statAccentValue[accent];
+  const isCurrency = accent === "missed" || accent === "risk";
   return (
-    <div className="relative box-border flex min-w-0 w-full flex-col overflow-hidden rounded-2xl border border-[#F0F0F0] bg-white px-5 py-4">
-      <span
-        className={`absolute left-3 top-3 h-1.5 w-1.5 rounded-full ${colors.dot}`}
-        aria-hidden
-      />
-      <p className="truncate text-[11px] font-medium uppercase tracking-widest text-gray-300">
-        {label}
-      </p>
-      <p
-        className={`mt-1 truncate tabular-nums ${
-          accent === "missed" || accent === "risk" ? "" : `text-3xl font-bold ${colors.value}`
+    <div className="box-border flex min-w-0 w-full flex-col gap-2 overflow-hidden rounded-2xl border border-[#F0F0F0] bg-white px-4 py-3.5">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${colors.dot}`}
+          aria-hidden
+        />
+        <p className="min-w-0 truncate text-[11px] font-medium uppercase tracking-widest text-gray-300">
+          {label}
+        </p>
+      </div>
+      <div
+        className={`min-w-0 truncate ${
+          isCurrency ? "" : `${statCardValueClass} ${colors.value}`
         }`}
       >
         {value}
-      </p>
+      </div>
     </div>
   );
 }
