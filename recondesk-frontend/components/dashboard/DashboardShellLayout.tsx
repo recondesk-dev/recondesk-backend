@@ -327,17 +327,16 @@ export default function DashboardShellLayout({
 
   return (
     <div className="flex min-h-screen min-w-[1280px] bg-[var(--bg)] text-[var(--text-primary)]">
-      <aside className="fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col bg-white border-r border-gray-100">
+      <aside className="fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col border-r border-[#F0F0F0] bg-white">
         <div className="px-5 py-6">
           <Link
             href="/dashboard"
             className="font-brand inline-flex items-center gap-0.5 text-lg font-semibold tracking-tight text-gray-900"
           >
             <span>ReconDesk</span>
-            <span
-              className="h-2 w-2 shrink-0 rounded-full bg-violet-600"
-              aria-hidden="true"
-            />
+            <span className="text-brand" aria-hidden="true">
+              •
+            </span>
           </Link>
         </div>
         <nav className="flex-1 space-y-0.5 px-3">
@@ -350,13 +349,13 @@ export default function DashboardShellLayout({
               <Link
                 key={href}
                 href={href}
-                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${
+                className={`flex items-center gap-3 rounded-xl py-2.5 pl-3 pr-3 text-sm transition-all duration-150 ${
                   isActive
-                    ? "bg-gray-100 font-semibold text-gray-900"
-                    : "font-medium text-gray-400 hover:bg-gray-50 hover:text-gray-700"
+                    ? "border-l-[3px] border-brand font-semibold text-brand"
+                    : "border-l-[3px] border-transparent font-medium text-gray-500 hover:text-gray-800"
                 }`}
               >
-                <Icon className={`shrink-0 ${isActive ? "text-gray-900" : "text-gray-400"}`} />
+                <Icon className={`shrink-0 ${isActive ? "text-brand" : "text-gray-400"}`} />
                 {label}
               </Link>
             );
@@ -456,7 +455,7 @@ export default function DashboardShellLayout({
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-gray-50/50 p-8">{children}</main>
+        <main className="flex-1 overflow-y-auto bg-[#F7F7F8] p-8">{children}</main>
       </div>
 
       {panelOpen && (
