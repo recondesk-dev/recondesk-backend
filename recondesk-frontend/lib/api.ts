@@ -445,6 +445,16 @@ export const reconcileRunsApi = {
       `/api/reconcile/runs/${encodeURIComponent(runId)}/summary`,
       { token }
     ),
+
+  logSupplierFollowupAudit: (
+    token: string,
+    runId: string,
+    body: import("@/lib/supplierFollowupLetter").FollowupAuditPayload
+  ) =>
+    apiFetch<{ id: string; status: string; generated_at: string }>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/supplier-followup/audit`,
+      { method: "POST", token, body: JSON.stringify(body) }
+    ),
 };
 
 /** Subset of reconciliation run summary for celebrate / widgets. */

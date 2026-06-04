@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, ChevronDown, FileSpreadsheet, FileText, Loader2, Shield, Trash2, X } from "lucide-react";
+import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
 import { GstinCell } from "@/components/ui/GstinCell";
 import { HoverTextCell } from "@/components/ui/HoverTextCell";
 import Link from "next/link";
@@ -121,6 +122,7 @@ type ReconcileRow = {
 type RunSummary = {
   run_id: string;
   client_name: string;
+  client_gstin?: string;
   period: string;
   assigned_to_name: string;
   status: string;
@@ -595,6 +597,13 @@ export default function ReconcileResultsPage() {
     itc: Set<string>;
     risk: Set<string>;
   }>(() => ({ itc: new Set(), risk: new Set() }));
+
+  const [followupLetterRows, setFollowupLetterRows] = useState<
+    ReconcileRow[] | null
+  >(null);
+  const [followupSelectionHint, setFollowupSelectionHint] = useState<
+    string | null
+  >(null);
 
   const [activeRecord, setActiveRecord] = useState<ReconcileRow | null>(null);
   const [newNoteText, setNewNoteText] = useState("");
@@ -1221,6 +1230,55 @@ export default function ReconcileResultsPage() {
     const n = riskRows.filter((r) => selectedIds.risk.has(r.id)).length;
     el.indeterminate = n > 0 && n < riskRows.length;
   }, [selectedIds.risk, riskRows]);
+
+  const riskRowsSelectedOnPage = useMemo(
+    () => riskRows.filter((r) => selectedIds.risk.has(r.id)),
+    [riskRows, selectedIds.risk]
+  );
+
+  const riskSelectionGstinCount = useMemo(() => {
+    const set = new Set(
+      riskRowsSelectedOnPage.map((r) =>
+        (r.supplier_gstin || "").trim().toUpperCase()
+      )
+    );
+    set.delete("");
+    return set.size;
+  }, [riskRowsSelectedOnPage]);
+
+  const openFollowupLetter = useCallback((rows: ReconcileRow[]) => {
+    if (!rows.length) return;
+    const gstins = new Set(
+      rows.map((r) => (r.supplier_gstin || "").trim().toUpperCase()).filter(Boolean)
+    );
+    if (gstins.size !== 1) {
+      setFollowupSelectionHint(
+        "Select invoices from one supplier only to generate a combined follow-up letter."
+      );
+      return;
+    }
+    setFollowupSelectionHint(null);
+    setFollowupLetterRows(rows);
+  }, []);
+
+  const tryOpenBulkFollowup = useCallback(() => {
+    const onPage = riskRowsSelectedOnPage;
+    if (selectedIds.risk.size > onPage.length) {
+      setFollowupSelectionHint(
+        "Some selected invoices are on another page. Generate follow-up for rows on this page, or clear selection and re-select here."
+      );
+      return;
+    }
+    if (onPage.length === 0) {
+      setFollowupSelectionHint("Select at least one invoice.");
+      return;
+    }
+    openFollowupLetter(onPage);
+  }, [
+    riskRowsSelectedOnPage,
+    selectedIds.risk.size,
+    openFollowupLetter,
+  ]);
 
   const rule37TotalAmount = useMemo(() => {
     const rows = rule37Data?.data ?? [];
@@ -2073,9 +2131,30 @@ export default function ReconcileResultsPage() {
             )}
             {riskPageData && !riskError && (
               <>
+                {followupSelectionHint && (
+                  <p className="mb-3 text-[13px] text-amber-800">{followupSelectionHint}</p>
+                )}
                 {selectedIds.risk.size > 0 && (
                   <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#F0F0F0] bg-[#FAFAFA] px-4 py-2.5 text-[13px]">
                     <span className="text-gray-600">{selectedIds.risk.size} selected</span>
+                    <button
+                      type="button"
+                      disabled={
+                        isRunFinalized ||
+                        !authToken ||
+                        riskRowsSelectedOnPage.length === 0 ||
+                        riskSelectionGstinCount !== 1
+                      }
+                      title={
+                        riskSelectionGstinCount !== 1
+                          ? "Select invoices from one supplier only"
+                          : undefined
+                      }
+                      className="rounded-lg border border-brand/30 bg-brand/5 px-3 py-1.5 text-[13px] font-medium text-brand hover:bg-brand/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => tryOpenBulkFollowup()}
+                    >
+                      Generate follow-up letter
+                    </button>
                     <button
                       type="button"
                       disabled={isRunFinalized}
@@ -2153,7 +2232,7 @@ export default function ReconcileResultsPage() {
                         <th className={decisionTh("next")}>NEXT</th>
                         <th className={decisionTh("status")}>Status</th>
                         <th className={decisionTh("notice", "right")}>
-                          Generate Notice
+                          Follow-up
                         </th>
                       </tr>
                     </thead>
@@ -2228,11 +2307,11 @@ export default function ReconcileResultsPage() {
                           <td className={decisionTd("notice", { align: "right" })}>
                             <button
                               type="button"
-                              disabled
-                              title="Coming Soon — Phase 7"
-                              className="max-w-full rounded-lg border border-[#E5E7EB] bg-white px-2 py-1.5 text-[10px] font-medium leading-tight text-gray-500 disabled:cursor-not-allowed disabled:opacity-60"
+                              disabled={isRunFinalized || !authToken}
+                              className="max-w-full rounded-lg border border-[#E5E7EB] bg-white px-2 py-1.5 text-[10px] font-medium leading-tight text-brand hover:bg-brand/5 disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => openFollowupLetter([row])}
                             >
-                              Generate Notice
+                              Generate follow-up letter
                             </button>
                           </td>
                         </tr>
@@ -3155,6 +3234,19 @@ export default function ReconcileResultsPage() {
             Only your CA principal (admin) can finalize this reconciliation.
           </p>
         </div>
+      )}
+
+      {followupLetterRows && summary && authToken && (
+        <SupplierFollowupLetterModal
+          open
+          onClose={() => setFollowupLetterRows(null)}
+          runId={runId}
+          taxPeriod={summary.period}
+          clientName={summary.client_name}
+          clientGstin={summary.client_gstin ?? ""}
+          rows={followupLetterRows}
+          token={authToken}
+        />
       )}
 
       {deleteModalOpen && (

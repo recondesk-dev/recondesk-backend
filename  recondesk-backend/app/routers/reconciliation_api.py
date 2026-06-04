@@ -549,6 +549,34 @@ class DecisionBulkUpdateResponse(BaseModel):
     updated_count: int
 
 
+class FollowupInvoiceSnapshotItem(BaseModel):
+    record_id: str = Field(..., min_length=1)
+    supplier_gstin: str = Field(..., min_length=1)
+    invoice_number: str = ""
+    invoice_date: str = ""
+    amount: float = 0.0
+    decision_what: Optional[str] = None
+    decision_why: Optional[str] = None
+    decision_next: Optional[str] = None
+    trade_name: Optional[str] = None
+
+
+class SupplierFollowupAuditBody(BaseModel):
+    supplier_gstin: str = Field(..., min_length=1)
+    record_ids: list[str] = Field(..., min_length=1)
+    tax_period: str = Field(..., min_length=4, max_length=7)
+    invoice_snapshot: list[FollowupInvoiceSnapshotItem] = Field(..., min_length=1)
+    template_type: Literal["wrongful_itc_single", "wrongful_itc_bulk"]
+    status: Literal["generated", "downloaded", "copied"]
+    supplier_name_display: Optional[str] = Field(None, max_length=200)
+
+
+class SupplierFollowupAuditResponse(BaseModel):
+    id: str
+    status: str
+    generated_at: str
+
+
 @router.post(
     "/runs/{run_id}/rule37/{pr_id}/resolve",
     response_model=Rule37ResolveResponse,
@@ -1045,9 +1073,12 @@ def _build_reconcile_summary(
 
     period = str(run_row.get("period") or "")
 
+    client_gstin = str(crow.get("gstin") or "").strip()
+
     return {
         "run_id": rid,
         "client_name": client_display,
+        "client_gstin": client_gstin,
         "period": period,
         "assigned_to_name": assigned_to_name,
         "status": _display_status(run_row.get("status")),
@@ -2431,6 +2462,127 @@ async def reconcile_run_risk_bucket(
     rows = _filter_risk_by_level(rows, risk_level)
     _sort_reconcile_bucket_rows(rows, sort)
     return _paginated_body(rows, page, limit)
+
+
+@reconcile_runs_router.post(
+    "/runs/{run_id}/supplier-followup/audit",
+    response_model=SupplierFollowupAuditResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def log_supplier_followup_audit(
+    run_id: str,
+    body: SupplierFollowupAuditBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Persist supplier follow-up letter audit (snapshot from client at action time)."""
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, rid, current_user)
+    uid = str(current_user.get("id") or "").strip()
+    if not uid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing user id",
+        )
+
+    run_period = str(run_row.get("period") or "").strip()
+    if body.tax_period.strip() != run_period:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="tax_period does not match run",
+        )
+
+    record_ids = [str(x).strip() for x in body.record_ids if str(x).strip()]
+    if not record_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="record_ids cannot be empty",
+        )
+    if not all(rid_item.startswith("wr:") for rid_item in record_ids):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="follow-up audit only supports wrongful ITC (wr:) records",
+        )
+    _assert_record_ids_in_run(sb, rid, record_ids)
+
+    sg = body.supplier_gstin.strip().upper()
+    if not sg:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="supplier_gstin is required",
+        )
+
+    snap_ids = {str(item.record_id).strip() for item in body.invoice_snapshot}
+    if snap_ids != set(record_ids):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="invoice_snapshot record_ids must match record_ids",
+        )
+    for item in body.invoice_snapshot:
+        if str(item.supplier_gstin or "").strip().upper() != sg:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="invoice_snapshot supplier_gstin must match request",
+            )
+
+    if body.template_type == "wrongful_itc_single" and len(record_ids) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="wrongful_itc_single requires exactly one record_id",
+        )
+    if body.template_type == "wrongful_itc_bulk" and len(record_ids) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="wrongful_itc_bulk requires two or more record_ids",
+        )
+
+    snapshot_json = [
+        {
+            "record_id": item.record_id,
+            "supplier_gstin": item.supplier_gstin,
+            "invoice_number": item.invoice_number,
+            "invoice_date": item.invoice_date,
+            "amount": item.amount,
+            "decision_what": item.decision_what,
+            "decision_why": item.decision_why,
+            "decision_next": item.decision_next,
+            "trade_name": item.trade_name,
+        }
+        for item in body.invoice_snapshot
+    ]
+
+    now = datetime.now(timezone.utc).isoformat()
+    row_ins: dict[str, Any] = {
+        "run_id": rid,
+        "tax_period": body.tax_period.strip(),
+        "supplier_gstin": sg,
+        "record_ids": record_ids,
+        "invoice_snapshot": snapshot_json,
+        "template_type": body.template_type,
+        "generated_by": uid,
+        "generated_at": now,
+        "status": body.status,
+        "supplier_name_display": (body.supplier_name_display or "").strip() or None,
+    }
+    try:
+        ins = sb.table("supplier_followup_audit").insert(row_ins).execute()
+    except Exception as exc:
+        _log.exception("supplier_followup_audit insert failed run_id=%s", rid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="failed to record follow-up audit",
+        ) from exc
+    if not ins.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="failed to record follow-up audit",
+        )
+    out = ins.data[0]
+    return SupplierFollowupAuditResponse(
+        id=str(out.get("id") or ""),
+        status=str(out.get("status") or body.status),
+        generated_at=str(out.get("generated_at") or now),
+    )
 
 
 @reconcile_runs_router.patch(
