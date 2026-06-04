@@ -11,6 +11,27 @@ import {
   useState,
 } from "react";
 import useSWR from "swr";
+import {
+  AmountDisplay,
+  csvDownloadBtnClass,
+  DecisionStatusPill,
+  filterInputClass,
+  formatINRPlain,
+  ImpactBadge,
+  rule37BorderClass,
+  Rule37SeverityLabel,
+  sectionContainerClass,
+  SectionHeader,
+  StatCard,
+  tableCellClass,
+  tableClass,
+  tableHeadCellClass,
+  tableHeadClass,
+  tableRowClass,
+  tableStickyCheckboxCellClass,
+  tableStickyCheckboxHeadClass,
+  tableWrapClass,
+} from "@/components/reconcile/ResultsUi";
 import { apiFetch } from "@/lib/api";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
@@ -74,9 +95,8 @@ type RunSummary = {
 /** Shared action button styles for results header / exports */
 const actionBtnBase =
   "inline-flex h-9 items-center justify-center gap-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
-const exportToolbarBtn = `${actionBtnBase} rounded-full px-3 text-gray-600 hover:bg-gray-50 hover:text-gray-900`;
-const deleteRunBtn = `${actionBtnBase} rounded-full border border-gray-200 bg-white px-3.5 text-gray-600 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-600`;
-const sectionExportBtn = `${actionBtnBase} rounded-full border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:border-gray-300 hover:bg-gray-50`;
+const exportToolbarBtn = `${actionBtnBase} rounded-xl border border-[#E5E7EB] bg-white px-3 text-gray-600 hover:bg-gray-50`;
+const deleteRunBtn = `${actionBtnBase} rounded-xl border border-[#E5E7EB] bg-white px-3.5 text-gray-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600`;
 
 type Paginated<T> = {
   data: T[];
@@ -396,76 +416,18 @@ function supplierRiskImpactLabel(
 
 // ─── Small UI bits ─────────────────────────────────────────────────────────
 
-function DecisionStatusPill({
-  status,
-}: {
-  status: DecisionStatus;
-}) {
-  if (status === "acted")
-    return (
-      <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-        Acted
-      </span>
-    );
-  if (status === "ignored")
-    return (
-      <span className="inline-flex rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-500 line-through">
-        Ignored
-      </span>
-    );
-  return (
-    <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
-      Pending
-    </span>
-  );
-}
-
 function MatchLevelBadge({ level }: { level: MatchLevel }) {
   const map: Record<MatchLevel, string> = {
-    EXACT: "bg-green-100 text-green-800",
-    FUZZY: "bg-yellow-100 text-yellow-800",
-    MANUAL: "bg-blue-100 text-blue-800",
-    UNMATCHED: "bg-red-100 text-red-800",
+    EXACT: "bg-gray-100 text-gray-600",
+    FUZZY: "bg-amber-50 text-amber-600",
+    MANUAL: "bg-gray-100 text-gray-600",
+    UNMATCHED: "bg-red-50 text-red-600",
   };
   return (
     <span
-      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${map[level]}`}
+      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${map[level]}`}
     >
       {level}
-    </span>
-  );
-}
-
-function ImpactCell({
-  level,
-}: {
-  level: "high" | "medium" | "low";
-}) {
-  const cfg = {
-    high: { dot: "bg-red-500", label: "High" },
-    medium: { dot: "bg-amber-500", label: "Mid" },
-    low: { dot: "bg-gray-400", label: "Low" },
-  }[level];
-  return (
-    <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
-      <span className={`h-2 w-2 shrink-0 rounded-full ${cfg.dot}`} />
-      {cfg.label}
-    </span>
-  );
-}
-
-function ImpactSupplierPill({ level }: { level: "high" | "medium" | "low" }) {
-  const cls = {
-    high: "bg-red-100 text-red-800",
-    medium: "bg-amber-100 text-amber-800",
-    low: "bg-gray-200 text-gray-600",
-  }[level];
-  const label = level === "high" ? "High" : level === "medium" ? "Medium" : "Low";
-  return (
-    <span
-      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}
-    >
-      {label}
     </span>
   );
 }
@@ -524,7 +486,7 @@ function SectionError({
   onRetry: () => void;
 }) {
   return (
-    <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+    <div className="rounded-2xl border border-red-200 bg-white p-4 text-[13px] text-red-600">
       {message}{" "}
       <button
         type="button"
@@ -1400,7 +1362,7 @@ export default function ReconcileResultsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-28">
+    <div className="min-h-screen bg-[#F7F7F8] pb-28">
       {/*
         Summary bar — sticky (not fixed) so it lives in normal document flow.
         -mt-8 and -mx-8 cancel main's p-8 padding so the bar is flush with
@@ -1410,7 +1372,7 @@ export default function ReconcileResultsPage() {
       */}
       <div
         ref={summaryRef}
-        className="sticky -top-8 -mx-8 -mt-8 z-40 border-b border-gray-200 bg-white px-8 py-2 shadow-sm"
+        className="sticky -top-8 -mx-8 -mt-8 z-40 border-b border-[#F0F0F0] bg-white px-8 py-4"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
@@ -1441,7 +1403,7 @@ export default function ReconcileResultsPage() {
                 {isRunFinalized &&
                   summary.finalized_by_name &&
                   summary.finalized_at && (
-                    <span className="mt-2 inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                    <span className="mt-2 inline-flex rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-600">
                       Finalized by {summary.finalized_by_name} on{" "}
                       {formatDate(summary.finalized_at)}
                     </span>
@@ -1450,7 +1412,7 @@ export default function ReconcileResultsPage() {
 
               <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-3">
                 <div
-                  className="inline-flex items-center rounded-lg border border-gray-200 bg-white p-1 shadow-sm"
+                  className="inline-flex items-center rounded-xl border border-[#E5E7EB] bg-white p-1"
                   role="group"
                   aria-label="Export reports"
                 >
@@ -1463,7 +1425,7 @@ export default function ReconcileResultsPage() {
                     {excelDownloading ? (
                       <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" />
                     ) : (
-                      <FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-600" />
+                      <FileSpreadsheet className="h-4 w-4 shrink-0 text-gray-500" />
                     )}
                     Excel
                   </button>
@@ -1496,53 +1458,49 @@ export default function ReconcileResultsPage() {
               </div>
             </div>
 
-            <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-2 border-t border-gray-100 pt-3">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Total GSTR
-                </p>
-                <p className="text-lg font-semibold tabular-nums text-gray-900">
-                  {summary.total_gstr_records.toLocaleString("en-IN")}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Matched
-                </p>
-                <p className="text-lg font-semibold tabular-nums text-gray-900">
-                  {summary.matched_count.toLocaleString("en-IN")}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Missed ITC
-                </p>
-                <p className="text-lg font-semibold tabular-nums text-emerald-600">
-                  {formatINR(summary.missed_itc_total_amount)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  At Risk
-                </p>
-                <p className="text-lg font-semibold tabular-nums text-red-600">
-                  {formatINR(summary.wrongful_risk_total_amount)}
-                </p>
-              </div>
+            <div className="mt-4 flex flex-wrap gap-3 border-t border-[#F0F0F0] pt-4">
+              <StatCard
+                label="Total GSTR"
+                value={summary.total_gstr_records.toLocaleString("en-IN")}
+              />
+              <StatCard
+                label="Matched"
+                value={summary.matched_count.toLocaleString("en-IN")}
+              />
+              <StatCard
+                label="Missed ITC"
+                accent="missed"
+                value={
+                  <>
+                    <span className="font-normal text-gray-400">₹</span>
+                    {formatINRPlain(summary.missed_itc_total_amount)}
+                  </>
+                }
+              />
+              <StatCard
+                label="At Risk"
+                accent="risk"
+                value={
+                  <>
+                    <span className="font-normal text-gray-400">₹</span>
+                    {formatINRPlain(summary.wrongful_risk_total_amount)}
+                  </>
+                }
+              />
             </div>
           </>
         )}
         {summary && !summaryError && (
-          <div className="mt-2">
-            <div className="h-1 w-full rounded-full bg-gray-200">
+          <div className="mt-3">
+            <div className="h-1.5 w-full rounded-full bg-[#F0F0F0]">
               <div
-                className="h-1 rounded-full bg-emerald-500 transition-all"
+                className="h-1.5 rounded-full bg-brand transition-all duration-150"
                 style={{
                   width: `${Math.min(100, Math.max(0, summary.match_rate_percent))}%`,
                 }}
               />
             </div>
-            <p className="mt-1 text-right text-xs text-gray-400">
+            <p className="mt-1.5 text-right text-[12px] font-medium text-gray-400">
               {summary.match_rate_percent}% matched
             </p>
           </div>
@@ -1554,12 +1512,12 @@ export default function ReconcileResultsPage() {
         {summary &&
           summary.missed_itc_count === 0 &&
           summary.wrongful_risk_count === 0 && (
-          <div className="rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4">
+          <div className={sectionContainerClass}>
             <div className="flex gap-3">
-              <Check className="mt-0.5 h-6 w-6 shrink-0 text-emerald-600" />
+              <Check className="mt-0.5 h-5 w-5 shrink-0 text-[#16A34A]" />
               <div>
-                <h2 className="font-semibold text-emerald-800">Perfect match!</h2>
-                <p className="mt-1 text-sm text-emerald-700">
+                <h2 className="text-lg font-semibold text-gray-900">Perfect match!</h2>
+                <p className="mt-1 text-[13px] text-gray-600">
                   No ITC missed this month. Every invoice in GSTR-2B is recorded in
                   your purchase register.
                 </p>
@@ -1569,19 +1527,16 @@ export default function ReconcileResultsPage() {
         )}
 
         {summary && summary.missed_itc_count > 0 && (
-          <div className="rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="font-semibold text-emerald-800">
-                ITC You Can Still Claim
-              </h2>
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-xl font-bold text-emerald-700">
-                  Total: {formatINR(summary.missed_itc_total_amount)}
-                </span>
+          <div className={sectionContainerClass}>
+            <SectionHeader
+              title="ITC You Can Still Claim"
+              dotColor="#16A34A"
+              amount={`₹${formatINRPlain(summary.missed_itc_total_amount)}`}
+              actions={
                 <button
                   type="button"
                   disabled={itcCsvDownloading}
-                  className={sectionExportBtn}
+                  className={csvDownloadBtnClass}
                   onClick={() => void downloadItcCsv()}
                 >
                   {itcCsvDownloading ? (
@@ -1589,15 +1544,15 @@ export default function ReconcileResultsPage() {
                   ) : null}
                   Download CSV
                 </button>
-              </div>
-            </div>
+              }
+            />
 
-            <div className="mb-2 flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
+            <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center">
               <div className="flex w-full flex-col flex-wrap gap-2 sm:flex-row sm:items-center">
                 <input
                   type="text"
                   inputMode="decimal"
-                  className="w-full min-w-[6rem] rounded border border-emerald-600/30 bg-white px-2 py-1.5 text-sm sm:w-28"
+                  className={`w-full min-w-[6rem] sm:w-28 ${filterInputClass}`}
                   placeholder="₹ Min"
                   value={itcFilters.amount_min}
                   onChange={(e) =>
@@ -1607,7 +1562,7 @@ export default function ReconcileResultsPage() {
                 <input
                   type="text"
                   inputMode="decimal"
-                  className="w-full min-w-[6rem] rounded border border-emerald-600/30 bg-white px-2 py-1.5 text-sm sm:w-28"
+                  className={`w-full min-w-[6rem] sm:w-28 ${filterInputClass}`}
                   placeholder="₹ Max"
                   value={itcFilters.amount_max}
                   onChange={(e) =>
@@ -1616,7 +1571,7 @@ export default function ReconcileResultsPage() {
                 />
                 <input
                   type="text"
-                  className="w-full min-w-[10rem] rounded border border-emerald-600/30 bg-white px-2 py-1.5 text-sm sm:min-w-[12rem]"
+                  className={`w-full min-w-[10rem] sm:min-w-[12rem] ${filterInputClass}`}
                   placeholder="Filter by GSTIN..."
                   value={itcFilters.supplier_gstin}
                   onChange={(e) =>
@@ -1628,7 +1583,7 @@ export default function ReconcileResultsPage() {
                 />
                 <input
                   type="date"
-                  className="w-full rounded border border-emerald-600/30 bg-white px-2 py-1.5 text-sm sm:w-auto"
+                  className={`w-full sm:w-auto ${filterInputClass}`}
                   value={itcFilters.date_from}
                   onChange={(e) =>
                     setItcFilters((f) => ({ ...f, date_from: e.target.value }))
@@ -1636,7 +1591,7 @@ export default function ReconcileResultsPage() {
                 />
                 <input
                   type="date"
-                  className="w-full rounded border border-emerald-600/30 bg-white px-2 py-1.5 text-sm sm:w-auto"
+                  className={`w-full sm:w-auto ${filterInputClass}`}
                   value={itcFilters.date_to}
                   onChange={(e) =>
                     setItcFilters((f) => ({ ...f, date_to: e.target.value }))
@@ -1645,7 +1600,7 @@ export default function ReconcileResultsPage() {
                 {hasActiveItcFilters(itcFilters) && (
                   <button
                     type="button"
-                    className="min-h-[44px] text-sm font-medium text-emerald-800 underline"
+                    className="text-[13px] font-medium text-brand hover:underline"
                     onClick={() =>
                       setItcFilters({
                         amount_min: "",
@@ -1661,7 +1616,7 @@ export default function ReconcileResultsPage() {
                 )}
               </div>
               <select
-                className="min-h-[44px] w-full rounded border border-emerald-600/40 bg-white px-2 py-1.5 text-sm text-emerald-900 lg:w-auto lg:min-w-[12rem]"
+                className={`w-full lg:w-auto lg:min-w-[12rem] ${filterInputClass}`}
                 value={itcSort}
                 onChange={(e) => setItcSort(e.target.value)}
               >
@@ -1679,9 +1634,9 @@ export default function ReconcileResultsPage() {
               />
             )}
             {itcLoading && !itcPageData && !itcError && (
-              <div className="overflow-x-auto rounded border border-emerald-200 bg-white">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="border-b bg-emerald-50/50">
+              <div className={tableWrapClass}>
+                <table className={tableClass}>
+                  <thead className={tableHeadClass}>
                     <tr>
                       {Array.from({ length: 11 }).map((_, i) => (
                         <th key={i} className="px-2 py-2">
@@ -1715,12 +1670,12 @@ export default function ReconcileResultsPage() {
             {itcPageData && !itcError && (
               <>
                 {selectedIds.itc.size > 0 && (
-                  <div className="mb-2 flex flex-wrap items-center gap-3 rounded border border-emerald-200 bg-white px-3 py-2 text-sm">
-                    <span>{selectedIds.itc.size} selected</span>
+                  <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#F0F0F0] bg-[#FAFAFA] px-4 py-2.5 text-[13px]">
+                    <span className="text-gray-600">{selectedIds.itc.size} selected</span>
                     <button
                       type="button"
                       disabled={isRunFinalized}
-                      className="min-h-[44px] rounded border border-emerald-600 px-2 py-1 text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-[13px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => {
                         const snap = new Set(selectedIds.itc);
                         const ids = Array.from(snap);
@@ -1732,7 +1687,7 @@ export default function ReconcileResultsPage() {
                     <button
                       type="button"
                       disabled={isRunFinalized}
-                      className="min-h-[44px] rounded border border-gray-400 px-2 py-1 text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-[13px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => {
                         const snap = new Set(selectedIds.itc);
                         const ids = Array.from(snap);
@@ -1743,7 +1698,7 @@ export default function ReconcileResultsPage() {
                     </button>
                     <button
                       type="button"
-                      className="min-h-[44px] text-emerald-700 underline"
+                      className="text-[13px] font-medium text-brand hover:underline"
                       onClick={() =>
                         setSelectedIds((p) => ({ ...p, itc: new Set() }))
                       }
@@ -1752,11 +1707,11 @@ export default function ReconcileResultsPage() {
                     </button>
                   </div>
                 )}
-                <div className="overflow-x-auto rounded border border-emerald-200 bg-white">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="border-b bg-emerald-50/50">
+                <div className={tableWrapClass}>
+                  <table className={tableClass}>
+                    <thead className={tableHeadClass}>
                       <tr>
-                        <th className="sticky left-0 z-10 bg-emerald-50/50 px-2 py-2">
+                        <th className={tableStickyCheckboxHeadClass}>
                           <input
                             ref={itcHeaderRef}
                             type="checkbox"
@@ -1782,22 +1737,22 @@ export default function ReconcileResultsPage() {
                             className="rounded border-gray-300"
                           />
                         </th>
-                        <th className="px-2 py-2">#</th>
-                        <th className="px-2 py-2">Supplier GSTIN</th>
-                        <th className="px-2 py-2">Invoice#</th>
-                        <th className="px-2 py-2">Date</th>
-                        <th className="px-2 py-2 text-right">Amount</th>
-                        <th className="px-2 py-2">Impact</th>
-                        <th className="px-2 py-2">WHAT</th>
-                        <th className="px-2 py-2">WHY</th>
-                        <th className="px-2 py-2">NEXT</th>
-                        <th className="px-2 py-2">Status</th>
+                        <th className={tableHeadCellClass}>#</th>
+                        <th className={tableHeadCellClass}>Supplier GSTIN</th>
+                        <th className={tableHeadCellClass}>Invoice#</th>
+                        <th className={tableHeadCellClass}>Date</th>
+                        <th className={`${tableHeadCellClass} text-right`}>Amount</th>
+                        <th className={tableHeadCellClass}>Impact</th>
+                        <th className={tableHeadCellClass}>WHAT</th>
+                        <th className={tableHeadCellClass}>WHY</th>
+                        <th className={tableHeadCellClass}>NEXT</th>
+                        <th className={tableHeadCellClass}>Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {itcRows.map((row, i) => (
-                        <tr key={row.id} className="border-b border-gray-100">
-                          <td className="sticky left-0 z-10 bg-emerald-50 px-2 py-2">
+                        <tr key={row.id} className={`group ${tableRowClass}`}>
+                          <td className={tableStickyCheckboxCellClass}>
                             <input
                               type="checkbox"
                               disabled={isRunFinalized}
@@ -1816,30 +1771,36 @@ export default function ReconcileResultsPage() {
                               className="rounded border-gray-300"
                             />
                           </td>
-                          <td className="px-2 py-2 text-gray-500">
+                          <td className={`${tableCellClass} text-[13px] text-gray-500`}>
                             {(itcPage - 1) * 50 + i + 1}
                           </td>
-                          <td className="font-mono text-xs">{row.supplier_gstin}</td>
-                          <td>{row.invoice_number}</td>
-                          <td>{formatDate(row.invoice_date)}</td>
-                          <td className="text-right font-mono">
-                            {formatINR(row.amount)}
+                          <td className={`${tableCellClass} font-mono text-[13px] text-gray-500`}>
+                            {row.supplier_gstin}
                           </td>
-                          <td>
-                            <ImpactCell
+                          <td className={`${tableCellClass} font-medium text-gray-800`}>
+                            {row.invoice_number}
+                          </td>
+                          <td className={`${tableCellClass} text-[13px] text-gray-500`}>
+                            {formatDate(row.invoice_date)}
+                          </td>
+                          <td className={`${tableCellClass} text-right`}>
+                            <AmountDisplay amount={row.amount} />
+                          </td>
+                          <td className={tableCellClass}>
+                            <ImpactBadge
                               level={getImpactLevel(row.amount, itcMax)}
                             />
                           </td>
-                          <td className="max-w-[140px] truncate text-sm font-medium text-emerald-700">
+                          <td className={`${tableCellClass} max-w-[140px] truncate text-[13px] text-gray-600`}>
                             {row.decision_what ?? "—"}
                           </td>
-                          <td className="max-w-[140px] truncate text-sm text-gray-600">
+                          <td className={`${tableCellClass} max-w-[140px] truncate text-[13px] italic text-gray-400`}>
                             {row.decision_why ?? "—"}
                           </td>
-                          <td className="max-w-[140px] truncate text-sm font-medium text-blue-700">
+                          <td className={`${tableCellClass} max-w-[140px] truncate text-[13px] font-medium text-brand hover:underline cursor-pointer`}>
                             {row.decision_next ?? "—"}
                           </td>
-                          <td>
+                          <td className={tableCellClass}>
                             <DecisionStatusPill status={effectiveStatus(row)} />
                           </td>
                         </tr>
@@ -1859,8 +1820,11 @@ export default function ReconcileResultsPage() {
                     )
                   }
                 />
-                <p className="mt-2 text-right text-sm font-medium text-emerald-700">
-                  {formatINR(summary.missed_itc_total_amount)} ITC recoverable across{" "}
+                <p className="mt-3 text-right text-[13px] font-medium text-gray-600">
+                  <span className="text-gray-900">
+                    ₹{formatINRPlain(summary.missed_itc_total_amount)}
+                  </span>{" "}
+                  ITC recoverable across{" "}
                   {itcPageData.total.toLocaleString("en-IN")} invoices
                 </p>
               </>
@@ -1872,10 +1836,10 @@ export default function ReconcileResultsPage() {
         {summary &&
           summary.wrongful_risk_count === 0 &&
           summary.missed_itc_count > 0 && (
-          <div className="rounded-lg border-l-4 border-red-500 bg-red-50 p-4">
+          <div className={sectionContainerClass}>
             <div className="flex gap-3">
-              <Shield className="mt-0.5 h-6 w-6 shrink-0 text-red-600" />
-              <p className="text-red-800">
+              <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[#DC2626]" />
+              <p className="text-[13px] text-gray-600">
                 No compliance risk detected for this period.
               </p>
             </div>
@@ -1883,19 +1847,16 @@ export default function ReconcileResultsPage() {
         )}
 
         {summary && summary.wrongful_risk_count > 0 && (
-          <div className="rounded-lg border-l-4 border-red-500 bg-red-50 p-4">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="font-semibold text-red-800">
-                ITC at Risk — Supplier Has Not Filed
-              </h2>
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-xl font-bold text-red-700">
-                  Total: {formatINR(summary.wrongful_risk_total_amount)}
-                </span>
+          <div className={sectionContainerClass}>
+            <SectionHeader
+              title="ITC at Risk — Supplier Has Not Filed"
+              dotColor="#DC2626"
+              amount={`₹${formatINRPlain(summary.wrongful_risk_total_amount)}`}
+              actions={
                 <button
                   type="button"
                   disabled={riskCsvDownloading}
-                  className={sectionExportBtn}
+                  className={csvDownloadBtnClass}
                   onClick={() => void downloadRiskCsv()}
                 >
                   {riskCsvDownloading ? (
@@ -1903,15 +1864,15 @@ export default function ReconcileResultsPage() {
                   ) : null}
                   Download CSV
                 </button>
-              </div>
-            </div>
+              }
+            />
 
-            <div className="mb-2 flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
+            <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center">
               <div className="flex w-full flex-col flex-wrap gap-2 sm:flex-row sm:items-center">
                 <input
                   type="text"
                   inputMode="decimal"
-                  className="w-full min-w-[6rem] rounded border border-red-600/30 bg-white px-2 py-1.5 text-sm sm:w-28"
+                  className={`w-full min-w-[6rem] sm:w-28 ${filterInputClass}`}
                   placeholder="₹ Min"
                   value={riskFilters.amount_min}
                   onChange={(e) =>
@@ -1921,7 +1882,7 @@ export default function ReconcileResultsPage() {
                 <input
                   type="text"
                   inputMode="decimal"
-                  className="w-full min-w-[6rem] rounded border border-red-600/30 bg-white px-2 py-1.5 text-sm sm:w-28"
+                  className={`w-full min-w-[6rem] sm:w-28 ${filterInputClass}`}
                   placeholder="₹ Max"
                   value={riskFilters.amount_max}
                   onChange={(e) =>
@@ -1930,7 +1891,7 @@ export default function ReconcileResultsPage() {
                 />
                 <input
                   type="text"
-                  className="w-full min-w-[10rem] rounded border border-red-600/30 bg-white px-2 py-1.5 text-sm sm:min-w-[12rem]"
+                  className={`w-full min-w-[10rem] sm:min-w-[12rem] ${filterInputClass}`}
                   placeholder="Filter by GSTIN..."
                   value={riskFilters.supplier_gstin}
                   onChange={(e) =>
@@ -1941,7 +1902,7 @@ export default function ReconcileResultsPage() {
                   }
                 />
                 <select
-                  className="min-h-[44px] w-full rounded border border-red-600/30 bg-white px-2 py-1.5 text-sm sm:w-auto sm:min-w-[8rem]"
+                  className={`w-full sm:w-auto sm:min-w-[8rem] ${filterInputClass}`}
                   value={riskFilters.risk_level}
                   onChange={(e) =>
                     setRiskFilters((f) => ({
@@ -1958,7 +1919,7 @@ export default function ReconcileResultsPage() {
                 {hasActiveRiskFilters(riskFilters) && (
                   <button
                     type="button"
-                    className="min-h-[44px] text-sm font-medium text-red-800 underline"
+                    className="text-[13px] font-medium text-brand hover:underline"
                     onClick={() =>
                       setRiskFilters({
                         amount_min: "",
@@ -1973,7 +1934,7 @@ export default function ReconcileResultsPage() {
                 )}
               </div>
               <select
-                className="min-h-[44px] w-full rounded border border-red-600/40 bg-white px-2 py-1.5 text-sm text-red-900 lg:w-auto lg:min-w-[12rem]"
+                className={`w-full lg:w-auto lg:min-w-[12rem] ${filterInputClass}`}
                 value={riskSort}
                 onChange={(e) => setRiskSort(e.target.value)}
               >
@@ -1991,9 +1952,9 @@ export default function ReconcileResultsPage() {
               />
             )}
             {riskLoading && !riskPageData && !riskError && (
-              <div className="overflow-x-auto rounded border border-red-200 bg-white">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="border-b bg-red-50/50">
+              <div className={tableWrapClass}>
+                <table className={tableClass}>
+                  <thead className={tableHeadClass}>
                     <tr>
                       {Array.from({ length: 12 }).map((_, i) => (
                         <th key={i} className="px-2 py-2">
@@ -2027,12 +1988,12 @@ export default function ReconcileResultsPage() {
             {riskPageData && !riskError && (
               <>
                 {selectedIds.risk.size > 0 && (
-                  <div className="mb-2 flex flex-wrap items-center gap-3 rounded border border-red-200 bg-white px-3 py-2 text-sm">
-                    <span>{selectedIds.risk.size} selected</span>
+                  <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#F0F0F0] bg-[#FAFAFA] px-4 py-2.5 text-[13px]">
+                    <span className="text-gray-600">{selectedIds.risk.size} selected</span>
                     <button
                       type="button"
                       disabled={isRunFinalized}
-                      className="min-h-[44px] rounded border border-red-600 px-2 py-1 text-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-[13px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => {
                         const snap = new Set(selectedIds.risk);
                         void runBulkDecision("risk", Array.from(snap), "acted", snap);
@@ -2043,7 +2004,7 @@ export default function ReconcileResultsPage() {
                     <button
                       type="button"
                       disabled={isRunFinalized}
-                      className="min-h-[44px] rounded border border-gray-400 px-2 py-1 text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-[13px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => {
                         const snap = new Set(selectedIds.risk);
                         void runBulkDecision("risk", Array.from(snap), "ignored", snap);
@@ -2053,7 +2014,7 @@ export default function ReconcileResultsPage() {
                     </button>
                     <button
                       type="button"
-                      className="min-h-[44px] text-red-700 underline"
+                      className="text-[13px] font-medium text-brand hover:underline"
                       onClick={() =>
                         setSelectedIds((p) => ({ ...p, risk: new Set() }))
                       }
@@ -2062,11 +2023,11 @@ export default function ReconcileResultsPage() {
                     </button>
                   </div>
                 )}
-                <div className="overflow-x-auto rounded border border-red-200 bg-white">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="border-b bg-red-50/50">
+                <div className={tableWrapClass}>
+                  <table className={tableClass}>
+                    <thead className={tableHeadClass}>
                       <tr>
-                        <th className="sticky left-0 z-10 bg-red-50/50 px-2 py-2">
+                        <th className={tableStickyCheckboxHeadClass}>
                           <input
                             ref={riskHeaderRef}
                             type="checkbox"
@@ -2094,25 +2055,25 @@ export default function ReconcileResultsPage() {
                             className="rounded border-gray-300"
                           />
                         </th>
-                        <th className="px-2 py-2">#</th>
-                        <th className="px-2 py-2">Supplier GSTIN</th>
-                        <th className="px-2 py-2">Invoice#</th>
-                        <th className="px-2 py-2">Date</th>
-                        <th className="px-2 py-2 text-right">Amount</th>
-                        <th className="px-2 py-2">Impact</th>
-                        <th className="px-2 py-2">WHAT</th>
-                        <th className="px-2 py-2">WHY</th>
-                        <th className="px-2 py-2">NEXT</th>
-                        <th className="px-2 py-2">Status</th>
-                        <th className="px-2 py-2 text-right text-xs font-medium text-gray-600">
+                        <th className={tableHeadCellClass}>#</th>
+                        <th className={tableHeadCellClass}>Supplier GSTIN</th>
+                        <th className={tableHeadCellClass}>Invoice#</th>
+                        <th className={tableHeadCellClass}>Date</th>
+                        <th className={`${tableHeadCellClass} text-right`}>Amount</th>
+                        <th className={tableHeadCellClass}>Impact</th>
+                        <th className={tableHeadCellClass}>WHAT</th>
+                        <th className={tableHeadCellClass}>WHY</th>
+                        <th className={tableHeadCellClass}>NEXT</th>
+                        <th className={tableHeadCellClass}>Status</th>
+                        <th className={`${tableHeadCellClass} text-right`}>
                           Generate Notice
                         </th>
                       </tr>
                     </thead>
                     <tbody>
                       {riskRows.map((row, i) => (
-                        <tr key={row.id} className="border-b border-gray-100">
-                          <td className="sticky left-0 z-10 bg-red-50 px-2 py-2">
+                        <tr key={row.id} className={`group ${tableRowClass}`}>
+                          <td className={tableStickyCheckboxCellClass}>
                             <input
                               type="checkbox"
                               disabled={isRunFinalized}
@@ -2131,38 +2092,44 @@ export default function ReconcileResultsPage() {
                               className="rounded border-gray-300"
                             />
                           </td>
-                          <td className="px-2 py-2 text-gray-500">
+                          <td className={`${tableCellClass} text-[13px] text-gray-500`}>
                             {(riskPage - 1) * 50 + i + 1}
                           </td>
-                          <td className="font-mono text-xs">{row.supplier_gstin}</td>
-                          <td>{row.invoice_number}</td>
-                          <td>{formatDate(row.invoice_date)}</td>
-                          <td className="text-right font-mono">
-                            {formatINR(row.amount)}
+                          <td className={`${tableCellClass} font-mono text-[13px] text-gray-500`}>
+                            {row.supplier_gstin}
                           </td>
-                          <td>
-                            <ImpactCell
+                          <td className={`${tableCellClass} font-medium text-gray-800`}>
+                            {row.invoice_number}
+                          </td>
+                          <td className={`${tableCellClass} text-[13px] text-gray-500`}>
+                            {formatDate(row.invoice_date)}
+                          </td>
+                          <td className={`${tableCellClass} text-right`}>
+                            <AmountDisplay amount={row.amount} />
+                          </td>
+                          <td className={tableCellClass}>
+                            <ImpactBadge
                               level={getImpactLevel(row.amount, riskMax)}
                             />
                           </td>
-                          <td className="max-w-[140px] truncate text-sm font-medium text-red-700">
+                          <td className={`${tableCellClass} max-w-[140px] truncate text-[13px] text-gray-600`}>
                             {row.decision_what ?? "—"}
                           </td>
-                          <td className="max-w-[140px] truncate text-sm text-gray-600">
+                          <td className={`${tableCellClass} max-w-[140px] truncate text-[13px] italic text-gray-400`}>
                             {row.decision_why ?? "—"}
                           </td>
-                          <td className="max-w-[140px] truncate text-sm font-medium text-blue-700">
+                          <td className={`${tableCellClass} max-w-[140px] truncate text-[13px] font-medium text-brand hover:underline cursor-pointer`}>
                             {row.decision_next ?? "—"}
                           </td>
-                          <td>
+                          <td className={tableCellClass}>
                             <DecisionStatusPill status={effectiveStatus(row)} />
                           </td>
-                          <td className="px-2 py-2 text-right">
+                          <td className={`${tableCellClass} text-right`}>
                             <button
                               type="button"
                               disabled
                               title="Coming Soon — Phase 7"
-                              className="min-h-[44px] whitespace-nowrap rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-500 disabled:cursor-not-allowed disabled:opacity-60"
+                              className="whitespace-nowrap rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-[11px] font-medium text-gray-500 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               Generate Notice
                             </button>
@@ -2184,8 +2151,11 @@ export default function ReconcileResultsPage() {
                     )
                   }
                 />
-                <p className="mt-2 text-right text-sm font-medium text-red-700">
-                  {formatINR(summary.wrongful_risk_total_amount)} ITC at risk across{" "}
+                <p className="mt-3 text-right text-[13px] font-medium text-gray-600">
+                  <span className="text-[#DC2626]">
+                    ₹{formatINRPlain(summary.wrongful_risk_total_amount)}
+                  </span>{" "}
+                  ITC at risk across{" "}
                   {riskPageData.total.toLocaleString("en-IN")} invoices
                 </p>
               </>
@@ -2194,8 +2164,8 @@ export default function ReconcileResultsPage() {
         )}
 
         {summary && summary.wrongful_risk_count > 0 && (
-          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-2 text-base font-semibold text-gray-900">
+          <div className={sectionContainerClass}>
+            <h2 className="mb-4 text-lg font-semibold text-gray-900">
               Top Suppliers by ITC at Risk
             </h2>
             {riskLoading && !riskPageData && (
@@ -2210,36 +2180,36 @@ export default function ReconcileResultsPage() {
             )}
             {!(riskLoading && !riskPageData) && topSuppliersByRisk.length > 0 && (
               <>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="border-b bg-gray-50">
+                <div className={tableWrapClass}>
+                  <table className={tableClass}>
+                    <thead className={tableHeadClass}>
                       <tr>
-                        <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2">
+                        <th className={`${tableStickyCheckboxHeadClass} text-[11px] font-semibold uppercase tracking-wider text-gray-400`}>
                           Supplier GSTIN
                         </th>
-                        <th className="px-3 py-2">Trade Name</th>
-                        <th className="px-3 py-2 text-right">Invoice Count</th>
-                        <th className="px-3 py-2 text-right">Total ITC at Risk</th>
-                        <th className="px-3 py-2">Impact</th>
+                        <th className={tableHeadCellClass}>Trade Name</th>
+                        <th className={`${tableHeadCellClass} text-right`}>Invoice Count</th>
+                        <th className={`${tableHeadCellClass} text-right`}>Total ITC at Risk</th>
+                        <th className={tableHeadCellClass}>Impact</th>
                       </tr>
                     </thead>
                     <tbody>
                       {topSuppliersByRisk.map((s) => (
-                        <tr key={s.gstin} className="border-b border-gray-100">
-                          <td className="sticky left-0 z-10 bg-white px-3 py-2 font-mono text-xs">
+                        <tr key={s.gstin} className={tableRowClass}>
+                          <td className={`${tableStickyCheckboxCellClass} font-mono text-[13px] text-gray-500`}>
                             {s.gstin}
                           </td>
-                          <td className="max-w-[200px] truncate px-3 py-2 text-gray-700">
+                          <td className={`${tableCellClass} max-w-[200px] truncate text-[13px] text-gray-600`}>
                             {s.tradeName || "—"}
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums">
+                          <td className={`${tableCellClass} text-right tabular-nums text-[13px] text-gray-600`}>
                             {s.count.toLocaleString("en-IN")}
                           </td>
-                          <td className="px-3 py-2 text-right font-mono">
-                            {formatINR(s.total)}
+                          <td className={`${tableCellClass} text-right`}>
+                            <AmountDisplay amount={s.total} />
                           </td>
-                          <td className="px-3 py-2">
-                            <ImpactSupplierPill level={s.impact} />
+                          <td className={tableCellClass}>
+                            <ImpactBadge level={s.impact} />
                           </td>
                         </tr>
                       ))}
@@ -2249,7 +2219,7 @@ export default function ReconcileResultsPage() {
                 <div className="mt-3 text-right">
                   <Link
                     href={`/reconcile/runs/${runId}/vendors`}
-                    className="text-sm font-medium text-blue-700 hover:underline"
+                    className="text-[13px] font-medium text-brand hover:underline"
                   >
                     View full vendor intelligence →
                   </Link>
@@ -2262,16 +2232,16 @@ export default function ReconcileResultsPage() {
         {summary &&
           typeof summary.late_match_count === "number" &&
           summary.late_match_count > 0 && (
-            <div className="rounded-lg border-l-4 border-emerald-400 bg-emerald-50 p-4">
-              <p className="mb-2 font-semibold text-emerald-800">
+            <div className={sectionContainerClass}>
+              <p className="mb-4 text-lg font-semibold text-gray-900">
                 {summary.late_match_count.toLocaleString("en-IN")} invoices
                 matched from previous periods
               </p>
               {lateMatchesLoading && (
                 <div className="animate-pulse space-y-2 py-2">
-                  <div className="h-6 rounded bg-emerald-100/90" />
-                  <div className="h-6 rounded bg-emerald-100/70" />
-                  <div className="h-6 rounded bg-emerald-100/50" />
+                  <div className="h-6 rounded bg-[#F0F0F0]" />
+                  <div className="h-6 rounded bg-[#F0F0F0]" />
+                  <div className="h-6 rounded bg-[#F0F0F0]" />
                 </div>
               )}
               {!lateMatchesLoading &&
@@ -2282,32 +2252,36 @@ export default function ReconcileResultsPage() {
                 )}
               {!lateMatchesLoading &&
                 (lateMatchesData?.data?.length ?? 0) > 0 && (
-                  <div className="overflow-x-auto rounded border border-emerald-200/70 bg-white">
-                    <table className="min-w-full text-left text-sm">
-                      <thead className="border-b bg-emerald-50/80">
+                  <div className={tableWrapClass}>
+                    <table className={tableClass}>
+                      <thead className={tableHeadClass}>
                         <tr>
-                          <th className="sticky left-0 z-10 bg-emerald-50/80 px-3 py-2">
-                            Supplier
-                          </th>
-                          <th className="px-3 py-2">Invoice#</th>
-                          <th className="px-3 py-2">Original Period</th>
-                          <th className="px-3 py-2">GSTR-2B Period</th>
-                          <th className="px-3 py-2 text-right">Months Late</th>
+                          <th className={tableStickyCheckboxHeadClass}>Supplier</th>
+                          <th className={tableHeadCellClass}>Invoice#</th>
+                          <th className={tableHeadCellClass}>Original Period</th>
+                          <th className={tableHeadCellClass}>GSTR-2B Period</th>
+                          <th className={`${tableHeadCellClass} text-right`}>Months Late</th>
                         </tr>
                       </thead>
                       <tbody>
                         {(lateMatchesData?.data ?? []).map((row, idx) => (
                           <tr
                             key={`${row.supplier_gstin}-${row.invoice_number}-${idx}`}
-                            className="border-b border-gray-100"
+                            className={tableRowClass}
                           >
-                            <td className="sticky left-0 z-10 bg-white px-3 py-2 font-mono text-xs">
+                            <td className={`${tableStickyCheckboxCellClass} font-mono text-[13px] text-gray-500`}>
                               {row.supplier_gstin || "—"}
                             </td>
-                            <td className="px-3 py-2">{row.invoice_number || "—"}</td>
-                            <td className="px-3 py-2">{row.original_period || "—"}</td>
-                            <td className="px-3 py-2">{row.gstr2b_period || "—"}</td>
-                            <td className="px-3 py-2 text-right font-medium tabular-nums text-emerald-700">
+                            <td className={`${tableCellClass} font-medium text-gray-800`}>
+                              {row.invoice_number || "—"}
+                            </td>
+                            <td className={`${tableCellClass} text-[13px] text-gray-500`}>
+                              {row.original_period || "—"}
+                            </td>
+                            <td className={`${tableCellClass} text-[13px] text-gray-500`}>
+                              {row.gstr2b_period || "—"}
+                            </td>
+                            <td className={`${tableCellClass} text-right text-[13px] font-semibold tabular-nums text-gray-900`}>
                               {row.months_late}
                             </td>
                           </tr>
@@ -2320,8 +2294,8 @@ export default function ReconcileResultsPage() {
           )}
 
         {/* Matched */}
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="mb-2 text-base font-semibold text-gray-900">
+        <div className={sectionContainerClass}>
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">
             Matched Records{" "}
             {matchedData != null && (
               <span className="font-normal text-gray-500">
@@ -2330,17 +2304,17 @@ export default function ReconcileResultsPage() {
             )}
           </h2>
 
-          <div className="mb-2 space-y-2">
+          <div className="mb-4 space-y-2">
             <input
               type="search"
-              className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              className={`w-full ${filterInputClass}`}
               placeholder="Search by supplier GSTIN or invoice number..."
               value={matchedSearch}
               onChange={(e) => setMatchedSearch(e.target.value)}
             />
             <div className="flex flex-wrap items-center gap-2">
               <select
-                className="min-h-[44px] rounded border border-gray-300 px-2 py-1 text-sm"
+                className={filterInputClass}
                 value={matchedFilters.match_level}
                 onChange={(e) =>
                   setMatchedFilters((f) => ({
@@ -2355,7 +2329,7 @@ export default function ReconcileResultsPage() {
                 <option value="MANUAL">MANUAL</option>
               </select>
               <input
-                className="w-28 rounded border border-gray-300 px-2 py-1 text-sm"
+                className={`w-28 ${filterInputClass}`}
                 placeholder="₹ Min"
                 value={matchedFilters.amount_min}
                 onChange={(e) =>
@@ -2366,7 +2340,7 @@ export default function ReconcileResultsPage() {
                 }
               />
               <input
-                className="w-28 rounded border border-gray-300 px-2 py-1 text-sm"
+                className={`w-28 ${filterInputClass}`}
                 placeholder="₹ Max"
                 value={matchedFilters.amount_max}
                 onBlur={() => setMatchedPage(1)}
@@ -2379,10 +2353,10 @@ export default function ReconcileResultsPage() {
               />
               <button
                 type="button"
-                className={`min-h-[36px] rounded-full border px-2 py-1 text-xs ${
+                className={`rounded-xl border px-3 py-2 text-[13px] font-medium transition-all duration-150 ${
                   matchedFilters.has_notes
-                    ? "border-blue-600 bg-blue-50 text-blue-800"
-                    : "border-gray-300 text-gray-600"
+                    ? "border-brand text-brand bg-white"
+                    : "border-[#E5E7EB] text-gray-600 bg-white hover:bg-gray-50"
                 }`}
                 onClick={() =>
                   setMatchedFilters((f) => ({
@@ -2395,10 +2369,10 @@ export default function ReconcileResultsPage() {
               </button>
               <button
                 type="button"
-                className={`min-h-[36px] rounded-full border px-2 py-1 text-xs ${
+                className={`rounded-xl border px-3 py-2 text-[13px] font-medium transition-all duration-150 ${
                   matchedFilters.review_required
-                    ? "border-amber-600 bg-amber-50 text-amber-800"
-                    : "border-gray-300 text-gray-600"
+                    ? "border-[#D97706] text-[#D97706] bg-white"
+                    : "border-[#E5E7EB] text-gray-600 bg-white hover:bg-gray-50"
                 }`}
                 onClick={() =>
                   setMatchedFilters((f) => ({
@@ -2411,10 +2385,10 @@ export default function ReconcileResultsPage() {
               </button>
               <button
                 type="button"
-                className={`min-h-[36px] rounded-full border px-2 py-1 text-xs ${
+                className={`rounded-xl border px-3 py-2 text-[13px] font-medium transition-all duration-150 ${
                   matchedFilters.section_17_5
-                    ? "border-gray-700 bg-gray-100 text-gray-800"
-                    : "border-gray-300 text-gray-600"
+                    ? "border-gray-800 text-gray-800 bg-white"
+                    : "border-[#E5E7EB] text-gray-600 bg-white hover:bg-gray-50"
                 }`}
                 onClick={() =>
                   setMatchedFilters((f) => ({
@@ -2428,7 +2402,7 @@ export default function ReconcileResultsPage() {
               {hasActiveMatchedFilters(debouncedMatchedSearch, matchedFilters) && (
                 <button
                   type="button"
-                  className="min-h-[44px] text-sm text-blue-600 underline"
+                  className="text-[13px] font-medium text-brand hover:underline"
                   onClick={() => {
                     setMatchedSearch("");
                     setDebouncedMatchedSearch("");
@@ -2464,14 +2438,14 @@ export default function ReconcileResultsPage() {
           {matchedData &&
             !matchedError &&
             matchedData.data.length === 0 && (
-              <div className="rounded border border-gray-100 bg-gray-50 p-4 text-center">
-                <p className="text-gray-600">
+              <div className="rounded-2xl border border-[#F0F0F0] bg-[#FAFAFA] p-6 text-center">
+                <p className="text-[13px] text-gray-600">
                   No records match your filters. Try adjusting the search or
                   filters.
                 </p>
                 <button
                   type="button"
-                  className="mt-3 min-h-[44px] rounded bg-gray-200 px-3 py-1 text-sm text-gray-800"
+                  className="mt-3 rounded-xl border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50"
                   onClick={() => {
                     setMatchedSearch("");
                     setDebouncedMatchedSearch("");
@@ -2492,57 +2466,59 @@ export default function ReconcileResultsPage() {
             )}
           {matchedData && !matchedError && matchedData.data.length > 0 && (
             <>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="border-b bg-gray-50">
+              <div className={tableWrapClass}>
+                <table className={tableClass}>
+                  <thead className={tableHeadClass}>
                     <tr>
-                      <th className="sticky left-0 z-10 bg-gray-50 px-2 py-2">
-                        Supplier
-                      </th>
-                      <th className="px-2 py-2">Invoice#</th>
-                      <th className="px-2 py-2">Date</th>
-                      <th className="px-2 py-2 text-right">Amount</th>
-                      <th className="px-2 py-2">Match Level</th>
-                      <th className="px-2 py-2">Confidence</th>
-                      <th className="px-2 py-2">Discrepancy</th>
-                      <th className="px-2 py-2">Notes</th>
+                      <th className={tableStickyCheckboxHeadClass}>Supplier</th>
+                      <th className={tableHeadCellClass}>Invoice#</th>
+                      <th className={tableHeadCellClass}>Date</th>
+                      <th className={`${tableHeadCellClass} text-right`}>Amount</th>
+                      <th className={tableHeadCellClass}>Match Level</th>
+                      <th className={tableHeadCellClass}>Confidence</th>
+                      <th className={tableHeadCellClass}>Discrepancy</th>
+                      <th className={tableHeadCellClass}>Notes</th>
                     </tr>
                   </thead>
                   <tbody>
                     {matchedData.data.map((row) => (
                       <tr
                         key={row.id}
-                        className="group cursor-pointer border-b border-gray-100 hover:bg-gray-50"
+                        className={`group cursor-pointer ${tableRowClass}`}
                         onClick={() => {
                           setActiveRecord(row);
                           setDrawerDecisionError(null);
                           setNotePostError(null);
                         }}
                       >
-                        <td className="sticky left-0 z-10 bg-white px-2 py-2 font-mono text-xs group-hover:bg-gray-50">
+                        <td className={`${tableStickyCheckboxCellClass} font-mono text-[13px] text-gray-500`}>
                           {row.supplier_gstin}
                         </td>
-                        <td>{row.invoice_number}</td>
-                        <td>{formatDate(row.invoice_date)}</td>
-                        <td className="text-right font-mono">
-                          {formatINR(row.amount)}
+                        <td className={`${tableCellClass} font-medium text-gray-800`}>
+                          {row.invoice_number}
                         </td>
-                        <td>
+                        <td className={`${tableCellClass} text-[13px] text-gray-500`}>
+                          {formatDate(row.invoice_date)}
+                        </td>
+                        <td className={`${tableCellClass} text-right`}>
+                          <AmountDisplay amount={row.amount} />
+                        </td>
+                        <td className={tableCellClass}>
                           <MatchLevelBadge level={row.match_level} />
                         </td>
-                        <td>
+                        <td className={`${tableCellClass} text-[13px] text-gray-600`}>
                           {Math.round(
                             Math.min(1, Math.max(0, row.confidence_score)) *
                               100
                           )}
                           %
                         </td>
-                        <td className="max-w-[180px] truncate text-gray-700">
+                        <td className={`${tableCellClass} max-w-[180px] truncate text-[13px] text-gray-600`}>
                           {row.discrepancy_note ?? "—"}
                         </td>
-                        <td>
+                        <td className={tableCellClass}>
                           {row.notes_count > 0 ? (
-                            <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                            <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
                               {row.notes_count} notes
                             </span>
                           ) : (
@@ -2571,16 +2547,22 @@ export default function ReconcileResultsPage() {
         </div>
 
         {/* Rule 37 */}
-        <div className="rounded-lg border border-gray-200 bg-white">
+        <div className={sectionContainerClass}>
           <button
             type="button"
-            className="flex min-h-[44px] w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50"
+            className="flex w-full items-center justify-between text-left transition-all duration-150"
             onClick={() => setRule37Open((o) => !o)}
           >
-            <span className="flex items-center gap-2 font-semibold text-gray-900">
-              Rule 37 — 180 Day Payment Warnings
+            <span className="flex flex-wrap items-center gap-2">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full bg-[#D97706]"
+                aria-hidden
+              />
+              <span className="text-lg font-semibold text-gray-900">
+                Rule 37 Tracking
+              </span>
               {rule37Data != null && (
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-700">
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
                   {rule37Data.total}
                 </span>
               )}
@@ -2588,19 +2570,19 @@ export default function ReconcileResultsPage() {
               rule37Data.data.length === rule37Data.total &&
               unresolvedRule37Count === 0 &&
               rule37Data.total > 0 ? (
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-normal text-emerald-800">
+                <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-600">
                   all acted
                 </span>
               ) : null}
             </span>
             <ChevronDown
-              className={`h-5 w-5 shrink-0 text-gray-500 transition-transform ${
+              className={`h-5 w-5 shrink-0 text-gray-400 transition-transform duration-150 ${
                 rule37Open ? "rotate-180" : ""
               }`}
             />
           </button>
           {rule37Open && (
-            <div className="border-t border-gray-100 px-4 py-3">
+            <div className="mt-5 border-t border-[#F0F0F0] pt-5">
               {rule37Error && (
                 <SectionError
                   message="Failed to load."
@@ -2626,65 +2608,53 @@ export default function ReconcileResultsPage() {
                   const acted =
                     actionStatus === "resolved" ||
                     actionStatus === "acknowledged";
-                  const border =
-                    acted
-                      ? "border-l-4 border-gray-200 bg-gray-50"
-                      : u === "CRITICAL"
-                      ? "border-l-4 border-red-500 bg-red-50"
-                      : u === "HIGH"
-                        ? "border-l-4 border-orange-400 bg-orange-50"
-                        : "border-l-4 border-yellow-400 bg-yellow-50";
-                  const badge =
-                    u === "CRITICAL"
-                      ? "bg-red-100 text-red-800"
-                      : u === "HIGH"
-                        ? "bg-orange-100 text-orange-800"
-                        : "bg-yellow-100 text-yellow-800";
                   return (
                     <div
                       key={row.id}
-                      className={`relative mb-2 rounded-r-lg border border-gray-100 p-3 pl-4 ${border}`}
+                      className={`mb-3 rounded-2xl border border-[#F0F0F0] border-l-4 bg-white p-5 ${rule37BorderClass(u, acted)}`}
                     >
-                      <span
-                        className={`absolute right-2 top-2 rounded-full px-2 py-0.5 text-xs font-medium ${badge}`}
-                      >
-                        {u}
-                      </span>
-                      <div className="flex flex-wrap gap-2 pr-24 text-sm">
-                        <span className="font-mono text-xs">{row.supplier_gstin}</span>
-                        <span>{row.invoice_number}</span>
-                        <span>{formatDate(row.invoice_date)}</span>
-                        <span className="font-mono">{formatINR(row.amount)}</span>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
+                          <span className="font-mono text-[12px] text-gray-400">
+                            {row.supplier_gstin}
+                          </span>
+                          <span className="font-medium text-gray-800">
+                            {row.invoice_number}
+                          </span>
+                          <span className="text-gray-400">
+                            {formatDate(row.invoice_date)}
+                          </span>
+                          <AmountDisplay amount={row.amount} />
+                        </div>
+                        {!acted && <Rule37SeverityLabel urgency={u} />}
                       </div>
-                      <div className="mt-2 grid gap-1 text-sm sm:grid-cols-3">
-                        <span className="font-medium text-emerald-800">
-                          {row.decision_what ?? "—"}
-                        </span>
-                        <span className="text-gray-600">
-                          {row.decision_why ?? "—"}
-                        </span>
-                        <span className="font-medium text-blue-700">
-                          {row.decision_next ?? "—"}
-                        </span>
-                      </div>
+                      <p className="mt-3 text-[13px] font-medium text-gray-700">
+                        {row.decision_what ?? "—"}
+                      </p>
+                      <p className="mt-1 text-[13px] text-gray-400">
+                        {row.decision_why ?? "—"}
+                      </p>
+                      <p className="mt-2 text-[13px] font-medium text-brand">
+                        {row.decision_next ?? "—"}
+                      </p>
                       <DecisionDiagnosticsBlock row={row} />
-                      <div className="mt-3 flex justify-end">
+                      <div className="mt-4 flex flex-wrap justify-end gap-2">
                         {actionStatus === "resolved" && (
-                          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                            Paid ✓
+                          <span className="inline-flex items-center rounded-lg bg-gray-100 px-4 py-2 text-[13px] text-gray-400">
+                            Mark Paid ✓
                           </span>
                         )}
                         {actionStatus === "acknowledged" && (
-                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                          <span className="inline-flex items-center rounded-lg bg-gray-100 px-4 py-2 text-[13px] text-gray-400">
                             ITC Reversal Noted ✓
                           </span>
                         )}
                         {!acted && (
-                          <div className="flex flex-wrap justify-end gap-2">
+                          <>
                             <button
                               type="button"
                               disabled={rule37UpdatingIds.has(row.id)}
-                              className="inline-flex min-h-[36px] items-center rounded border border-emerald-600 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 transition-all duration-150 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                               onClick={() => void actOnRule37(row.id, "resolved")}
                             >
                               Mark Paid
@@ -2692,12 +2662,12 @@ export default function ReconcileResultsPage() {
                             <button
                               type="button"
                               disabled={rule37UpdatingIds.has(row.id)}
-                              className="inline-flex min-h-[36px] items-center rounded border border-red-600 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-lg border border-[#FEE2E2] bg-white px-4 py-2 text-[13px] font-medium text-red-600 transition-all duration-150 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                               onClick={() => void actOnRule37(row.id, "acknowledged")}
                             >
                               Reverse ITC
                             </button>
-                          </div>
+                          </>
                         )}
                       </div>
                     </div>
@@ -2724,19 +2694,25 @@ export default function ReconcileResultsPage() {
         </div>
 
         {/* Section 17(5) */}
-        <div className="rounded-lg border border-gray-200 bg-white">
+        <div className={sectionContainerClass}>
           <button
             type="button"
-            className="flex min-h-[44px] w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50"
+            className="flex w-full items-center justify-between text-left transition-all duration-150"
             onClick={() => setSection17Open((o) => !o)}
           >
-            <span className="flex items-center gap-2 font-semibold text-gray-900">
-              Section 17(5) — Blocked ITC Flags
-              {section17Data != null && (
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-700">
-                  {section17Data.total}
-                </span>
-              )}
+            <span className="flex items-center gap-2">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full bg-gray-400"
+                aria-hidden
+              />
+              <span className="text-lg font-semibold text-gray-900">
+                Section 17(5) — Blocked ITC Flags
+                {section17Data != null && (
+                  <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
+                    {section17Data.total}
+                  </span>
+                )}
+              </span>
             </span>
             <ChevronDown
               className={`h-5 w-5 shrink-0 text-gray-500 transition-transform ${
@@ -2745,7 +2721,7 @@ export default function ReconcileResultsPage() {
             />
           </button>
           {section17Open && (
-            <div className="border-t border-gray-100 px-4 py-3">
+            <div className="mt-5 border-t border-[#F0F0F0] pt-5">
               {section17Error && (
                 <SectionError
                   message="Failed to load."
@@ -2765,24 +2741,22 @@ export default function ReconcileResultsPage() {
                 section17Data.data.map((row) => (
                   <div
                     key={row.id}
-                    className="mb-2 rounded border border-gray-100 bg-gray-50/50 p-3"
+                    className="mb-3 rounded-2xl border border-[#F0F0F0] bg-white p-5"
                   >
                     {row.section_17_5_category && (
-                      <span className="mb-2 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700">
+                      <span className="mb-3 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
                         {row.section_17_5_category}
                       </span>
                     )}
-                    <div className="grid gap-1 text-sm sm:grid-cols-3">
-                      <span className="font-medium text-emerald-800">
-                        {row.decision_what ?? "—"}
-                      </span>
-                      <span className="text-gray-600">
-                        {row.decision_why ?? "—"}
-                      </span>
-                      <span className="font-medium text-blue-700">
-                        {row.decision_next ?? "—"}
-                      </span>
-                    </div>
+                    <p className="text-[13px] font-medium text-gray-700">
+                      {row.decision_what ?? "—"}
+                    </p>
+                    <p className="mt-1 text-[13px] text-gray-400">
+                      {row.decision_why ?? "—"}
+                    </p>
+                    <p className="mt-2 text-[13px] font-medium text-brand">
+                      {row.decision_next ?? "—"}
+                    </p>
                     <DecisionDiagnosticsBlock row={row} />
                   </div>
                 ))}
@@ -2816,7 +2790,7 @@ export default function ReconcileResultsPage() {
             className="fixed inset-0 z-40 bg-black/40"
             onClick={() => setActiveRecord(null)}
           />
-          <aside className="fixed bottom-0 right-0 top-0 z-50 flex h-full w-full flex-col border-l border-gray-200 bg-white shadow-xl sm:w-[640px]">
+          <aside className="fixed bottom-0 right-0 top-0 z-50 flex h-full w-full flex-col border-l border-[#F0F0F0] bg-white sm:w-[640px]">
             <div className="sticky top-0 z-10 flex shrink-0 items-start justify-between border-b border-gray-100 bg-white px-4 py-3">
               <div>
                 <p className="font-mono text-xs text-gray-500">
@@ -2860,24 +2834,24 @@ export default function ReconcileResultsPage() {
                     !(left === "—" && right === "—");
                   return (
                     <div key={label} className="contents">
-                      <div className={mismatch ? "rounded bg-amber-50 p-2" : ""}>
-                        <p className="text-xs text-gray-400">{label}</p>
+                      <div className={mismatch ? "rounded-lg border border-[#F0F0F0] bg-[#FAFAFA] p-2" : ""}>
+                        <p className="text-[11px] text-gray-400">{label}</p>
                         <p
-                          className={`text-sm ${
+                          className={`text-[13px] ${
                             mismatch
-                              ? "font-medium text-amber-800"
+                              ? "font-medium text-[#D97706]"
                               : "text-gray-800"
                           }`}
                         >
                           {left}
                         </p>
                       </div>
-                      <div className={mismatch ? "rounded bg-amber-50 p-2" : ""}>
-                        <p className="text-xs text-gray-400">{label}</p>
+                      <div className={mismatch ? "rounded-lg border border-[#F0F0F0] bg-[#FAFAFA] p-2" : ""}>
+                        <p className="text-[11px] text-gray-400">{label}</p>
                         <p
-                          className={`text-sm ${
+                          className={`text-[13px] ${
                             mismatch
-                              ? "font-medium text-amber-800"
+                              ? "font-medium text-[#D97706]"
                               : "text-gray-800"
                           }`}
                         >
@@ -2889,26 +2863,26 @@ export default function ReconcileResultsPage() {
                 })}
               </div>
 
-              <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
-                <p className="mb-2 text-sm font-semibold text-teal-700">
+              <div className="rounded-2xl border border-[#F0F0F0] bg-white p-5">
+                <p className="mb-4 text-[15px] font-semibold text-gray-900">
                   Decision
                 </p>
-                <p className="text-xs font-semibold uppercase tracking-wide text-teal-600">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
                   WHAT IS WRONG
                 </p>
-                <p className="mb-3 text-sm text-gray-800">
+                <p className="mb-3 text-[13px] font-medium text-gray-700">
                   {activeRecord.decision_what ?? "—"}
                 </p>
-                <p className="text-xs font-semibold uppercase tracking-wide text-teal-600">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
                   WHY
                 </p>
-                <p className="mb-3 text-sm text-gray-800">
+                <p className="mb-3 text-[13px] italic text-gray-400">
                   {activeRecord.decision_why ?? "—"}
                 </p>
-                <p className="text-xs font-semibold uppercase tracking-wide text-teal-600">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
                   WHAT TO DO NEXT
                 </p>
-                <p className="mb-3 text-sm text-gray-800">
+                <p className="mb-3 text-[13px] font-medium text-brand">
                   {activeRecord.decision_next ?? "—"}
                 </p>
                 <DecisionDiagnosticsBlock row={activeRecord} />
@@ -2926,7 +2900,7 @@ export default function ReconcileResultsPage() {
                   <button
                     type="button"
                     disabled={isRunFinalized}
-                    className="min-h-[44px] rounded border border-emerald-600 px-3 py-1 text-sm text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={() =>
                       void runSingleDecision(activeRecord.id, "acted")
                     }
@@ -2936,7 +2910,7 @@ export default function ReconcileResultsPage() {
                   <button
                     type="button"
                     disabled={isRunFinalized}
-                    className="min-h-[44px] rounded border border-gray-400 px-3 py-1 text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={() =>
                       void runSingleDecision(activeRecord.id, "ignored")
                     }
@@ -3024,14 +2998,14 @@ export default function ReconcileResultsPage() {
 
       {/* Finalize bar */}
       {finalizeBarVisible && (
-        <div className="fixed bottom-0 left-[240px] right-0 z-40 border-t border-gray-200 bg-white py-3 px-4 shadow-lg">
+        <div className="fixed bottom-0 left-[240px] right-0 z-40 border-t border-[#F0F0F0] bg-white py-4 px-4">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-gray-500">
+            <p className="text-[13px] text-gray-500">
               Review all sections before finalizing
             </p>
             <button
               type="button"
-              className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-emerald-600 px-6 py-2 text-white hover:bg-emerald-700"
+              className="inline-flex items-center gap-2 rounded-2xl bg-brand px-6 py-3 font-semibold text-white shadow-md shadow-brand/20 transition-all duration-150 hover:bg-brand-hover"
               onClick={() => setFinalizeModalOpen(true)}
             >
               Finalize Reconciliation
@@ -3041,8 +3015,8 @@ export default function ReconcileResultsPage() {
       )}
 
       {staffFinalizeMessageVisible && (
-        <div className="fixed bottom-0 left-[240px] right-0 z-40 border-t border-blue-200 bg-blue-50 py-3 px-6">
-          <p className="text-center text-sm text-blue-700">
+        <div className="fixed bottom-0 left-[240px] right-0 z-40 border-t border-[#F0F0F0] bg-white py-3 px-6">
+          <p className="text-center text-[13px] text-gray-600">
             Only your CA principal (admin) can finalize this reconciliation.
           </p>
         </div>
@@ -3057,7 +3031,7 @@ export default function ReconcileResultsPage() {
           }}
         >
           <div
-            className="relative mx-4 w-full max-w-lg rounded-xl bg-white p-6 shadow-xl"
+            className="relative mx-4 w-full max-w-lg rounded-2xl border border-[#F0F0F0] bg-white p-6"
             role="dialog"
             aria-labelledby="delete-run-title"
           >
@@ -3121,7 +3095,7 @@ export default function ReconcileResultsPage() {
             if (e.target === e.currentTarget) closeFinalizeModal();
           }}
         >
-          <div className="relative mx-4 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+          <div className="relative mx-4 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[#F0F0F0] bg-white p-6">
             <div className="pr-8">
               <h2 className="text-lg font-semibold text-gray-900">
                 Finalize Reconciliation
@@ -3157,7 +3131,7 @@ export default function ReconcileResultsPage() {
                     <span
                       className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 ${
                         checked
-                          ? "border-emerald-500 bg-emerald-500 text-white"
+                          ? "border-brand bg-brand text-white"
                           : "border-gray-300 bg-white"
                       }`}
                       aria-hidden
@@ -3187,9 +3161,9 @@ export default function ReconcileResultsPage() {
                   <p className="text-sm text-gray-500">
                     {n} of 5 items confirmed
                   </p>
-                  <div className="mt-1 h-1.5 w-full rounded-full bg-gray-200">
+                  <div className="mt-1 h-1.5 w-full rounded-full bg-[#F0F0F0]">
                     <div
-                      className="h-1.5 rounded-full bg-emerald-500 transition-all"
+                      className="h-1.5 rounded-full bg-brand transition-all duration-150"
                       style={{ width: `${(n / 5) * 100}%` }}
                     />
                   </div>
@@ -3212,7 +3186,7 @@ export default function ReconcileResultsPage() {
                   finalizing ||
                   Object.values(checklist).filter(Boolean).length !== 5
                 }
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-2xl bg-brand px-6 py-3 text-sm font-semibold text-white shadow-md shadow-brand/20 transition-all duration-150 hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void submitFinalize()}
               >
                 {finalizing && (
@@ -3231,8 +3205,8 @@ export default function ReconcileResultsPage() {
           <div
             key={t.id}
             style={{ transitionDelay: `${i * 40}ms` }}
-            className={`pointer-events-auto rounded-lg px-4 py-2 text-sm shadow-lg transition-opacity duration-300 ${
-              t.type === "success" ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+            className={`pointer-events-auto rounded-xl px-4 py-2 text-[13px] transition-opacity duration-150 ${
+              t.type === "success" ? "bg-gray-900 text-white" : "bg-red-600 text-white"
             }`}
           >
             {t.message}
