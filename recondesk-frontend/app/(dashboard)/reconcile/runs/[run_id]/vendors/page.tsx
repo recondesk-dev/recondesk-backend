@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useMemo } from "react";
 import useSWR from "swr";
 import { apiFetch } from "@/lib/api";
+import { formatINR } from "@/lib/format";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 type ReconcileRow = {
@@ -38,14 +39,6 @@ type SupplierRiskRow = {
 };
 
 type FetcherKey = readonly [path: string, token: string];
-
-function formatINR(amount: number): string {
-  return amount.toLocaleString("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  });
-}
 
 function supplierRiskImpactLabel(
   supplierTotal: number,

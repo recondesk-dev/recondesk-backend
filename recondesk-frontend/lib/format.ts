@@ -1,3 +1,35 @@
+/** En-IN number part: no decimals when paise is zero, else exactly 2 decimal places. */
+export function formatINRNumber(amount: number): string {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return "—";
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(n);
+  const paise = Math.round(abs * 100) % 100;
+  if (paise === 0) {
+    return (
+      sign +
+      Math.trunc(abs).toLocaleString("en-IN", {
+        maximumFractionDigits: 0,
+        minimumFractionDigits: 0,
+      })
+    );
+  }
+  return (
+    sign +
+    abs.toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  );
+}
+
+/** Full INR display with ₹ prefix (e.g. ₹14,614 or ₹14,614.12). */
+export function formatINR(amount: number): string {
+  const num = formatINRNumber(amount);
+  if (num === "—") return num;
+  return `₹${num}`;
+}
+
 export function formatInrCompact(amount: number): string {
   if (amount >= 1e7) {
     return `₹${(amount / 1e7).toFixed(2)}Cr`;
@@ -6,7 +38,7 @@ export function formatInrCompact(amount: number): string {
 }
 
 export function formatInrFull(n: number): string {
-  return `₹${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(n)}`;
+  return formatINR(n);
 }
 
 export function formatInrAxis(n: number): string {

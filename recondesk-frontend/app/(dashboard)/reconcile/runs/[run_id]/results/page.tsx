@@ -31,7 +31,6 @@ import {
   filterGstinInputClass,
   filterInputClass,
   filterRowClass,
-  formatINRPlain,
   InrAmount,
   ImpactBadge,
   matchedTableClass,
@@ -82,6 +81,7 @@ import {
   topSuppliersThTradeName,
 } from "@/components/reconcile/ResultsUi";
 import { apiFetch } from "@/lib/api";
+import { formatINR } from "@/lib/format";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -218,14 +218,6 @@ const FINALIZE_CHECKLIST_ROWS: {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function formatINR(amount: number): string {
-  return amount.toLocaleString("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  });
-}
-
 function formatDate(isoString: string): string {
   const d = new Date(isoString);
   if (Number.isNaN(d.getTime())) return "—";
@@ -277,6 +269,20 @@ const COMPARE_FIELDS: { label: string; keys: string[] }[] = [
   { label: "CGST", keys: ["cgst", "CGST", "central_tax"] },
   { label: "SGST", keys: ["sgst", "SGST", "state_tax"] },
 ];
+
+const COMPARE_AMOUNT_LABELS = new Set([
+  "Taxable Amount",
+  "IGST",
+  "CGST",
+  "SGST",
+]);
+
+function formatCompareFieldDisplay(label: string, raw: string): string {
+  if (raw === "—" || !COMPARE_AMOUNT_LABELS.has(label)) return raw;
+  const n = Number(String(raw).replace(/,/g, ""));
+  if (!Number.isFinite(n)) return raw;
+  return formatINR(n);
+}
 
 function readDataField(
   obj: Record<string, string | number>,
@@ -3062,14 +3068,16 @@ export default function ReconcileResultsPage() {
                   </p>
                 </div>
                 {COMPARE_FIELDS.map(({ label, keys }) => {
-                  const left = readDataField(activeRecord.gstr2b_data, keys);
-                  const right = readDataField(
+                  const leftRaw = readDataField(activeRecord.gstr2b_data, keys);
+                  const rightRaw = readDataField(
                     activeRecord.purchase_register_data,
                     keys
                   );
+                  const left = formatCompareFieldDisplay(label, leftRaw);
+                  const right = formatCompareFieldDisplay(label, rightRaw);
                   const mismatch =
-                    !normCompare(left, right) &&
-                    !(left === "—" && right === "—");
+                    !normCompare(leftRaw, rightRaw) &&
+                    !(leftRaw === "—" && rightRaw === "—");
                   return (
                     <div key={label} className="contents">
                       <div className={mismatch ? "rounded-lg border border-[#F0F0F0] bg-[#FAFAFA] p-2" : ""}>

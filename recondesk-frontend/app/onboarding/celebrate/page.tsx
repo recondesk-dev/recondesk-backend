@@ -6,17 +6,10 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 
 import { isApiError, reconcileRunsApi, usersApi, type ReconcileRunSummaryDto } from "@/lib/api";
+import { formatINR } from "@/lib/format";
 import { subscribeAccessToken } from "@/lib/supabase/client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
-function formatINR(amount: number): string {
-  return amount.toLocaleString("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  });
-}
 
 function CelebrateContent() {
   const searchParams = useSearchParams();
