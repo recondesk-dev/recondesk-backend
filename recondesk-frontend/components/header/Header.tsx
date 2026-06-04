@@ -18,7 +18,7 @@ interface HeaderProps {
 }
 
 const ROLE_BADGE = {
-  Admin: "bg-brand-dim text-brand-dark border-brand/20",
+  Admin: "bg-brand-dim text-brand border-brand/20",
   Staff: "bg-amber-100 text-amber-700 border-amber-200",
 };
 

@@ -7,8 +7,8 @@
     --sidebar: #0f1117;
     --bg: #f8f9fc;
     --surface: #ffffff;
-    --accent: #6c63ff; /* synced with tailwind brand.DEFAULT — lib/brand.ts */
-    --accent-dim: #ede9ff; /* synced with tailwind brand.dim */
+    --accent: #7c3aed; /* synced with tailwind brand.DEFAULT — lib/brand.ts */
+    --accent-dim: #ede9fe; /* synced with tailwind brand.dim */
     --danger: #ef4444;
     --warning: #f59e0b;
     --success: #10b981;
@@ -79,7 +79,7 @@
 
   .btn-primary {
     @apply inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-full bg-brand px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors;
-    @apply hover:bg-brand-dark focus:outline-none focus:ring-2 focus:ring-brand/40 focus:ring-offset-2;
+    @apply hover:bg-brand-hover focus:outline-none focus:ring-2 focus:ring-brand/40 focus:ring-offset-2;
     @apply disabled:cursor-not-allowed disabled:opacity-70;
   }
 

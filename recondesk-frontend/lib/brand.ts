@@ -1,6 +1,6 @@
-/** Single source of truth for ReconDesk brand purple. */
+/** Single source of truth for ReconDesk brand purple (matches logo dot). */
 export const brandColors = {
-  DEFAULT: "#6C63FF",
-  dim: "#EDE9FF",
-  dark: "#5A54E8",
+  DEFAULT: "#7C3AED",
+  hover: "#7034D5",
+  dim: "#EDE9FE",
 } as const;

@@ -367,7 +367,7 @@ export default function PortfolioDashboardPage() {
           </p>
           <Link
             href="/clients?add=1"
-            className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-6 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-opacity"
+            className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-6 text-sm font-semibold text-white shadow-sm hover:bg-brand-hover transition-opacity"
           >
             Add First Client
           </Link>
@@ -525,7 +525,7 @@ export default function PortfolioDashboardPage() {
                   {startHereRow.latestRun?.status === "COMPLETE" && (
                     <button
                       type="button"
-                      className="rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-opacity"
+                      className="rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-hover transition-opacity"
                       onClick={() => router.push(`/clients/${startHereRow.client.id}`)}
                     >
                       Review Now
@@ -545,7 +545,7 @@ export default function PortfolioDashboardPage() {
                   {!startHereRow.latestRun && (
                     <button
                       type="button"
-                      className="rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-opacity"
+                      className="rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-hover transition-opacity"
                       onClick={() => router.push(`/clients/${startHereRow.client.id}`)}
                     >
                       Start
@@ -646,7 +646,7 @@ export default function PortfolioDashboardPage() {
             type="button"
             disabled={!canBulkFinalize}
             title={!canBulkFinalize ? "Select only COMPLETE rows" : undefined}
-            className="rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white disabled:opacity-40 transition-opacity hover:opacity-90"
+            className="rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white disabled:opacity-40 transition-opacity hover:bg-brand-hover"
             onClick={() => void onBulkFinalize()}
           >
             Mark Selected as Finalized

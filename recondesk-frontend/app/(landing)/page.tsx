@@ -72,7 +72,7 @@ export default function LandingPage() {
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
             <Link
               href="/auth/signup"
-              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-brand px-6 text-sm font-semibold text-white shadow-lg shadow-brand/25 transition hover:opacity-95 sm:w-auto"
+              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-brand px-6 text-sm font-semibold text-white shadow-lg shadow-brand/25 transition hover:bg-brand-hover sm:w-auto"
             >
               Start Free — First 2 Runs Free
             </Link>
@@ -221,7 +221,7 @@ export default function LandingPage() {
             <p className="mt-4 text-sm text-[#6B6B6B]">35 runs/month · Team access included</p>
             <Link
               href="/pricing"
-              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand text-sm font-semibold text-white transition hover:opacity-95"
+              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand text-sm font-semibold text-white transition hover:bg-brand-hover"
             >
               View All Plans
             </Link>
@@ -238,7 +238,7 @@ export default function LandingPage() {
           </p>
           <Link
             href="/auth/signup"
-            className="mt-8 inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-brand px-8 text-sm font-semibold text-white transition hover:opacity-95 sm:w-auto"
+            className="mt-8 inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-brand px-8 text-sm font-semibold text-white transition hover:bg-brand-hover sm:w-auto"
           >
             Get Started Free →
           </Link>

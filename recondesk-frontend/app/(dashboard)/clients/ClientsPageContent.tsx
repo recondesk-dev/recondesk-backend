@@ -253,7 +253,7 @@ export function ClientsPageContent() {
       <div className="flex flex-wrap justify-end gap-3">
         <button
           type="button"
-          className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white hover:bg-brand-hover"
           onClick={() => {
             resetAddForm();
             setAddOpen(true);
@@ -294,7 +294,7 @@ export function ClientsPageContent() {
             </p>
             <button
               type="button"
-              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white"
+              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white hover:bg-brand-hover"
               onClick={() => {
                 resetAddForm();
                 setAddOpen(true);
@@ -420,7 +420,7 @@ export function ClientsPageContent() {
             <button
               type="button"
               disabled={!canSubmitAdd || addBusy}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white disabled:opacity-40"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white disabled:opacity-40 hover:bg-brand-hover disabled:hover:bg-brand"
               onClick={() => void submitAdd()}
             >
               {addBusy ? "Saving…" : "Add Client"}

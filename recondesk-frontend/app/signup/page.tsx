@@ -404,7 +404,7 @@ function SignupForm() {
 
         <p className="mt-6 text-center text-sm text-gray-500">
           Already have an account?{" "}
-          <Link href="/login" className="font-medium text-brand hover:text-brand-dark">
+          <Link href="/login" className="font-medium text-brand hover:text-brand-hover">
             Sign in
           </Link>
         </p>

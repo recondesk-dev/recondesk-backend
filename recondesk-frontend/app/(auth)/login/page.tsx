@@ -153,7 +153,7 @@ export default function LoginPage() {
                 </label>
                 <Link
                   href="/forgot-password"
-                  className="text-xs text-brand hover:text-brand-dark font-medium"
+                  className="text-xs text-brand hover:text-brand-hover font-medium"
                 >
                   Forgot password?
                 </Link>
@@ -210,7 +210,7 @@ export default function LoginPage() {
 
         <p className="text-center text-sm text-gray-500 mt-6">
           Don&apos;t have an account?{" "}
-          <Link href="/signup" className="text-brand hover:text-brand-dark font-medium">
+          <Link href="/signup" className="text-brand hover:text-brand-hover font-medium">
             Create account
           </Link>
         </p>
