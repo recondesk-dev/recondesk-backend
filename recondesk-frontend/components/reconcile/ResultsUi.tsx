@@ -32,8 +32,7 @@ export const statCardsGridClass =
 
 export const tableWrapClass = "w-full overflow-x-auto";
 
-export const tableClass =
-  "w-full min-w-[700px] table-fixed border-collapse text-left";
+export const tableClass = "w-full table-auto border-collapse text-left";
 
 export const tableHeadClass =
   "bg-[#FAFAFA] text-[11px] font-semibold uppercase tracking-wider text-gray-400";
@@ -44,16 +43,48 @@ export const tableHeadCellClass =
 export const tableRowClass =
   "border-b border-[#F5F5F5] bg-white hover:bg-[#FAFAFA] transition-all duration-150";
 
-export const tableCellClass = "px-4 py-4 align-middle";
+export const tableCellClass = "px-4 py-3 align-middle";
 
 export const tableTruncateCellClass =
   `${tableCellClass} overflow-hidden text-ellipsis whitespace-nowrap`;
 
 export const tableStickyCheckboxHeadClass =
-  "sticky left-0 z-10 w-8 bg-[#FAFAFA] px-2 py-3";
+  "sticky left-0 z-10 w-8 bg-[#FAFAFA] px-3 py-3";
 
 export const tableStickyCheckboxCellClass =
-  "sticky left-0 z-10 w-8 bg-white px-2 py-4 transition-all duration-150 group-hover:bg-[#FAFAFA]";
+  "sticky left-0 z-10 w-8 bg-white px-3 py-3 transition-all duration-150 group-hover:bg-[#FAFAFA]";
+
+export const topSuppliersTableClass = tableClass;
+
+export const topSuppliersThGstin = `${tableHeadCellClass} min-w-[170px] w-[170px]`;
+export const topSuppliersTdGstin = `${tableCellClass} min-w-[170px] w-[170px] font-mono text-[12px] text-gray-500`;
+export const topSuppliersThTradeName = `${tableHeadCellClass} min-w-[180px]`;
+export const topSuppliersTdTradeName = `${tableCellClass} min-w-[180px] font-medium text-gray-800 overflow-hidden text-ellipsis whitespace-nowrap`;
+export const topSuppliersThInvoiceCount = `${tableHeadCellClass} min-w-[120px] w-[120px] text-center`;
+export const topSuppliersTdInvoiceCount = `${tableCellClass} min-w-[120px] w-[120px] text-center text-[13px] text-gray-600 tabular-nums`;
+export const topSuppliersThTotal = `${tableHeadCellClass} min-w-[140px] w-[140px] text-right`;
+export const topSuppliersTdTotal = `${tableCellClass} min-w-[140px] w-[140px] text-right font-semibold`;
+export const topSuppliersThImpact = `${tableHeadCellClass} min-w-[90px] w-[90px] text-right`;
+export const topSuppliersTdImpact = `${tableCellClass} min-w-[90px] w-[90px] text-right`;
+
+export const matchedTableClass = tableClass;
+
+export const matchedThGstin = `${tableHeadCellClass} min-w-[160px] w-[160px]`;
+export const matchedTdGstin = `${tableCellClass} min-w-[160px] w-[160px] font-mono text-[12px] text-gray-500`;
+export const matchedThInvoice = `${tableHeadCellClass} min-w-[110px] w-[110px]`;
+export const matchedTdInvoice = `${tableCellClass} min-w-[110px] w-[110px] font-medium text-gray-800`;
+export const matchedThDate = `${tableHeadCellClass} min-w-[100px] w-[100px]`;
+export const matchedTdDate = `${tableCellClass} min-w-[100px] w-[100px] text-[13px] text-gray-500`;
+export const matchedThAmount = `${tableHeadCellClass} min-w-[90px] w-[90px] text-right`;
+export const matchedTdAmount = `${tableCellClass} min-w-[90px] w-[90px] text-right`;
+export const matchedThMatchLevel = `${tableHeadCellClass} min-w-[100px] w-[100px] text-center`;
+export const matchedTdMatchLevel = `${tableCellClass} min-w-[100px] w-[100px] text-center`;
+export const matchedThConfidence = `${tableHeadCellClass} min-w-[100px] w-[100px] text-center`;
+export const matchedTdConfidence = `${tableCellClass} min-w-[100px] w-[100px] text-center text-[13px] text-gray-600`;
+export const matchedThDiscrepancy = `${tableHeadCellClass} min-w-[150px]`;
+export const matchedTdDiscrepancy = `${tableCellClass} min-w-[150px] overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-gray-600`;
+export const matchedThNotes = `${tableHeadCellClass} min-w-[80px] w-[80px]`;
+export const matchedTdNotes = `${tableCellClass} min-w-[80px] w-[80px]`;
 
 export function DecisionTableColGroup({
   includeNotice = false,
@@ -245,9 +276,12 @@ export function SectionHeader({
   badgeVariant?: SectionAmountBadgeVariant;
   actions?: ReactNode;
 }) {
+  const showRight =
+    (amount != null && amountLabel != null) || actions != null;
+
   return (
     <div className="mb-5 flex w-full items-center justify-between gap-3">
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <span
           className="h-2 w-2 shrink-0 rounded-full"
           style={{ backgroundColor: dotColor }}
@@ -257,21 +291,17 @@ export function SectionHeader({
           {title}
         </h2>
       </div>
-      {amount != null && amountLabel != null && (
-        <div className="mx-auto shrink-0">
-          <SectionAmountBadge
-            label={amountLabel}
-            amount={amount}
-            variant={badgeVariant}
-          />
-        </div>
-      )}
-      {actions != null ? (
-        <div className="flex flex-1 shrink-0 items-center justify-end gap-2 whitespace-nowrap">
+      {showRight && (
+        <div className="flex shrink-0 items-center gap-3">
+          {amount != null && amountLabel != null && (
+            <SectionAmountBadge
+              label={amountLabel}
+              amount={amount}
+              variant={badgeVariant}
+            />
+          )}
           {actions}
         </div>
-      ) : (
-        <div className="flex-1" aria-hidden />
       )}
     </div>
   );

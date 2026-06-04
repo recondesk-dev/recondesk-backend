@@ -28,6 +28,23 @@ import {
   formatINRPlain,
   InrAmount,
   ImpactBadge,
+  matchedTableClass,
+  matchedTdAmount,
+  matchedTdConfidence,
+  matchedTdDate,
+  matchedTdDiscrepancy,
+  matchedTdGstin,
+  matchedTdInvoice,
+  matchedTdMatchLevel,
+  matchedTdNotes,
+  matchedThAmount,
+  matchedThConfidence,
+  matchedThDate,
+  matchedThDiscrepancy,
+  matchedThGstin,
+  matchedThInvoice,
+  matchedThMatchLevel,
+  matchedThNotes,
   pageContentClass,
   rule37BorderClass,
   Rule37SeverityLabel,
@@ -44,6 +61,17 @@ import {
   tableStickyCheckboxCellClass,
   tableStickyCheckboxHeadClass,
   tableWrapClass,
+  topSuppliersTableClass,
+  topSuppliersTdGstin,
+  topSuppliersTdImpact,
+  topSuppliersTdInvoiceCount,
+  topSuppliersTdTotal,
+  topSuppliersTdTradeName,
+  topSuppliersThGstin,
+  topSuppliersThImpact,
+  topSuppliersThInvoiceCount,
+  topSuppliersThTotal,
+  topSuppliersThTradeName,
 } from "@/components/reconcile/ResultsUi";
 import { apiFetch } from "@/lib/api";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
@@ -2239,34 +2267,30 @@ export default function ReconcileResultsPage() {
             {!(riskLoading && !riskPageData) && topSuppliersByRisk.length > 0 && (
               <>
                 <div className={tableWrapClass}>
-                  <table className={tableClass}>
+                  <table className={topSuppliersTableClass}>
                     <thead className={tableHeadClass}>
                       <tr>
-                        <th className={`${tableStickyCheckboxHeadClass} text-[11px] font-semibold uppercase tracking-wider text-gray-400`}>
-                          Supplier GSTIN
-                        </th>
-                        <th className={tableHeadCellClass}>Trade Name</th>
-                        <th className={`${tableHeadCellClass} text-right`}>Invoice Count</th>
-                        <th className={`${tableHeadCellClass} text-right`}>Total ITC at Risk</th>
-                        <th className={tableHeadCellClass}>Impact</th>
+                        <th className={topSuppliersThGstin}>Supplier GSTIN</th>
+                        <th className={topSuppliersThTradeName}>Trade Name</th>
+                        <th className={topSuppliersThInvoiceCount}>Invoice Count</th>
+                        <th className={topSuppliersThTotal}>Total ITC at Risk</th>
+                        <th className={topSuppliersThImpact}>Impact</th>
                       </tr>
                     </thead>
                     <tbody>
                       {topSuppliersByRisk.map((s) => (
                         <tr key={s.gstin} className={tableRowClass}>
-                          <td className={`${tableStickyCheckboxCellClass} font-mono text-[13px] text-gray-500`}>
-                            {s.gstin}
-                          </td>
-                          <td className={`${tableCellClass} max-w-[200px] truncate text-[13px] text-gray-600`}>
+                          <td className={topSuppliersTdGstin}>{s.gstin}</td>
+                          <td className={topSuppliersTdTradeName}>
                             {s.tradeName || "—"}
                           </td>
-                          <td className={`${tableCellClass} text-right tabular-nums text-[13px] text-gray-600`}>
+                          <td className={topSuppliersTdInvoiceCount}>
                             {s.count.toLocaleString("en-IN")}
                           </td>
-                          <td className={`${tableCellClass} text-right`}>
+                          <td className={topSuppliersTdTotal}>
                             <AmountDisplay amount={s.total} />
                           </td>
-                          <td className={tableCellClass}>
+                          <td className={topSuppliersTdImpact}>
                             <ImpactBadge level={s.impact} />
                           </td>
                         </tr>
@@ -2525,17 +2549,17 @@ export default function ReconcileResultsPage() {
           {matchedData && !matchedError && matchedData.data.length > 0 && (
             <>
               <div className={tableWrapClass}>
-                <table className={tableClass}>
+                <table className={matchedTableClass}>
                   <thead className={tableHeadClass}>
                     <tr>
-                      <th className={tableStickyCheckboxHeadClass}>Supplier</th>
-                      <th className={tableHeadCellClass}>Invoice#</th>
-                      <th className={tableHeadCellClass}>Date</th>
-                      <th className={`${tableHeadCellClass} text-right`}>Amount</th>
-                      <th className={tableHeadCellClass}>Match Level</th>
-                      <th className={tableHeadCellClass}>Confidence</th>
-                      <th className={tableHeadCellClass}>Discrepancy</th>
-                      <th className={tableHeadCellClass}>Notes</th>
+                      <th className={matchedThGstin}>Supplier GSTIN</th>
+                      <th className={matchedThInvoice}>Invoice#</th>
+                      <th className={matchedThDate}>Date</th>
+                      <th className={matchedThAmount}>Amount</th>
+                      <th className={matchedThMatchLevel}>Match Level</th>
+                      <th className={matchedThConfidence}>Confidence</th>
+                      <th className={matchedThDiscrepancy}>Discrepancy</th>
+                      <th className={matchedThNotes}>Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2549,32 +2573,28 @@ export default function ReconcileResultsPage() {
                           setNotePostError(null);
                         }}
                       >
-                        <td className={`${tableStickyCheckboxCellClass} font-mono text-[13px] text-gray-500`}>
-                          {row.supplier_gstin}
-                        </td>
-                        <td className={`${tableCellClass} font-medium text-gray-800`}>
-                          {row.invoice_number}
-                        </td>
-                        <td className={`${tableCellClass} text-[13px] text-gray-500`}>
+                        <td className={matchedTdGstin}>{row.supplier_gstin}</td>
+                        <td className={matchedTdInvoice}>{row.invoice_number}</td>
+                        <td className={matchedTdDate}>
                           {formatDate(row.invoice_date)}
                         </td>
-                        <td className={`${tableCellClass} text-right`}>
+                        <td className={matchedTdAmount}>
                           <AmountDisplay amount={row.amount} />
                         </td>
-                        <td className={tableCellClass}>
+                        <td className={matchedTdMatchLevel}>
                           <MatchLevelBadge level={row.match_level} />
                         </td>
-                        <td className={`${tableCellClass} text-[13px] text-gray-600`}>
+                        <td className={matchedTdConfidence}>
                           {Math.round(
                             Math.min(1, Math.max(0, row.confidence_score)) *
                               100
                           )}
                           %
                         </td>
-                        <td className={`${tableCellClass} max-w-[180px] truncate text-[13px] text-gray-600`}>
+                        <td className={matchedTdDiscrepancy}>
                           {row.discrepancy_note ?? "—"}
                         </td>
-                        <td className={tableCellClass}>
+                        <td className={matchedTdNotes}>
                           {row.notes_count > 0 ? (
                             <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
                               {row.notes_count} notes
@@ -2633,25 +2653,25 @@ export default function ReconcileResultsPage() {
                 </span>
               ) : null}
             </span>
-            {rule37TotalAmount != null && (
-              <span
-                className="mx-auto shrink-0"
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={(e) => e.stopPropagation()}
-                role="presentation"
-              >
+            <span
+              className="flex shrink-0 items-center gap-3"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+              role="presentation"
+            >
+              {rule37TotalAmount != null && (
                 <SectionAmountBadge
                   label="AMOUNT AT RISK"
                   amount={rule37TotalAmount}
                   variant="rule37"
                 />
-              </span>
-            )}
-            <ChevronDown
-              className={`h-5 w-5 shrink-0 text-gray-400 transition-transform duration-150 ${
-                rule37Open ? "rotate-180" : ""
-              }`}
-            />
+              )}
+              <ChevronDown
+                className={`h-5 w-5 shrink-0 text-gray-400 transition-transform duration-150 ${
+                  rule37Open ? "rotate-180" : ""
+                }`}
+              />
+            </span>
           </button>
           {rule37Open && (
             <div className="mt-5 border-t border-[#F0F0F0] pt-5">
