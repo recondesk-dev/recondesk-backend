@@ -1381,17 +1381,10 @@ export default function ReconcileResultsPage() {
   }
 
   return (
-    <div className="box-border min-h-screen w-full max-w-full overflow-x-hidden bg-[#F7F7F8] pb-28">
-      {/*
-        Summary bar — sticky (not fixed) so it lives in normal document flow.
-        -mt-8 and -mx-8 cancel main's p-8 padding so the bar is flush with
-        the shell header's bottom edge and spans the full content column width.
-        -top-8 makes it stick at the header's bottom (y=64) rather than the
-        content-box top (y=96), so the dashboard header stays fully visible.
-      */}
+    <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden bg-white pb-28">
       <div
         ref={summaryRef}
-        className="sticky -top-8 -mx-8 -mt-8 z-40 box-border w-full max-w-full overflow-x-hidden border-b border-[#F0F0F0] bg-white px-8 py-4"
+        className="sticky top-0 z-40 box-border w-full min-w-0 overflow-x-hidden border-b border-[#F0F0F0] bg-white px-8 py-4"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
