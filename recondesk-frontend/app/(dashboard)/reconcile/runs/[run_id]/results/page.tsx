@@ -352,8 +352,27 @@ async function authJsonFetcher<T>([path, token]: FetcherKey): Promise<T> {
   return apiFetch<T>(path, { token });
 }
 
+const MATCHED_PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
+const MATCHED_PAGE_SIZE_STORAGE_KEY = "recondesk.reconcile.matchedPageSize";
+const DEFAULT_MATCHED_PAGE_SIZE = 50;
+
+function readStoredMatchedPageSize(): number {
+  if (typeof window === "undefined") return DEFAULT_MATCHED_PAGE_SIZE;
+  const raw = localStorage.getItem(MATCHED_PAGE_SIZE_STORAGE_KEY);
+  const n = Number(raw);
+  if (
+    MATCHED_PAGE_SIZE_OPTIONS.includes(
+      n as (typeof MATCHED_PAGE_SIZE_OPTIONS)[number]
+    )
+  ) {
+    return n;
+  }
+  return DEFAULT_MATCHED_PAGE_SIZE;
+}
+
 function buildMatchedQuery(
   page: number,
+  limit: number,
   search: string,
   f: {
     match_level: string;
@@ -366,7 +385,7 @@ function buildMatchedQuery(
 ): string {
   const p = new URLSearchParams();
   p.set("page", String(page));
-  p.set("limit", "50");
+  p.set("limit", String(limit));
   p.set("sort", "amount_desc");
   const q = search.trim();
   if (q) p.set("search", q);
@@ -515,6 +534,9 @@ function PaginationFooter({
   onNext,
   disabled,
   summary,
+  pageSizeOptions,
+  pageSize,
+  onPageSizeChange,
 }: {
   page: number;
   totalPages: number;
@@ -524,17 +546,44 @@ function PaginationFooter({
   onNext: () => void;
   disabled?: boolean;
   summary?: ReactNode;
+  pageSizeOptions?: readonly number[];
+  pageSize?: number;
+  onPageSizeChange?: (size: number) => void;
 }) {
   const from = total === 0 ? 0 : (page - 1) * limit + 1;
   const to = Math.min(page * limit, total);
+  const showPageSize =
+    pageSizeOptions != null &&
+    pageSizeOptions.length > 0 &&
+    pageSize != null &&
+    onPageSizeChange != null;
   return (
     <div className="mt-3 flex w-full flex-wrap items-center justify-between gap-2">
       {summary != null ? (
         <p className="min-w-0 truncate text-[13px]">{summary}</p>
       ) : (
-        <p className="min-w-0 truncate text-sm text-gray-500">
-          Showing {from}–{to} of {total} records
-        </p>
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <p className="truncate text-sm text-gray-500">
+            Showing {from}–{to} of {total.toLocaleString("en-IN")} records
+          </p>
+          {showPageSize ? (
+            <label className="flex items-center gap-2 text-sm text-gray-500">
+              <span className="whitespace-nowrap">Rows per page</span>
+              <select
+                value={pageSize}
+                onChange={(e) => onPageSizeChange(Number(e.target.value))}
+                className={`${filterDropdownClass} min-h-[36px] text-[13px]`}
+                aria-label="Rows per page"
+              >
+                {pageSizeOptions.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
       )}
       <div className="flex shrink-0 gap-2">
         <button
@@ -614,6 +663,9 @@ export default function ReconcileResultsPage() {
   const [riskPage, setRiskPage] = useState(1);
   const [itcPage, setItcPage] = useState(1);
   const [matchedPage, setMatchedPage] = useState(1);
+  const [matchedPageSize, setMatchedPageSize] = useState(() =>
+    readStoredMatchedPageSize()
+  );
   const [rule37Page, setRule37Page] = useState(1);
   const [section17Page, setSection17Page] = useState(1);
 
@@ -662,7 +714,24 @@ export default function ReconcileResultsPage() {
 
   useEffect(() => {
     setMatchedPage(1);
-  }, [debouncedMatchedSearch, matchedFilters]);
+  }, [debouncedMatchedSearch, matchedFilters, matchedPageSize]);
+
+  const handleMatchedPageSizeChange = useCallback((size: number) => {
+    if (
+      !MATCHED_PAGE_SIZE_OPTIONS.includes(
+        size as (typeof MATCHED_PAGE_SIZE_OPTIONS)[number]
+      )
+    ) {
+      return;
+    }
+    setMatchedPageSize(size);
+    setMatchedPage(1);
+    try {
+      localStorage.setItem(MATCHED_PAGE_SIZE_STORAGE_KEY, String(size));
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, []);
 
   const [itcFilters, setItcFilters] = useState<ItcFiltersState>({
     amount_min: "",
@@ -950,8 +1019,13 @@ export default function ReconcileResultsPage() {
 
   const matchedQuery = useMemo(
     () =>
-      buildMatchedQuery(matchedPage, debouncedMatchedSearch, matchedFilters),
-    [matchedPage, debouncedMatchedSearch, matchedFilters]
+      buildMatchedQuery(
+        matchedPage,
+        matchedPageSize,
+        debouncedMatchedSearch,
+        matchedFilters
+      ),
+    [matchedPage, matchedPageSize, debouncedMatchedSearch, matchedFilters]
   );
 
   const matchedKey = useMemo(
@@ -2822,6 +2896,9 @@ export default function ReconcileResultsPage() {
                 totalPages={matchedData.total_pages}
                 total={matchedData.total}
                 limit={matchedData.limit}
+                pageSizeOptions={MATCHED_PAGE_SIZE_OPTIONS}
+                pageSize={matchedPageSize}
+                onPageSizeChange={handleMatchedPageSizeChange}
                 onPrev={() => setMatchedPage((p) => Math.max(1, p - 1))}
                 onNext={() =>
                   setMatchedPage((p) =>
