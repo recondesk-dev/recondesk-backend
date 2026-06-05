@@ -586,6 +586,7 @@ class Rule37ActionPatch(BaseModel):
     amount_paid: Optional[float] = Field(None, ge=0)
     tds_deducted: float = Field(default=0, ge=0)
     tds_confirmed: bool = False
+    total_settled: Optional[float] = Field(None, ge=0)
 
 
 class Rule37ActionResponse(BaseModel):
@@ -1062,7 +1063,11 @@ def _upsert_rule37_action(
                 "amount_paid": round(float(amount_paid or 0), 2),
                 "tds_deducted": round(float(tds_deducted or 0), 2),
                 "tds_confirmed": bool(tds_confirmed),
-                "total_settled": round(float(total_settled or 0), 2),
+                "total_settled": (
+                    round(float(total_settled), 2)
+                    if total_settled is not None
+                    else None
+                ),
                 "remaining_unpaid_amount": (
                     round(float(remaining_unpaid_amount), 2)
                     if remaining_unpaid_amount is not None
@@ -1087,10 +1092,13 @@ def _upsert_rule37_action(
             payload,
             on_conflict="run_id,record_hash",
         ).execute()
-    except Exception as exc:
+    except Exception:
         _log.exception(
-            "rule37 action upsert failed run_id=%s record_id=%s hash=%s err=%s",
-            run_id, record_id, record_hash, exc,
+            "rule37 action upsert failed run_id=%s record_id=%s hash=%s payload=%s",
+            run_id,
+            record_id,
+            record_hash,
+            payload,
         )
         raise
 
@@ -3500,7 +3508,18 @@ async def reconcile_run_rule37_action(
                     detail="settlement confirmation is required",
                 )
             amount_paid = round(float(body.amount_paid), 2)
-            total_settled = round(amount_paid + tds_deducted, 2)
+            computed_total_settled = round(amount_paid + tds_deducted, 2)
+            if body.total_settled is not None:
+                total_settled = round(float(body.total_settled), 2)
+                if abs(total_settled - computed_total_settled) > 0.005:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=(
+                            "total_settled must equal net paid plus statutory deduction"
+                        ),
+                    )
+            else:
+                total_settled = computed_total_settled
             invoice_amount = 0.0
             for row in _build_rule37_rows(sb, rid, p, notes):
                 if _normalize_record_id(str(row.get("id") or "")) == rec_id:
@@ -3551,17 +3570,23 @@ async def reconcile_run_rule37_action(
         )
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         _log.exception(
-            "rule37 PATCH failed run_id=%s record_id=%s (raw=%s)",
+            "rule37 PATCH failed run_id=%s record_id=%s raw_record_id=%s status=%s "
+            "amount_paid=%s tds_deducted=%s tds_confirmed=%s total_settled=%s",
             run_id,
             rec_id,
             record_id,
+            body.status,
+            body.amount_paid,
+            body.tds_deducted,
+            body.tds_confirmed,
+            body.total_settled,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="failed to update rule37 status",
-        ) from exc
+        )
 
 
 @reconcile_runs_router.get("/runs/{run_id}/section17")
