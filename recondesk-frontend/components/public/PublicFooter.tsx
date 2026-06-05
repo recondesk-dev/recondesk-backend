@@ -56,9 +56,9 @@ export function PublicFooter({ theme = "dark" }: PublicFooterProps) {
             <span className={`hidden sm:inline ${isLight ? "text-[#E5E5E5]" : "text-white/20"}`} aria-hidden>
               |
             </span>
-            <a href="mailto:contact@recondesk.in" className={isLight ? "hover:text-[#0A0A0A]" : "hover:text-white"}>
+            <Link href="/contact" className={isLight ? "hover:text-[#0A0A0A]" : "hover:text-white"}>
               Contact
-            </a>
+            </Link>
           </div>
           <p
             className={`text-sm max-sm:text-center lg:text-right ${isLight ? "text-[#6B6B6B]" : "text-slate-500"}`}
