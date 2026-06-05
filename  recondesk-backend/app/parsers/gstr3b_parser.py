@@ -1,0 +1,192 @@
+"""GSTR-3B JSON parser.
+
+Parses the official GSTN GSTR-3B JSON format downloaded from the GST portal
+into a structured, normalised summary suitable for ITC reconciliation.
+
+Expected top-level shape::
+
+    {
+      "gstin": "27AABCM4162G1ZM",
+      "ret_period": "052026",
+      "data": {
+        "itcElg": {
+          "itcAvl": [ {"ty": "IMPG", "iamt": 0, "camt": 0, "samt": 0, "csamt": 0}, ... ],
+          "itcRev": [ ... ],
+          "itcNet": [ ... ],
+          "itcInelg": [ ... ]
+        },
+        "sup_details": {
+          "osup_det":      {"txval": 0, "iamt": 0, "camt": 0, "samt": 0, "csamt": 0},
+          "osup_zero":     {...},
+          "osup_nil_exmp": {...},
+          "isup_rev":      {...},
+          "osup_nongst":   {...}
+        },
+        "intr_ltfee": {
+          "intr_details": {"iamt": 0, "camt": 0, "samt": 0, "csamt": 0}
+        }
+      }
+    }
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Public exception
+# ---------------------------------------------------------------------------
+
+class ParseError(ValueError):
+    """Raised when the GSTR-3B JSON cannot be parsed."""
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _safe_num(val: Any, field: str = "") -> float:
+    """Convert a raw portal value to float; None / missing → 0.0."""
+    if val is None:
+        return 0.0
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        logger.warning("gstr3b_parser: non-numeric value for %s: %r", field, val)
+        return 0.0
+
+
+def _sum_rows(rows: list[dict], *, iamt_key: str = "iamt", camt_key: str = "camt",
+               samt_key: str = "samt", csamt_key: str = "csamt") -> dict[str, float]:
+    """Sum tax components across a list of ITC rows."""
+    igst = cgst = sgst = cess = 0.0
+    for row in rows or []:
+        igst  += _safe_num(row.get(iamt_key),  f"iamt[{row.get('ty','')}]")
+        cgst  += _safe_num(row.get(camt_key),  f"camt[{row.get('ty','')}]")
+        sgst  += _safe_num(row.get(samt_key),  f"samt[{row.get('ty','')}]")
+        cess  += _safe_num(row.get(csamt_key), f"csamt[{row.get('ty','')}]")
+    return {"igst": igst, "cgst": cgst, "sgst": sgst, "cess": cess}
+
+
+def _parse_ret_period(raw: str) -> str:
+    """Convert portal format '052026' → '2026-05'.
+
+    Also accepts '2026-05' (already normalised) and 'MMYYYY' / 'YYYYMM'.
+    """
+    s = str(raw).strip()
+    if len(s) == 6 and s.isdigit():
+        mm, yyyy = s[:2], s[2:]
+        if 1 <= int(mm) <= 12 and len(yyyy) == 4:
+            return f"{yyyy}-{mm}"
+        # Try YYYYMM
+        yyyy2, mm2 = s[:4], s[4:]
+        if 1 <= int(mm2) <= 12:
+            return f"{yyyy2}-{mm2}"
+    if len(s) == 7 and s[4] == "-":
+        return s  # already YYYY-MM
+    raise ParseError(f"ret_period has unrecognised format: {s!r}")
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def parse_gstr3b(raw: Any) -> dict:
+    """Parse a decoded GSTR-3B JSON object and return a normalised summary.
+
+    Parameters
+    ----------
+    raw:
+        A ``dict`` (already JSON-decoded) representing the GSTR-3B payload.
+
+    Returns
+    -------
+    dict with keys:
+        ``gstin``, ``ret_period``, ``itc_avl``, ``itc_rev``, ``itc_net``,
+        ``itc_inelg``, ``outward_supply``, ``interest_late_fee``
+
+    Raises
+    ------
+    ParseError
+        If ``gstin`` or ``ret_period`` are missing, or ``data`` is absent.
+    TypeError
+        If *raw* is not a dict.
+    """
+    if not isinstance(raw, dict):
+        raise TypeError(f"GSTR-3B payload must be a dict, got {type(raw).__name__}")
+
+    # ── Mandatory top-level fields ────────────────────────────────────────────
+    gstin = str(raw.get("gstin") or "").strip().upper()
+    if not gstin:
+        raise ParseError("Missing required field: gstin")
+
+    ret_period_raw = str(raw.get("ret_period") or "").strip()
+    if not ret_period_raw:
+        raise ParseError("Missing required field: ret_period")
+    ret_period = _parse_ret_period(ret_period_raw)
+
+    # ── Navigate into `data` ──────────────────────────────────────────────────
+    data = raw.get("data")
+    if not isinstance(data, dict):
+        raise ParseError("Missing or invalid 'data' block in GSTR-3B JSON")
+
+    # ── ITC eligible section ──────────────────────────────────────────────────
+    itc_elg = data.get("itcElg") or {}
+    if not isinstance(itc_elg, dict):
+        itc_elg = {}
+
+    itc_avl_rows: list[dict]   = itc_elg.get("itcAvl")   or []
+    itc_rev_rows: list[dict]   = itc_elg.get("itcRev")   or []
+    itc_net_rows: list[dict]   = itc_elg.get("itcNet")   or []
+    itc_inelg_rows: list[dict] = itc_elg.get("itcInelg") or []
+
+    itc_avl   = _sum_rows(itc_avl_rows)
+    itc_rev   = _sum_rows(itc_rev_rows)
+    itc_net   = _sum_rows(itc_net_rows)
+    itc_inelg = _sum_rows(itc_inelg_rows)
+
+    # ── Outward supply details ────────────────────────────────────────────────
+    sup_details = data.get("sup_details") or {}
+    osup_det = sup_details.get("osup_det") or {}
+    outward_supply = {
+        "taxable_value": _safe_num(osup_det.get("txval"), "osup_det.txval"),
+        "igst":  _safe_num(osup_det.get("iamt"),  "osup_det.iamt"),
+        "cgst":  _safe_num(osup_det.get("camt"),  "osup_det.camt"),
+        "sgst":  _safe_num(osup_det.get("samt"),  "osup_det.samt"),
+        "cess":  _safe_num(osup_det.get("csamt"), "osup_det.csamt"),
+        "total": (
+            _safe_num(osup_det.get("txval"), "osup_det.txval")
+            + _safe_num(osup_det.get("iamt"),  "osup_det.iamt")
+        ),
+    }
+
+    # ── Interest / late fee ───────────────────────────────────────────────────
+    intr_ltfee = data.get("intr_ltfee") or {}
+    intr_details = intr_ltfee.get("intr_details") or {}
+    interest_late_fee = {
+        "igst": _safe_num(intr_details.get("iamt"),  "intr_details.iamt"),
+        "cgst": _safe_num(intr_details.get("camt"),  "intr_details.camt"),
+        "sgst": _safe_num(intr_details.get("samt"),  "intr_details.samt"),
+        "cess": _safe_num(intr_details.get("csamt"), "intr_details.csamt"),
+    }
+
+    return {
+        "gstin":             gstin,
+        "ret_period":        ret_period,          # YYYY-MM
+        "ret_period_raw":    ret_period_raw,       # original portal value
+        # ITC available (sum of all source rows in itcAvl)
+        "itc_avl":           itc_avl,
+        # ITC reversed
+        "itc_rev":           itc_rev,
+        # Net ITC (after reversals, as declared in GSTR-3B)
+        "itc_net":           itc_net,
+        # Ineligible ITC
+        "itc_inelg":         itc_inelg,
+        # Outward supply summary from 3.1
+        "outward_supply":    outward_supply,
+        # Interest / late fee
+        "interest_late_fee": interest_late_fee,
+    }
