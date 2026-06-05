@@ -18,6 +18,8 @@ import { apiFetch } from "@/lib/api";
 import {
   formatRule37ActionLabel,
   formatRule37ActionTimeIst,
+  formatRule37TdsDeducted,
+  formatRule37TotalSettled,
   type Rule37SummaryResponse,
 } from "@/lib/rule37Summary";
 
@@ -149,6 +151,12 @@ export function Rule37SummarySection({
                   <th className={tableHeadCellClass}>Invoice #</th>
                   <th className={tableHeadCellClass}>Supplier GSTIN</th>
                   <th className={`${tableHeadCellClass} text-right`}>Amount</th>
+                  <th className={`${tableHeadCellClass} text-right`}>
+                    TDS Deducted
+                  </th>
+                  <th className={`${tableHeadCellClass} text-right`}>
+                    Total Settled
+                  </th>
                   <th className={tableHeadCellClass}>Action</th>
                   <th className={tableHeadCellClass}>Date</th>
                   <th className={tableHeadCellClass}>By</th>
@@ -166,8 +174,19 @@ export function Rule37SummarySection({
                     <td className={`${tableCellClass} text-right font-semibold`}>
                       <InrAmount amount={row.amount} />
                     </td>
+                    <td className={`${tableCellClass} text-right text-[13px]`}>
+                      {formatRule37TdsDeducted(row.tds_deducted)}
+                    </td>
+                    <td className={`${tableCellClass} text-right text-[13px] font-semibold`}>
+                      {formatRule37TotalSettled(row)}
+                    </td>
                     <td className={tableCellClass}>
                       {formatRule37ActionLabel(row.action)}
+                      {row.payment_coverage === "partial" ? (
+                        <span className="ml-1 text-[11px] text-amber-600">
+                          (Partial)
+                        </span>
+                      ) : null}
                     </td>
                     <td className={`${tableCellClass} text-[13px] text-gray-600`}>
                       {formatRule37ActionTimeIst(row.created_at)}

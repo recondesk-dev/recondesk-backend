@@ -23,6 +23,8 @@ export type ReportReconcileRow = {
   purchase_register_data: Record<string, string | number>;
   rule37_action_status?: "resolved" | "acknowledged" | null;
   rule37_urgency?: "CRITICAL" | "HIGH" | "MEDIUM";
+  invoice_amount?: number;
+  rule37_payment_coverage?: "full" | "partial" | null;
 };
 
 export type ReportSummary = {

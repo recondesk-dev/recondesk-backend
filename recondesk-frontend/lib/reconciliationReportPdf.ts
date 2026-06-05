@@ -3,6 +3,11 @@ import type { jsPDF } from "jspdf";
 import { formatINR, formatINRNumber } from "@/lib/format";
 import { formatFollowupAuditTimeIst, formatFollowupAuditStatus } from "@/lib/followupAudit";
 import type { ReportPdfDataset, ReportReconcileRow } from "@/lib/reconciliationReportData";
+import {
+  formatRule37ActionLabel,
+  formatRule37ActionTimeIst,
+  formatRule37PaymentPdfLine,
+} from "@/lib/rule37Summary";
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 
@@ -113,7 +118,11 @@ function rule37DeadlineInfo(invoiceDate: string): {
 }
 
 function rule37StatusLabel(row: ReportReconcileRow): string {
-  if (row.rule37_action_status === "resolved") return "Mark Paid";
+  if (row.rule37_action_status === "resolved") {
+    return row.rule37_payment_coverage === "partial"
+      ? "Partial Payment"
+      : "Mark Paid";
+  }
   if (row.rule37_action_status === "acknowledged") return "ITC Reversed";
   const u = row.rule37_urgency;
   if (u === "CRITICAL") return "Overdue";
@@ -877,7 +886,7 @@ function buildRule37Section(
     },
   });
 
-  const finalY =
+  let finalY =
     ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable
       ?.finalY ?? y + 20) + 6;
 
@@ -890,6 +899,7 @@ function buildRule37Section(
       MARGIN,
       finalY
     );
+    finalY += 6;
   }
 
   doc.setFont("helvetica", "bold");
@@ -898,9 +908,59 @@ function buildRule37Section(
   doc.text(
     `Total ITC at Risk (Rule 37): ${formatINR(rs.total_itc_at_risk)}`,
     PAGE_W - MARGIN,
-    finalY + (truncated ? 6 : 0),
+    finalY,
     { align: "right" }
   );
+
+  const history = data.rule37Summary.action_history ?? [];
+  if (history.length > 0) {
+    let histY = finalY + 12;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    setCharcoal(doc);
+    doc.text("Action History", MARGIN, histY);
+    histY += 6;
+
+    const histBody = history.map((row, i) => [
+      String(i + 1),
+      row.invoice_number || "—",
+      row.supplier_gstin || "—",
+      formatINR(row.amount),
+      formatRule37PaymentPdfLine(row),
+      formatRule37ActionLabel(row.action) +
+        (row.payment_coverage === "partial" ? " (Partial)" : ""),
+      row.generated_by_name?.trim() || "—",
+      formatRule37ActionTimeIst(row.created_at),
+    ]);
+
+    autoTable(doc, {
+      ...baseTableOpts(histY),
+      tableWidth: CONTENT_W,
+      head: [
+        [
+          "#",
+          "Invoice #",
+          "Supplier GSTIN",
+          "ITC (₹)",
+          "Payment",
+          "Action",
+          "By",
+          "Date (IST)",
+        ],
+      ],
+      body: histBody,
+      columnStyles: {
+        0: { cellWidth: 7 },
+        1: { cellWidth: 20 },
+        2: { cellWidth: 28 },
+        3: { cellWidth: 18, halign: "right" },
+        4: { cellWidth: 52 },
+        5: { cellWidth: 22 },
+        6: { cellWidth: 18 },
+        7: { cellWidth: 22 },
+      },
+    });
+  }
 }
 
 function buildFollowupSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfDataset) {
