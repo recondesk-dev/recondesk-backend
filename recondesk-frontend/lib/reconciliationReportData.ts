@@ -1,4 +1,5 @@
-import { apiFetch, authApi, followupAuditApi } from "@/lib/api";
+import { apiFetch, authApi, followupAuditApi, gstr3bApi } from "@/lib/api";
+import type { Gstr3bReconciliationResult } from "@/lib/api";
 import type { Rule37SummaryResponse } from "@/lib/rule37Summary";
 
 type Paginated<T> = {
@@ -51,6 +52,7 @@ export type ReportPdfDataset = {
   rule37Rows: ReportReconcileRow[];
   rule37Summary: Rule37SummaryResponse;
   followupRows: Awaited<ReturnType<typeof followupAuditApi.listForRun>>;
+  gstr3bResult: Gstr3bReconciliationResult | null;
 };
 
 async function fetchAllBucketRows(
@@ -100,7 +102,7 @@ export async function fetchReconciliationReportData(
   runId: string,
   summary: ReportSummary
 ): Promise<ReportPdfDataset> {
-  const [me, riskRows, itcRows, rule37Rows, rule37Summary, followupRows] =
+  const [me, riskRows, itcRows, rule37Rows, rule37Summary, followupRows, gstr3bResult] =
     await Promise.all([
       authApi.me(token).catch(() => null),
       summary.wrongful_risk_count > 0
@@ -115,6 +117,7 @@ export async function fetchReconciliationReportData(
         { token }
       ),
       followupAuditApi.listForRun(token, runId),
+      gstr3bApi.get(token, runId).catch(() => null),
     ]);
 
   const generatedByName =
@@ -128,5 +131,6 @@ export async function fetchReconciliationReportData(
     rule37Rows,
     rule37Summary,
     followupRows,
+    gstr3bResult,
   };
 }

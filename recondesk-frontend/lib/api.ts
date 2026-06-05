@@ -473,6 +473,52 @@ export const followupAuditApi = {
     ),
 };
 
+// ─── GSTR-3B Reconciliation ───────────────────────────────────────────────────
+
+export type Gstr3bHeadResult = {
+  gstr2b: number;
+  gstr3b: number;
+  difference: number;
+  status: "MATCHED" | "OVERCLAIMED" | "UNDERCLAIMED";
+};
+
+export type Gstr3bOutwardSupply = {
+  taxable_value: number;
+  igst: number;
+  total: number;
+};
+
+export type Gstr3bReconciliationResult = {
+  id: string;
+  run_id: string;
+  client_gstin: string;
+  tax_period: string;
+  overall_status: "MATCHED" | "OVERCLAIMED" | "UNDERCLAIMED";
+  igst: Gstr3bHeadResult;
+  cgst: Gstr3bHeadResult;
+  sgst: Gstr3bHeadResult;
+  total: Gstr3bHeadResult;
+  outward_supply: Gstr3bOutwardSupply;
+  uploaded_at: string;
+};
+
+export const gstr3bApi = {
+  upload: (token: string, runId: string, file: File): Promise<Gstr3bReconciliationResult> => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiFetch<Gstr3bReconciliationResult>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/gstr3b`,
+      { method: "POST", body: form, token }
+    );
+  },
+
+  get: (token: string, runId: string): Promise<Gstr3bReconciliationResult> =>
+    apiFetch<Gstr3bReconciliationResult>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/gstr3b`,
+      { token }
+    ),
+};
+
 /** Subset of reconciliation run summary for celebrate / widgets. */
 export interface ReconcileRunSummaryDto {
   run_id: string;

@@ -1016,6 +1016,138 @@ function buildFollowupSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPd
   });
 }
 
+function buildGstr3bSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfDataset) {
+  doc.addPage();
+  let y = CONTENT_TOP;
+  y = drawSectionTitle(doc, y, "GSTR-3B ITC Verification", PURPLE);
+  y = drawSubtitle(
+    doc,
+    y,
+    "Comparison of ITC available in GSTR-2B against ITC claimed in GSTR-3B."
+  );
+
+  const g3b = data.gstr3bResult;
+  if (!g3b) {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(9);
+    setGrey(doc);
+    doc.text(
+      "GSTR-3B not uploaded for this reconciliation run.",
+      PAGE_W / 2,
+      y + 20,
+      { align: "center" }
+    );
+    return;
+  }
+
+  // Overall status pill
+  const statusLabel =
+    g3b.overall_status === "OVERCLAIMED"
+      ? "OVERCLAIMED"
+      : g3b.overall_status === "UNDERCLAIMED"
+      ? "UNDERCLAIMED"
+      : "MATCHED";
+  const statusColor: [number, number, number] =
+    g3b.overall_status === "OVERCLAIMED"
+      ? [220, 38, 38]
+      : g3b.overall_status === "UNDERCLAIMED"
+      ? [217, 119, 6]
+      : [22, 163, 74];
+
+  const periodLabel = formatReportPeriod(g3b.tax_period);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  setCharcoal(doc);
+  doc.text(`Period: ${periodLabel}`, MARGIN, y);
+
+  doc.setTextColor(...statusColor);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text(`Overall Status: ${statusLabel}`, MARGIN + 50, y);
+  y += 8;
+
+  // Comparison table
+  const heads = [
+    ["Tax Head", "GSTR-2B Available", "GSTR-3B Claimed", "Difference", "Status"],
+  ];
+
+  function diffLabel(diff: number): string {
+    if (diff === 0) return formatINR(0);
+    const sign = diff > 0 ? "+" : "−";
+    return `${sign}${formatINR(Math.abs(diff))}`;
+  }
+
+  function statusStr(s: string): string {
+    if (s === "OVERCLAIMED") return "Overclaimed";
+    if (s === "UNDERCLAIMED") return "Underclaimed";
+    return "Matched";
+  }
+
+  const body = [
+    ["IGST",  formatINR(g3b.igst.gstr2b),  formatINR(g3b.igst.gstr3b),  diffLabel(g3b.igst.difference),  statusStr(g3b.igst.status)],
+    ["CGST",  formatINR(g3b.cgst.gstr2b),  formatINR(g3b.cgst.gstr3b),  diffLabel(g3b.cgst.difference),  statusStr(g3b.cgst.status)],
+    ["SGST",  formatINR(g3b.sgst.gstr2b),  formatINR(g3b.sgst.gstr3b),  diffLabel(g3b.sgst.difference),  statusStr(g3b.sgst.status)],
+    ["Total", formatINR(g3b.total.gstr2b), formatINR(g3b.total.gstr3b), diffLabel(g3b.total.difference), statusStr(g3b.total.status)],
+  ];
+
+  autoTable(doc, {
+    ...baseTableOpts(y),
+    head: heads,
+    body,
+    columnStyles: {
+      0: { cellWidth: 22 },
+      1: { cellWidth: 40, halign: "right" },
+      2: { cellWidth: 40, halign: "right" },
+      3: { cellWidth: 38, halign: "right" },
+      4: { cellWidth: 32 },
+    },
+    didParseCell: (hookData: { row: { index: number }; column: { index: number }; cell: { styles: { fontStyle: string; textColor: number[] } } }) => {
+      if (hookData.row.index === body.length - 1) {
+        hookData.cell.styles.fontStyle = "bold";
+      }
+      if (hookData.column.index === 3 && hookData.row.index < body.length) {
+        const rowDiffs = [
+          g3b.igst.difference,
+          g3b.cgst.difference,
+          g3b.sgst.difference,
+          g3b.total.difference,
+        ];
+        const d = rowDiffs[hookData.row.index] ?? 0;
+        hookData.cell.styles.textColor =
+          d > 0 ? [220, 38, 38] : d < 0 ? [217, 119, 6] : CHARCOAL;
+      }
+    },
+  });
+
+  // Status explanation note
+  const tableEndY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable?.finalY ?? y + 40;
+  const noteY = tableEndY + 6;
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(8);
+  setGrey(doc);
+
+  let noteText = "";
+  if (g3b.overall_status === "OVERCLAIMED") {
+    noteText =
+      "ITC claimed in GSTR-3B exceeds what is available in GSTR-2B. This may attract interest under Section 50 and penalty. Consider filing an amendment.";
+  } else if (g3b.overall_status === "UNDERCLAIMED") {
+    noteText =
+      "ITC available in GSTR-2B has not been fully claimed. You may amend GSTR-3B to recover the remaining ITC before the due date.";
+  } else {
+    noteText = "ITC claimed in GSTR-3B matches GSTR-2B available ITC. No action required.";
+  }
+  const noteLines = doc.splitTextToSize(noteText, CONTENT_W);
+  doc.text(noteLines, MARGIN, noteY);
+
+  const disclaimerY = noteY + noteLines.length * 3.5 + 6;
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(7);
+  const discText =
+    "This comparison is based on data uploaded by the CA. ReconDesk does not connect to the GST portal directly. Verify figures before filing amendments.";
+  const discLines = doc.splitTextToSize(discText, CONTENT_W);
+  doc.text(discLines, MARGIN, disclaimerY);
+}
+
 function buildClosingPage(doc: jsPDF, data: ReportPdfDataset) {
   doc.addPage();
   const periodLabel = formatReportPeriod(data.summary.period);
@@ -1081,6 +1213,7 @@ export async function buildReconciliationReportPdf(
   buildRiskSection(doc, autoTable, data);
   buildMissedSection(doc, autoTable, data);
   buildRule37Section(doc, autoTable, data);
+  buildGstr3bSection(doc, autoTable, data);
   buildFollowupSection(doc, autoTable, data);
   buildClosingPage(doc, data);
 

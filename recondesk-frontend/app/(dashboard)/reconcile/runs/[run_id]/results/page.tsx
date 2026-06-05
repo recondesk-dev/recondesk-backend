@@ -8,6 +8,7 @@ import {
 import { ReconcilePaginationFooter } from "@/components/reconcile/ReconcilePaginationFooter";
 import { Rule37SummarySection } from "@/components/reconcile/Rule37SummarySection";
 import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
+import { Gstr3bCheckPanel } from "@/components/reconcile/Gstr3bCheckPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
 import { GstinCell } from "@/components/ui/GstinCell";
 import { HoverTextCell } from "@/components/ui/HoverTextCell";
@@ -2863,6 +2864,10 @@ export default function ReconcileResultsPage() {
             </>
           )}
         </div>
+        )}
+
+        {resultsTab === "gstr3b" && authToken && (
+          <Gstr3bCheckPanel runId={runId} authToken={authToken} />
         )}
 
         {resultsTab === "followup" && authToken && (
