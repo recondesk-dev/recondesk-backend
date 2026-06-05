@@ -41,6 +41,33 @@ export function formatInrFull(n: number): string {
   return formatINR(n);
 }
 
+const LEGACY_TAX_DELTA_PAISE_RE = /GST tax delta \(Δpaise\):\s*([\d,]+)/;
+
+/** Matched-row tax difference: column shows INR only; tooltip includes label. */
+export function formatTaxDifferenceDisplay(
+  taxDifferencePaise: number | null | undefined,
+  legacyDiscrepancyNote?: string | null
+): { display: string | null; tooltip: string | null } {
+  let paise: number | null = null;
+  if (taxDifferencePaise != null && Number.isFinite(taxDifferencePaise)) {
+    paise = taxDifferencePaise;
+  } else if (legacyDiscrepancyNote?.trim()) {
+    const m = legacyDiscrepancyNote.match(LEGACY_TAX_DELTA_PAISE_RE);
+    if (m) {
+      const parsed = Number(m[1].replace(/,/g, ""));
+      if (Number.isFinite(parsed)) paise = parsed;
+    }
+  }
+
+  if (paise == null) {
+    const fallback = legacyDiscrepancyNote?.trim() || null;
+    return { display: fallback, tooltip: fallback };
+  }
+
+  const inr = formatINR(paise / 100);
+  return { display: inr, tooltip: `Tax difference: ${inr}` };
+}
+
 export function formatInrAxis(n: number): string {
   if (n >= 1e7) return `₹${(n / 1e7).toFixed(1)}Cr`;
   if (n >= 1e5) return `₹${(n / 1e5).toFixed(1)}L`;
