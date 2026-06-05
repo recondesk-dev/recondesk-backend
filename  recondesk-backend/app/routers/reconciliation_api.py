@@ -1087,19 +1087,14 @@ def _upsert_rule37_action(
                 "payment_coverage": None,
             }
         )
+    _log.info("rule37 payload: %s", payload)
     try:
         sb.table("rule37_actions").upsert(
             payload,
             on_conflict="run_id,record_hash",
         ).execute()
-    except Exception:
-        _log.exception(
-            "rule37 action upsert failed run_id=%s record_id=%s hash=%s payload=%s",
-            run_id,
-            record_id,
-            record_hash,
-            payload,
-        )
+    except Exception as e:
+        _log.exception("rule37 update failed: %s", e)
         raise
 
 
