@@ -158,7 +158,7 @@ export function Rule37MarkPaidModal({
                   checked={tdsConfirmed}
                   onChange={(e) => setTdsConfirmed(e.target.checked)}
                   disabled={saving}
-                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand/30"
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 accent-brand focus:ring-brand/30"
                 />
                 <span>
                   I confirm this TDS amount is verified against Form 16A /
