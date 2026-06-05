@@ -1,0 +1,130 @@
+import { apiFetch, authApi, followupAuditApi } from "@/lib/api";
+import type { Rule37SummaryResponse } from "@/lib/rule37Summary";
+
+type Paginated<T> = {
+  data: T[];
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+};
+
+export type ReportReconcileRow = {
+  id: string;
+  supplier_gstin: string;
+  trade_name?: string | null;
+  invoice_number: string;
+  invoice_date: string;
+  amount: number;
+  decision_what: string | null;
+  decision_why: string | null;
+  decision_next: string | null;
+  gstr2b_data: Record<string, string | number>;
+  purchase_register_data: Record<string, string | number>;
+  rule37_action_status?: "resolved" | "acknowledged" | null;
+  rule37_urgency?: "CRITICAL" | "HIGH" | "MEDIUM";
+};
+
+export type ReportSummary = {
+  run_id: string;
+  client_name: string;
+  client_gstin?: string;
+  period: string;
+  assigned_to_name: string;
+  status: string;
+  total_gstr_records: number;
+  matched_count: number;
+  missed_itc_count: number;
+  missed_itc_total_amount: number;
+  wrongful_risk_count: number;
+  wrongful_risk_total_amount: number;
+  match_rate_percent: number;
+};
+
+export type ReportPdfDataset = {
+  summary: ReportSummary;
+  generatedByName: string;
+  riskRows: ReportReconcileRow[];
+  itcRows: ReportReconcileRow[];
+  rule37Rows: ReportReconcileRow[];
+  rule37Summary: Rule37SummaryResponse;
+  followupRows: Awaited<ReturnType<typeof followupAuditApi.listForRun>>;
+};
+
+async function fetchAllBucketRows(
+  token: string,
+  runId: string,
+  bucket: "risk" | "itc"
+): Promise<ReportReconcileRow[]> {
+  const all: ReportReconcileRow[] = [];
+  let page = 1;
+  let totalPages = 1;
+  const limit = 200;
+  do {
+    const res = await apiFetch<Paginated<ReportReconcileRow>>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/${bucket}?page=${page}&limit=${limit}&sort=amount_desc`,
+      { token }
+    );
+    all.push(...(res.data ?? []));
+    totalPages = res.total_pages ?? 1;
+    page += 1;
+  } while (page <= totalPages);
+  return all;
+}
+
+async function fetchAllRule37Rows(
+  token: string,
+  runId: string
+): Promise<ReportReconcileRow[]> {
+  const all: ReportReconcileRow[] = [];
+  let page = 1;
+  let totalPages = 1;
+  const limit = 200;
+  do {
+    const res = await apiFetch<Paginated<ReportReconcileRow>>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/rule37?page=${page}&limit=${limit}`,
+      { token }
+    );
+    all.push(...(res.data ?? []));
+    totalPages = res.total_pages ?? 1;
+    page += 1;
+  } while (page <= totalPages);
+  return all;
+}
+
+/** Fetch all data required to build the master reconciliation PDF. */
+export async function fetchReconciliationReportData(
+  token: string,
+  runId: string,
+  summary: ReportSummary
+): Promise<ReportPdfDataset> {
+  const [me, riskRows, itcRows, rule37Rows, rule37Summary, followupRows] =
+    await Promise.all([
+      authApi.me(token).catch(() => null),
+      summary.wrongful_risk_count > 0
+        ? fetchAllBucketRows(token, runId, "risk")
+        : Promise.resolve([]),
+      summary.missed_itc_count > 0
+        ? fetchAllBucketRows(token, runId, "itc")
+        : Promise.resolve([]),
+      fetchAllRule37Rows(token, runId),
+      apiFetch<Rule37SummaryResponse>(
+        `/api/reconcile/runs/${encodeURIComponent(runId)}/rule37/summary`,
+        { token }
+      ),
+      followupAuditApi.listForRun(token, runId),
+    ]);
+
+  const generatedByName =
+    me?.full_name?.trim() || summary.assigned_to_name?.trim() || "—";
+
+  return {
+    summary,
+    generatedByName,
+    riskRows,
+    itcRows,
+    rule37Rows,
+    rule37Summary,
+    followupRows,
+  };
+}
