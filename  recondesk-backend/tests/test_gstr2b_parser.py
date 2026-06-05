@@ -146,6 +146,55 @@ def test_item_hsn_from_itm_det():
     assert result["records"][0]["items"][0]["hsn"] == "998313"
 
 
+def test_b2b_accepts_items_alias_for_line_items():
+    line = {
+        "num": 1,
+        "itm_det": {
+            "rt": 18,
+            "txval": 100000,
+            "iamt": 0,
+            "camt": 9000,
+            "samt": 9000,
+            "csamt": 0,
+        },
+    }
+    inv = _invoice(val=118000)
+    inv["items"] = [line]
+
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
+
+    rec = result["records"][0]
+    assert rec["items"][0]["taxable_value_paise"] == 10000000
+    assert rec["items"][0]["cgst_paise"] == 900000
+    assert rec["items"][0]["sgst_paise"] == 900000
+    assert rec["taxable_value"] == 100000
+
+
+def test_cdnr_accepts_items_alias_for_line_items():
+    line = {
+        "num": 1,
+        "itm_det": {
+            "rt": 18,
+            "txval": -10000,
+            "iamt": 0,
+            "camt": -900,
+            "samt": -900,
+            "csamt": 0,
+        },
+    }
+    inv = _cdnr_invoice(val=11800)
+    inv["items"] = [line]
+
+    result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, [inv])]))
+
+    rec = result["records"][0]
+    assert rec["doc_type"] == "CREDIT_NOTE"
+    assert rec["items"][0]["taxable_value_paise"] == -1000000
+    assert rec["items"][0]["cgst_paise"] == -90000
+    assert rec["items"][0]["sgst_paise"] == -90000
+    assert rec["taxable_value"] == -10000
+
+
 def test_item_hsn_prefers_itm_det_over_item_wrapper():
     line = {"num": 1, "hsn": "1111", "itm_det": {**_item(), "hsn": "998313"}}
     result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itms=[line])])]))
