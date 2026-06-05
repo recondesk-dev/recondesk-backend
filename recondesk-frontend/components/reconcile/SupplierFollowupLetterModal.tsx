@@ -7,12 +7,12 @@ import {
   buildFollowupLetterPdfBlob,
   buildInvoiceSnapshot,
   defaultSupplierDisplayName,
-  downloadBlobAsFile,
   followupPdfFilename,
   templateTypeForRowCount,
   type FollowupInvoiceSnapshotItem,
   type RiskRowForFollowup,
 } from "@/lib/supplierFollowupLetter";
+import { downloadBlobAsFile } from "@/lib/download";
 import { apiFetch, isApiError } from "@/lib/api";
 
 const DISCLAIMER_MODAL =
@@ -172,7 +172,7 @@ export function SupplierFollowupLetterModal({
     setAuditError(null);
     try {
       const blob = await buildFollowupLetterPdfBlob(body, DISCLAIMER_MODAL);
-      downloadBlobAsFile(blob, followupPdfFilename(supplierGstin));
+      downloadBlobAsFile(blob, followupPdfFilename(supplierGstin, taxPeriod));
       void postAudit("downloaded");
     } catch {
       setAuditError("Could not generate PDF. Please try again or use Copy message.");
