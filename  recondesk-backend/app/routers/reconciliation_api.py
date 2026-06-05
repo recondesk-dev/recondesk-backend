@@ -3803,3 +3803,248 @@ async def reconcile_export_excel_workbook(
         headers=headers,
     )
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GSTR-3B Reconciliation endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+_MAX_GSTR3B_BYTES = 20 * 1024 * 1024  # 20 MB
+
+
+class Gstr3bHeadResult(BaseModel):
+    gstr2b: float
+    gstr3b: float
+    difference: float
+    status: str
+
+
+class Gstr3bOutwardSupply(BaseModel):
+    taxable_value: float
+    igst: float
+    total: float
+
+
+class Gstr3bReconciliationResult(BaseModel):
+    id: str
+    run_id: str
+    client_gstin: str
+    tax_period: str
+    overall_status: str
+    igst: Gstr3bHeadResult
+    cgst: Gstr3bHeadResult
+    sgst: Gstr3bHeadResult
+    total: Gstr3bHeadResult
+    outward_supply: Gstr3bOutwardSupply
+    uploaded_at: str
+
+
+@reconcile_runs_router.post(
+    "/runs/{run_id}/gstr3b",
+    response_model=Gstr3bReconciliationResult,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_and_reconcile_gstr3b(
+    run_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Accept a GSTR-3B JSON file, parse it, run reconciliation, and persist the result."""
+    from app.parsers.gstr3b_parser import ParseError, parse_gstr3b
+    from app.services.gstr3b_reconciliation import reconcile_gstr3b
+
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, rid, current_user)
+
+    uid = str(current_user.get("id") or "").strip()
+    if not uid:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing user id")
+
+    fname = (file.filename or "").lower()
+    if not fname.endswith(".json"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only .json files are accepted for GSTR-3B upload",
+        )
+
+    raw_bytes = await file.read()
+    if len(raw_bytes) > _MAX_GSTR3B_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="GSTR-3B file exceeds 20 MB limit",
+        )
+
+    try:
+        raw_json = _json.loads(raw_bytes)
+    except _json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid JSON: {exc}",
+        ) from exc
+
+    try:
+        parsed = parse_gstr3b(raw_json)
+    except ParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    client_gstin = str(run_row.get("client_gstin_id") or "").strip().upper()
+
+    try:
+        result = reconcile_gstr3b(rid, parsed, client_gstin, sb=sb)
+    except Exception as exc:
+        _log.exception("gstr3b_reconciliation failed run_id=%s", rid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Reconciliation failed: {exc}",
+        ) from exc
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    igst_r = result["igst"]
+    cgst_r = result["cgst"]
+    sgst_r = result["sgst"]
+    osup   = result["outward_supply"]
+
+    row_data: dict[str, Any] = {
+        "run_id":                run_id,
+        "client_gstin":          client_gstin,
+        "tax_period":            result["tax_period"],
+        "gstr3b_igst_claimed":   igst_r["gstr3b"],
+        "gstr3b_cgst_claimed":   cgst_r["gstr3b"],
+        "gstr3b_sgst_claimed":   sgst_r["gstr3b"],
+        "gstr2b_igst_available": igst_r["gstr2b"],
+        "gstr2b_cgst_available": cgst_r["gstr2b"],
+        "gstr2b_sgst_available": sgst_r["gstr2b"],
+        "igst_difference":       igst_r["difference"],
+        "cgst_difference":       cgst_r["difference"],
+        "sgst_difference":       sgst_r["difference"],
+        "igst_status":           igst_r["status"],
+        "cgst_status":           cgst_r["status"],
+        "sgst_status":           sgst_r["status"],
+        "overall_status":        result["overall_status"],
+        "outward_supply_total":  osup["total"],
+        "raw_gstr3b":            raw_json,
+        "uploaded_by":           uid,
+        "uploaded_at":           now_iso,
+    }
+
+    # Upsert: one record per run (overwrite if re-uploaded)
+    try:
+        existing = (
+            sb.table("gstr3b_reconciliation")
+            .select("id")
+            .eq("run_id", rid)
+            .execute()
+        )
+        if existing.data:
+            existing_id = existing.data[0]["id"]
+            ins = (
+                sb.table("gstr3b_reconciliation")
+                .update(row_data)
+                .eq("id", existing_id)
+                .execute()
+            )
+        else:
+            ins = sb.table("gstr3b_reconciliation").insert(row_data).execute()
+    except Exception as exc:
+        detail = supabase_error_message(exc, context="gstr3b_reconciliation upsert")
+        _log.exception("gstr3b upsert failed run_id=%s detail=%s", rid, detail)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail) from exc
+
+    if not ins.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist GSTR-3B reconciliation result",
+        )
+    return _gstr3b_row_to_response(ins.data[0])
+
+
+@reconcile_runs_router.get(
+    "/runs/{run_id}/gstr3b",
+    response_model=Gstr3bReconciliationResult,
+)
+async def get_gstr3b_reconciliation(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Return stored GSTR-3B reconciliation result for a run."""
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+
+    try:
+        res = (
+            sb.table("gstr3b_reconciliation")
+            .select(
+                "id, run_id, client_gstin, tax_period, overall_status, "
+                "gstr3b_igst_claimed, gstr3b_cgst_claimed, gstr3b_sgst_claimed, "
+                "gstr2b_igst_available, gstr2b_cgst_available, gstr2b_sgst_available, "
+                "igst_difference, cgst_difference, sgst_difference, "
+                "igst_status, cgst_status, sgst_status, "
+                "outward_supply_total, uploaded_at"
+            )
+            .eq("run_id", rid)
+            .order("uploaded_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        detail = supabase_error_message(exc, context="gstr3b_reconciliation fetch")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail) from exc
+
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No GSTR-3B reconciliation found for this run",
+        )
+    return _gstr3b_row_to_response(res.data[0])
+
+
+def _gstr3b_row_to_response(row: dict) -> Gstr3bReconciliationResult:
+    def _f(key: str) -> float:
+        try:
+            return round(float(row.get(key) or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    igst_diff = _f("igst_difference")
+    cgst_diff = _f("cgst_difference")
+    sgst_diff = _f("sgst_difference")
+    g3b_igst  = _f("gstr3b_igst_claimed")
+    g3b_cgst  = _f("gstr3b_cgst_claimed")
+    g3b_sgst  = _f("gstr3b_sgst_claimed")
+    g2b_igst  = _f("gstr2b_igst_available")
+    g2b_cgst  = _f("gstr2b_cgst_available")
+    g2b_sgst  = _f("gstr2b_sgst_available")
+
+    return Gstr3bReconciliationResult(
+        id=str(row.get("id") or ""),
+        run_id=str(row.get("run_id") or ""),
+        client_gstin=str(row.get("client_gstin") or ""),
+        tax_period=str(row.get("tax_period") or ""),
+        overall_status=str(row.get("overall_status") or "MATCHED"),
+        igst=Gstr3bHeadResult(
+            gstr2b=g2b_igst, gstr3b=g3b_igst, difference=igst_diff,
+            status=str(row.get("igst_status") or "MATCHED"),
+        ),
+        cgst=Gstr3bHeadResult(
+            gstr2b=g2b_cgst, gstr3b=g3b_cgst, difference=cgst_diff,
+            status=str(row.get("cgst_status") or "MATCHED"),
+        ),
+        sgst=Gstr3bHeadResult(
+            gstr2b=g2b_sgst, gstr3b=g3b_sgst, difference=sgst_diff,
+            status=str(row.get("sgst_status") or "MATCHED"),
+        ),
+        total=Gstr3bHeadResult(
+            gstr2b=round(g2b_igst + g2b_cgst + g2b_sgst, 2),
+            gstr3b=round(g3b_igst + g3b_cgst + g3b_sgst, 2),
+            difference=round(igst_diff + cgst_diff + sgst_diff, 2),
+            status=str(row.get("overall_status") or "MATCHED"),
+        ),
+        outward_supply=Gstr3bOutwardSupply(
+            taxable_value=0.0, igst=0.0, total=_f("outward_supply_total"),
+        ),
+        uploaded_at=str(row.get("uploaded_at") or ""),
+    )
