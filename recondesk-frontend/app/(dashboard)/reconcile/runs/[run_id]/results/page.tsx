@@ -2359,7 +2359,9 @@ export default function ReconcileResultsPage() {
                         <th className={decisionTh("gstin")}>Supplier GSTIN</th>
                         <th className={decisionTh("invoice")}>Invoice#</th>
                         <th className={decisionTh("date")}>Date</th>
-                        <th className={decisionTh("amount", "right")}>Amount</th>
+                        <th className={decisionTh("amount", "right")}>
+                          ITC at Risk
+                        </th>
                         <th className={decisionTh("impact")}>Impact</th>
                         <th className={decisionTh("what")}>WHAT</th>
                         <th className={decisionTh("why")}>WHY</th>
