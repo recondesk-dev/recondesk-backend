@@ -21,6 +21,7 @@ export type Rule37ActionHistoryRow = {
   amount_paid?: number | null;
   tds_deducted?: number;
   total_settled?: number | null;
+  remaining_unpaid_amount?: number | null;
   payment_coverage?: "full" | "partial" | null;
 };
 
@@ -36,7 +37,7 @@ export function formatRule37ActionTimeIst(iso: string): string {
 }
 
 const ACTION_LABELS: Record<Rule37ActionHistoryRow["action"], string> = {
-  mark_paid: "Mark Paid",
+  mark_paid: "Marked as Settled",
   reverse_itc: "Reverse ITC",
 };
 
@@ -46,31 +47,59 @@ export function formatRule37ActionLabel(
   return ACTION_LABELS[action] ?? action;
 }
 
-export function formatRule37TdsDeducted(
-  tds: number | null | undefined
+export function formatRule37OptionalInr(
+  value: number | null | undefined
 ): string {
-  if (tds == null || tds <= 0) return "—";
-  return formatINR(tds);
+  if (value == null) return "—";
+  return formatINR(value);
 }
 
-export function formatRule37TotalSettled(row: Rule37ActionHistoryRow): string {
-  const tds = row.tds_deducted ?? 0;
-  if (tds > 0 && row.total_settled != null) {
-    return formatINR(row.total_settled);
-  }
-  if (row.amount_paid != null) return formatINR(row.amount_paid);
+export function formatRule37NetPaid(
+  value: number | null | undefined
+): string {
+  if (value == null) return "—";
+  return formatINR(value);
+}
+
+export function formatRule37StatutoryDeduction(
+  value: number | null | undefined
+): string {
+  if (value == null || value <= 0) return "—";
+  return formatINR(value);
+}
+
+export function formatRule37SettlementConsidered(
+  row: Rule37ActionHistoryRow
+): string {
+  if (row.action !== "mark_paid") return "—";
   if (row.total_settled != null) return formatINR(row.total_settled);
+  if (row.amount_paid != null) {
+    return formatINR(row.amount_paid + (row.tds_deducted ?? 0));
+  }
   return "—";
 }
 
-/** PDF / compact payment line for mark-paid actions. */
-export function formatRule37PaymentPdfLine(row: Rule37ActionHistoryRow): string {
-  const tds = row.tds_deducted ?? 0;
+export function formatRule37RemainingUnpaid(
+  row: Rule37ActionHistoryRow
+): string {
   if (row.action !== "mark_paid") return "—";
-  const cash = row.amount_paid ?? (row.total_settled != null ? row.total_settled - tds : null);
-  if (cash == null) return "—";
-  if (tds > 0 && row.total_settled != null) {
-    return `Cash: ${formatINR(cash)} + TDS: ${formatINR(tds)} = Total: ${formatINR(row.total_settled)} (CA verified)`;
+  if (row.remaining_unpaid_amount != null) {
+    return formatINR(row.remaining_unpaid_amount);
   }
-  return formatINR(cash);
+  return "—";
+}
+
+/** PDF / compact settlement line for mark-settled actions. */
+export function formatRule37PaymentPdfLine(row: Rule37ActionHistoryRow): string {
+  if (row.action !== "mark_paid") return "—";
+  const net = row.amount_paid;
+  const statutory = row.tds_deducted ?? 0;
+  const settled =
+    row.total_settled ??
+    (net != null ? Math.round((net + statutory) * 100) / 100 : null);
+  if (net == null || settled == null) return "—";
+  if (statutory > 0) {
+    return `Net: ${formatINR(net)} + Statutory: ${formatINR(statutory)} = Settlement: ${formatINR(settled)} (CA verified)`;
+  }
+  return formatINR(net);
 }

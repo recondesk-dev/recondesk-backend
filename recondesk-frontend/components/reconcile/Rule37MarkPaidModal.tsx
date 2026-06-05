@@ -3,11 +3,14 @@
 import { Loader2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { AmountDisplay, filterInputClass } from "@/components/reconcile/ResultsUi";
+import { filterInputClass } from "@/components/reconcile/ResultsUi";
 import { formatINR } from "@/lib/format";
 
-const TDS_DISCLAIMER =
-  "TDS amount is entered manually by the CA and is not verified by ReconDesk against Income Tax records. Ensure this matches Form 16A or Form 26AS before proceeding.";
+const SETTLEMENT_CAUTION =
+  "TDS/statutory deduction is entered manually and is not verified by ReconDesk. CA/client should verify payment records, TDS challan/return, Form 16A, Form 26AS, or applicable GST TDS records before proceeding.";
+
+const SETTLEMENT_EXCEEDS_WARNING =
+  "Settlement exceeds invoice amount. Check whether the paid amount is net of TDS/statutory deduction.";
 
 export type Rule37MarkPaidTarget = {
   id: string;
@@ -22,6 +25,35 @@ function parseAmountInput(raw: string): number | null {
   const n = Number(s);
   if (!Number.isFinite(n) || n < 0) return null;
   return Math.round(n * 100) / 100;
+}
+
+function SettlementLine({
+  label,
+  amount,
+  bold,
+  warn,
+}: {
+  label: string;
+  amount: number;
+  bold?: boolean;
+  warn?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-[13px]">
+      <span className="text-gray-600">{label}</span>
+      <span
+        className={
+          warn
+            ? "font-semibold text-red-600"
+            : bold
+              ? "font-semibold text-gray-900"
+              : "text-gray-800"
+        }
+      >
+        {formatINR(amount)}
+      </span>
+    </div>
+  );
 }
 
 export function Rule37MarkPaidModal({
@@ -41,28 +73,41 @@ export function Rule37MarkPaidModal({
     tds_confirmed: boolean;
   }) => void | Promise<void>;
 }) {
-  const [amountPaid, setAmountPaid] = useState("");
-  const [tdsDeducted, setTdsDeducted] = useState("");
-  const [tdsConfirmed, setTdsConfirmed] = useState(false);
+  const [netPaid, setNetPaid] = useState("");
+  const [statutoryDeduction, setStatutoryDeduction] = useState("");
+  const [settlementConfirmed, setSettlementConfirmed] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setAmountPaid("");
-    setTdsDeducted("");
-    setTdsConfirmed(false);
+    setNetPaid("");
+    setStatutoryDeduction("");
+    setSettlementConfirmed(false);
   }, [open, row?.id]);
 
-  const paidNum = parseAmountInput(amountPaid);
-  const tdsNum = parseAmountInput(tdsDeducted) ?? 0;
-  const showTdsExtras = tdsNum > 0;
-  const totalSettled =
-    paidNum != null ? Math.round((paidNum + tdsNum) * 100) / 100 : null;
+  const netPaidNum = parseAmountInput(netPaid);
+  const statutoryNum = parseAmountInput(statutoryDeduction) ?? 0;
+  const showSettlementSummary = netPaidNum != null && netPaidNum > 0;
+  const settlementConsidered =
+    netPaidNum != null
+      ? Math.round((netPaidNum + statutoryNum) * 100) / 100
+      : null;
+  const remainingUnpaid =
+    row && settlementConsidered != null
+      ? Math.round(Math.max(row.invoice_amount - settlementConsidered, 0) * 100) /
+        100
+      : null;
+  const settlementExceeds =
+    row != null &&
+    settlementConsidered != null &&
+    row.invoice_amount > 0 &&
+    settlementConsidered > row.invoice_amount + 0.005;
 
   const canSubmit = useMemo(() => {
-    if (saving || !row || paidNum == null || paidNum <= 0) return false;
-    if (showTdsExtras && !tdsConfirmed) return false;
+    if (saving || !row || netPaidNum == null || netPaidNum <= 0) return false;
+    if (settlementExceeds) return false;
+    if (!settlementConfirmed) return false;
     return true;
-  }, [paidNum, row, saving, showTdsExtras, tdsConfirmed]);
+  }, [netPaidNum, row, saving, settlementConfirmed, settlementExceeds]);
 
   if (!open || !row) return null;
 
@@ -71,15 +116,15 @@ export function Rule37MarkPaidModal({
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="rule37-mark-paid-title"
+      aria-labelledby="rule37-mark-settled-title"
     >
       <div className="flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[#F0F0F0] bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-[#F0F0F0] px-5 py-4">
           <h2
-            id="rule37-mark-paid-title"
+            id="rule37-mark-settled-title"
             className="text-lg font-semibold text-gray-900"
           >
-            Mark Paid
+            Mark as Settled
           </h2>
           <button
             type="button"
@@ -98,26 +143,25 @@ export function Rule37MarkPaidModal({
             <p className="font-mono text-[12px] text-gray-500">
               {row.supplier_gstin}
             </p>
-            <p className="mt-2 text-[12px] text-gray-500">
-              Invoice amount:{" "}
-              <AmountDisplay amount={row.invoice_amount} />
-            </p>
           </div>
 
           <div>
             <label
-              htmlFor="rule37-amount-paid"
+              htmlFor="rule37-net-paid"
               className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-gray-500"
             >
-              Amount Paid
+              Net Paid to Supplier
             </label>
             <input
-              id="rule37-amount-paid"
+              id="rule37-net-paid"
               type="text"
               inputMode="decimal"
-              value={amountPaid}
-              onChange={(e) => setAmountPaid(e.target.value)}
-              placeholder="Enter cash payment amount"
+              value={netPaid}
+              onChange={(e) => {
+                setNetPaid(e.target.value);
+                setSettlementConfirmed(false);
+              }}
+              placeholder="Enter net cash paid to supplier"
               className={`${filterInputClass} w-full`}
               disabled={saving}
             />
@@ -125,21 +169,19 @@ export function Rule37MarkPaidModal({
 
           <div>
             <label
-              htmlFor="rule37-tds-deducted"
+              htmlFor="rule37-statutory-deduction"
               className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-gray-500"
             >
-              TDS Deducted (optional)
+              TDS / Statutory Deduction (Optional)
             </label>
             <input
-              id="rule37-tds-deducted"
+              id="rule37-statutory-deduction"
               type="text"
               inputMode="decimal"
-              value={tdsDeducted}
+              value={statutoryDeduction}
               onChange={(e) => {
-                setTdsDeducted(e.target.value);
-                if (!parseAmountInput(e.target.value)) {
-                  setTdsConfirmed(false);
-                }
+                setStatutoryDeduction(e.target.value);
+                setSettlementConfirmed(false);
               }}
               placeholder="0"
               className={`${filterInputClass} w-full`}
@@ -147,25 +189,52 @@ export function Rule37MarkPaidModal({
             />
           </div>
 
-          {showTdsExtras && totalSettled != null ? (
+          {showSettlementSummary &&
+          settlementConsidered != null &&
+          remainingUnpaid != null ? (
             <div className="space-y-3 rounded-xl border border-[#F0F0F0] bg-[#FAFAFA] px-4 py-3">
-              <p className="text-[13px] font-semibold text-gray-900">
-                Total Settled: {formatINR(totalSettled)}
-              </p>
+              <SettlementLine
+                label="Invoice Amount"
+                amount={row.invoice_amount}
+              />
+              <SettlementLine label="Net Paid to Supplier" amount={netPaidNum} />
+              <SettlementLine
+                label="TDS / Statutory Deduction"
+                amount={statutoryNum}
+              />
+              <SettlementLine
+                label="Settlement Considered for Rule 37"
+                amount={settlementConsidered}
+                bold
+              />
+              <SettlementLine
+                label="Remaining Unpaid for Rule 37"
+                amount={remainingUnpaid}
+                warn={remainingUnpaid > 0}
+              />
+
+              {settlementExceeds ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-medium text-red-700">
+                  {SETTLEMENT_EXCEEDS_WARNING}
+                </p>
+              ) : null}
+
               <label className="flex cursor-pointer items-start gap-2 text-[13px] text-gray-700">
                 <input
                   type="checkbox"
-                  checked={tdsConfirmed}
-                  onChange={(e) => setTdsConfirmed(e.target.checked)}
-                  disabled={saving}
+                  checked={settlementConfirmed}
+                  onChange={(e) => setSettlementConfirmed(e.target.checked)}
+                  disabled={saving || settlementExceeds}
                   className="mt-0.5 h-4 w-4 rounded border-gray-300 accent-brand focus:ring-brand/30"
                 />
                 <span>
-                  I confirm this TDS amount is verified against Form 16A /
-                  Form 26AS
+                  I confirm this settlement has been verified against payment
+                  records / TDS records before marking this invoice as settled.
                 </span>
               </label>
-              <p className="text-[11px] italic text-gray-500">{TDS_DISCLAIMER}</p>
+              <p className="text-[11px] italic text-gray-500">
+                {SETTLEMENT_CAUTION}
+              </p>
             </div>
           ) : null}
         </div>
@@ -189,16 +258,16 @@ export function Rule37MarkPaidModal({
             type="button"
             disabled={!canSubmit}
             onClick={() => {
-              if (paidNum == null) return;
+              if (netPaidNum == null) return;
               void onSubmit({
-                amount_paid: paidNum,
-                tds_deducted: tdsNum,
-                tds_confirmed: showTdsExtras ? tdsConfirmed : false,
+                amount_paid: netPaidNum,
+                tds_deducted: statutoryNum,
+                tds_confirmed: settlementConfirmed,
               });
             }}
             className="rounded-xl bg-brand px-4 py-2 text-[13px] font-semibold text-white hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Mark Paid
+            Mark as Settled
           </button>
         </div>
       </div>

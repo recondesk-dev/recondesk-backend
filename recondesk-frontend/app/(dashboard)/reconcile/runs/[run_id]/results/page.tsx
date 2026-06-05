@@ -1480,8 +1480,8 @@ export default function ReconcileResultsPage() {
           setRule37MarkPaidTarget(null);
           addToast(
             res.payment_coverage === "partial"
-              ? "Rule 37 marked paid (partial payment)"
-              : "Rule 37 marked paid",
+              ? "Rule 37 marked as settled (partial payment)"
+              : "Rule 37 marked as settled",
             "success"
           );
         } else {
@@ -3033,7 +3033,7 @@ export default function ReconcileResultsPage() {
                       <div className="mt-4 flex flex-wrap justify-end gap-2">
                         {actionStatus === "resolved" && (
                           <span className="inline-flex items-center rounded-lg bg-gray-100 px-4 py-2 text-[13px] text-gray-400">
-                            Mark Paid ✓
+                            Marked as Settled ✓
                             {row.rule37_payment_coverage === "partial" ? (
                               <span className="ml-1 text-amber-600">
                                 (Partial)
@@ -3062,7 +3062,7 @@ export default function ReconcileResultsPage() {
                                 })
                               }
                             >
-                              Mark Paid
+                              Mark as Settled
                             </button>
                             <button
                               type="button"
