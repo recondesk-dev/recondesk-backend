@@ -310,6 +310,38 @@ class TestResultStructure:
         results = check_rule_37_compliance(prs, [], today=date(2024, 4, 1))
         assert len(results) == 3
 
+    def test_paid_on_time_with_string_invoice_id_lookup(self):
+        """Payment index keys are strings; pr id must match for paid-on-time status."""
+        pr = make_pr(
+            id="pr-uuid-1",
+            invoice_date="2024-01-01",
+            taxable_amount_paise=100000,
+            total_tax_paise=18000,
+        )
+        payment = make_payment("pr-uuid-1", "2024-06-01", 100000)
+        today = date(2024, 7, 1)
+        results = check_rule_37_compliance([pr], [payment], today=today)
+        r = results[0]
+        assert r["status"] == OK
+        assert r["total_paid_paise"] == 100000
+
+    def test_fully_paid_without_payment_dates_does_not_raise(self):
+        """Paid balance with missing payment_date must not call max() on empty dates."""
+        pr = make_pr(
+            id="pr-001",
+            invoice_date="2024-01-01",
+            taxable_amount_paise=100000,
+            total_tax_paise=18000,
+        )
+        payment = {
+            "invoice_id": "pr-001",
+            "payment_date": None,
+            "amount_paise": 100000,
+        }
+        today = date(2024, 7, 1)
+        results = check_rule_37_compliance([pr], [payment], today=today)
+        assert results[0]["status"] == OK
+
     def test_payment_for_wrong_invoice_not_applied(self):
         """
         Payment linked to pr-002 must not reduce unpaid amount for pr-001.

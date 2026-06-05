@@ -96,7 +96,7 @@ def build_followup_history_xlsx_bytes(
 
     for col in ws.columns:
         letter = col[0].column_letter
-        max_len = max(len(str(c.value or "")) for c in col)
+        max_len = max((len(str(c.value or "")) for c in col), default=0)
         ws.column_dimensions[letter].width = min(max(max_len + 2, 12), 40)
 
     buf = io.BytesIO()

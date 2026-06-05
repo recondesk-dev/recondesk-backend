@@ -139,11 +139,12 @@ def check_rule_37_compliance(
 
         total_tax_paise = pr_rec.get("total_tax_paise", 0)
         if "taxable_amount_paise" in pr_rec:
-            total_invoice_value_paise = pr_rec["taxable_amount_paise"]
+            total_invoice_value_paise = int(pr_rec["taxable_amount_paise"] or 0)
         else:
-            total_invoice_value_paise = pr_rec.get("invoice_value_paise", 0)
+            total_invoice_value_paise = int(pr_rec.get("invoice_value_paise") or 0)
 
-        payments = payment_index.get(pr_rec["id"], [])
+        pr_id = str(pr_rec["id"])
+        payments = payment_index.get(pr_id, [])
         # Important: sum actual payment amounts only; never default to invoice value
         total_paid_paise = sum(_payment_row_amount_paise(p) for p in payments)
         if total_paid_paise > total_invoice_value_paise:
@@ -167,21 +168,30 @@ def check_rule_37_compliance(
                 action = "No action required"
                 itc_at_risk_paise = 0
             else:
-                latest_payment_date = max(
-                    date.fromisoformat(p["payment_date"]) for p in payments
-                )
-                if latest_payment_date > deadline:
-                    status = PAID_LATE
-                    urgency = HIGH
-                    action = (
-                        "ITC reversal required. Payment made after 180-day limit."
-                    )
-                    itc_at_risk_paise = total_tax_paise
-                else:
+                payment_dates = [
+                    date.fromisoformat(p["payment_date"])
+                    for p in payments
+                    if p.get("payment_date")
+                ]
+                if not payment_dates:
                     status = OK
                     urgency = LOW
                     action = "No action required"
                     itc_at_risk_paise = 0
+                else:
+                    latest_payment_date = max(payment_dates)
+                    if latest_payment_date > deadline:
+                        status = PAID_LATE
+                        urgency = HIGH
+                        action = (
+                            "ITC reversal required. Payment made after 180-day limit."
+                        )
+                        itc_at_risk_paise = total_tax_paise
+                    else:
+                        status = OK
+                        urgency = LOW
+                        action = "No action required"
+                        itc_at_risk_paise = 0
         else:
             # Critical: unpaid invoices past 180 days must never return OK
             if has_partial_payment and days_remaining >= 0:
@@ -216,7 +226,7 @@ def check_rule_37_compliance(
 
         results.append(
             {
-                "pr_id": pr_rec["id"],
+                "pr_id": pr_id,
                 "supplier_gstin": pr_rec["supplier_gstin"],
                 "invoice_number": pr_rec["invoice_number_normalized"],
                 "invoice_date": pr_rec["invoice_date"],
