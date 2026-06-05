@@ -2953,7 +2953,7 @@ async def reconcile_records_bulk_update(
 async def reconcile_run_itc_bucket(
     run_id: str,
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=250),
     sort: str = Query("amount_desc"),
     amount_min: Optional[str] = None,
     amount_max: Optional[str] = None,
@@ -2993,7 +2993,7 @@ async def reconcile_run_itc_bucket(
 async def reconcile_run_risk_bucket(
     run_id: str,
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=250),
     sort: str = Query("amount_desc"),
     amount_min: Optional[str] = None,
     amount_max: Optional[str] = None,
@@ -3418,7 +3418,7 @@ async def reconcile_run_rule37_summary(
 async def reconcile_run_rule37(
     run_id: str,
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=250),
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
@@ -3568,7 +3568,7 @@ async def reconcile_run_rule37_action(
 async def reconcile_run_section175(
     run_id: str,
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=250),
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
