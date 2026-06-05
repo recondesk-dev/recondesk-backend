@@ -5,6 +5,7 @@ import {
   Rule37MarkPaidModal,
   type Rule37MarkPaidTarget,
 } from "@/components/reconcile/Rule37MarkPaidModal";
+import { ReconcilePaginationFooter } from "@/components/reconcile/ReconcilePaginationFooter";
 import { Rule37SummarySection } from "@/components/reconcile/Rule37SummarySection";
 import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
@@ -18,7 +19,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import useSWR from "swr";
 import {
@@ -92,6 +92,13 @@ import {
   reportPdfFilename,
 } from "@/lib/reconciliationReportPdf";
 import { downloadBlobAsFile } from "@/lib/supplierFollowupLetter";
+import {
+  isValidReconcileTablePageSize,
+  persistReconcileTablePageSize,
+  readStoredReconcileTablePageSize,
+  RECONCILE_PAGE_SIZE_STORAGE_KEYS,
+  RECONCILE_TABLE_PAGE_SIZE_OPTIONS,
+} from "@/lib/reconcileTablePageSize";
 import {
   formatINR,
   formatTaxDifferenceDisplay,
@@ -352,24 +359,6 @@ async function authJsonFetcher<T>([path, token]: FetcherKey): Promise<T> {
   return apiFetch<T>(path, { token });
 }
 
-const MATCHED_PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
-const MATCHED_PAGE_SIZE_STORAGE_KEY = "recondesk.reconcile.matchedPageSize";
-const DEFAULT_MATCHED_PAGE_SIZE = 50;
-
-function readStoredMatchedPageSize(): number {
-  if (typeof window === "undefined") return DEFAULT_MATCHED_PAGE_SIZE;
-  const raw = localStorage.getItem(MATCHED_PAGE_SIZE_STORAGE_KEY);
-  const n = Number(raw);
-  if (
-    MATCHED_PAGE_SIZE_OPTIONS.includes(
-      n as (typeof MATCHED_PAGE_SIZE_OPTIONS)[number]
-    )
-  ) {
-    return n;
-  }
-  return DEFAULT_MATCHED_PAGE_SIZE;
-}
-
 function buildMatchedQuery(
   page: number,
   limit: number,
@@ -437,12 +426,13 @@ type RiskFiltersState = {
 
 function buildItcListQueryString(
   page: number,
+  limit: number,
   sort: string,
   f: ItcFiltersState
 ): string {
   const p = new URLSearchParams();
   p.set("page", String(page));
-  p.set("limit", "50");
+  p.set("limit", String(limit));
   p.set("sort", sort);
   if (f.amount_min.trim()) p.set("amount_min", f.amount_min.trim());
   if (f.amount_max.trim()) p.set("amount_max", f.amount_max.trim());
@@ -469,12 +459,13 @@ function hasActiveItcFilters(f: ItcFiltersState): boolean {
 
 function buildRiskListQueryString(
   page: number,
+  limit: number,
   sort: string,
   f: RiskFiltersState
 ): string {
   const p = new URLSearchParams();
   p.set("page", String(page));
-  p.set("limit", "50");
+  p.set("limit", String(limit));
   p.set("sort", sort);
   if (f.amount_min.trim()) p.set("amount_min", f.amount_min.trim());
   if (f.amount_max.trim()) p.set("amount_max", f.amount_max.trim());
@@ -522,88 +513,6 @@ function MatchLevelBadge({ level }: { level: MatchLevel }) {
     >
       {level}
     </span>
-  );
-}
-
-function PaginationFooter({
-  page,
-  totalPages,
-  total,
-  limit,
-  onPrev,
-  onNext,
-  disabled,
-  summary,
-  pageSizeOptions,
-  pageSize,
-  onPageSizeChange,
-}: {
-  page: number;
-  totalPages: number;
-  total: number;
-  limit: number;
-  onPrev: () => void;
-  onNext: () => void;
-  disabled?: boolean;
-  summary?: ReactNode;
-  pageSizeOptions?: readonly number[];
-  pageSize?: number;
-  onPageSizeChange?: (size: number) => void;
-}) {
-  const from = total === 0 ? 0 : (page - 1) * limit + 1;
-  const to = Math.min(page * limit, total);
-  const showPageSize =
-    pageSizeOptions != null &&
-    pageSizeOptions.length > 0 &&
-    pageSize != null &&
-    onPageSizeChange != null;
-  return (
-    <div className="mt-3 flex w-full flex-wrap items-center justify-between gap-2">
-      {summary != null ? (
-        <p className="min-w-0 truncate text-[13px]">{summary}</p>
-      ) : (
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <p className="truncate text-sm text-gray-500">
-            Showing {from}–{to} of {total.toLocaleString("en-IN")} records
-          </p>
-          {showPageSize ? (
-            <label className="flex items-center gap-2 text-sm text-gray-500">
-              <span className="whitespace-nowrap">Rows per page</span>
-              <select
-                value={pageSize}
-                onChange={(e) => onPageSizeChange(Number(e.target.value))}
-                className={`${filterDropdownClass} min-h-[36px] text-[13px]`}
-                aria-label="Rows per page"
-              >
-                {pageSizeOptions.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-        </div>
-      )}
-      <div className="flex shrink-0 gap-2">
-        <button
-          type="button"
-          disabled={disabled || page <= 1}
-          onClick={onPrev}
-          className="min-h-[44px] rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 disabled:opacity-40"
-        >
-          Previous
-        </button>
-        <button
-          type="button"
-          disabled={disabled || page >= totalPages}
-          onClick={onNext}
-          className="min-h-[44px] rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 disabled:opacity-40"
-        >
-          Next
-        </button>
-      </div>
-    </div>
   );
 }
 
@@ -664,7 +573,16 @@ export default function ReconcileResultsPage() {
   const [itcPage, setItcPage] = useState(1);
   const [matchedPage, setMatchedPage] = useState(1);
   const [matchedPageSize, setMatchedPageSize] = useState(() =>
-    readStoredMatchedPageSize()
+    readStoredReconcileTablePageSize(RECONCILE_PAGE_SIZE_STORAGE_KEYS.matched)
+  );
+  const [itcPageSize, setItcPageSize] = useState(() =>
+    readStoredReconcileTablePageSize(RECONCILE_PAGE_SIZE_STORAGE_KEYS.itc)
+  );
+  const [riskPageSize, setRiskPageSize] = useState(() =>
+    readStoredReconcileTablePageSize(RECONCILE_PAGE_SIZE_STORAGE_KEYS.risk)
+  );
+  const [rule37PageSize, setRule37PageSize] = useState(() =>
+    readStoredReconcileTablePageSize(RECONCILE_PAGE_SIZE_STORAGE_KEYS.rule37)
   );
   const [rule37Page, setRule37Page] = useState(1);
   const [section17Page, setSection17Page] = useState(1);
@@ -716,22 +634,68 @@ export default function ReconcileResultsPage() {
     setMatchedPage(1);
   }, [debouncedMatchedSearch, matchedFilters, matchedPageSize]);
 
-  const handleMatchedPageSizeChange = useCallback((size: number) => {
-    if (
-      !MATCHED_PAGE_SIZE_OPTIONS.includes(
-        size as (typeof MATCHED_PAGE_SIZE_OPTIONS)[number]
-      )
-    ) {
-      return;
-    }
-    setMatchedPageSize(size);
-    setMatchedPage(1);
-    try {
-      localStorage.setItem(MATCHED_PAGE_SIZE_STORAGE_KEY, String(size));
-    } catch {
-      /* ignore quota / private mode */
-    }
-  }, []);
+  const handleTablePageSizeChange = useCallback(
+    (
+      storageKey: string,
+      size: number,
+      setPageSize: (n: number) => void,
+      setPage: (fn: (p: number) => number) => void
+    ) => {
+      if (!isValidReconcileTablePageSize(size)) return;
+      setPageSize(size);
+      setPage(() => 1);
+      persistReconcileTablePageSize(storageKey, size);
+    },
+    []
+  );
+
+  const handleMatchedPageSizeChange = useCallback(
+    (size: number) => {
+      handleTablePageSizeChange(
+        RECONCILE_PAGE_SIZE_STORAGE_KEYS.matched,
+        size,
+        setMatchedPageSize,
+        setMatchedPage
+      );
+    },
+    [handleTablePageSizeChange]
+  );
+
+  const handleItcPageSizeChange = useCallback(
+    (size: number) => {
+      handleTablePageSizeChange(
+        RECONCILE_PAGE_SIZE_STORAGE_KEYS.itc,
+        size,
+        setItcPageSize,
+        setItcPage
+      );
+    },
+    [handleTablePageSizeChange]
+  );
+
+  const handleRiskPageSizeChange = useCallback(
+    (size: number) => {
+      handleTablePageSizeChange(
+        RECONCILE_PAGE_SIZE_STORAGE_KEYS.risk,
+        size,
+        setRiskPageSize,
+        setRiskPage
+      );
+    },
+    [handleTablePageSizeChange]
+  );
+
+  const handleRule37PageSizeChange = useCallback(
+    (size: number) => {
+      handleTablePageSizeChange(
+        RECONCILE_PAGE_SIZE_STORAGE_KEYS.rule37,
+        size,
+        setRule37PageSize,
+        setRule37Page
+      );
+    },
+    [handleTablePageSizeChange]
+  );
 
   const [itcFilters, setItcFilters] = useState<ItcFiltersState>({
     amount_min: "",
@@ -751,7 +715,7 @@ export default function ReconcileResultsPage() {
 
   useEffect(() => {
     setItcPage(1);
-  }, [debouncedItcFilters, itcSort]);
+  }, [debouncedItcFilters, itcSort, itcPageSize]);
 
   const [riskFilters, setRiskFilters] = useState<RiskFiltersState>({
     amount_min: "",
@@ -770,7 +734,7 @@ export default function ReconcileResultsPage() {
 
   useEffect(() => {
     setRiskPage(1);
-  }, [debouncedRiskFilters, riskSort]);
+  }, [debouncedRiskFilters, riskSort, riskPageSize]);
 
   const [localDecisionStatus, setLocalDecisionStatus] = useState<
     Map<string, DecisionStatus>
@@ -950,8 +914,14 @@ export default function ReconcileResultsPage() {
   }, [addToast, authToken, runId, summary]);
 
   const itcListQuery = useMemo(
-    () => buildItcListQueryString(itcPage, itcSort, debouncedItcFilters),
-    [itcPage, itcSort, debouncedItcFilters]
+    () =>
+      buildItcListQueryString(
+        itcPage,
+        itcPageSize,
+        itcSort,
+        debouncedItcFilters
+      ),
+    [itcPage, itcPageSize, itcSort, debouncedItcFilters]
   );
 
   const itcListKey = useMemo(() => {
@@ -973,8 +943,14 @@ export default function ReconcileResultsPage() {
   });
 
   const riskListQuery = useMemo(
-    () => buildRiskListQueryString(riskPage, riskSort, debouncedRiskFilters),
-    [riskPage, riskSort, debouncedRiskFilters]
+    () =>
+      buildRiskListQueryString(
+        riskPage,
+        riskPageSize,
+        riskSort,
+        debouncedRiskFilters
+      ),
+    [riskPage, riskPageSize, riskSort, debouncedRiskFilters]
   );
 
   const riskListKey = useMemo(() => {
@@ -1064,11 +1040,11 @@ export default function ReconcileResultsPage() {
     () =>
       authReady && runId && rule37Open
         ? ([
-            `/api/reconcile/runs/${runId}/rule37?page=${rule37Page}&limit=50`,
+            `/api/reconcile/runs/${runId}/rule37?page=${rule37Page}&limit=${rule37PageSize}`,
             authToken,
           ] as const)
         : null,
-    [authReady, runId, rule37Page, authToken, rule37Open]
+    [authReady, runId, rule37Page, rule37PageSize, authToken, rule37Open]
   );
 
   const {
@@ -2029,7 +2005,7 @@ export default function ReconcileResultsPage() {
                             />
                           </td>
                           <td className={`${decisionTd("num")} text-[13px] text-gray-500`}>
-                            {(itcPage - 1) * 50 + i + 1}
+                            {(itcPage - 1) * itcPageData.limit + i + 1}
                           </td>
                           <td className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}>
                             <GstinCell gstin={row.supplier_gstin} />
@@ -2079,30 +2055,19 @@ export default function ReconcileResultsPage() {
                     </tbody>
                   </table>
                 </div>
-                <PaginationFooter
+                <ReconcilePaginationFooter
                   page={itcPageData.page}
                   totalPages={itcPageData.total_pages}
                   total={itcPageData.total}
                   limit={itcPageData.limit}
+                  pageSizeOptions={RECONCILE_TABLE_PAGE_SIZE_OPTIONS}
+                  pageSize={itcPageSize}
+                  onPageSizeChange={handleItcPageSizeChange}
                   onPrev={() => setItcPage((p) => Math.max(1, p - 1))}
                   onNext={() =>
                     setItcPage((p) =>
                       Math.min(itcPageData.total_pages, p + 1)
                     )
-                  }
-                  summary={
-                    <>
-                      <InrAmount
-                        amount={summary.missed_itc_total_amount}
-                        sizeClass="text-[13px] font-semibold"
-                        numberColorClass="font-semibold text-gray-800"
-                      />
-                      <span className="text-gray-400">
-                        {" "}
-                        ITC recoverable across{" "}
-                        {itcPageData.total.toLocaleString("en-IN")} invoices
-                      </span>
-                    </>
                   }
                 />
               </>
@@ -2480,7 +2445,7 @@ export default function ReconcileResultsPage() {
                             />
                           </td>
                           <td className={`${decisionTd("num")} text-[13px] text-gray-500`}>
-                            {(riskPage - 1) * 50 + i + 1}
+                            {(riskPage - 1) * riskPageData.limit + i + 1}
                           </td>
                           <td className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}>
                             <GstinCell gstin={row.supplier_gstin} />
@@ -2540,30 +2505,19 @@ export default function ReconcileResultsPage() {
                     </tbody>
                   </table>
                 </div>
-                <PaginationFooter
+                <ReconcilePaginationFooter
                   page={riskPageData.page}
                   totalPages={riskPageData.total_pages}
                   total={riskPageData.total}
                   limit={riskPageData.limit}
+                  pageSizeOptions={RECONCILE_TABLE_PAGE_SIZE_OPTIONS}
+                  pageSize={riskPageSize}
+                  onPageSizeChange={handleRiskPageSizeChange}
                   onPrev={() => setRiskPage((p) => Math.max(1, p - 1))}
                   onNext={() =>
                     setRiskPage((p) =>
                       Math.min(riskPageData.total_pages, p + 1)
                     )
-                  }
-                  summary={
-                    <>
-                      <InrAmount
-                        amount={summary.wrongful_risk_total_amount}
-                        sizeClass="text-[13px] font-semibold"
-                        numberColorClass="font-semibold text-gray-800"
-                      />
-                      <span className="text-gray-400">
-                        {" "}
-                        ITC at risk across{" "}
-                        {riskPageData.total.toLocaleString("en-IN")} invoices
-                      </span>
-                    </>
                   }
                 />
               </>
@@ -2891,12 +2845,12 @@ export default function ReconcileResultsPage() {
                   </tbody>
                 </table>
               </div>
-              <PaginationFooter
+              <ReconcilePaginationFooter
                 page={matchedData.page}
                 totalPages={matchedData.total_pages}
                 total={matchedData.total}
                 limit={matchedData.limit}
-                pageSizeOptions={MATCHED_PAGE_SIZE_OPTIONS}
+                pageSizeOptions={RECONCILE_TABLE_PAGE_SIZE_OPTIONS}
                 pageSize={matchedPageSize}
                 onPageSizeChange={handleMatchedPageSizeChange}
                 onPrev={() => setMatchedPage((p) => Math.max(1, p - 1))}
@@ -3103,14 +3057,15 @@ export default function ReconcileResultsPage() {
                   );
                 }}
               />
-              {rule37Data &&
-                !rule37Error &&
-                rule37Data.total_pages > 1 && (
-                  <PaginationFooter
+              {rule37Data && !rule37Error && (
+                  <ReconcilePaginationFooter
                     page={rule37Data.page}
                     totalPages={rule37Data.total_pages}
                     total={rule37Data.total}
                     limit={rule37Data.limit}
+                    pageSizeOptions={RECONCILE_TABLE_PAGE_SIZE_OPTIONS}
+                    pageSize={rule37PageSize}
+                    onPageSizeChange={handleRule37PageSizeChange}
                     onPrev={() => setRule37Page((p) => Math.max(1, p - 1))}
                     onNext={() =>
                       setRule37Page((p) =>
@@ -3194,7 +3149,7 @@ export default function ReconcileResultsPage() {
               {section17Data &&
                 !section17Error &&
                 section17Data.total_pages > 1 && (
-                  <PaginationFooter
+                  <ReconcilePaginationFooter
                     page={section17Data.page}
                     totalPages={section17Data.total_pages}
                     total={section17Data.total}
