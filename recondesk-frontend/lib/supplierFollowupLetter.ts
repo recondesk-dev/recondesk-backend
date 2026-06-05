@@ -1,5 +1,6 @@
 /** Supplier follow-up letter — types and draft builder (ITC at risk). */
 
+import { pdfBytesToBlob } from "@/lib/download";
 import { formatINR } from "@/lib/format";
 
 export type FollowupTemplateType = "wrongful_itc_single" | "wrongful_itc_bulk";
@@ -159,10 +160,17 @@ export function templateTypeForRowCount(count: number): FollowupTemplateType {
   return count === 1 ? "wrongful_itc_single" : "wrongful_itc_bulk";
 }
 
-export function followupPdfFilename(supplierGstin: string): string {
-  const safe =
-    (supplierGstin || "supplier").replace(/[^A-Za-z0-9]/g, "") || "supplier";
-  return `supplier-followup-${safe}.pdf`;
+function sanitizePdfFilenamePart(value: string, fallback: string): string {
+  return value.replace(/[^A-Za-z0-9-]/g, "") || fallback;
+}
+
+export function followupPdfFilename(
+  supplierGstin: string,
+  taxPeriod: string
+): string {
+  const gstin = sanitizePdfFilenamePart(supplierGstin || "", "supplier");
+  const period = sanitizePdfFilenamePart(taxPeriod || "", "period");
+  return `supplier-followup-${gstin}-${period}.pdf`;
 }
 
 /** Build a PDF blob from letter text (client-only; dynamic import). */
@@ -190,18 +198,6 @@ export async function buildFollowupLetterPdfBlob(
     doc.text(lines[i], margin, y);
     y += lineHeight;
   }
-  return doc.output("blob");
-}
-
-/** Trigger a direct file download via a temporary anchor (no window.open). */
-export function downloadBlobAsFile(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.style.display = "none";
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  const pdfBytes = doc.output("arraybuffer");
+  return pdfBytesToBlob(pdfBytes);
 }

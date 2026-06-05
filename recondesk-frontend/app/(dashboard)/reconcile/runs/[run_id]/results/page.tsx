@@ -92,7 +92,7 @@ import {
   buildReconciliationReportPdf,
   reportPdfFilename,
 } from "@/lib/reconciliationReportPdf";
-import { downloadBlobAsFile } from "@/lib/supplierFollowupLetter";
+import { downloadBlobAsFile } from "@/lib/download";
 import {
   isValidReconcileTablePageSize,
   persistReconcileTablePageSize,

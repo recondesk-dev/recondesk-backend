@@ -1,5 +1,6 @@
 import type { jsPDF } from "jspdf";
 
+import { pdfBytesToBlob } from "@/lib/download";
 import { formatINR, formatINRNumber } from "@/lib/format";
 import { formatFollowupAuditTimeIst, formatFollowupAuditStatus } from "@/lib/followupAudit";
 import type { ReportPdfDataset, ReportReconcileRow } from "@/lib/reconciliationReportData";
@@ -1219,5 +1220,5 @@ export async function buildReconciliationReportPdf(
 
   applyPageChrome(doc);
 
-  return doc.output("blob");
+  return pdfBytesToBlob(doc.output("arraybuffer"));
 }
