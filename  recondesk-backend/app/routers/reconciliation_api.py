@@ -79,6 +79,17 @@ def _wrongful_risk_itc_paise(
     )
 
 
+def _wrongful_risk_taxable_paise(
+    w: dict[str, Any], matcher: Optional[dict[str, Any]] = None
+) -> int:
+    """Taxable purchase value in paise for wrongful ITC risk rows."""
+    mt = matcher or {}
+    return _safe_int_paise(
+        w.get("taxable_amount_paise"),
+        _safe_int_paise(mt.get("taxable_amount_paise"), 0),
+    )
+
+
 def _wrongful_risk_record_ids_for_run(sb, rid: str) -> set[str]:
     """API record ids (``wr:{pr_id}``) from stored engine payload — no PR table scan."""
     p = _payload_or_404(sb, rid)
@@ -1486,6 +1497,16 @@ def _build_reconcile_summary(
         )
         for w in wr_list
     )
+    wrongful_purchase_total_rupees = sum(
+        _paise_to_rupees(
+            _wrongful_risk_taxable_paise(
+                w,
+                (pr_db.get(str(w.get("id") or "").strip()) or {}).get("matcher")
+                or {},
+            )
+        )
+        for w in wr_list
+    )
     if n_g > 0:
         match_pct = round(100.0 * matched_count / n_g, 1)
     else:
@@ -1542,6 +1563,9 @@ def _build_reconcile_summary(
         "missed_itc_total_amount": round(missed_total_rupees, 2),
         "wrongful_risk_count": wrongful_count,
         "wrongful_risk_total_amount": round(wrongful_total_rupees, 2),
+        "wrongful_risk_purchase_total_amount": round(
+            wrongful_purchase_total_rupees, 2
+        ),
         "late_match_count": late_match_count,
         "match_rate_percent": match_pct,
         "user_role": role_out,

@@ -154,6 +154,7 @@ type RunSummary = {
   missed_itc_total_amount: number;
   wrongful_risk_count: number;
   wrongful_risk_total_amount: number;
+  wrongful_risk_purchase_total_amount?: number;
   late_match_count?: number | null;
   match_rate_percent: number;
   user_role: "admin" | "staff";
@@ -2055,9 +2056,19 @@ export default function ReconcileResultsPage() {
             <SectionHeader
               title="ITC at Risk — Supplier Has Not Filed"
               dotColor="#DC2626"
-              amount={summary.wrongful_risk_total_amount}
-              amountLabel="TOTAL ITC AT RISK"
-              badgeVariant="risk"
+              badges={[
+                {
+                  label: "TOTAL ITC AT RISK",
+                  amount: summary.wrongful_risk_total_amount,
+                  variant: "risk",
+                },
+                {
+                  label: "PURCHASE VALUE AT RISK",
+                  amount: summary.wrongful_risk_purchase_total_amount ?? 0,
+                  variant: "neutral",
+                  sublabel: "Total invoice exposure",
+                },
+              ]}
               actions={
                 <button
                   type="button"
