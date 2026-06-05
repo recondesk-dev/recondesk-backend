@@ -68,6 +68,17 @@ def _safe_int_paise(val: Any, default: int = 0) -> int:
             return default
 
 
+def _wrongful_itc_paise(
+    w: dict[str, Any], matcher: Optional[dict[str, Any]] = None
+) -> int:
+    """ITC at risk in paise (total tax), not taxable value."""
+    mt = matcher or {}
+    return _safe_int_paise(
+        w.get("total_tax_paise"),
+        _safe_int_paise(mt.get("total_tax_paise"), 0),
+    )
+
+
 def _wrongful_risk_record_ids_for_run(sb, rid: str) -> set[str]:
     """API record ids (``wr:{pr_id}``) from stored engine payload — no PR table scan."""
     p = _payload_or_404(sb, rid)
@@ -1464,8 +1475,16 @@ def _build_reconcile_summary(
     missed_total_rupees = sum(
         _paise_to_rupees(int(m.get("total_tax_paise") or 0)) for m in missed_list
     )
+    pr_db = ro.load_pr_map(sb, rid)
     wrongful_total_rupees = sum(
-        _paise_to_rupees(int(w.get("total_tax_paise") or 0)) for w in wr_list
+        _paise_to_rupees(
+            _wrongful_itc_paise(
+                w,
+                (pr_db.get(str(w.get("id") or "").strip()) or {}).get("matcher")
+                or {},
+            )
+        )
+        for w in wr_list
     )
     if n_g > 0:
         match_pct = round(100.0 * matched_count / n_g, 1)
@@ -1630,12 +1649,7 @@ def _build_wrongful_risk_records(
         cell = pr_db.get(pid) or {}
         mt = cell.get("matcher") or {}
         rd = cell.get("record_data") if isinstance(cell.get("record_data"), dict) else {}
-        amt = _paise_to_rupees(
-            _safe_int_paise(
-                w.get("total_tax_paise"),
-                _safe_int_paise(mt.get("total_tax_paise"), 0),
-            )
-        )
+        amt = _paise_to_rupees(_wrongful_itc_paise(w, mt))
         mf_wr: list[str] = []
         sg_wr = str(w.get("supplier_gstin") or mt.get("supplier_gstin") or "").strip()
         if sg_wr:
