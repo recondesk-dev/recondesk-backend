@@ -1474,11 +1474,9 @@ def _build_matched_pair_records(
         lvl = _matched_ui_match_level(dict(en_row), mst_disp)
         amt = _paise_to_rupees(int(gm.get("total_tax_paise") or 0))
 
-        discrep: Optional[str] = None
+        tax_diff_paise: Optional[int] = None
         if getattr(orow, "match_status", "") == "MISMATCHED" and orow is not None:
-            discrep = (
-                f"GST tax delta (Δpaise): {int(orow.total_tax_diff_paise):,}"
-            )
+            tax_diff_paise = int(orow.total_tax_diff_paise)
 
         dm: dict[str, Any] = (
             decisions_rows[idx] if idx < len(decisions_rows) and isinstance(decisions_rows[idx], dict) else {}
@@ -1505,7 +1503,8 @@ def _build_matched_pair_records(
             "amount": amt,
             "match_level": lvl,
             "confidence_score": float(en_row.get("confidence_score") or 0.0),
-            "discrepancy_note": discrep,
+            "discrepancy_note": None,
+            "tax_difference_paise": tax_diff_paise,
             "decision_what": d_what
             if d_what
             else (str(getattr(orow, "decision_what", "")) if orow else None),

@@ -81,7 +81,7 @@ import {
   topSuppliersThTradeName,
 } from "@/components/reconcile/ResultsUi";
 import { apiFetch } from "@/lib/api";
-import { formatINR } from "@/lib/format";
+import { formatINR, formatTaxDifferenceDisplay } from "@/lib/format";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -104,6 +104,7 @@ type ReconcileRow = {
   match_level: MatchLevel;
   confidence_score: number;
   discrepancy_note: string | null;
+  tax_difference_paise?: number | null;
   decision_what: string | null;
   decision_why: string | null;
   decision_next: string | null;
@@ -2697,7 +2698,12 @@ export default function ReconcileResultsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {matchedData.data.map((row) => (
+                    {matchedData.data.map((row) => {
+                      const taxDiff = formatTaxDifferenceDisplay(
+                        row.tax_difference_paise,
+                        row.discrepancy_note
+                      );
+                      return (
                       <tr
                         key={row.id}
                         className={`group cursor-pointer ${tableRowClass}`}
@@ -2734,7 +2740,8 @@ export default function ReconcileResultsPage() {
                         </td>
                         <td className={matchedTdDiscrepancy}>
                           <HoverTextCell
-                            text={row.discrepancy_note}
+                            text={taxDiff.display}
+                            tooltipText={taxDiff.tooltip}
                             displayClassName="text-[13px] text-gray-600"
                           />
                         </td>
@@ -2748,7 +2755,8 @@ export default function ReconcileResultsPage() {
                           )}
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
               </div>

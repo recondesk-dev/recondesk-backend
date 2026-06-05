@@ -13,10 +13,13 @@ const tooltipClass =
 
 export function HoverTextCell({
   text,
+  tooltipText,
   className = "",
   displayClassName = "",
 }: {
   text: string | null | undefined;
+  /** When set, tooltip shows this instead of `text` (cell still uses `text`). */
+  tooltipText?: string | null | undefined;
   className?: string;
   displayClassName?: string;
 }) {
@@ -24,6 +27,7 @@ export function HoverTextCell({
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const anchorRef = useRef<HTMLSpanElement>(null);
   const value = text?.trim() ?? "";
+  const tooltipValue = (tooltipText ?? text)?.trim() ?? "";
   const display = value || "—";
 
   const syncPos = useCallback(() => {
@@ -46,7 +50,7 @@ export function HoverTextCell({
   }, [hovered, syncPos]);
 
   const tooltip =
-    typeof document !== "undefined" && hovered && value
+    typeof document !== "undefined" && hovered && tooltipValue
       ? createPortal(
           <span
             className={tooltipClass}
@@ -56,7 +60,7 @@ export function HoverTextCell({
               transform: "translateY(-100%)",
             }}
           >
-            {value}
+            {tooltipValue}
           </span>,
           document.body
         )
