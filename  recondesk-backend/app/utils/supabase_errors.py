@@ -15,6 +15,26 @@ def supabase_error_message(exc: BaseException, *, context: str = "") -> str:
     msg = " — ".join(parts) if parts else str(exc)
     low = msg.lower()
 
+    if "rule37_actions" in low and any(
+        token in low
+        for token in (
+            "does not exist",
+            "42p01",
+            "pgrst204",
+            "schema cache",
+            "could not find the table",
+            "could not find the column",
+            "relation",
+        )
+    ):
+        return (
+            "The rule37_actions table or settlement columns are missing in Supabase. "
+            "Apply migrations "
+            "(20260605120000_rule37_actions_tds.sql, "
+            "20260605140000_rule37_actions_remaining_unpaid.sql, "
+            "20260605150000_rule37_actions_table_and_grants.sql), then reload the schema."
+        )
+
     if "supplier_followup_audit" in low and any(
         token in low
         for token in (

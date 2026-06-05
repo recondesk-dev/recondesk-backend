@@ -990,16 +990,26 @@ def _rule37_db_record_lookup_keys(record_id: str) -> list[str]:
 
 def _is_schema_compat_error(exc: BaseException) -> bool:
     msg = str(exc).lower()
-    return any(
+    if any(
         token in msg
         for token in (
             "pgrst204",
+            "pgrst205",
             "42703",
+            "42p01",
+            "could not find the column",
+            "could not find the table",
+            "schema cache",
+        )
+    ):
+        return True
+    return any(
+        token in msg
+        for token in (
             "column",
             "note_type",
             "firm_owner_id",
             "severity",
-            "status",
         )
     )
 
@@ -1027,11 +1037,22 @@ def _rule37_invoice_amount_from_item(item: dict[str, Any]) -> float:
     return _paise_to_rupees(int(item.get("itc_at_risk_paise") or 0))
 
 
-def _upsert_rule37_action(
-    sb,
+_RULE37_SETTLEMENT_COLUMNS = frozenset(
+    {
+        "amount_paid",
+        "tds_deducted",
+        "tds_confirmed",
+        "total_settled",
+        "remaining_unpaid_amount",
+        "payment_coverage",
+    }
+)
+
+
+def _rule37_action_insert_payload(
     *,
     run_id: str,
-    record_id: str,
+    record_hash: str,
     status_value: str,
     user_id: str,
     amount_paid: Optional[float] = None,
@@ -1040,18 +1061,7 @@ def _upsert_rule37_action(
     total_settled: Optional[float] = None,
     remaining_unpaid_amount: Optional[float] = None,
     payment_coverage: Optional[str] = None,
-) -> None:
-    """Persist a Rule 37 action in the dedicated ``rule37_actions`` table.
-
-    Uses an upsert keyed on (run_id, record_hash) so clicking the same button
-    twice is idempotent.  ``record_hash`` is the bare string after stripping
-    the ``r37:`` prefix — it is plain TEXT, never treated as UUID by PostgREST.
-    """
-    record_hash = _rule37_record_hash(record_id)
-    _log.debug(
-        "rule37 action upsert run_id=%s record_id=%s hash=%s status=%s",
-        run_id, record_id, record_hash, status_value,
-    )
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "run_id": run_id,
         "record_hash": record_hash,
@@ -1088,15 +1098,90 @@ def _upsert_rule37_action(
                 "payment_coverage": None,
             }
         )
-    _log.info("rule37 payload: %s", payload)
+    return payload
+
+
+def _persist_rule37_action_row(sb, payload: dict[str, Any]) -> None:
+    """Delete-then-insert into ``rule37_actions`` (idempotent per run + record_hash)."""
+    import traceback
+
+    run_id = str(payload["run_id"])
+    record_hash = str(payload["record_hash"])
+    print("rule37 update payload:", payload)
+    _log.info("rule37_actions insert payload run_id=%s hash=%s", run_id, record_hash)
     try:
-        sb.table("rule37_actions").upsert(
-            payload,
-            on_conflict="run_id,record_hash",
+        sb.table("rule37_actions").delete().eq("run_id", run_id).eq(
+            "record_hash", record_hash
         ).execute()
+        sb.table("rule37_actions").insert(payload).execute()
     except Exception as e:
-        _log.exception("rule37 update failed: %s", e)
+        print("rule37 update error:", str(e))
+        traceback.print_exc()
+        if _is_schema_compat_error(e):
+            minimal = {
+                k: v
+                for k, v in payload.items()
+                if k not in _RULE37_SETTLEMENT_COLUMNS
+            }
+            print("rule37 retry payload (base columns only):", minimal)
+            _log.warning(
+                "rule37_actions settlement columns unavailable; retrying base insert "
+                "run_id=%s hash=%s",
+                run_id,
+                record_hash,
+            )
+            sb.table("rule37_actions").delete().eq("run_id", run_id).eq(
+                "record_hash", record_hash
+            ).execute()
+            sb.table("rule37_actions").insert(minimal).execute()
+            return
+        _log.exception(
+            "rule37_actions insert failed run_id=%s hash=%s payload=%s",
+            run_id,
+            record_hash,
+            payload,
+        )
         raise
+
+
+def _upsert_rule37_action(
+    sb,
+    *,
+    run_id: str,
+    record_id: str,
+    status_value: str,
+    user_id: str,
+    amount_paid: Optional[float] = None,
+    tds_deducted: float = 0,
+    tds_confirmed: bool = False,
+    total_settled: Optional[float] = None,
+    remaining_unpaid_amount: Optional[float] = None,
+    payment_coverage: Optional[str] = None,
+) -> None:
+    """Persist a Rule 37 action in the dedicated ``rule37_actions`` table.
+
+    Uses delete-then-insert keyed on (run_id, record_hash) so clicking the same
+    button twice is idempotent.  ``record_hash`` is the bare string after
+    stripping the ``r37:`` prefix — plain TEXT, never treated as UUID.
+    """
+    record_hash = _rule37_record_hash(record_id)
+    _log.debug(
+        "rule37 action persist run_id=%s record_id=%s hash=%s status=%s",
+        run_id, record_id, record_hash, status_value,
+    )
+    payload = _rule37_action_insert_payload(
+        run_id=run_id,
+        record_hash=record_hash,
+        status_value=status_value,
+        user_id=user_id,
+        amount_paid=amount_paid,
+        tds_deducted=tds_deducted,
+        tds_confirmed=tds_confirmed,
+        total_settled=total_settled,
+        remaining_unpaid_amount=remaining_unpaid_amount,
+        payment_coverage=payment_coverage,
+    )
+    _persist_rule37_action_row(sb, payload)
 
 
 def _rule37_record_exists_in_run(
@@ -3566,7 +3651,11 @@ async def reconcile_run_rule37_action(
         )
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
+        import traceback
+
+        print("rule37 PATCH error:", str(exc))
+        traceback.print_exc()
         _log.exception(
             "rule37 PATCH failed run_id=%s record_id=%s raw_record_id=%s status=%s "
             "amount_paid=%s tds_deducted=%s tds_confirmed=%s total_settled=%s",
@@ -3581,8 +3670,10 @@ async def reconcile_run_rule37_action(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="failed to update rule37 status",
-        )
+            detail=supabase_error_message(
+                exc, context="failed to update rule37 status"
+            ),
+        ) from exc
 
 
 @reconcile_runs_router.get("/runs/{run_id}/section17")
