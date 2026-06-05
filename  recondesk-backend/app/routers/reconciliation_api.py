@@ -9,7 +9,7 @@ import logging
 import math
 import re
 from collections import Counter
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal, Optional, TypeVar
 from urllib.parse import unquote
 
@@ -596,6 +596,42 @@ class Rule37SummaryResponse(BaseModel):
     action_history: list[Rule37ActionHistoryItem]
 
 
+class Rule37ExportInvoiceRow(BaseModel):
+    invoice_number: str
+    supplier_gstin: str
+    invoice_date: str
+    amount: float
+    deadline: Optional[str] = None
+    days_remaining: Optional[int] = None
+
+
+class Rule37ExportActedInvoiceRow(Rule37ExportInvoiceRow):
+    acted_on: str
+    acted_by_name: str
+
+
+class Rule37ExportFollowupRow(BaseModel):
+    supplier_name: str
+    supplier_gstin: str
+    invoice_numbers: str
+    action: str
+    date: str
+
+
+class Rule37ExportDataResponse(BaseModel):
+    client_name: str
+    client_gstin: str
+    tax_period: str
+    tax_period_display: str
+    prepared_by_name: str
+    summary: Rule37SummaryStats
+    action_history: list[Rule37ActionHistoryItem]
+    pending_invoices: list[Rule37ExportInvoiceRow]
+    secured_invoices: list[Rule37ExportActedInvoiceRow]
+    reversed_invoices: list[Rule37ExportActedInvoiceRow]
+    followup_log: list[Rule37ExportFollowupRow]
+
+
 class DecisionStatusPatch(BaseModel):
     status: Optional[Literal["acted", "ignored", "pending"]] = None
     decision_status: Optional[Literal["acted", "ignored", "pending"]] = None
@@ -1017,6 +1053,32 @@ def _rule37_record_exists_in_run(
     return False
 
 
+def _rule37_deadline_and_days(item: dict[str, Any]) -> tuple[Optional[str], Optional[int]]:
+    deadline_raw = str(item.get("deadline") or "").strip()
+    deadline: Optional[str] = deadline_raw[:10] if deadline_raw else None
+    days: Optional[int] = None
+    if item.get("days_remaining") is not None:
+        try:
+            days = int(item["days_remaining"])
+        except (TypeError, ValueError):
+            days = None
+    if days is None and deadline:
+        try:
+            days = (date.fromisoformat(deadline) - date.today()).days
+        except ValueError:
+            days = None
+    if days is None and not deadline:
+        inv = str(item.get("invoice_date") or "").strip()[:10]
+        if inv:
+            try:
+                dl = date.fromisoformat(inv) + timedelta(days=180)
+                deadline = dl.isoformat()
+                days = (dl - date.today()).days
+            except ValueError:
+                pass
+    return deadline, days
+
+
 def _rule37_status_to_action(status: str) -> Optional[str]:
     st = (status or "").strip().lower()
     if st == "resolved":
@@ -1130,6 +1192,157 @@ def _build_rule37_summary_payload(
             "pending_action": round(pending, 2),
         },
         "action_history": history,
+    }
+
+
+def _period_mmm_yyyy_display(period: str) -> str:
+    s = (period or "").strip()
+    try:
+        if len(s) >= 7 and s[4] == "-":
+            parts = s[:7].split("-")
+            y, m = int(parts[0]), int(parts[1])
+            return date(y, m, 1).strftime("%b %Y")
+    except (ValueError, TypeError, IndexError):
+        pass
+    return s or "—"
+
+
+def _followup_audit_status_label(status: str) -> str:
+    labels = {
+        "generated": "Generated",
+        "downloaded": "Downloaded",
+        "copied": "Copied",
+    }
+    return labels.get((status or "").strip().lower(), status or "—")
+
+
+def _followup_audit_export_rows(sb, run_id: str) -> list[dict[str, Any]]:
+    try:
+        res = (
+            sb.table("supplier_followup_audit")
+            .select(
+                "supplier_gstin, supplier_name_display, invoice_snapshot, "
+                "status, generated_at"
+            )
+            .eq("run_id", run_id)
+            .order("generated_at", desc=True)
+            .execute()
+        )
+        rows = list(res.data or [])
+    except Exception:
+        _log.exception("followup audit export read failed run_id=%s", run_id)
+        return []
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        snap = row.get("invoice_snapshot")
+        inv_nums: list[str] = []
+        if isinstance(snap, list):
+            for item in snap:
+                if isinstance(item, dict):
+                    num = str(item.get("invoice_number") or "").strip()
+                    if num:
+                        inv_nums.append(num)
+        out.append(
+            {
+                "supplier_name": str(row.get("supplier_name_display") or "").strip(),
+                "supplier_gstin": str(row.get("supplier_gstin") or "").strip(),
+                "invoice_numbers": ", ".join(inv_nums) if inv_nums else "—",
+                "action": _followup_audit_status_label(str(row.get("status") or "")),
+                "date": str(row.get("generated_at") or ""),
+            }
+        )
+    return out
+
+
+def _build_rule37_export_data(
+    sb,
+    rid: str,
+    payload: dict[str, Any],
+    notes: Counter[str],
+    current_user_id: str,
+    run_row: dict[str, Any],
+) -> dict[str, Any]:
+    summary_body = _build_rule37_summary_payload(sb, rid, payload, notes)
+    rows = _all_rule37_rows_for_run(sb, rid, payload, notes)
+
+    action_rows = _rule37_actions_history_for_run(sb, rid)
+    action_by_id: dict[str, dict[str, Any]] = {}
+    uids: set[str] = set()
+    for action_row in action_rows:
+        record_hash = str(action_row.get("record_hash") or "").strip()
+        api_id = (
+            record_hash if record_hash.startswith("r37:") else f"r37:{record_hash}"
+        )
+        action_by_id[api_id] = action_row
+        uid = str(action_row.get("user_id") or "").strip()
+        if uid:
+            uids.add(uid)
+
+    names = _followup_audit_user_names(uids)
+    summ = _build_reconcile_summary(
+        sb, run_row=run_row, payload=payload, current_user_id=current_user_id
+    )
+    prof = get_user_profile(current_user_id) or {}
+    prepared_by = str(prof.get("full_name") or "").strip()
+
+    pending: list[dict[str, Any]] = []
+    secured: list[dict[str, Any]] = []
+    reversed_rows: list[dict[str, Any]] = []
+
+    for row in rows:
+        base = {
+            "invoice_number": str(row.get("invoice_number") or ""),
+            "supplier_gstin": str(row.get("supplier_gstin") or ""),
+            "invoice_date": str(row.get("invoice_date") or "")[:10],
+            "amount": round(float(row.get("amount") or 0), 2),
+            "deadline": row.get("deadline"),
+            "days_remaining": row.get("days_remaining"),
+        }
+        status = str(row.get("rule37_action_status") or "").strip().lower()
+        record_id = str(row.get("id") or "")
+        action = action_by_id.get(record_id)
+        if status == "resolved" and action:
+            uid = str(action.get("user_id") or "").strip()
+            secured.append(
+                {
+                    **base,
+                    "acted_on": str(action.get("created_at") or ""),
+                    "acted_by_name": names.get(uid, ""),
+                }
+            )
+        elif status == "acknowledged" and action:
+            uid = str(action.get("user_id") or "").strip()
+            reversed_rows.append(
+                {
+                    **base,
+                    "acted_on": str(action.get("created_at") or ""),
+                    "acted_by_name": names.get(uid, ""),
+                }
+            )
+        elif status not in {"resolved", "acknowledged"}:
+            pending.append(base)
+
+    pending.sort(
+        key=lambda r: (
+            r.get("days_remaining") is None,
+            r.get("days_remaining") if r.get("days_remaining") is not None else 0,
+        )
+    )
+
+    period_raw = str(run_row.get("period") or summ.get("period") or "")
+
+    return {
+        "client_name": str(summ.get("client_name") or ""),
+        "client_gstin": str(summ.get("client_gstin") or ""),
+        "tax_period": period_raw,
+        "tax_period_display": _period_mmm_yyyy_display(period_raw),
+        "prepared_by_name": prepared_by,
+        "summary": summary_body["summary"],
+        "action_history": summary_body["action_history"],
+        "pending_invoices": pending,
+        "secured_invoices": secured,
+        "reversed_invoices": reversed_rows,
+        "followup_log": _followup_audit_export_rows(sb, rid),
     }
 
 
@@ -2136,6 +2349,7 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
         amt = _paise_to_rupees(int(ru.get("itc_at_risk_paise") or 0))
         ur = _rule37_urgency_from_status(ru.get("status"))
         action_status = actions.get(row_id)
+        deadline, days_remaining = _rule37_deadline_and_days(ru)
         out.append(
             {
                 "id": row_id,
@@ -2143,6 +2357,8 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
                 "invoice_number": str(ru.get("invoice_number") or ""),
                 "invoice_date": str(ru.get("invoice_date") or "")[:40],
                 "amount": amt,
+                "deadline": deadline,
+                "days_remaining": days_remaining,
                 "match_level": "UNMATCHED",
                 "confidence_score": 0.0,
                 "discrepancy_note": None,
@@ -2204,12 +2420,15 @@ def _db_rule37_warning_to_frontend(row: dict[str, Any]) -> dict[str, Any]:
     action_status = str(row.get("action_status") or "").strip().lower()
     if action_status not in {"resolved", "acknowledged"}:
         action_status = None
+    deadline, days_remaining = _rule37_deadline_and_days(row)
     return {
         "id": rid_str,
         "supplier_gstin": str(row.get("supplier_gstin") or ""),
         "invoice_number": str(row.get("invoice_number") or ""),
         "invoice_date": str(row.get("invoice_date") or ""),
         "amount": round(ar, 2),
+        "deadline": deadline,
+        "days_remaining": days_remaining,
         "match_level": "UNMATCHED",
         "confidence_score": 0.0,
         "discrepancy_note": None,
@@ -3154,6 +3373,24 @@ async def reconcile_run_rule37_summary(
     notes = _notes_count_for_run(sb, rid)
     body = _build_rule37_summary_payload(sb, rid, p, notes)
     return Rule37SummaryResponse(**body)
+
+
+@reconcile_runs_router.get(
+    "/runs/{run_id}/rule37/export-data",
+    response_model=Rule37ExportDataResponse,
+)
+async def reconcile_run_rule37_export_data(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    notes = _notes_count_for_run(sb, rid)
+    uid = str(current_user.get("id") or "").strip()
+    body = _build_rule37_export_data(sb, rid, p, notes, uid, run_row)
+    return Rule37ExportDataResponse(**body)
 
 
 @reconcile_runs_router.get("/runs/{run_id}/rule37")
