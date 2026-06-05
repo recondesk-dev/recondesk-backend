@@ -82,6 +82,12 @@ import {
   topSuppliersThTradeName,
 } from "@/components/reconcile/ResultsUi";
 import { apiFetch } from "@/lib/api";
+import { fetchReconciliationReportData } from "@/lib/reconciliationReportData";
+import {
+  buildReconciliationReportPdf,
+  reportPdfFilename,
+} from "@/lib/reconciliationReportPdf";
+import { downloadBlobAsFile } from "@/lib/supplierFollowupLetter";
 import { formatINR, formatTaxDifferenceDisplay } from "@/lib/format";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
@@ -789,31 +795,6 @@ export default function ReconcileResultsPage() {
     }
   }, [addToast, authToken, runId]);
 
-  const downloadPdfReport = useCallback(async () => {
-    if (!authToken || !runId) return;
-    setPdfDownloading(true);
-    try {
-      const res = await fetch(
-        `${API_URL}/api/reconcile/runs/${runId}/export/pdf`,
-        { headers: { Authorization: `Bearer ${authToken}` } }
-      );
-      if (!res.ok) throw new Error("failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "ReconDesk-report.pdf";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch {
-      addToast("Failed to generate PDF report", "error");
-    } finally {
-      setPdfDownloading(false);
-    }
-  }, [addToast, authToken, runId]);
-
   const [drawerDecisionError, setDrawerDecisionError] = useState<string | null>(
     null
   );
@@ -862,6 +843,30 @@ export default function ReconcileResultsPage() {
     summary &&
       (summary.status === "final" || summary.status === "FINAL")
   );
+
+  const downloadPdfReport = useCallback(async () => {
+    if (!authToken || !runId || !summary) return;
+    setPdfDownloading(true);
+    try {
+      const dataset = await fetchReconciliationReportData(
+        authToken,
+        runId,
+        summary
+      );
+      const blob = await buildReconciliationReportPdf(dataset);
+      downloadBlobAsFile(
+        blob,
+        reportPdfFilename(
+          summary.client_gstin ?? "",
+          summary.period ?? ""
+        )
+      );
+    } catch {
+      addToast("Failed to generate PDF report", "error");
+    } finally {
+      setPdfDownloading(false);
+    }
+  }, [addToast, authToken, runId, summary]);
 
   const itcListQuery = useMemo(
     () => buildItcListQueryString(itcPage, itcSort, debouncedItcFilters),
@@ -1560,7 +1565,7 @@ export default function ReconcileResultsPage() {
                   <span className="mx-0.5 h-5 w-px bg-gray-200" aria-hidden />
                   <button
                     type="button"
-                    disabled={pdfDownloading}
+                    disabled={pdfDownloading || !summary}
                     className={exportToolbarBtn}
                     onClick={() => void downloadPdfReport()}
                   >
@@ -2847,7 +2852,6 @@ export default function ReconcileResultsPage() {
                   runId={runId}
                   authToken={authToken}
                   refreshKey={rule37SummaryRefreshKey}
-                  onPdfError={(msg) => addToast(msg, "error")}
                 />
               )}
               {rule37Error && (
