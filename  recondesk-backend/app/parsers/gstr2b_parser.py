@@ -123,6 +123,16 @@ def _item_tax_value(itm: dict, field: str) -> str:
     return _parse_numeric_field(_first_present(itm, *aliases[field]), field)
 
 
+def _invoice_items_list(invoice: dict) -> list:
+    """Return GSTR line items from either official `itms` or portal-style `items`."""
+    items_list = invoice.get("itms")
+    if items_list is None:
+        items_list = invoice.get("items", [])
+    if items_list is not None and not isinstance(items_list, list):
+        raise ValueError(f"invalid_type for itms: {type(items_list)}")
+    return items_list or []
+
+
 # ---------------------------------------------------------------------------
 # Item-level parsing
 # ---------------------------------------------------------------------------
@@ -324,11 +334,7 @@ def _parse_b2b_invoice(
                 normalization_notes["original_invoice_date"] = result.notes
             original_invoice_date = result.value
 
-    items_list = invoice.get("itms", [])
-    if items_list is not None and not isinstance(items_list, list):
-        raise ValueError(f"invalid_type for itms: {type(items_list)}")
-    if items_list is None:
-        items_list = []
+    items_list = _invoice_items_list(invoice)
     item_records, raw_txvals = _parse_items(items_list)
 
     return _build_invoice_record(
@@ -430,11 +436,7 @@ def _parse_cdnr_invoice(
                 normalization_notes["original_invoice_date"] = result.notes
             original_invoice_date = result.value
 
-    items_list = invoice.get("itms", [])
-    if items_list is not None and not isinstance(items_list, list):
-        raise ValueError(f"invalid_type for itms: {type(items_list)}")
-    if items_list is None:
-        items_list = []
+    items_list = _invoice_items_list(invoice)
     item_records, raw_txvals = _parse_items(items_list)
 
     return _build_invoice_record(
