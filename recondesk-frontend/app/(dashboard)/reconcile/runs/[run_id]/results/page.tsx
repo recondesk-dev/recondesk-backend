@@ -88,7 +88,10 @@ import {
   reportPdfFilename,
 } from "@/lib/reconciliationReportPdf";
 import { downloadBlobAsFile } from "@/lib/supplierFollowupLetter";
-import { formatINR, formatTaxDifferenceDisplay } from "@/lib/format";
+import {
+  formatINR,
+  formatTaxDifferenceDisplay,
+} from "@/lib/format";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -1610,11 +1613,9 @@ export default function ReconcileResultsPage() {
                   label="Missed ITC"
                   accent="missed"
                   value={
-                    <InrAmount
-                      amount={summary.missed_itc_total_amount}
-                      sizeClass={statCardValueClass}
-                      numberColorClass="text-gray-900"
-                    />
+                    <span className={`${statCardValueClass} tabular-nums text-gray-900`}>
+                      {formatINR(summary.missed_itc_total_amount)}
+                    </span>
                   }
                 />
               </div>
@@ -1623,11 +1624,9 @@ export default function ReconcileResultsPage() {
                   label="At Risk"
                   accent="risk"
                   value={
-                    <InrAmount
-                      amount={summary.wrongful_risk_total_amount}
-                      sizeClass={statCardValueClass}
-                      numberColorClass="text-gray-900"
-                    />
+                    <span className={`${statCardValueClass} tabular-nums text-gray-900`}>
+                      {formatINR(summary.wrongful_risk_total_amount)}
+                    </span>
                   }
                 />
               </div>

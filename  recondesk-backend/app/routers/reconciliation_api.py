@@ -1354,7 +1354,7 @@ def _build_reconcile_summary(
         _paise_to_rupees(int(m.get("total_tax_paise") or 0)) for m in missed_list
     )
     wrongful_total_rupees = sum(
-        _paise_to_rupees(int(w.get("taxable_amount_paise") or 0)) for w in wr_list
+        _paise_to_rupees(int(w.get("total_tax_paise") or 0)) for w in wr_list
     )
     if n_g > 0:
         match_pct = round(100.0 * matched_count / n_g, 1)
@@ -1521,8 +1521,8 @@ def _build_wrongful_risk_records(
         rd = cell.get("record_data") if isinstance(cell.get("record_data"), dict) else {}
         amt = _paise_to_rupees(
             _safe_int_paise(
-                w.get("taxable_amount_paise"),
-                _safe_int_paise(mt.get("taxable_amount_paise"), 0),
+                w.get("total_tax_paise"),
+                _safe_int_paise(mt.get("total_tax_paise"), 0),
             )
         )
         mf_wr: list[str] = []
