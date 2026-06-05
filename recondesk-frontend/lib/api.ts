@@ -481,6 +481,7 @@ export interface ReconcileRunSummaryDto {
   wrongful_risk_count: number;
   missed_itc_total_amount?: number;
   wrongful_risk_total_amount?: number;
+  wrongful_risk_purchase_total_amount?: number;
   status?: string;
 }
 

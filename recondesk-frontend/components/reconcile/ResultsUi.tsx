@@ -257,7 +257,7 @@ export function StatCard({
   );
 }
 
-type SectionAmountBadgeVariant = "claim" | "risk" | "rule37";
+type SectionAmountBadgeVariant = "claim" | "risk" | "rule37" | "neutral";
 
 const sectionAmountBadgeStyles: Record<
   SectionAmountBadgeVariant,
@@ -278,16 +278,23 @@ const sectionAmountBadgeStyles: Record<
     label: "text-amber-500",
     amount: "text-amber-700",
   },
+  neutral: {
+    card: "bg-gray-50 border-gray-200",
+    label: "text-gray-500",
+    amount: "text-gray-800",
+  },
 };
 
 export function SectionAmountBadge({
   label,
   amount,
   variant,
+  sublabel,
 }: {
   label: string;
   amount: number;
   variant: SectionAmountBadgeVariant;
+  sublabel?: string;
 }) {
   const styles = sectionAmountBadgeStyles[variant];
   return (
@@ -295,7 +302,7 @@ export function SectionAmountBadge({
       className={`inline-flex min-w-[120px] flex-col items-center justify-center rounded-2xl border px-5 py-3 ${styles.card}`}
     >
       <span
-        className={`text-[10px] font-semibold uppercase tracking-widest ${styles.label}`}
+        className={`text-center text-[10px] font-semibold uppercase tracking-widest ${styles.label}`}
       >
         {label}
       </span>
@@ -304,9 +311,21 @@ export function SectionAmountBadge({
         sizeClass="whitespace-nowrap text-xl font-bold"
         numberColorClass={styles.amount}
       />
+      {sublabel ? (
+        <span className="mt-1 text-center text-[10px] text-gray-500">
+          {sublabel}
+        </span>
+      ) : null}
     </div>
   );
 }
+
+export type SectionHeaderBadge = {
+  label: string;
+  amount: number;
+  variant: SectionAmountBadgeVariant;
+  sublabel?: string;
+};
 
 export function SectionHeader({
   title,
@@ -314,6 +333,7 @@ export function SectionHeader({
   amount,
   amountLabel,
   badgeVariant = "claim",
+  badges,
   actions,
 }: {
   title: string;
@@ -321,10 +341,15 @@ export function SectionHeader({
   amount?: number;
   amountLabel?: string;
   badgeVariant?: SectionAmountBadgeVariant;
+  badges?: SectionHeaderBadge[];
   actions?: ReactNode;
 }) {
-  const showRight =
-    (amount != null && amountLabel != null) || actions != null;
+  const resolvedBadges: SectionHeaderBadge[] =
+    badges ??
+    (amount != null && amountLabel != null
+      ? [{ label: amountLabel, amount, variant: badgeVariant }]
+      : []);
+  const showRight = resolvedBadges.length > 0 || actions != null;
 
   return (
     <div className="mb-5 flex w-full items-center justify-between gap-3">
@@ -339,14 +364,20 @@ export function SectionHeader({
         </h2>
       </div>
       {showRight && (
-        <div className="flex shrink-0 items-center gap-3">
-          {amount != null && amountLabel != null && (
-            <SectionAmountBadge
-              label={amountLabel}
-              amount={amount}
-              variant={badgeVariant}
-            />
-          )}
+        <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
+          {resolvedBadges.length > 0 ? (
+            <div className="flex flex-wrap items-stretch justify-end gap-3">
+              {resolvedBadges.map((badge) => (
+                <SectionAmountBadge
+                  key={badge.label}
+                  label={badge.label}
+                  amount={badge.amount}
+                  variant={badge.variant}
+                  sublabel={badge.sublabel}
+                />
+              ))}
+            </div>
+          ) : null}
           {actions}
         </div>
       )}
