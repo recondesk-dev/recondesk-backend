@@ -456,6 +456,7 @@ export type ResultsBucketTabId =
   | "risk"
   | "itc"
   | "rule37"
+  | "gstr3b"
   | "followup";
 
 const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
@@ -463,6 +464,7 @@ const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "risk", label: "ITC at Risk" },
   { id: "itc", label: "Missed ITC" },
   { id: "rule37", label: "Rule 37" },
+  { id: "gstr3b", label: "GSTR-3B Check" },
   { id: "followup", label: "Follow-up Log" },
 ];
 
