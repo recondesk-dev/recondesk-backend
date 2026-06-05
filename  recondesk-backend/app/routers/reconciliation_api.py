@@ -561,6 +561,9 @@ class Rule37ResolveResponse(BaseModel):
 
 class Rule37ActionPatch(BaseModel):
     status: Literal["resolved", "acknowledged"]
+    amount_paid: Optional[float] = Field(None, ge=0)
+    tds_deducted: float = Field(default=0, ge=0)
+    tds_confirmed: bool = False
 
 
 class Rule37ActionResponse(BaseModel):
@@ -568,6 +571,11 @@ class Rule37ActionResponse(BaseModel):
     status: Literal["resolved", "acknowledged"]
     acted_by: str
     acted_at: str
+    amount_paid: Optional[float] = None
+    tds_deducted: float = 0
+    tds_confirmed: bool = False
+    total_settled: Optional[float] = None
+    payment_coverage: Optional[Literal["full", "partial"]] = None
 
 
 class Rule37SummaryStats(BaseModel):
@@ -586,6 +594,10 @@ class Rule37ActionHistoryItem(BaseModel):
     created_at: str
     generated_by: str
     generated_by_name: str
+    amount_paid: Optional[float] = None
+    tds_deducted: float = 0
+    total_settled: Optional[float] = None
+    payment_coverage: Optional[Literal["full", "partial"]] = None
 
 
 class Rule37SummaryResponse(BaseModel):
@@ -972,6 +984,23 @@ def _rule37_record_hash(record_id: str) -> str:
     return rid[4:] if rid.startswith("r37:") else rid
 
 
+def _rule37_payment_coverage(
+    total_settled: float, invoice_amount: float
+) -> Literal["full", "partial"]:
+    if invoice_amount <= 0:
+        return "full"
+    if total_settled + 0.005 >= invoice_amount:
+        return "full"
+    return "partial"
+
+
+def _rule37_invoice_amount_from_item(item: dict[str, Any]) -> float:
+    inv_paise = int(item.get("total_invoice_value_paise") or 0)
+    if inv_paise > 0:
+        return _paise_to_rupees(inv_paise)
+    return _paise_to_rupees(int(item.get("itc_at_risk_paise") or 0))
+
+
 def _upsert_rule37_action(
     sb,
     *,
@@ -979,6 +1008,11 @@ def _upsert_rule37_action(
     record_id: str,
     status_value: str,
     user_id: str,
+    amount_paid: Optional[float] = None,
+    tds_deducted: float = 0,
+    tds_confirmed: bool = False,
+    total_settled: Optional[float] = None,
+    payment_coverage: Optional[str] = None,
 ) -> None:
     """Persist a Rule 37 action in the dedicated ``rule37_actions`` table.
 
@@ -991,14 +1025,35 @@ def _upsert_rule37_action(
         "rule37 action upsert run_id=%s record_id=%s hash=%s status=%s",
         run_id, record_id, record_hash, status_value,
     )
+    payload: dict[str, Any] = {
+        "run_id": run_id,
+        "record_hash": record_hash,
+        "status": status_value,
+        "user_id": user_id,
+    }
+    if status_value == "resolved":
+        payload.update(
+            {
+                "amount_paid": round(float(amount_paid or 0), 2),
+                "tds_deducted": round(float(tds_deducted or 0), 2),
+                "tds_confirmed": bool(tds_confirmed),
+                "total_settled": round(float(total_settled or 0), 2),
+                "payment_coverage": payment_coverage,
+            }
+        )
+    else:
+        payload.update(
+            {
+                "amount_paid": None,
+                "tds_deducted": 0,
+                "tds_confirmed": False,
+                "total_settled": None,
+                "payment_coverage": None,
+            }
+        )
     try:
         sb.table("rule37_actions").upsert(
-            {
-                "run_id": run_id,
-                "record_hash": record_hash,
-                "status": status_value,
-                "user_id": user_id,
-            },
+            payload,
             on_conflict="run_id,record_hash",
         ).execute()
     except Exception as exc:
@@ -1056,7 +1111,10 @@ def _rule37_actions_history_for_run(sb, run_id: str) -> list[dict[str, Any]]:
     try:
         r = (
             sb.table("rule37_actions")
-            .select("id, record_hash, status, user_id, created_at")
+            .select(
+                "id, record_hash, status, user_id, created_at, amount_paid, "
+                "tds_deducted, tds_confirmed, total_settled, payment_coverage"
+            )
             .eq("run_id", run_id)
             .order("created_at", desc=True)
             .execute()
@@ -1065,6 +1123,31 @@ def _rule37_actions_history_for_run(sb, run_id: str) -> list[dict[str, Any]]:
     except Exception:
         _log.exception("rule37 actions history read failed run_id=%s", run_id)
         return []
+
+
+def _rule37_action_details_for_run(sb, run_id: str) -> dict[str, dict[str, Any]]:
+    try:
+        r = (
+            sb.table("rule37_actions")
+            .select(
+                "record_hash, status, amount_paid, tds_deducted, tds_confirmed, "
+                "total_settled, payment_coverage"
+            )
+            .eq("run_id", run_id)
+            .execute()
+        )
+    except Exception:
+        _log.exception("rule37 action details read failed run_id=%s", run_id)
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for row in r.data or []:
+        record_hash = str(row.get("record_hash") or "").strip()
+        status = str(row.get("status") or "").strip().lower()
+        if not record_hash or status not in {"resolved", "acknowledged"}:
+            continue
+        api_id = record_hash if record_hash.startswith("r37:") else f"r37:{record_hash}"
+        out[api_id] = row
+    return out
 
 
 def _all_rule37_rows_for_run(
@@ -1081,11 +1164,17 @@ def _all_rule37_rows_for_run(
             exe = qr.execute()
             chunk = exe.data or []
             if chunk:
+                action_details = _rule37_action_details_for_run(sb, rid)
                 body = [_db_rule37_warning_to_frontend(row) for row in chunk]
                 for row in body:
                     record_id = str(row.get("id") or "")
                     if record_id in actions:
                         row["rule37_action_status"] = actions[record_id]
+                    detail = action_details.get(record_id, {})
+                    coverage = str(detail.get("payment_coverage") or "").strip().lower()
+                    row["rule37_payment_coverage"] = (
+                        coverage if coverage in {"full", "partial"} else None
+                    )
                 return body
         except Exception:
             continue
@@ -1105,12 +1194,20 @@ def _build_rule37_summary_payload(
     saved = 0.0
     reversed_amt = 0.0
     pending = 0.0
+    action_details = _rule37_action_details_for_run(sb, rid)
+
     for row in rows:
         amt = float(row.get("amount") or 0)
         total += amt
+        row_id = str(row.get("id") or "")
         status = str(row.get("rule37_action_status") or "").strip().lower()
+        detail = action_details.get(row_id, {})
+        coverage = str(detail.get("payment_coverage") or "").strip().lower()
         if status == "resolved":
-            saved += amt
+            if coverage == "partial":
+                pending += amt
+            else:
+                saved += amt
         elif status == "acknowledged":
             reversed_amt += amt
         else:
@@ -1135,6 +1232,10 @@ def _build_rule37_summary_payload(
         if not action:
             continue
         uid = str(action_row.get("user_id") or "").strip()
+        tds = float(action_row.get("tds_deducted") or 0)
+        amt_paid = action_row.get("amount_paid")
+        total_settled = action_row.get("total_settled")
+        coverage = str(action_row.get("payment_coverage") or "").strip().lower()
         history.append(
             {
                 "id": str(action_row.get("id") or ""),
@@ -1145,6 +1246,16 @@ def _build_rule37_summary_payload(
                 "created_at": str(action_row.get("created_at") or ""),
                 "generated_by": uid,
                 "generated_by_name": names.get(uid, ""),
+                "amount_paid": (
+                    round(float(amt_paid), 2) if amt_paid is not None else None
+                ),
+                "tds_deducted": round(tds, 2),
+                "total_settled": (
+                    round(float(total_settled), 2)
+                    if total_settled is not None
+                    else None
+                ),
+                "payment_coverage": coverage if coverage in {"full", "partial"} else None,
             }
         )
 
@@ -2158,10 +2269,14 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
             continue
         uniq[stable] = item
     out: list[dict[str, Any]] = []
+    action_details = _rule37_action_details_for_run(sb, rid)
     for row_id, ru in uniq.items():
         amt = _paise_to_rupees(int(ru.get("itc_at_risk_paise") or 0))
+        invoice_amt = _rule37_invoice_amount_from_item(ru)
         ur = _rule37_urgency_from_status(ru.get("status"))
         action_status = actions.get(row_id)
+        detail = action_details.get(row_id, {})
+        coverage = str(detail.get("payment_coverage") or "").strip().lower()
         out.append(
             {
                 "id": row_id,
@@ -2169,6 +2284,10 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
                 "invoice_number": str(ru.get("invoice_number") or ""),
                 "invoice_date": str(ru.get("invoice_date") or "")[:40],
                 "amount": amt,
+                "invoice_amount": invoice_amt,
+                "rule37_payment_coverage": (
+                    coverage if coverage in {"full", "partial"} else None
+                ),
                 "match_level": "UNMATCHED",
                 "confidence_score": 0.0,
                 "discrepancy_note": None,
@@ -2198,11 +2317,17 @@ def _try_rule37_via_table(sb, rid: str, page: int, limit: int) -> Optional[dict[
             exe = qr.execute()
             total = exe.count if getattr(exe, "count", None) is not None else len(exe.data or [])
             chunk = exe.data or []
+            action_details = _rule37_action_details_for_run(sb, rid)
             body = [_db_rule37_warning_to_frontend(row) for row in chunk]
             for row in body:
                 record_id = str(row.get("id") or "")
                 if record_id in actions:
                     row["rule37_action_status"] = actions[record_id]
+                detail = action_details.get(record_id, {})
+                coverage = str(detail.get("payment_coverage") or "").strip().lower()
+                row["rule37_payment_coverage"] = (
+                    coverage if coverage in {"full", "partial"} else None
+                )
             return {
                 "data": body,
                 "total": int(total),
@@ -2230,12 +2355,17 @@ def _db_rule37_warning_to_frontend(row: dict[str, Any]) -> dict[str, Any]:
     action_status = str(row.get("action_status") or "").strip().lower()
     if action_status not in {"resolved", "acknowledged"}:
         action_status = None
+    inv_paise = int(row.get("total_invoice_value_paise") or 0)
+    invoice_amt = (
+        _paise_to_rupees(inv_paise) if inv_paise > 0 else round(ar, 2)
+    )
     return {
         "id": rid_str,
         "supplier_gstin": str(row.get("supplier_gstin") or ""),
         "invoice_number": str(row.get("invoice_number") or ""),
         "invoice_date": str(row.get("invoice_date") or ""),
         "amount": round(ar, 2),
+        "invoice_amount": invoice_amt,
         "match_level": "UNMATCHED",
         "confidence_score": 0.0,
         "discrepancy_note": None,
@@ -3243,19 +3373,65 @@ async def reconcile_run_rule37_action(
                 detail="missing user id",
             )
 
+        amount_paid: Optional[float] = None
+        tds_deducted = 0.0
+        tds_confirmed = False
+        total_settled: Optional[float] = None
+        payment_coverage: Optional[str] = None
+
+        if body.status == "resolved":
+            if body.amount_paid is None or float(body.amount_paid) <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="amount_paid is required for mark paid",
+                )
+            tds_deducted = round(float(body.tds_deducted or 0), 2)
+            if tds_deducted < 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="tds_deducted cannot be negative",
+                )
+            if tds_deducted > 0 and not body.tds_confirmed:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="tds_confirmed is required when tds_deducted > 0",
+                )
+            amount_paid = round(float(body.amount_paid), 2)
+            total_settled = round(amount_paid + tds_deducted, 2)
+            invoice_amount = 0.0
+            for row in _build_rule37_rows(sb, rid, p, notes):
+                if _normalize_record_id(str(row.get("id") or "")) == rec_id:
+                    invoice_amount = float(row.get("invoice_amount") or 0)
+                    break
+            payment_coverage = _rule37_payment_coverage(total_settled, invoice_amount)
+            tds_confirmed = bool(body.tds_confirmed) if tds_deducted > 0 else False
+
         _upsert_rule37_action(
             sb,
             run_id=rid,
             record_id=rec_id,
             status_value=body.status,
             user_id=uid,
+            amount_paid=amount_paid,
+            tds_deducted=tds_deducted,
+            tds_confirmed=tds_confirmed,
+            total_settled=total_settled,
+            payment_coverage=payment_coverage,
         )
         now = datetime.now(timezone.utc).isoformat()
+        cov_out: Optional[Literal["full", "partial"]] = None
+        if payment_coverage in {"full", "partial"}:
+            cov_out = payment_coverage  # type: ignore[assignment]
         return Rule37ActionResponse(
             id=rec_id,
             status=body.status,
             acted_by=uid,
             acted_at=now,
+            amount_paid=amount_paid,
+            tds_deducted=tds_deducted,
+            tds_confirmed=tds_confirmed,
+            total_settled=total_settled,
+            payment_coverage=cov_out,
         )
     except HTTPException:
         raise

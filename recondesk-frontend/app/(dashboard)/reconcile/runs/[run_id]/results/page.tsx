@@ -1,6 +1,10 @@
 "use client";
 
 import { Check, ChevronDown, FileSpreadsheet, FileText, Loader2, Shield, Trash2, X } from "lucide-react";
+import {
+  Rule37MarkPaidModal,
+  type Rule37MarkPaidTarget,
+} from "@/components/reconcile/Rule37MarkPaidModal";
 import { Rule37SummarySection } from "@/components/reconcile/Rule37SummarySection";
 import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
@@ -130,6 +134,8 @@ type ReconcileRow = {
   purchase_register_data: Record<string, string | number>;
   rule37_urgency?: Rule37Urgency;
   rule37_action_status?: Rule37ActionStatus | null;
+  invoice_amount?: number;
+  rule37_payment_coverage?: "full" | "partial" | null;
   section_17_5_category?: string;
 };
 
@@ -706,6 +712,8 @@ export default function ReconcileResultsPage() {
   const [rule37UpdatingIds, setRule37UpdatingIds] = useState<Set<string>>(
     () => new Set()
   );
+  const [rule37MarkPaidTarget, setRule37MarkPaidTarget] =
+    useState<Rule37MarkPaidTarget | null>(null);
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const addToast = useCallback((message: string, type: Toast["type"]) => {
@@ -1340,7 +1348,15 @@ export default function ReconcileResultsPage() {
   }, [deleting]);
 
   const actOnRule37 = useCallback(
-    async (recordId: string, status: Rule37ActionStatus) => {
+    async (
+      recordId: string,
+      status: Rule37ActionStatus,
+      payment?: {
+        amount_paid: number;
+        tds_deducted: number;
+        tds_confirmed: boolean;
+      }
+    ) => {
       if (!runId || !authToken || rule37UpdatingIds.has(recordId)) return;
       setRule37UpdatingIds((prev) => {
         const next = new Set(prev);
@@ -1348,15 +1364,20 @@ export default function ReconcileResultsPage() {
         return next;
       });
       try {
-        await apiFetch<{
+        const body =
+          status === "resolved" && payment
+            ? { status, ...payment }
+            : { status };
+        const res = await apiFetch<{
           id: string;
           status: Rule37ActionStatus;
           acted_by: string;
           acted_at: string;
+          payment_coverage?: "full" | "partial" | null;
         }>(`/api/reconcile/runs/${runId}/rule37/${encodeURIComponent(recordId)}`, {
           method: "PATCH",
           token: authToken,
-          body: JSON.stringify({ status }),
+          body: JSON.stringify(body),
         });
         setLocalRule37ActionStatus((prev) => {
           const next = new Map(prev);
@@ -1369,18 +1390,28 @@ export default function ReconcileResultsPage() {
             ...current,
             data: current.data.map((row) =>
               row.id === recordId
-                ? { ...row, rule37_action_status: status }
+                ? {
+                    ...row,
+                    rule37_action_status: status,
+                    rule37_payment_coverage:
+                      res.payment_coverage ?? row.rule37_payment_coverage,
+                  }
                 : row
             ),
           };
         }, { revalidate: false });
         setRule37SummaryRefreshKey((k) => k + 1);
-        addToast(
-          status === "resolved"
-            ? "Rule 37 marked paid"
-            : "Rule 37 ITC reversal noted",
-          "success"
-        );
+        if (status === "resolved") {
+          setRule37MarkPaidTarget(null);
+          addToast(
+            res.payment_coverage === "partial"
+              ? "Rule 37 marked paid (partial payment)"
+              : "Rule 37 marked paid",
+            "success"
+          );
+        } else {
+          addToast("Rule 37 ITC reversal noted", "success");
+        }
       } catch (e: unknown) {
         let msg = "Failed to update Rule 37 status";
         if (
@@ -2913,6 +2944,11 @@ export default function ReconcileResultsPage() {
                         {actionStatus === "resolved" && (
                           <span className="inline-flex items-center rounded-lg bg-gray-100 px-4 py-2 text-[13px] text-gray-400">
                             Mark Paid ✓
+                            {row.rule37_payment_coverage === "partial" ? (
+                              <span className="ml-1 text-amber-600">
+                                (Partial)
+                              </span>
+                            ) : null}
                           </span>
                         )}
                         {actionStatus === "acknowledged" && (
@@ -2926,7 +2962,15 @@ export default function ReconcileResultsPage() {
                               type="button"
                               disabled={rule37UpdatingIds.has(row.id)}
                               className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 transition-all duration-150 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                              onClick={() => void actOnRule37(row.id, "resolved")}
+                              onClick={() =>
+                                setRule37MarkPaidTarget({
+                                  id: row.id,
+                                  invoice_number: row.invoice_number,
+                                  supplier_gstin: row.supplier_gstin,
+                                  invoice_amount:
+                                    row.invoice_amount ?? row.amount,
+                                })
+                              }
                             >
                               Mark Paid
                             </button>
@@ -2944,6 +2988,31 @@ export default function ReconcileResultsPage() {
                     </div>
                   );
                 })}
+              <Rule37MarkPaidModal
+                open={rule37MarkPaidTarget != null}
+                row={rule37MarkPaidTarget}
+                saving={
+                  rule37MarkPaidTarget != null &&
+                  rule37UpdatingIds.has(rule37MarkPaidTarget.id)
+                }
+                onClose={() => {
+                  if (
+                    rule37MarkPaidTarget &&
+                    rule37UpdatingIds.has(rule37MarkPaidTarget.id)
+                  ) {
+                    return;
+                  }
+                  setRule37MarkPaidTarget(null);
+                }}
+                onSubmit={(payment) => {
+                  if (!rule37MarkPaidTarget) return;
+                  void actOnRule37(
+                    rule37MarkPaidTarget.id,
+                    "resolved",
+                    payment
+                  );
+                }}
+              />
               {rule37Data &&
                 !rule37Error &&
                 rule37Data.total_pages > 1 && (
