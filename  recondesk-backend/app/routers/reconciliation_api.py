@@ -3334,7 +3334,7 @@ async def reconcile_run_late_matches(
 async def reconcile_run_matched_bucket(
     run_id: str,
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=250),
     sort: str = Query("amount_desc"),
     search: Optional[str] = None,
     match_level: Optional[str] = None,
