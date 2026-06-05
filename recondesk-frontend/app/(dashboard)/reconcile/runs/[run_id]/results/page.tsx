@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, ChevronDown, FileSpreadsheet, FileText, Loader2, Shield, Trash2, X } from "lucide-react";
+import { Rule37SummarySection } from "@/components/reconcile/Rule37SummarySection";
 import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
 import { GstinCell } from "@/components/ui/GstinCell";
@@ -692,6 +693,7 @@ export default function ReconcileResultsPage() {
   const [localRule37ActionStatus, setLocalRule37ActionStatus] = useState<
     Map<string, Rule37ActionStatus>
   >(() => new Map());
+  const [rule37SummaryRefreshKey, setRule37SummaryRefreshKey] = useState(0);
   const [rule37UpdatingIds, setRule37UpdatingIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -1364,6 +1366,7 @@ export default function ReconcileResultsPage() {
             ),
           };
         }, { revalidate: false });
+        setRule37SummaryRefreshKey((k) => k + 1);
         addToast(
           status === "resolved"
             ? "Rule 37 marked paid"
@@ -2839,6 +2842,13 @@ export default function ReconcileResultsPage() {
           </button>
           {rule37Open && (
             <div className="mt-5 border-t border-[#F0F0F0] pt-5">
+              {authToken && (
+                <Rule37SummarySection
+                  runId={runId}
+                  authToken={authToken}
+                  refreshKey={rule37SummaryRefreshKey}
+                />
+              )}
               {rule37Error && (
                 <SectionError
                   message="Failed to load."

@@ -180,13 +180,38 @@ export function AmountDisplay({ amount }: { amount: number }) {
   return <InrAmount amount={amount} />;
 }
 
-type StatAccent = "neutral" | "matched" | "missed" | "risk";
+type StatAccent =
+  | "neutral"
+  | "matched"
+  | "missed"
+  | "risk"
+  | "saved"
+  | "reversed"
+  | "pending";
 
-const statAccentValue: Record<StatAccent, { value: string; dot: string }> = {
+const statAccentValue: Record<
+  StatAccent,
+  { value: string; dot: string; card?: string }
+> = {
   neutral: { value: "text-gray-800", dot: "bg-gray-300" },
   matched: { value: "text-gray-800", dot: "bg-brand" },
   missed: { value: "text-gray-900", dot: "bg-red-500" },
   risk: { value: "text-gray-900", dot: "bg-amber-500" },
+  saved: {
+    value: "text-green-700",
+    dot: "bg-green-500",
+    card: "bg-green-50 border-green-100",
+  },
+  reversed: {
+    value: "text-red-600",
+    dot: "bg-red-500",
+    card: "bg-red-50 border-red-100",
+  },
+  pending: {
+    value: "text-amber-700",
+    dot: "bg-amber-500",
+    card: "bg-amber-50 border-amber-100",
+  },
 };
 
 export function StatCard({
@@ -199,12 +224,18 @@ export function StatCard({
   accent?: StatAccent;
 }) {
   const colors = statAccentValue[accent];
-  const isCurrency = accent === "missed" || accent === "risk";
+  const isCurrency =
+    accent === "missed" ||
+    accent === "risk" ||
+    accent === "saved" ||
+    accent === "reversed" ||
+    accent === "pending" ||
+    accent === "neutral";
   return (
     <div
-      className={`box-border flex min-w-0 w-full flex-col gap-2 overflow-hidden rounded-2xl border border-[#F0F0F0] bg-white py-3.5 ${
-        isCurrency ? "px-4" : "pl-5 pr-4"
-      }`}
+      className={`box-border flex min-w-0 w-full flex-col gap-2 overflow-hidden rounded-2xl border py-3.5 ${
+        colors.card ?? "border-[#F0F0F0] bg-white"
+      } ${isCurrency ? "px-4" : "pl-5 pr-4"}`}
     >
       <div className="flex min-w-0 items-center gap-1.5">
         <span

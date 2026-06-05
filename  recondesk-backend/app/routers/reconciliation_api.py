@@ -573,6 +573,29 @@ class Rule37ActionResponse(BaseModel):
     acted_at: str
 
 
+class Rule37SummaryStats(BaseModel):
+    total_itc_at_risk: float
+    itc_saved: float
+    itc_reversed: float
+    pending_action: float
+
+
+class Rule37ActionHistoryItem(BaseModel):
+    id: str
+    invoice_number: str
+    supplier_gstin: str
+    amount: float
+    action: Literal["mark_paid", "reverse_itc"]
+    created_at: str
+    generated_by: str
+    generated_by_name: str
+
+
+class Rule37SummaryResponse(BaseModel):
+    summary: Rule37SummaryStats
+    action_history: list[Rule37ActionHistoryItem]
+
+
 class DecisionStatusPatch(BaseModel):
     status: Optional[Literal["acted", "ignored", "pending"]] = None
     decision_status: Optional[Literal["acted", "ignored", "pending"]] = None
@@ -992,6 +1015,122 @@ def _rule37_record_exists_in_run(
             except Exception:
                 continue
     return False
+
+
+def _rule37_status_to_action(status: str) -> Optional[str]:
+    st = (status or "").strip().lower()
+    if st == "resolved":
+        return "mark_paid"
+    if st == "acknowledged":
+        return "reverse_itc"
+    return None
+
+
+def _rule37_actions_history_for_run(sb, run_id: str) -> list[dict[str, Any]]:
+    try:
+        r = (
+            sb.table("rule37_actions")
+            .select("id, record_hash, status, user_id, created_at")
+            .eq("run_id", run_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return list(r.data or [])
+    except Exception:
+        _log.exception("rule37 actions history read failed run_id=%s", run_id)
+        return []
+
+
+def _all_rule37_rows_for_run(
+    sb,
+    rid: str,
+    payload: dict[str, Any],
+    notes: Counter[str],
+) -> list[dict[str, Any]]:
+    """Return all Rule 37 rows for a run (unpaginated)."""
+    actions = _rule37_actions_for_run(sb, rid)
+    for col in ("reconciliation_run_id", "run_id"):
+        try:
+            qr = sb.table("rule37_warnings").select("*").eq(col, rid)  # type: ignore[arg-type]
+            exe = qr.execute()
+            chunk = exe.data or []
+            if chunk:
+                body = [_db_rule37_warning_to_frontend(row) for row in chunk]
+                for row in body:
+                    record_id = str(row.get("id") or "")
+                    if record_id in actions:
+                        row["rule37_action_status"] = actions[record_id]
+                return body
+        except Exception:
+            continue
+    return _build_rule37_rows(sb, rid, payload, notes)
+
+
+def _build_rule37_summary_payload(
+    sb,
+    rid: str,
+    payload: dict[str, Any],
+    notes: Counter[str],
+) -> dict[str, Any]:
+    rows = _all_rule37_rows_for_run(sb, rid, payload, notes)
+    row_by_id = {str(r.get("id") or ""): r for r in rows}
+
+    total = 0.0
+    saved = 0.0
+    reversed_amt = 0.0
+    pending = 0.0
+    for row in rows:
+        amt = float(row.get("amount") or 0)
+        total += amt
+        status = str(row.get("rule37_action_status") or "").strip().lower()
+        if status == "resolved":
+            saved += amt
+        elif status == "acknowledged":
+            reversed_amt += amt
+        else:
+            pending += amt
+
+    action_rows = _rule37_actions_history_for_run(sb, rid)
+    uids = {
+        str(a.get("user_id") or "").strip()
+        for a in action_rows
+        if a.get("user_id")
+    }
+    names = _followup_audit_user_names(uids)
+
+    history: list[dict[str, Any]] = []
+    for action_row in action_rows:
+        record_hash = str(action_row.get("record_hash") or "").strip()
+        api_id = (
+            record_hash if record_hash.startswith("r37:") else f"r37:{record_hash}"
+        )
+        rec = row_by_id.get(api_id, {})
+        action = _rule37_status_to_action(str(action_row.get("status") or ""))
+        if not action:
+            continue
+        uid = str(action_row.get("user_id") or "").strip()
+        history.append(
+            {
+                "id": str(action_row.get("id") or ""),
+                "invoice_number": str(rec.get("invoice_number") or ""),
+                "supplier_gstin": str(rec.get("supplier_gstin") or ""),
+                "amount": round(float(rec.get("amount") or 0), 2),
+                "action": action,
+                "created_at": str(action_row.get("created_at") or ""),
+                "generated_by": uid,
+                "generated_by_name": names.get(uid, ""),
+            }
+        )
+
+    return {
+        "summary": {
+            "total_itc_at_risk": round(total, 2),
+            "itc_saved": round(saved, 2),
+            "itc_reversed": round(reversed_amt, 2),
+            "pending_action": round(pending, 2),
+        },
+        "action_history": history,
+    }
 
 
 def _rule37_actions_for_run(sb, run_id: str) -> dict[str, str]:
@@ -2998,6 +3137,23 @@ async def reconcile_run_matched_bucket(
     else:
         extracted.sort(key=lambda x: (x["amount"], x["id"]))
     return _paginated_body(extracted, page, limit)
+
+
+@reconcile_runs_router.get(
+    "/runs/{run_id}/rule37/summary",
+    response_model=Rule37SummaryResponse,
+)
+async def reconcile_run_rule37_summary(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    notes = _notes_count_for_run(sb, rid)
+    body = _build_rule37_summary_payload(sb, rid, p, notes)
+    return Rule37SummaryResponse(**body)
 
 
 @reconcile_runs_router.get("/runs/{run_id}/rule37")
