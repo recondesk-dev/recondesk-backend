@@ -1652,7 +1652,7 @@ export default function ReconcileResultsPage() {
               </div>
               <div className="min-w-0 overflow-hidden rounded-2xl">
                 <StatCard
-                  label="At Risk"
+                  label="ITC at Risk"
                   accent="risk"
                   value={
                     <span className={`${statCardValueClass} tabular-nums text-gray-900`}>
@@ -2056,7 +2056,7 @@ export default function ReconcileResultsPage() {
               title="ITC at Risk — Supplier Has Not Filed"
               dotColor="#DC2626"
               amount={summary.wrongful_risk_total_amount}
-              amountLabel="TOTAL AT RISK"
+              amountLabel="TOTAL ITC AT RISK"
               badgeVariant="risk"
               actions={
                 <button

@@ -68,14 +68,14 @@ def _safe_int_paise(val: Any, default: int = 0) -> int:
             return default
 
 
-def _wrongful_risk_taxable_paise(
+def _wrongful_risk_itc_paise(
     w: dict[str, Any], matcher: Optional[dict[str, Any]] = None
 ) -> int:
-    """Taxable invoice value in paise for wrongful ITC risk totals."""
+    """ITC at risk in paise (total tax/GST), not taxable invoice value."""
     mt = matcher or {}
     return _safe_int_paise(
-        w.get("taxable_amount_paise"),
-        _safe_int_paise(mt.get("taxable_amount_paise"), 0),
+        w.get("total_tax_paise"),
+        _safe_int_paise(mt.get("total_tax_paise"), 0),
     )
 
 
@@ -1478,7 +1478,7 @@ def _build_reconcile_summary(
     pr_db = ro.load_pr_map(sb, rid)
     wrongful_total_rupees = sum(
         _paise_to_rupees(
-            _wrongful_risk_taxable_paise(
+            _wrongful_risk_itc_paise(
                 w,
                 (pr_db.get(str(w.get("id") or "").strip()) or {}).get("matcher")
                 or {},
@@ -1649,7 +1649,7 @@ def _build_wrongful_risk_records(
         cell = pr_db.get(pid) or {}
         mt = cell.get("matcher") or {}
         rd = cell.get("record_data") if isinstance(cell.get("record_data"), dict) else {}
-        amt = _paise_to_rupees(_wrongful_risk_taxable_paise(w, mt))
+        amt = _paise_to_rupees(_wrongful_risk_itc_paise(w, mt))
         mf_wr: list[str] = []
         sg_wr = str(w.get("supplier_gstin") or mt.get("supplier_gstin") or "").strip()
         if sg_wr:
