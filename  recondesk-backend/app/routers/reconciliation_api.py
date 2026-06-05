@@ -1432,6 +1432,54 @@ def _merged_record_data(rd: Optional[dict[str, Any]], matcher: Optional[dict[str
             out[str(k)] = v
         else:
             out[str(k)] = str(v) if v is not None else ""
+    return _enrich_reconcile_display_fields(out)
+
+
+def _enrich_reconcile_display_fields(merged: dict[str, Any]) -> dict[str, Any]:
+    """Map canonical paise fields to rupee keys expected by the results UI."""
+    out = dict(merged)
+
+    def set_rupees_from_paise(paise_key: str, *display_keys: str) -> None:
+        if paise_key not in merged:
+            return
+        try:
+            rupees = _paise_to_rupees(int(merged[paise_key]))
+        except (TypeError, ValueError):
+            return
+        for dk in display_keys:
+            if dk not in out or out[dk] in (None, ""):
+                out[dk] = rupees
+
+    set_rupees_from_paise(
+        "taxable_amount_paise",
+        "taxable_amount",
+        "Taxable Amount",
+        "taxable",
+        "taxable_val",
+    )
+    set_rupees_from_paise("igst_paise", "igst", "IGST", "integrated_tax")
+    set_rupees_from_paise("cgst_paise", "cgst", "CGST", "central_tax")
+    set_rupees_from_paise("sgst_paise", "sgst", "SGST", "state_tax")
+
+    sg = merged.get("supplier_gstin")
+    if sg not in (None, ""):
+        if not out.get("gstin"):
+            out["gstin"] = sg
+        if not out.get("GSTIN"):
+            out["GSTIN"] = sg
+
+    inv = merged.get("invoice_number_normalized") or merged.get("invoice_number")
+    if inv not in (None, ""):
+        if not out.get("invoice_number"):
+            out["invoice_number"] = inv
+        if not out.get("Invoice Number"):
+            out["Invoice Number"] = inv
+
+    inv_d = merged.get("invoice_date")
+    if inv_d not in (None, ""):
+        if not out.get("Invoice Date"):
+            out["Invoice Date"] = inv_d
+
     return out
 
 
