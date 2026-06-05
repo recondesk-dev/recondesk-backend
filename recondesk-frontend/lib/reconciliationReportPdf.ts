@@ -1,6 +1,6 @@
 import type { jsPDF } from "jspdf";
 
-import { formatINR } from "@/lib/format";
+import { formatINR, formatINRNumber } from "@/lib/format";
 import { formatFollowupAuditTimeIst, formatFollowupAuditStatus } from "@/lib/followupAudit";
 import type { ReportPdfDataset, ReportReconcileRow } from "@/lib/reconciliationReportData";
 
@@ -227,6 +227,22 @@ function drawSubtitle(doc: jsPDF, y: number, text: string): number {
   return y + lines.length * 3.5 + 3;
 }
 
+function fitBoldText(
+  doc: jsPDF,
+  text: string,
+  maxWidth: number,
+  startSize: number,
+  minSize: number
+): number {
+  doc.setFont("helvetica", "bold");
+  for (let size = startSize; size >= minSize; size -= 0.5) {
+    doc.setFontSize(size);
+    if (doc.getTextWidth(text) <= maxWidth) return size;
+  }
+  doc.setFontSize(minSize);
+  return minSize;
+}
+
 function drawStatBox(
   doc: jsPDF,
   x: number,
@@ -235,28 +251,61 @@ function drawStatBox(
   h: number,
   label: string,
   value: string,
-  dot?: [number, number, number]
+  dot?: [number, number, number],
+  opts?: { currency?: boolean }
 ) {
+  const pad = 3;
+  const innerW = w - pad * 2;
+
   doc.setDrawColor(...BORDER);
   doc.setLineWidth(0.3);
   doc.setFillColor(255, 255, 255);
   doc.rect(x, y, w, h, "FD");
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
+  doc.setFontSize(6.5);
   setGrey(doc);
-  doc.text(label.toUpperCase(), x + 3, y + 6);
+  const labelLines = doc.splitTextToSize(label.toUpperCase(), innerW - (dot ? 4 : 0));
+  doc.text(labelLines.slice(0, 2), x + pad, y + 5.5);
 
   if (dot) {
     doc.setFillColor(...dot);
-    doc.circle(x + w - 4, y + 5, 1, "F");
+    doc.circle(x + w - pad - 1, y + 4.5, 1, "F");
   }
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
   setCharcoal(doc);
-  const valLines = doc.splitTextToSize(value, w - 6);
-  doc.text(valLines, x + 3, y + 14);
+  const valueY = y + 13;
+
+  if (opts?.currency) {
+    const display = value.startsWith("₹") ? value : `₹${value}`;
+    fitBoldText(doc, display, innerW, 12, 7);
+    let lines = doc.splitTextToSize(display, innerW).slice(0, 2);
+    if (lines.length > 1) {
+      fitBoldText(doc, display, innerW, 9, 7);
+      lines = doc.splitTextToSize(display, innerW).slice(0, 2);
+    }
+    doc.text(lines, x + pad, valueY);
+    return;
+  }
+
+  fitBoldText(doc, value, innerW, 16, 9);
+  const lines = doc.splitTextToSize(value, innerW).slice(0, 2);
+  doc.text(lines, x + pad, valueY);
+}
+
+function drawCurrencyStatBox(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  label: string,
+  amount: number,
+  dot?: [number, number, number]
+) {
+  drawStatBox(doc, x, y, w, h, label, formatINRNumber(amount), dot, {
+    currency: true,
+  });
 }
 
 type AutoTableFn = (
@@ -388,7 +437,7 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
 
   const gap = 3;
   const boxW = (CONTENT_W - gap * 3) / 4;
-  const boxH = 22;
+  const boxH = 24;
   const boxY = y;
 
   drawStatBox(
@@ -410,42 +459,47 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
     summary.matched_count.toLocaleString("en-IN"),
     GREEN_DOT
   );
-  drawStatBox(
+  drawCurrencyStatBox(
     doc,
     MARGIN + (boxW + gap) * 2,
     boxY,
     boxW,
     boxH,
     "ITC at Risk",
-    formatINR(summary.wrongful_risk_total_amount),
+    summary.wrongful_risk_total_amount,
     RED_DOT
   );
-  drawStatBox(
+  drawCurrencyStatBox(
     doc,
     MARGIN + (boxW + gap) * 3,
     boxY,
     boxW,
     boxH,
     "Recoverable ITC",
-    formatINR(summary.missed_itc_total_amount),
+    summary.missed_itc_total_amount,
     ORANGE_DOT
   );
 
   y = boxY + boxH + 10;
 
   const barH = 5;
+  const barW = CONTENT_W * 0.68;
+  const labelW = CONTENT_W - barW - 2;
   doc.setFillColor(...LIGHT_GREY);
-  doc.rect(MARGIN, y, CONTENT_W, barH, "F");
-  const fillW = Math.max(0, Math.min(CONTENT_W, (CONTENT_W * matchPct) / 100));
+  doc.rect(MARGIN, y, barW, barH, "F");
+  const fillW = Math.max(0, Math.min(barW, (barW * matchPct) / 100));
   doc.setFillColor(...PURPLE);
   doc.rect(MARGIN, y, fillW, barH, "F");
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   setCharcoal(doc);
-  doc.text(`Match Rate: ${matchPct.toFixed(1)}%`, PAGE_W - MARGIN, y + 3.8, {
-    align: "right",
-  });
+  doc.text(
+    `Match Rate: ${matchPct.toFixed(1)}%`,
+    MARGIN + barW + 2 + labelW,
+    y + 3.6,
+    { align: "right", maxWidth: labelW }
+  );
 
   y += 12;
 
@@ -469,6 +523,7 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
     ["Unmatched Records", unmatched.toLocaleString("en-IN")],
   ];
 
+  const valueColW = CONTENT_W * 0.42;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   for (const [label, value] of metrics) {
@@ -476,9 +531,14 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
     doc.text(label, MARGIN, y);
     doc.setFont("helvetica", "bold");
     setCharcoal(doc);
-    doc.text(value, PAGE_W - MARGIN, y, { align: "right" });
+    const valSize = value.startsWith("₹")
+      ? fitBoldText(doc, value, valueColW, 8.5, 7)
+      : 8.5;
+    doc.setFontSize(valSize);
+    const valLines = doc.splitTextToSize(value, valueColW);
+    doc.text(valLines, PAGE_W - MARGIN, y, { align: "right" });
     doc.setFont("helvetica", "normal");
-    y += 6;
+    y += Math.max(6, valLines.length * 4.5);
     doc.setDrawColor(...BORDER);
     doc.setLineWidth(0.15);
     doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
@@ -536,13 +596,14 @@ function buildRiskSection(
       formatShortDateIst(row.invoice_date),
       formatINR(taxable),
       formatINR(row.amount),
-      (row.decision_what || "—").slice(0, 80),
-      (row.decision_next || "—").slice(0, 80),
+      row.decision_what || "—",
+      row.decision_next || "—",
     ];
   });
 
   autoTable(doc, {
     ...baseTableOpts(y),
+    tableWidth: CONTENT_W,
     head: [
       [
         "#",
@@ -557,9 +618,14 @@ function buildRiskSection(
     ],
     body,
     columnStyles: {
-      0: { cellWidth: 8 },
-      4: { halign: "right" },
-      5: { halign: "right" },
+      0: { cellWidth: 7 },
+      1: { cellWidth: 28 },
+      2: { cellWidth: 17 },
+      3: { cellWidth: 16 },
+      4: { cellWidth: 19, halign: "right" },
+      5: { cellWidth: 19, halign: "right" },
+      6: { cellWidth: 38 },
+      7: { cellWidth: 38 },
     },
   });
 
@@ -645,6 +711,7 @@ function buildMissedSection(
 
   autoTable(doc, {
     ...baseTableOpts(y),
+    tableWidth: CONTENT_W,
     head: [
       [
         "#",
@@ -658,9 +725,13 @@ function buildMissedSection(
     ],
     body,
     columnStyles: {
-      0: { cellWidth: 8 },
-      4: { halign: "right" },
-      5: { halign: "right" },
+      0: { cellWidth: 7 },
+      1: { cellWidth: 30 },
+      2: { cellWidth: 20 },
+      3: { cellWidth: 17 },
+      4: { cellWidth: 22, halign: "right" },
+      5: { cellWidth: 22, halign: "right" },
+      6: { cellWidth: 64 },
     },
   });
 
@@ -706,7 +777,7 @@ function buildRule37Section(
 
   const gap = 4;
   const miniW = (CONTENT_W - gap * 2) / 3;
-  const miniH = 16;
+  const miniH = 20;
   const miniY = y;
   const rs = data.rule37Summary.summary;
 
@@ -719,23 +790,23 @@ function buildRule37Section(
     "Invoices Tracked",
     data.rule37Rows.length.toLocaleString("en-IN")
   );
-  drawStatBox(
+  drawCurrencyStatBox(
     doc,
     MARGIN + miniW + gap,
     miniY,
     miniW,
     miniH,
     "ITC Secured (Mark Paid)",
-    formatINR(rs.itc_saved)
+    rs.itc_saved
   );
-  drawStatBox(
+  drawCurrencyStatBox(
     doc,
     MARGIN + (miniW + gap) * 2,
     miniY,
     miniW,
     miniH,
     "Pending Action",
-    formatINR(rs.pending_action)
+    rs.pending_action
   );
 
   y = miniY + miniH + 8;
@@ -768,6 +839,7 @@ function buildRule37Section(
 
   autoTable(doc, {
     ...baseTableOpts(y),
+    tableWidth: CONTENT_W,
     head: [
       [
         "#",
@@ -782,9 +854,14 @@ function buildRule37Section(
     ],
     body,
     columnStyles: {
-      0: { cellWidth: 8 },
-      4: { halign: "right" },
-      6: { halign: "right" },
+      0: { cellWidth: 7 },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 30 },
+      3: { cellWidth: 18 },
+      4: { cellWidth: 22, halign: "right" },
+      5: { cellWidth: 20 },
+      6: { cellWidth: 14, halign: "right" },
+      7: { cellWidth: 22 },
     },
     didParseCell: (hookData: {
       section: string;
