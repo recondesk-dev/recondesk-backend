@@ -2035,6 +2035,79 @@ export default function ReconcileResultsPage() {
               }
             />
 
+            <div className="mb-6">
+              <h3 className="mb-4 text-base font-semibold text-gray-900">
+                Top Suppliers by ITC at Risk
+              </h3>
+              {riskLoading && !riskPageData && (
+                <div className="animate-pulse space-y-2 py-2">
+                  <div className="h-8 rounded bg-gray-100" />
+                  <div className="h-8 rounded bg-gray-100/90" />
+                  <div className="h-8 rounded bg-gray-100/80" />
+                </div>
+              )}
+              {!(riskLoading && !riskPageData) &&
+                topSuppliersByRisk.length === 0 && (
+                  <p className="text-sm text-gray-500">
+                    No supplier risk data available.
+                  </p>
+                )}
+              {!(riskLoading && !riskPageData) &&
+                topSuppliersByRisk.length > 0 && (
+                  <>
+                    <div className={tableWrapClass}>
+                      <table className={topSuppliersTableClass}>
+                        <thead className={tableHeadClass}>
+                          <tr>
+                            <th className={topSuppliersThGstin}>Supplier GSTIN</th>
+                            <th className={topSuppliersThTradeName}>Trade Name</th>
+                            <th className={topSuppliersThInvoiceCount}>
+                              Invoice Count
+                            </th>
+                            <th className={topSuppliersThTotal}>
+                              Total ITC at Risk
+                            </th>
+                            <th className={topSuppliersThImpact}>Impact</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {topSuppliersByRisk.map((s) => (
+                            <tr key={s.gstin} className={tableRowClass}>
+                              <td className={topSuppliersTdGstin}>
+                                <GstinCell gstin={s.gstin} />
+                              </td>
+                              <td className={topSuppliersTdTradeName}>
+                                <HoverTextCell
+                                  text={s.tradeName}
+                                  displayClassName="text-[13px] font-medium text-gray-800"
+                                />
+                              </td>
+                              <td className={topSuppliersTdInvoiceCount}>
+                                {s.count.toLocaleString("en-IN")}
+                              </td>
+                              <td className={topSuppliersTdTotal}>
+                                <AmountDisplay amount={s.total} />
+                              </td>
+                              <td className={topSuppliersTdImpact}>
+                                <ImpactBadge level={s.impact} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="mt-3 text-right">
+                      <Link
+                        href={`/reconcile/runs/${runId}/vendors`}
+                        className="text-[13px] font-medium text-brand hover:underline"
+                      >
+                        View full vendor intelligence →
+                      </Link>
+                    </div>
+                  </>
+                )}
+            </div>
+
             <div className={`${filterRowClass} mb-4 items-center`}>
                 <input
                   type="text"
@@ -2368,73 +2441,6 @@ export default function ReconcileResultsPage() {
                     </>
                   }
                 />
-              </>
-            )}
-          </div>
-        )}
-
-        {summary && summary.wrongful_risk_count > 0 && (
-          <div className={sectionContainerClass}>
-            <h2 className="mb-4 text-lg font-semibold text-gray-900">
-              Top Suppliers by ITC at Risk
-            </h2>
-            {riskLoading && !riskPageData && (
-              <div className="animate-pulse space-y-2 py-2">
-                <div className="h-8 rounded bg-gray-100" />
-                <div className="h-8 rounded bg-gray-100/90" />
-                <div className="h-8 rounded bg-gray-100/80" />
-              </div>
-            )}
-            {!(riskLoading && !riskPageData) && topSuppliersByRisk.length === 0 && (
-              <p className="text-sm text-gray-500">No supplier risk data available.</p>
-            )}
-            {!(riskLoading && !riskPageData) && topSuppliersByRisk.length > 0 && (
-              <>
-                <div className={tableWrapClass}>
-                  <table className={topSuppliersTableClass}>
-                    <thead className={tableHeadClass}>
-                      <tr>
-                        <th className={topSuppliersThGstin}>Supplier GSTIN</th>
-                        <th className={topSuppliersThTradeName}>Trade Name</th>
-                        <th className={topSuppliersThInvoiceCount}>Invoice Count</th>
-                        <th className={topSuppliersThTotal}>Total ITC at Risk</th>
-                        <th className={topSuppliersThImpact}>Impact</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {topSuppliersByRisk.map((s) => (
-                        <tr key={s.gstin} className={tableRowClass}>
-                          <td className={topSuppliersTdGstin}>
-                            <GstinCell gstin={s.gstin} />
-                          </td>
-                          <td className={topSuppliersTdTradeName}>
-                            <HoverTextCell
-                              text={s.tradeName}
-                              displayClassName="text-[13px] font-medium text-gray-800"
-                            />
-                          </td>
-                          <td className={topSuppliersTdInvoiceCount}>
-                            {s.count.toLocaleString("en-IN")}
-                          </td>
-                          <td className={topSuppliersTdTotal}>
-                            <AmountDisplay amount={s.total} />
-                          </td>
-                          <td className={topSuppliersTdImpact}>
-                            <ImpactBadge level={s.impact} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="mt-3 text-right">
-                  <Link
-                    href={`/reconcile/runs/${runId}/vendors`}
-                    className="text-[13px] font-medium text-brand hover:underline"
-                  >
-                    View full vendor intelligence →
-                  </Link>
-                </div>
               </>
             )}
           </div>
