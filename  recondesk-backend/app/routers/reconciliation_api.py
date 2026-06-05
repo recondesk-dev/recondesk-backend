@@ -597,6 +597,7 @@ class Rule37ActionResponse(BaseModel):
     tds_deducted: float = 0
     tds_confirmed: bool = False
     total_settled: Optional[float] = None
+    remaining_unpaid_amount: Optional[float] = None
     payment_coverage: Optional[Literal["full", "partial"]] = None
 
 
@@ -619,6 +620,7 @@ class Rule37ActionHistoryItem(BaseModel):
     amount_paid: Optional[float] = None
     tds_deducted: float = 0
     total_settled: Optional[float] = None
+    remaining_unpaid_amount: Optional[float] = None
     payment_coverage: Optional[Literal["full", "partial"]] = None
 
 
@@ -1034,6 +1036,7 @@ def _upsert_rule37_action(
     tds_deducted: float = 0,
     tds_confirmed: bool = False,
     total_settled: Optional[float] = None,
+    remaining_unpaid_amount: Optional[float] = None,
     payment_coverage: Optional[str] = None,
 ) -> None:
     """Persist a Rule 37 action in the dedicated ``rule37_actions`` table.
@@ -1060,6 +1063,11 @@ def _upsert_rule37_action(
                 "tds_deducted": round(float(tds_deducted or 0), 2),
                 "tds_confirmed": bool(tds_confirmed),
                 "total_settled": round(float(total_settled or 0), 2),
+                "remaining_unpaid_amount": (
+                    round(float(remaining_unpaid_amount), 2)
+                    if remaining_unpaid_amount is not None
+                    else None
+                ),
                 "payment_coverage": payment_coverage,
             }
         )
@@ -1070,6 +1078,7 @@ def _upsert_rule37_action(
                 "tds_deducted": 0,
                 "tds_confirmed": False,
                 "total_settled": None,
+                "remaining_unpaid_amount": None,
                 "payment_coverage": None,
             }
         )
@@ -1135,7 +1144,8 @@ def _rule37_actions_history_for_run(sb, run_id: str) -> list[dict[str, Any]]:
             sb.table("rule37_actions")
             .select(
                 "id, record_hash, status, user_id, created_at, amount_paid, "
-                "tds_deducted, tds_confirmed, total_settled, payment_coverage"
+                "tds_deducted, tds_confirmed, total_settled, remaining_unpaid_amount, "
+                "payment_coverage"
             )
             .eq("run_id", run_id)
             .order("created_at", desc=True)
@@ -1153,7 +1163,7 @@ def _rule37_action_details_for_run(sb, run_id: str) -> dict[str, dict[str, Any]]
             sb.table("rule37_actions")
             .select(
                 "record_hash, status, amount_paid, tds_deducted, tds_confirmed, "
-                "total_settled, payment_coverage"
+                "total_settled, remaining_unpaid_amount, payment_coverage"
             )
             .eq("run_id", run_id)
             .execute()
@@ -1257,6 +1267,7 @@ def _build_rule37_summary_payload(
         tds = float(action_row.get("tds_deducted") or 0)
         amt_paid = action_row.get("amount_paid")
         total_settled = action_row.get("total_settled")
+        remaining_unpaid = action_row.get("remaining_unpaid_amount")
         coverage = str(action_row.get("payment_coverage") or "").strip().lower()
         history.append(
             {
@@ -1275,6 +1286,11 @@ def _build_rule37_summary_payload(
                 "total_settled": (
                     round(float(total_settled), 2)
                     if total_settled is not None
+                    else None
+                ),
+                "remaining_unpaid_amount": (
+                    round(float(remaining_unpaid), 2)
+                    if remaining_unpaid is not None
                     else None
                 ),
                 "payment_coverage": coverage if coverage in {"full", "partial"} else None,
@@ -3463,13 +3479,14 @@ async def reconcile_run_rule37_action(
         tds_deducted = 0.0
         tds_confirmed = False
         total_settled: Optional[float] = None
+        remaining_unpaid_amount: Optional[float] = None
         payment_coverage: Optional[str] = None
 
         if body.status == "resolved":
             if body.amount_paid is None or float(body.amount_paid) <= 0:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="amount_paid is required for mark paid",
+                    detail="amount_paid is required for mark as settled",
                 )
             tds_deducted = round(float(body.tds_deducted or 0), 2)
             if tds_deducted < 0:
@@ -3477,10 +3494,10 @@ async def reconcile_run_rule37_action(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="tds_deducted cannot be negative",
                 )
-            if tds_deducted > 0 and not body.tds_confirmed:
+            if not body.tds_confirmed:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="tds_confirmed is required when tds_deducted > 0",
+                    detail="settlement confirmation is required",
                 )
             amount_paid = round(float(body.amount_paid), 2)
             total_settled = round(amount_paid + tds_deducted, 2)
@@ -3489,8 +3506,19 @@ async def reconcile_run_rule37_action(
                 if _normalize_record_id(str(row.get("id") or "")) == rec_id:
                     invoice_amount = float(row.get("invoice_amount") or 0)
                     break
+            if invoice_amount > 0 and total_settled > invoice_amount + 0.005:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "settlement exceeds invoice amount; check whether net paid "
+                        "is net of TDS/statutory deduction"
+                    ),
+                )
+            remaining_unpaid_amount = round(
+                max(invoice_amount - total_settled, 0.0), 2
+            )
             payment_coverage = _rule37_payment_coverage(total_settled, invoice_amount)
-            tds_confirmed = bool(body.tds_confirmed) if tds_deducted > 0 else False
+            tds_confirmed = bool(body.tds_confirmed)
 
         _upsert_rule37_action(
             sb,
@@ -3502,6 +3530,7 @@ async def reconcile_run_rule37_action(
             tds_deducted=tds_deducted,
             tds_confirmed=tds_confirmed,
             total_settled=total_settled,
+            remaining_unpaid_amount=remaining_unpaid_amount,
             payment_coverage=payment_coverage,
         )
         now = datetime.now(timezone.utc).isoformat()
@@ -3517,6 +3546,7 @@ async def reconcile_run_rule37_action(
             tds_deducted=tds_deducted,
             tds_confirmed=tds_confirmed,
             total_settled=total_settled,
+            remaining_unpaid_amount=remaining_unpaid_amount,
             payment_coverage=cov_out,
         )
     except HTTPException:

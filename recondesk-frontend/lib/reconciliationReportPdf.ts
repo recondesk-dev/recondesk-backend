@@ -120,8 +120,8 @@ function rule37DeadlineInfo(invoiceDate: string): {
 function rule37StatusLabel(row: ReportReconcileRow): string {
   if (row.rule37_action_status === "resolved") {
     return row.rule37_payment_coverage === "partial"
-      ? "Partial Payment"
-      : "Mark Paid";
+      ? "Partial Settlement"
+      : "Marked as Settled";
   }
   if (row.rule37_action_status === "acknowledged") return "ITC Reversed";
   const u = row.rule37_urgency;
@@ -805,7 +805,7 @@ function buildRule37Section(
     miniY,
     miniW,
     miniH,
-    "ITC Secured (Mark Paid)",
+    "ITC Secured (Settled)",
     rs.itc_saved
   );
   drawCurrencyStatBox(

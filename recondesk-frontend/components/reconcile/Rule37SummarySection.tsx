@@ -18,8 +18,10 @@ import { apiFetch } from "@/lib/api";
 import {
   formatRule37ActionLabel,
   formatRule37ActionTimeIst,
-  formatRule37TdsDeducted,
-  formatRule37TotalSettled,
+  formatRule37NetPaid,
+  formatRule37RemainingUnpaid,
+  formatRule37SettlementConsidered,
+  formatRule37StatutoryDeduction,
   type Rule37SummaryResponse,
 } from "@/lib/rule37Summary";
 
@@ -152,10 +154,16 @@ export function Rule37SummarySection({
                   <th className={tableHeadCellClass}>Supplier GSTIN</th>
                   <th className={`${tableHeadCellClass} text-right`}>Amount</th>
                   <th className={`${tableHeadCellClass} text-right`}>
-                    TDS Deducted
+                    Net Paid to Supplier
                   </th>
                   <th className={`${tableHeadCellClass} text-right`}>
-                    Total Settled
+                    TDS / Statutory Deduction
+                  </th>
+                  <th className={`${tableHeadCellClass} text-right`}>
+                    Settlement Considered
+                  </th>
+                  <th className={`${tableHeadCellClass} text-right`}>
+                    Remaining Unpaid
                   </th>
                   <th className={tableHeadCellClass}>Action</th>
                   <th className={tableHeadCellClass}>Date</th>
@@ -175,10 +183,16 @@ export function Rule37SummarySection({
                       <InrAmount amount={row.amount} />
                     </td>
                     <td className={`${tableCellClass} text-right text-[13px]`}>
-                      {formatRule37TdsDeducted(row.tds_deducted)}
+                      {formatRule37NetPaid(row.amount_paid)}
+                    </td>
+                    <td className={`${tableCellClass} text-right text-[13px]`}>
+                      {formatRule37StatutoryDeduction(row.tds_deducted)}
                     </td>
                     <td className={`${tableCellClass} text-right text-[13px] font-semibold`}>
-                      {formatRule37TotalSettled(row)}
+                      {formatRule37SettlementConsidered(row)}
+                    </td>
+                    <td className={`${tableCellClass} text-right text-[13px]`}>
+                      {formatRule37RemainingUnpaid(row)}
                     </td>
                     <td className={tableCellClass}>
                       {formatRule37ActionLabel(row.action)}
