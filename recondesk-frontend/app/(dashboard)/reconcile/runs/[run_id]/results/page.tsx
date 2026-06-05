@@ -2847,6 +2847,7 @@ export default function ReconcileResultsPage() {
                   runId={runId}
                   authToken={authToken}
                   refreshKey={rule37SummaryRefreshKey}
+                  onPdfError={(msg) => addToast(msg, "error")}
                 />
               )}
               {rule37Error && (

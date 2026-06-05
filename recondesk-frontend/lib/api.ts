@@ -459,6 +459,14 @@ export const reconcileRunsApi = {
 
 export type { SupplierFollowupAuditRow } from "@/lib/followupAudit";
 
+export const rule37ExportApi = {
+  getExportData: (token: string, runId: string) =>
+    apiFetch<import("@/lib/rule37CompliancePdf").Rule37CompliancePdfData>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/rule37/export-data`,
+      { token }
+    ),
+};
+
 export const followupAuditApi = {
   listForRun: (token: string, runId: string, query = "") =>
     apiFetch<import("@/lib/followupAudit").SupplierFollowupAuditRow[]>(
