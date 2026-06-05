@@ -578,6 +578,21 @@ def test_l6_empty_invoice_both_sides_different_gstin():
     assert r is None
 
 
+def test_no_match_multiple_pr_rows_returns_none_not_max_error():
+    """All PR candidates L6 must return None (never max() on empty candidates)."""
+    g = _base_rec()
+    others = [
+        _base_rec(
+            supplier_gstin=GSTIN_TN,
+            invoice_number=f"INV{i:03d}",
+            taxable_paise=g["taxable_amount_paise"],
+        )
+        for i in range(3)
+    ]
+    r = match_gstr_to_pr(g, others)
+    assert r is None
+
+
 # --- Edge (2) ---
 
 

@@ -707,7 +707,7 @@ def execute_reconciliation(run_id: str) -> None:
         pr_for_rule37 = [
             {
                 **p,
-                "id": p["id"],
+                "id": str(p["id"]),
                 "invoice_date": p.get("invoice_date")
                 or gstr_start.isoformat(),
             }

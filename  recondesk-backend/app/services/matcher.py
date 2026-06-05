@@ -879,6 +879,8 @@ def match_gstr_to_pr(
         original_period_sel = pr_date_sel
     else:
         # fallback to normal scoring (level → confidence → date signal); ties broken like ``rank_key``
+        if not candidates:
+            return None
         best_scored = max(candidates, key=lambda x: x["score"])
         tied = [c for c in candidates if c["score"] == best_scored["score"]]
         if len(tied) > 1 and tied[0]["r"].level == 5:
