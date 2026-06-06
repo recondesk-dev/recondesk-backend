@@ -461,7 +461,7 @@ export type ResultsBucketTabId =
 
 const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "matched", label: "Matched" },
-  { id: "risk", label: "In 2B, Not Booked" },
+  { id: "risk", label: "ITC at Risk" },
   { id: "itc", label: "Missed ITC" },
   { id: "rule37", label: "Rule 37" },
   { id: "gstr3b", label: "GSTR-3B Check" },

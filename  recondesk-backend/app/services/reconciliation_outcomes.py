@@ -15,13 +15,13 @@ from app.services import reconciliation_record_adapter as rec_adapt
 from app.services.credit_note_handler import classify_document
 from app.services.matcher import TOTAL_TOLERANCE_PAISE, match_gstr_to_pr
 
-# Rule 37 statuses that surface as active risk ("warnings / flag").
-# Fresh invoices within the 180-day window (WATCH) are NOT concerns — they are
-# tracked on the watch list and must not gate finalize or inflate ITC at risk.
+# Rule 37 statuses that surface as “warnings / flag”
 RULE37_CONCERNS = frozenset(
     {
         "PAID_LATE",
         "OVERDUE_UNPAID",
+        "WARNING_30_DAYS",
+        "WARNING_60_DAYS",
     }
 )
 _RULE37_CONCERNS = RULE37_CONCERNS
@@ -341,7 +341,7 @@ def build_outcome_rows(
         rows.append(
             OutcomeRow(
                 id=f"mi:{gid}",
-                category="wrongful_risk",
+                category="missed_itc",
                 supplier_gstin=str(mi.get("supplier_gstin") or g.get("supplier_gstin") or ""),
                 supplier_name=_gstr_name(g_rd),
                 invoice_number=invn,
@@ -368,10 +368,12 @@ def build_outcome_rows(
         rd = pcell.get("record_data") or {}
         invn = str(wr.get("invoice_number_normalized") or p.get("invoice_number_normalized") or "")
         invd = wr.get("invoice_date") or p.get("invoice_date")
+        r37r = r37x.get(pid, {})
+        r37f = (r37r.get("status") or "") in _RULE37_CONCERNS
         rows.append(
             OutcomeRow(
                 id=f"wr:{pid}",
-                category="missed_itc",
+                category="wrongful_risk",
                 supplier_gstin=str(wr.get("supplier_gstin") or p.get("supplier_gstin") or ""),
                 supplier_name=None,
                 invoice_number=invn,
@@ -384,8 +386,8 @@ def build_outcome_rows(
                 total_tax_diff_paise=0,
                 decision_what=DecisionWhat.MISSING_IN_2B,
                 decision_why=DecisionWhy.INVOICE_NOT_FILED,
-                decision_next=DecisionNext.CLAIM_MISSED_ITC,
-                rule37_flag=False,
+                decision_next=DecisionNext.REVERSE_ITC,
+                rule37_flag=r37f,
                 blocked_credit_flag=False,
                 is_credit_note=False,
             )
