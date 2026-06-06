@@ -30,6 +30,107 @@ SCHEMA_VERSION = "gstr2b_v1"
 
 
 # ---------------------------------------------------------------------------
+# Skip diagnostics — canonical categories
+# ---------------------------------------------------------------------------
+# Every skipped invoice is bucketed into exactly one canonical category below.
+# These power the human-readable "breakdown by reason" without altering the
+# verbose ``error_reason`` strings (kept stable for existing consumers/tests).
+
+SKIP_MISSING_GSTIN = "missing_gstin"
+SKIP_INVALID_GSTIN = "invalid_gstin"
+SKIP_MISSING_INVOICE_NUMBER = "missing_invoice_number"
+SKIP_MISSING_INVOICE_DATE = "missing_invoice_date"
+SKIP_INVALID_INVOICE_DATE = "invalid_invoice_date"
+SKIP_INVALID_AMOUNT = "invalid_amount"
+SKIP_UNSUPPORTED_SCHEMA = "unsupported_schema"
+SKIP_MALFORMED_INVOICE = "malformed_invoice"
+SKIP_OTHER = "other"
+
+# Stable display order for the breakdown.
+SKIP_CATEGORY_ORDER: tuple[str, ...] = (
+    SKIP_MISSING_GSTIN,
+    SKIP_INVALID_GSTIN,
+    SKIP_MISSING_INVOICE_NUMBER,
+    SKIP_MISSING_INVOICE_DATE,
+    SKIP_INVALID_INVOICE_DATE,
+    SKIP_INVALID_AMOUNT,
+    SKIP_UNSUPPORTED_SCHEMA,
+    SKIP_MALFORMED_INVOICE,
+    SKIP_OTHER,
+)
+
+# Human-readable labels for UI / logs.
+SKIP_CATEGORY_LABELS: dict[str, str] = {
+    SKIP_MISSING_GSTIN: "Missing supplier GSTIN",
+    SKIP_INVALID_GSTIN: "Invalid supplier GSTIN",
+    SKIP_MISSING_INVOICE_NUMBER: "Missing invoice number",
+    SKIP_MISSING_INVOICE_DATE: "Missing invoice date",
+    SKIP_INVALID_INVOICE_DATE: "Invalid invoice date",
+    SKIP_INVALID_AMOUNT: "Invalid amount",
+    SKIP_UNSUPPORTED_SCHEMA: "Unsupported schema",
+    SKIP_MALFORMED_INVOICE: "Malformed invoice object",
+    SKIP_OTHER: "Other",
+}
+
+# Internal raise messages (kept as constants so the raise site and the
+# classifier never drift apart). The exact text is part of ``error_reason``.
+ERR_MISSING_DATE = "missing_field for dt"
+ERR_INVALID_AMOUNT = "Invalid value format for invoice amount"
+ERR_INVALID_INVOICE_STRUCTURE = "invalid_invoice_structure"
+ERR_UNKNOWN_NOTE_TYPE = "unknown_note_type"
+ERR_MISSING_SUPPLIER_GSTIN = "missing_supplier_gstin"
+ERR_INVALID_CTIN_TYPE = "Invalid type for field: ctin"
+
+
+def _classify_norm_error(field: str, reason: str) -> tuple[str, str]:
+    """Map a NormalizationError (field, reason) to (category, reason_code)."""
+    reason_code = f"{field}:{reason}"
+    if field == "gstin":
+        return (
+            SKIP_MISSING_GSTIN if reason == "empty" else SKIP_INVALID_GSTIN,
+            reason_code,
+        )
+    if field == "invoice_number":
+        # None / non-str / empty-after-normalization all mean "no usable number".
+        return SKIP_MISSING_INVOICE_NUMBER, reason_code
+    if field == "date":
+        return SKIP_INVALID_INVOICE_DATE, reason_code
+    if field == "amount":
+        return SKIP_INVALID_AMOUNT, reason_code
+    return SKIP_OTHER, reason_code
+
+
+def _classify_value_error(message: str) -> tuple[str, str]:
+    """Map an internal ValueError message to (category, reason_code)."""
+    msg = message or ""
+    if msg.startswith(ERR_MISSING_DATE):
+        return SKIP_MISSING_INVOICE_DATE, "missing_invoice_date"
+    if msg == ERR_INVALID_AMOUNT or msg.startswith("invalid amount for"):
+        return SKIP_INVALID_AMOUNT, "invalid_amount"
+    if msg == ERR_UNKNOWN_NOTE_TYPE:
+        return SKIP_UNSUPPORTED_SCHEMA, "unknown_note_type"
+    if msg.startswith("invalid_type for itms"):
+        return SKIP_MALFORMED_INVOICE, "invalid_items_structure"
+    if msg == ERR_INVALID_INVOICE_STRUCTURE:
+        return SKIP_MALFORMED_INVOICE, "invalid_invoice_structure"
+    if msg.startswith("invalid_item_structure"):
+        return SKIP_MALFORMED_INVOICE, "invalid_item_structure"
+    if msg.startswith("invalid_type for rt") or msg.startswith("unparseable rt"):
+        return SKIP_MALFORMED_INVOICE, "invalid_rate"
+    if msg.startswith("invalid_type for"):
+        # Numeric tax fields (txval/igst/cgst/sgst/cess) failing type checks.
+        return SKIP_INVALID_AMOUNT, "invalid_amount_type"
+    return SKIP_OTHER, "other"
+
+
+def _classify_skip_exception(exc: BaseException) -> tuple[str, str]:
+    """Return (category, reason_code) for any per-invoice parse exception."""
+    if isinstance(exc, NormalizationError):
+        return _classify_norm_error(exc.field, exc.reason)
+    return _classify_value_error(str(exc))
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -50,12 +151,17 @@ def _make_skip_entry(
     invoice_number: str,
     error_reason: str,
     raw_invoice: Any,
+    *,
+    category: str = SKIP_OTHER,
+    reason_code: str = "other",
 ) -> dict:
     return {
         "section": section,
         "supplier_gstin": supplier_gstin,
         "invoice_number": invoice_number,
         "error_reason": error_reason,
+        "category": category,
+        "reason_code": reason_code,
         "raw_data": (
             dict(raw_invoice)
             if isinstance(raw_invoice, dict)
@@ -290,7 +396,7 @@ def _parse_b2b_invoice(
 
     raw_dt = _invoice_date_value(invoice, is_cdnr=False)
     if raw_dt is None:
-        raise ValueError("missing_field for dt")
+        raise ValueError(ERR_MISSING_DATE)
     result = _validate_result(normalize_date(raw_dt), "invoice_date")
     if result.notes:
         normalization_notes["invoice_date"] = result.notes
@@ -299,11 +405,11 @@ def _parse_b2b_invoice(
     try:
         raw_val = _parse_numeric_field(invoice.get("val"), "val")
     except ValueError:
-        raise ValueError("Invalid value format for invoice amount")
+        raise ValueError(ERR_INVALID_AMOUNT)
     try:
         invoice_value_paise = _amount_str_to_paise(raw_val, "invoice_value")
     except ValueError as e:
-        raise ValueError("Invalid value format for invoice amount") from e
+        raise ValueError(ERR_INVALID_AMOUNT) from e
 
     pos = str(invoice.get("pos", ""))
     reverse_charge = _reverse_charge_value(invoice)
@@ -380,7 +486,7 @@ def _parse_cdnr_invoice(
     elif ntty == "D":
         document_type = "DEBIT_NOTE"
     else:
-        raise ValueError("unknown_note_type")
+        raise ValueError(ERR_UNKNOWN_NOTE_TYPE)
 
     # Support both GSTN API field names: "nt_num" (current) and "ntnum" (legacy)
     raw_inum_val = invoice.get("nt_num") or invoice.get("ntnum")
@@ -392,7 +498,7 @@ def _parse_cdnr_invoice(
 
     raw_dt = _invoice_date_value(invoice, is_cdnr=True)
     if raw_dt is None:
-        raise ValueError("missing_field for dt")
+        raise ValueError(ERR_MISSING_DATE)
     result = _validate_result(normalize_date(raw_dt), "invoice_date")
     if result.notes:
         normalization_notes["invoice_date"] = result.notes
@@ -401,11 +507,11 @@ def _parse_cdnr_invoice(
     try:
         raw_val = _parse_numeric_field(invoice.get("val"), "val")
     except ValueError:
-        raise ValueError("Invalid value format for invoice amount")
+        raise ValueError(ERR_INVALID_AMOUNT)
     try:
         invoice_value_paise = _amount_str_to_paise(raw_val, "invoice_value")
     except ValueError as e:
-        raise ValueError("Invalid value format for invoice amount") from e
+        raise ValueError(ERR_INVALID_AMOUNT) from e
 
     pos = str(invoice.get("pos", ""))
     reverse_charge = _reverse_charge_value(invoice)
@@ -595,17 +701,31 @@ def _process_section(
 
         raw_ctin = supplier.get("ctin")
         if raw_ctin is None or (isinstance(raw_ctin, str) and not raw_ctin.strip()):
-            ctin_error = "missing_supplier_gstin"
+            ctin_error = ERR_MISSING_SUPPLIER_GSTIN
+            ctin_category = SKIP_MISSING_GSTIN
+            ctin_reason_code = "missing_supplier_gstin"
         elif not isinstance(raw_ctin, str):
-            ctin_error = "Invalid type for field: ctin"
+            ctin_error = ERR_INVALID_CTIN_TYPE
+            ctin_category = SKIP_INVALID_GSTIN
+            ctin_reason_code = "ctin_invalid_type"
         else:
             ctin_error = None
+            ctin_category = None
+            ctin_reason_code = None
 
         if ctin_error is not None:
             for inv in inv_list:
                 inv_num = _get_inv_num(inv, is_cdnr)
                 skipped.append(
-                    _make_skip_entry(section_name, "unknown", inv_num, ctin_error, inv)
+                    _make_skip_entry(
+                        section_name,
+                        "unknown",
+                        inv_num,
+                        ctin_error,
+                        inv,
+                        category=ctin_category,
+                        reason_code=ctin_reason_code,
+                    )
                 )
             continue
 
@@ -632,10 +752,21 @@ def _process_section(
                     "supplier_gstin",
                 )
             else:
+                gstin_category, gstin_reason_code = _classify_norm_error(
+                    e.field, e.reason
+                )
                 for inv in inv_list:
                     inv_num = _get_inv_num(inv, is_cdnr)
                     skipped.append(
-                        _make_skip_entry(section_name, raw_ctin, inv_num, str(e), inv)
+                        _make_skip_entry(
+                            section_name,
+                            raw_ctin,
+                            inv_num,
+                            str(e),
+                            inv,
+                            category=gstin_category,
+                            reason_code=gstin_reason_code,
+                        )
                     )
                 continue
 
@@ -646,7 +777,15 @@ def _process_section(
 
             if not isinstance(invoice, dict):
                 skipped.append(
-                    _make_skip_entry(section_name, supplier_gstin, "unknown", "invalid_invoice_structure", invoice)
+                    _make_skip_entry(
+                        section_name,
+                        supplier_gstin,
+                        "unknown",
+                        ERR_INVALID_INVOICE_STRUCTURE,
+                        invoice,
+                        category=SKIP_MALFORMED_INVOICE,
+                        reason_code="invalid_invoice_structure",
+                    )
                 )
                 continue
 
@@ -660,10 +799,19 @@ def _process_section(
                         invoice, supplier_gstin, raw_ctin, section_name, is_amendment
                     )
                 records.append(record)
-            except NormalizationError as e:
-                skipped.append(_make_skip_entry(section_name, supplier_gstin, raw_inum, str(e), invoice))
-            except (ValueError, KeyError, TypeError) as e:
-                skipped.append(_make_skip_entry(section_name, supplier_gstin, raw_inum, str(e), invoice))
+            except (NormalizationError, ValueError, KeyError, TypeError) as e:
+                category, reason_code = _classify_skip_exception(e)
+                skipped.append(
+                    _make_skip_entry(
+                        section_name,
+                        supplier_gstin,
+                        raw_inum,
+                        str(e),
+                        invoice,
+                        category=category,
+                        reason_code=reason_code,
+                    )
+                )
             except Exception:
                 raise
 
@@ -849,6 +997,36 @@ def parse_gstr2b(file_content) -> dict:
         reason = entry["error_reason"]
         skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
 
+    # Canonical, low-cardinality aggregations for the "breakdown by reason" UI.
+    # ``skip_breakdown`` groups by category; ``skip_reason_codes`` groups by the
+    # stable reason_code (neither includes raw values, so they aggregate cleanly).
+    category_counts: dict = {}
+    reason_code_counts: dict = {}
+    for entry in skipped:
+        cat = entry.get("category", SKIP_OTHER)
+        code = entry.get("reason_code", "other")
+        category_counts[cat] = category_counts.get(cat, 0) + 1
+        reason_code_counts[code] = reason_code_counts.get(code, 0) + 1
+
+    skip_breakdown = {
+        cat: category_counts[cat]
+        for cat in SKIP_CATEGORY_ORDER
+        if category_counts.get(cat)
+    }
+    # Surface any unexpected categories deterministically at the end.
+    for cat in sorted(category_counts):
+        if cat not in skip_breakdown:
+            skip_breakdown[cat] = category_counts[cat]
+
+    skip_breakdown_labeled = [
+        {
+            "category": cat,
+            "label": SKIP_CATEGORY_LABELS.get(cat, cat),
+            "count": count,
+        }
+        for cat, count in skip_breakdown.items()
+    ]
+
     normalization_note_frequency: dict = {}
     for record in records:
         for field_notes in record.get("normalization_notes", {}).values():
@@ -864,6 +1042,9 @@ def parse_gstr2b(file_content) -> dict:
         "total_parsed": total_parsed,
         "total_skipped": total_skipped,
         "skip_reasons": skip_reasons,
+        "skip_breakdown": skip_breakdown,
+        "skip_breakdown_labeled": skip_breakdown_labeled,
+        "skip_reason_codes": reason_code_counts,
         "sections_present": sections_present,
         "sections_empty": sections_empty,
         "normalization_note_frequency": normalization_note_frequency,
@@ -878,6 +1059,7 @@ def parse_gstr2b(file_content) -> dict:
         "skipped": skipped,
         "total_parsed": total_parsed,
         "total_skipped": total_skipped,
+        "skip_breakdown": skip_breakdown,
         "metrics": metrics,
     }
     logger.debug(

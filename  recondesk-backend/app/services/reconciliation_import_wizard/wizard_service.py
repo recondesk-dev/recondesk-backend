@@ -266,34 +266,68 @@ def run_sanity_gstr2b_json(raw: bytes) -> tuple[list[dict[str, Any]], int]:
     record_count = int(parsed.get("total_parsed") or 0)
     skipped = int(parsed.get("total_skipped") or 0)
 
+    breakdown_labeled = (
+        parsed.get("metrics", {}).get("skip_breakdown_labeled") or []
+    )
+    breakdown_text = _format_skip_breakdown(breakdown_labeled)
+    affected = _skip_breakdown_affected_records(breakdown_labeled)
+
     if record_count == 0:
         detail = "No B2B/CDN invoices parsed."
         if skipped:
             detail += f" {skipped} invoice(s) skipped — check export format."
+            if breakdown_text:
+                detail += f" Breakdown: {breakdown_text}."
         checks.append(
             {
                 "id": "records",
                 "label": "Records present",
                 "status": "warning",
                 "detail": detail,
-                "affected_records": [],
+                "affected_records": affected,
             }
         )
     else:
         detail = f"{record_count} invoice(s) parsed."
         if skipped:
             detail += f" {skipped} skipped."
+            if breakdown_text:
+                detail += f" Breakdown: {breakdown_text}."
         checks.append(
             {
                 "id": "records",
                 "label": "Records present",
                 "status": "pass",
                 "detail": detail,
-                "affected_records": [],
+                "affected_records": affected,
             }
         )
 
     return checks, record_count
+
+
+def _format_skip_breakdown(breakdown_labeled: list[dict[str, Any]]) -> str:
+    """Render the parser's skip breakdown as ``"Label (n), …"`` for UI detail text."""
+    return ", ".join(
+        f"{item.get('label', item.get('category', 'Other'))} ({int(item.get('count', 0))})"
+        for item in breakdown_labeled
+        if int(item.get("count", 0)) > 0
+    )
+
+
+def _skip_breakdown_affected_records(
+    breakdown_labeled: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Expose the breakdown as structured affected_records rows for the wizard UI."""
+    return [
+        {
+            "category": item.get("category"),
+            "label": item.get("label", item.get("category")),
+            "count": int(item.get("count", 0)),
+        }
+        for item in breakdown_labeled
+        if int(item.get("count", 0)) > 0
+    ]
 
 
 def _read_pr_dataframe(raw: bytes, filename: str) -> pd.DataFrame:
