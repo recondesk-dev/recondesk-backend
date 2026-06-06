@@ -222,16 +222,36 @@ async def log_audit(
     """Insert one row into *audit_logs*. Safe to call from any layer; never raises."""
     try:
         uid = str(user.get("id", "") or "").strip() or None
+        full_name = str(user.get("full_name") or "").strip()
+        email = str(user.get("email") or "").strip()
         role = str(user.get("role") or "").strip().lower()
+
+        # Enrich from the profile when the caller passed a thin user context
+        # (e.g. the log_action wrappers), so user_name/role are never silently null.
+        if uid and (not full_name or not role or not email):
+            prof = get_user_profile(uid) or {}
+            full_name = full_name or str(prof.get("full_name") or "").strip()
+            email = email or str(prof.get("email") or "").strip()
+            if not role:
+                role = str(prof.get("role") or "").strip().lower()
+
         if uid and not role:
-            role = resolve_user_role(
-                user.get("role"),
-                user_id=uid,
-                email=user.get("email"),
-                client=db,
-            )
-        user_name = str(user.get("full_name") or user.get("email") or "Unknown").strip()
-        firm_id = resolve_firm_id(db, user)
+            try:
+                role = resolve_user_role(
+                    None,
+                    user_id=uid,
+                    email=email or None,
+                    client=db,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("audit role resolution failed for user_id=%s: %s", uid, exc)
+                role = ""
+
+        # 1. user_name → full_name, else email, else Unknown
+        user_name = full_name or email or "Unknown"
+        # 2/3. role + firm_id resolved from the enriched context
+        enriched_user = {**user, "role": role, "email": email or user.get("email")}
+        firm_id = resolve_firm_id(db, enriched_user)
 
         base = _mask_metadata(dict(metadata or {}))
         meta_obj = _redact_gstin_in_strings(base)
