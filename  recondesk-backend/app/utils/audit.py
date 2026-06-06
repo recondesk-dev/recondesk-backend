@@ -188,7 +188,7 @@ async def log_audit(
                 client=db,
             )
         user_name = str(user.get("full_name") or user.get("email") or "Unknown").strip()
-        firm_id = resolve_firm_id(db, user)
+        firm_id = str(user.get("firm_id") or "").strip() or resolve_firm_id(db, user)
 
         base = _mask_metadata(dict(metadata or {}))
         meta_obj = _redact_gstin_in_strings(base)
