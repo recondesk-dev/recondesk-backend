@@ -40,17 +40,21 @@ def test_l5_probable():
 
 
 def test_missed_itc():
-    d = generate_decision("MISSED_ITC", source_software="Tally", itc_amount="₹18,000.00")
-    assert "GSTR-2B" in d.what
-    assert "Tally" in d.why
+    d = generate_decision(
+        "MISSED_ITC",
+        supplier_gstin="27AABCU9603R1ZX",
+        itc_amount="₹18,000.00",
+    )
+    assert "purchase register" in d.what
+    assert "27AABCU9603R1ZX" in d.why
     assert "₹18,000.00" in d.next
 
 
 def test_wrongful_itc():
-    d = generate_decision("WRONGFUL_ITC", supplier_gstin="27AABCU9603R1ZX", itc_amount="₹9,000.00")
-    assert "purchase register" in d.what
-    assert "₹9,000.00" in d.why
-    assert "27AABCU9603R1ZX" in d.next
+    d = generate_decision("WRONGFUL_ITC", source_software="Tally", itc_amount="₹9,000.00")
+    assert "GSTR-2B" in d.what
+    assert "Tally" in d.why
+    assert "₹9,000.00" in d.next
 
 
 def test_rule37_overdue():

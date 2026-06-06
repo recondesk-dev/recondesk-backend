@@ -692,6 +692,15 @@ def execute_reconciliation(run_id: str) -> None:
         _phase("matching")
         pr_current, pr_raw_by_id = _load_pr_matcher_and_raw(client, run_id)
         wrongful_itc = build_wrongful_itc_risk(pr_current, state.matched_pr_ids)
+        _log.info(
+            "classification summary run=%s: matched=%d missed_itc(2B-not-in-books)=%d "
+            "wrongful_risk(PR-not-in-2B)=%d total_pr_loaded=%d",
+            run_id,
+            len(state.matched),
+            len(state.missed_itc),
+            len(wrongful_itc),
+            len(pr_current),
+        )
         late_itc = sum(
             1
             for m in state.matched
@@ -704,6 +713,10 @@ def execute_reconciliation(run_id: str) -> None:
 
         pr_by_id: dict[str, dict] = {str(p["id"]): p for p in pr_current}
         gstr_by_id: dict[str, dict] = {str(x.get("id")): x for x in gstr_matcher}
+        # Rule 37 only applies to invoices whose ITC was actually claimed, i.e. PR
+        # rows matched to GSTR-2B. Unmatched PR rows surface as wrongful-ITC risk,
+        # not Rule 37, and must never be flagged here.
+        matched_pr_ids = {str(x) for x in state.matched_pr_ids}
         pr_for_rule37 = [
             {
                 **p,
@@ -712,6 +725,7 @@ def execute_reconciliation(run_id: str) -> None:
                 or gstr_start.isoformat(),
             }
             for p in pr_current
+            if str(p["id"]) in matched_pr_ids
         ]
         payment_records = build_payment_records_from_pr(
             pr_current, pr_raw_by_id
