@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import useSWR from "swr";
-import { Bell, ChevronRight, CreditCard, UserCircle, Users } from "lucide-react";
+import { Bell, ChevronRight, ClipboardList, CreditCard, UserCircle, Users } from "lucide-react";
 
 import { teamApi, type AuthMeProfile, type TeamMemberListItem } from "@/lib/api";
 import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
+  normalizeAuthRole,
 } from "@/lib/auth-profile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
@@ -72,6 +73,9 @@ export default function SettingsHubPage() {
     ? (teamMembers as TeamMemberListItem[]).length
     : 0;
 
+  const roleNorm = normalizeAuthRole(me?.role);
+  const isAdmin = !!me && roleNorm === "admin";
+
   const cards = [
     {
       href: "/settings/team",
@@ -79,6 +83,16 @@ export default function SettingsHubPage() {
       description: "Invite admins and staff, manage access.",
       Icon: Users,
     },
+    ...(isAdmin
+      ? [
+          {
+            href: "/settings/activity",
+            title: "Activity Log",
+            description: "View workspace activity and audit events.",
+            Icon: ClipboardList,
+          },
+        ]
+      : []),
     {
       href: "/settings/billing",
       title: "Billing",

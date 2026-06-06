@@ -18,6 +18,7 @@ from app.config import settings
 from app.database import get_supabase
 from app.routers import (
     admin,
+    audit_logs,
     auth,
     billing,
     import_router,
@@ -235,6 +236,7 @@ app.include_router(
     tags=["Import Wizard"],
 )
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
+app.include_router(audit_logs.router, prefix="/api/audit-logs", tags=["Audit Logs"])
 
 
 # ── Core endpoints ────────────────────────────────────────────────────────────

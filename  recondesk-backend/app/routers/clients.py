@@ -18,6 +18,7 @@ from app.routers.reconciliation_api import _parse_uuid
 from app.routers.reconciliation_api import _history_row
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.services.carry_forward import get_chronic_risks
+from app.utils.audit import log_audit
 
 router = APIRouter(redirect_slashes=False)
 # Alias for `app.include_router(clients_router, ...)` in main.py
@@ -258,6 +259,20 @@ async def create_client(
         .single()
         .execute()
     )
+    client_label = (
+        str(body.trade_name or "").strip()
+        or str(body.legal_name or "").strip()
+        or g
+    )
+    await log_audit(
+        sb,
+        current_user,
+        "CLIENT_ADDED",
+        "client",
+        ins["id"],
+        client_label,
+        {"gstin": g},
+    )
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
         content=out.data,
@@ -454,6 +469,21 @@ async def delete_client(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
         )
+    row = ex.data[0]
+    client_label = (
+        str(row.get("trade_name") or "").strip()
+        or str(row.get("legal_name") or "").strip()
+        or str(row.get("gstin") or "").strip()
+        or "Client"
+    )
+    await log_audit(
+        sb,
+        current_user,
+        "CLIENT_DELETED",
+        "client",
+        cid,
+        client_label,
+    )
     return None
 
 

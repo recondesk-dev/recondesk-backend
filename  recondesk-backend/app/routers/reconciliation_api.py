@@ -32,7 +32,7 @@ from app.services.firm_access import (
 )
 from app.services.followup_audit_export import build_followup_history_xlsx_bytes
 from app.services.reconcile_export_workbook import build_excel_workbook_bytes
-from app.utils.audit import log_action
+from app.utils.audit import client_display_label, log_action, log_audit
 from app.utils.supabase_errors import supabase_error_message
 from app.utils.storage import delete_file
 from app.worker.reconciliation_task import execute_reconciliation
@@ -44,6 +44,31 @@ from app.services.invoice_results_sync import (
 
 _log = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _run_entity_label(sb, run_row: dict) -> str:
+    cg_id = str(run_row.get("client_gstin_id") or "")
+    period = str(run_row.get("period") or "")
+    client_name = client_display_label(sb, cg_id) if cg_id else "Client"
+    return f"{client_name} ({period})" if period else client_name
+
+
+async def _log_result_export(
+    sb,
+    current_user: dict,
+    run_row: dict,
+    run_id: str,
+    export_type: str,
+) -> None:
+    await log_audit(
+        sb,
+        current_user,
+        "RESULT_EXPORTED",
+        "reconciliation",
+        run_id,
+        _run_entity_label(sb, run_row),
+        {"export_type": export_type},
+    )
 
 
 def _parse_uuid(s: str, name: str = "id") -> str:
@@ -365,12 +390,13 @@ async def finalize_reconciliation(
             status_code=status.HTTP_409_CONFLICT,
             detail="could not finalize run; refresh and retry",
         )
-    await log_action(
-        uid,
-        "RUN_FINALIZED",
-        "reconciliation_run",
+    await log_audit(
+        sb,
+        current_user,
+        "RECON_FINALIZED",
+        "reconciliation",
         rid,
-        {},
+        _run_entity_label(sb, row),
         ip_address=(request.client.host if request.client else None),
     )
     return FinalizeResponse(
@@ -2397,12 +2423,13 @@ async def _reconcile_finalize_core(
             status_code=status.HTTP_409_CONFLICT,
             detail="could not finalize run; refresh and retry",
         )
-    await log_action(
-        uid,
-        "RUN_FINALIZED",
-        "reconciliation_run",
+    await log_audit(
+        sb,
+        current_user,
+        "RECON_FINALIZED",
+        "reconciliation",
         rid,
-        {},
+        _run_entity_label(sb, run_row),
         ip_address=(request.client.host if request.client else None),
     )
     refreshed = (
@@ -3053,7 +3080,7 @@ async def reconcile_run_itc_bucket(
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
+    run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     notes = _notes_count_for_run(sb, rid)
     rows = _build_missed_itc_records(
@@ -3092,7 +3119,7 @@ async def reconcile_run_risk_bucket(
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
+    run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     notes = _notes_count_for_run(sb, rid)
     rows = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
@@ -3419,7 +3446,7 @@ async def reconcile_run_late_matches(
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
+    run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     run_row = (
         sb.table("reconciliation_run")
@@ -3452,7 +3479,7 @@ async def reconcile_run_matched_bucket(
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
+    run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     notes = _notes_count_for_run(sb, rid)
 
@@ -3496,7 +3523,7 @@ async def reconcile_run_rule37_summary(
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
+    run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     notes = _notes_count_for_run(sb, rid)
     body = _build_rule37_summary_payload(sb, rid, p, notes)
@@ -3512,7 +3539,7 @@ async def reconcile_run_rule37(
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
+    run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     via = _try_rule37_via_table(sb, rid, page, limit)
     if via is not None:
@@ -3685,7 +3712,7 @@ async def reconcile_run_section175(
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
+    run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     via = _try_section175_via_table(sb, rid, page, limit)
     if via is not None:
@@ -3782,7 +3809,7 @@ async def reconcile_export_itc(
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
+    run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     notes = _notes_count_for_run(sb, rid)
     rows = _build_missed_itc_records(
@@ -3805,6 +3832,7 @@ async def reconcile_export_itc(
     rows = _filter_itc_date_range(rows, date_from=dfrom, date_to=dto)
     _sort_reconcile_bucket_rows(rows, sort)
     blob, fn = _csv_missed_bytes(rows, rid)
+    await _log_result_export(sb, current_user, run_row, rid, "itc_csv")
     headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
     return StreamingResponse(io.BytesIO(blob), media_type="text/csv", headers=headers)
 
@@ -3821,7 +3849,7 @@ async def reconcile_export_risk(
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
+    run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     notes = _notes_count_for_run(sb, rid)
     rows = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
@@ -3836,6 +3864,7 @@ async def reconcile_export_risk(
     rows = _filter_risk_by_level(rows, risk_level)
     _sort_reconcile_bucket_rows(rows, sort)
     blob, fn = _csv_risk_bytes(rows, rid)
+    await _log_result_export(sb, current_user, run_row, rid, "risk_csv")
     headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
     return StreamingResponse(io.BytesIO(blob), media_type="text/csv", headers=headers)
 
@@ -3847,7 +3876,7 @@ async def reconcile_export_excel_workbook(
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
+    run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     uid = str(current_user.get("id", ""))
     run_ex = (
@@ -3888,6 +3917,7 @@ async def reconcile_export_excel_workbook(
         generated_at=datetime.now(timezone.utc),
         generated_by_name=gen_name,
     )
+    await _log_result_export(sb, current_user, run_row, rid, "excel")
     headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
     return StreamingResponse(
         io.BytesIO(blob),

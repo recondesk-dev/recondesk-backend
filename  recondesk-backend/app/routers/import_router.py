@@ -20,7 +20,7 @@ from supabase import Client, create_client
 from app.auth import get_current_active_user
 from app.config import get_r2_s3_endpoint_url, get_settings
 from app.services.normalizer import NormalizationError, normalize_gstin
-from app.utils.audit import log_action
+from app.utils.audit import client_display_label, log_action, log_audit
 from app.worker.celery_app import celery_app
 
 router = APIRouter()
@@ -342,8 +342,28 @@ async def import_gstr2b(
             .execute()
         )
         row_status = st_res.data[0]["status"] if st_res.data else "queued"
+        await log_audit(
+            sb,
+            current_user,
+            "FILE_UPLOADED",
+            "file",
+            run_id,
+            file.filename or "gstr2b.json",
+            {"file_type": "gstr2b", "period": period_norm},
+            ip_address=(request.client.host if request.client else None),
+        )
         return {"run_id": run_id, "status": row_status}
 
+    await log_audit(
+        sb,
+        current_user,
+        "FILE_UPLOADED",
+        "file",
+        run_id,
+        file.filename or "gstr2b.json",
+        {"file_type": "gstr2b", "period": period_norm},
+        ip_address=(request.client.host if request.client else None),
+    )
     return {"run_id": run_id, "status": "queued"}
 
 
@@ -441,8 +461,26 @@ async def import_purchase_register(
             .execute()
         )
         row_status = st_res.data[0]["status"] if st_res.data else "queued"
+        await log_audit(
+            sb,
+            current_user,
+            "FILE_UPLOADED",
+            "file",
+            run_id,
+            file.filename or f"purchase_register{ext}",
+            {"file_type": "purchase_register"},
+        )
         return {"run_id": run_id, "status": row_status}
 
+    await log_audit(
+        sb,
+        current_user,
+        "FILE_UPLOADED",
+        "file",
+        run_id,
+        file.filename or f"purchase_register{ext}",
+        {"file_type": "purchase_register"},
+    )
     return {"run_id": run_id, "status": "queued"}
 
 

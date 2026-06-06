@@ -15,6 +15,7 @@ from app.auth import get_current_active_user
 from app.database import get_supabase
 from app.routers.reconciliation_api import _parse_uuid
 from app.services.firm_access import assert_run_accessible
+from app.utils.audit import client_display_label, log_audit
 
 router = APIRouter()
 
@@ -149,6 +150,28 @@ async def add_note(
     row0 = result.data[0] if isinstance(result.data, list) else result.data
     if not isinstance(row0, dict):
         return {}
+    run_row = (
+        sb.table("reconciliation_run")
+        .select("client_gstin_id, period")
+        .eq("id", rid)
+        .limit(1)
+        .execute()
+    )
+    entity_label = "Note"
+    if run_row.data:
+        cg_id = str(run_row.data[0].get("client_gstin_id") or "")
+        period = str(run_row.data[0].get("period") or "")
+        client_name = client_display_label(sb, cg_id) if cg_id else "Client"
+        entity_label = f"{client_name} ({period})" if period else client_name
+    await log_audit(
+        sb,
+        current_user,
+        "MISMATCH_NOTE_ADDED",
+        "reconciliation",
+        rid,
+        entity_label,
+        {"record_id": record_id, "note_id": row0.get("id")},
+    )
     return _new_note_row_response(sb, row0)
 
 
@@ -206,6 +229,28 @@ async def patch_note(
     assert_run_accessible(sb, run_id, current_user)
     _assert_run_not_locked_for_mutation(sb, run_id)
     sb.table("mismatch_notes").update({"note": body.note}).eq("id", nid).execute()
+    run_row = (
+        sb.table("reconciliation_run")
+        .select("client_gstin_id, period")
+        .eq("id", run_id)
+        .limit(1)
+        .execute()
+    )
+    entity_label = "Note"
+    if run_row.data:
+        cg_id = str(run_row.data[0].get("client_gstin_id") or "")
+        period = str(run_row.data[0].get("period") or "")
+        client_name = client_display_label(sb, cg_id) if cg_id else "Client"
+        entity_label = f"{client_name} ({period})" if period else client_name
+    await log_audit(
+        sb,
+        current_user,
+        "MISMATCH_NOTE_EDITED",
+        "reconciliation",
+        run_id,
+        entity_label,
+        {"note_id": nid},
+    )
     return {"id": nid, "message": "Note updated"}
 
 

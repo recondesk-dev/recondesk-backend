@@ -1,4 +1,4 @@
-"""Insert audit log rows; never raise to callers on failure."""
+"""Insert-only audit log rows; never raise to callers on failure."""
 
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Mapping, Optional
 
-from app.database import get_supabase
+from supabase import Client
+
+from app.database import get_supabase, get_user_profile, resolve_user_role
 from app.utils.context import get_correlation_id
 
 _SENSITIVE_KEYS = frozenset(
@@ -68,23 +70,176 @@ def _redact_gstin_in_strings(obj: Any) -> Any:
     return obj
 
 
-def log_action_sync(
-    user_id: Optional[str],
+def resolve_firm_id(db: Client, user: Mapping[str, Any] | dict) -> Optional[str]:
+    """Return workspace owner id (firm anchor) for the acting user."""
+    uid = str(user.get("id", "") or "").strip()
+    if not uid:
+        return None
+    role = str(user.get("role") or "").strip().lower()
+    if not role:
+        role = resolve_user_role(
+            user.get("role"),
+            user_id=uid,
+            email=user.get("email"),
+            client=db,
+        )
+    if role == "admin":
+        return uid
+    try:
+        tm = (
+            db.table("team_members")
+            .select("firm_owner_id")
+            .eq("member_user_id", uid)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if tm.data and tm.data[0].get("firm_owner_id"):
+            return str(tm.data[0]["firm_owner_id"])
+        cg = (
+            db.table("client_gstins")
+            .select("firm_owner_id")
+            .eq("assigned_to", uid)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if cg.data and cg.data[0].get("firm_owner_id"):
+            return str(cg.data[0]["firm_owner_id"])
+    except Exception:
+        pass
+    return uid
+
+
+def client_display_label(db: Client, client_gstin_id: str) -> str:
+    """Human-readable client name for audit entity_label."""
+    try:
+        r = (
+            db.table("client_gstins")
+            .select("trade_name, legal_name, gstin")
+            .eq("id", client_gstin_id)
+            .limit(1)
+            .execute()
+        )
+        if r.data:
+            row = r.data[0]
+            return (
+                str(row.get("trade_name") or "").strip()
+                or str(row.get("legal_name") or "").strip()
+                or str(row.get("gstin") or "").strip()
+                or "Client"
+            )
+    except Exception:
+        pass
+    return "Client"
+
+
+def actor_user_for_run(db: Client, run_id: str) -> Optional[dict[str, Any]]:
+    """Best-effort actor profile for background jobs (import wizard created_by)."""
+    try:
+        imp = (
+            db.table("reconciliation_import_runs")
+            .select("created_by")
+            .eq("id", run_id)
+            .limit(1)
+            .execute()
+        )
+        uid = ""
+        if imp.data:
+            uid = str(imp.data[0].get("created_by") or "").strip()
+        if not uid:
+            run = (
+                db.table("reconciliation_run")
+                .select("finalized_by")
+                .eq("id", run_id)
+                .limit(1)
+                .execute()
+            )
+            if run.data:
+                uid = str(run.data[0].get("finalized_by") or "").strip()
+        if not uid:
+            return None
+        prof = get_user_profile(uid) or {}
+        return {**prof, "id": uid}
+    except Exception:
+        return None
+
+
+async def log_audit(
+    db: Client,
+    user: Mapping[str, Any] | dict,
     action: str,
     entity_type: str,
     entity_id: Optional[str],
+    entity_label: Optional[str] = None,
     metadata: Optional[Mapping[str, Any] | dict] = None,
     *,
     ip_address: Optional[str] = None,
 ) -> None:
-    """Schedule :func:`log_action` from synchronous code (best-effort)."""
+    """Insert one row into *audit_logs*. Safe to call from any layer; never raises."""
+    try:
+        uid = str(user.get("id", "") or "").strip() or None
+        role = str(user.get("role") or "").strip().lower()
+        if uid and not role:
+            role = resolve_user_role(
+                user.get("role"),
+                user_id=uid,
+                email=user.get("email"),
+                client=db,
+            )
+        user_name = str(user.get("full_name") or user.get("email") or "Unknown").strip()
+        firm_id = resolve_firm_id(db, user)
+
+        base = _mask_metadata(dict(metadata or {}))
+        meta_obj = _redact_gstin_in_strings(base)
+        if isinstance(meta_obj, dict):
+            try:
+                json.dumps(meta_obj)
+            except (TypeError, ValueError):
+                meta_obj = {"_note": "metadata_not_serializable"}
+
+        row: dict[str, Any] = {
+            "firm_id": firm_id,
+            "user_id": uid,
+            "user_name": user_name,
+            "role": role or None,
+            "action": action,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "entity_label": entity_label,
+            "metadata": meta_obj,
+            "ip_address": _client_ip_for_insert(ip_address),
+            "correlation_id": get_correlation_id(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        db.table("audit_logs").insert(row).execute()
+    except Exception as exc:  # noqa: BLE001
+        print(  # noqa: T201
+            f"audit log insert failed action={action}: {exc}", file=sys.stderr
+        )
+
+
+def log_audit_sync(
+    db: Client,
+    user: Mapping[str, Any] | dict,
+    action: str,
+    entity_type: str,
+    entity_id: Optional[str],
+    entity_label: Optional[str] = None,
+    metadata: Optional[Mapping[str, Any] | dict] = None,
+    *,
+    ip_address: Optional[str] = None,
+) -> None:
+    """Schedule :func:`log_audit` from synchronous code (best-effort)."""
     import asyncio
 
-    coro = log_action(
-        user_id,
+    coro = log_audit(
+        db,
+        user,
         action,
         entity_type,
         entity_id,
+        entity_label,
         metadata,
         ip_address=ip_address,
     )
@@ -106,29 +261,49 @@ async def log_action(
     metadata: Optional[Mapping[str, Any] | dict] = None,
     *,
     ip_address: Optional[str] = None,
+    entity_label: Optional[str] = None,
 ) -> None:
-    """Insert one row into *audit_logs*. Safe to call from any layer; never raises."""
-    try:
-        base = _mask_metadata(dict(metadata or {}))
-        meta_obj = _redact_gstin_in_strings(base)
-        if isinstance(meta_obj, dict):
-            try:
-                json.dumps(meta_obj)
-            except (TypeError, ValueError):
-                meta_obj = {"_note": "metadata_not_serializable"}
-        row: dict[str, Any] = {
-            "user_id": user_id,
-            "action": action,
-            "entity_type": entity_type,
-            "entity_id": entity_id,
-            "metadata": meta_obj,
-            "ip_address": _client_ip_for_insert(ip_address),
-            "correlation_id": get_correlation_id(),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        client = get_supabase()
-        client.table("audit_logs").insert(row).execute()
-    except Exception as exc:  # noqa: BLE001
-        print(  # noqa: T201
-            f"audit log insert failed action={action}: {exc}", file=sys.stderr
-        )
+    """Backward-compatible wrapper around :func:`log_audit`."""
+    user: dict[str, Any] = {"id": user_id}
+    if user_id:
+        prof = get_user_profile(user_id)
+        if prof:
+            user = {**prof, "id": user_id}
+    await log_audit(
+        get_supabase(),
+        user,
+        action,
+        entity_type,
+        entity_id,
+        entity_label,
+        metadata,
+        ip_address=ip_address,
+    )
+
+
+def log_action_sync(
+    user_id: Optional[str],
+    action: str,
+    entity_type: str,
+    entity_id: Optional[str],
+    metadata: Optional[Mapping[str, Any] | dict] = None,
+    *,
+    ip_address: Optional[str] = None,
+    entity_label: Optional[str] = None,
+) -> None:
+    """Backward-compatible sync wrapper around :func:`log_audit`."""
+    user: dict[str, Any] = {"id": user_id}
+    if user_id:
+        prof = get_user_profile(user_id)
+        if prof:
+            user = {**prof, "id": user_id}
+    log_audit_sync(
+        get_supabase(),
+        user,
+        action,
+        entity_type,
+        entity_id,
+        entity_label,
+        metadata,
+        ip_address=ip_address,
+    )
