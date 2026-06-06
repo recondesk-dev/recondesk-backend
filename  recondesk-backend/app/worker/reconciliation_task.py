@@ -937,6 +937,15 @@ def execute_reconciliation(run_id: str) -> None:
         from app.utils.audit import actor_user_for_run, log_audit_sync
 
         actor = actor_user_for_run(client, run_id) or {"id": None, "full_name": "System"}
+        # Anchor firm scoping to the client's owner when the actor can't supply it
+        # (e.g. legacy runs with no created_by/finalized_by).
+        if not actor.get("firm_id"):
+            try:
+                from app.services.firm_access import get_firm_owner_for_client
+
+                actor["firm_id"] = get_firm_owner_for_client(client, client_gstin_id)
+            except Exception:
+                _log.warning("RECON_COMPLETED firm_id unresolved run_id=%s", run_id)
         entity_label = (
             f"{client_display_name} ({period})" if period else client_display_name
         )

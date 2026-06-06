@@ -20,14 +20,16 @@ from app.routers.import_router import (
 from app.services.billing_gate import check_run_access, consume_run_credit, sync_billing_credits
 from app.services.firm_access import get_firm_owner_for_client
 from app.services.reconciliation_import_wizard import wizard_service as ws
-from app.utils.audit import client_display_label, log_audit
+from app.utils.audit import client_display_label, log_audit, resolve_firm_id
 
 router = APIRouter()
 
 
 def _actor(user_id: str) -> dict:
     prof = get_user_profile(user_id) or {}
-    return {**prof, "id": user_id}
+    actor = {**prof, "id": user_id}
+    actor["firm_id"] = resolve_firm_id(get_supabase(), actor)
+    return actor
 
 
 # ── Models ────────────────────────────────────────────────────────────────────

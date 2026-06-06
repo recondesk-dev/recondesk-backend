@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sys
 from datetime import datetime, timezone
@@ -12,6 +13,8 @@ from supabase import Client
 
 from app.database import get_supabase, get_user_profile, resolve_user_role
 from app.utils.context import get_correlation_id
+
+logger = logging.getLogger(__name__)
 
 _SENSITIVE_KEYS = frozenset(
     {
@@ -70,45 +73,83 @@ def _redact_gstin_in_strings(obj: Any) -> Any:
     return obj
 
 
+def _staff_firm_owner_id(db: Client, uid: str) -> Optional[str]:
+    """Firm owner id for a staff member via team membership / client assignment.
+
+    There is no ``user_profiles.firm_id`` column in this codebase; the firm anchor
+    for staff is ``team_members.firm_owner_id`` (or ``client_gstins.assigned_to``).
+    """
+    tm = (
+        db.table("team_members")
+        .select("firm_owner_id")
+        .eq("member_user_id", uid)
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+    )
+    if tm.data and tm.data[0].get("firm_owner_id"):
+        return str(tm.data[0]["firm_owner_id"])
+    cg = (
+        db.table("client_gstins")
+        .select("firm_owner_id")
+        .eq("assigned_to", uid)
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+    )
+    if cg.data and cg.data[0].get("firm_owner_id"):
+        return str(cg.data[0]["firm_owner_id"])
+    return None
+
+
 def resolve_firm_id(db: Client, user: Mapping[str, Any] | dict) -> Optional[str]:
-    """Return workspace owner id (firm anchor) for the acting user."""
+    """Resolve the workspace owner id (firm anchor) for the acting user.
+
+    Precedence:
+      1. Explicit ``user['firm_id']`` when present.
+      2. role == 'admin' → the user's own id.
+      3. role == 'staff' → firm owner via team membership / client assignment.
+      4. On any failure → log and return ``None`` (row still inserts).
+    """
+    # 1. Explicit firm_id supplied by the caller's user context.
+    explicit = str(user.get("firm_id") or "").strip()
+    if explicit:
+        return explicit
+
     uid = str(user.get("id", "") or "").strip()
     if not uid:
+        logger.warning("audit firm_id unresolved: user context has no id")
         return None
+
     role = str(user.get("role") or "").strip().lower()
     if not role:
-        role = resolve_user_role(
-            user.get("role"),
-            user_id=uid,
-            email=user.get("email"),
-            client=db,
-        )
+        try:
+            role = resolve_user_role(
+                user.get("role"),
+                user_id=uid,
+                email=user.get("email"),
+                client=db,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("audit role resolution failed for user_id=%s: %s", uid, exc)
+            role = ""
+
+    # 2. Admin owns the firm.
     if role == "admin":
         return uid
+
+    # 3. Staff → derive the firm owner.
     try:
-        tm = (
-            db.table("team_members")
-            .select("firm_owner_id")
-            .eq("member_user_id", uid)
-            .eq("is_active", True)
-            .limit(1)
-            .execute()
-        )
-        if tm.data and tm.data[0].get("firm_owner_id"):
-            return str(tm.data[0]["firm_owner_id"])
-        cg = (
-            db.table("client_gstins")
-            .select("firm_owner_id")
-            .eq("assigned_to", uid)
-            .eq("is_active", True)
-            .limit(1)
-            .execute()
-        )
-        if cg.data and cg.data[0].get("firm_owner_id"):
-            return str(cg.data[0]["firm_owner_id"])
-    except Exception:
-        pass
-    return uid
+        owner = _staff_firm_owner_id(db, uid)
+        if owner:
+            return owner
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("audit firm_id resolution failed for user_id=%s: %s", uid, exc)
+        return None
+
+    # 4. Could not resolve; keep firm_id null rather than crash.
+    logger.warning("audit firm_id unresolved for user_id=%s role=%s", uid, role or "?")
+    return None
 
 
 def client_display_label(db: Client, client_gstin_id: str) -> str:
@@ -160,7 +201,9 @@ def actor_user_for_run(db: Client, run_id: str) -> Optional[dict[str, Any]]:
         if not uid:
             return None
         prof = get_user_profile(uid) or {}
-        return {**prof, "id": uid}
+        actor = {**prof, "id": uid}
+        actor["firm_id"] = resolve_firm_id(db, actor)
+        return actor
     except Exception:
         return None
 
@@ -188,7 +231,7 @@ async def log_audit(
                 client=db,
             )
         user_name = str(user.get("full_name") or user.get("email") or "Unknown").strip()
-        firm_id = str(user.get("firm_id") or "").strip() or resolve_firm_id(db, user)
+        firm_id = resolve_firm_id(db, user)
 
         base = _mask_metadata(dict(metadata or {}))
         meta_obj = _redact_gstin_in_strings(base)
