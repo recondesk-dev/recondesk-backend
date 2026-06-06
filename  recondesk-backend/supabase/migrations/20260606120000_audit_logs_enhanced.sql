@@ -7,11 +7,33 @@ ALTER TABLE public.audit_logs
     ADD COLUMN IF NOT EXISTS role TEXT,
     ADD COLUMN IF NOT EXISTS entity_label TEXT;
 
+-- firm_id anchors to the workspace owner (user_profiles.id). Guarded so re-runs are safe.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'audit_logs_firm_id_fkey'
+          AND table_schema = 'public'
+          AND table_name = 'audit_logs'
+    ) THEN
+        ALTER TABLE public.audit_logs
+            ADD CONSTRAINT audit_logs_firm_id_fkey
+            FOREIGN KEY (firm_id) REFERENCES public.user_profiles (id)
+            ON DELETE SET NULL;
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_firm_id
+    ON public.audit_logs (firm_id);
+
 CREATE INDEX IF NOT EXISTS idx_audit_logs_firm_created
     ON public.audit_logs (firm_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_firm_user
     ON public.audit_logs (firm_id, user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at
+    ON public.audit_logs (created_at DESC);
 
 COMMENT ON COLUMN public.audit_logs.firm_id IS
     'Workspace owner user_profiles.id (firm anchor).';
