@@ -180,19 +180,23 @@ class TestSection175:
 
 class TestMissedAndWrongfulITC:
     def test_missed_itc_decision_mentions_amount_and_action(self):
-        d = generate_decision("MISSED_ITC", source_software="Tally", itc_amount="18000.00")
+        d = generate_decision(
+            "MISSED_ITC",
+            supplier_gstin="27ABCDE1234F1Z0",
+            itc_amount="18000.00",
+        )
         assert "18000.00" in d.next, (
             f"MISSED_ITC next must mention the ITC amount. Got: '{d.next}'"
         )
-        assert "purchase register" in d.next.lower() or "add" in d.next.lower(), (
-            f"MISSED_ITC must tell CA to add to purchase register. Got: '{d.next}'"
+        assert "gstr-2b" in d.next.lower() or "claim" in d.next.lower(), (
+            f"MISSED_ITC must tell CA to claim once in 2B. Got: '{d.next}'"
         )
 
-    def test_wrongful_itc_decision_says_do_not_claim(self):
-        d = generate_decision("WRONGFUL_ITC", supplier_gstin="27ABCDE1234F1Z0", itc_amount="9000.00")
+    def test_wrongful_itc_decision_says_add_to_books(self):
+        d = generate_decision("WRONGFUL_ITC", source_software="Tally", itc_amount="9000.00")
         next_lower = d.next.lower()
-        assert "do not claim" in next_lower or "not claim" in next_lower or "until" in next_lower, (
-            f"WRONGFUL_ITC must explicitly say do not claim ITC. Got: '{d.next}'"
+        assert "purchase register" in next_lower or "add" in next_lower, (
+            f"WRONGFUL_ITC must tell CA to add to purchase register. Got: '{d.next}'"
         )
 
     def test_missed_itc_flag_overrides_level_1_decision(self):

@@ -401,26 +401,59 @@ def build_wrongful_itc_risk(
     pr_records: list[dict],
     matched_pr_ids: set[str],
 ) -> list[dict]:
-    """PR rows in the current run that had no GSTR match."""
+    """PR rows in the current run that had no GSTR match at any fuzzy level.
+
+    Every PR row not present in *matched_pr_ids* is classified here — there is no
+    silent drop. A purchase invoice with no GSTR-2B counterpart (matched at none
+    of levels L1–L5 / cross-period) is "in books, absent from 2B", which is
+    wrongful-ITC risk (ITC at Risk), the mirror of *missed_itc* (in 2B, not booked).
+    """
     out: list[dict] = []
+    dropped_no_id = 0
     for pr_rec in pr_records:
-        pr_id = str(pr_rec["id"])
+        raw_id = pr_rec.get("id")
+        if raw_id in (None, ""):
+            # Should never happen for persisted rows; log so it is never invisible.
+            dropped_no_id += 1
+            logger.warning(
+                "PR row missing id during wrongful-ITC classification: gstin=%s invoice=%s",
+                pr_rec.get("supplier_gstin"),
+                pr_rec.get("invoice_number_normalized"),
+            )
+            continue
+        pr_id = str(raw_id)
         if pr_id in matched_pr_ids:
             continue
         ttp = pr_rec.get("total_tax_paise")
         tap = pr_rec.get("taxable_amount_paise")
+        inv_norm = str(pr_rec.get("invoice_number_normalized") or "")
+        gstin = str(pr_rec.get("supplier_gstin") or "")
+        logger.info(
+            "UNMATCHED PR invoice → MISSED_ITC tab (in PR, no GSTR-2B match at any "
+            "fuzzy level): pr_id=%s gstin=%s invoice=%s date=%s tax_paise=%s",
+            pr_id,
+            gstin or "<none>",
+            inv_norm or "<none>",
+            pr_rec.get("invoice_date"),
+            int(ttp) if ttp is not None else 0,
+        )
         out.append(
             {
                 "id": pr_id,
-                "supplier_gstin": str(pr_rec.get("supplier_gstin") or ""),
-                "invoice_number_normalized": str(
-                    pr_rec.get("invoice_number_normalized") or ""
-                ),
+                "supplier_gstin": gstin,
+                "invoice_number_normalized": inv_norm,
                 "invoice_date": pr_rec.get("invoice_date"),
                 "taxable_amount_paise": int(tap) if tap is not None else 0,
                 "total_tax_paise": int(ttp) if ttp is not None else 0,
             }
         )
+    logger.info(
+        "wrongful-ITC classification complete: %d unmatched PR invoice(s) of %d PR row(s)"
+        "%s",
+        len(out),
+        len(pr_records),
+        f"; {dropped_no_id} row(s) skipped for missing id" if dropped_no_id else "",
+    )
     return out
 
 

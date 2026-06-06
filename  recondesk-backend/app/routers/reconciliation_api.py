@@ -1659,14 +1659,13 @@ def _build_reconcile_summary(
     wr_list = engine.get("wrongful_itc_risk") or []
     matched_engine = engine.get("matched") or []
     late_match_count = sum(1 for m in matched_engine if m.get("is_late_filing"))
-    missed_count = len(missed_list)
-    wrongful_count = len(wr_list)
+    pr_db = ro.load_pr_map(sb, rid)
+    # Presentation swap: "Missed ITC" tab = PR-not-in-2B (engine wrongful bucket);
+    # "ITC at Risk" tab = in-2B-not-booked (engine missed bucket).
+    missed_count = len(wr_list)
+    wrongful_count = len(missed_list)
 
     missed_total_rupees = sum(
-        _paise_to_rupees(int(m.get("total_tax_paise") or 0)) for m in missed_list
-    )
-    pr_db = ro.load_pr_map(sb, rid)
-    wrongful_total_rupees = sum(
         _paise_to_rupees(
             _wrongful_risk_itc_paise(
                 w,
@@ -1676,16 +1675,10 @@ def _build_reconcile_summary(
         )
         for w in wr_list
     )
-    wrongful_purchase_total_rupees = sum(
-        _paise_to_rupees(
-            _wrongful_risk_taxable_paise(
-                w,
-                (pr_db.get(str(w.get("id") or "").strip()) or {}).get("matcher")
-                or {},
-            )
-        )
-        for w in wr_list
+    wrongful_total_rupees = sum(
+        _paise_to_rupees(int(m.get("total_tax_paise") or 0)) for m in missed_list
     )
+    wrongful_purchase_total_rupees = 0.0
     if n_g > 0:
         match_pct = round(100.0 * matched_count / n_g, 1)
     else:
@@ -1785,7 +1778,7 @@ def _build_missed_itc_records(
         if mi.get("total_tax_paise") is not None or mt.get("total_tax_paise") is not None:
             mf_miss.append("total_tax")
         dout = generate_decision(
-            "MISSED_ITC",
+            "WRONGFUL_ITC",
             confidence="MEDIUM",
             matched_fields=mf_miss,
             differed_fields=[],
@@ -1871,7 +1864,7 @@ def _build_wrongful_risk_records(
         if tap_wr is not None:
             mf_wr.append("taxable_amount")
         dout = generate_decision(
-            "WRONGFUL_ITC",
+            "MISSED_ITC",
             confidence="MEDIUM",
             matched_fields=mf_wr,
             differed_fields=[],
@@ -2489,9 +2482,14 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
     out: list[dict[str, Any]] = []
     action_details = _rule37_action_details_for_run(sb, rid)
     for row_id, ru in uniq.items():
+        status_val = str(ru.get("status") or "")
+        # Active Rule 37 risk only. Fresh invoices within the 180-day window
+        # (WATCH / on_watch_list) are tracked separately via the watch list.
+        if status_val not in ro.RULE37_CONCERNS:
+            continue
         amt = _paise_to_rupees(int(ru.get("itc_at_risk_paise") or 0))
         invoice_amt = _rule37_invoice_amount_from_item(ru)
-        ur = _rule37_urgency_from_status(ru.get("status"))
+        ur = _rule37_urgency_from_status(status_val)
         action_status = actions.get(row_id)
         detail = action_details.get(row_id, {})
         coverage = str(detail.get("payment_coverage") or "").strip().lower()
@@ -2519,9 +2517,71 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
                 "purchase_register_data": {},
                 "rule37_urgency": ur,
                 "rule37_action_status": action_status,
+                "status": status_val,
+                "days_remaining": ru.get("days_remaining"),
+                "deadline": str(ru.get("deadline") or ""),
             }
         )
     out.sort(key=lambda x: (-x["amount"], x["id"]))
+    return out
+
+
+# Statuses that belong on the Rule 37 watch list (fresh invoices, not yet risk).
+# Legacy WARNING_* statuses from older payloads are treated as watch entries too.
+_RULE37_WATCH_STATUSES = frozenset({"WATCH", "WARNING_30_DAYS", "WARNING_60_DAYS"})
+
+
+def _build_rule37_watch_rows(
+    sb, rid: str, payload: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Fresh invoices (< 180 days old) tracked for Rule 37 but not yet at risk.
+
+    These carry ``days_remaining`` so the UI can show a countdown. ITC is NOT at
+    risk yet, so amounts are informational only.
+    """
+    dec = payload.get("decisions") if isinstance(payload.get("decisions"), dict) else {}
+    comp = payload.get("compliance") if isinstance(payload.get("compliance"), dict) else {}
+    lst: list = []
+    lst.extend(list(dec.get("rule37") or []))
+    lst.extend(list(comp.get("rule37") or []))
+    uniq: dict[str, dict[str, Any]] = {}
+    for item in lst:
+        if not isinstance(item, dict):
+            continue
+        stable = _rule37_stable_id(item)
+        if stable in uniq:
+            continue
+        uniq[stable] = item
+
+    out: list[dict[str, Any]] = []
+    for row_id, ru in uniq.items():
+        status_val = str(ru.get("status") or "")
+        on_watch = bool(ru.get("on_watch_list")) or status_val in _RULE37_WATCH_STATUSES
+        if not on_watch:
+            continue
+        days_remaining = ru.get("days_remaining")
+        out.append(
+            {
+                "id": row_id,
+                "supplier_gstin": str(ru.get("supplier_gstin") or ""),
+                "invoice_number": str(ru.get("invoice_number") or ""),
+                "invoice_date": str(ru.get("invoice_date") or "")[:40],
+                "deadline": str(ru.get("deadline") or ""),
+                "days_remaining": days_remaining,
+                "invoice_amount": _rule37_invoice_amount_from_item(ru),
+                "itc_paise": int(ru.get("itc_at_risk_paise") or 0),
+                "status": status_val or "WATCH",
+                "urgency": _rule37_urgency_from_status(status_val) or "LOW",
+            }
+        )
+
+    # Most urgent first: soonest deadline (smallest days_remaining) at the top.
+    out.sort(
+        key=lambda x: (
+            x["days_remaining"] if isinstance(x["days_remaining"], int) else 10**9,
+            x["id"],
+        )
+    )
     return out
 
 
@@ -3083,13 +3143,7 @@ async def reconcile_run_itc_bucket(
     run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     notes = _notes_count_for_run(sb, rid)
-    rows = _build_missed_itc_records(
-        sb,
-        rid=rid,
-        payload=p,
-        note_counts=notes,
-        source_software="your accounting software",
-    )
+    rows = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
     amin = _parse_money_query(amount_min)
     amax = _parse_money_query(amount_max)
     dfrom = _parse_iso_date_query(date_from)
@@ -3122,7 +3176,13 @@ async def reconcile_run_risk_bucket(
     run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     notes = _notes_count_for_run(sb, rid)
-    rows = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
+    rows = _build_missed_itc_records(
+        sb,
+        rid=rid,
+        payload=p,
+        note_counts=notes,
+        source_software="your accounting software",
+    )
     amin = _parse_money_query(amount_min)
     amax = _parse_money_query(amount_max)
     rows = _filter_bucket_amount_gstin(
@@ -3530,6 +3590,22 @@ async def reconcile_run_rule37_summary(
     return Rule37SummaryResponse(**body)
 
 
+@reconcile_runs_router.get("/runs/{run_id}/rule37/watch-list")
+async def reconcile_run_rule37_watch_list(
+    run_id: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=250),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Fresh invoices (< 180 days old) tracked for Rule 37 — not active risk."""
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    rows = _build_rule37_watch_rows(sb, rid, p)
+    return _paginated_body(rows, page, limit)
+
+
 @reconcile_runs_router.get("/runs/{run_id}/rule37")
 async def reconcile_run_rule37(
     run_id: str,
@@ -3893,14 +3969,14 @@ async def reconcile_export_excel_workbook(
     gen_name = str(prof.get("full_name") or "")
     notes = _notes_count_for_run(sb, rid)
     matched_pairs = _build_matched_pair_records(sb, rid=rid, payload=p, note_counts=notes)
-    missed = _build_missed_itc_records(
+    missed = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
+    risk = _build_missed_itc_records(
         sb,
         rid=rid,
         payload=p,
         note_counts=notes,
         source_software="your accounting software",
     )
-    risk = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
     r37 = _build_rule37_rows(sb, rid, p, notes)
     s17 = _build_section175_rows(sb, rid, p, notes)
     blob, fn = build_excel_workbook_bytes(

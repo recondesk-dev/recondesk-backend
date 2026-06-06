@@ -8,6 +8,9 @@ from datetime import date, timedelta
 PAID_LATE = "PAID_LATE"
 OK = "OK"
 OVERDUE_UNPAID = "OVERDUE_UNPAID"
+# Fresh invoices (still within the 180-day window) are tracked, not flagged as risk.
+WATCH = "WATCH"
+# Retained for backward compatibility with older stored payloads; no longer emitted.
 WARNING_30_DAYS = "WARNING_30_DAYS"
 WARNING_60_DAYS = "WARNING_60_DAYS"
 
@@ -158,7 +161,12 @@ def check_rule_37_compliance(
         base_itc_at_risk = round(total_tax_paise * unpaid_ratio)
 
         is_fully_paid = unpaid_paise == 0
-        has_partial_payment = total_paid_paise > 0 and unpaid_paise > 0
+        # Rule 37 only bites once the 180-day window has elapsed with money owed.
+        is_overdue = days_remaining < 0
+
+        # Default classification: not a risk, not on the watch list.
+        on_watch_list = False
+        is_rule37_risk = False
 
         if is_fully_paid:
             # Critical: payment presence ≠ full payment; use amount-based logic only
@@ -173,56 +181,47 @@ def check_rule_37_compliance(
                     for p in payments
                     if p.get("payment_date")
                 ]
-                if not payment_dates:
+                latest_payment_date = max(payment_dates) if payment_dates else None
+                if latest_payment_date and latest_payment_date > deadline:
+                    # Paid, but only after the 180-day limit → ITC reversal required.
+                    status = PAID_LATE
+                    urgency = HIGH
+                    action = (
+                        "ITC reversal required. Payment made after 180-day limit."
+                    )
+                    itc_at_risk_paise = total_tax_paise
+                    is_rule37_risk = True
+                else:
                     status = OK
                     urgency = LOW
                     action = "No action required"
                     itc_at_risk_paise = 0
-                else:
-                    latest_payment_date = max(payment_dates)
-                    if latest_payment_date > deadline:
-                        status = PAID_LATE
-                        urgency = HIGH
-                        action = (
-                            "ITC reversal required. Payment made after 180-day limit."
-                        )
-                        itc_at_risk_paise = total_tax_paise
-                    else:
-                        status = OK
-                        urgency = LOW
-                        action = "No action required"
-                        itc_at_risk_paise = 0
+        elif is_overdue:
+            # Outstanding balance AND past 180 days → active Rule 37 risk.
+            status = OVERDUE_UNPAID
+            urgency = CRITICAL
+            action = "Reverse ITC immediately. Payment overdue beyond 180 days."
+            itc_at_risk_paise = base_itc_at_risk
+            is_rule37_risk = True
         else:
-            # Critical: unpaid invoices past 180 days must never return OK
-            if has_partial_payment and days_remaining >= 0:
-                status = OK
-                urgency = LOW
-                action = "No action required"
-                itc_at_risk_paise = base_itc_at_risk
-            elif days_remaining < 0:
-                status = OVERDUE_UNPAID
-                urgency = CRITICAL
-                action = (
-                    "Reverse ITC immediately. Payment overdue beyond 180 days."
-                )
-                itc_at_risk_paise = base_itc_at_risk
-            elif days_remaining <= 30:
-                status = WARNING_30_DAYS
+            # Fresh invoice (< 180 days old) with a balance: not a risk yet.
+            # Track it on the watch list with days remaining; ITC is not at risk.
+            status = WATCH
+            on_watch_list = True
+            itc_at_risk_paise = 0
+            if days_remaining <= 30:
                 urgency = HIGH
                 action = (
-                    "Pay supplier within 30 days to avoid ITC reversal."
+                    f"Pay supplier within {days_remaining} day(s) to avoid ITC reversal."
                 )
-                itc_at_risk_paise = base_itc_at_risk
             elif days_remaining <= 60:
-                status = WARNING_60_DAYS
                 urgency = MEDIUM
-                action = "Pay supplier within 60 days."
-                itc_at_risk_paise = base_itc_at_risk
+                action = f"Pay supplier within {days_remaining} day(s)."
             else:
-                status = OK
                 urgency = LOW
-                action = "No immediate action required."
-                itc_at_risk_paise = base_itc_at_risk
+                action = (
+                    f"On watch list — {days_remaining} day(s) remaining to pay supplier."
+                )
 
         results.append(
             {
@@ -239,6 +238,8 @@ def check_rule_37_compliance(
                 "status": status,
                 "urgency": urgency,
                 "action": action,
+                "is_rule37_risk": is_rule37_risk,
+                "on_watch_list": on_watch_list,
             }
         )
 
