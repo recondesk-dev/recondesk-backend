@@ -238,20 +238,35 @@ def decode_access_token(token: str) -> dict:
         ) from exc
 
 
+def _attach_firm_id(user: dict) -> dict:
+    """Best-effort firm anchor on the user context for audit logging; never raises."""
+    try:
+        from app.utils.audit import resolve_firm_id
+
+        user["firm_id"] = resolve_firm_id(get_supabase(), user)
+    except Exception:  # noqa: BLE001
+        user.setdefault("firm_id", None)
+    return user
+
+
 async def get_current_active_user(
     user: User = Depends(get_current_user),
 ) -> dict:
     user_id = str(user.id)
     profile = get_user_profile(user_id)
     if profile is None:
-        return {
-            "id": user_id,
-            "email": user.email,
-            "is_active": True,
-        }
+        return _attach_firm_id(
+            {
+                "id": user_id,
+                "email": user.email,
+                "is_active": True,
+            }
+        )
     if not profile.get("is_active", True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
         )
-    return {**profile, "id": user_id, "email": user.email or profile.get("email")}
+    return _attach_firm_id(
+        {**profile, "id": user_id, "email": user.email or profile.get("email")}
+    )
