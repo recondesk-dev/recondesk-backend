@@ -14,6 +14,7 @@ from app.auth import get_current_active_user
 from app.database import get_supabase, supabase_client
 from app.routers.import_router import _assigned_client_gstin_id
 from app.worker.reconciliation_task import execute_reconciliation
+from app.utils.audit import client_display_label, log_audit
 from app.models.reconciliation import (
     ReconciliationJobCreate,
     ReconciliationJobResponse,
@@ -242,7 +243,7 @@ async def start_reconciliation_run(
     res = (
         sb.table("reconciliation_run")
         .select(
-            "id, client_gstin_id, status, gstr_records_imported, pr_records_imported, "
+            "id, client_gstin_id, period, status, gstr_records_imported, pr_records_imported, "
             "is_locked, paid_at"
         )
         .eq("id", run_id)
@@ -345,6 +346,18 @@ async def start_reconciliation_run(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Reconciliation task queue is unavailable. Try again later.",
         ) from exc
+    cg_id = str(row.get("client_gstin_id") or "")
+    period = str(row.get("period") or "")
+    client_name = client_display_label(sb, cg_id) if cg_id else "Client"
+    entity_label = f"{client_name} ({period})" if period else client_name
+    await log_audit(
+        sb,
+        current_user,
+        "RECON_STARTED",
+        "reconciliation",
+        run_id,
+        entity_label,
+    )
     return ReconciliationStartResponse(run_id=run_id, status="MATCHING")
 
 

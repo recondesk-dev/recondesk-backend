@@ -587,6 +587,35 @@ export const authApi = {
   },
 };
 
+export const auditLogsApi = {
+  list: (
+    token: string,
+    params: {
+      firm_id?: string;
+      user_id?: string;
+      action?: string;
+      from_date?: string;
+      to_date?: string;
+      limit?: number;
+      offset?: number;
+    } = {}
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.firm_id) qs.set("firm_id", params.firm_id);
+    if (params.user_id) qs.set("user_id", params.user_id);
+    if (params.action) qs.set("action", params.action);
+    if (params.from_date) qs.set("from_date", params.from_date);
+    if (params.to_date) qs.set("to_date", params.to_date);
+    if (params.limit != null) qs.set("limit", String(params.limit));
+    if (params.offset != null) qs.set("offset", String(params.offset));
+    const query = qs.toString();
+    return apiFetch<import("@/lib/activityLog").AuditLogListResponse>(
+      `/api/audit-logs${query ? `?${query}` : ""}`,
+      { token }
+    );
+  },
+};
+
 export const teamApi = {
   list: (token: string) =>
     apiFetch<TeamMemberListItem[]>("/api/team/members", { token }),

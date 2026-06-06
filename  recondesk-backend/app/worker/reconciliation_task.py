@@ -934,6 +934,25 @@ def execute_reconciliation(run_id: str) -> None:
             match_rate_percent=match_rate,
         )
 
+        from app.utils.audit import actor_user_for_run, log_audit_sync
+
+        actor = actor_user_for_run(client, run_id) or {"id": None, "full_name": "System"}
+        entity_label = (
+            f"{client_display_name} ({period})" if period else client_display_name
+        )
+        log_audit_sync(
+            client,
+            actor,
+            "RECON_COMPLETED",
+            "reconciliation",
+            run_id,
+            entity_label,
+            {
+                "matched_count": len(state.matched),
+                "match_rate_percent": match_rate,
+            },
+        )
+
         _phase("db_writes")
     except Exception as exc:
         _log.exception("execute_reconciliation failed run_id=%s", run_id)

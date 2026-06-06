@@ -20,7 +20,7 @@ from app.services.r2_service import (
     generate_file_key,
     upload_file_to_r2,
 )
-from app.utils.audit import log_action
+from app.utils.audit import log_action, log_audit
 from app.utils.rate_limit import limiter
 from app.utils.storage import upload_file_raw
 
@@ -226,11 +226,13 @@ async def upload_file(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Upload could not be processed",
         ) from exc
-    await log_action(
-        str(current_user.get("id")),
-        "FILE_UPLOAD",
+    await log_audit(
+        get_supabase(),
+        current_user,
+        "FILE_UPLOADED",
         "file",
         file_key,
+        file.filename or "upload",
         {"name": file.filename},
         ip_address=None,
     )
@@ -341,12 +343,14 @@ async def upload_purchase_register(
         await upload_file_raw(content, r2_key)
     except Exception as exc:  # noqa: BLE001
         logger.warning("R2 upload failed for key '%s': %s", r2_key, type(exc).__name__)
-    await log_action(
-        uid,
-        "FILE_UPLOAD",
-        "purchase_register",
+    await log_audit(
+        sb,
+        current_user,
+        "FILE_UPLOADED",
+        "file",
         run_id,
-        {},
+        safe_name,
+        {"file_type": "purchase_register"},
         ip_address=(request.client.host if request.client else None),
     )
     return parse_result

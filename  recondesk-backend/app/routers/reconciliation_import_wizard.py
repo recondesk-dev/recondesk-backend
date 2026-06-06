@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from app.auth import get_current_user_id
 from app.config import settings
-from app.database import get_supabase
+from app.database import get_supabase, get_user_profile
 from app.routers.import_router import (
     _gstin_norm_for_compare,
     _gstr2b_buyer_gstin_from_raw,
@@ -20,8 +20,14 @@ from app.routers.import_router import (
 from app.services.billing_gate import check_run_access, consume_run_credit, sync_billing_credits
 from app.services.firm_access import get_firm_owner_for_client
 from app.services.reconciliation_import_wizard import wizard_service as ws
+from app.utils.audit import client_display_label, log_audit
 
 router = APIRouter()
+
+
+def _actor(user_id: str) -> dict:
+    prof = get_user_profile(user_id) or {}
+    return {**prof, "id": user_id}
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -263,6 +269,15 @@ async def gstr2b_upload_complete(
         audit_event="gstr2b_uploaded",
         audit_detail={"file_size": size, "file_hash": body.file_hash},
     )
+    await log_audit(
+        sb,
+        _actor(user_id),
+        "FILE_UPLOADED",
+        "file",
+        str(run_id),
+        body.file_name,
+        {"file_type": "gstr2b"},
+    )
     return ws.fetch_run(sb, str(run_id))
 
 
@@ -294,6 +309,15 @@ async def pr_upload_complete(
         },
         audit_event="pr_uploaded",
         audit_detail={"file_size": size, "file_hash": body.file_hash},
+    )
+    await log_audit(
+        sb,
+        _actor(user_id),
+        "FILE_UPLOADED",
+        "file",
+        str(run_id),
+        body.file_name,
+        {"file_type": "purchase_register"},
     )
     return ws.fetch_run(sb, str(run_id))
 
@@ -526,6 +550,18 @@ async def start_reconciliation(
         audit_detail={"gstr2b_record_count": gstr_n, "pr_record_count": pr_n},
     )
     ws.schedule_processing_job(str(run_id))
+    client_name = client_display_label(sb, str(r["client_id"]))
+    period = str(r.get("period") or "")
+    entity_label = f"{client_name} ({period})" if period else client_name
+    await log_audit(
+        sb,
+        _actor(user_id),
+        "RECON_STARTED",
+        "reconciliation",
+        str(run_id),
+        entity_label,
+        {"gstr2b_record_count": gstr_n, "pr_record_count": pr_n},
+    )
     return ws.fetch_run(sb, str(run_id))
 
 
