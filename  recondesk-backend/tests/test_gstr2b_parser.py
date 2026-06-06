@@ -14,7 +14,18 @@ import time
 
 import pytest
 
-from app.parsers.gstr2b_parser import _make_skip_entry, parse_gstr2b
+from app.parsers.gstr2b_parser import (
+    SKIP_INVALID_AMOUNT,
+    SKIP_INVALID_GSTIN,
+    SKIP_INVALID_INVOICE_DATE,
+    SKIP_MALFORMED_INVOICE,
+    SKIP_MISSING_GSTIN,
+    SKIP_MISSING_INVOICE_DATE,
+    SKIP_MISSING_INVOICE_NUMBER,
+    SKIP_UNSUPPORTED_SCHEMA,
+    _make_skip_entry,
+    parse_gstr2b,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -553,6 +564,92 @@ def test_mutating_skip_raw_data_is_independent_shallow_copy():
 
     # Nested list is the same reference (shallow copy — not deepcopy)
     assert skip_entry["raw_data"]["nested"] is original["nested"]
+
+
+# ===========================================================================
+# Skip diagnostics — categorized breakdown by reason
+# ===========================================================================
+
+def _only_category(result: dict) -> str:
+    assert result["total_skipped"] == 1
+    return result["skipped"][0]["category"]
+
+
+def test_skip_category_missing_gstin():
+    result = parse_gstr2b(_payload(b2b=[{"ctin": "", "inv": [_invoice()]}]))
+    assert _only_category(result) == SKIP_MISSING_GSTIN
+    assert result["skip_breakdown"].get(SKIP_MISSING_GSTIN) == 1
+
+
+def test_skip_category_invalid_gstin():
+    result = parse_gstr2b(_payload(b2b=[{"ctin": "SHORT", "inv": [_invoice()]}]))
+    assert _only_category(result) == SKIP_INVALID_GSTIN
+
+
+def test_skip_category_missing_invoice_number():
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(inum="")])]))
+    assert _only_category(result) == SKIP_MISSING_INVOICE_NUMBER
+
+
+def test_skip_category_missing_invoice_date():
+    inv = {"inum": "INV001", "dt": None, "val": 1000, "pos": "27"}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
+    assert _only_category(result) == SKIP_MISSING_INVOICE_DATE
+
+
+def test_skip_category_invalid_invoice_date():
+    inv = {"inum": "INV001", "dt": "not-a-date", "val": 1000, "pos": "27"}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
+    assert _only_category(result) == SKIP_INVALID_INVOICE_DATE
+
+
+def test_skip_category_invalid_amount():
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(val="abc")])]))
+    assert _only_category(result) == SKIP_INVALID_AMOUNT
+
+
+def test_skip_category_unsupported_schema_unknown_note_type():
+    result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, [_cdnr_invoice(ntty="X")])]))
+    assert _only_category(result) == SKIP_UNSUPPORTED_SCHEMA
+
+
+def test_skip_category_malformed_invoice_object():
+    result = parse_gstr2b(_payload(b2b=[{"ctin": SUPPLIER_1, "inv": ["not_a_dict"]}]))
+    assert _only_category(result) == SKIP_MALFORMED_INVOICE
+
+
+def test_skip_breakdown_aggregates_and_sums_to_total_skipped():
+    bad_date = {"inum": "B1", "dt": None, "val": 1000, "pos": "27"}
+    bad_amount = _invoice(inum="B2", val="abc")
+    bad_inum = _invoice(inum="")
+    good = _invoice(inum="OK1")
+    result = parse_gstr2b(
+        _payload(b2b=[_supplier(SUPPLIER_1, [good, bad_date, bad_amount, bad_inum])])
+    )
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 3
+    breakdown = result["metrics"]["skip_breakdown"]
+    assert breakdown.get(SKIP_MISSING_INVOICE_DATE) == 1
+    assert breakdown.get(SKIP_INVALID_AMOUNT) == 1
+    assert breakdown.get(SKIP_MISSING_INVOICE_NUMBER) == 1
+    assert sum(breakdown.values()) == result["total_skipped"]
+
+
+def test_skip_breakdown_labeled_shape_and_order():
+    bad_amount = _invoice(inum="B2", val="abc")
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [bad_amount])]))
+    labeled = result["metrics"]["skip_breakdown_labeled"]
+    assert labeled == [
+        {"category": SKIP_INVALID_AMOUNT, "label": "Invalid amount", "count": 1}
+    ]
+
+
+def test_existing_skip_reasons_still_keyed_by_error_reason():
+    """Backwards compatibility: skip_reasons aggregation is unchanged."""
+    inv1 = {"inum": "B1", "dt": None, "val": 1000, "pos": "27"}
+    inv2 = {"inum": "B2", "dt": None, "val": 1000, "pos": "27"}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(), inv1, inv2])]))
+    assert result["metrics"]["skip_reasons"].get("missing_field for dt", 0) == 2
 
 
 # ===========================================================================
