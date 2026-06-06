@@ -7,7 +7,6 @@ import {
 } from "@/components/reconcile/Rule37MarkPaidModal";
 import { ReconcilePaginationFooter } from "@/components/reconcile/ReconcilePaginationFooter";
 import { Rule37SummarySection } from "@/components/reconcile/Rule37SummarySection";
-import { Rule37WatchList } from "@/components/reconcile/Rule37WatchList";
 import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
 import { Gstr3bCheckPanel } from "@/components/reconcile/Gstr3bCheckPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
@@ -1705,7 +1704,7 @@ export default function ReconcileResultsPage() {
               </div>
               <div className="min-w-0 overflow-hidden rounded-2xl">
                 <StatCard
-                  label="In 2B, Not Booked"
+                  label="ITC at Risk"
                   accent="risk"
                   value={
                     <span className={`${statCardValueClass} tabular-nums text-gray-900`}>
@@ -1752,8 +1751,8 @@ export default function ReconcileResultsPage() {
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Perfect match!</h2>
                 <p className="mt-1 text-[13px] text-gray-600">
-                  No missed ITC this month. Every purchase invoice is reflected in
-                  GSTR-2B, or there are no unmatched purchase entries.
+                  No ITC missed this month. Every invoice in GSTR-2B is recorded in
+                  your purchase register.
                 </p>
               </div>
             </div>
@@ -1763,10 +1762,10 @@ export default function ReconcileResultsPage() {
         {resultsTab === "itc" && summary && summary.missed_itc_count > 0 && (
           <div className={sectionContainerClass}>
             <SectionHeader
-              title="Missed ITC — In Purchase Register, Not in GSTR-2B"
+              title="ITC You Can Still Claim"
               dotColor="#16A34A"
               amount={summary.missed_itc_total_amount}
-              amountLabel="TOTAL MISSED ITC"
+              amountLabel="TOTAL RECOVERABLE"
               actions={
                 <button
                   type="button"
@@ -2095,13 +2094,19 @@ export default function ReconcileResultsPage() {
         {resultsTab === "risk" && summary && summary.wrongful_risk_count > 0 && (
           <div className={sectionContainerClass}>
             <SectionHeader
-              title="In GSTR-2B, Not in Purchase Register"
+              title="ITC at Risk — Supplier Has Not Filed"
               dotColor="#DC2626"
               badges={[
                 {
-                  label: "ITC IN 2B NOT BOOKED",
+                  label: "TOTAL ITC AT RISK",
                   amount: summary.wrongful_risk_total_amount,
                   variant: "risk",
+                },
+                {
+                  label: "PURCHASE VALUE AT RISK",
+                  amount: summary.wrongful_risk_purchase_total_amount ?? 0,
+                  variant: "neutral",
+                  sublabel: "Total invoice exposure",
                 },
               ]}
               actions={
@@ -2118,6 +2123,79 @@ export default function ReconcileResultsPage() {
                 </button>
               }
             />
+
+            <div className="mb-6">
+              <h3 className="mb-4 text-base font-semibold text-gray-900">
+                Top Suppliers by ITC at Risk
+              </h3>
+              {riskLoading && !riskPageData && (
+                <div className="animate-pulse space-y-2 py-2">
+                  <div className="h-8 rounded bg-gray-100" />
+                  <div className="h-8 rounded bg-gray-100/90" />
+                  <div className="h-8 rounded bg-gray-100/80" />
+                </div>
+              )}
+              {!(riskLoading && !riskPageData) &&
+                topSuppliersByRisk.length === 0 && (
+                  <p className="text-sm text-gray-500">
+                    No supplier risk data available.
+                  </p>
+                )}
+              {!(riskLoading && !riskPageData) &&
+                topSuppliersByRisk.length > 0 && (
+                  <>
+                    <div className={tableWrapClass}>
+                      <table className={topSuppliersTableClass}>
+                        <thead className={tableHeadClass}>
+                          <tr>
+                            <th className={topSuppliersThGstin}>Supplier GSTIN</th>
+                            <th className={topSuppliersThTradeName}>Trade Name</th>
+                            <th className={topSuppliersThInvoiceCount}>
+                              Invoice Count
+                            </th>
+                            <th className={topSuppliersThTotal}>
+                              Total ITC at Risk
+                            </th>
+                            <th className={topSuppliersThImpact}>Impact</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {topSuppliersByRisk.map((s) => (
+                            <tr key={s.gstin} className={tableRowClass}>
+                              <td className={topSuppliersTdGstin}>
+                                <GstinCell gstin={s.gstin} />
+                              </td>
+                              <td className={topSuppliersTdTradeName}>
+                                <HoverTextCell
+                                  text={s.tradeName}
+                                  displayClassName="text-[13px] font-medium text-gray-800"
+                                />
+                              </td>
+                              <td className={topSuppliersTdInvoiceCount}>
+                                {s.count.toLocaleString("en-IN")}
+                              </td>
+                              <td className={topSuppliersTdTotal}>
+                                <AmountDisplay amount={s.total} />
+                              </td>
+                              <td className={topSuppliersTdImpact}>
+                                <ImpactBadge level={s.impact} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="mt-3 text-right">
+                      <Link
+                        href={`/reconcile/runs/${runId}/vendors`}
+                        className="text-[13px] font-medium text-brand hover:underline"
+                      >
+                        View full vendor intelligence →
+                      </Link>
+                    </div>
+                  </>
+                )}
+            </div>
 
             <div className={`${filterRowClass} mb-4 items-center`}>
                 <input
@@ -2188,8 +2266,8 @@ export default function ReconcileResultsPage() {
                 value={riskSort}
                 onChange={(e) => setRiskSort(e.target.value)}
               >
-                <option value="amount_desc">ITC Amount ↓</option>
-                <option value="amount_asc">ITC Amount ↑</option>
+                <option value="amount_desc">ITC at Risk ↓</option>
+                <option value="amount_asc">ITC at Risk ↑</option>
                 <option value="supplier_name">Supplier Name</option>
                 <option value="invoice_date">Invoice Date</option>
               </select>
@@ -2204,10 +2282,10 @@ export default function ReconcileResultsPage() {
             {riskLoading && !riskPageData && !riskError && (
               <div className={decisionTableWrapClass}>
                 <table className={decisionTableClass}>
-                  <DecisionTableColGroup />
+                  <DecisionTableColGroup includeNotice />
                   <thead className={tableHeadClass}>
                     <tr>
-                      {Array.from({ length: 11 }).map((_, i) => (
+                      {Array.from({ length: 12 }).map((_, i) => (
                         <th key={i} className="px-2 py-2">
                           <div className="h-4 w-14 max-w-full animate-pulse rounded bg-gray-200" />
                         </th>
@@ -2217,7 +2295,7 @@ export default function ReconcileResultsPage() {
                   <tbody>
                     {Array.from({ length: 8 }).map((_, r) => (
                       <tr key={r} className="border-b border-gray-100">
-                        {Array.from({ length: 11 }).map((_, c) => (
+                        {Array.from({ length: 12 }).map((_, c) => (
                           <td key={c} className="px-2 py-2">
                             <div
                               className={`h-4 max-w-full animate-pulse rounded bg-gray-200 ${
@@ -2238,9 +2316,30 @@ export default function ReconcileResultsPage() {
             )}
             {riskPageData && !riskError && (
               <>
+                {followupSelectionHint && (
+                  <p className="mb-3 text-[13px] text-amber-800">{followupSelectionHint}</p>
+                )}
                 {selectedIds.risk.size > 0 && (
                   <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#F0F0F0] bg-[#FAFAFA] px-4 py-2.5 text-[13px]">
                     <span className="text-gray-600">{selectedIds.risk.size} selected</span>
+                    <button
+                      type="button"
+                      disabled={
+                        isRunFinalized ||
+                        !authToken ||
+                        riskRowsSelectedOnPage.length === 0 ||
+                        riskSelectionGstinCount !== 1
+                      }
+                      title={
+                        riskSelectionGstinCount !== 1
+                          ? "Select invoices from one supplier only"
+                          : undefined
+                      }
+                      className="rounded-lg border border-brand/30 bg-brand/5 px-3 py-1.5 text-[13px] font-medium text-brand hover:bg-brand/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => tryOpenBulkFollowup()}
+                    >
+                      Generate follow-up letter
+                    </button>
                     <button
                       type="button"
                       disabled={isRunFinalized}
@@ -2276,7 +2375,7 @@ export default function ReconcileResultsPage() {
                 )}
                 <div className={decisionTableWrapClass}>
                   <table className={decisionTableClass}>
-                    <DecisionTableColGroup />
+                    <DecisionTableColGroup includeNotice />
                     <thead className={tableHeadClass}>
                       <tr>
                         <th className={tableStickyCheckboxHeadClass}>
@@ -2312,13 +2411,16 @@ export default function ReconcileResultsPage() {
                         <th className={decisionTh("invoice")}>Invoice#</th>
                         <th className={decisionTh("date")}>Date</th>
                         <th className={decisionTh("amount", "right")}>
-                          ITC Amount
+                          ITC at Risk
                         </th>
                         <th className={decisionTh("impact")}>Impact</th>
                         <th className={decisionTh("what")}>WHAT</th>
                         <th className={decisionTh("why")}>WHY</th>
                         <th className={decisionTh("next")}>NEXT</th>
                         <th className={decisionTh("status")}>Status</th>
+                        <th className={decisionTh("notice", "right")}>
+                          Follow-up
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2388,6 +2490,16 @@ export default function ReconcileResultsPage() {
                             <span className="inline-flex">
                               <DecisionStatusPill status={effectiveStatus(row)} />
                             </span>
+                          </td>
+                          <td className={decisionTd("notice", { align: "right" })}>
+                            <button
+                              type="button"
+                              disabled={isRunFinalized || !authToken}
+                              className="max-w-full rounded-lg border border-[#E5E7EB] bg-white px-2 py-1.5 text-[10px] font-medium leading-tight text-brand hover:bg-brand/5 disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => openFollowupLetter([row])}
+                            >
+                              Generate follow-up letter
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -2820,9 +2932,6 @@ export default function ReconcileResultsPage() {
                   authToken={authToken}
                   refreshKey={rule37SummaryRefreshKey}
                 />
-              )}
-              {authToken && (
-                <Rule37WatchList runId={runId} authToken={authToken} />
               )}
               {rule37Error && (
                 <SectionError

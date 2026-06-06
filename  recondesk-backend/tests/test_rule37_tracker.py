@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from app.services.rule37_tracker import (
     check_rule_37_compliance,
     _payment_row_amount_paise,
-    OK, OVERDUE_UNPAID, WATCH, PAID_LATE,
+    OK, OVERDUE_UNPAID, WARNING_30_DAYS, WARNING_60_DAYS, PAID_LATE,
     LOW, MEDIUM, HIGH, CRITICAL,
 )
 
@@ -165,56 +165,43 @@ class TestOverdueUnpaid:
         )
 
 
-# ── watch list (fresh invoices, < 180 days old) ───────────────────────────────
+# ── warning zones ─────────────────────────────────────────────────────────────
 
-class TestWatchList:
-    """Fresh invoices (invoice_date within 180 days of today) are never active
-    Rule 37 risk. They are tracked on the watch list with days remaining and
-    carry zero ITC at risk until the deadline actually passes."""
+class TestWarningZones:
 
-    def test_unpaid_29_days_remaining_is_WATCH_not_risk(self):
-        """29 days to deadline → WATCH list (high urgency), not active risk."""
+    def test_unpaid_29_days_remaining_is_WARNING_30(self):
+        """29 days to deadline → WARNING_30_DAYS."""
         invoice_date = (date.today() - timedelta(days=151)).isoformat()
         pr = make_pr(invoice_date=invoice_date, taxable_amount_paise=100000, total_tax_paise=18000)
         results = check_rule_37_compliance([pr], [])
         r = results[0]
-        assert r["status"] == WATCH, (
-            f"29 days remaining must be WATCH. Got: {r['status']}, "
+        assert r["status"] == WARNING_30_DAYS, (
+            f"29 days remaining must be WARNING_30_DAYS. Got: {r['status']}, "
             f"days_remaining={r['days_remaining']}"
         )
         assert r["urgency"] == HIGH
-        assert r["on_watch_list"] is True
-        assert r["is_rule37_risk"] is False
-        assert r["itc_at_risk_paise"] == 0, (
-            "Fresh invoice must carry zero ITC at risk."
-        )
 
-    def test_unpaid_45_days_remaining_is_WATCH(self):
-        """45 days to deadline → WATCH list (medium urgency)."""
+    def test_unpaid_45_days_remaining_is_WARNING_60(self):
+        """45 days to deadline → WARNING_60_DAYS."""
         invoice_date = (date.today() - timedelta(days=135)).isoformat()
         pr = make_pr(invoice_date=invoice_date, taxable_amount_paise=100000, total_tax_paise=18000)
         results = check_rule_37_compliance([pr], [])
         r = results[0]
-        assert r["status"] == WATCH, (
-            f"45 days remaining must be WATCH. Got: {r['status']}, "
+        assert r["status"] == WARNING_60_DAYS, (
+            f"45 days remaining must be WARNING_60_DAYS. Got: {r['status']}, "
             f"days_remaining={r['days_remaining']}"
         )
         assert r["urgency"] == MEDIUM
-        assert r["on_watch_list"] is True
-        assert r["itc_at_risk_paise"] == 0
 
-    def test_unpaid_90_days_old_is_WATCH_not_risk(self):
-        """90 days old (90 days remaining) → still fresh → WATCH, never risk."""
+    def test_unpaid_90_days_remaining_is_OK(self):
+        """90 days remaining → well within limit → OK."""
         invoice_date = (date.today() - timedelta(days=90)).isoformat()
         pr = make_pr(invoice_date=invoice_date, taxable_amount_paise=100000, total_tax_paise=18000)
         results = check_rule_37_compliance([pr], [])
         r = results[0]
-        assert r["status"] == WATCH, (
-            f"Fresh 90-day-old invoice must be WATCH. Got: {r['status']}"
+        assert r["status"] == OK, (
+            f"90 days remaining must be OK. Got: {r['status']}"
         )
-        assert r["on_watch_list"] is True
-        assert r["is_rule37_risk"] is False
-        assert r["itc_at_risk_paise"] == 0
 
 
 # ── partial payments ──────────────────────────────────────────────────────────
@@ -265,24 +252,23 @@ class TestPartialPayments:
         assert r["unpaid_paise"] == 0
         assert r["status"] == OK
 
-    def test_partial_payment_with_days_remaining_is_watch_not_risk(self):
+    def test_partial_payment_with_days_remaining_is_OK_status(self):
         """
-        Partial payment on a fresh invoice (days remaining > 0) → WATCH list.
-        Rule 37 does not bite until the 180-day deadline passes, so ITC at
-        risk must be zero while the invoice is still within the window.
+        REAL BUG CHECK: Partial payment + days remaining → code returns OK.
+        But ITC at risk is still non-zero (unpaid portion).
+        CA must know there's still risk even though status is OK.
         """
         invoice_date = (date.today() - timedelta(days=90)).isoformat()
         pr = make_pr(invoice_date=invoice_date, taxable_amount_paise=100000, total_tax_paise=18000)
         payment = make_payment("pr-001", date.today().isoformat(), 50000)
         results = check_rule_37_compliance([pr], [payment])
         r = results[0]
-        assert r["status"] == WATCH, (
-            f"Partial payment within 180 days must be WATCH. Got: {r['status']}"
-        )
-        assert r["on_watch_list"] is True
-        assert r["is_rule37_risk"] is False
-        assert r["itc_at_risk_paise"] == 0, (
-            "Fresh invoice (< 180 days old) must not show ITC at risk yet."
+        # Status is OK (days remaining > 0) but ITC at risk is non-zero
+        print(f"\nPartial payment + days remaining: status={r['status']}, "
+              f"itc_at_risk={r['itc_at_risk_paise']}, days_remaining={r['days_remaining']}")
+        assert r["itc_at_risk_paise"] > 0, (
+            "Partial payment must still show non-zero ITC at risk — "
+            "CA needs to know 50% is still unpaid."
         )
 
 
@@ -298,7 +284,7 @@ class TestResultStructure:
             "pr_id", "supplier_gstin", "invoice_number", "invoice_date",
             "deadline", "days_remaining", "total_invoice_value_paise",
             "total_paid_paise", "unpaid_paise", "itc_at_risk_paise",
-            "status", "urgency", "action", "is_rule37_risk", "on_watch_list",
+            "status", "urgency", "action",
         }
         missing = required - set(r.keys())
         assert not missing, f"Result missing keys: {missing}"
