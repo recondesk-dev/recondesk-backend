@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
@@ -23,6 +24,15 @@ from app.services.reconciliation_import_wizard import wizard_service as ws
 from app.utils.audit import client_display_label, log_audit, resolve_firm_id
 
 router = APIRouter()
+
+
+def _normalize_r2_key(value: str) -> str:
+    """Store raw R2 object keys only, never public URLs or slash-prefixed paths."""
+    raw = str(value or "").strip()
+    parsed = urlparse(raw)
+    if parsed.scheme and parsed.netloc:
+        return parsed.path.lstrip("/")
+    return raw.lstrip("/")
 
 
 def _actor(user_id: str) -> dict:
@@ -221,9 +231,10 @@ async def gstr2b_upload_complete(
         raise HTTPException(status.HTTP_409_CONFLICT, "Run is not awaiting GSTR-2B upload")
     if body.file_size > ws.MAX_UPLOAD_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File too large")
-    size = ws.verify_r2_sha256(body.r2_key, body.file_hash)
+    r2_key = _normalize_r2_key(body.r2_key)
+    size = ws.verify_r2_sha256(r2_key, body.file_hash)
 
-    _gstr2_obj = ws._r2().get_object(Bucket=settings.R2_BUCKET_NAME, Key=body.r2_key)
+    _gstr2_obj = ws._r2().get_object(Bucket=settings.R2_BUCKET_NAME, Key=r2_key)
     gstr2_raw = _gstr2_obj["Body"].read()
     file_gstin_raw = _gstr2b_buyer_gstin_from_raw(gstr2_raw) or ""
     cg_res = (
@@ -262,14 +273,14 @@ async def gstr2b_upload_complete(
         user_id,
         "gstr_uploaded",
         extra_patch={
-            "gstr2b_r2_key": body.r2_key,
+            "gstr2b_r2_key": r2_key,
             "gstr2b_file_name": body.file_name,
             "gstr2b_file_size": size,
             "gstr2b_file_hash": body.file_hash.lower(),
             "gstr2b_uploaded_at": datetime.now(timezone.utc).isoformat(),
         },
         audit_event="gstr2b_uploaded",
-        audit_detail={"file_size": size, "file_hash": body.file_hash},
+        audit_detail={"file_size": size, "file_hash": body.file_hash, "r2_key": r2_key},
     )
     await log_audit(
         sb,
@@ -296,21 +307,22 @@ async def pr_upload_complete(
         raise HTTPException(status.HTTP_409_CONFLICT, "Purchase register upload not allowed")
     if body.file_size > ws.MAX_UPLOAD_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File too large")
-    size = ws.verify_r2_sha256(body.r2_key, body.file_hash)
+    r2_key = _normalize_r2_key(body.r2_key)
+    size = ws.verify_r2_sha256(r2_key, body.file_hash)
     ws.transition_run(
         sb,
         str(run_id),
         user_id,
         "pr_uploaded",
         extra_patch={
-            "pr_r2_key": body.r2_key,
+            "pr_r2_key": r2_key,
             "pr_file_name": body.file_name,
             "pr_file_size": size,
             "pr_file_hash": body.file_hash.lower(),
             "pr_uploaded_at": datetime.now(timezone.utc).isoformat(),
         },
         audit_event="pr_uploaded",
-        audit_detail={"file_size": size, "file_hash": body.file_hash},
+        audit_detail={"file_size": size, "file_hash": body.file_hash, "r2_key": r2_key},
     )
     await log_audit(
         sb,

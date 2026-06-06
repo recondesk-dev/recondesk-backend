@@ -10,10 +10,12 @@ import os
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 from supabase import Client, create_client
 
 from app.config import get_r2_s3_endpoint_url, get_settings
@@ -66,6 +68,26 @@ def _s3():
         config=Config(signature_version="s3v4"),
         region_name="auto",
     )
+
+
+def _normalize_r2_key(value: object) -> str:
+    """Return the R2 object key, not a public URL or slash-prefixed path."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    if parsed.scheme and parsed.netloc:
+        return parsed.path.lstrip("/")
+    return raw.lstrip("/")
+
+
+def _stored_import_key(run_data: dict[str, Any], file_type: str) -> str:
+    """Prefer file-specific R2 columns; fall back to the legacy single ``r2_key``."""
+    if file_type == "gstr2b":
+        return _normalize_r2_key(run_data.get("gstr2b_r2_key") or run_data.get("r2_key"))
+    if file_type == "purchase_register":
+        return _normalize_r2_key(run_data.get("pr_r2_key") or run_data.get("r2_key"))
+    return _normalize_r2_key(run_data.get("r2_key"))
 
 
 def _json_safe(obj: Any) -> Any:
@@ -222,7 +244,7 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
     try:
         run_res = (
             client.table("reconciliation_run")
-            .select("client_gstin_id, period")
+            .select("client_gstin_id, period, r2_key")
             .eq("id", run_id)
             .limit(1)
             .execute()
@@ -230,8 +252,40 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
         if not run_res.data:
             raise RuntimeError(f"Run {run_id} does not exist")
         run_data = run_res.data[0] or {}
+        try:
+            wizard_res = (
+                client.table("reconciliation_import_runs")
+                .select("gstr2b_r2_key, pr_r2_key")
+                .eq("id", run_id)
+                .limit(1)
+                .execute()
+            )
+            if wizard_res.data:
+                run_data.update(wizard_res.data[0] or {})
+        except Exception:
+            # Legacy import runs may not have a wizard companion row.
+            pass
         client_gstin_id = run_data.get("client_gstin_id")
         period = run_data.get("period")
+        queued_key = _normalize_r2_key(r2_key)
+        stored_key = _stored_import_key(run_data, file_type)
+        fetch_key = stored_key or queued_key
+        if queued_key != fetch_key:
+            _log.warning(
+                "R2 import key mismatch run_id=%s file_type=%s queued_key=%r stored_key=%r; using %r",
+                run_id,
+                file_type,
+                queued_key,
+                stored_key,
+                fetch_key,
+            )
+        else:
+            _log.info(
+                "R2 import key run_id=%s file_type=%s key=%r",
+                run_id,
+                file_type,
+                fetch_key,
+            )
 
         _update_run(
             client,
@@ -243,7 +297,24 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             },
         )
 
-        obj = s3.get_object(Bucket=bucket, Key=r2_key)
+        try:
+            obj = s3.get_object(Bucket=bucket, Key=fetch_key)
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code") or "")
+            _log.error(
+                "R2 GetObject failed run_id=%s file_type=%s bucket=%r key=%r queued_key=%r "
+                "stored_r2_key=%r stored_gstr2b_r2_key=%r stored_pr_r2_key=%r code=%s",
+                run_id,
+                file_type,
+                bucket,
+                fetch_key,
+                queued_key,
+                _normalize_r2_key(run_data.get("r2_key")),
+                _normalize_r2_key(run_data.get("gstr2b_r2_key")),
+                _normalize_r2_key(run_data.get("pr_r2_key")),
+                code,
+            )
+            raise
         body = obj["Body"].read()
 
         if file_type == "gstr2b":
@@ -315,7 +386,10 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
         )
 
         try:
-            s3.delete_object(Bucket=bucket, Key=r2_key)
+            # Wizard uploads use stable keys needed for retry/debug. Deleting here
+            # makes duplicate or retried processing fail with R2 NoSuchKey.
+            if not fetch_key.startswith("import-wizard/"):
+                s3.delete_object(Bucket=bucket, Key=fetch_key)
         except Exception:
             pass
 
