@@ -135,6 +135,21 @@ def check_rule_37_compliance(
     for pr_rec in pr_records:
         invoice_date = date.fromisoformat(pr_rec["invoice_date"])
         deadline = invoice_date + timedelta(days=180)
+
+        # Rule 37 payment_status filter: only unpaid / unknown-status invoices
+        # are candidates. A "paid" invoice is never a Rule 37 violation, and an
+        # invoice settled within the 180-day window clears the requirement.
+        payment_status = pr_rec.get("payment_status")
+        if isinstance(payment_status, str):
+            payment_status = payment_status.strip().lower() or None
+        else:
+            payment_status = None
+        if payment_status == "paid":
+            continue
+        pay_date_iso = _iso_payment_date(pr_rec.get("payment_date"))
+        if pay_date_iso is not None and date.fromisoformat(pay_date_iso) <= deadline:
+            continue
+
         days_remaining = (deadline - today).days
 
         total_tax_paise = pr_rec.get("total_tax_paise", 0)
