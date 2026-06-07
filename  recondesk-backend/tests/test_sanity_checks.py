@@ -5,7 +5,7 @@ import io
 
 import pandas as pd
 
-from app.parsers.purchase_register_parser import parse_purchase_register
+from app.parsers.purchase_register_parser import detect_column_mapping, parse_purchase_register
 from app.services.sanity import SanityCheck, detect_duplicates, run_import_sanity
 from app.utils.test_helpers import make_valid_test_gstin
 
@@ -199,6 +199,40 @@ def test_parser_reads_payment_status_unpaid():
     rec = result["records"][0]
     assert rec.get("payment_status") == "unpaid"
     assert "payment_date" not in rec
+
+
+def test_parser_preserves_decimal_amounts_as_true_paise():
+    csv_data = _csv_bytes(
+        **{
+            "Taxable Amount": "134595.94",
+            "CGST": "3364.90",
+            "SGST": "3364.90",
+            "IGST": "0.00",
+            "Total Invoice Value": "141325.74",
+        }
+    )
+    result = parse_purchase_register(csv_data, "decimal.csv")
+    assert result["success"] is True, result["errors"]
+    rec = result["records"][0]
+    assert rec["taxable_amount_paise"] == 13_459_594
+    assert rec["cgst_paise"] == 336_490
+    assert rec["sgst_paise"] == 336_490
+    assert rec["igst_paise"] == 0
+    assert rec["total_amount_paise"] == 14_132_574
+
+
+def test_total_amount_mapping_prefers_invoice_value_over_total_itc():
+    df = pd.DataFrame(
+        columns=[
+            "Supplier GSTIN",
+            "Invoice Number",
+            "Taxable Amount",
+            "Total ITC",
+            "Invoice Value",
+        ]
+    )
+    mapping = detect_column_mapping(df)
+    assert mapping["total_amount"] == "Invoice Value"
 
 
 def test_tax_math_passes_within_500_paise_tolerance():

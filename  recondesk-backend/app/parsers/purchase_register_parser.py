@@ -5,11 +5,6 @@ After reading a sheet into a DataFrame, columns are mapped to a canonical schema
 (``gstin``, ``invoice_number_normalized``, ``invoice_date``, ``*_paise``, …)
 aligned with ``app.services.sanity`` expectations.
 
-# NOTE:
-# The parser is unit-agnostic. It does NOT convert ₹ → paise.
-# Numeric amount cells are coerced to integers as-is. Unit inconsistencies
-# (e.g. input is in rupees vs. paise) are detected by the sanity layer.
-
 Relies on app.services.normalizer for GSTIN, date, and amount normalisation.
 """
 
@@ -22,7 +17,7 @@ import pandas as pd
 
 from app.services.normalizer import (
     NormalizationError,
-    normalize_amount,
+    normalize_amount as normalize_amount_to_paise,
     normalize_date,
     normalize_gstin,
 )
@@ -247,13 +242,27 @@ def detect_column_mapping(df: pd.DataFrame) -> dict[str, str]:
         tier, alias_len, priority, std_name = best
         prev = column_matches.get(std_name)
         if prev is not None:
-            logger.warning(
-                "Field '%s' matched multiple columns [%s, %s] — "
-                "using first occurrence.",
-                std_name,
-                prev[3],
-                orig_col,
-            )
+            current = (tier, alias_len, priority)
+            previous = prev[:3]
+            if current > previous:
+                logger.warning(
+                    "Field '%s' matched multiple columns [%s, %s] — "
+                    "using better match '%s'.",
+                    std_name,
+                    prev[3],
+                    orig_col,
+                    orig_col,
+                )
+                column_matches[std_name] = (tier, alias_len, priority, orig_col)
+            else:
+                logger.warning(
+                    "Field '%s' matched multiple columns [%s, %s] — "
+                    "using better match '%s'.",
+                    std_name,
+                    prev[3],
+                    orig_col,
+                    prev[3],
+                )
         else:
             column_matches[std_name] = (tier, alias_len, priority, orig_col)
 
@@ -351,13 +360,15 @@ def _preprocess_amount(raw: str) -> str:
     return _ACCT_SUFFIX_RE.sub("", raw).strip()
 
 
-def _parse_amount(raw_str: str) -> float | None:
-    """Return the amount in rupees (float) or None on normalisation failure."""
+def _parse_amount(raw_str: str) -> int | None:
+    """Return the amount in paise, or None on normalisation failure."""
     cleaned = _preprocess_amount(raw_str)
     if not cleaned:
         return None
-    # normalize_amount now returns float rupees directly (or None on failure).
-    return normalize_amount(cleaned)
+    try:
+        return int(normalize_amount_to_paise(cleaned).value)
+    except NormalizationError:
+        return None
 
 
 def _normalize_gstin_cell(val: Any) -> str | None:
@@ -380,33 +391,23 @@ def _normalize_invoice_number_cell(val: Any) -> str | None:
 
 
 def normalize_amount(value: Any) -> int:
-    """Convert input to integer safely WITHOUT unit conversion.
+    """Convert input to integer paise safely.
 
-    Handles strings, commas, and floats. Never scales the value (no ₹→paise).
-    Returns ``0`` for ``None`` / empty / unparseable input.
-
-    # NOTE:
-    # We do NOT convert ₹ → paise here.
-    # Parser remains unit-agnostic.
-    # Unit inconsistencies are handled in sanity checks.
+    Handles strings, commas, and floats. Returns ``0`` for ``None`` / empty /
+    unparseable input. Kept for callers that imported this helper directly.
     """
     if value is None or value == "":
         return 0
     try:
-        if isinstance(value, bool):
-            return 0
-        cleaned = str(value).replace(",", "").strip()
-        if not cleaned:
-            return 0
-        return int(float(cleaned))
-    except Exception:
+        return int(normalize_amount_to_paise(_preprocess_amount(str(value))).value)
+    except (NormalizationError, TypeError, ValueError):
         return 0
 
 
 def _amount_int_signed(val: Any) -> int | None:
     """Row helper: return signed integer amount, or None for blank / invalid.
 
-    Preserves sign (used by credit-note classification). No unit scaling.
+    Preserves sign (used by credit-note classification). Returns paise.
     """
     s = _safe_cell(val)
     if s is None:
@@ -414,26 +415,18 @@ def _amount_int_signed(val: Any) -> int | None:
     r = _parse_amount(s)
     if r is None:
         return None
-    # NOTE:
-    # We do NOT convert ₹ → paise here.
-    # Parser remains unit-agnostic.
-    # Unit inconsistencies are handled in sanity checks.
-    return int(round(r))
+    return int(r)
 
 
 def _amount_int_unsigned(val: Any) -> int | None:
-    """Row helper: return absolute integer amount, or None for blank / invalid."""
+    """Row helper: return absolute paise amount, or None for blank / invalid."""
     s = _safe_cell(val)
     if s is None:
         return None
     r = _parse_amount(s)
     if r is None:
         return None
-    # NOTE:
-    # We do NOT convert ₹ → paise here.
-    # Parser remains unit-agnostic.
-    # Unit inconsistencies are handled in sanity checks.
-    return int(round(abs(r)))
+    return int(abs(r))
 
 
 def normalize_dataframe_to_canonical_schema(
@@ -442,13 +435,8 @@ def normalize_dataframe_to_canonical_schema(
     """Build a DataFrame with canonical column names and sanity-aligned values.
 
     Rows match *df*; string columns are stripped; *gstin* is uppercased;
-    invoice numbers are strings (upper); numeric amount cells are coerced to
-    integers via ``normalize_amount`` — **no ₹→paise scaling is applied**.
-
-    # NOTE:
-    # We do NOT convert ₹ → paise here.
-    # Parser remains unit-agnostic.
-    # Unit inconsistencies are handled in sanity checks.
+    invoice numbers are strings (upper); numeric amount cells are normalized to
+    integer paise via ``normalize_amount``.
     """
     out_cols: dict[str, pd.Series] = {}
     for std_name, orig_col in column_mapping.items():
@@ -491,7 +479,7 @@ def normalize_dataframe_to_canonical_schema(
 
 
 def _classify_invoice_type(
-    invoice_number: str | None, original_taxable: float | None
+    invoice_number: str | None, original_taxable: int | None
 ) -> str:
     """Classify document type from invoice number prefix and signed taxable value.
 
@@ -525,7 +513,7 @@ def _df_cell_int(val: Any) -> int | None:
 
 
 def _invoice_type_consistency_errors(
-    invoice_type: str, original_taxable: float | None
+    invoice_type: str, original_taxable: int | None
 ) -> list[str]:
     """Return row-level error fragments when sign and type disagree."""
     errs: list[str] = []
@@ -769,8 +757,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                         row_errors.append("invalid date")
 
             # taxable_amount_paise — sign preserved for CN classification.
-            # NOTE: Parser is unit-agnostic — no ₹→paise scaling is applied.
-            original_taxable: float | None = None
+            original_taxable: int | None = None
             taxable_amount_paise: int | None = None
             if "taxable_amount" in column_mapping:
                 raw_tax = _safe_cell(orig_row.get(column_mapping["taxable_amount"]))
@@ -779,7 +766,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     if taxable_amount_paise is None:
                         row_errors.append("invalid value")
                     else:
-                        original_taxable = float(taxable_amount_paise)
+                        original_taxable = taxable_amount_paise
 
             invoice_type = _classify_invoice_type(inv_raw, original_taxable)
             row_errors.extend(

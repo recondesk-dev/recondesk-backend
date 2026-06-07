@@ -70,11 +70,11 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _pr_stored_rupees_to_paise(x: object) -> int:
-    """PR parser stores whole rupees in *paise* fields; GSTR-2B uses true paise."""
+def _pr_stored_paise(x: object) -> int:
+    """PR parser stores true paise in ``*_paise`` fields."""
     if x is None:
         return 0
-    return int(x) * 100
+    return int(x)
 
 
 def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -94,9 +94,9 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "supplier_gstin": gstin,
         "invoice_number_normalized": invn,
         "invoice_date": inv_d,
-        "taxable_amount_paise": _pr_stored_rupees_to_paise(rd.get("taxable_amount_paise")),
-        "cgst_paise": _pr_stored_rupees_to_paise(rd.get("cgst_paise")),
-        "sgst_paise": _pr_stored_rupees_to_paise(rd.get("sgst_paise")),
-        "igst_paise": _pr_stored_rupees_to_paise(rd.get("igst_paise")),
-        "total_tax_paise": _pr_stored_rupees_to_paise(rd.get("total_tax_paise")),
+        "taxable_amount_paise": _pr_stored_paise(rd.get("taxable_amount_paise")),
+        "cgst_paise": _pr_stored_paise(rd.get("cgst_paise")),
+        "sgst_paise": _pr_stored_paise(rd.get("sgst_paise")),
+        "igst_paise": _pr_stored_paise(rd.get("igst_paise")),
+        "total_tax_paise": _pr_stored_paise(rd.get("total_tax_paise")),
     }

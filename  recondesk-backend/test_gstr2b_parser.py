@@ -1,18 +1,5 @@
 import json
 
-# 🔧 TEMP: Monkey patch normalize_gstin BEFORE importing parser
-import app.services.normalizer as normalizer
-
-def bypass_gstin(gstin):
-    return gstin
-
-normalizer.normalize_gstin = bypass_gstin
-
-
-# Now import parser (after patch)
-from app.parsers.gstr2b_parser import parse_gstr2b
-
-
 # Sample data
 sample = {
     "data": {
@@ -47,11 +34,16 @@ sample = {
     }
 }
 
-# Convert to bytes
-file_content = json.dumps(sample).encode("utf-8")
 
-# Run parser
-result = parse_gstr2b(file_content)
+def test_parse_gstr2b_sample_with_invalid_fixture_gstins(monkeypatch):
+    """Use scoped patching so invalid fixture GSTINs do not leak into other tests."""
+    import app.parsers.gstr2b_parser as parser
 
-print("\n=== RESULT ===")
-print(json.dumps(result, default=str, indent=2))
+    monkeypatch.setattr(parser, "normalize_gstin", lambda gstin: gstin)
+
+    file_content = json.dumps(sample).encode("utf-8")
+    result = parser.parse_gstr2b(file_content)
+
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 0
+    assert result["records"][0]["invoice_number"] == "INV001"

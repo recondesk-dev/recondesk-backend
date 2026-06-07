@@ -52,7 +52,7 @@ def test_build_payment_records_from_paid_row():
     raw = {
         "payment_status": "paid",
         "payment_date": "2026-06-05",
-        "taxable_amount_paise": 10000,
+        "taxable_amount_paise": 1_000_000,
     }
     matcher = pr_db_row_to_matcher_row(
         {
@@ -62,7 +62,7 @@ def test_build_payment_records_from_paid_row():
                 "gstin": "27AAAPZ1234A1Z5",
                 "invoice_number_normalized": "INV001",
                 "invoice_date": "2026-05-01",
-                "total_tax_paise": 1800,
+                "total_tax_paise": 180_000,
             },
         }
     )
@@ -74,7 +74,7 @@ def test_build_payment_records_from_paid_row():
 
 
 def test_build_payment_records_skips_unpaid():
-    raw = {"payment_status": "unpaid", "taxable_amount_paise": 10000}
+    raw = {"payment_status": "unpaid", "taxable_amount_paise": 1_000_000}
     matcher = pr_db_row_to_matcher_row(
         {
             "id": "pr-2",
@@ -83,7 +83,7 @@ def test_build_payment_records_skips_unpaid():
                 "gstin": "27AAAPZ1234A1Z5",
                 "invoice_number_normalized": "INV002",
                 "invoice_date": "2025-10-30",
-                "total_tax_paise": 2700,
+                "total_tax_paise": 270_000,
             },
         }
     )
@@ -94,7 +94,7 @@ def test_rule37_paid_on_time_after_payment_parse():
     raw = {
         "payment_status": "paid",
         "payment_date": "2026-06-05",
-        "taxable_amount_paise": 10000,
+        "taxable_amount_paise": 1_000_000,
     }
     matcher = pr_db_row_to_matcher_row(
         {
@@ -104,7 +104,7 @@ def test_rule37_paid_on_time_after_payment_parse():
                 "gstin": "27AAAPZ1234A1Z5",
                 "invoice_number_normalized": "INV001",
                 "invoice_date": "2026-05-01",
-                "total_tax_paise": 1800,
+                "total_tax_paise": 180_000,
             },
         }
     )
@@ -118,7 +118,7 @@ def test_rule37_paid_on_time_after_payment_parse():
 
 
 def test_rule37_unpaid_overdue_from_pr_status():
-    raw = {"payment_status": "unpaid", "taxable_amount_paise": 15000}
+    raw = {"payment_status": "unpaid", "taxable_amount_paise": 1_500_000}
     matcher = pr_db_row_to_matcher_row(
         {
             "id": "pr-4",
@@ -127,7 +127,7 @@ def test_rule37_unpaid_overdue_from_pr_status():
                 "gstin": "27AAAPZ1234A1Z5",
                 "invoice_number_normalized": "INV012",
                 "invoice_date": "2025-10-30",
-                "total_tax_paise": 2700,
+                "total_tax_paise": 270_000,
             },
         }
     )

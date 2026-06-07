@@ -6,17 +6,17 @@ from app.services.reconciliation_record_adapter import (
 )
 
 
-def test_pr_row_scales_paise_and_normalizes_invoice():
+def test_pr_row_preserves_parser_paise_and_normalizes_invoice():
     row = {
         "id": 1,
         "record_data": {
             "gstin": "27AABCU9603R1ZX",
             "invoice_number_normalized": "INV-2025-001",
-            "taxable_amount_paise": 100000,
-            "igst_paise": 18000,
+            "taxable_amount_paise": 10_000_000,
+            "igst_paise": 1_800_000,
             "cgst_paise": 0,
             "sgst_paise": 0,
-            "total_tax_paise": 18000,
+            "total_tax_paise": 1_800_000,
         },
     }
     m = pr_db_row_to_matcher_row(row)
