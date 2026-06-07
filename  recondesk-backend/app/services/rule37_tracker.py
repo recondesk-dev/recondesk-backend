@@ -18,10 +18,10 @@ CRITICAL = "CRITICAL"
 
 
 def _stored_pr_amount_to_paise(val: object) -> int:
-    """PR ``*_paise`` fields store whole rupees; matcher scales to paise ×100."""
+    """PR ``*_paise`` fields store true paise."""
     if val is None:
         return 0
-    return int(val) * 100
+    return int(val)
 
 
 def _iso_payment_date(val: object) -> str | None:
