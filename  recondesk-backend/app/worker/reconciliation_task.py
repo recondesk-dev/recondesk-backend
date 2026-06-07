@@ -704,15 +704,22 @@ def execute_reconciliation(run_id: str) -> None:
 
         pr_by_id: dict[str, dict] = {str(p["id"]): p for p in pr_current}
         gstr_by_id: dict[str, dict] = {str(x.get("id")): x for x in gstr_matcher}
-        pr_for_rule37 = [
-            {
-                **p,
-                "id": str(p["id"]),
-                "invoice_date": p.get("invoice_date")
-                or gstr_start.isoformat(),
-            }
-            for p in pr_current
-        ]
+        pr_for_rule37 = []
+        for p in pr_current:
+            pid = str(p["id"])
+            raw = pr_raw_by_id.get(pid) or {}
+            if not isinstance(raw, dict):
+                raw = {}
+            pr_for_rule37.append(
+                {
+                    **p,
+                    "id": pid,
+                    "invoice_date": p.get("invoice_date")
+                    or gstr_start.isoformat(),
+                    "payment_status": raw.get("payment_status"),
+                    "payment_date": raw.get("payment_date"),
+                }
+            )
         payment_records = build_payment_records_from_pr(
             pr_current, pr_raw_by_id
         )
