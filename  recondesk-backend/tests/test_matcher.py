@@ -296,7 +296,12 @@ def test_l3_amount_at_4_9_percent():
     assert r.requires_human_review is True
 
 
-def test_l3_amount_at_5_1_percent_fails_to_l6():
+def test_l3_amount_over_5_percent_links_as_amount_mismatch():
+    """Same GSTIN + same invoice, amount diff >5% now LINKS as a DISCREPANCY
+    (AMOUNT_MISMATCH) instead of dropping to L6. A drop to L6 orphaned the invoice
+    into BOTH Missed ITC and ITC at Risk (double counting); linking it as one
+    matched-with-discrepancy pair is the fix.
+    """
     base = 1_000_000_00
     diff = int(round(0.051 * base))
     g = _base_rec(
@@ -310,7 +315,11 @@ def test_l3_amount_at_5_1_percent_fails_to_l6():
         taxable_paise=base - diff,
     )
     r = match_gstr_to_pr(g, [p])
-    assert r is None
+    assert r is not None
+    assert r.level == 3
+    assert r.matched is True
+    assert r.requires_human_review is True
+    assert r.review_reason.startswith("AMOUNT_MISMATCH")
 
 
 def test_l3_tax_structure_igst_vs_cgst_sgst_same_totals_not_l6():

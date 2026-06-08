@@ -393,6 +393,44 @@ def build_outcome_rows(
             )
         )
 
+    for gm in list(engine.get("gstin_mismatch") or []):
+        pid = str(gm.get("pr_id", ""))
+        pcell = pr_m.get(pid) or {}
+        p = pcell.get("matcher") or {}
+        invn = str(
+            gm.get("invoice_number_normalized")
+            or p.get("invoice_number_normalized")
+            or ""
+        )
+        invd = gm.get("invoice_date") or p.get("invoice_date")
+        rows.append(
+            OutcomeRow(
+                id=f"gm:{pid}",
+                category="wrongful_risk",
+                supplier_gstin=str(
+                    gm.get("pr_supplier_gstin") or p.get("supplier_gstin") or ""
+                ),
+                supplier_name=None,
+                invoice_number=invn,
+                invoice_date=str(invd) if invd else None,
+                match_status="REVIEW_REQUIRED",
+                taxable_value_diff=0,
+                igst_diff=0,
+                cgst_diff=0,
+                sgst_diff=0,
+                total_tax_diff_paise=0,
+                decision_what="Supplier GSTIN mismatch (possible typo)",
+                decision_why=str(gm.get("reason") or "GSTIN_MISMATCH"),
+                decision_next=(
+                    "Correct the supplier GSTIN in the purchase register to match "
+                    "GSTR-2B, then re-run. Do not claim ITC until it matches."
+                ),
+                rule37_flag=False,
+                blocked_credit_flag=False,
+                is_credit_note=False,
+            )
+        )
+
     for pr_id, rrow in r37x.items():
         if (rrow.get("status") or "") not in _RULE37_CONCERNS:
             continue
@@ -505,6 +543,10 @@ def build_outcome_rows(
         int(x.get("total_tax_paise") or 0) for x in (engine.get("missed_itc") or [])
     )
     w_risk = sum(int(x.get("total_tax_paise") or 0) for x in (engine.get("wrongful_itc_risk") or []))
+    # GSTIN-mismatch pairs are surfaced in the ITC-at-Risk bucket as review items.
+    w_risk += sum(
+        int(x.get("total_tax_paise") or 0) for x in (engine.get("gstin_mismatch") or [])
+    )
 
     matched_itc = 0
     for m0 in engine.get("matched") or []:

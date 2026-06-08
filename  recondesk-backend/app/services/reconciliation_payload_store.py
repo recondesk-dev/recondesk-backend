@@ -38,6 +38,31 @@ _WRONGFUL_KEYS = (
     "invoice_date",
     "taxable_amount_paise",
     "total_tax_paise",
+    "risk_reason",
+)
+
+_GSTIN_MISMATCH_KEYS = (
+    "gstr_id",
+    "pr_id",
+    "gstr_supplier_gstin",
+    "pr_supplier_gstin",
+    "invoice_number_normalized",
+    "invoice_date",
+    "taxable_amount_paise",
+    "total_tax_paise",
+    "reason",
+)
+
+_DUPLICATE_KEYS = (
+    "gstr_id",
+    "id",
+    "supplier_gstin",
+    "invoice_number_normalized",
+    "invoice_date",
+    "taxable_amount_paise",
+    "total_tax_paise",
+    "side",
+    "reason",
 )
 
 _DECISION_ROW_KEYS = (
@@ -93,6 +118,14 @@ def slim_missed_itc(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def slim_wrongful_itc(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [_pick(r, _WRONGFUL_KEYS) for r in rows]
+
+
+def slim_gstin_mismatch(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_pick(r, _GSTIN_MISMATCH_KEYS) for r in rows]
+
+
+def slim_duplicates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_pick(r, _DUPLICATE_KEYS) for r in rows]
 
 
 def slim_decision_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -156,6 +189,8 @@ def build_stored_results_payload(
     matching_version: str,
     rules_version: str,
     decision_version: str,
+    gstin_mismatch: list[dict[str, Any]] | None = None,
+    duplicates: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Minimal JSON persisted to reconciliation_results (invoice detail loaded from row tables)."""
     return {
@@ -163,6 +198,8 @@ def build_stored_results_payload(
             "matched": slim_engine_matched(matched),
             "missed_itc": slim_missed_itc(missed_itc),
             "wrongful_itc_risk": slim_wrongful_itc(wrongful_itc_risk),
+            "gstin_mismatch": slim_gstin_mismatch(gstin_mismatch or []),
+            "duplicates": slim_duplicates(duplicates or []),
         },
         "compliance": {
             "rule37": rule37,

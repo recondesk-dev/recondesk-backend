@@ -106,13 +106,18 @@ class TestL3Boundary:
             f"Exactly 5% diff must be L3. Got L{getattr(result,'level',None)}."
         )
 
-    def test_above_5pct_is_L6(self):
+    def test_above_5pct_links_as_amount_mismatch_discrepancy(self):
+        # Behavior change: same GSTIN + same invoice with a >5% amount diff now LINKS
+        # as one matched-with-discrepancy pair (AMOUNT_MISMATCH) instead of dropping
+        # to L6. Dropping to L6 orphaned the invoice into BOTH Missed ITC and ITC at
+        # Risk (double counting); linking it keeps it a single reviewable record.
         g = make_gstr(taxable_paise=1000000)
         p = make_pr(taxable_paise=940000)
         result = match_gstr_to_pr(g, [p])
-        assert result is None or not result.matched, (
-            f"6% diff must be L6 (no match). Got L{getattr(result,'level',None)}."
-        )
+        assert result is not None and result.matched is True
+        assert result.level == 3
+        assert result.requires_human_review is True
+        assert result.review_reason.startswith("AMOUNT_MISMATCH")
 
     def test_L3_requires_human_review(self):
         g = make_gstr(taxable_paise=1000000)
