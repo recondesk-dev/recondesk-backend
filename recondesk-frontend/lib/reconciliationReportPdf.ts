@@ -519,7 +519,7 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
     0,
     summary.total_gstr_records - summary.matched_count
   );
-  const narrative = `Out of ${summary.total_gstr_records.toLocaleString("en-IN")} GSTR records processed for ${periodLabel}, ${summary.matched_count.toLocaleString("en-IN")} invoices (${matchPct.toFixed(1)}%) were successfully matched. ${missedN.toLocaleString("en-IN")} invoices with recoverable ITC of ${formatINR(summary.missed_itc_total_amount)} were identified. ${riskN.toLocaleString("en-IN")} invoices worth ${formatINR(summary.wrongful_risk_total_amount)} carry compliance risk and require attention.`;
+  const narrative = `Out of ${summary.total_gstr_records.toLocaleString("en-IN")} GSTR records processed for ${periodLabel}, ${summary.matched_count.toLocaleString("en-IN")} invoices (${matchPct.toFixed(1)}%) were successfully matched. ${unmatched.toLocaleString("en-IN")} unmatched invoices were identified. ${riskN.toLocaleString("en-IN")} invoices worth ${formatINR(summary.wrongful_risk_total_amount)} carry compliance risk and require attention.`;
   y = drawSubtitle(doc, y, narrative);
 
   const metrics: [string, string][] = [
@@ -591,6 +591,8 @@ function buildRiskSection(
     return;
   }
 
+  const footnoteText = sorted.find((row) => row.decision_next)?.decision_next || "";
+
   const body = sorted.map((row, i) => {
     const taxable =
       readNumericField(row.purchase_register_data, [
@@ -599,6 +601,7 @@ function buildRiskSection(
         "taxable",
         "taxable_val",
       ]) ?? row.amount;
+    const actionLabel = row.decision_next ? "Contact supplier immediately" : "—";
     return [
       String(i + 1),
       row.supplier_gstin || "—",
@@ -607,7 +610,7 @@ function buildRiskSection(
       formatINR(taxable),
       formatINR(row.amount),
       row.decision_what || "—",
-      row.decision_next || "—",
+      actionLabel,
     ];
   });
 
@@ -629,13 +632,13 @@ function buildRiskSection(
     body,
     columnStyles: {
       0: { cellWidth: 7 },
-      1: { cellWidth: 28 },
-      2: { cellWidth: 17 },
-      3: { cellWidth: 16 },
-      4: { cellWidth: 19, halign: "right" },
-      5: { cellWidth: 19, halign: "right" },
-      6: { cellWidth: 38 },
-      7: { cellWidth: 38 },
+      1: { cellWidth: 45, noWrap: true },
+      2: { cellWidth: 20 },
+      3: { cellWidth: 18 },
+      4: { cellWidth: 22, halign: "right", noWrap: true },
+      5: { cellWidth: 22, halign: "right", noWrap: true },
+      6: { cellWidth: 25 },
+      7: { cellWidth: 23 },
     },
   });
 
@@ -643,6 +646,7 @@ function buildRiskSection(
     ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable
       ?.finalY ?? y + 20) + 6;
 
+  let footnoteY = finalY;
   if (truncated) {
     doc.setFont("helvetica", "italic");
     doc.setFontSize(7.5);
@@ -650,8 +654,18 @@ function buildRiskSection(
     doc.text(
       `Showing top ${TABLE_MAX} of ${data.riskRows.length} invoices by ITC value. Export Excel for complete list.`,
       MARGIN,
-      finalY
+      footnoteY
     );
+    footnoteY += 6;
+  }
+
+  if (footnoteText) {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(7.5);
+    setGrey(doc);
+    const footnoteLines = doc.splitTextToSize(`* Note on Recommended Action: ${footnoteText}`, CONTENT_W);
+    doc.text(footnoteLines, MARGIN, footnoteY);
+    footnoteY += footnoteLines.length * 3.5 + 2;
   }
 
   doc.setFont("helvetica", "bold");
@@ -660,7 +674,7 @@ function buildRiskSection(
   doc.text(
     `Total ITC at Risk: ${formatINR(data.summary.wrongful_risk_total_amount)}`,
     PAGE_W - MARGIN,
-    finalY + (truncated ? 6 : 0),
+    footnoteY,
     { align: "right" }
   );
 }
@@ -679,10 +693,7 @@ function buildMissedSection(
     "These invoices appear in GSTR-2B but are missing from your purchase register. ITC may be claimable after verification."
   );
 
-  const sorted = topRowsByAmount(data.itcRows, TABLE_MAX);
-  const truncated = data.itcRows.length > TABLE_MAX;
-
-  if (sorted.length === 0) {
+  if (data.itcRows.length === 0) {
     doc.setFont("helvetica", "italic");
     doc.setFontSize(9);
     setGrey(doc);
@@ -699,64 +710,190 @@ function buildMissedSection(
     return;
   }
 
-  const body = sorted.map((row, i) => {
-    const taxable =
-      readNumericField(row.gstr2b_data, [
-        "taxable_amount",
-        "Taxable Amount",
-        "taxable",
-        "taxable_val",
-        "invoice_value",
-      ]) ?? row.amount;
-    return [
-      String(i + 1),
-      row.supplier_gstin || "—",
-      row.invoice_number || "—",
-      formatShortDateIst(row.invoice_date),
-      formatINR(taxable),
-      formatINR(row.amount),
-      row.invoice_number ? "Present in GSTR-2B" : "—",
-    ];
-  });
+  const missedRows = data.itcRows.filter(
+    (row) => row.amount >= 0 && !row.invoice_number?.toUpperCase().startsWith("CN")
+  );
+  const creditNoteRows = data.itcRows.filter(
+    (row) => row.amount < 0 || row.invoice_number?.toUpperCase().startsWith("CN")
+  );
 
-  autoTable(doc, {
-    ...baseTableOpts(y),
-    tableWidth: CONTENT_W,
-    head: [
-      [
-        "#",
-        "Supplier GSTIN",
-        "Invoice #",
-        "Date",
-        "Taxable Amount (₹)",
-        "ITC (₹)",
-        "GSTR-2B Entry",
+  const sortedMissed = [...missedRows].sort((a, b) => b.amount - a.amount);
+  const missedTruncated = sortedMissed.length > TABLE_MAX;
+  const displayMissed = sortedMissed.slice(0, TABLE_MAX);
+
+  const sortedCN = [...creditNoteRows].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  const cnTruncated = sortedCN.length > TABLE_MAX;
+  const displayCN = sortedCN.slice(0, TABLE_MAX);
+
+  const missedSubtotal = missedRows.reduce((sum, r) => sum + r.amount, 0);
+  const cnSubtotal = creditNoteRows.reduce((sum, r) => sum + r.amount, 0);
+
+  // 1. Missed Invoices Table
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  setCharcoal(doc);
+  doc.text("Missed Invoices", MARGIN, y);
+  y += 4;
+
+  if (displayMissed.length === 0) {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(8.5);
+    setGrey(doc);
+    doc.text("No missed invoices found.", MARGIN, y + 4);
+    y += 12;
+  } else {
+    const missedBody = displayMissed.map((row, i) => {
+      const taxable =
+        readNumericField(row.gstr2b_data, [
+          "taxable_amount",
+          "Taxable Amount",
+          "taxable",
+          "taxable_val",
+          "invoice_value",
+        ]) ?? row.amount;
+      return [
+        String(i + 1),
+        row.supplier_gstin || "—",
+        row.invoice_number || "—",
+        formatShortDateIst(row.invoice_date),
+        formatINR(taxable),
+        formatINR(row.amount),
+        row.invoice_number ? "Present in GSTR-2B" : "—",
+      ];
+    });
+
+    autoTable(doc, {
+      ...baseTableOpts(y),
+      tableWidth: CONTENT_W,
+      head: [
+        [
+          "#",
+          "Supplier GSTIN",
+          "Invoice #",
+          "Date",
+          "Taxable Amount (₹)",
+          "ITC (₹)",
+          "GSTR-2B Entry",
+        ],
       ],
-    ],
-    body,
-    columnStyles: {
-      0: { cellWidth: 7 },
-      1: { cellWidth: 30 },
-      2: { cellWidth: 20 },
-      3: { cellWidth: 17 },
-      4: { cellWidth: 22, halign: "right" },
-      5: { cellWidth: 22, halign: "right" },
-      6: { cellWidth: 64 },
-    },
-  });
+      body: missedBody,
+      columnStyles: {
+        0: { cellWidth: 7 },
+        1: { cellWidth: 45, noWrap: true },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: 22, halign: "right", noWrap: true },
+        5: { cellWidth: 22, halign: "right", noWrap: true },
+        6: { cellWidth: 48 },
+      },
+    });
 
-  const finalY =
-    ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable
-      ?.finalY ?? y + 20) + 6;
+    const missedFinalY = (doc as any).lastAutoTable.finalY;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    setPurple(doc);
+    doc.text(
+      `Subtotal Missed Invoices: ${formatINR(missedSubtotal)}`,
+      PAGE_W - MARGIN,
+      missedFinalY + 5,
+      { align: "right" }
+    );
+    y = missedFinalY + 12;
+  }
 
+  // 2. Credit Notes Table
+  if (y > PAGE_H - 35) {
+    doc.addPage();
+    y = CONTENT_TOP;
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  setCharcoal(doc);
+  doc.text("Credit Notes", MARGIN, y);
+  y += 4;
+
+  if (displayCN.length === 0) {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(8.5);
+    setGrey(doc);
+    doc.text("No credit notes found.", MARGIN, y + 4);
+    y += 12;
+  } else {
+    const cnBody = displayCN.map((row, i) => {
+      const taxable =
+        readNumericField(row.gstr2b_data, [
+          "taxable_amount",
+          "Taxable Amount",
+          "taxable",
+          "taxable_val",
+          "invoice_value",
+        ]) ?? row.amount;
+      return [
+        String(i + 1),
+        row.supplier_gstin || "—",
+        row.invoice_number || "—",
+        formatShortDateIst(row.invoice_date),
+        formatINR(taxable),
+        formatINR(row.amount),
+        row.invoice_number ? "Present in GSTR-2B (Credit Note)" : "—",
+      ];
+    });
+
+    autoTable(doc, {
+      ...baseTableOpts(y),
+      tableWidth: CONTENT_W,
+      head: [
+        [
+          "#",
+          "Supplier GSTIN",
+          "Invoice #",
+          "Date",
+          "Taxable Amount (₹)",
+          "ITC (₹)",
+          "GSTR-2B Entry",
+        ],
+      ],
+      body: cnBody,
+      columnStyles: {
+        0: { cellWidth: 7 },
+        1: { cellWidth: 45, noWrap: true },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: 22, halign: "right", noWrap: true },
+        5: { cellWidth: 22, halign: "right", noWrap: true },
+        6: { cellWidth: 48 },
+      },
+    });
+
+    const cnFinalY = (doc as any).lastAutoTable.finalY;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    setPurple(doc);
+    doc.text(
+      `Subtotal Credit Notes: ${formatINR(cnSubtotal)}`,
+      PAGE_W - MARGIN,
+      cnFinalY + 5,
+      { align: "right" }
+    );
+    y = cnFinalY + 12;
+  }
+
+  // Section Total & Truncation Notice
+  if (y > PAGE_H - 20) {
+    doc.addPage();
+    y = CONTENT_TOP;
+  }
+
+  const truncated = missedTruncated || cnTruncated;
   if (truncated) {
     doc.setFont("helvetica", "italic");
     doc.setFontSize(7.5);
     setGrey(doc);
     doc.text(
-      `Showing top ${TABLE_MAX} of ${data.itcRows.length} invoices by ITC value. Export Excel for complete list.`,
+      `Showing top ${TABLE_MAX} invoices. Export Excel for complete list.`,
       MARGIN,
-      finalY
+      y
     );
   }
 
@@ -766,7 +903,7 @@ function buildMissedSection(
   doc.text(
     `Total Recoverable ITC: ${formatINR(data.summary.missed_itc_total_amount)}`,
     PAGE_W - MARGIN,
-    finalY + (truncated ? 6 : 0),
+    y + (truncated ? 6 : 0),
     { align: "right" }
   );
 }
@@ -866,12 +1003,12 @@ function buildRule37Section(
     columnStyles: {
       0: { cellWidth: 7 },
       1: { cellWidth: 22 },
-      2: { cellWidth: 30 },
+      2: { cellWidth: 45, noWrap: true },
       3: { cellWidth: 18 },
-      4: { cellWidth: 22, halign: "right" },
+      4: { cellWidth: 22, halign: "right", noWrap: true },
       5: { cellWidth: 20 },
       6: { cellWidth: 14, halign: "right" },
-      7: { cellWidth: 22 },
+      7: { cellWidth: 34 },
     },
     didParseCell: (hookData: {
       section: string;
@@ -953,12 +1090,12 @@ function buildRule37Section(
       columnStyles: {
         0: { cellWidth: 7 },
         1: { cellWidth: 20 },
-        2: { cellWidth: 28 },
-        3: { cellWidth: 18, halign: "right" },
-        4: { cellWidth: 52 },
-        5: { cellWidth: 22 },
-        6: { cellWidth: 18 },
-        7: { cellWidth: 22 },
+        2: { cellWidth: 45, noWrap: true },
+        3: { cellWidth: 22, halign: "right", noWrap: true },
+        4: { cellWidth: 33 },
+        5: { cellWidth: 20 },
+        6: { cellWidth: 15 },
+        7: { cellWidth: 20 },
       },
     });
   }
@@ -1013,7 +1150,15 @@ function buildFollowupSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPd
       ],
     ],
     body,
-    columnStyles: { 0: { cellWidth: 8 } },
+    columnStyles: {
+      0: { cellWidth: 7 },
+      1: { cellWidth: 35 },
+      2: { cellWidth: 45, noWrap: true },
+      3: { cellWidth: 22 },
+      4: { cellWidth: 20 },
+      5: { cellWidth: 23 },
+      6: { cellWidth: 30 },
+    },
   });
 }
 
@@ -1097,10 +1242,10 @@ function buildGstr3bSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfD
     body,
     columnStyles: {
       0: { cellWidth: 22 },
-      1: { cellWidth: 40, halign: "right" },
-      2: { cellWidth: 40, halign: "right" },
-      3: { cellWidth: 38, halign: "right" },
-      4: { cellWidth: 32 },
+      1: { cellWidth: 42, halign: "right", noWrap: true },
+      2: { cellWidth: 42, halign: "right", noWrap: true },
+      3: { cellWidth: 42, halign: "right", noWrap: true },
+      4: { cellWidth: 34 },
     },
     didParseCell: (hookData: { row: { index: number }; column: { index: number }; cell: { styles: { fontStyle: string; textColor: number[] } } }) => {
       if (hookData.row.index === body.length - 1) {
