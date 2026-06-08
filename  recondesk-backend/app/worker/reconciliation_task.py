@@ -29,6 +29,7 @@ from app.services.reconciliation import (
     build_wrongful_itc_risk,
     notify_reconciliation_run_completed_email_maybe,
     process_gstr_records_chunk,
+    resolve_orphans,
 )
 from app.services.reconciliation_payload_store import (
     build_run_summary_metrics,
@@ -697,13 +698,28 @@ def execute_reconciliation(run_id: str) -> None:
             for m in state.matched
             if m.get("is_late_filing")
         )
+
+        pr_by_id: dict[str, dict] = {str(p["id"]): p for p in pr_current}
+        gstr_by_id: dict[str, dict] = {str(x.get("id")): x for x in gstr_matcher}
+
+        # Orphan resolver: pair GSTIN-typo orphans and collapse duplicate filings so
+        # no invoice is counted in both Missed ITC and ITC at Risk (double counting).
+        (
+            state.missed_itc,
+            wrongful_itc,
+            gstin_mismatch,
+            duplicates,
+        ) = resolve_orphans(
+            state.matched,
+            state.missed_itc,
+            wrongful_itc,
+            gstr_by_id,
+            pr_by_id,
+        )
         itc_missed = sum(int(x.get("total_tax_paise") or 0) for x in state.missed_itc)
         wrongful_paise = sum(
             int(x.get("total_tax_paise") or 0) for x in wrongful_itc
         )
-
-        pr_by_id: dict[str, dict] = {str(p["id"]): p for p in pr_current}
-        gstr_by_id: dict[str, dict] = {str(x.get("id")): x for x in gstr_matcher}
         pr_for_rule37 = []
         for p in pr_current:
             pid = str(p["id"])
@@ -878,6 +894,8 @@ def execute_reconciliation(run_id: str) -> None:
                 matching_version=MATCHING_VERSION,
                 rules_version=RULES_VERSION,
                 decision_version=DECISION_VERSION,
+                gstin_mismatch=gstin_mismatch,
+                duplicates=duplicates,
             )
         )
         if isinstance(payload, str):

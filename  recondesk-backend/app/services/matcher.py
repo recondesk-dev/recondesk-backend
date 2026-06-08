@@ -53,6 +53,64 @@ def normalize_invoice(inv: str | None) -> str:
     return s[: m.start()] + digs
 
 
+def normalize_invoice_number(value: str | None) -> str:
+    """Shared invoice normalization: uppercase, alphanumerics only.
+
+    Unlike :func:`normalize_invoice`, this preserves the full token (leading zeros
+    and embedded year segments are kept). Used for cross-side identity grouping
+    and invoice-format-variant detection.
+
+    Examples:
+        ``DS-2026-00078`` -> ``DS202600078``
+        ``DS/26/78``      -> ``DS2678``
+        ``INV 001``       -> ``INV001``
+        ``inv_001``       -> ``INV001``
+    """
+    if value is None:
+        return ""
+    return _RE_NON_ALNUM.sub("", str(value)).upper().strip()
+
+
+def _pan_of(gstin: str | None) -> str:
+    """Return the 10-char PAN embedded in a GSTIN (positions 3-12), else ``""``."""
+    g = (gstin or "").strip().upper()
+    return g[2:12] if len(g) >= 12 else ""
+
+
+def same_pan(a: str | None, b: str | None) -> bool:
+    """True when both GSTINs carry the same (non-empty) PAN — i.e. likely a typo."""
+    pa, pb = _pan_of(a), _pan_of(b)
+    return bool(pa) and pa == pb
+
+
+def _is_subsequence(short: str, long: str) -> bool:
+    it = iter(long)
+    return all(ch in it for ch in short)
+
+
+def is_invoice_format_variant(a: str | None, b: str | None) -> bool:
+    """True when two invoice numbers are the same identity in a different format.
+
+    Conservative: requires the same leading alphabetic prefix and that the shorter
+    normalized token is a subsequence of the longer one with a genuine length gap
+    (e.g. ``DS/26/78`` vs ``DS-2026-00078``). Equal-length single-character typos
+    are intentionally NOT treated as variants (they remain L4 review).
+    """
+    na, nb = normalize_invoice_number(a), normalize_invoice_number(b)
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+    pa = _RE_LEADING_ALPHA.match(na)
+    pb = _RE_LEADING_ALPHA.match(nb)
+    if not pa or not pb or pa.group(0) != pb.group(0):
+        return False
+    short, long = (na, nb) if len(na) <= len(nb) else (nb, na)
+    if len(short) == len(long):
+        return False
+    return _is_subsequence(short, long)
+
+
 def levenshtein(s1: str, s2: str) -> int:
     if not s1:
         return len(s2)
@@ -676,6 +734,71 @@ def _match_gstr_to_pr_pair(
             discrepancies=discrepancies,
         )
 
+    # DISCREPANCY — same supplier GSTIN + same invoice number, amount differs beyond
+    # the L1/L2/L3 bands. Link as one matched-with-discrepancy pair (AMOUNT_MISMATCH)
+    # instead of dropping to L6, which would orphan the invoice into BOTH Missed ITC
+    # and ITC at Risk (double counting). Date must still be within the L2 window
+    # (or absent) so we never link a re-used invoice number across distant dates.
+    if (
+        gstin_match
+        and inv_ok
+        and (skip_date or date_within_l2)
+        and not skip_amount
+        and amount_diff_paise > AMOUNT_TOLERANCE_L1_PAISE
+    ):
+        rupees_diff = amount_diff_paise / 100.0
+        pct_display = 100.0 * percentage_diff
+        return MatchResult(
+            level=3,
+            matched=True,
+            confidence=70,
+            requires_human_review=True,
+            decision_what="Invoice matched but amount differs significantly",
+            decision_why=(
+                "Supplier GSTIN and invoice number match, but taxable amount "
+                "differs beyond tolerance"
+            ),
+            decision_next=(
+                "Contact supplier to verify the correct invoice value or issue a "
+                "credit/debit note"
+            ),
+            review_reason=(
+                f"AMOUNT_MISMATCH: differs by {pct_display:.1f}% (Rs {rupees_diff:.2f})"
+            ),
+            discrepancies=discrepancies,
+        )
+
+    # NORMALIZED INVOICE VARIANT — same GSTIN, amount + date align, and the invoice
+    # numbers are the same identity in a different format (e.g. DS/26/78 vs
+    # DS-2026-00078). Levenshtein similarity can fall below the L5 floor for these,
+    # so link explicitly as a fuzzy/normalized match rather than orphaning.
+    if (
+        gstin_match
+        and not inv_ok
+        and amount_within_l1
+        and (skip_date or date_within_l1)
+        and is_invoice_format_variant(g_inv, p_inv)
+    ):
+        return MatchResult(
+            level=5,
+            matched=True,
+            confidence=60,
+            requires_human_review=True,
+            decision_what="Invoice matched after format normalization",
+            decision_why=(
+                "Supplier GSTIN, amount and date match; invoice numbers are the same "
+                "after removing separators and format differences"
+            ),
+            decision_next=(
+                "Auto-linked as a format variant. Confirm the invoice identity with "
+                "the supplier if needed."
+            ),
+            review_reason=(
+                f"NORMALIZED_MATCH: '{g_inv}' <-> '{p_inv}' after normalization"
+            ),
+            discrepancies=discrepancies,
+        )
+
     # L4 — Invoice number mismatch
     if (
         gstin_match
@@ -734,6 +857,37 @@ def _match_gstr_to_pr_pair(
             ),
             discrepancies=discrepancies,
             vendor_similarity_score=vendor_sim,
+        )
+
+    # GSTIN_MISMATCH — invoice number + amount + date align, but the supplier GSTIN
+    # differs while sharing the same PAN (a likely typo, e.g. ...1ZF vs ...1ZZ). This
+    # must NEVER be a clean EXACT/FUZZY match. Surface as a human-review record so the
+    # pair can be linked once in a review bucket instead of producing two orphans.
+    # ``matched=False`` keeps it out of the auto-accepted matched pool; the
+    # reconciliation orphan-resolver pairs these explicitly.
+    if (
+        not gstin_match
+        and inv_ok
+        and amount_within_l1
+        and (skip_date or date_within_l1)
+        and same_pan(g_gst, p_gst)
+    ):
+        return MatchResult(
+            level=4,
+            matched=False,
+            confidence=0,
+            requires_human_review=True,
+            decision_what="Possible GSTIN typo — supplier GSTIN differs",
+            decision_why=(
+                "Invoice number, amount and date match, but the supplier GSTIN differs "
+                "from the GSTR-2B GSTIN (same PAN). Likely a data-entry error."
+            ),
+            decision_next=(
+                "Correct the supplier GSTIN in the purchase register, then re-run. Do "
+                "not claim ITC until the GSTIN matches the GSTR-2B record."
+            ),
+            review_reason=f"GSTIN_MISMATCH: GSTR={g_gst}, PR={p_gst}",
+            discrepancies=discrepancies,
         )
 
     # L6 — No match
