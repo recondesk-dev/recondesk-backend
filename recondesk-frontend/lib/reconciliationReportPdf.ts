@@ -591,7 +591,7 @@ function buildRiskSection(
     return;
   }
 
-  const footnoteText = sorted.find((row) => row.decision_next)?.decision_next || "";
+
 
   const body = sorted.map((row, i) => {
     const taxable =
@@ -647,6 +647,11 @@ function buildRiskSection(
       ?.finalY ?? y + 20) + 6;
 
   let footnoteY = finalY;
+  if (footnoteY > 268) {
+    doc.addPage();
+    footnoteY = CONTENT_TOP;
+  }
+
   if (truncated) {
     doc.setFont("helvetica", "italic");
     doc.setFontSize(7.5);
@@ -659,13 +664,23 @@ function buildRiskSection(
     footnoteY += 6;
   }
 
-  if (footnoteText) {
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(7.5);
-    setGrey(doc);
-    const footnoteLines = doc.splitTextToSize(`* Note on Recommended Action: ${footnoteText}`, CONTENT_W);
-    doc.text(footnoteLines, MARGIN, footnoteY);
-    footnoteY += footnoteLines.length * 3.5 + 2;
+  const genericFootnote = "Note: Contact each flagged supplier immediately. Do not claim this ITC in GSTR-3B until it appears in GSTR-2B.";
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(7.5);
+  setGrey(doc);
+  const footnoteLines = doc.splitTextToSize(genericFootnote, CONTENT_W);
+  
+  if (footnoteY + footnoteLines.length * 3.5 + 2 > 268) {
+    doc.addPage();
+    footnoteY = CONTENT_TOP;
+  }
+
+  doc.text(footnoteLines, MARGIN, footnoteY);
+  footnoteY += footnoteLines.length * 3.5 + 2;
+
+  if (footnoteY > 268) {
+    doc.addPage();
+    footnoteY = CONTENT_TOP;
   }
 
   doc.setFont("helvetica", "bold");
@@ -789,16 +804,21 @@ function buildMissedSection(
     });
 
     const missedFinalY = (doc as any).lastAutoTable.finalY;
+    let subtotalY = missedFinalY + 5;
+    if (subtotalY > 268) {
+      doc.addPage();
+      subtotalY = CONTENT_TOP;
+    }
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8.5);
     setPurple(doc);
     doc.text(
       `Subtotal Missed Invoices: ${formatINR(missedSubtotal)}`,
       PAGE_W - MARGIN,
-      missedFinalY + 5,
+      subtotalY,
       { align: "right" }
     );
-    y = missedFinalY + 12;
+    y = subtotalY + 7;
   }
 
   // 2. Credit Notes Table
@@ -867,20 +887,25 @@ function buildMissedSection(
     });
 
     const cnFinalY = (doc as any).lastAutoTable.finalY;
+    let cnSubtotalY = cnFinalY + 5;
+    if (cnSubtotalY > 268) {
+      doc.addPage();
+      cnSubtotalY = CONTENT_TOP;
+    }
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8.5);
     setPurple(doc);
     doc.text(
       `Subtotal Credit Notes: ${formatINR(cnSubtotal)}`,
       PAGE_W - MARGIN,
-      cnFinalY + 5,
+      cnSubtotalY,
       { align: "right" }
     );
-    y = cnFinalY + 12;
+    y = cnSubtotalY + 7;
   }
 
   // Section Total & Truncation Notice
-  if (y > PAGE_H - 20) {
+  if (y > 268) {
     doc.addPage();
     y = CONTENT_TOP;
   }
@@ -1005,10 +1030,10 @@ function buildRule37Section(
       1: { cellWidth: 22 },
       2: { cellWidth: 45, noWrap: true },
       3: { cellWidth: 18 },
-      4: { cellWidth: 22, halign: "right", noWrap: true },
-      5: { cellWidth: 20 },
-      6: { cellWidth: 14, halign: "right" },
-      7: { cellWidth: 34 },
+      4: { cellWidth: 25, halign: "right", noWrap: true }, // Amount min 2.5cm
+      5: { cellWidth: 25 },                               // Deadline 2.5cm
+      6: { cellWidth: 12, halign: "right" },
+      7: { cellWidth: 28 },
     },
     didParseCell: (hookData: {
       section: string;
@@ -1029,6 +1054,10 @@ function buildRule37Section(
       ?.finalY ?? y + 20) + 6;
 
   if (truncated) {
+    if (finalY > 268) {
+      doc.addPage();
+      finalY = CONTENT_TOP;
+    }
     doc.setFont("helvetica", "italic");
     doc.setFontSize(7.5);
     setGrey(doc);
@@ -1038,6 +1067,11 @@ function buildRule37Section(
       finalY
     );
     finalY += 6;
+  }
+
+  if (finalY > 268) {
+    doc.addPage();
+    finalY = CONTENT_TOP;
   }
 
   doc.setFont("helvetica", "bold");
