@@ -351,6 +351,46 @@ function baseTableOpts(y: number): Record<string, unknown> {
 
 // ─── Page builders ────────────────────────────────────────────────────────────
 
+/**
+ * Draw a right-aligned bold total line. If the current Y would overflow into
+ * the footer chrome, add a new page first. Returns the Y used so callers can
+ * advance their own cursor if needed.
+ */
+function drawTotalLine(
+  doc: jsPDF,
+  label: string,
+  value: number,
+  y: number
+): number {
+  const SAFE_BOTTOM = doc.internal.pageSize.height - 25;
+  if (y + 10 > SAFE_BOTTOM) {
+    doc.addPage();
+    y = CONTENT_TOP;
+  }
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(...PURPLE);
+  doc.text(
+    `${label}: \u20b9${Math.round(Math.abs(value)).toLocaleString("en-IN")}`,
+    PAGE_W - MARGIN,
+    y,
+    { align: "right" }
+  );
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(...CHARCOAL);
+  return y + 8;
+}
+
+/**
+ * Get lastAutoTable.finalY safely, falling back to a supplied default.
+ */
+function lastTableY(doc: jsPDF, fallback: number): number {
+  return (
+    (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable
+      ?.finalY ?? fallback
+  );
+}
+
 function buildCoverPage(doc: jsPDF, data: ReportPdfDataset) {
   const { summary, generatedByName } = data;
   const periodLabel = formatReportPeriod(summary.period);
@@ -626,7 +666,7 @@ function buildRiskSection(
         "Amount (₹)",
         "ITC (₹)",
         "Reason",
-        "Recommended Action",
+        "Action",
       ],
     ],
     body,
@@ -642,14 +682,13 @@ function buildRiskSection(
     },
   });
 
-  const finalY =
-    ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable
-      ?.finalY ?? y + 20) + 6;
+  const tableEndY = lastTableY(doc, y + 20);
 
-  let footnoteY = finalY;
-  if (footnoteY > 268) {
+  // ── Truncation notice (if table was capped)
+  let afterTableY = tableEndY + 4;
+  if (afterTableY > CONTENT_BOTTOM) {
     doc.addPage();
-    footnoteY = CONTENT_TOP;
+    afterTableY = CONTENT_TOP;
   }
 
   if (truncated) {
@@ -659,39 +698,27 @@ function buildRiskSection(
     doc.text(
       `Showing top ${TABLE_MAX} of ${data.riskRows.length} invoices by ITC value. Export Excel for complete list.`,
       MARGIN,
-      footnoteY
+      afterTableY
     );
-    footnoteY += 6;
+    afterTableY += 5;
   }
 
-  const genericFootnote = "Note: Contact each flagged supplier immediately. Do not claim this ITC in GSTR-3B until it appears in GSTR-2B.";
+  // ── Generic footnote
+  const genericFootnote =
+    "Note: Contact each flagged supplier immediately. Do not claim this ITC in GSTR-3B until it appears in GSTR-2B.";
   doc.setFont("helvetica", "italic");
   doc.setFontSize(7.5);
   setGrey(doc);
-  const footnoteLines = doc.splitTextToSize(genericFootnote, CONTENT_W);
-  
-  if (footnoteY + footnoteLines.length * 3.5 + 2 > 268) {
+  const fnLines = doc.splitTextToSize(genericFootnote, CONTENT_W);
+  if (afterTableY + fnLines.length * 3.8 > CONTENT_BOTTOM) {
     doc.addPage();
-    footnoteY = CONTENT_TOP;
+    afterTableY = CONTENT_TOP;
   }
+  doc.text(fnLines, MARGIN, afterTableY);
+  afterTableY += fnLines.length * 3.8 + 3;
 
-  doc.text(footnoteLines, MARGIN, footnoteY);
-  footnoteY += footnoteLines.length * 3.5 + 2;
-
-  if (footnoteY > 268) {
-    doc.addPage();
-    footnoteY = CONTENT_TOP;
-  }
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  setPurple(doc);
-  doc.text(
-    `Total ITC at Risk: ${formatINR(data.summary.wrongful_risk_total_amount)}`,
-    PAGE_W - MARGIN,
-    footnoteY,
-    { align: "right" }
-  );
+  // ── Section total (drawn outside any table, guarded by drawTotalLine)
+  drawTotalLine(doc, "Total ITC at Risk", afterTableY, data.summary.wrongful_risk_total_amount);
 }
 
 function buildMissedSection(
@@ -803,22 +830,14 @@ function buildMissedSection(
       },
     });
 
-    const missedFinalY = (doc as any).lastAutoTable.finalY;
-    let subtotalY = missedFinalY + 5;
-    if (subtotalY > 268) {
+    const missedTableEndY = lastTableY(doc, y + 20);
+    const subtotalY = missedTableEndY + 6;
+    drawTotalLine(doc, "Subtotal — Missed Invoices", subtotalY, missedSubtotal);
+    y = subtotalY + 12;
+    if (y > CONTENT_BOTTOM) {
       doc.addPage();
-      subtotalY = CONTENT_TOP;
+      y = CONTENT_TOP;
     }
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.5);
-    setPurple(doc);
-    doc.text(
-      `Subtotal Missed Invoices: ${formatINR(missedSubtotal)}`,
-      PAGE_W - MARGIN,
-      subtotalY,
-      { align: "right" }
-    );
-    y = subtotalY + 7;
   }
 
   // 2. Credit Notes Table
@@ -886,22 +905,14 @@ function buildMissedSection(
       },
     });
 
-    const cnFinalY = (doc as any).lastAutoTable.finalY;
-    let cnSubtotalY = cnFinalY + 5;
-    if (cnSubtotalY > 268) {
+    const cnTableEndY = lastTableY(doc, y + 20);
+    const cnSubtotalY = cnTableEndY + 6;
+    drawTotalLine(doc, "Subtotal — Credit Notes", cnSubtotalY, cnSubtotal);
+    y = cnSubtotalY + 12;
+    if (y > CONTENT_BOTTOM) {
       doc.addPage();
-      cnSubtotalY = CONTENT_TOP;
+      y = CONTENT_TOP;
     }
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.5);
-    setPurple(doc);
-    doc.text(
-      `Subtotal Credit Notes: ${formatINR(cnSubtotal)}`,
-      PAGE_W - MARGIN,
-      cnSubtotalY,
-      { align: "right" }
-    );
-    y = cnSubtotalY + 7;
   }
 
   // Section Total & Truncation Notice
@@ -910,8 +921,12 @@ function buildMissedSection(
     y = CONTENT_TOP;
   }
 
-  const truncated = missedTruncated || cnTruncated;
-  if (truncated) {
+  const truncated2 = missedTruncated || cnTruncated;
+  if (truncated2) {
+    if (y > CONTENT_BOTTOM) {
+      doc.addPage();
+      y = CONTENT_TOP;
+    }
     doc.setFont("helvetica", "italic");
     doc.setFontSize(7.5);
     setGrey(doc);
@@ -920,17 +935,11 @@ function buildMissedSection(
       MARGIN,
       y
     );
+    y += 5;
   }
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  setPurple(doc);
-  doc.text(
-    `Total Recoverable ITC: ${formatINR(data.summary.missed_itc_total_amount)}`,
-    PAGE_W - MARGIN,
-    y + (truncated ? 6 : 0),
-    { align: "right" }
-  );
+  // ── Section total — drawn outside any table, safe-guarded by drawTotalLine
+  drawTotalLine(doc, "Total Recoverable ITC", y, data.summary.missed_itc_total_amount);
 }
 
 function buildRule37Section(
@@ -1003,7 +1012,10 @@ function buildRule37Section(
     m.row.invoice_number || "—",
     m.row.supplier_gstin || "—",
     formatShortDateIst(m.row.invoice_date),
-    formatINR(m.row.amount),
+    {
+      content: `₹${Math.round(m.row.amount).toLocaleString("en-IN")}`,
+      styles: { cellWidth: 28, halign: "right" as const },
+    },
     m.deadlineLabel,
     m.daysLeft != null ? String(m.daysLeft) : "—",
     m.status,
@@ -1026,14 +1038,14 @@ function buildRule37Section(
     ],
     body,
     columnStyles: {
-      0: { cellWidth: 7 },
-      1: { cellWidth: 22 },
+      0: { cellWidth: 22 },
+      1: { cellWidth: 28 },
       2: { cellWidth: 45, noWrap: true },
-      3: { cellWidth: 18 },
-      4: { cellWidth: 25, halign: "right", noWrap: true }, // Amount min 2.5cm
-      5: { cellWidth: 25 },                               // Deadline 2.5cm
-      6: { cellWidth: 12, halign: "right" },
-      7: { cellWidth: 28 },
+      3: { cellWidth: 22 },
+      4: { cellWidth: 28, halign: "right" },
+      5: { cellWidth: 28 },
+      6: { cellWidth: 18, halign: "right" },
+      7: { cellWidth: 22 },
     },
     didParseCell: (hookData: {
       section: string;
@@ -1049,14 +1061,14 @@ function buildRule37Section(
     },
   });
 
-  let finalY =
-    ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable
-      ?.finalY ?? y + 20) + 6;
+  // ── Truncation notice + Rule 37 total — both drawn outside any table
+  const r37TableEndY = lastTableY(doc, y + 20);
+  let r37AfterY = r37TableEndY + 4;
 
   if (truncated) {
-    if (finalY > 268) {
+    if (r37AfterY > CONTENT_BOTTOM) {
       doc.addPage();
-      finalY = CONTENT_TOP;
+      r37AfterY = CONTENT_TOP;
     }
     doc.setFont("helvetica", "italic");
     doc.setFontSize(7.5);
@@ -1064,29 +1076,17 @@ function buildRule37Section(
     doc.text(
       `Showing top ${TABLE_MAX} of ${data.rule37Rows.length} invoices by amount. Export Excel for complete list.`,
       MARGIN,
-      finalY
+      r37AfterY
     );
-    finalY += 6;
+    r37AfterY += 5;
   }
 
-  if (finalY > 268) {
-    doc.addPage();
-    finalY = CONTENT_TOP;
-  }
+  const r37TotalY = drawTotalLine(doc, "Total ITC at Risk (Rule 37)", rs.total_itc_at_risk, r37AfterY);
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  setPurple(doc);
-  doc.text(
-    `Total ITC at Risk (Rule 37): ${formatINR(rs.total_itc_at_risk)}`,
-    PAGE_W - MARGIN,
-    finalY,
-    { align: "right" }
-  );
 
   const history = data.rule37Summary.action_history ?? [];
   if (history.length > 0) {
-    let histY = finalY + 12;
+    let histY = r37TotalY + 12;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
     setCharcoal(doc);
