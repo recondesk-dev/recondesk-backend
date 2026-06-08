@@ -369,12 +369,12 @@ function drawTotalLine(
   }
   const formatted =
     typeof value === "number" && !Number.isNaN(value)
-      ? `\u20b9${Math.round(value).toLocaleString("en-IN")}`
-      : "\u2014";
+      ? `Rs. ${Math.round(Math.abs(value)).toLocaleString("en-IN")}${value < 0 ? " (CR)" : ""}`
+      : "-";
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.setTextColor(...PURPLE);
-  doc.text(`${label}: ${formatted}`, PAGE_W - MARGIN, y, { align: "right" });
+  doc.text(`${label}: ${formatted}`, 190, y, { align: "right" });
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...CHARCOAL);
   return y + 8;
@@ -1016,7 +1016,7 @@ function buildRule37Section(
     m.row.supplier_gstin || "—",
     formatShortDateIst(m.row.invoice_date),
     {
-      content: `₹${Math.round(m.row.amount).toLocaleString("en-IN")}`,
+      content: `Rs. ${Math.round(m.row.amount).toLocaleString("en-IN")}`,
       styles: { cellWidth: 28, halign: "right" as const },
     },
     m.deadlineLabel,
@@ -1027,6 +1027,7 @@ function buildRule37Section(
   autoTable(doc, {
     ...baseTableOpts(y),
     tableWidth: "wrap",
+    margin: { left: 10, right: 10 },
     head: [
       [
         "#",
