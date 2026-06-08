@@ -353,8 +353,7 @@ function baseTableOpts(y: number): Record<string, unknown> {
 
 /**
  * Draw a right-aligned bold total line. If the current Y would overflow into
- * the footer chrome, add a new page first. Returns the Y used so callers can
- * advance their own cursor if needed.
+ * the footer zone, add a new page first. Returns the next Y after the line.
  */
 function drawTotalLine(
   doc: jsPDF,
@@ -362,20 +361,20 @@ function drawTotalLine(
   value: number,
   y: number
 ): number {
-  const SAFE_BOTTOM = doc.internal.pageSize.height - 25;
-  if (y + 10 > SAFE_BOTTOM) {
+  const pageHeight = doc.internal.pageSize.height;
+  const FOOTER_ZONE = pageHeight - 20;
+  if (y > FOOTER_ZONE) {
     doc.addPage();
-    y = CONTENT_TOP;
+    y = 30;
   }
+  const formatted =
+    typeof value === "number" && !Number.isNaN(value)
+      ? `\u20b9${Math.round(value).toLocaleString("en-IN")}`
+      : "\u2014";
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.setTextColor(...PURPLE);
-  doc.text(
-    `${label}: \u20b9${Math.round(Math.abs(value)).toLocaleString("en-IN")}`,
-    PAGE_W - MARGIN,
-    y,
-    { align: "right" }
-  );
+  doc.text(`${label}: ${formatted}`, PAGE_W - MARGIN, y, { align: "right" });
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...CHARCOAL);
   return y + 8;
@@ -718,7 +717,8 @@ function buildRiskSection(
   afterTableY += fnLines.length * 3.8 + 3;
 
   // ── Section total (drawn outside any table, guarded by drawTotalLine)
-  drawTotalLine(doc, "Total ITC at Risk", afterTableY, data.summary.wrongful_risk_total_amount);
+  console.log("DEBUG total:", "Total ITC at Risk", data.summary.wrongful_risk_total_amount, afterTableY);
+  drawTotalLine(doc, "Total ITC at Risk", data.summary.wrongful_risk_total_amount, afterTableY);
 }
 
 function buildMissedSection(
@@ -832,7 +832,8 @@ function buildMissedSection(
 
     const missedTableEndY = lastTableY(doc, y + 20);
     const subtotalY = missedTableEndY + 6;
-    drawTotalLine(doc, "Subtotal — Missed Invoices", subtotalY, missedSubtotal);
+    console.log("DEBUG total:", "Subtotal — Missed Invoices", missedSubtotal, subtotalY);
+    drawTotalLine(doc, "Subtotal — Missed Invoices", missedSubtotal, subtotalY);
     y = subtotalY + 12;
     if (y > CONTENT_BOTTOM) {
       doc.addPage();
@@ -907,7 +908,8 @@ function buildMissedSection(
 
     const cnTableEndY = lastTableY(doc, y + 20);
     const cnSubtotalY = cnTableEndY + 6;
-    drawTotalLine(doc, "Subtotal — Credit Notes", cnSubtotalY, cnSubtotal);
+    console.log("DEBUG total:", "Subtotal — Credit Notes", cnSubtotal, cnSubtotalY);
+    drawTotalLine(doc, "Subtotal — Credit Notes", cnSubtotal, cnSubtotalY);
     y = cnSubtotalY + 12;
     if (y > CONTENT_BOTTOM) {
       doc.addPage();
@@ -939,7 +941,8 @@ function buildMissedSection(
   }
 
   // ── Section total — drawn outside any table, safe-guarded by drawTotalLine
-  drawTotalLine(doc, "Total Recoverable ITC", y, data.summary.missed_itc_total_amount);
+  console.log("DEBUG total:", "Total Recoverable ITC", data.summary.missed_itc_total_amount, y);
+  drawTotalLine(doc, "Total Recoverable ITC", data.summary.missed_itc_total_amount, y);
 }
 
 function buildRule37Section(
@@ -1023,14 +1026,14 @@ function buildRule37Section(
 
   autoTable(doc, {
     ...baseTableOpts(y),
-    tableWidth: CONTENT_W,
+    tableWidth: "wrap",
     head: [
       [
         "#",
         "Invoice #",
         "Supplier GSTIN",
         "Invoice Date",
-        "Amount (₹)",
+        "Amount (\u20b9)",
         "Deadline",
         "Days Left",
         "Status",
@@ -1038,14 +1041,14 @@ function buildRule37Section(
     ],
     body,
     columnStyles: {
-      0: { cellWidth: 22 },
-      1: { cellWidth: 28 },
-      2: { cellWidth: 45, noWrap: true },
-      3: { cellWidth: 22 },
-      4: { cellWidth: 28, halign: "right" },
-      5: { cellWidth: 28 },
-      6: { cellWidth: 18, halign: "right" },
-      7: { cellWidth: 22 },
+      0: { cellWidth: 8 },
+      1: { cellWidth: 25 },
+      2: { cellWidth: 42, noWrap: true },
+      3: { cellWidth: 20 },
+      4: { cellWidth: 25, halign: "right" },
+      5: { cellWidth: 25 },
+      6: { cellWidth: 15, halign: "right" },
+      7: { cellWidth: 20 },
     },
     didParseCell: (hookData: {
       section: string;
@@ -1081,6 +1084,7 @@ function buildRule37Section(
     r37AfterY += 5;
   }
 
+  console.log("DEBUG total:", "Total ITC at Risk (Rule 37)", rs.total_itc_at_risk, r37AfterY);
   const r37TotalY = drawTotalLine(doc, "Total ITC at Risk (Rule 37)", rs.total_itc_at_risk, r37AfterY);
 
 
