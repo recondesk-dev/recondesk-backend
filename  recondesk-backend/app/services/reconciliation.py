@@ -245,7 +245,7 @@ def process_gstr_records_chunk(
         best_key: tuple[int, int, int] | None = None
         tied_at_best: list[tuple[MatchResult, dict]] = []
 
-        for pr_rec in ordered_candidates:
+        for idx, pr_rec in enumerate(ordered_candidates):
             pr_id = str(pr_rec["id"])
             if pr_id in state.matched_pr_ids:
                 continue
@@ -262,6 +262,8 @@ def process_gstr_records_chunk(
                 tied_at_best = [(result, pr_rec)]
             elif key == best_key:
                 tied_at_best.append((result, pr_rec))
+            if idx == 0 and result.level == 1:
+                break
 
         if tied_at_best:
             if len(tied_at_best) > 1 and tied_at_best[0][0].level == 5:
