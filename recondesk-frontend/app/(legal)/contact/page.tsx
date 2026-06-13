@@ -33,6 +33,17 @@ export default function ContactPage() {
         </p>
       </LegalSection>
 
+      <LegalSection title="Phone">
+        <p>
+          <a
+            href="tel:+918605035248"
+            className="font-medium text-brand hover:underline"
+          >
+            +91 86050 35248
+          </a>
+        </p>
+      </LegalSection>
+
       <LegalSection title="Operator">
         <p>
           <LegalStrong>Omkar Rajendra Kadam</LegalStrong> (sole proprietorship)

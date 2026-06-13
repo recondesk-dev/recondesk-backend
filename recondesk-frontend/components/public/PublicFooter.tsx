@@ -60,12 +60,23 @@ export function PublicFooter({ theme = "dark" }: PublicFooterProps) {
               Contact
             </Link>
           </div>
-          <p
+          <div
             className={`text-sm max-sm:text-center lg:text-right ${isLight ? "text-[#6B6B6B]" : "text-slate-500"}`}
           >
-            GSTIN:{" "}
-            <span className={`font-mono ${isLight ? "text-[#3A3A3A]" : "text-slate-300"}`}>{firmGstin}</span>
-          </p>
+            <p>
+              GSTIN:{" "}
+              <span className={`font-mono ${isLight ? "text-[#3A3A3A]" : "text-slate-300"}`}>{firmGstin}</span>
+            </p>
+            <p className="mt-1">
+              Phone:{" "}
+              <a
+                href="tel:+918605035248"
+                className={`font-mono ${isLight ? "text-[#3A3A3A] hover:text-[#0A0A0A]" : "text-slate-300 hover:text-white"}`}
+              >
+                +91 86050 35248
+              </a>
+            </p>
+          </div>
         </div>
         <p
           className={`mt-10 border-t pt-8 text-center text-xs ${
