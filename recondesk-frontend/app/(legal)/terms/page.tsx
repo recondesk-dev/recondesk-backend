@@ -3,151 +3,137 @@ import type { Metadata } from "next";
 import { LegalPage, LegalSection, LegalStrong } from "@/components/public/LegalPage";
 
 export const metadata: Metadata = {
-  title: "Terms of Service — ReconDesk",
-  description: "Terms of Service for using ReconDesk GST reconciliation (recondesk.in).",
+  title: "Terms & Conditions — ReconDesk",
+  description: "Terms and Conditions for using the ReconDesk GST reconciliation platform (recondesk.in).",
 };
 
 export default function TermsPage() {
   return (
-    <LegalPage title="Terms of Service">
-      <LegalSection title="1. Acceptance of Terms">
+    <LegalPage title="Terms & Conditions">
+      <LegalSection title="Introduction">
         <p>
-          By accessing or using ReconDesk at recondesk.in or related services (&quot;Service&quot;), you
-          agree to these Terms of Service (&quot;Terms&quot;). If you do not agree, do not use the Service.
+          This document is an electronic record in terms of Information Technology Act, 2000 and rules
+          there under as applicable and the amended provisions pertaining to electronic records in various
+          statutes as amended by the Information Technology Act, 2000. This electronic record is generated
+          by a computer system and does not require any physical or digital signatures.
         </p>
         <p>
-          You represent that you are at least <LegalStrong>18 years of age</LegalStrong> and
-          that you are using the Service on behalf of a{" "}
-          <LegalStrong>registered business or professional practice in India</LegalStrong>{" "}
-          (such as a CA firm) authorised to subscribe on its behalf.
+          This document is published in accordance with the provisions of Rule 3 (1) of the Information
+          Technology (Intermediaries guidelines) Rules, 2011 that require publishing the rules and
+          regulations, privacy policy and Terms of Use for access or usage of domain name{" "}
+          <LegalStrong>recondesk.in</LegalStrong> (&apos;Website&apos;), including the related mobile
+          site and mobile application (hereinafter referred to as &apos;Platform&apos;).
+        </p>
+        <p>
+          The Platform is owned by{" "}
+          <LegalStrong>
+            RECONDESK, a sole proprietorship owned by Omkar Rajendra Kadam, operating from Hadapsar,
+            Pune, Maharashtra, India
+          </LegalStrong>{" "}
+          (hereinafter referred to as &apos;Platform Owner&apos;, &apos;we&apos;, &apos;us&apos;,
+          &apos;our&apos;).
+        </p>
+        <p>
+          Your use of the Platform and services and tools are governed by the following terms and
+          conditions (&quot;Terms of Use&quot;) as applicable to the Platform including the applicable
+          policies which are incorporated herein by way of reference. If You transact on the Platform,
+          You shall be subject to the policies that are applicable to the Platform for such transaction.
+          By mere use of the Platform, You shall be contracting with the Platform Owner and these terms
+          and conditions including the policies constitute Your binding obligations, with Platform Owner.
+          These Terms of Use relate to your use of our website, goods (as applicable) or services (as
+          applicable) (collectively, &apos;Services&apos;). Any terms and conditions proposed by You
+          which are in addition to or which conflict with these Terms of Use are expressly rejected by
+          the Platform Owner and shall be of no force or effect. These Terms of Use can be modified at
+          any time without assigning any reason. It is your responsibility to periodically review these
+          Terms of Use to stay informed of updates.
+        </p>
+        <p>
+          For the purpose of these Terms of Use, wherever the context so requires &apos;you&apos;,
+          &apos;your&apos; or &apos;user&apos; shall mean any natural or legal person who has agreed to
+          become a user/buyer on the Platform.
+        </p>
+        <p className="font-semibold uppercase">
+          ACCESSING, BROWSING OR OTHERWISE USING THE PLATFORM INDICATES YOUR AGREEMENT TO ALL THE
+          TERMS AND CONDITIONS UNDER THESE TERMS OF USE, SO PLEASE READ THE TERMS OF USE CAREFULLY
+          BEFORE PROCEEDING.
+        </p>
+        <p>
+          The use of Platform and/or availing of our Services is subject to the following Terms of Use:
         </p>
       </LegalSection>
 
-      <LegalSection title="2. Description of Service">
-        <p>
-          ReconDesk provides software that automates <LegalStrong>GSTR-2B versus purchase register</LegalStrong>{" "}
-          reconciliation for CA firms, including matching, mismatch summaries, and related outputs
-          designed to assist your review.
-        </p>
-        <p>
-          <LegalStrong>Results are advisory.</LegalStrong> You and your firm remain solely
-          responsible for validating outputs, professional judgement, and all GST filings, statutory
-          forms, and representations made to tax authorities.
-        </p>
-      </LegalSection>
-
-      <LegalSection title="3. Account Responsibilities">
-        <ul className="list-disc space-y-2 pl-5">
-          <li>You are responsible for safeguarding passwords, API tokens (if any), and devices used to access the Service.</li>
-          <li>You must not share login credentials in a manner that defeats access controls or exceeds your subscription.</li>
-          <li>Staff or invited user accounts must be used only by the individual identified for that access.</li>
-          <li>You are responsible for the accuracy of information you provide and for activity under your account, subject to reasonable dispute procedures.</li>
-        </ul>
-      </LegalSection>
-
-      <LegalSection title="4. Acceptable Use">
-        <ul className="list-disc space-y-2 pl-5">
-          <li>Upload and process only files and data that your firm is lawfully authorised to handle for the relevant client.</li>
-          <li>Do not attempt to reverse engineer, scrape, probe, or interfere with the Service except as permitted by law.</li>
-          <li>Do not upload malware, exploits, or content designed to harm the platform or other users.</li>
-          <li>Do not use the Service in violation of applicable laws, including the Information Technology Act, 2000 and GST law.</li>
-        </ul>
-      </LegalSection>
-
-      <LegalSection title="5. Subscription &amp; Billing">
-        <ul className="list-disc space-y-2 pl-5">
+      <LegalSection title="Terms of Use">
+        <ol className="list-decimal space-y-3 pl-5">
           <li>
-            Subscription plans are offered on a <LegalStrong>monthly</LegalStrong> basis. Payments are
-            collected through <LegalStrong>PhonePe and/or Razorpay</LegalStrong> as manual orders; we do
-            not require automated recurring debit mandates through the platform unless separately
-            communicated and agreed.
+            To access and use the Services, you agree to provide true, accurate and complete information
+            to us during and after registration, and you shall be responsible for all acts done through
+            the use of your registered account on the Platform.
           </li>
           <li>
-            Reconciliation <LegalStrong>runs</LegalStrong> are allocated per your plan and may carry
-            forward for up to <LegalStrong>two (2) months</LegalStrong> as described on the pricing
-            page, after which unused allotments may expire.
+            Neither we nor any third parties provide any warranty or guarantee as to the accuracy,
+            timeliness, performance, completeness or suitability of the information and materials offered
+            on this website or through the Services, for any specific purpose. You acknowledge that such
+            information and materials may contain inaccuracies or errors and we expressly exclude
+            liability for any such inaccuracies or errors to the fullest extent permitted by law.
           </li>
           <li>
-            <LegalStrong>Non-payment or failed renewal</LegalStrong> may result in suspension or
-            downgrade after a reasonable <LegalStrong>seven (7) day</LegalStrong> grace period from
-            the due date communicated in-app or by email, unless we agree otherwise in writing.
-          </li>
-        </ul>
-      </LegalSection>
-
-      <LegalSection title="6. Free Trial">
-        <p>
-          Your first <LegalStrong>two (2) reconciliation runs</LegalStrong> may be offered free of
-          charge without requiring a payment card, as published on our website. Free runs may{" "}
-          <LegalStrong>expire after thirty (30) days</LegalStrong> if unused, unless we specify
-          otherwise at signup.
-        </p>
-      </LegalSection>
-
-      <LegalSection title="7. Limitation of Liability">
-        <p>
-          Reconciliation assistance is a software tool, not legal, tax, or professional advice. To the fullest
-          extent permitted by the <LegalStrong>Consumer Protection Act, 2019</LegalStrong>, the{" "}
-          <LegalStrong>Information Technology Act, 2000</LegalStrong>, and other applicable law:
-        </p>
-        <ul className="list-disc space-y-2 pl-5">
-          <li>
-            We are <LegalStrong>not liable</LegalStrong> for penalties, interest, disallowances,
-            assessments, reputational loss, or indirect or consequential damages arising from GST filings or
-            decisions made using or despite ReconDesk outputs.
+            Your use of our Services and the Platform is solely and entirely at your own risk and
+            discretion for which we shall not be liable to you in any manner. You are required to
+            independently assess and ensure that the Services meet your requirements.
           </li>
           <li>
-            Our aggregate liability for proven direct damages arising from the Service in any three-month period is
-            limited to the <LegalStrong>fees you paid to ReconDesk in the preceding three (3)
-            months</LegalStrong>, except where liability cannot be limited by law.
+            The contents of the Platform and the Services are proprietary to us and are licensed to us.
+            You will not have any authority to claim any intellectual property rights, title, or interest
+            in its contents. The contents includes and is not limited to the design, layout, look and
+            graphics.
           </li>
-        </ul>
-      </LegalSection>
-
-      <LegalSection title="8. Intellectual Property">
-        <p>
-          The ReconDesk platform, including software, workflows, algorithms, documentation, and user interface, is
-          protected by intellectual property laws and remains our property or that of our licensors. We grant you a
-          limited, non-exclusive, non-transferable right to use the Service during your subscription.
-        </p>
-        <p>
-          <LegalStrong>Your data</LegalStrong> (files you upload and outputs we store in your account)
-          remains yours, subject to licenses we need to operate the Service (hosting, processing, and support).
-        </p>
-      </LegalSection>
-
-      <LegalSection title="9. Termination">
-        <ul className="list-disc space-y-2 pl-5">
-          <li>You may cancel your subscription at any time. Access generally continues through the end of the paid billing period unless we state otherwise.</li>
-          <li>We may suspend or terminate accounts for material breach of these Terms, abuse, or legal requirement, with notice where practicable.</li>
-        </ul>
-      </LegalSection>
-
-      <LegalSection title="10. Governing Law">
-        <p>
-          These Terms are governed by the <LegalStrong>laws of India</LegalStrong>. Subject to
-          mandatory provisions of applicable statute, courts at{" "}
-          <LegalStrong>Pune, Maharashtra</LegalStrong> shall have exclusive jurisdiction over
-          disputes arising from these Terms or the Service.
-        </p>
-      </LegalSection>
-
-      <LegalSection title="11. Contact">
-        <p>
-          Operator: <LegalStrong>Omkar Rajendra Kadam</LegalStrong> (sole proprietorship)
-        </p>
-        <p>
-          <LegalStrong>Email:</LegalStrong>{" "}
-          <a
-            href="mailto:contact@recondesk.in"
-            className="font-medium text-brand hover:underline"
-          >
-            contact@recondesk.in
-          </a>
-        </p>
-        <p className="text-[#6B6B6B]">
-          <LegalStrong>Effective date:</LegalStrong> May 2026
-        </p>
+          <li>
+            You acknowledge that unauthorized use of the Platform and/or the Services may lead to action
+            against you as per these Terms of Use and/or applicable laws.
+          </li>
+          <li>
+            You agree to pay us the charges associated with availing the Services.
+          </li>
+          <li>
+            You agree not to use the Platform and/or Services for any purpose that is unlawful, illegal
+            or forbidden by these Terms, or Indian or local laws that might apply to you.
+          </li>
+          <li>
+            You agree and acknowledge that website and the Services may contain links to other third
+            party websites. On accessing these links, you will be governed by the terms of use, privacy
+            policy and such other policies of such third party websites. These links are provided for
+            your convenience for provide further information.
+          </li>
+          <li>
+            You understand that upon initiating a transaction for availing the Services you are entering
+            into a legally binding and enforceable contract with the Platform Owner for the Services.
+          </li>
+          <li>
+            You shall indemnify and hold harmless Platform Owner, its affiliates, group companies (as
+            applicable) and their respective officers, directors, agents, and employees, from any claim
+            or demand, or actions including reasonable attorney&apos;s fees, made by any third party or
+            penalty imposed due to or arising out of Your breach of this Terms of Use, privacy Policy
+            and other Policies, or Your violation of any law, rules or regulations or the rights
+            (including infringement of intellectual property rights) of a third party.
+          </li>
+          <li>
+            Notwithstanding anything contained in these Terms of Use, the parties shall not be liable
+            for any failure to perform an obligation under these Terms if performance is prevented or
+            delayed by a force majeure event.
+          </li>
+          <li>
+            These Terms and any dispute or claim relating to it, or its enforceability, shall be
+            governed by and construed in accordance with the laws of India.
+          </li>
+          <li>
+            All disputes arising out of or in connection with these Terms shall be subject to the
+            exclusive jurisdiction of the courts in and.
+          </li>
+          <li>
+            All concerns or communications relating to these Terms must be communicated to us using the
+            contact information provided on this website.
+          </li>
+        </ol>
       </LegalSection>
     </LegalPage>
   );
