@@ -56,18 +56,6 @@ export function PublicFooter({ theme = "dark" }: PublicFooterProps) {
             <span className={`hidden sm:inline ${isLight ? "text-[#E5E5E5]" : "text-white/20"}`} aria-hidden>
               |
             </span>
-            <Link href="/return" className={isLight ? "hover:text-[#0A0A0A]" : "hover:text-white"}>
-              Return Policy
-            </Link>
-            <span className={`hidden sm:inline ${isLight ? "text-[#E5E5E5]" : "text-white/20"}`} aria-hidden>
-              |
-            </span>
-            <Link href="/shipping-returns" className={isLight ? "hover:text-[#0A0A0A]" : "hover:text-white"}>
-              Shipping &amp; Returns
-            </Link>
-            <span className={`hidden sm:inline ${isLight ? "text-[#E5E5E5]" : "text-white/20"}`} aria-hidden>
-              |
-            </span>
             <Link href="/contact" className={isLight ? "hover:text-[#0A0A0A]" : "hover:text-white"}>
               Contact
             </Link>

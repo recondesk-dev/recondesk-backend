@@ -10,165 +10,171 @@ export const metadata: Metadata = {
 export default function PrivacyPage() {
   return (
     <LegalPage title="Privacy Policy">
-      <LegalSection title="1. Introduction">
+      <LegalSection title="Introduction">
         <p>
-          ReconDesk is an online GST reconciliation software-as-a-service that helps Chartered
-          Accountant (CA) firms in India compare GSTR-2B data against purchase registers and
-          identify invoice-level matches and mismatches. The service is operated by{" "}
-          <LegalStrong>Omkar Rajendra Kadam</LegalStrong> as a{" "}
-          <LegalStrong>sole proprietorship</LegalStrong>, with operations
-          registered in <LegalStrong>Hadapsar, Pune, Maharashtra</LegalStrong>.
-        </p>
-        <p>
-          This Privacy Policy applies to the website <LegalStrong>recondesk.in</LegalStrong>{" "}
-          and all related websites, applications, and services offered by ReconDesk
-          (&quot;ReconDesk&quot;, &quot;we&quot;, &quot;us&quot;, or &quot;our&quot;). By using
-          ReconDesk, you acknowledge that you have read this policy.
-        </p>
-      </LegalSection>
-
-      <LegalSection title="2. Information We Collect">
-        <ul className="list-disc space-y-2 pl-5">
-          <li>
-            <LegalStrong>Account information:</LegalStrong> name, email address,
-            firm name, phone number, and similar profile details you provide when registering or
-            updating your account.
-          </li>
-          <li>
-            <LegalStrong>GST and reconciliation data:</LegalStrong> GSTR-2B JSON
-            files, purchase register files (including Excel or CSV exports from tools such as
-            Tally or Busy), client GSTINs, and derived reconciliation outputs (match/mismatch
-            results, summaries, and audit-related metadata associated with runs you initiate).
-          </li>
-          <li>
-            <LegalStrong>Usage data:</LegalStrong> reconciliation runs you create,
-            timestamps of logins and material actions, and audit logs we maintain for security
-            and compliance.
-          </li>
-          <li>
-            <LegalStrong>Payment data:</LegalStrong> payments for subscriptions are
-            processed by <LegalStrong>PhonePe and/or Razorpay</LegalStrong>. We do not store full
-            payment card numbers or CVV on ReconDesk systems; such data is handled according to the
-            respective payment processor&apos;s standards and policies.
-          </li>
-        </ul>
-      </LegalSection>
-
-      <LegalSection title="3. How We Use Your Information">
-        <ul className="list-disc space-y-2 pl-5">
-          <li>To perform GSTR-2B versus purchase register reconciliation and generate results for your firm.</li>
-          <li>To create and manage your account, team access, and subscription or entitlements.</li>
-          <li>To send transactional communications (for example, run completion or billing-related notices).</li>
-          <li>To maintain security, prevent abuse, and comply with applicable law.</li>
-        </ul>
-        <p>
-          We <LegalStrong>do not</LegalStrong> sell your personal information. We do
-          not share your client or reconciliation data with third parties for their marketing
-          purposes.
+          This Privacy Policy describes how{" "}
+          <LegalStrong>RECONDESK</LegalStrong> and its affiliates (collectively
+          &quot;RECONDESK, we, our, us&quot;) collect, use, share, protect or otherwise process your
+          information / personal data through our website{" "}
+          <LegalStrong>recondesk.in</LegalStrong> (hereinafter referred to as{" "}
+          <LegalStrong>Platform</LegalStrong>). Please note that you may be able to browse certain
+          sections of the Platform without registering with us. We do not offer any product/service
+          under this Platform outside India and your personal data will primarily be stored and
+          processed in India. By visiting this Platform, providing your information or availing any
+          product/service offered on the Platform, you expressly agree to be bound by the terms and
+          conditions of this Privacy Policy, the Terms of Use and the applicable service/product terms
+          and conditions, and agree to be governed by the laws of India including but not limited to
+          the laws applicable to data protection and privacy. If you do not agree please do not use or
+          access our Platform.
         </p>
       </LegalSection>
 
-      <LegalSection title="4. File Handling &amp; Data Retention">
-        <ul className="list-disc space-y-2 pl-5">
-          <li>
-            Uploaded source files (such as GSTR-2B JSON and purchase register exports) are processed
-            to complete reconciliation and are <LegalStrong>deleted after processing</LegalStrong>{" "}
-            is complete, in line with our product design and security practices.
-          </li>
-          <li>
-            Reconciliation results, mismatch records, and related account data that you keep in
-            your workspace are retained in your account until you delete them or until account
-            closure, subject to backups and legal holds.
-          </li>
-          <li>
-            After account closure, we may retain certain information (including account and
-            transactional records) for <LegalStrong>three (3) years</LegalStrong> where
-            required for legal, regulatory, tax, or dispute-resolution purposes.
-          </li>
-        </ul>
-      </LegalSection>
-
-      <LegalSection title="5. Data Security">
-        <ul className="list-disc space-y-2 pl-5">
-          <li>
-            We use industry-standard protections including encryption of data{" "}
-            <LegalStrong>at rest (AES-256)</LegalStrong> and{" "}
-            <LegalStrong>in transit (TLS 1.2+)</LegalStrong>, implemented via our cloud providers.
-          </li>
-          <li>
-            Access within your firm is constrained by product controls (for example, staff may only
-            access clients or data assigned or permitted under your workspace rules).
-          </li>
-          <li>
-            We maintain audit logs for sensitive actions appropriate to a B2B reconciliation
-            product serving CA firms.
-          </li>
-        </ul>
-      </LegalSection>
-
-      <LegalSection title="6. Your Rights (DPDP Act, 2023)">
+      <LegalSection title="Collection">
         <p>
-          Where the Digital Personal Data Protection Act, 2023 and applicable rules apply, you may have
-          rights including:
-        </p>
-        <ul className="list-disc space-y-2 pl-5">
-          <li>Right to access personal data we process about you in connection with ReconDesk.</li>
-          <li>Right to request correction of inaccurate or incomplete personal data.</li>
-          <li>Right to request erasure, including through account deletion, subject to legal retention.</li>
-          <li>Right to grievance redressal as described under applicable law.</li>
-        </ul>
-        <p>
-          To exercise these rights or raise a concern, email{" "}
-          <a
-            href="mailto:contact@recondesk.in"
-            className="font-medium text-brand hover:underline"
-          >
-            contact@recondesk.in
-          </a>
-          . We may need to verify your identity before fulfilling certain requests.
+          We collect your personal data when you use our Platform, services or otherwise interact with
+          us during the course of our relationship and related information provided from time to time.
+          Some of the information that we may collect includes but is not limited to personal data /
+          information provided to us during sign-up/registering or using our Platform such as name,
+          date of birth, address, telephone/mobile number, email ID and/or any such information shared
+          as proof of identity or address. Some of the sensitive personal data may be collected with
+          your consent, such as your bank account or credit or debit card or other payment instrument
+          information or biometric information such as your facial features or physiological information
+          (in order to enable use of certain features when opted for, available on the Platform) etc
+          all of the above being in accordance with applicable law(s). You always have the option to
+          not provide information, by choosing not to use a particular service or feature on the
+          Platform. We may track your behaviour, preferences, and other information that you choose to
+          provide on our Platform. This information is compiled and analysed on an aggregated basis. We
+          will also collect your information related to your transactions on Platform and such
+          third-party business partner platforms. When such a third-party business partner collects
+          your personal data directly from you, you will be governed by their privacy policies. We
+          shall not be responsible for the third-party business partner&apos;s privacy practices or
+          the content of their privacy policies, and we request you to read their privacy policies
+          prior to disclosing any information. If you receive an email, a call from a
+          person/association claiming to be RECONDESK seeking any personal data like debit/credit card
+          PIN, net-banking or mobile banking password, we request you to never provide such
+          information. If you have already revealed such information, report it immediately to an
+          appropriate law enforcement agency.
         </p>
       </LegalSection>
 
-      <LegalSection title="7. Third-Party Services">
-        <p>ReconDesk relies on carefully selected processors, including:</p>
-        <ul className="list-disc space-y-2 pl-5">
-          <li>
-            <LegalStrong>Supabase</LegalStrong> — database, authentication, and related
-            infrastructure. Their handling of data is governed by their documentation and terms.
-          </li>
-          <li>
-            <LegalStrong>PhonePe / Razorpay</LegalStrong> — payment acceptance and related payment
-            flows. Payment data is subject to the respective processor&apos;s privacy policy and
-            security programme.
-          </li>
-          <li>
-            <LegalStrong>Cloudflare R2</LegalStrong> — temporary storage for uploaded
-            files during processing, where configured for your deployment.
-          </li>
-        </ul>
+      <LegalSection title="Usage">
         <p>
-          We encourage you to review the privacy policies of these providers for details on their
-          subprocessors and regions.
+          We use personal data to provide the services you request. To the extent we use your personal
+          data to market to you, we will provide you the ability to opt-out of such uses. We use your
+          personal data to assist sellers and business partners in handling and fulfilling orders;
+          enhancing customer experience; to resolve disputes; troubleshoot problems; inform you about
+          online and offline offers, products, services, and updates; customise your experience; detect
+          and protect us against error, fraud and other criminal activity; enforce our terms and
+          conditions; conduct marketing research, analysis and surveys; and as otherwise described to
+          you at the time of collection of information. You understand that your access to these
+          products/services may be affected in the event permission is not provided to us.
         </p>
       </LegalSection>
 
-      <LegalSection title="8. Cookies">
+      <LegalSection title="Sharing">
         <p>
-          We use <LegalStrong>essential cookies</LegalStrong> and similar technologies needed
-          to maintain authentication sessions and core security. We do not use advertising or
-          third-party tracking cookies for profiling visitors across unrelated sites.
+          We may share your personal data internally within our group entities, our other corporate
+          entities, and affiliates to provide you access to the services and products offered by them.
+          These entities and affiliates may market to you as a result of such sharing unless you
+          explicitly opt-out. We may disclose personal data to third parties such as sellers, business
+          partners, third party service providers including logistics partners, prepaid payment
+          instrument issuers, third-party reward programs and other payment opted by you. These
+          disclosure may be required for us to provide you access to our services and products offered
+          to you, to comply with our legal obligations, to enforce our user agreement, to facilitate
+          our marketing and advertising activities, to prevent, detect, mitigate, and investigate
+          fraudulent or illegal activities related to our services. We may disclose personal and
+          sensitive personal data to government agencies or other authorised law enforcement agencies
+          if required to do so by law or in the good faith belief that such disclosure is reasonably
+          necessary to respond to subpoenas, court orders, or other legal process. We may disclose
+          personal data to law enforcement offices, third party rights owners, or others in the good
+          faith belief that such disclosure is reasonably necessary to: enforce our Terms of Use or
+          Privacy Policy; respond to claims that an advertisement, posting or other content violates
+          the rights of a third party; or protect the rights, property or personal safety of our users
+          or the general public.
         </p>
       </LegalSection>
 
-      <LegalSection title="9. Changes to This Policy">
+      <LegalSection title="Security Precautions">
         <p>
-          We may update this Privacy Policy from time to time. If we make material changes, we will
-          notify registered users by email to the address associated with their account and update
-          the &quot;Last updated&quot; date at the top of this page.
+          To protect your personal data from unauthorised access or disclosure, loss or misuse we adopt
+          reasonable security practices and procedures. Once your information is in our possession or
+          whenever you access your account information, we adhere to our security guidelines to protect
+          it against unauthorised access and offer the use of a secure server. However, the
+          transmission of information is not completely secure for reasons beyond our control. By using
+          the Platform, the users accept the security implications of data transmission over the
+          internet and the World Wide Web which cannot always be guaranteed as completely secure, and
+          therefore, there would always remain certain inherent risks regarding use of the Platform.
+          Users are responsible for ensuring the protection of login and password records for their
+          account.
         </p>
       </LegalSection>
 
-      <LegalSection title="10. Contact">
+      <LegalSection title="Data Deletion and Retention">
+        <p>
+          You have an option to delete your account by visiting your profile and settings on our
+          Platform, this action would result in you losing all information related to your account. You
+          may also write to us at the contact information provided below to assist you with these
+          requests. We may in event of any pending grievance, claims, pending shipments or any other
+          services we may refuse or delay deletion of the account. Once the account is deleted, you
+          will lose access to the account. We retain your personal data information for a period no
+          longer than is required for the purpose for which it was collected or as required under any
+          applicable law. However, we may retain data related to you if we believe it may be necessary
+          to prevent fraud or future abuse or for other legitimate purposes. We may continue to retain
+          your data in anonymised form for analytical and research purposes.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Your Rights">
+        <p>
+          You may access, rectify, and update your personal data directly through the functionalities
+          provided on the Platform.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Consent">
+        <p>
+          By visiting our Platform or by providing your information, you consent to the collection,
+          use, storage, disclosure and otherwise processing of your information on the Platform in
+          accordance with this Privacy Policy. If you disclose to us any personal data relating to
+          other people, you represent that you have the authority to do so and permit us to use the
+          information in accordance with this Privacy Policy. You, while providing your personal data
+          over the Platform or any partner platforms or establishments, consent to us (including our
+          other corporate entities, affiliates, lending partners, technology partners, marketing
+          channels, business partners and other third parties) to contact you through SMS, instant
+          messaging apps, call and/or e-mail for the purposes specified in this Privacy Policy. You
+          have an option to withdraw your consent that you have already provided by writing to the
+          Grievance Officer at the contact information provided below. Please mention
+          &quot;Withdrawal of consent for processing personal data&quot; in your subject line of your
+          communication. We may verify such requests before acting on our request. However, please
+          note that your withdrawal of consent will not be retrospective and will be in accordance with
+          the Terms of Use, this Privacy Policy, and applicable laws. In the event you withdraw
+          consent given to us under this Privacy Policy, we reserve the right to restrict or deny the
+          provision of our services for which we consider such information to be necessary.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Changes to this Privacy Policy">
+        <p>
+          Please check our Privacy Policy periodically for changes. We may update this Privacy Policy
+          to reflect changes to our information practices. We may alert / notify you about the
+          significant changes to the Privacy Policy, in the manner as may be required under applicable
+          laws.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Grievance Officer">
+        <p>
+          <LegalStrong>Name:</LegalStrong> Omkar Rajendra Kadam
+        </p>
+        <p>
+          <LegalStrong>Designation:</LegalStrong> Proprietor
+        </p>
+        <p>
+          <LegalStrong>Company:</LegalStrong> RECONDESK, Hadapsar, Pune, Maharashtra, India
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Contact Us">
         <p>
           <LegalStrong>Email:</LegalStrong>{" "}
           <a
@@ -179,10 +185,13 @@ export default function PrivacyPage() {
           </a>
         </p>
         <p>
-          <LegalStrong>Address:</LegalStrong> Hadapsar, Pune, Maharashtra, India
+          <LegalStrong>Phone:</LegalStrong>{" "}
+          <a href="tel:+918605035248" className="font-medium text-brand hover:underline">
+            +91 86050 35248
+          </a>
         </p>
-        <p className="text-[#6B6B6B]">
-          <LegalStrong>Effective date:</LegalStrong> May 2026
+        <p>
+          <LegalStrong>Time:</LegalStrong> Monday &ndash; Friday (9:00 &ndash; 18:00)
         </p>
       </LegalSection>
     </LegalPage>
