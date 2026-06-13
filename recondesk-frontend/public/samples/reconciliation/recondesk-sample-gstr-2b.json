@@ -1,0 +1,348 @@
+{
+  "status_cd": "1",
+  "data": {
+    "gstin": "27ABCDE1234F1Z0",
+    "rtnprd": "042026",
+    "fp": "042026",
+    "version": "GSTN-2B-TEST-1.0",
+    "gendt": "14-05-2026",
+    "docdata": {
+      "b2b": [
+        {
+          "ctin": "27AAACR5055K1Z7",
+          "trdnm": "Reliable Office Supplies Pvt Ltd",
+          "supfildt": "11-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-001",
+              "idt": "03-04-2026",
+              "val": 11800.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 10000.0,
+                    "iamt": 0.0,
+                    "camt": 900.0,
+                    "samt": 900.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AADCS0472N1Z1",
+          "trdnm": "Shree Tech Services",
+          "supfildt": "11-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-002",
+              "idt": "05-04-2026",
+              "val": 5900.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 5000.0,
+                    "iamt": 0.0,
+                    "camt": 450.0,
+                    "samt": 450.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AAECS1234F1Z2",
+          "trdnm": "Metro Cloud Solutions",
+          "supfildt": "12-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-003",
+              "idt": "07-04-2026",
+              "val": 23800.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "Amount mismatch test",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 20000.0,
+                    "iamt": 0.0,
+                    "camt": 1900.0,
+                    "samt": 1900.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AACCM9910C1Z8",
+          "trdnm": "RD Logistics",
+          "supfildt": "12-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "RD004A",
+              "idt": "09-04-2026",
+              "val": 8260.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "Invoice number fuzzy match test against RD-004A",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 7000.0,
+                    "iamt": 0.0,
+                    "camt": 630.0,
+                    "samt": 630.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AABCT3518Q1ZX",
+          "trdnm": "Tally Data Processors",
+          "supfildt": "13-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-005",
+              "idt": "11-04-2026",
+              "val": 35400.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "Invoice date mismatch test",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 30000.0,
+                    "iamt": 0.0,
+                    "camt": 2700.0,
+                    "samt": 2700.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AAGCB4321K1Z5",
+          "trdnm": "Bright Consulting Services",
+          "supfildt": "14-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-007",
+              "idt": "14-04-2026",
+              "val": 17700.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "GSTR-2B only / missed ITC test",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 15000.0,
+                    "iamt": 0.0,
+                    "camt": 1350.0,
+                    "samt": 1350.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AAHCR8765L1Z9",
+          "trdnm": "Royal Motors Garage",
+          "supfildt": "14-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-008",
+              "idt": "16-04-2026",
+              "val": 47200.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "N",
+              "rsn": "Section 17(5) blocked credit test - motor vehicle/repair related",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 40000.0,
+                    "iamt": 0.0,
+                    "camt": 3600.0,
+                    "samt": 3600.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AAICP2468D1ZA",
+          "trdnm": "Prime Office Interiors",
+          "supfildt": "15-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-009",
+              "idt": "18-04-2026",
+              "val": 12980.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "Rule 37 unpaid/overdue test; payment_status expected from PR side",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 11000.0,
+                    "iamt": 0.0,
+                    "camt": 990.0,
+                    "samt": 990.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AAJCS5555R1Z3",
+          "trdnm": "Secure Facility Services",
+          "supfildt": "15-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-010",
+              "idt": "20-04-2026",
+              "val": 9440.0,
+              "pos": "27",
+              "rchrg": "Y",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "Reverse charge test",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 8000.0,
+                    "iamt": 0.0,
+                    "camt": 720.0,
+                    "samt": 720.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AAKFC3210M1Z4",
+          "trdnm": "Carbon Fuels Corporation",
+          "supfildt": "16-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-011",
+              "idt": "22-04-2026",
+              "val": 12420.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "CESS test",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 10000.0,
+                    "iamt": 0.0,
+                    "camt": 900.0,
+                    "samt": 900.0,
+                    "csamt": 620.0
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "cdnr": [],
+      "isd": [],
+      "impg": [],
+      "impgsez": []
+    },
+    "summary": {
+      "total_suppliers": 10,
+      "total_invoices": 10,
+      "total_taxable_value": 156000.0,
+      "total_cgst": 14140.0,
+      "total_sgst": 14140.0,
+      "total_igst": 0.0,
+      "total_cess": 620.0,
+      "total_invoice_value": 184900.0,
+      "expected_reconciliation": {
+        "purchase_register_rows": 10,
+        "gstr_2b_rows": 10,
+        "expected_pairable_matches": 9,
+        "expected_pr_only": 1,
+        "expected_gstr_2b_only": 1,
+        "expected_match_percentage_against_pr": 90.0,
+        "expected_gstr_2b_only_percentage_against_2b": 10.0
+      }
+    }
+  },
+  "error": null
+}

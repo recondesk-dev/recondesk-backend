@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ReconDesk — Sample reconciliation files</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 40rem;
+        margin: 3rem auto;
+        padding: 0 1.25rem;
+        color: #111;
+        line-height: 1.5;
+      }
+      h1 { font-size: 1.35rem; margin-bottom: 0.25rem; }
+      p { color: #444; margin-top: 0; }
+      ul { padding-left: 1.25rem; }
+      a {
+        color: #6d28d9;
+        font-weight: 600;
+      }
+      code { font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <h1>Sample reconciliation test pack</h1>
+    <p>
+      Hard-test pair for Apr 2026, buyer GSTIN <code>27ABCDE1234F1Z0</code>.
+      Supplier GSTINs align; scenarios include amount/date mismatch, fuzzy invoice #, GSTR-only, and PR-only rows.
+    </p>
+    <ul>
+      <li>
+        <a href="./recondesk-sample-gstr-2b.json" download>GSTR-2B (JSON)</a>
+      </li>
+      <li>
+        <a href="./recondesk-sample-purchase-register.xlsx" download>Purchase Register (Excel)</a>
+      </li>
+    </ul>
+  </body>
+</html>
