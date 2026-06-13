@@ -7,6 +7,8 @@
     --sidebar: #0f1117;
     --bg: #f8f9fc;
     --surface: #ffffff;
+    --surface-textured: #f8f7fc;
+    --surface-textured-dot: rgba(124, 58, 237, 0.04);
     --accent: #7c3aed; /* synced with tailwind brand.DEFAULT — lib/brand.ts */
     --accent-dim: #ede9fe; /* synced with tailwind brand.dim */
     --danger: #ef4444;
@@ -91,6 +93,16 @@
 }
 
 @layer utilities {
+  .recondesk-textured-bg {
+    background-color: var(--surface-textured);
+    background-image: radial-gradient(
+      circle at center,
+      var(--surface-textured-dot) 1px,
+      transparent 1px
+    );
+    background-size: 28px 28px;
+  }
+
   .landing-page {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue",
       Arial, sans-serif;
@@ -131,12 +143,12 @@
 
   .landing-trust-marquee::before {
     left: 0;
-    background: linear-gradient(to right, #ffffff 0%, rgba(255, 255, 255, 0) 100%);
+    background: linear-gradient(to right, var(--surface-textured) 0%, rgba(248, 247, 252, 0) 100%);
   }
 
   .landing-trust-marquee::after {
     right: 0;
-    background: linear-gradient(to left, #ffffff 0%, rgba(255, 255, 255, 0) 100%);
+    background: linear-gradient(to left, var(--surface-textured) 0%, rgba(248, 247, 252, 0) 100%);
   }
 
   .landing-trust-track {

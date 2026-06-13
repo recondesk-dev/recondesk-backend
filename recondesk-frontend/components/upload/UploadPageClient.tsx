@@ -372,7 +372,7 @@ export default function UploadPageClient({ token }: { token: string }) {
   const doneFiles = fileQueue.filter((item) => item.status === "done");
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="recondesk-textured-bg min-h-screen">
       <div className="mx-auto max-w-lg px-4 py-16">
         <p className="font-brand text-lg font-semibold text-indigo-600">ReconDesk</p>
         {/* TODO: Replace with organization logo and name */}

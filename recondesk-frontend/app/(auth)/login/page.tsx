@@ -92,7 +92,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+    <div className="recondesk-textured-bg flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="mb-10 text-center">

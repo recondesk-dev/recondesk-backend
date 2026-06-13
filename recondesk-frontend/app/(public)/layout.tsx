@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 
-import { PublicFooter } from "@/components/public/PublicFooter";
-import { PublicNavbar } from "@/components/public/PublicNavbar";
+import { MarketingPageLayout } from "@/components/layout/MarketingPageLayout";
 
 export const metadata: Metadata = {
   title: "ReconDesk — GSTR-2B reconciliation for CA firms",
@@ -10,11 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen min-w-0 bg-[#0f1117] text-slate-100 antialiased">
-      <PublicNavbar />
-      <main className="min-w-0">{children}</main>
-      <PublicFooter />
-    </div>
-  );
+  return <MarketingPageLayout>{children}</MarketingPageLayout>;
 }
