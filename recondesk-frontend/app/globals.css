@@ -8,7 +8,7 @@
     --bg: #f8f9fc;
     --surface: #ffffff;
     --surface-textured: #f8f7fc;
-    --surface-textured-dot: rgba(124, 58, 237, 0.04);
+    --surface-textured-dot: rgba(124, 58, 237, 0.12);
     --accent: #7c3aed; /* synced with tailwind brand.DEFAULT — lib/brand.ts */
     --accent-dim: #ede9fe; /* synced with tailwind brand.dim */
     --danger: #ef4444;
@@ -96,11 +96,11 @@
   .recondesk-textured-bg {
     background-color: var(--surface-textured);
     background-image: radial-gradient(
-      circle at center,
-      var(--surface-textured-dot) 1px,
-      transparent 1px
+      circle,
+      var(--surface-textured-dot) 1.5px,
+      transparent 1.5px
     );
-    background-size: 28px 28px;
+    background-size: 24px 24px;
   }
 
   .landing-page {
