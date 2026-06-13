@@ -58,8 +58,9 @@ export default function TermsPage() {
         <ul className="list-disc space-y-2 pl-5">
           <li>
             Subscription plans are offered on a <LegalStrong>monthly</LegalStrong> basis. Payments are
-            collected through <LegalStrong>Razorpay</LegalStrong> as manual orders; we do not require
-            automated recurring debit mandates through the platform unless separately communicated and agreed.
+            collected through <LegalStrong>PhonePe and/or Razorpay</LegalStrong> as manual orders; we do
+            not require automated recurring debit mandates through the platform unless separately
+            communicated and agreed.
           </li>
           <li>
             Reconciliation <LegalStrong>runs</LegalStrong> are allocated per your plan and may carry
