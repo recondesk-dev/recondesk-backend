@@ -101,6 +101,15 @@
       transparent 1.5px
     );
     background-size: 24px 24px;
+    /* Mobile-first: keep background static (avoids Safari iOS repaint bugs) */
+    background-attachment: scroll;
+  }
+
+  /* Desktop: pin the dot-grid so content scrolls over it */
+  @media (min-width: 768px) {
+    .recondesk-textured-bg {
+      background-attachment: fixed;
+    }
   }
 
   .landing-page {
