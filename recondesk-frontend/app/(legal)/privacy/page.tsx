@@ -47,8 +47,9 @@ export default function PrivacyPage() {
           </li>
           <li>
             <LegalStrong>Payment data:</LegalStrong> payments for subscriptions are
-            processed by Razorpay. We do not store full payment card numbers or CVV on ReconDesk
-            systems; such data is handled according to Razorpay&apos;s standards and policies.
+            processed by <LegalStrong>PhonePe and/or Razorpay</LegalStrong>. We do not store full
+            payment card numbers or CVV on ReconDesk systems; such data is handled according to the
+            respective payment processor&apos;s standards and policies.
           </li>
         </ul>
       </LegalSection>
@@ -136,8 +137,9 @@ export default function PrivacyPage() {
             infrastructure. Their handling of data is governed by their documentation and terms.
           </li>
           <li>
-            <LegalStrong>Razorpay</LegalStrong> — payment acceptance and related payment
-            flows. Payment data is subject to Razorpay&apos;s privacy policy and security programme.
+            <LegalStrong>PhonePe / Razorpay</LegalStrong> — payment acceptance and related payment
+            flows. Payment data is subject to the respective processor&apos;s privacy policy and
+            security programme.
           </li>
           <li>
             <LegalStrong>Cloudflare R2</LegalStrong> — temporary storage for uploaded

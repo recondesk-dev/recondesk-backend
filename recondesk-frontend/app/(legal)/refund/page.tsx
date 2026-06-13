@@ -4,7 +4,7 @@ import { LegalPage, LegalSection, LegalStrong } from "@/components/public/LegalP
 
 export const metadata: Metadata = {
   title: "Refund Policy — ReconDesk",
-  description: "Refund and cancellation policy for ReconDesk subscriptions (Razorpay).",
+  description: "Refund and cancellation policy for ReconDesk subscriptions (PhonePe / Razorpay).",
 };
 
 export default function RefundPage() {
@@ -14,8 +14,8 @@ export default function RefundPage() {
         <p>
           ReconDesk offers <LegalStrong>monthly subscription plans</LegalStrong> for GST
           reconciliation software, with payments collected through{" "}
-          <LegalStrong>Razorpay</LegalStrong>. This Refund Policy explains when refunds may be
-          available and how to request them.
+          <LegalStrong>PhonePe and/or Razorpay</LegalStrong>. This Refund Policy explains when
+          refunds may be available and how to request them.
         </p>
       </LegalSection>
 
@@ -64,13 +64,13 @@ export default function RefundPage() {
           </li>
           <li>
             Include your <LegalStrong>registered email address</LegalStrong> and your{" "}
-            <LegalStrong>Razorpay payment reference</LegalStrong> or order ID.
+            <LegalStrong>PhonePe / Razorpay payment reference</LegalStrong> or order ID.
           </li>
           <li>We aim to respond within <LegalStrong>three (3) business days</LegalStrong>.</li>
           <li>
             Approved refunds are typically processed within{" "}
             <LegalStrong>five (5) to seven (7) business days</LegalStrong> through the original
-            payment method, subject to Razorpay and banking timelines.
+            payment method, subject to PhonePe / Razorpay and banking timelines.
           </li>
         </ul>
       </LegalSection>
