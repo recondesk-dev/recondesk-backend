@@ -216,7 +216,7 @@ function SignupForm() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12">
+    <div className="recondesk-textured-bg flex min-h-screen items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="mb-10 text-center">
           <h1 className="font-brand inline-flex items-baseline justify-center gap-0 text-[64px] leading-none font-bold tracking-tight text-gray-900">
@@ -417,7 +417,7 @@ export default function SignupPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+        <div className="recondesk-textured-bg flex min-h-screen items-center justify-center px-4">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-brand border-t-transparent" />
         </div>
       }

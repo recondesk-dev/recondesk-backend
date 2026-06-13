@@ -76,7 +76,7 @@ function CelebrateContent() {
   const loadErr = error && isApiError(error) ? error.detail : null;
 
   return (
-    <div className="min-h-screen bg-white px-6 py-16">
+    <div className="recondesk-textured-bg min-h-screen px-6 py-16">
       <div className="mx-auto max-w-2xl text-center">
         <div className="animate-recondesk-celebrate-pop mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-emerald-500 shadow-lg">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -154,7 +154,7 @@ export default function CelebrateOnboardingPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-white text-sm text-gray-500">
+        <div className="recondesk-textured-bg flex min-h-screen items-center justify-center text-sm text-gray-500">
           Loading…
         </div>
       }

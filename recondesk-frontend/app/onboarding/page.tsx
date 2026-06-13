@@ -247,7 +247,7 @@ export default function OnboardingPage() {
     gstinValid === true && isValidGSTIN(gstin) ? getGstStateName(gstin) : null;
 
   return (
-    <div className="flex min-h-screen flex-col bg-white">
+    <div className="recondesk-textured-bg flex min-h-screen flex-col">
       <div className="fixed left-0 right-0 top-0 z-10 h-1 bg-violet-100">
         <div
           className="h-full bg-violet-600 transition-all duration-300"

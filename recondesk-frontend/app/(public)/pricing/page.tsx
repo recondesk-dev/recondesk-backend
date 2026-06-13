@@ -127,19 +127,19 @@ export default function PricingPage() {
   const tabBase =
     "relative z-10 min-h-[44px] flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:flex-none sm:px-8";
   const tabActive = "text-white";
-  const tabInactive = "text-slate-400 hover:text-slate-200";
+  const tabInactive = "text-gray-600 hover:text-gray-900";
 
   return (
     <div className="px-4 pb-16 pt-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl text-center">
-        <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">Simple Monthly Plans</h1>
-        <p className="mt-4 text-lg text-slate-400">
+        <h1 className="text-3xl font-semibold tracking-tight text-[#0A0A0A] sm:text-4xl">Simple Monthly Plans</h1>
+        <p className="mt-4 text-lg text-[#3A3A3A]">
           First 2 reconciliations free. No credit card required.
         </p>
 
         <div className="mx-auto mt-10 flex w-full max-w-md justify-center sm:max-w-none">
           <div
-            className="relative inline-flex w-full rounded-full border border-white/10 bg-[#0a0c10]/90 p-1 shadow-inner shadow-black/40 sm:w-auto"
+            className="relative inline-flex w-full rounded-full border border-gray-200 bg-white/80 p-1 shadow-sm sm:w-auto"
             role="tablist"
             aria-label="Plan type"
           >
@@ -257,7 +257,7 @@ export default function PricingPage() {
       </div>
 
       <div className="mx-auto mt-16 max-w-3xl">
-        <h2 className="text-center text-xl font-semibold text-white">Pricing FAQ</h2>
+        <h2 className="text-center text-xl font-semibold text-[#0A0A0A]">Pricing FAQ</h2>
         <dl className="mt-8 space-y-4">
           {pricingFaq.map(({ q, a }) => (
             <div key={q} className="rounded-xl border border-white/10 bg-[#13161f] px-5 py-4">
