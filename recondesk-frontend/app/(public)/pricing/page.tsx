@@ -37,7 +37,7 @@ const pricingFaq = [
   },
   {
     q: "Do unused runs carry over?",
-    a: "For Solo plans, runs expire at the end of each month. For Firm plans, Growth and Pro subscribers get 2-month carry over on unused runs. Starter Firm runs expire monthly.",
+    a: "For Solo plans, runs expire at the end of each month. For Firm plans, unused runs carry over for up to 2 months.",
   },
   {
     q: "What happens if I need more than 100 runs?",
@@ -51,24 +51,32 @@ type PlanCardProps = {
   priceSuffix?: string;
   bullets: string[];
   popular?: boolean;
+  badge?: string;
   cta: string;
   href: string;
 };
 
-function PlanCard({ name, price, priceSuffix = "/month", bullets, popular, cta, href }: PlanCardProps) {
+function PlanCard({ name, price, priceSuffix = "/month", bullets, popular, badge, cta, href }: PlanCardProps) {
   const ctaClasses = popular
     ? "mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand text-sm font-semibold text-white transition hover:bg-brand-hover"
     : "mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full border border-white/15 bg-white/5 text-sm font-semibold text-white transition hover:bg-white/10";
 
   const shell = popular
     ? "relative flex flex-col rounded-2xl border-2 border-brand bg-[#13161f] p-6 shadow-lg shadow-brand/10"
-    : "flex flex-col rounded-2xl border border-white/10 bg-[#13161f] p-6";
+    : badge
+      ? "relative flex flex-col rounded-2xl border border-[#7C3AED]/40 bg-[#13161f] p-6 shadow-lg shadow-[#7C3AED]/5"
+      : "flex flex-col rounded-2xl border border-white/10 bg-[#13161f] p-6";
 
   return (
     <div className={shell}>
       {popular ? (
         <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand px-3 py-0.5 text-xs font-semibold text-white">
           Most Popular
+        </span>
+      ) : null}
+      {badge ? (
+        <span className="absolute -top-3 right-4 rounded-2xl border border-[#7C3AED]/30 bg-[#7C3AED]/10 px-3 py-0.5 font-['Plus_Jakarta_Sans'] text-xs font-semibold text-[#7C3AED]">
+          {badge}
         </span>
       ) : null}
       <h2 className="text-lg font-semibold text-white">{name}</h2>
@@ -99,7 +107,7 @@ function EnterpriseCard() {
   ];
 
   return (
-    <div className="lg:col-span-3 flex flex-col gap-6 rounded-2xl border border-brand/35 bg-gradient-to-br from-brand/12 via-[#13161f] to-[#13161f] p-6 shadow-lg shadow-black/20 sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
+    <div className="lg:col-span-2 flex flex-col gap-6 rounded-2xl border border-brand/35 bg-gradient-to-br from-brand/12 via-[#13161f] to-[#13161f] p-6 shadow-lg shadow-black/20 sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
       <div className="flex min-w-0 flex-1 flex-col">
         <h2 className="text-lg font-semibold text-white">Enterprise</h2>
         <p className="mt-2 font-mono text-3xl font-semibold text-white">Custom pricing</p>
@@ -183,45 +191,46 @@ export default function PricingPage() {
         className="mx-auto mt-14 max-w-6xl"
       >
         {tier === "solo" ? (
-          <div key="solo" className="pricing-tier-enter grid gap-6 lg:grid-cols-3">
+          <div key="solo" className="pricing-tier-enter grid gap-6 lg:grid-cols-4">
             <PlanCard
               name="Starter"
-              price="₹399"
-              bullets={["1 run/month", "₹399/run", "Runs expire monthly — no carry over"]}
+              price="₹499"
+              bullets={["1 run/month", "₹499/run", "Runs expire monthly — no carry over"]}
               href="/auth/signup"
               cta="Start Free"
             />
             <PlanCard
               name="Growth"
               price="₹1,699"
-              bullets={["5 runs/month", "₹339/run — save 15%", "Runs expire monthly — no carry over"]}
+              bullets={["5 runs/month", "₹340/run", "Runs expire monthly — no carry over"]}
               popular
               href="/auth/signup"
               cta="Start Free"
             />
             <PlanCard
               name="Pro"
-              price="₹3,499"
-              bullets={["12 runs/month", "₹291/run — save 27%", "Runs expire monthly — no carry over"]}
+              price="₹3,699"
+              bullets={["12 runs/month", "₹308/run", "Runs expire monthly — no carry over"]}
+              href="/auth/signup"
+              cta="Start Free"
+            />
+            <PlanCard
+              name="Scale"
+              price="₹5,699"
+              bullets={["30 runs/month", "₹190/run", "Runs expire monthly — no carry over"]}
+              badge="Founder's Offer"
               href="/auth/signup"
               cta="Start Free"
             />
           </div>
         ) : (
-          <div key="firm" className="pricing-tier-enter grid gap-6 lg:grid-cols-3">
-            <PlanCard
-              name="Starter Firm"
-              price="₹9,999"
-              bullets={["35 runs/month", "₹285/run — save 29%", "Runs expire monthly — no carry over"]}
-              href="/auth/signup"
-              cta="Start Free"
-            />
+          <div key="firm" className="pricing-tier-enter grid gap-6 lg:grid-cols-2">
             <PlanCard
               name="Growth Firm"
-              price="₹13,999"
+              price="₹8,699"
               bullets={[
                 "50 runs/month",
-                "₹279/run — save 30%",
+                "₹174/run",
                 "Unused runs carry over for up to 2 months",
               ]}
               popular
@@ -229,11 +238,11 @@ export default function PricingPage() {
               cta="Start Free"
             />
             <PlanCard
-              name="Pro Firm"
-              price="₹25,999"
+              name="Scale Firm"
+              price="₹14,699"
               bullets={[
                 "100 runs/month",
-                "₹259/run — save 35%",
+                "₹147/run",
                 "Unused runs carry over for up to 2 months",
               ]}
               href="/auth/signup"

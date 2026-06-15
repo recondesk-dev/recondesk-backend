@@ -14,23 +14,29 @@ from app.utils.audit import log_action
 _log = logging.getLogger(__name__)
 
 PLAN_CONFIG: dict[str, dict[str, int]] = {
-    "starter": {
+    "starter": {  # TODO: update Razorpay plan ID — display price changed ₹399 → ₹499
         "base_paise": 29_900,
         "runs": 1,
         "gst_paise": 5_382,
         "total_paise": 35_282,
     },
-    "growth": {
+    "growth": {  # TODO: update Razorpay plan ID — per-run label updated to ₹340/run
         "base_paise": 119_900,
         "runs": 5,
         "gst_paise": 21_582,
         "total_paise": 141_482,
     },
-    "pro": {
+    "pro": {  # TODO: update Razorpay plan ID — display price changed ₹3,499 → ₹3,699
         "base_paise": 269_900,
         "runs": 12,
         "gst_paise": 48_582,
         "total_paise": 318_482,
+    },
+    "scale": {  # TODO: update Razorpay plan ID — new plan ₹5,699/month, 30 runs
+        "base_paise": 0,      # TODO: set base_paise once Razorpay plan is created
+        "runs": 30,
+        "gst_paise": 0,       # TODO: set gst_paise once Razorpay plan is created
+        "total_paise": 0,     # TODO: set total_paise once Razorpay plan is created
     },
 }
 

@@ -86,6 +86,7 @@ async def create_payment_order(
 @limiter.limit("200/minute")
 async def list_plans(request: Request):  # noqa: ARG001
     """Return available subscription plans with pricing."""
+    # TODO: update Razorpay plan IDs — legacy subscription-style plan listing, update when new plans are created
     return {
         "plans": [
             {"id": "free", "name": "Free", "monthly": 0, "yearly": 0, "row_limit": 500},
