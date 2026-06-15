@@ -109,9 +109,9 @@ function EnterpriseCard() {
   return (
     <div className="lg:col-span-2 flex flex-col gap-6 rounded-2xl border border-brand/35 bg-gradient-to-br from-brand/12 via-[#13161f] to-[#13161f] p-6 shadow-lg shadow-black/20 sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
       <div className="flex min-w-0 flex-1 flex-col">
-        <h2 className="text-lg font-semibold text-white">Enterprise</h2>
-        <p className="mt-2 font-mono text-3xl font-semibold text-white">Custom pricing</p>
-        <ul className="mt-6 space-y-3 text-sm text-slate-300">
+        <h2 className="text-lg font-semibold text-gray-900">Enterprise</h2>
+        <p className="mt-2 font-mono text-3xl font-semibold text-gray-900">Custom pricing</p>
+        <ul className="mt-6 space-y-3 text-sm text-gray-600">
           {bullets.map((line) => (
             <li key={line}>{line}</li>
           ))}
