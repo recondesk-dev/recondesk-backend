@@ -4,6 +4,7 @@ from app.config import settings
 
 _client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
+# TODO: update Razorpay plan IDs — legacy subscription pricing, update when new plans are created in Razorpay dashboard
 PLAN_PRICES = {
     "starter":    {"monthly": 99900,  "yearly": 999900},   # amounts in paise (INR)
     "growth":     {"monthly": 299900, "yearly": 2999900},

@@ -45,6 +45,7 @@ function planBadgeClass(plan: string | null | undefined): string {
   if (p === "starter") return "bg-slate-100 text-slate-800 border border-slate-200";
   if (p === "growth") return "bg-violet-100 text-violet-800 border border-violet-200";
   if (p === "pro") return "bg-amber-100 text-amber-900 border border-amber-300";
+  if (p === "scale") return "bg-purple-100 text-purple-800 border border-purple-300";
   return "bg-gray-100 text-gray-700 border border-gray-200";
 }
 
@@ -267,10 +268,10 @@ export default function BillingPage() {
             <div key="solo" className="pricing-tier-enter grid gap-5 lg:grid-cols-4">
               <PlanCard
                 title="Starter"
-                price={`${formatInrWhole(399)} + GST`}
+                price={`${formatInrWhole(499)} + GST`}
                 features={[
                   "1 run/month",
-                  "₹399/run",
+                  "₹499/run",
                   "Runs expire monthly — no carry over",
                 ]}
                 cta="Buy 1 run"
@@ -281,7 +282,7 @@ export default function BillingPage() {
                 price={`${formatInrWhole(1699)} + GST`}
                 features={[
                   "5 runs/month",
-                  "₹339/run — save 15%",
+                  "₹340/run",
                   "Runs expire monthly — no carry over",
                 ]}
                 cta="Buy 5 runs"
@@ -290,38 +291,38 @@ export default function BillingPage() {
               />
               <PlanCard
                 title="Pro"
-                price={`${formatInrWhole(3499)} + GST`}
+                price={`${formatInrWhole(3699)} + GST`}
                 features={[
                   "12 runs/month",
-                  "₹291/run — save 27%",
+                  "₹308/run",
                   "Runs expire monthly — no carry over",
                 ]}
                 cta="Buy 12 runs"
                 highlight="pro"
                 badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
               />
+              <PlanCard
+                title="Scale"
+                price={`${formatInrWhole(5699)} + GST`}
+                features={[
+                  "30 runs/month",
+                  "₹190/run",
+                  "Runs expire monthly — no carry over",
+                ]}
+                cta="Buy 30 runs"
+                highlight="scale"
+                badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
+              />
               <EnterpriseSoloCard />
             </div>
           ) : (
-            <div key="firm" className="pricing-tier-enter grid gap-5 lg:grid-cols-4">
-              <PlanCard
-                title="Starter Firm"
-                price={`${formatInrWhole(9999)} + GST`}
-                features={[
-                  "35 runs/month",
-                  "₹285/run — save 29%",
-                  "Runs expire monthly — no carry over",
-                ]}
-                cta="Coming soon"
-                ctaExact
-                highlight={false}
-              />
+            <div key="firm" className="pricing-tier-enter grid gap-5 lg:grid-cols-3">
               <PlanCard
                 title="Growth Firm"
-                price={`${formatInrWhole(13999)} + GST`}
+                price={`${formatInrWhole(8699)} + GST`}
                 features={[
                   "50 runs/month",
-                  "₹279/run — save 30%",
+                  "₹174/run",
                   "Unused runs carry over for up to 2 months",
                 ]}
                 cta="Coming soon"
@@ -330,16 +331,16 @@ export default function BillingPage() {
                 badge={{ text: "Most Popular", className: "bg-violet-600 text-white" }}
               />
               <PlanCard
-                title="Pro Firm"
-                price={`${formatInrWhole(25999)} + GST`}
+                title="Scale Firm"
+                price={`${formatInrWhole(14699)} + GST`}
                 features={[
                   "100 runs/month",
-                  "₹259/run — save 35%",
+                  "₹147/run",
                   "Unused runs carry over for up to 2 months",
                 ]}
                 cta="Coming soon"
                 ctaExact
-                highlight="pro"
+                highlight="scale"
                 badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
               />
               <EnterpriseFirmCard />
@@ -515,7 +516,7 @@ function PlanCard(props: {
   price: string;
   features: string[];
   cta: string;
-  highlight: false | "growth" | "pro";
+  highlight: false | "growth" | "pro" | "scale";
   badge?: { text: string; className: string };
   /** When true, button label is exactly `cta` (e.g. &quot;Coming soon&quot;). Otherwise appends &quot; — Coming soon&quot;. */
   ctaExact?: boolean;
@@ -526,7 +527,9 @@ function PlanCard(props: {
       ? "border-violet-400 shadow-md ring-1 ring-violet-200"
       : highlight === "pro"
         ? "border-amber-400 shadow-sm ring-1 ring-amber-100"
-        : "border-[var(--border)] shadow-sm";
+        : highlight === "scale"
+          ? "border-purple-400 shadow-md ring-1 ring-purple-200"
+          : "border-[var(--border)] shadow-sm";
   const buttonLabel = ctaExact ? cta : `${cta} — Coming soon`;
 
   return (

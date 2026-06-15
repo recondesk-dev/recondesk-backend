@@ -25,7 +25,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "What happens to unused runs?",
-    a: "Solo plans: runs expire monthly. Firm Growth and Pro plans: unused runs carry over for up to 2 months.",
+    a: "Solo plans: runs expire monthly. Firm plans: unused runs carry over for up to 2 months.",
   },
   {
     q: "How does billing work?",

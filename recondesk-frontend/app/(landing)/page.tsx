@@ -84,7 +84,7 @@ export default function LandingPage() {
             </a>
           </div>
           <p className="mt-6 px-1 text-sm leading-relaxed text-[#6B6B6B]">
-            Plans from <InrAmount amount="399/month" amountClassName="" /> · No credit card to start
+            Plans from <InrAmount amount="499/month" amountClassName="" /> · No credit card to start
           </p>
           <div className="mx-auto mt-8 max-w-3xl rounded-xl border border-[#E5E5E5] bg-[#F5F5F5] px-4 py-4 text-sm text-[#3A3A3A] sm:px-6">
             <p className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-6 sm:gap-y-2">
@@ -198,7 +198,7 @@ export default function LandingPage() {
           <div className="landing-card flex flex-col rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-5 sm:p-6">
             <h3 className="text-lg font-semibold text-[#0A0A0A]">Solo CA</h3>
             <p className="mt-2 text-3xl font-semibold text-[#0A0A0A]">
-              <InrAmount amount="399" amountClassName="font-mono" />
+              <InrAmount amount="499" amountClassName="font-mono" />
               <span className="text-base font-normal text-[#6B6B6B]">/month</span>
             </p>
             <p className="mt-4 text-sm text-[#6B6B6B]">1 client GSTIN · 2 free runs to start</p>
@@ -215,10 +215,10 @@ export default function LandingPage() {
             </span>
             <h3 className="text-lg font-semibold text-[#0A0A0A]">CA Firm</h3>
             <p className="mt-2 text-3xl font-semibold text-[#0A0A0A]">
-              <InrAmount amount="9,999" amountClassName="font-mono" />
+              <InrAmount amount="8,699" amountClassName="font-mono" />
               <span className="text-base font-normal text-[#6B6B6B]">/month</span>
             </p>
-            <p className="mt-4 text-sm text-[#6B6B6B]">35 runs/month · Team access included</p>
+            <p className="mt-4 text-sm text-[#6B6B6B]">50 runs/month · Team access included</p>
             <Link
               href="/pricing"
               className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand text-sm font-semibold text-white transition hover:bg-brand-hover"
