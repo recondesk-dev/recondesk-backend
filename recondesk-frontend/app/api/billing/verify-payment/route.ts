@@ -101,10 +101,30 @@ export async function POST(request: Request) {
     const runsToCredit = order.runs_purchased ?? 0;
     const newBalance = currentBalance + runsToCredit;
 
+    // Create the run_credits batch so the backend's sync logic doesn't erase this balance
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+
+    const { error: runCreditError } = await adminDb
+      .from("run_credits")
+      .insert({
+        firm_owner_id: user.id,
+        payment_id: order.id,
+        plan: order.plan || "starter",
+        runs_purchased: runsToCredit,
+        runs_remaining: runsToCredit,
+        expires_at: expiresAt.toISOString(),
+      });
+
+    if (runCreditError) {
+      console.error("Failed to create run_credits batch:", runCreditError);
+      return NextResponse.json(
+        { error: "Payment recorded but credit batch creation failed — contact support" },
+        { status: 500 }
+      );
+    }
+
     // Chain .select() after .update() so Supabase returns the updated row.
-    // Without .select(), a zero-rows-affected update returns {data: [], error: null}
-    // which is indistinguishable from success — this is how the previous bug was
-    // silently swallowed.
     const { data: updatedProfile, error: updateProfileError } = await adminDb
       .from("user_profiles")
       .update({ runs_balance: newBalance })
@@ -120,11 +140,9 @@ export async function POST(request: Request) {
     }
 
     if (!updatedProfile || updatedProfile.length === 0) {
-      // Update matched zero rows — log full diagnostic context.
       console.error(
         `[verify-payment] ZERO ROWS UPDATED on user_profiles. ` +
         `user.id=${user.id}, attempted newBalance=${newBalance}. ` +
-        `Profile fetch DID return data (balance was ${currentBalance}). ` +
         `Check that user_profiles.id matches auth.uid() for this user.`
       );
       return NextResponse.json(
@@ -134,6 +152,19 @@ export async function POST(request: Request) {
     }
 
     const actualNewBalance = updatedProfile[0].runs_balance;
+
+    // VERIFICATION STEP: fresh re-read of the balance immediately after update
+    const { data: verifyRead, error: verifyError } = await adminDb
+      .from("user_profiles")
+      .select("runs_balance")
+      .eq("id", user.id)
+      .single();
+
+    if (verifyError) {
+      console.error("[verify-payment] Re-read verification failed:", verifyError);
+    } else {
+      console.log(`[verify-payment] Verification re-read: balance is genuinely ${verifyRead?.runs_balance} in DB`);
+    }
 
     console.log(
       `[verify-payment] Credited ${runsToCredit} run(s) to user ${user.id}. ` +
