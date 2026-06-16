@@ -194,52 +194,65 @@ export default function PricingPage() {
         className="mx-auto mt-14 max-w-6xl"
       >
         {tier === "solo" ? (
-          <div key="solo" className="pricing-tier-enter grid gap-6 lg:grid-cols-4">
-            <PlanCard
-              name="Starter"
-              price="₹499"
-              bullets={["1 run/month", "₹499/run", "Runs expire monthly — no carry over"]}
-              href="/auth/signup"
-              cta="Start Free"
+          /* Relative wrapper so the shared ambient glow sits behind all four cards */
+          <div key="solo" className="relative">
+            {/* Shared ambient glow — wide, very soft, covers the full card row */}
+            <div
+              className="pointer-events-none absolute -inset-8 z-0"
+              aria-hidden
+              style={{
+                backgroundImage: `
+                  radial-gradient(ellipse at center, rgba(124, 58, 237, 0.13), transparent 68%),
+                  radial-gradient(ellipse at center, rgba(255, 255, 255, 0.85), transparent 82%)
+                `,
+                filter: "blur(80px)",
+              }}
             />
-            <PlanCard
-              name="Growth"
-              price="₹1,699"
-              bullets={["5 runs/month", "₹340/run", "Runs expire monthly — no carry over"]}
-              highlight="growth"
-              badge={{ text: "Most Popular", className: "bg-violet-600 text-white" }}
-              href="/auth/signup"
-              cta="Start Free"
+            {/* Tighter focal glow centered on the Growth card (2nd of 4 = ~37.5% from left) */}
+            <div
+              className="pointer-events-none absolute -inset-8 z-0"
+              aria-hidden
+              style={{
+                backgroundImage: `radial-gradient(ellipse at 37.5% 50%, rgba(124, 58, 237, 0.15), transparent 45%)`,
+                filter: "blur(60px)",
+              }}
             />
-            <PlanCard
-              name="Pro"
-              price="₹3,699"
-              bullets={["12 runs/month", "₹308/run", "Runs expire monthly — no carry over"]}
-              highlight="pro"
-              badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
-              href="/auth/signup"
-              cta="Start Free"
-            />
-            <div className="relative">
-              <div
-                className="absolute -inset-4 z-0 rounded-3xl"
-                style={{
-                  backgroundImage: `radial-gradient(circle at center, rgba(124, 58, 237, 0.22), transparent 70%)`,
-                  filter: "blur(72px)",
-                }}
-                aria-hidden
+
+            <div className="pricing-tier-enter relative z-10 grid gap-6 lg:grid-cols-4">
+              <PlanCard
+                name="Starter"
+                price="₹499"
+                bullets={["1 run/month", "₹499/run", "Runs expire monthly — no carry over"]}
+                href="/auth/signup"
+                cta="Start Free"
               />
-              <div className="relative z-10">
-                <PlanCard
-                  name="Scale"
-                  price="₹5,699"
-                  bullets={["30 runs/month", "₹190/run", "Runs expire monthly — no carry over"]}
-                  highlight="scale"
-                  badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
-                  href="/auth/signup"
-                  cta="Start Free"
-                />
-              </div>
+              <PlanCard
+                name="Growth"
+                price="₹1,699"
+                bullets={["5 runs/month", "₹340/run", "Runs expire monthly — no carry over"]}
+                highlight="growth"
+                badge={{ text: "Most Popular", className: "bg-violet-600 text-white" }}
+                href="/auth/signup"
+                cta="Start Free"
+              />
+              <PlanCard
+                name="Pro"
+                price="₹3,699"
+                bullets={["12 runs/month", "₹308/run", "Runs expire monthly — no carry over"]}
+                highlight="pro"
+                badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
+                href="/auth/signup"
+                cta="Start Free"
+              />
+              <PlanCard
+                name="Scale"
+                price="₹5,699"
+                bullets={["30 runs/month", "₹190/run", "Runs expire monthly — no carry over"]}
+                highlight="scale"
+                badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
+                href="/auth/signup"
+                cta="Start Free"
+              />
             </div>
           </div>
         ) : (
