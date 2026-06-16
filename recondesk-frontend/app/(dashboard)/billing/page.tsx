@@ -2,6 +2,7 @@
 
 import useSWR from "swr";
 import { useEffect, useState } from "react";
+import Script from "next/script";
 import {
   billingApi,
   isApiError,
@@ -72,6 +73,7 @@ function TableSkeletonRows() {
 export default function BillingPage() {
   const [accessToken, setAccessToken] = useState<string | false | null>(null);
   const [billingTier, setBillingTier] = useState<"solo" | "firm">("solo");
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => subscribeAccessToken(setAccessToken), []);
 
@@ -109,8 +111,77 @@ export default function BillingPage() {
 
   const banner = <BillingBanner status={status} loading={statusLoading} onBuyRuns={scrollBuyRuns} />;
 
+  async function handleBuyPlan(planName: string) {
+    setIsProcessing(true);
+    try {
+      const createRes = await fetch("/api/billing/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan_name: planName }),
+      });
+      
+      const createData = await createRes.json();
+      if (!createRes.ok) {
+        throw new Error(createData.error || "Failed to create order");
+      }
+
+      const options = {
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        amount: createData.amount,
+        currency: createData.currency,
+        order_id: createData.order_id,
+        name: "ReconDesk",
+        description: `Purchase ${planName} plan`,
+        handler: async function (response: any) {
+          try {
+            const verifyRes = await fetch("/api/billing/verify-payment", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+            const verifyData = await verifyRes.json();
+            if (!verifyRes.ok) {
+              throw new Error(verifyData.error || "Payment verification failed");
+            }
+            alert("Payment successful! Runs have been credited to your account.");
+            // Refresh data
+            // mutate might be available but we can just let revalidateOnFocus do it, or we could mutate `swrKey`
+            window.location.reload();
+          } catch (err: any) {
+            alert(err.message || "Payment verification failed");
+          } finally {
+            setIsProcessing(false);
+          }
+        },
+        modal: {
+          ondismiss: function () {
+            setIsProcessing(false);
+          },
+        },
+        theme: {
+          color: "#7C3AED",
+        },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on("payment.failed", function (response: any) {
+        alert(`Payment failed: ${response.error.description}`);
+        setIsProcessing(false);
+      });
+      rzp.open();
+    } catch (err: any) {
+      alert(err.message || "An error occurred");
+      setIsProcessing(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-10 text-[var(--text-primary)]">
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
       {banner}
 
       <section className="grid gap-4 md:grid-cols-3">
@@ -276,6 +347,8 @@ export default function BillingPage() {
                 ]}
                 cta="Buy 1 run"
                 highlight={false}
+                onBuy={() => handleBuyPlan("starter")}
+                isProcessing={isProcessing}
               />
               <PlanCard
                 title="Growth"
@@ -288,6 +361,8 @@ export default function BillingPage() {
                 cta="Buy 5 runs"
                 highlight="growth"
                 badge={{ text: "Most Popular", className: "bg-violet-600 text-white" }}
+                onBuy={() => handleBuyPlan("growth")}
+                isProcessing={isProcessing}
               />
               <PlanCard
                 title="Pro"
@@ -300,6 +375,8 @@ export default function BillingPage() {
                 cta="Buy 12 runs"
                 highlight="pro"
                 badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
+                onBuy={() => handleBuyPlan("pro")}
+                isProcessing={isProcessing}
               />
               {/* Scale card with animated rotating gradient border */}
               <div className="glow-border-card rounded-xl">
@@ -314,6 +391,8 @@ export default function BillingPage() {
                   cta="Buy 30 runs"
                   highlight="scale"
                   badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
+                  onBuy={() => handleBuyPlan("scale")}
+                  isProcessing={isProcessing}
                 />
               </div>
               <EnterpriseSoloCard />
@@ -540,8 +619,10 @@ function PlanCard(props: {
   badge?: { text: string; className: string };
   /** When true, button label is exactly `cta` (e.g. "Coming soon"). Otherwise appends " — Coming soon". */
   ctaExact?: boolean;
+  onBuy?: () => void;
+  isProcessing?: boolean;
 }) {
-  const { title, price, features, cta, highlight, badge, ctaExact } = props;
+  const { title, price, features, cta, highlight, badge, ctaExact, onBuy, isProcessing } = props;
   const border =
     highlight === "growth"
       ? "border-violet-400 shadow-md ring-1 ring-violet-200"
@@ -550,7 +631,7 @@ function PlanCard(props: {
         : highlight === "scale"
           ? "border-purple-400 shadow-md ring-1 ring-purple-200"
           : "border-[var(--border)] shadow-sm";
-  const buttonLabel = ctaExact ? cta : `${cta} — Coming soon`;
+  const buttonLabel = onBuy ? cta : (ctaExact ? cta : `${cta} — Coming soon`);
 
   return (
     <div
@@ -577,10 +658,15 @@ function PlanCard(props: {
       </ul>
       <button
         type="button"
-        disabled
-        className="mt-6 w-full cursor-not-allowed rounded-full border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-500"
+        disabled={!onBuy || isProcessing}
+        onClick={onBuy}
+        className={`mt-6 w-full rounded-full border px-4 py-2.5 text-sm font-semibold transition-colors ${
+          onBuy
+            ? "border-violet-600 bg-violet-600 text-white hover:bg-violet-700"
+            : "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-500"
+        } ${isProcessing ? "opacity-75 cursor-wait" : ""}`}
       >
-        {buttonLabel}
+        {isProcessing && onBuy ? "Processing..." : buttonLabel}
       </button>
     </div>
   );
