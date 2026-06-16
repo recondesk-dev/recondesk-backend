@@ -176,3 +176,10 @@
     animation: pricing-tier-enter 0.35s ease-out forwards;
   }
 }
+
+/* Scale card animated border beam */
+@keyframes border-beam-spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
