@@ -471,20 +471,25 @@ function BillingBanner({
 
 function EnterpriseSoloCard() {
   return (
-    <div className="group relative flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
-      {/* Hover glow */}
+    <div className="group relative rounded-xl">
+      {/* Layer 1 — blurred outer halo */}
       <div
-        className="pointer-events-none absolute -inset-px z-0 rounded-xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        className="pointer-events-none absolute -inset-[3px] rounded-xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
         aria-hidden
         style={{
-          backgroundImage: `
-            radial-gradient(circle at center, rgba(124, 58, 237, 0.18), transparent 65%),
-            radial-gradient(circle at center, rgba(255, 255, 255, 0.9), transparent 80%)
-          `,
-          filter: "blur(80px)",
+          background: "linear-gradient(135deg, #7C3AED 0%, rgba(255,255,255,0.85) 50%, #7C3AED 100%)",
+          filter: "blur(10px)",
         }}
       />
-      <div className="relative z-10 flex flex-1 flex-col">
+      {/* Layer 2 — sharp gradient border line */}
+      <div
+        className="pointer-events-none absolute -inset-[1px] rounded-xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+        aria-hidden
+        style={{
+          background: "linear-gradient(135deg, rgba(124,58,237,0.75) 0%, rgba(255,255,255,0.7) 50%, rgba(124,58,237,0.75) 100%)",
+        }}
+      />
+      <div className="relative z-10 m-[1px] flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
         <h3 className="text-lg font-semibold">Individual</h3>
         <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
         <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
@@ -506,20 +511,25 @@ function EnterpriseSoloCard() {
 
 function EnterpriseFirmCard() {
   return (
-    <div className="group relative flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
-      {/* Hover glow */}
+    <div className="group relative rounded-xl">
+      {/* Layer 1 — blurred outer halo */}
       <div
-        className="pointer-events-none absolute -inset-px z-0 rounded-xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        className="pointer-events-none absolute -inset-[3px] rounded-xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
         aria-hidden
         style={{
-          backgroundImage: `
-            radial-gradient(circle at center, rgba(124, 58, 237, 0.18), transparent 65%),
-            radial-gradient(circle at center, rgba(255, 255, 255, 0.9), transparent 80%)
-          `,
-          filter: "blur(80px)",
+          background: "linear-gradient(135deg, #7C3AED 0%, rgba(255,255,255,0.85) 50%, #7C3AED 100%)",
+          filter: "blur(10px)",
         }}
       />
-      <div className="relative z-10 flex flex-1 flex-col">
+      {/* Layer 2 — sharp gradient border line */}
+      <div
+        className="pointer-events-none absolute -inset-[1px] rounded-xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+        aria-hidden
+        style={{
+          background: "linear-gradient(135deg, rgba(124,58,237,0.75) 0%, rgba(255,255,255,0.7) 50%, rgba(124,58,237,0.75) 100%)",
+        }}
+      />
+      <div className="relative z-10 m-[1px] flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
         <h3 className="text-lg font-semibold">Enterprise</h3>
         <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
         <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
@@ -561,27 +571,33 @@ function PlanCard(props: {
   const buttonLabel = ctaExact ? cta : `${cta} — Coming soon`;
 
   return (
-    <div className={`group relative flex flex-col rounded-xl border bg-white p-6 ${border}`}>
-      {/* Hover glow */}
+    <div className="group relative rounded-xl">
+      {/* Layer 1 — blurred outer halo */}
       <div
-        className="pointer-events-none absolute -inset-px z-0 rounded-xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        className="pointer-events-none absolute -inset-[3px] rounded-xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
         aria-hidden
         style={{
-          backgroundImage: `
-            radial-gradient(circle at center, rgba(124, 58, 237, 0.18), transparent 65%),
-            radial-gradient(circle at center, rgba(255, 255, 255, 0.9), transparent 80%)
-          `,
-          filter: "blur(80px)",
+          background: "linear-gradient(135deg, #7C3AED 0%, rgba(255,255,255,0.85) 50%, #7C3AED 100%)",
+          filter: "blur(10px)",
         }}
       />
+      {/* Layer 2 — sharp gradient border line */}
+      <div
+        className="pointer-events-none absolute -inset-[1px] rounded-xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+        aria-hidden
+        style={{
+          background: "linear-gradient(135deg, rgba(124,58,237,0.75) 0%, rgba(255,255,255,0.7) 50%, rgba(124,58,237,0.75) 100%)",
+        }}
+      />
+      {/* Badge sits above glow layers */}
       {badge && (
         <span
-          className={`absolute -top-3 right-4 z-10 rounded-full px-3 py-0.5 text-xs font-semibold ${badge.className}`}
+          className={`absolute -top-3 right-4 z-20 rounded-full px-3 py-0.5 text-xs font-semibold ${badge.className}`}
         >
           {badge.text}
         </span>
       )}
-      <div className="relative z-10 flex flex-1 flex-col">
+      <div className={`relative z-10 m-[1px] flex flex-col rounded-xl border bg-white p-6 ${border}`}>
         <h3 className="text-lg font-semibold">{title}</h3>
         <p className="mt-2 text-2xl font-bold tracking-tight">{price}</p>
         <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
