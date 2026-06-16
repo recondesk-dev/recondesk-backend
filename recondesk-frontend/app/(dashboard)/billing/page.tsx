@@ -471,42 +471,70 @@ function BillingBanner({
 
 function EnterpriseSoloCard() {
   return (
-    <div className="flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
-      <h3 className="text-lg font-semibold">Individual</h3>
-      <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
-      <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
-        <li>• Dedicated support</li>
-        <li>• Custom onboarding</li>
-        <li>• SLA guarantee</li>
-      </ul>
-      <p className="mt-6 text-lg font-semibold text-[var(--text-primary)]">Need More?</p>
-      <a
-        href="mailto:contact@recondesk.in"
-        className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
-      >
-        Contact Sales
-      </a>
+    <div className="group relative flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
+      {/* Hover glow */}
+      <div
+        className="pointer-events-none absolute -inset-px z-0 rounded-xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        aria-hidden
+        style={{
+          backgroundImage: `
+            radial-gradient(circle at center, rgba(124, 58, 237, 0.18), transparent 65%),
+            radial-gradient(circle at center, rgba(255, 255, 255, 0.9), transparent 80%)
+          `,
+          filter: "blur(80px)",
+        }}
+      />
+      <div className="relative z-10 flex flex-1 flex-col">
+        <h3 className="text-lg font-semibold">Individual</h3>
+        <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
+        <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
+          <li>• Dedicated support</li>
+          <li>• Custom onboarding</li>
+          <li>• SLA guarantee</li>
+        </ul>
+        <p className="mt-6 text-lg font-semibold text-[var(--text-primary)]">Need More?</p>
+        <a
+          href="mailto:contact@recondesk.in"
+          className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+        >
+          Contact Sales
+        </a>
+      </div>
     </div>
   );
 }
 
 function EnterpriseFirmCard() {
   return (
-    <div className="flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
-      <h3 className="text-lg font-semibold">Enterprise</h3>
-      <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
-      <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
-        <li>• 100+ runs/month</li>
-        <li>• Dedicated support</li>
-        <li>• Custom onboarding</li>
-        <li>• SLA guarantee</li>
-      </ul>
-      <a
-        href="mailto:contact@recondesk.in"
-        className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
-      >
-        Contact Sales
-      </a>
+    <div className="group relative flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
+      {/* Hover glow */}
+      <div
+        className="pointer-events-none absolute -inset-px z-0 rounded-xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        aria-hidden
+        style={{
+          backgroundImage: `
+            radial-gradient(circle at center, rgba(124, 58, 237, 0.18), transparent 65%),
+            radial-gradient(circle at center, rgba(255, 255, 255, 0.9), transparent 80%)
+          `,
+          filter: "blur(80px)",
+        }}
+      />
+      <div className="relative z-10 flex flex-1 flex-col">
+        <h3 className="text-lg font-semibold">Enterprise</h3>
+        <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
+        <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
+          <li>• 100+ runs/month</li>
+          <li>• Dedicated support</li>
+          <li>• Custom onboarding</li>
+          <li>• SLA guarantee</li>
+        </ul>
+        <a
+          href="mailto:contact@recondesk.in"
+          className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+        >
+          Contact Sales
+        </a>
+      </div>
     </div>
   );
 }
@@ -518,7 +546,7 @@ function PlanCard(props: {
   cta: string;
   highlight: false | "growth" | "pro" | "scale";
   badge?: { text: string; className: string };
-  /** When true, button label is exactly `cta` (e.g. &quot;Coming soon&quot;). Otherwise appends &quot; — Coming soon&quot;. */
+  /** When true, button label is exactly `cta` (e.g. "Coming soon"). Otherwise appends " — Coming soon". */
   ctaExact?: boolean;
 }) {
   const { title, price, features, cta, highlight, badge, ctaExact } = props;
@@ -533,28 +561,42 @@ function PlanCard(props: {
   const buttonLabel = ctaExact ? cta : `${cta} — Coming soon`;
 
   return (
-    <div className={`relative flex flex-col rounded-xl border bg-white p-6 ${border}`}>
+    <div className={`group relative flex flex-col rounded-xl border bg-white p-6 ${border}`}>
+      {/* Hover glow */}
+      <div
+        className="pointer-events-none absolute -inset-px z-0 rounded-xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        aria-hidden
+        style={{
+          backgroundImage: `
+            radial-gradient(circle at center, rgba(124, 58, 237, 0.18), transparent 65%),
+            radial-gradient(circle at center, rgba(255, 255, 255, 0.9), transparent 80%)
+          `,
+          filter: "blur(80px)",
+        }}
+      />
       {badge && (
         <span
-          className={`absolute -top-3 right-4 rounded-full px-3 py-0.5 text-xs font-semibold ${badge.className}`}
+          className={`absolute -top-3 right-4 z-10 rounded-full px-3 py-0.5 text-xs font-semibold ${badge.className}`}
         >
           {badge.text}
         </span>
       )}
-      <h3 className="text-lg font-semibold">{title}</h3>
-      <p className="mt-2 text-2xl font-bold tracking-tight">{price}</p>
-      <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
-        {features.map((f) => (
-          <li key={f}>• {f}</li>
-        ))}
-      </ul>
-      <button
-        type="button"
-        disabled
-        className="mt-6 w-full cursor-not-allowed rounded-full border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-500"
-      >
-        {buttonLabel}
-      </button>
+      <div className="relative z-10 flex flex-1 flex-col">
+        <h3 className="text-lg font-semibold">{title}</h3>
+        <p className="mt-2 text-2xl font-bold tracking-tight">{price}</p>
+        <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
+          {features.map((f) => (
+            <li key={f}>• {f}</li>
+          ))}
+        </ul>
+        <button
+          type="button"
+          disabled
+          className="mt-6 w-full cursor-not-allowed rounded-full border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-500"
+        >
+          {buttonLabel}
+        </button>
+      </div>
     </div>
   );
 }

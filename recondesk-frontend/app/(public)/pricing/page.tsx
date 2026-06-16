@@ -68,35 +68,51 @@ function PlanCard({ name, price, bullets, highlight = false, badge, cta, href }:
           : "border-gray-200 shadow-sm";
 
   return (
-    <div className={`relative flex flex-col rounded-2xl border bg-white p-6 ${border}`}>
-      {badge && (
-        <span
-          className={`absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-3 py-0.5 text-xs font-semibold ${badge.className}`}
+    <div className={`group relative flex flex-col rounded-2xl border bg-white p-6 ${border}`}>
+      {/* Hover glow — fades in on mouse-over, sits behind all card content */}
+      <div
+        className="pointer-events-none absolute -inset-px z-0 rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        aria-hidden
+        style={{
+          backgroundImage: `
+            radial-gradient(circle at center, rgba(124, 58, 237, 0.18), transparent 65%),
+            radial-gradient(circle at center, rgba(255, 255, 255, 0.9), transparent 80%)
+          `,
+          filter: "blur(80px)",
+        }}
+      />
+
+      {/* All card content sits above the glow */}
+      <div className="relative z-10 flex flex-1 flex-col">
+        {badge && (
+          <span
+            className={`absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-3 py-0.5 text-xs font-semibold ${badge.className}`}
+          >
+            {badge.text}
+          </span>
+        )}
+
+        <h2 className="text-lg font-semibold text-gray-900">{name}</h2>
+
+        {/* Price with "+ GST" suffix */}
+        <p className="mt-2 font-mono text-3xl font-bold tracking-tight text-gray-900">
+          {price}
+          <span className="ml-1.5 text-base font-normal text-gray-400">+ GST</span>
+        </p>
+
+        <ul className="mt-4 flex-1 space-y-2 text-sm text-gray-600">
+          {bullets.map((line) => (
+            <li key={line}>• {line}</li>
+          ))}
+        </ul>
+
+        <Link
+          href={href}
+          className="mt-6 inline-flex w-full min-h-[44px] items-center justify-center rounded-full border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-200"
         >
-          {badge.text}
-        </span>
-      )}
-
-      <h2 className="text-lg font-semibold text-gray-900">{name}</h2>
-
-      {/* Price with "+ GST" suffix */}
-      <p className="mt-2 font-mono text-3xl font-bold tracking-tight text-gray-900">
-        {price}
-        <span className="ml-1.5 text-base font-normal text-gray-400">+ GST</span>
-      </p>
-
-      <ul className="mt-4 flex-1 space-y-2 text-sm text-gray-600">
-        {bullets.map((line) => (
-          <li key={line}>• {line}</li>
-        ))}
-      </ul>
-
-      <Link
-        href={href}
-        className="mt-6 inline-flex w-full min-h-[44px] items-center justify-center rounded-full border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-200"
-      >
-        {cta}
-      </Link>
+          {cta}
+        </Link>
+      </div>
     </div>
   );
 }
@@ -110,8 +126,20 @@ function EnterpriseCard() {
   ];
 
   return (
-    <div className="lg:col-span-2 flex flex-col gap-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
-      <div className="flex min-w-0 flex-1 flex-col">
+    <div className="group relative lg:col-span-2 flex flex-col gap-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
+      {/* Hover glow */}
+      <div
+        className="pointer-events-none absolute -inset-px z-0 rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        aria-hidden
+        style={{
+          backgroundImage: `
+            radial-gradient(circle at center, rgba(124, 58, 237, 0.18), transparent 65%),
+            radial-gradient(circle at center, rgba(255, 255, 255, 0.9), transparent 80%)
+          `,
+          filter: "blur(80px)",
+        }}
+      />
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col">
         <h2 className="text-lg font-semibold text-gray-900">Enterprise</h2>
         <p className="mt-2 font-mono text-3xl font-bold tracking-tight text-gray-900">Custom pricing</p>
         <ul className="mt-4 space-y-2 text-sm text-gray-600">
@@ -120,7 +148,7 @@ function EnterpriseCard() {
           ))}
         </ul>
       </div>
-      <div className="flex shrink-0 flex-col justify-end sm:w-48">
+      <div className="relative z-10 flex shrink-0 flex-col justify-end sm:w-48">
         <a
           href="mailto:contact@recondesk.in"
           className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover"
@@ -194,66 +222,41 @@ export default function PricingPage() {
         className="mx-auto mt-14 max-w-6xl"
       >
         {tier === "solo" ? (
-          /* Relative wrapper so the shared ambient glow sits behind all four cards */
-          <div key="solo" className="relative">
-            {/* Shared ambient glow — wide, very soft, covers the full card row */}
-            <div
-              className="pointer-events-none absolute -inset-8 z-0"
-              aria-hidden
-              style={{
-                backgroundImage: `
-                  radial-gradient(ellipse at center, rgba(124, 58, 237, 0.13), transparent 68%),
-                  radial-gradient(ellipse at center, rgba(255, 255, 255, 0.85), transparent 82%)
-                `,
-                filter: "blur(80px)",
-              }}
+          <div key="solo" className="pricing-tier-enter grid gap-6 lg:grid-cols-4">
+            <PlanCard
+              name="Starter"
+              price="₹499"
+              bullets={["1 run/month", "₹499/run", "Runs expire monthly — no carry over"]}
+              href="/auth/signup"
+              cta="Start Free"
             />
-            {/* Tighter focal glow centered on the Growth card (2nd of 4 = ~37.5% from left) */}
-            <div
-              className="pointer-events-none absolute -inset-8 z-0"
-              aria-hidden
-              style={{
-                backgroundImage: `radial-gradient(ellipse at 37.5% 50%, rgba(124, 58, 237, 0.15), transparent 45%)`,
-                filter: "blur(60px)",
-              }}
+            <PlanCard
+              name="Growth"
+              price="₹1,699"
+              bullets={["5 runs/month", "₹340/run", "Runs expire monthly — no carry over"]}
+              highlight="growth"
+              badge={{ text: "Most Popular", className: "bg-violet-600 text-white" }}
+              href="/auth/signup"
+              cta="Start Free"
             />
-
-            <div className="pricing-tier-enter relative z-10 grid gap-6 lg:grid-cols-4">
-              <PlanCard
-                name="Starter"
-                price="₹499"
-                bullets={["1 run/month", "₹499/run", "Runs expire monthly — no carry over"]}
-                href="/auth/signup"
-                cta="Start Free"
-              />
-              <PlanCard
-                name="Growth"
-                price="₹1,699"
-                bullets={["5 runs/month", "₹340/run", "Runs expire monthly — no carry over"]}
-                highlight="growth"
-                badge={{ text: "Most Popular", className: "bg-violet-600 text-white" }}
-                href="/auth/signup"
-                cta="Start Free"
-              />
-              <PlanCard
-                name="Pro"
-                price="₹3,699"
-                bullets={["12 runs/month", "₹308/run", "Runs expire monthly — no carry over"]}
-                highlight="pro"
-                badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
-                href="/auth/signup"
-                cta="Start Free"
-              />
-              <PlanCard
-                name="Scale"
-                price="₹5,699"
-                bullets={["30 runs/month", "₹190/run", "Runs expire monthly — no carry over"]}
-                highlight="scale"
-                badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
-                href="/auth/signup"
-                cta="Start Free"
-              />
-            </div>
+            <PlanCard
+              name="Pro"
+              price="₹3,699"
+              bullets={["12 runs/month", "₹308/run", "Runs expire monthly — no carry over"]}
+              highlight="pro"
+              badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
+              href="/auth/signup"
+              cta="Start Free"
+            />
+            <PlanCard
+              name="Scale"
+              price="₹5,699"
+              bullets={["30 runs/month", "₹190/run", "Runs expire monthly — no carry over"]}
+              highlight="scale"
+              badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
+              href="/auth/signup"
+              cta="Start Free"
+            />
           </div>
         ) : (
           <div key="firm" className="pricing-tier-enter grid gap-6 lg:grid-cols-2">
