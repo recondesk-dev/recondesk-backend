@@ -68,30 +68,36 @@ function PlanCard({ name, price, bullets, highlight = false, badge, cta, href }:
           : "border-gray-200 shadow-sm";
 
   return (
-    <div className={`group relative flex flex-col rounded-2xl border bg-white p-6 ${border}`}>
-      {/* Hover glow — fades in on mouse-over, sits behind all card content */}
+    <div className="group relative rounded-2xl">
+      {/* Layer 1 — blurred outer halo, creates the soft glow radiating from the border */}
       <div
-        className="pointer-events-none absolute -inset-px z-0 rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        className="pointer-events-none absolute -inset-[3px] rounded-2xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
         aria-hidden
         style={{
-          backgroundImage: `
-            radial-gradient(circle at center, rgba(124, 58, 237, 0.18), transparent 65%),
-            radial-gradient(circle at center, rgba(255, 255, 255, 0.9), transparent 80%)
-          `,
-          filter: "blur(80px)",
+          background: "linear-gradient(135deg, #7C3AED 0%, rgba(255,255,255,0.85) 50%, #7C3AED 100%)",
+          filter: "blur(10px)",
+        }}
+      />
+      {/* Layer 2 — sharp gradient border line, peeks through the 1px card margin */}
+      <div
+        className="pointer-events-none absolute -inset-[1px] rounded-2xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+        aria-hidden
+        style={{
+          background: "linear-gradient(135deg, rgba(124,58,237,0.75) 0%, rgba(255,255,255,0.7) 50%, rgba(124,58,237,0.75) 100%)",
         }}
       />
 
-      {/* All card content sits above the glow */}
-      <div className="relative z-10 flex flex-1 flex-col">
-        {badge && (
-          <span
-            className={`absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-3 py-0.5 text-xs font-semibold ${badge.className}`}
-          >
-            {badge.text}
-          </span>
-        )}
+      {/* Badge sits outside the card, above both glow layers */}
+      {badge && (
+        <span
+          className={`absolute -top-3 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full px-3 py-0.5 text-xs font-semibold ${badge.className}`}
+        >
+          {badge.text}
+        </span>
+      )}
 
+      {/* Card — m-[1px] reveals the sharp gradient border behind it on hover */}
+      <div className={`relative z-10 m-[1px] flex flex-col rounded-2xl border bg-white p-6 ${border}`}>
         <h2 className="text-lg font-semibold text-gray-900">{name}</h2>
 
         {/* Price with "+ GST" suffix */}
@@ -126,35 +132,42 @@ function EnterpriseCard() {
   ];
 
   return (
-    <div className="group relative lg:col-span-2 flex flex-col gap-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
-      {/* Hover glow */}
+    <div className="group relative lg:col-span-2 rounded-2xl">
+      {/* Layer 1 — blurred outer halo */}
       <div
-        className="pointer-events-none absolute -inset-px z-0 rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        className="pointer-events-none absolute -inset-[3px] rounded-2xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
         aria-hidden
         style={{
-          backgroundImage: `
-            radial-gradient(circle at center, rgba(124, 58, 237, 0.18), transparent 65%),
-            radial-gradient(circle at center, rgba(255, 255, 255, 0.9), transparent 80%)
-          `,
-          filter: "blur(80px)",
+          background: "linear-gradient(135deg, #7C3AED 0%, rgba(255,255,255,0.85) 50%, #7C3AED 100%)",
+          filter: "blur(10px)",
         }}
       />
-      <div className="relative z-10 flex min-w-0 flex-1 flex-col">
-        <h2 className="text-lg font-semibold text-gray-900">Enterprise</h2>
-        <p className="mt-2 font-mono text-3xl font-bold tracking-tight text-gray-900">Custom pricing</p>
-        <ul className="mt-4 space-y-2 text-sm text-gray-600">
-          {bullets.map((line) => (
-            <li key={line}>• {line}</li>
-          ))}
-        </ul>
-      </div>
-      <div className="relative z-10 flex shrink-0 flex-col justify-end sm:w-48">
-        <a
-          href="mailto:contact@recondesk.in"
-          className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover"
-        >
-          Contact Sales
-        </a>
+      {/* Layer 2 — sharp gradient border line */}
+      <div
+        className="pointer-events-none absolute -inset-[1px] rounded-2xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+        aria-hidden
+        style={{
+          background: "linear-gradient(135deg, rgba(124,58,237,0.75) 0%, rgba(255,255,255,0.7) 50%, rgba(124,58,237,0.75) 100%)",
+        }}
+      />
+      <div className="relative z-10 m-[1px] flex flex-col gap-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <h2 className="text-lg font-semibold text-gray-900">Enterprise</h2>
+          <p className="mt-2 font-mono text-3xl font-bold tracking-tight text-gray-900">Custom pricing</p>
+          <ul className="mt-4 space-y-2 text-sm text-gray-600">
+            {bullets.map((line) => (
+              <li key={line}>• {line}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="flex shrink-0 flex-col justify-end sm:w-48">
+          <a
+            href="mailto:contact@recondesk.in"
+            className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover"
+          >
+            Contact Sales
+          </a>
+        </div>
       </div>
     </div>
   );
