@@ -471,80 +471,56 @@ function BillingBanner({
 
 function EnterpriseSoloCard() {
   return (
-    <div className="group relative rounded-xl">
-      {/* Layer 1 — blurred outer halo */}
-      <div
-        className="pointer-events-none absolute -inset-[3px] rounded-xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
-        aria-hidden
-        style={{
-          background: "linear-gradient(135deg, #7C3AED 0%, rgba(255,255,255,0.85) 50%, #7C3AED 100%)",
-          filter: "blur(10px)",
-        }}
-      />
-      {/* Layer 2 — sharp gradient border line */}
-      <div
-        className="pointer-events-none absolute -inset-[1px] rounded-xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
-        aria-hidden
-        style={{
-          background: "linear-gradient(135deg, rgba(124,58,237,0.75) 0%, rgba(255,255,255,0.7) 50%, rgba(124,58,237,0.75) 100%)",
-        }}
-      />
-      <div className="relative z-10 m-[1px] flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-semibold">Individual</h3>
-        <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
-        <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
-          <li>• Dedicated support</li>
-          <li>• Custom onboarding</li>
-          <li>• SLA guarantee</li>
-        </ul>
-        <p className="mt-6 text-lg font-semibold text-[var(--text-primary)]">Need More?</p>
-        <a
-          href="mailto:contact@recondesk.in"
-          className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
-        >
-          Contact Sales
-        </a>
-      </div>
+    <div
+      className="flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm transition duration-300"
+      onMouseEnter={(e) =>
+        (e.currentTarget.style.boxShadow =
+          "0 0 0 1px rgba(124,58,237,0.2), 0 0 14px 2px rgba(124,58,237,0.1)")
+      }
+      onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "")}
+    >
+      <h3 className="text-lg font-semibold">Individual</h3>
+      <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
+      <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
+        <li>• Dedicated support</li>
+        <li>• Custom onboarding</li>
+        <li>• SLA guarantee</li>
+      </ul>
+      <p className="mt-6 text-lg font-semibold text-[var(--text-primary)]">Need More?</p>
+      <a
+        href="mailto:contact@recondesk.in"
+        className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+      >
+        Contact Sales
+      </a>
     </div>
   );
 }
 
 function EnterpriseFirmCard() {
   return (
-    <div className="group relative rounded-xl">
-      {/* Layer 1 — blurred outer halo */}
-      <div
-        className="pointer-events-none absolute -inset-[3px] rounded-xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
-        aria-hidden
-        style={{
-          background: "linear-gradient(135deg, #7C3AED 0%, rgba(255,255,255,0.85) 50%, #7C3AED 100%)",
-          filter: "blur(10px)",
-        }}
-      />
-      {/* Layer 2 — sharp gradient border line */}
-      <div
-        className="pointer-events-none absolute -inset-[1px] rounded-xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
-        aria-hidden
-        style={{
-          background: "linear-gradient(135deg, rgba(124,58,237,0.75) 0%, rgba(255,255,255,0.7) 50%, rgba(124,58,237,0.75) 100%)",
-        }}
-      />
-      <div className="relative z-10 m-[1px] flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-semibold">Enterprise</h3>
-        <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
-        <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
-          <li>• 100+ runs/month</li>
-          <li>• Dedicated support</li>
-          <li>• Custom onboarding</li>
-          <li>• SLA guarantee</li>
-        </ul>
-        <a
-          href="mailto:contact@recondesk.in"
-          className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
-        >
-          Contact Sales
-        </a>
-      </div>
+    <div
+      className="flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm transition duration-300"
+      onMouseEnter={(e) =>
+        (e.currentTarget.style.boxShadow =
+          "0 0 0 1px rgba(124,58,237,0.2), 0 0 14px 2px rgba(124,58,237,0.1)")
+      }
+      onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "")}
+    >
+      <h3 className="text-lg font-semibold">Enterprise</h3>
+      <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
+      <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
+        <li>• 100+ runs/month</li>
+        <li>• Dedicated support</li>
+        <li>• Custom onboarding</li>
+        <li>• SLA guarantee</li>
+      </ul>
+      <a
+        href="mailto:contact@recondesk.in"
+        className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+      >
+        Contact Sales
+      </a>
     </div>
   );
 }
@@ -571,48 +547,35 @@ function PlanCard(props: {
   const buttonLabel = ctaExact ? cta : `${cta} — Coming soon`;
 
   return (
-    <div className="group relative rounded-xl">
-      {/* Layer 1 — blurred outer halo */}
-      <div
-        className="pointer-events-none absolute -inset-[3px] rounded-xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
-        aria-hidden
-        style={{
-          background: "linear-gradient(135deg, #7C3AED 0%, rgba(255,255,255,0.85) 50%, #7C3AED 100%)",
-          filter: "blur(10px)",
-        }}
-      />
-      {/* Layer 2 — sharp gradient border line */}
-      <div
-        className="pointer-events-none absolute -inset-[1px] rounded-xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
-        aria-hidden
-        style={{
-          background: "linear-gradient(135deg, rgba(124,58,237,0.75) 0%, rgba(255,255,255,0.7) 50%, rgba(124,58,237,0.75) 100%)",
-        }}
-      />
-      {/* Badge sits above glow layers */}
+    <div
+      className={`relative flex flex-col rounded-xl border bg-white p-6 transition duration-300 ${border}`}
+      onMouseEnter={(e) =>
+        (e.currentTarget.style.boxShadow =
+          "0 0 0 1px rgba(124,58,237,0.2), 0 0 14px 2px rgba(124,58,237,0.1)")
+      }
+      onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "")}
+    >
       {badge && (
         <span
-          className={`absolute -top-3 right-4 z-20 rounded-full px-3 py-0.5 text-xs font-semibold ${badge.className}`}
+          className={`absolute -top-3 right-4 rounded-full px-3 py-0.5 text-xs font-semibold ${badge.className}`}
         >
           {badge.text}
         </span>
       )}
-      <div className={`relative z-10 m-[1px] flex flex-col rounded-xl border bg-white p-6 ${border}`}>
-        <h3 className="text-lg font-semibold">{title}</h3>
-        <p className="mt-2 text-2xl font-bold tracking-tight">{price}</p>
-        <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
-          {features.map((f) => (
-            <li key={f}>• {f}</li>
-          ))}
-        </ul>
-        <button
-          type="button"
-          disabled
-          className="mt-6 w-full cursor-not-allowed rounded-full border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-500"
-        >
-          {buttonLabel}
-        </button>
-      </div>
+      <h3 className="text-lg font-semibold">{title}</h3>
+      <p className="mt-2 text-2xl font-bold tracking-tight">{price}</p>
+      <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
+        {features.map((f) => (
+          <li key={f}>• {f}</li>
+        ))}
+      </ul>
+      <button
+        type="button"
+        disabled
+        className="mt-6 w-full cursor-not-allowed rounded-full border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-500"
+      >
+        {buttonLabel}
+      </button>
     </div>
   );
 }
