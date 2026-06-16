@@ -4,7 +4,7 @@ import Link from "next/link";
 import useSWR from "swr";
 import { Bell, ChevronRight, ClipboardList, CreditCard, UserCircle, Users } from "lucide-react";
 
-import { teamApi, type AuthMeProfile, type TeamMemberListItem } from "@/lib/api";
+import { teamApi, billingApi, type AuthMeProfile, type TeamMemberListItem } from "@/lib/api";
 import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
@@ -36,11 +36,6 @@ function SettingsSkeleton() {
   );
 }
 
-function planLabel(profile: AuthMeProfile | undefined): string {
-  const p = (profile?.plan ?? "free").toLowerCase();
-  if (!p || p === "free") return "Free";
-  return p.charAt(0).toUpperCase() + p.slice(1);
-}
 
 export default function SettingsHubPage() {
   const token = useAccessToken();
@@ -50,6 +45,7 @@ export default function SettingsHubPage() {
 
   const meKey = authToken ? (["settings-me", authToken] as const) : null;
   const teamKey = authToken ? (["settings-team-count", authToken] as const) : null;
+  const billingKey = authToken ? (["settings-billing", authToken] as const) : null;
 
   const { data: me, isLoading: meLoading } = useSWR(
     meKey,
@@ -63,12 +59,26 @@ export default function SettingsHubPage() {
     { keepPreviousData: true }
   );
 
+  const { data: billingStatus, isLoading: billingLoading } = useSWR(
+    billingKey,
+    ([, t]) => billingApi.status(t)
+  );
+
   const loadingShell =
     resolvingToken ||
     (!!authToken &&
-      ((meKey !== null && meLoading) || (teamKey !== null && teamLoading)));
+      ((meKey !== null && meLoading) || (teamKey !== null && teamLoading) || (billingKey !== null && billingLoading)));
 
-  const runsUsed = me?.runs_used ?? 0;
+  const activeBatch = billingStatus?.credit_batches?.find(
+    (b) => (b.runs_remaining ?? 0) > 0 && (b.status || "").toLowerCase() !== "expired"
+  );
+  const rawPlan = activeBatch?.plan?.trim() || me?.plan || "free";
+  const planLabelStr = rawPlan.charAt(0).toUpperCase() + rawPlan.slice(1).toLowerCase();
+
+  const runsRemaining = billingStatus
+    ? (billingStatus.free_runs_remaining ?? 0) + (billingStatus.runs_balance ?? 0)
+    : 0;
+
   const teamSize = Array.isArray(teamMembers)
     ? (teamMembers as TeamMemberListItem[]).length
     : 0;
@@ -156,23 +166,17 @@ export default function SettingsHubPage() {
             <span>
               <span className="text-[var(--text-secondary)]">Plan:</span>{" "}
               <span className="font-semibold text-[var(--text-primary)]">
-                {planLabel(me)}
+                {planLabelStr}
               </span>
             </span>
             <span className="hidden sm:inline text-[var(--border)]">|</span>
             <span>
               <span className="text-[var(--text-secondary)]">
-                Runs used this month:
+                Runs remaining:
               </span>{" "}
               <span className="font-semibold text-[var(--text-primary)]">
-                {runsUsed}
+                {runsRemaining}
               </span>
-              {me?.runs_limit != null && (
-                <span className="text-[var(--text-secondary)]">
-                  {" "}
-                  / {me.runs_limit}
-                </span>
-              )}
             </span>
             <span className="hidden sm:inline text-[var(--border)]">|</span>
             <span>
