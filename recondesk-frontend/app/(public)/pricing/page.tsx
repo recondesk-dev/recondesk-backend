@@ -47,51 +47,54 @@ const pricingFaq = [
 
 type PlanCardProps = {
   name: string;
+  /** Main price string, e.g. "₹499" */
   price: string;
-  priceSuffix?: string;
   bullets: string[];
-  popular?: boolean;
-  badge?: string;
+  /** highlight variant controls border + badge colours */
+  highlight?: false | "growth" | "pro" | "scale";
+  badge?: { text: string; className: string };
   cta: string;
   href: string;
 };
 
-function PlanCard({ name, price, priceSuffix = "/month", bullets, popular, badge, cta, href }: PlanCardProps) {
-  const ctaClasses = popular
-    ? "mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand text-sm font-semibold text-white transition hover:bg-brand-hover"
-    : "mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full border border-white/15 bg-white/5 text-sm font-semibold text-white transition hover:bg-white/10";
-
-  const shell = popular
-    ? "relative flex flex-col rounded-2xl border-2 border-brand bg-[#13161f] p-6 shadow-lg shadow-brand/10"
-    : badge
-      ? "relative flex flex-col rounded-2xl border border-[#7C3AED]/40 bg-[#13161f] p-6 shadow-lg shadow-[#7C3AED]/5"
-      : "flex flex-col rounded-2xl border border-white/10 bg-[#13161f] p-6";
+function PlanCard({ name, price, bullets, highlight = false, badge, cta, href }: PlanCardProps) {
+  const border =
+    highlight === "growth"
+      ? "border-violet-400 shadow-md ring-1 ring-violet-200"
+      : highlight === "pro"
+        ? "border-amber-400 shadow-sm ring-1 ring-amber-100"
+        : highlight === "scale"
+          ? "border-purple-400 shadow-md ring-1 ring-purple-200"
+          : "border-gray-200 shadow-sm";
 
   return (
-    <div className={shell}>
-      {popular ? (
-        <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand px-3 py-0.5 text-xs font-semibold text-white">
-          Most Popular
+    <div className={`relative flex flex-col rounded-2xl border bg-white p-6 ${border}`}>
+      {badge && (
+        <span
+          className={`absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-3 py-0.5 text-xs font-semibold ${badge.className}`}
+        >
+          {badge.text}
         </span>
-      ) : null}
-      {badge ? (
-        <span className="absolute -top-3 right-4 rounded-2xl border border-[#7C3AED]/30 bg-[#7C3AED]/10 px-3 py-0.5 font-['Plus_Jakarta_Sans'] text-xs font-semibold text-[#7C3AED]">
-          {badge}
-        </span>
-      ) : null}
-      <h2 className="text-lg font-semibold text-white">{name}</h2>
-      <p className="mt-2 font-mono text-3xl font-semibold text-white">
+      )}
+
+      <h2 className="text-lg font-semibold text-gray-900">{name}</h2>
+
+      {/* Price with "+ GST" suffix */}
+      <p className="mt-2 font-mono text-3xl font-bold tracking-tight text-gray-900">
         {price}
-        {priceSuffix ? (
-          <span className="text-base font-normal text-slate-400">{priceSuffix}</span>
-        ) : null}
+        <span className="ml-1.5 text-base font-normal text-gray-400">+ GST</span>
       </p>
-      <ul className="mt-6 flex-1 space-y-3 text-sm text-slate-300">
+
+      <ul className="mt-4 flex-1 space-y-2 text-sm text-gray-600">
         {bullets.map((line) => (
-          <li key={line}>{line}</li>
+          <li key={line}>• {line}</li>
         ))}
       </ul>
-      <Link href={href} className={ctaClasses}>
+
+      <Link
+        href={href}
+        className="mt-6 inline-flex w-full min-h-[44px] items-center justify-center rounded-full border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-200"
+      >
         {cta}
       </Link>
     </div>
@@ -107,20 +110,20 @@ function EnterpriseCard() {
   ];
 
   return (
-    <div className="lg:col-span-2 flex flex-col gap-6 rounded-2xl border border-brand/35 bg-gradient-to-br from-brand/12 via-[#13161f] to-[#13161f] p-6 shadow-lg shadow-black/20 sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
+    <div className="lg:col-span-2 flex flex-col gap-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
       <div className="flex min-w-0 flex-1 flex-col">
         <h2 className="text-lg font-semibold text-gray-900">Enterprise</h2>
-        <p className="mt-2 font-mono text-3xl font-semibold text-gray-900">Custom pricing</p>
-        <ul className="mt-6 space-y-3 text-sm text-gray-600">
+        <p className="mt-2 font-mono text-3xl font-bold tracking-tight text-gray-900">Custom pricing</p>
+        <ul className="mt-4 space-y-2 text-sm text-gray-600">
           {bullets.map((line) => (
-            <li key={line}>{line}</li>
+            <li key={line}>• {line}</li>
           ))}
         </ul>
       </div>
       <div className="flex shrink-0 flex-col justify-end sm:w-48">
         <a
           href="mailto:contact@recondesk.in"
-          className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-brand text-sm font-semibold text-white transition hover:bg-brand-hover"
+          className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover"
         >
           Contact Sales
         </a>
@@ -203,7 +206,8 @@ export default function PricingPage() {
               name="Growth"
               price="₹1,699"
               bullets={["5 runs/month", "₹340/run", "Runs expire monthly — no carry over"]}
-              popular
+              highlight="growth"
+              badge={{ text: "Most Popular", className: "bg-violet-600 text-white" }}
               href="/auth/signup"
               cta="Start Free"
             />
@@ -211,6 +215,8 @@ export default function PricingPage() {
               name="Pro"
               price="₹3,699"
               bullets={["12 runs/month", "₹308/run", "Runs expire monthly — no carry over"]}
+              highlight="pro"
+              badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
               href="/auth/signup"
               cta="Start Free"
             />
@@ -218,7 +224,8 @@ export default function PricingPage() {
               name="Scale"
               price="₹5,699"
               bullets={["30 runs/month", "₹190/run", "Runs expire monthly — no carry over"]}
-              badge="Founder's Offer"
+              highlight="scale"
+              badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
               href="/auth/signup"
               cta="Start Free"
             />
@@ -233,7 +240,8 @@ export default function PricingPage() {
                 "₹174/run",
                 "Unused runs carry over for up to 2 months",
               ]}
-              popular
+              highlight="growth"
+              badge={{ text: "Most Popular", className: "bg-violet-600 text-white" }}
               href="/auth/signup"
               cta="Start Free"
             />
@@ -245,6 +253,8 @@ export default function PricingPage() {
                 "₹147/run",
                 "Unused runs carry over for up to 2 months",
               ]}
+              highlight="scale"
+              badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
               href="/auth/signup"
               cta="Start Free"
             />
@@ -252,6 +262,10 @@ export default function PricingPage() {
           </div>
         )}
       </div>
+
+      <p className="mx-auto mt-6 max-w-6xl text-xs text-gray-500">
+        All prices exclude GST. 18% GST applicable.
+      </p>
 
       <div className="mx-auto mt-16 max-w-3xl rounded-2xl border border-white/10 bg-[#0a0c10]/80 p-6 sm:p-8">
         <h2 className="text-center text-lg font-semibold text-white">Included in every plan</h2>
