@@ -439,6 +439,43 @@ export type Database = {
         Relationships: [];
       };
 
+      run_credits: {
+        Row: {
+          id: string;
+          firm_owner_id: string;
+          payment_id: string | null;
+          plan: string;
+          runs_purchased: number;
+          runs_remaining: number;
+          purchased_at: string;
+          expires_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          firm_owner_id: string;
+          payment_id?: string | null;
+          plan: string;
+          runs_purchased: number;
+          runs_remaining: number;
+          purchased_at?: string;
+          expires_at: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          firm_owner_id?: string;
+          payment_id?: string | null;
+          plan?: string;
+          runs_purchased?: number;
+          runs_remaining?: number;
+          purchased_at?: string;
+          expires_at?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+
       audit_logs: {
         Row: {
           id: string;
