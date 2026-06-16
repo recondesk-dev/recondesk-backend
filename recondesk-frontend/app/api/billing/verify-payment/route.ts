@@ -82,7 +82,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to update payment status" }, { status: 500 });
     }
 
-    // Credit the runs — fetch current balance and increment atomically
+    // Fetch current balance so we can compute the new value.
+    // Both this fetch and the subsequent update use adminDb (service-role),
+    // bypassing RLS. The filter is .eq("id", user.id) — user_profiles.id
+    // is the auth.uid() UUID, confirmed by the Row type in types.ts.
     const { data: profile, error: profileFetchError } = await adminDb
       .from("user_profiles")
       .select("runs_balance")
@@ -98,30 +101,50 @@ export async function POST(request: Request) {
     const runsToCredit = order.runs_purchased ?? 0;
     const newBalance = currentBalance + runsToCredit;
 
-    const { error: updateProfileError } = await adminDb
+    // Chain .select() after .update() so Supabase returns the updated row.
+    // Without .select(), a zero-rows-affected update returns {data: [], error: null}
+    // which is indistinguishable from success — this is how the previous bug was
+    // silently swallowed.
+    const { data: updatedProfile, error: updateProfileError } = await adminDb
       .from("user_profiles")
       .update({ runs_balance: newBalance })
-      .eq("id", user.id);
+      .eq("id", user.id)
+      .select("id, runs_balance");
 
     if (updateProfileError) {
-      console.error("Failed to credit runs_balance:", updateProfileError);
-      // Payment is already marked paid — log this for manual reconciliation
+      console.error("Failed to credit runs_balance (DB error):", updateProfileError);
       return NextResponse.json(
         { error: "Payment recorded but run credit failed — contact support" },
         { status: 500 }
       );
     }
 
+    if (!updatedProfile || updatedProfile.length === 0) {
+      // Update matched zero rows — log full diagnostic context.
+      console.error(
+        `[verify-payment] ZERO ROWS UPDATED on user_profiles. ` +
+        `user.id=${user.id}, attempted newBalance=${newBalance}. ` +
+        `Profile fetch DID return data (balance was ${currentBalance}). ` +
+        `Check that user_profiles.id matches auth.uid() for this user.`
+      );
+      return NextResponse.json(
+        { error: "Payment recorded but run credit matched no profile row — contact support" },
+        { status: 500 }
+      );
+    }
+
+    const actualNewBalance = updatedProfile[0].runs_balance;
+
     console.log(
       `[verify-payment] Credited ${runsToCredit} run(s) to user ${user.id}. ` +
-      `Balance: ${currentBalance} → ${newBalance}. Order: ${order.id}`
+      `Balance: ${currentBalance} → ${actualNewBalance}. Order: ${order.id}`
     );
 
     return NextResponse.json({
       success: true,
       message: "Payment verified and runs credited",
       runs_credited: runsToCredit,
-      new_balance: newBalance,
+      new_balance: actualNewBalance,
     });
   } catch (error: any) {
     console.error("Verify payment error:", error);
