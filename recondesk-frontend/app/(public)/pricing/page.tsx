@@ -234,30 +234,8 @@ export default function PricingPage() {
               href="/auth/signup"
               cta="Start Free"
             />
-            {/* Scale card with animated border beam */}
-            <div className="relative rounded-2xl">
-              {/* Beam layer 1 — soft blurred glow trailing the light */}
-              <div
-                className="pointer-events-none absolute -inset-[2px] rounded-2xl"
-                aria-hidden
-                style={{
-                  background: "conic-gradient(from 0deg, transparent 0%, transparent 75%, rgba(255,255,255,0.8) 85%, white 90%, rgba(255,255,255,0.8) 95%, transparent 100%)",
-                  animation: "border-beam-spin 3.5s linear infinite",
-                  filter: "blur(10px)",
-                  opacity: 0.55,
-                }}
-              />
-              {/* Beam layer 2 — sharp crisp light streak */}
-              <div
-                className="pointer-events-none absolute -inset-[1.5px] rounded-2xl"
-                aria-hidden
-                style={{
-                  background: "conic-gradient(from 0deg, transparent 0%, transparent 78%, rgba(255,255,255,0.6) 86%, white 90%, rgba(255,255,255,0.6) 94%, transparent 100%)",
-                  animation: "border-beam-spin 3.5s linear infinite",
-                  filter: "blur(1px)",
-                }}
-              />
-              {/* Card sits on top — its white bg masks the gradient interior, only the border edge shows */}
+            {/* Scale card with animated rotating gradient border */}
+            <div className="scale-card-beam rounded-2xl">
               <PlanCard
                 name="Scale"
                 price="₹5,699"
