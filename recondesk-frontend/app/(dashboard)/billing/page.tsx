@@ -301,18 +301,21 @@ export default function BillingPage() {
                 highlight="pro"
                 badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
               />
-              <PlanCard
-                title="Scale"
-                price={`${formatInrWhole(5699)} + GST`}
-                features={[
-                  "30 runs/month",
-                  "₹190/run",
-                  "Runs expire monthly — no carry over",
-                ]}
-                cta="Buy 30 runs"
-                highlight="scale"
-                badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
-              />
+              {/* Scale card with animated rotating gradient border */}
+              <div className="glow-border-card rounded-xl">
+                <PlanCard
+                  title="Scale"
+                  price={`${formatInrWhole(5699)} + GST`}
+                  features={[
+                    "30 runs/month",
+                    "₹190/run",
+                    "Runs expire monthly — no carry over",
+                  ]}
+                  cta="Buy 30 runs"
+                  highlight="scale"
+                  badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
+                />
+              </div>
               <EnterpriseSoloCard />
             </div>
           ) : (
@@ -548,7 +551,7 @@ function PlanCard(props: {
 
   return (
     <div
-      className={`relative flex flex-col rounded-xl border bg-white p-6 transition duration-300 ${border}`}
+      className={`relative z-10 flex flex-col rounded-xl border bg-white p-6 transition duration-300 ${border}`}
       onMouseEnter={(e) =>
         (e.currentTarget.style.boxShadow =
           "0 0 0 1px rgba(124,58,237,0.2), 0 0 14px 2px rgba(124,58,237,0.1)")

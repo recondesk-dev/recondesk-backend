@@ -177,7 +177,7 @@
   }
 }
 
-/* Scale card animated gradient border — @property technique for smooth angle animation */
+/* Reusable rotating gradient border glow — @property technique for smooth angle animation */
 @property --gradient-angle {
   syntax: "<angle>";
   initial-value: 0deg;
@@ -190,13 +190,13 @@
   }
 }
 
-.scale-card-beam {
+.glow-border-card {
   position: relative;
   isolation: isolate;
 }
 
 /* Crisp 2px gradient ring tracing the card border */
-.scale-card-beam::before {
+.glow-border-card::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -220,20 +220,20 @@
 }
 
 /* Blurred outer glow halo — same rotating gradient, pushed further out */
-.scale-card-beam::after {
+.glow-border-card::after {
   content: "";
   position: absolute;
-  inset: -6px;
+  inset: -8px;
   z-index: -1;
   border-radius: inherit;
   background: conic-gradient(
     from var(--gradient-angle),
-    rgba(255, 255, 255, 0.35),
-    rgba(124, 58, 237, 0.35),
-    rgba(255, 255, 255, 0.35),
-    rgba(124, 58, 237, 0.35),
-    rgba(255, 255, 255, 0.35)
+    rgba(255, 255, 255, 0.4),
+    rgba(124, 58, 237, 0.4),
+    rgba(255, 255, 255, 0.4),
+    rgba(124, 58, 237, 0.4),
+    rgba(255, 255, 255, 0.4)
   );
-  filter: blur(14px);
+  filter: blur(16px);
   animation: rotate-gradient 3s linear infinite;
 }

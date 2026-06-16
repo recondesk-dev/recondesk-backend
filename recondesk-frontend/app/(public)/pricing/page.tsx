@@ -235,7 +235,7 @@ export default function PricingPage() {
               cta="Start Free"
             />
             {/* Scale card with animated rotating gradient border */}
-            <div className="scale-card-beam rounded-2xl">
+            <div className="glow-border-card rounded-2xl">
               <PlanCard
                 name="Scale"
                 price="₹5,699"
