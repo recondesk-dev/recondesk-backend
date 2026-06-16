@@ -220,15 +220,27 @@ export default function PricingPage() {
               href="/auth/signup"
               cta="Start Free"
             />
-            <PlanCard
-              name="Scale"
-              price="₹5,699"
-              bullets={["30 runs/month", "₹190/run", "Runs expire monthly — no carry over"]}
-              highlight="scale"
-              badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
-              href="/auth/signup"
-              cta="Start Free"
-            />
+            <div className="relative">
+              <div
+                className="absolute -inset-4 z-0 rounded-3xl"
+                style={{
+                  backgroundImage: `radial-gradient(circle at center, rgba(124, 58, 237, 0.22), transparent 70%)`,
+                  filter: "blur(72px)",
+                }}
+                aria-hidden
+              />
+              <div className="relative z-10">
+                <PlanCard
+                  name="Scale"
+                  price="₹5,699"
+                  bullets={["30 runs/month", "₹190/run", "Runs expire monthly — no carry over"]}
+                  highlight="scale"
+                  badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
+                  href="/auth/signup"
+                  cta="Start Free"
+                />
+              </div>
+            </div>
           </div>
         ) : (
           <div key="firm" className="pricing-tier-enter grid gap-6 lg:grid-cols-2">
