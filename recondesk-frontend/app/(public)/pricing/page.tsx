@@ -69,7 +69,7 @@ function PlanCard({ name, price, bullets, highlight = false, badge, cta, href }:
 
   return (
     <div
-      className={`relative flex flex-col rounded-2xl border bg-white p-6 transition duration-300 ${border}`}
+      className={`relative z-10 flex flex-col rounded-2xl border bg-white p-6 transition duration-300 ${border}`}
       onMouseEnter={(e) =>
         (e.currentTarget.style.boxShadow =
           "0 0 0 1px rgba(124,58,237,0.2), 0 0 14px 2px rgba(124,58,237,0.1)")
@@ -234,15 +234,40 @@ export default function PricingPage() {
               href="/auth/signup"
               cta="Start Free"
             />
-            <PlanCard
-              name="Scale"
-              price="₹5,699"
-              bullets={["30 runs/month", "₹190/run", "Runs expire monthly — no carry over"]}
-              highlight="scale"
-              badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
-              href="/auth/signup"
-              cta="Start Free"
-            />
+            {/* Scale card with animated border beam */}
+            <div className="relative rounded-2xl">
+              {/* Beam layer 1 — soft blurred glow trailing the light */}
+              <div
+                className="pointer-events-none absolute -inset-[2px] rounded-2xl"
+                aria-hidden
+                style={{
+                  background: "conic-gradient(from 0deg, transparent 0%, transparent 75%, rgba(255,255,255,0.8) 85%, white 90%, rgba(255,255,255,0.8) 95%, transparent 100%)",
+                  animation: "border-beam-spin 3.5s linear infinite",
+                  filter: "blur(10px)",
+                  opacity: 0.55,
+                }}
+              />
+              {/* Beam layer 2 — sharp crisp light streak */}
+              <div
+                className="pointer-events-none absolute -inset-[1.5px] rounded-2xl"
+                aria-hidden
+                style={{
+                  background: "conic-gradient(from 0deg, transparent 0%, transparent 78%, rgba(255,255,255,0.6) 86%, white 90%, rgba(255,255,255,0.6) 94%, transparent 100%)",
+                  animation: "border-beam-spin 3.5s linear infinite",
+                  filter: "blur(1px)",
+                }}
+              />
+              {/* Card sits on top — its white bg masks the gradient interior, only the border edge shows */}
+              <PlanCard
+                name="Scale"
+                price="₹5,699"
+                bullets={["30 runs/month", "₹190/run", "Runs expire monthly — no carry over"]}
+                highlight="scale"
+                badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
+                href="/auth/signup"
+                cta="Start Free"
+              />
+            </div>
           </div>
         ) : (
           <div key="firm" className="pricing-tier-enter grid gap-6 lg:grid-cols-2">
