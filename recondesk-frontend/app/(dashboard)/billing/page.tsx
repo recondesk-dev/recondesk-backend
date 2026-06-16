@@ -388,8 +388,11 @@ export default function BillingPage() {
                 history.length === 0 && (
                   <tr>
                     <td colSpan={10} className="px-4 py-8 text-center text-[var(--text-secondary)]">
-                      Your first 2 reconciliations are free — no payment needed yet. Your receipts
-                      will appear here after your first purchase.
+                      {(status?.runs_balance ?? 0) > 0 ||
+                      (status?.total_spent_paise ?? 0) > 0 ||
+                      (status?.credit_batches?.length ?? 0) > 0
+                        ? "No payment history available."
+                        : "Your first 2 reconciliations are free — no payment needed yet. Your receipts will appear here after your first purchase."}
                     </td>
                   </tr>
                 )}
