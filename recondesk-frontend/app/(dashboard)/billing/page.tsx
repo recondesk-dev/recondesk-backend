@@ -133,7 +133,9 @@ export default function BillingPage() {
         name: "ReconDesk",
         description: `Purchase ${planName} plan`,
         handler: async function (response: any) {
+          console.log("[Razorpay] Handler fired! Received response:", response);
           try {
+            console.log("[Razorpay] Sending verify-payment request...");
             const verifyRes = await fetch("/api/billing/verify-payment", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -143,22 +145,27 @@ export default function BillingPage() {
                 razorpay_signature: response.razorpay_signature,
               }),
             });
+            console.log("[Razorpay] verify-payment response status:", verifyRes.status);
             const verifyData = await verifyRes.json();
+            console.log("[Razorpay] verify-payment response data:", verifyData);
+
             if (!verifyRes.ok) {
               throw new Error(verifyData.error || "Payment verification failed");
             }
             alert("Payment successful! Runs have been credited to your account.");
             // Refresh data
-            // mutate might be available but we can just let revalidateOnFocus do it, or we could mutate `swrKey`
             window.location.reload();
           } catch (err: any) {
+            console.error("[Razorpay] verify-payment caught error:", err);
             alert(err.message || "Payment verification failed");
           } finally {
+            console.log("[Razorpay] Handler finished processing.");
             setIsProcessing(false);
           }
         },
         modal: {
           ondismiss: function () {
+            console.log("[Razorpay] modal.ondismiss fired!");
             setIsProcessing(false);
           },
         },
