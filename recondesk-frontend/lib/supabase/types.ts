@@ -22,6 +22,9 @@ export type TeamMemberRole = "Staff" | "Manager";
 export type PaymentStatus = "created" | "paid" | "failed" | "refunded";
 
 export type Database = {
+  __InternalSupabase: {
+    PostgrestVersion: "12";
+  };
   public: {
     Tables: {
       user_profiles: {
@@ -70,10 +73,14 @@ export type Database = {
           plan?: string | null;
           runs_used?: number | null;
           runs_limit?: number | null;
+          runs_balance?: number | null;
+          free_runs_remaining?: number | null;
           firm_city?: string | null;
           icai_membership_number?: string | null;
           firm_gstin?: string | null;
+          onboarding_completed?: boolean | null;
         };
+        Relationships: [];
       };
 
       client_gstins: {
@@ -110,6 +117,7 @@ export type Database = {
           assigned_to?: string | null;
           is_active?: boolean;
         };
+        Relationships: [];
       };
 
       reconciliation_runs: {
@@ -177,6 +185,7 @@ export type Database = {
           finalized_at?: string | null;
           finalized_by?: string | null;
         };
+        Relationships: [];
       };
 
       gstr_records: {
@@ -242,6 +251,7 @@ export type Database = {
           decision_why?: string | null;
           decision_next?: string | null;
         };
+        Relationships: [];
       };
 
       pr_records: {
@@ -325,6 +335,7 @@ export type Database = {
           discrepancy_date_diff_days?: number | null;
           discrepancy_notes?: string | null;
         };
+        Relationships: [];
       };
 
       mismatch_notes: {
@@ -349,6 +360,7 @@ export type Database = {
         Update: {
           note?: string;
         };
+        Relationships: [];
       };
 
       team_members: {
@@ -375,6 +387,7 @@ export type Database = {
           accepted_at?: string | null;
           is_active?: boolean;
         };
+        Relationships: [];
       };
 
       payments: {
@@ -399,14 +412,31 @@ export type Database = {
           run_id?: string | null;
           razorpay_order_id?: string | null;
           razorpay_payment_id?: string | null;
-          amount_paise: number;
+          amount_paise?: number;
           status?: PaymentStatus;
+          plan?: string | null;
+          runs_purchased?: number | null;
+          base_amount_paise?: number | null;
+          gst_paise?: number | null;
+          total_amount_paise?: number | null;
           created_at?: string;
         };
         Update: {
+          id?: string;
+          firm_owner_id?: string;
+          run_id?: string | null;
+          razorpay_order_id?: string | null;
           razorpay_payment_id?: string | null;
+          amount_paise?: number;
           status?: PaymentStatus;
+          plan?: string | null;
+          runs_purchased?: number | null;
+          base_amount_paise?: number | null;
+          gst_paise?: number | null;
+          total_amount_paise?: number | null;
+          created_at?: string;
         };
+        Relationships: [];
       };
 
       audit_logs: {
@@ -429,16 +459,10 @@ export type Database = {
           created_at?: string;
         };
         Update: Record<string, never>;
+        Relationships: [];
       };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
-    Enums: {
-      user_role: UserRole;
-      reconciliation_status: ReconciliationStatus;
-      match_status: MatchStatus;
-      team_member_role: TeamMemberRole;
-      payment_status: PaymentStatus;
-    };
   };
 };

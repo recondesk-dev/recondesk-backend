@@ -89,7 +89,7 @@ export async function POST(request: Request) {
       total_amount_paise: totalAmountPaise,
       amount_paise: totalAmountPaise,
       status: "created",
-    } as any);
+    });
 
     if (dbError) {
       console.error("Database error while inserting order:", dbError);

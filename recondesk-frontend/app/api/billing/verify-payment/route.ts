@@ -41,19 +41,13 @@ export async function POST(request: Request) {
     }
 
     // Idempotent check
-    const { data: orderData, error: orderError } = await supabase
+    const { data: order, error: orderError } = await supabase
       .from("payments")
       .select("*")
       .eq("razorpay_order_id", razorpay_order_id)
       .single();
 
-    const order = orderData as any;
-
-    if (orderError) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
-    }
-
-    if (!order) {
+    if (orderError || !order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
@@ -65,7 +59,7 @@ export async function POST(request: Request) {
     // Mark order as paid
     const { error: updateOrderError } = await supabase
       .from("payments")
-      .update({ status: "paid", razorpay_payment_id: razorpay_payment_id } as any)
+      .update({ status: "paid", razorpay_payment_id: razorpay_payment_id })
       .eq("id", order.id);
 
     if (updateOrderError) {
@@ -91,7 +85,7 @@ export async function POST(request: Request) {
 
     const { error: updateProfileError } = await supabase
       .from("user_profiles")
-      .update({ runs_balance: newBalance } as any)
+      .update({ runs_balance: newBalance })
       .eq("id", user.id);
 
     if (updateProfileError) {
