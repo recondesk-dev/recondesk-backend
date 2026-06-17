@@ -164,9 +164,12 @@ export default function DashboardShellLayout({
   const [panelOpen, setPanelOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+  const [headerProfileOpen, setHeaderProfileOpen] = useState(false);
+  const headerProfileRef = useRef<HTMLDivElement>(null);
   const [accessToken, setAccessToken] = useState<string | false | null>(null);
   const [currentUser, setCurrentUser] = useState({
     name: "…",
+    email: "",
     role: "…",
     initials: "··",
   });
@@ -184,10 +187,22 @@ export default function DashboardShellLayout({
       if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
         setProfileOpen(false);
       }
+      if (headerProfileRef.current && !headerProfileRef.current.contains(e.target as Node)) {
+        setHeaderProfileOpen(false);
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    if (!headerProfileOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setHeaderProfileOpen(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [headerProfileOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -196,11 +211,11 @@ export default function DashboardShellLayout({
       if (accessToken === null) return;
 
       if (accessToken === false) {
-        setCurrentUser({ name: "Guest", role: "—", initials: "?" });
+        setCurrentUser({ name: "Guest", email: "", role: "—", initials: "?" });
         return;
       }
 
-      setCurrentUser({ name: "…", role: "…", initials: "··" });
+      setCurrentUser({ name: "…", email: "", role: "…", initials: "··" });
 
       try {
         const me = await fetchFreshAuthProfile(accessToken);
@@ -217,6 +232,7 @@ export default function DashboardShellLayout({
         const role = normalizeAuthRole(me.role).toUpperCase();
         setCurrentUser({
           name,
+          email: me.email ?? authUser?.email ?? "",
           role,
           initials: initialsFromDisplayName(name),
         });
@@ -232,6 +248,7 @@ export default function DashboardShellLayout({
         });
         setCurrentUser({
           name,
+          email: authUser?.email ?? "",
           role: "ADMIN",
           initials: initialsFromDisplayName(name),
         });
@@ -451,7 +468,109 @@ export default function DashboardShellLayout({
                 </span>
               )}
             </button>
-            <Avatar initials={currentUser.initials} />
+            <div className="relative" ref={headerProfileRef}>
+              <button
+                type="button"
+                className="flex items-center rounded-full transition-all hover:ring-2 hover:ring-brand/30"
+                onClick={() => setHeaderProfileOpen((o) => !o)}
+                aria-expanded={headerProfileOpen}
+                aria-haspopup="menu"
+                aria-label="Open profile menu"
+              >
+                <Avatar initials={currentUser.initials} />
+              </button>
+              {headerProfileOpen && (
+                <div
+                  className="absolute right-0 top-full mt-2 w-64 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg"
+                  role="menu"
+                >
+                  {/* ── User info header ── */}
+                  <div className="border-b border-gray-100 px-4 py-3">
+                    <p className="truncate text-sm font-medium text-gray-900">
+                      {currentUser.name}
+                    </p>
+                    {currentUser.email && (
+                      <p className="truncate text-xs text-gray-500">
+                        {currentUser.email}
+                      </p>
+                    )}
+                    <span className="mt-1.5 inline-block rounded bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                      {currentUser.role}
+                    </span>
+                  </div>
+
+                  {/* ── Admin-only: Invite team member ── */}
+                  {currentUser.role === "ADMIN" && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                      onClick={() => {
+                        setHeaderProfileOpen(false);
+                        router.push("/settings/team?invite=1");
+                      }}
+                    >
+                      <svg className="h-4 w-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4-4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <line x1="19" y1="8" x2="19" y2="14" />
+                        <line x1="22" y1="11" x2="16" y2="11" />
+                      </svg>
+                      Invite team member
+                    </button>
+                  )}
+
+                  {/* ── Help & Support ── */}
+                  <a
+                    href="mailto:contact@recondesk.in"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                    onClick={() => setHeaderProfileOpen(false)}
+                  >
+                    <svg className="h-4 w-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
+                      <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                    Help &amp; Support
+                  </a>
+
+                  {/* ── Settings ── */}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                    onClick={() => {
+                      setHeaderProfileOpen(false);
+                      router.push("/settings");
+                    }}
+                  >
+                    <svg className="h-4 w-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+                    </svg>
+                    Settings
+                  </button>
+
+                  {/* ── Separator + Sign Out ── */}
+                  <div className="border-t border-gray-100">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-red-500 transition-colors hover:bg-red-50"
+                      onClick={() => void handleSignOut()}
+                    >
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+                        <polyline points="16 17 21 12 16 7" />
+                        <line x1="21" y1="12" x2="9" y2="12" />
+                      </svg>
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
 import { Modal } from "@/components/ui/Modal";
@@ -59,7 +60,7 @@ function TeamTableSkeleton() {
   );
 }
 
-export default function TeamSettingsPage() {
+function TeamSettingsPageContent() {
   const toast = useToast();
   const tokenState = useAccessToken();
   const authToken =
@@ -92,6 +93,15 @@ export default function TeamSettingsPage() {
   const [inviteRole, setInviteRole] = useState<"admin" | "staff">("staff");
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+
+  // Auto-open invite modal when navigated with ?invite=1 (e.g. from header dropdown)
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("invite") === "1" && isAdmin) {
+      setInviteError(null);
+      setInviteOpen(true);
+    }
+  }, [searchParams, isAdmin]);
 
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
 
@@ -444,5 +454,20 @@ export default function TeamSettingsPage() {
         </div>
       </Modal>
     </div>
+  );
+}
+
+export default function TeamSettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-6">
+          <div className="h-8 w-48 animate-pulse rounded bg-[var(--border)]" />
+          <TeamTableSkeleton />
+        </div>
+      }
+    >
+      <TeamSettingsPageContent />
+    </Suspense>
   );
 }
