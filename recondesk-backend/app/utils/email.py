@@ -332,3 +332,97 @@ This invitation expires in 7 days.
 """
     html, plain_body = _base_wrapper("Team invitation", inner, plain)
     return await send_email(to, subj, html, text_content=plain_body)
+
+
+async def send_payment_receipt_email(
+    to: str,
+    full_name: str,
+    plan: str,
+    amount_paise: int,
+    payment_id: str,
+    purchased_at: datetime | None = None,
+) -> bool:
+    """Send payment receipt confirmation email to the user."""
+    name = escape(full_name.strip() or "there")
+    plan_name = plan.capitalize()
+    amount_str = _format_in_rupees_indian(amount_paise)
+    date_str = (purchased_at or datetime.now(timezone.utc)).strftime("%d %b %Y, %I:%M %p UTC")
+
+    subj = f"Payment Receipt — {plan_name} Pack"
+
+    inner = f"""<p style="margin:0 0 16px;">Hi {name},</p>
+<p style="margin:0 0 16px;">Thank you for your purchase! We have successfully received your payment of <strong>{amount_str}</strong> for the <strong>{plan_name}</strong> run credits pack.</p>
+<div style="margin:20px 0;padding:16px;background:#f8f9fa;border-radius:8px;font-size:14px;border:1px solid #e9ecef;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+    <tr>
+      <td style="padding:4px 0;color:#6c757d;">Pack Type:</td>
+      <td style="padding:4px 0;font-weight:600;text-align:right;">{plan_name}</td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;color:#6c757d;">Amount Paid:</td>
+      <td style="padding:4px 0;font-weight:600;text-align:right;">{amount_str}</td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;color:#6c757d;">Payment ID:</td>
+      <td style="padding:4px 0;font-family:monospace;font-size:12px;text-align:right;">{payment_id}</td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;color:#6c757d;">Date & Time:</td>
+      <td style="padding:4px 0;text-align:right;">{date_str}</td>
+    </tr>
+  </table>
+</div>
+<p style="margin:16px 0 0;">The run credits have been added to your balance. You can start using them immediately.</p>
+{_cta_button(DASHBOARD_URL, "Go to Dashboard")}"""
+
+    plain = f"""Hi {full_name.strip() or 'there'},
+
+Thank you for your purchase! We have successfully received your payment of {amount_str} for the {plan_name} run credits pack.
+
+Purchase Details:
+- Pack Type: {plan_name}
+- Amount Paid: {amount_str}
+- Payment ID: {payment_id}
+- Date & Time: {date_str}
+
+The run credits have been added to your balance. You can start using them immediately.
+
+Go to Dashboard: {DASHBOARD_URL}
+"""
+
+    html, plain_body = _base_wrapper("Payment receipt", inner, plain)
+    return await send_email(to, subj, html, text_content=plain_body)
+
+
+async def send_runs_expiring_email(
+    to: str,
+    full_name: str,
+    runs_expiring: int,
+    expires_at: datetime,
+) -> bool:
+    """Send credit expiration warning email to the user."""
+    name = escape(full_name.strip() or "there")
+    date_str = expires_at.strftime("%d %b %Y")
+
+    subj = f"Alert: {runs_expiring} Run Credits Expiring Soon"
+
+    inner = f"""<p style="margin:0 0 16px;">Hi {name},</p>
+<p style="margin:0 0 16px;">This is a friendly reminder that you have <strong>{runs_expiring}</strong> run credit(s) expiring on <strong>{date_str}</strong>.</p>
+<p style="margin:0 0 16px;color:#c62828;font-weight:600;">As per policy, credit batches expire monthly and do not carry over.</p>
+<p style="margin:16px 0 0;">We recommend running your pending reconciliations now to make the most of these credits before they expire.</p>
+{_cta_button(DASHBOARD_URL, "Run Reconciliation Now")}"""
+
+    plain = f"""Hi {full_name.strip() or 'there'},
+
+This is a friendly reminder that you have {runs_expiring} run credit(s) expiring on {date_str}.
+
+As per policy, credit batches expire monthly and do not carry over.
+
+We recommend running your pending reconciliations now to make the most of these credits before they expire.
+
+Run Reconciliation Now: {DASHBOARD_URL}
+"""
+
+    html, plain_body = _base_wrapper("Credits expiring soon", inner, plain)
+    return await send_email(to, subj, html, text_content=plain_body)
+

@@ -922,3 +922,22 @@ export const importWizardApi = {
       token,
     }),
 };
+
+export interface NotificationPreferences {
+  run_completed: boolean;
+  runs_expiring_soon: boolean;
+  payment_receipts: boolean;
+}
+
+export const notificationsApi = {
+  getPreferences: (token: string) =>
+    apiFetch<NotificationPreferences>("/api/v1/notifications/preferences", { token }),
+
+  updatePreferences: (token: string, preferences: NotificationPreferences) =>
+    apiFetch<NotificationPreferences>("/api/v1/notifications/preferences", {
+      method: "PUT",
+      body: JSON.stringify(preferences),
+      token,
+    }),
+};
+

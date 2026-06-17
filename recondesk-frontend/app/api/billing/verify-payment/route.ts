@@ -171,6 +171,31 @@ export async function POST(request: Request) {
       `Balance: ${currentBalance} → ${actualNewBalance}. Order: ${order.id}`
     );
 
+    // Trigger payment receipt email in the background via FastAPI backend
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (token) {
+        const backendUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+        fetch(`${backendUrl}/api/payments/send-receipt`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+          body: JSON.stringify({ payment_id: order.id }),
+        })
+          .then((res) => {
+            if (!res.ok) console.error(`[verify-payment] send-receipt API returned status ${res.status}`);
+          })
+          .catch((err) => console.error("[verify-payment] Failed to call send-receipt API:", err));
+      } else {
+        console.warn("[verify-payment] No active session token found; skipped triggering receipt email");
+      }
+    } catch (emailErr) {
+      console.error("[verify-payment] Failed to fetch session/trigger receipt email:", emailErr);
+    }
+
     return NextResponse.json({
       success: true,
       message: "Payment verified and runs credited",
