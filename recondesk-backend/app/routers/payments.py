@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from supabase import Client
 
 from app.auth import get_current_active_user
+from app.utils.redis_cache import cache_get, cache_set, invalidate_user_dashboard
 from app.config import settings
 from app.database import get_user_profile, supabase_client
 from app.services.billing_gate import (
@@ -271,6 +272,9 @@ async def payments_verify(
         ip_address=(request.client.host if request.client else None),
     )
 
+    invalidate_user_dashboard(str(current_user.get("id")))
+    if firm_owner != str(current_user.get("id")):
+        invalidate_user_dashboard(firm_owner)
     return {
         "success": True,
         "runs_added": cfg["runs"],
@@ -459,6 +463,12 @@ async def billing_status(
     current_user: dict = Depends(get_current_active_user),
     db: Client = Depends(supabase_client),
 ):
+    user_id = str(current_user.get("id", "")).strip()
+    cache_key = f"cache:billing_status:{user_id}"
+    cached_val = cache_get(cache_key)
+    if cached_val is not None:
+        return cached_val
+
     firm_owner = resolve_firm_owner_for_billing(db, current_user)
     synced = await sync_billing_credits(firm_owner)
     prof = get_user_profile(firm_owner) or {}
@@ -514,7 +524,7 @@ async def billing_status(
             row.get("total_amount_paise") if row.get("total_amount_paise") is not None else row.get("amount_paise") or 0
         )
 
-    return {
+    out = {
         "plan": plan_name,
         "free_runs_remaining": free_runs,
         "runs_balance": runs_balance,
@@ -523,6 +533,8 @@ async def billing_status(
         "total_spent_paise": total_spent,
         "suggested_upgrade": free_runs == 0 and runs_balance == 0,
     }
+    cache_set(cache_key, out, ttl_seconds=30)
+    return out
 
 
 class SendReceiptBody(BaseModel):

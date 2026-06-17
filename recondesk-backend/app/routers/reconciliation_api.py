@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from uuid import UUID
 
 from app.auth import get_current_active_user, get_user_role
+from app.utils.redis_cache import cache_get, cache_set, invalidate_user_dashboard
 from app.constants import RunStatus
 from app.database import get_supabase, get_user_profile
 from app.services.decision_templates import generate_decision
@@ -2775,12 +2776,19 @@ async def list_reconcile_runs(
     client_gstin_id: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_active_user),
 ):
+    user_id = str(current_user.get("id", "")).strip()
+    cache_key = f"cache:runs:{user_id}:{status or ''}:{limit}:{client_gstin_id or ''}"
+    cached_val = cache_get(cache_key)
+    if cached_val is not None:
+        return cached_val
+
     sb = get_supabase()
     accessible = list_accessible_client_gstin_ids(sb, current_user)
     if not accessible:
         return []
 
     per_chunk_cap = max(limit, limit * 3 // max(1, (len(accessible) + _CHUNK_CLIENT_IDS - 1) // _CHUNK_CLIENT_IDS))
+    per_chunk_cap = min(1000, per_chunk_cap)
 
     if client_gstin_id:
         cid = _parse_uuid(client_gstin_id, "client_gstin_id")
@@ -2824,11 +2832,21 @@ async def list_reconcile_runs(
         }
     )
     name_by_uid: dict[str, str] = {}
-    for u in finalized_ids:
-        p = get_user_profile(u) or {}
-        fn = (p.get("full_name") or "").strip()
-        if fn:
-            name_by_uid[u] = fn
+    if finalized_ids:
+        try:
+            res_profiles = (
+                sb.table("user_profiles")
+                .select("id, full_name")
+                .in_("id", finalized_ids)
+                .execute()
+            )
+            for row in res_profiles.data or []:
+                uid = str(row.get("id") or "").strip()
+                fn = (row.get("full_name") or "").strip()
+                if uid and fn:
+                    name_by_uid[uid] = fn
+        except Exception:
+            _log.exception("Failed to batch query user profiles in list_reconcile_runs")
 
     out: list[dict[str, Any]] = []
     for r in rows:
@@ -2841,6 +2859,7 @@ async def list_reconcile_runs(
         row_out["client_gstin"] = tn.get("gstin")
         row_out["finalized_by_name"] = finalized_name
         out.append(row_out)
+    cache_set(cache_key, out, ttl_seconds=30)
     return out
 
 
@@ -2924,6 +2943,7 @@ async def retry_failed_reconcile_run(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Reconciliation task queue is unavailable. Try again later.",
         ) from exc
+    invalidate_user_dashboard(current_user.get("id"))
     return {"run_id": rid, "status": "MATCHING"}
 
 
@@ -2987,6 +3007,7 @@ async def delete_reconcile_run(
         {},
         ip_address=(request.client.host if request.client else None),
     )
+    invalidate_user_dashboard(uid)
     return {"message": "Run deleted successfully"}
 
 
@@ -3735,13 +3756,15 @@ async def reconcile_finalize_run_api(
 ):
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    return await _reconcile_finalize_core(
+    res = await _reconcile_finalize_core(
         request,
         sb,
         rid=rid,
         current_user=current_user,
         checklist_snapshot=body.checklist_snapshot,
     )
+    invalidate_user_dashboard(current_user.get("id"))
+    return res
 
 
 def _csv_missed_bytes(rows: list[dict[str, Any]], rid: str) -> tuple[bytes, str]:
