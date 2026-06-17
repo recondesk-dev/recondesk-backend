@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Space_Mono } from "next/font/google";
 
+import { ClarityScript } from "@/components/ClarityScript";
 import { KeepAlive } from "@/components/KeepAlive";
 import { RootProviders } from "@/components/providers/RootProviders";
 
@@ -35,6 +36,7 @@ export default function RootLayout({
       <body className={`${jakarta.className} min-w-0 font-sans antialiased`}>
         <RootProviders>{children}</RootProviders>
         <KeepAlive />
+        <ClarityScript />
       </body>
     </html>
   );
