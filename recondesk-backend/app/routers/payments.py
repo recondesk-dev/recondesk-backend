@@ -239,6 +239,28 @@ async def payments_verify(
     now = datetime.now(timezone.utc).isoformat()
     db.table("reconciliation_run").update({"paid_at": now}).eq("id", run_id).execute()
 
+    # Send payment receipt email per preference
+    try:
+        from app.utils.notification_prefs import should_send_notification
+        if should_send_notification(firm_owner, "payment_receipts"):
+            from app.utils.email import send_payment_receipt_email
+            owner_profile = get_user_profile(firm_owner) or {}
+            owner_email = owner_profile.get("email")
+            owner_name = owner_profile.get("full_name") or "there"
+            if owner_email:
+                import asyncio
+                asyncio.create_task(
+                    send_payment_receipt_email(
+                        owner_email,
+                        owner_name,
+                        plan,
+                        cfg["total_paise"],
+                        payment_uuid,
+                    )
+                )
+    except Exception as exc:
+        _log.warning("Failed to trigger payment receipt email in backend: %s", exc)
+
     prof2 = get_user_profile(firm_owner) or {}
     await log_action(
         str(current_user.get("id")),
@@ -501,3 +523,55 @@ async def billing_status(
         "total_spent_paise": total_spent,
         "suggested_upgrade": free_runs == 0 and runs_balance == 0,
     }
+
+
+class SendReceiptBody(BaseModel):
+    payment_id: str
+
+
+@payments_router.post("/send-receipt")
+async def payments_send_receipt(
+    payload: SendReceiptBody,
+    current_user: dict = Depends(get_current_active_user),
+    db: Client = Depends(supabase_client),
+):
+    """Trigger a payment receipt email for a specific payment ID, if preferences allow."""
+    payment_id = _parse_uuid(payload.payment_id, "payment_id")
+    try:
+        res = db.table("payments").select("*").eq("id", payment_id).limit(1).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Payment not found")
+
+        payment = res.data[0]
+        firm_owner = payment.get("firm_owner_id")
+
+        if firm_owner and not user_can_access_firm(db, current_user, firm_owner):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+        # Check notification preferences
+        from app.utils.notification_prefs import should_send_notification
+        if firm_owner and should_send_notification(firm_owner, "payment_receipts"):
+            from app.utils.email import send_payment_receipt_email
+            owner_profile = get_user_profile(firm_owner) or {}
+            owner_email = owner_profile.get("email")
+            owner_name = owner_profile.get("full_name") or "there"
+            if owner_email:
+                import asyncio
+                asyncio.create_task(
+                    send_payment_receipt_email(
+                        owner_email,
+                        owner_name,
+                        payment.get("plan", "starter"),
+                        int(payment.get("total_amount_paise") or payment.get("amount_paise") or 0),
+                        str(payment.get("id")),
+                    )
+                )
+                return {"success": True, "message": "Receipt email triggered"}
+
+        return {"success": True, "message": "Receipt email skipped per preference"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _log.exception("Failed to send receipt email for payment %s", payment_id)
+        raise HTTPException(status_code=500, detail=str(exc))
+

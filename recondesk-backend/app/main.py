@@ -24,6 +24,7 @@ from app.routers import (
     import_router,
     intelligence,
     notes,
+    notifications,
     reconciliation,
     reconciliation_api,
     reconciliation_import_wizard,
@@ -218,6 +219,7 @@ app.include_router(upload.public_router, prefix="/upload", tags=["Upload"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
 app.include_router(rules_router, prefix="/api/rules", tags=["rules"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
+app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 app.include_router(
     payments_routes.payments_router,
     prefix="/api/payments",

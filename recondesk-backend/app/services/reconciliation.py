@@ -731,6 +731,13 @@ def notify_reconciliation_run_completed_email_maybe(
     if not to_clean:
         return
 
+    # Check notification preferences
+    if actor_user_id:
+        from app.utils.notification_prefs import should_send_notification
+        if not should_send_notification(actor_user_id, "run_completed"):
+            logger.info("Skipping run completed email for user %s per preferences", actor_user_id)
+            return
+
     try:
         already = (
             client.table("audit_logs")
