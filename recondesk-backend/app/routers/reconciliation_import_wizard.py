@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.auth import get_current_user_id
+from app.utils.redis_cache import invalidate_user_dashboard
 from app.config import settings
 from app.database import get_supabase, get_user_profile
 from app.routers.import_router import (
@@ -137,6 +138,7 @@ async def create_run(
         raise
     data = res.data[0]
     ws.audit(sb, data["id"], user_id, "run_created", {"period": period_iso})
+    invalidate_user_dashboard(user_id)
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=data)
 
 
@@ -564,6 +566,7 @@ async def start_reconciliation(
         entity_label,
         {"gstr2b_record_count": gstr_n, "pr_record_count": pr_n},
     )
+    invalidate_user_dashboard(user_id)
     return ws.fetch_run(sb, str(run_id))
 
 

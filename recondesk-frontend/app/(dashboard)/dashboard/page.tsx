@@ -5,10 +5,24 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR, { mutate } from "swr";
 
-import { FilterBar } from "@/components/dashboard/FilterBar";
-import { ClientTable, RetryConfirmModal } from "@/components/dashboard/ClientTable";
+import dynamic from "next/dynamic";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { StatusBadge } from "@/components/dashboard/StatusBadge";
+
+const FilterBar = dynamic(
+  () => import("@/components/dashboard/FilterBar").then((mod) => mod.FilterBar),
+  { ssr: false, loading: () => <div className="h-[72px] animate-pulse rounded-2xl bg-gray-100" /> }
+);
+
+const ClientTable = dynamic(
+  () => import("@/components/dashboard/ClientTable").then((mod) => mod.ClientTable),
+  { ssr: false }
+);
+
+const RetryConfirmModal = dynamic(
+  () => import("@/components/dashboard/ClientTable").then((mod) => mod.RetryConfirmModal),
+  { ssr: false }
+);
 import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
@@ -417,7 +431,13 @@ export default function PortfolioDashboardPage() {
         <StatCard
           label="Needs Attention"
           value={
-            portfolioLoading ? "—" : stats ? String(stats.pendingThisMonth) : "—"
+            portfolioLoading ? (
+              <span className="inline-block h-8 w-16 animate-pulse rounded bg-gray-100" />
+            ) : stats ? (
+              String(stats.pendingThisMonth)
+            ) : (
+              "—"
+            )
           }
           icon={
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -433,7 +453,13 @@ export default function PortfolioDashboardPage() {
         <StatCard
           label="Total ITC Protected"
           value={
-            portfolioLoading ? "—" : stats ? formatInrCompact(stats.totalItcProtected) : "—"
+            portfolioLoading ? (
+              <span className="inline-block h-8 w-28 animate-pulse rounded bg-gray-100" />
+            ) : stats ? (
+              formatInrCompact(stats.totalItcProtected)
+            ) : (
+              "—"
+            )
           }
           icon={
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -463,7 +489,30 @@ export default function PortfolioDashboardPage() {
 
       {!isEmptyPortfolio && (
         <>
-          {startHereRow && (
+          {portfolioLoading ? (
+            <div>
+              <div className="mb-3 flex items-center gap-2 animate-pulse">
+                <span className="inline-block h-2 w-2 rounded-full bg-gray-200" />
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-300">
+                  Start here
+                </p>
+              </div>
+              <div className="flex flex-col gap-4 rounded-2xl bg-white p-6 shadow-md sm:flex-row sm:items-center sm:justify-between animate-pulse">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-5 w-48 bg-gray-100 rounded" />
+                  <div className="h-4 w-36 bg-gray-100 rounded" />
+                </div>
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <div className="h-4 w-28 bg-gray-100 rounded" />
+                  <div className="h-4 w-4 bg-gray-100 rounded-full" />
+                  <div className="h-6 w-20 bg-gray-100 rounded-full" />
+                </div>
+                <div className="flex shrink-0 justify-end sm:pl-4">
+                  <div className="h-10 w-28 bg-gray-100 rounded-full" />
+                </div>
+              </div>
+            </div>
+          ) : startHereRow ? (
             <div>
               <div className="mb-3 flex items-center gap-2">
                 <span
@@ -554,7 +603,7 @@ export default function PortfolioDashboardPage() {
                 </div>
               </div>
             </div>
-          )}
+          ) : null}
 
           {directoryLoading ? (
             <div className="h-[72px] animate-pulse rounded-2xl bg-gray-100" aria-hidden />

@@ -23,7 +23,9 @@ _log = logging.getLogger(__name__)
 _JWKS_LOCK = threading.Lock()
 _JWKS_CACHE: Optional[dict[str, Any]] = None
 _JWKS_CACHE_MONO: float = 0.0
+_JWKS_LAST_FETCH_MONO: float = 0.0
 _JWKS_TTL_SEC = 3600.0
+_JWKS_COOLDOWN_SEC = 10.0
 
 
 def _jwks_url() -> str:
@@ -47,19 +49,24 @@ def _fetch_jwks_from_network() -> dict[str, Any]:
 
 def _get_jwks_cached(*, force_refresh: bool = False) -> dict[str, Any]:
     """Return Supabase JWKS; refresh after TTL or when ``force_refresh`` is True."""
-    global _JWKS_CACHE, _JWKS_CACHE_MONO
+    global _JWKS_CACHE, _JWKS_CACHE_MONO, _JWKS_LAST_FETCH_MONO
     now = time.monotonic()
     with _JWKS_LOCK:
-        if (
-            not force_refresh
-            and _JWKS_CACHE is not None
-            and (now - _JWKS_CACHE_MONO) < _JWKS_TTL_SEC
-        ):
+        can_use_cache = (
+            _JWKS_CACHE is not None
+            and (
+                (not force_refresh and (now - _JWKS_CACHE_MONO) < _JWKS_TTL_SEC)
+                or (force_refresh and (now - _JWKS_LAST_FETCH_MONO) < _JWKS_COOLDOWN_SEC)
+            )
+        )
+        if can_use_cache:
+            assert _JWKS_CACHE is not None  # type guard
             return _JWKS_CACHE
     data = _fetch_jwks_from_network()
     with _JWKS_LOCK:
         _JWKS_CACHE = data
         _JWKS_CACHE_MONO = time.monotonic()
+        _JWKS_LAST_FETCH_MONO = _JWKS_CACHE_MONO
         return _JWKS_CACHE
 
 
