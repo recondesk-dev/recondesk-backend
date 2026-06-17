@@ -243,7 +243,7 @@ export default function BillingPage() {
                     const soonDate =
                       exp != null &&
                       !Number.isNaN(exp.getTime()) &&
-                      exp.getTime() - now < 30 * 24 * 3600 * 1000 &&
+                      exp.getTime() - now < 7 * 24 * 3600 * 1000 &&
                       exp.getTime() > now;
                     const st = (b.status || "").toLowerCase();
                     const expired = st === "expired";
@@ -516,13 +516,6 @@ function BillingBanner({
   const bal = status.runs_balance;
   const runsWord = (n: number) => (n === 1 ? "run" : "runs");
 
-  const expiringRuns = (status.expiring_soon ?? []).reduce(
-    (a, b) => a + (b.runs_remaining ?? 0),
-    0
-  );
-  const exp0 = status.expiring_soon?.[0]?.expires_at;
-  const expiringDate = exp0 ? fmtDateShort(exp0) : null;
-
   if (free > 0) {
     return (
       <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
@@ -537,11 +530,22 @@ function BillingBanner({
         <p>
           You have {bal} {runsWord(bal)} remaining.
         </p>
-        {expiringRuns > 0 && expiringDate && (
-          <p className="mt-2 font-medium text-orange-600">
-            {expiringRuns} {runsWord(expiringRuns)} expiring on {expiringDate} — use them before they
-            expire.
-          </p>
+        {status.expiring_soon && status.expiring_soon.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {status.expiring_soon.map((b, idx) => {
+              const rem = b.runs_remaining ?? 0;
+              if (rem <= 0) return null;
+              const planName = b.plan ? b.plan.charAt(0).toUpperCase() + b.plan.slice(1) : "Starter";
+              const dateStr = b.expires_at ? fmtDateShort(b.expires_at) : "";
+              const verb = rem === 1 ? "expires" : "expire";
+              const pronoun = rem === 1 ? "it" : "them";
+              return (
+                <p key={idx} className="font-medium text-orange-600">
+                  Note: {rem} of your {bal} {runsWord(bal)} (from the {planName} pack) {verb} on {dateStr} — use {pronoun} before then.
+                </p>
+              );
+            })}
+          </div>
         )}
       </div>
     );
