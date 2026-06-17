@@ -35,5 +35,5 @@ python3 -c "from app.rules import REGISTRY; print('Total rules:', REGISTRY.count
 ## General Backend Rules
 - Always run: python3 -c "from app.main import app; print('OK')" before Railway deploy
 - Auth imports: use supabase_auth not gotrue
-- Backend path: /Users/omkarkadam/Documents/ReconDesk/ recondesk-backend
+- Backend path: /Users/omkarkadam/Documents/ReconDesk/recondesk-backend
 - Celery start: celery -A app.celery_app worker --loglevel=info
