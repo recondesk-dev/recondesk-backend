@@ -240,14 +240,18 @@ export default function BillingPage() {
                 {status.credit_batches.map((b, idx) => {
                     const exp = b.expires_at ? new Date(b.expires_at) : null;
                     const now = Date.now();
-                    const soonDate =
+                    // Single source of truth: client-side 7-day window computed from expires_at.
+                    // Do NOT use b.status ("expiring soon" string) — it may be stale from a
+                    // cached API response made before the 30→7 day threshold fix was deployed.
+                    const useSoon =
                       exp != null &&
                       !Number.isNaN(exp.getTime()) &&
                       exp.getTime() - now < 7 * 24 * 3600 * 1000 &&
                       exp.getTime() > now;
-                    const st = (b.status || "").toLowerCase();
-                    const expired = st === "expired";
-                    const soon = st === "expiring soon";
+                    const expired =
+                      exp != null &&
+                      !Number.isNaN(exp.getTime()) &&
+                      exp.getTime() <= now;
                     return (
                       <tr key={`${b.purchased_at}-${idx}`} className="border-b border-[var(--border)]">
                         <td className="px-4 py-3 capitalize">{b.plan}</td>
@@ -257,7 +261,7 @@ export default function BillingPage() {
                         <td className="px-4 py-3 tabular-nums">{b.runs_remaining}</td>
                         <td
                           className={`px-4 py-3 tabular-nums ${
-                            soon || soonDate
+                            useSoon
                               ? "font-medium text-orange-600"
                               : expired
                                 ? "text-gray-400"
@@ -271,12 +275,12 @@ export default function BillingPage() {
                             className={
                               expired
                                 ? "rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600"
-                                : soon || soonDate
+                                : useSoon
                                   ? "rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800"
                                   : "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800"
                             }
                           >
-                            {expired ? "Expired" : soon || soonDate ? "Expiring soon" : "Active"}
+                            {expired ? "Expired" : useSoon ? "Use soon" : "Active"}
                           </span>
                         </td>
                       </tr>

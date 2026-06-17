@@ -472,7 +472,7 @@ async def billing_status(
         elif exp <= now:
             batch["status"] = "Expired"
         elif exp <= soon and rem > 0:
-            batch["status"] = "Expiring Soon"
+            batch["status"] = "Use soon"
             expiring_soon.append(batch.copy())
         else:
             batch["status"] = "Active"
