@@ -220,35 +220,41 @@ export default function DashboardShellLayout({
       try {
         const me = await fetchFreshAuthProfile(accessToken);
         if (cancelled) return;
-        const {
-          data: { user: authUser },
-        } = await supabase.auth.getUser();
-        const metadata = authUser?.user_metadata as { full_name?: string } | undefined;
         const name = resolveDisplayName({
           profileFullName: me.full_name,
-          metadataFullName: metadata?.full_name,
-          email: me.email ?? authUser?.email,
+          email: me.email,
         });
         const role = normalizeAuthRole(me.role).toUpperCase();
         setCurrentUser({
           name,
-          email: me.email ?? authUser?.email ?? "",
+          email: me.email ?? "",
           role,
           initials: initialsFromDisplayName(name),
         });
-      } catch {
+      } catch (err) {
         if (cancelled) return;
-        const {
-          data: { user: authUser },
-        } = await supabase.auth.getUser();
-        const metadata = authUser?.user_metadata as { full_name?: string } | undefined;
+        console.warn("[DashboardShellLayout] fetchFreshAuthProfile failed, using fallback:", err);
+        
+        let authUserEmail = "";
+        let metadataName = "";
+        try {
+          const {
+            data: { user: authUser },
+          } = await supabase.auth.getUser();
+          authUserEmail = authUser?.email ?? "";
+          metadataName = (authUser?.user_metadata as { full_name?: string } | undefined)?.full_name ?? "";
+        } catch (authErr) {
+          console.warn("[DashboardShellLayout] fallback supabase.auth.getUser failed:", authErr);
+        }
+
         const name = resolveDisplayName({
-          metadataFullName: metadata?.full_name,
-          email: authUser?.email,
-        });
+          metadataFullName: metadataName,
+          email: authUserEmail,
+        }) || "Admin";
+
         setCurrentUser({
           name,
-          email: authUser?.email ?? "",
+          email: authUserEmail || "admin@recondesk.in",
           role: "ADMIN",
           initials: initialsFromDisplayName(name),
         });
