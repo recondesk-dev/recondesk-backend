@@ -455,8 +455,8 @@ def normalize_invoice_number(raw: str) -> NormalizationResult:
     if not isinstance(raw, str):
         raise NormalizationError("invoice_number", raw, "invalid_format")
 
-    # 1. Strip spaces and whitespace.
-    stripped = raw.strip().replace(" ", "")
+    # 1. Strip non-alphanumeric.
+    stripped = re.sub(r"[^A-Za-z0-9]", "", raw)
     did_strip_symbols = stripped != raw
 
     # 2. Uppercase.

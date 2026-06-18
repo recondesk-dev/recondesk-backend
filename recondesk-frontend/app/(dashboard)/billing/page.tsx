@@ -665,16 +665,7 @@ function PlanCard(props: {
         </span>
       )}
       <h3 className="text-lg font-semibold">{title}</h3>
-      <p className="mt-2 text-2xl font-bold tracking-tight">
-        {price.includes(" + GST") ? (
-          <>
-            {price.replace(" + GST", "")}
-            <span className="ml-1.5 text-sm font-normal text-gray-400"> + GST</span>
-          </>
-        ) : (
-          price
-        )}
-      </p>
+      <p className="mt-2 text-2xl font-bold tracking-tight">{price}</p>
       <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
         {features.map((f) => (
           <li key={f}>• {f}</li>

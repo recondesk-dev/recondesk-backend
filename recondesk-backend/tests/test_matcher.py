@@ -18,7 +18,6 @@ GSTIN_KA = "29ABCDE1234F1Z5"
 GSTIN_TN = "33AABCG1254E1Z3"
 
 
-@pytest.mark.skip
 def test_normalize_invoice_examples():
     assert normalize_invoice("INV/2024/001") == "INV2024001"
     assert normalize_invoice("") == ""
@@ -29,7 +28,6 @@ def test_levenshtein_empty():
     assert levenshtein("", "ABC") == 3
 
 
-@pytest.mark.skip
 def test_invoice_similarity_examples():
     assert invoice_similarity("INV001", "INV0001") == pytest.approx(1.0, abs=0.001)
     assert invoice_similarity("INV/2024/001", "INV2024001") == pytest.approx(1.0, abs=0.001)
@@ -96,7 +94,6 @@ def test_l1_hash_index_fast_path_skips_full_loop():
     assert r.matched is True
 
 
-@pytest.mark.skip
 def test_l1_match_differing_only_by_invoice_punctuation():
     g = _base_rec(invoice_number="INV2025001")
     p = _base_rec(
