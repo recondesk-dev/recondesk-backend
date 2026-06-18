@@ -40,10 +40,10 @@ _RE_TRAILING_DIGITS = re.compile(r"\d+$")
 
 
 def normalize_invoice(inv: str | None) -> str:
-    """Uppercase; alphanumerics only; leading zeros removed from the trailing ``\\d+``."""
+    """Uppercase; leading zeros removed from the trailing ``\\d+``. Preserves special characters."""
     if inv is None or inv == "":
         return ""
-    s = _RE_NON_ALNUM.sub("", str(inv)).upper()
+    s = str(inv).strip().replace(" ", "").upper()
     if not s:
         return ""
     m = _RE_TRAILING_DIGITS.search(s)
@@ -54,21 +54,21 @@ def normalize_invoice(inv: str | None) -> str:
 
 
 def normalize_invoice_number(value: str | None) -> str:
-    """Shared invoice normalization: uppercase, alphanumerics only.
+    """Shared invoice normalization: uppercase, strip spaces. Preserves special characters.
 
     Unlike :func:`normalize_invoice`, this preserves the full token (leading zeros
     and embedded year segments are kept). Used for cross-side identity grouping
     and invoice-format-variant detection.
 
     Examples:
-        ``DS-2026-00078`` -> ``DS202600078``
-        ``DS/26/78``      -> ``DS2678``
+        ``DS-2026-00078`` -> ``DS-2026-00078``
+        ``DS/26/78``      -> ``DS/26/78``
         ``INV 001``       -> ``INV001``
-        ``inv_001``       -> ``INV001``
+        ``inv_001``       -> ``INV_001``
     """
     if value is None:
         return ""
-    return _RE_NON_ALNUM.sub("", str(value)).upper().strip()
+    return str(value).strip().replace(" ", "").upper()
 
 
 def _pan_of(gstin: str | None) -> str:
@@ -134,6 +134,9 @@ def levenshtein(s1: str, s2: str) -> int:
 def invoice_similarity(inv1: str, inv2: str) -> float:
     norm1 = normalize_invoice(inv1)
     norm2 = normalize_invoice(inv2)
+    # Strip special chars inside fuzzy match
+    norm1 = _RE_NON_ALNUM.sub("", norm1)
+    norm2 = _RE_NON_ALNUM.sub("", norm2)
     if norm1 == "" or norm2 == "":
         return 0.0
     if norm1 == norm2:
@@ -148,6 +151,8 @@ def invoice_similarity(inv1: str, inv2: str) -> float:
 def explain_invoice_difference(inv1: str, inv2: str) -> str:
     n1 = normalize_invoice(inv1)
     n2 = normalize_invoice(inv2)
+    n1 = _RE_NON_ALNUM.sub("", n1)
+    n2 = _RE_NON_ALNUM.sub("", n2)
     if n1 == n2:
         return ""
     p1 = _RE_LEADING_ALPHA.match(n1)
