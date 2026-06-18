@@ -1,4 +1,3 @@
-import pytest
 """Tests for DB row → matcher row mapping (GSTR-2B vs purchase register units)."""
 
 from app.services.reconciliation_record_adapter import (
@@ -7,7 +6,6 @@ from app.services.reconciliation_record_adapter import (
 )
 
 
-@pytest.mark.skip
 def test_pr_row_preserves_parser_paise_and_normalizes_invoice():
     row = {
         "id": 1,
@@ -28,7 +26,6 @@ def test_pr_row_preserves_parser_paise_and_normalizes_invoice():
     assert m["total_tax_paise"] == 1_800_000
 
 
-@pytest.mark.skip
 def test_gstr_row_normalizes_invoice_to_match_matcher():
     row = {
         "id": 2,

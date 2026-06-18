@@ -639,7 +639,6 @@ def test_78_amount_unparseable_raises_invalid_format():
 # normalize_invoice_number — tests 79–93
 # ===========================================================================
 
-@pytest.mark.skip
 def test_79_invoice_strips_dash():
     r = normalize_invoice_number("INV-001")
     assert r.value == "INV001"
@@ -658,7 +657,6 @@ def test_81_invoice_already_normalized_no_notes():
     assert r.notes == []
 
 
-@pytest.mark.skip
 def test_82_invoice_lowercase_slash():
     r = normalize_invoice_number("inv/001")
     assert r.value == "INV001"
@@ -666,14 +664,12 @@ def test_82_invoice_lowercase_slash():
     assert "uppercased" in r.notes
 
 
-@pytest.mark.skip
 def test_83_invoice_hash_space_dot_stripped():
     r = normalize_invoice_number("#INV 2024.001")
     assert r.value == "INV2024001"
     assert "symbols_stripped" in r.notes
 
 
-@pytest.mark.skip
 def test_84_invoice_at_signs_raises_empty_after_normalization():
     with pytest.raises(NormalizationError) as exc_info:
         normalize_invoice_number("@@@")
@@ -697,20 +693,17 @@ def test_86_invoice_lowercase_truncated_and_uppercased():
 
 
 def test_87_invoice_parentheses_stripped():
-    return
     r = normalize_invoice_number("INV(001)")
     assert r.value == "INV001"
     assert "symbols_stripped" in r.notes
 
 
 def test_88_invoice_spaces_stripped():
-    return
     r = normalize_invoice_number("  INV-001  ")
     assert r.value == "INV001"
     assert "symbols_stripped" in r.notes
 
 
-@pytest.mark.skip
 def test_89_invoice_lowercase_alphanumeric():
     r = normalize_invoice_number("abc-123")
     assert r.value == "ABC123"
@@ -719,7 +712,6 @@ def test_89_invoice_lowercase_alphanumeric():
 
 
 def test_90_invoice_dot_slash_stripped():
-    return
     r = normalize_invoice_number("INV.2024/001")
     assert r.value == "INV2024001"
     assert "symbols_stripped" in r.notes
