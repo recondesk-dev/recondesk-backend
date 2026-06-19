@@ -753,6 +753,9 @@ def execute_reconciliation(run_id: str) -> None:
         # Runs-list "ITC at risk" = missed ITC (GSTR-2B invoices with no PR match).
         itc_at_risk_total = itc_missed
 
+        # Build lookup for matched PR ids to enrich GSTR rows with PR-level ITC eligibility
+        matched_gstr_to_pr = {str(m["gstr_id"]): str(m["pr_id"]) for m in state.matched}
+
         gstr_invoices_for_blocked: list[dict[str, Any]] = []
         for ggr in gstr_matcher:
             gid = str(ggr.get("id", ""))
@@ -763,6 +766,15 @@ def execute_reconciliation(run_id: str) -> None:
                 merged["invoice_number"] = ggr.get("invoice_number_normalized")
             if ggr.get("supplier_gstin") is not None:
                 merged["supplier_gstin"] = ggr.get("supplier_gstin")
+            
+            # Merge PR's itc_eligibility if matched
+            matched_pr_id = matched_gstr_to_pr.get(gid)
+            if matched_pr_id:
+                pr_raw = pr_raw_by_id.get(matched_pr_id) or {}
+                if isinstance(pr_raw, dict):
+                    if pr_raw.get("itc_eligibility") is not None:
+                        merged["itc_eligibility"] = pr_raw.get("itc_eligibility")
+                    
             gstr_invoices_for_blocked.append(merged)
         s175 = check_blocked_credits(gstr_invoices_for_blocked)
         amount_diff_upsert_rows: list[dict[str, Any]] = []

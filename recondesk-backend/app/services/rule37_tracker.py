@@ -161,6 +161,13 @@ def check_rule_37_compliance(
             total_tax_paise = igst + cgst + sgst
         else:
             total_tax_paise = int(pr_rec.get("total_tax_paise") or 0)
+
+        itc_eligibility = str(pr_rec.get("itc_eligibility") or "").strip().lower()
+        if itc_eligibility in ("no", "false", "ineligible", "n", "f", "0", "not eligible"):
+            eligible_itc_paise = 0
+        else:
+            eligible_itc_paise = total_tax_paise
+
         if "taxable_amount_paise" in pr_rec:
             total_invoice_value_paise = int(pr_rec["taxable_amount_paise"] or 0)
         else:
@@ -178,7 +185,7 @@ def check_rule_37_compliance(
             unpaid_paise / total_invoice_value_paise if total_invoice_value_paise > 0 else 0.0
         )
 
-        base_itc_at_risk = round(total_tax_paise * unpaid_ratio)
+        base_itc_at_risk = round(eligible_itc_paise * unpaid_ratio)
 
         is_fully_paid = unpaid_paise == 0
         has_partial_payment = total_paid_paise > 0 and unpaid_paise > 0
@@ -209,7 +216,7 @@ def check_rule_37_compliance(
                         action = (
                             "ITC reversal required. Payment made after 180-day limit."
                         )
-                        itc_at_risk_paise = total_tax_paise
+                        itc_at_risk_paise = 0
                     else:
                         status = OK
                         urgency = LOW
