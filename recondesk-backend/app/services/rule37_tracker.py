@@ -152,7 +152,13 @@ def check_rule_37_compliance(
 
         days_remaining = (deadline - today).days
 
-        total_tax_paise = pr_rec.get("total_tax_paise", 0)
+        if "igst_paise" in pr_rec or "cgst_paise" in pr_rec or "sgst_paise" in pr_rec:
+            igst = int(pr_rec.get("igst_paise") or 0)
+            cgst = int(pr_rec.get("cgst_paise") or 0)
+            sgst = int(pr_rec.get("sgst_paise") or 0)
+            total_tax_paise = igst + cgst + sgst
+        else:
+            total_tax_paise = int(pr_rec.get("total_tax_paise") or 0)
         if "taxable_amount_paise" in pr_rec:
             total_invoice_value_paise = int(pr_rec["taxable_amount_paise"] or 0)
         else:
