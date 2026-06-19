@@ -1377,7 +1377,7 @@ export default function ReconcileResultsPage() {
   );
   const { data: rule37SummaryData } = useSWR(
     rule37SummaryKey,
-    ([url, token]) => apiFetch<Rule37SummaryResponse>(url, { token }),
+    ([url, token]) => apiFetch<Rule37SummaryResponse>(url, { token: token ?? undefined }),
     { revalidateOnFocus: false }
   );
 
