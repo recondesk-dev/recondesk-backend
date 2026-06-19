@@ -113,6 +113,7 @@ def check_blocked_credits(invoices: list[dict]) -> list[dict]:
                     "section": "17(5)",
                 }
             )
+            continue
 
         hsn_code = _raw_hsn_from_record(record)
         hsn_chapter = _hsn_chapter_key(hsn_code)
