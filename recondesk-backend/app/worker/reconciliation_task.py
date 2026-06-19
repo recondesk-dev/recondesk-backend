@@ -43,6 +43,7 @@ from app.services.rule37_tracker import (
     build_payment_records_from_pr,
     check_rule_37_compliance,
 )
+from app.services.late_filing_tracker import check_late_filing
 from app.worker.celery_app import celery_app
 from app.worker.tasks import _json_safe, _supabase, _update_run
 
@@ -746,6 +747,9 @@ def execute_reconciliation(run_id: str) -> None:
         rule37_itc_paise = sum(
             int(r.get("itc_at_risk_paise") or 0) for r in (rule37 or [])
         )
+        late_filing = check_late_filing(
+            state.matched, gstr_raw_by_id, claim_period=period
+        )
         # Runs-list "ITC at risk" = missed ITC (GSTR-2B invoices with no PR match).
         itc_at_risk_total = itc_missed
 
@@ -857,14 +861,8 @@ def execute_reconciliation(run_id: str) -> None:
         )
 
         total_invoices = n_gstr + n_pr
-        late_itc_paise = sum(
-            int(
-                gstr_by_id.get(str(m.get("gstr_id")), {}).get("total_tax_paise")
-                or 0
-            )
-            for m in state.matched
-            if m.get("is_late_filing")
-        )
+        late_itc_paise = sum(int(r.get("amount_paise") or 0) for r in late_filing)
+        late_itc = len(late_filing)
         matched_count = len(state.matched)
         missed_itc_count = len(state.missed_itc)
         wrongful_count = len(wrongful_itc)
@@ -890,6 +888,7 @@ def execute_reconciliation(run_id: str) -> None:
                 rule37=rule37,
                 section_175_warnings=s175,
                 credit_note_adjustment=cn_net,
+                late_filing=late_filing,
                 decision_payload=decision_payload,
                 matching_version=MATCHING_VERSION,
                 rules_version=RULES_VERSION,

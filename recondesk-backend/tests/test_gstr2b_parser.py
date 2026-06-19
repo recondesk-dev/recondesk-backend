@@ -126,7 +126,7 @@ def test_valid_b2b_all_fields_present_and_typed():
     assert rec["schema_version"] == "gstr2b_v1"
     assert rec["supplier_gstin"] == SUPPLIER_1
     assert rec["supplier_gstin_raw"] == SUPPLIER_1
-    assert rec["invoice_number"] == "INV001"
+    assert rec["invoice_number"] == "INV1"
     assert rec["invoice_number_raw"] == "INV001"
     assert isinstance(rec["invoice_date_norm"], str)
     assert isinstance(rec["invoice_value_paise"], int)
@@ -234,7 +234,7 @@ def test_b2ba_is_amendment_true_with_originals():
     rec = result["records"][0]
     assert rec["is_amendment"] is True
     assert rec["section"] == "b2ba"
-    assert rec["original_invoice_number"] == "INV001"
+    assert rec["original_invoice_number"] == "INV1"
     assert rec["original_invoice_number_raw"] == "INV001"
     assert rec["original_invoice_date_norm"] == "2024-03-01"
     assert rec["original_invoice_date_raw"] == "01-03-2024"
@@ -252,7 +252,7 @@ def test_cdnra_is_amendment_true_with_originals():
     rec = result["records"][0]
     assert rec["is_amendment"] is True
     assert rec["section"] == "cdnra"
-    assert rec["original_invoice_number"] == "CN001"
+    assert rec["original_invoice_number"] == "CN1"
     assert rec["original_invoice_date_norm"] == "2024-03-10"
 
 
@@ -357,7 +357,7 @@ def test_gstn_portal_docdata_layout():
     )
     result = parse_gstr2b(payload)
     assert result["total_parsed"] == 1
-    assert result["records"][0]["invoice_number"] == "INV001"
+    assert result["records"][0]["invoice_number"] == "INV1"
 
 
 def test_itcavl_n_sets_itc_available_false():
@@ -475,7 +475,7 @@ def test_invalid_supplier_gstin_all_invoices_skipped_rest_continue():
     )
     assert result["total_parsed"] == 1
     assert result["total_skipped"] == 1
-    assert result["records"][0]["invoice_number"] == "INV002"
+    assert result["records"][0]["invoice_number_norm"] == "INV2"
 
 
 def test_val_abc_goes_to_skipped():
@@ -685,9 +685,9 @@ def test_b2b_invoices_have_both_raw_and_normalized_columns():
     assert isinstance(rec["invoice_value_paise"], int)
 
     # Raw and normalized differ when input needed transformation
-    # "inv-001" → symbols stripped + uppercased → "INV001"
+    # "inv-001" → symbols stripped + uppercased → "INV1"
     assert rec["invoice_number_raw"] == "inv-001"
-    assert rec["invoice_number"] == "INV001"
+    assert rec["invoice_number"] == "INV1"
     assert rec["invoice_value_paise"] == 250000  # 2500 rupees × 100 paise
 
 
@@ -733,8 +733,8 @@ def test_cdnr_records_flagged_as_credit_or_debit_note():
 
     assert result["total_parsed"] == 2
     by_num = {r["invoice_number"]: r["doc_type"] for r in result["records"]}
-    assert by_num["CN001"] == "CREDIT_NOTE"
-    assert by_num["DN001"] == "DEBIT_NOTE"
+    assert by_num["CN1"] == "CREDIT_NOTE"
+    assert by_num["DN1"] == "DEBIT_NOTE"
     # Both are non-amendments from the cdnr section
     for rec in result["records"]:
         assert rec["section"] == "cdnr"

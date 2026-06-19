@@ -25,6 +25,7 @@ from app.services.normalizer import (
     normalize_gstin,
     normalize_invoice_number,
 )
+from app.services.matcher import normalize_invoice
 
 SCHEMA_VERSION = "gstr2b_v1"
 
@@ -334,6 +335,7 @@ def _build_invoice_record(
     reverse_charge: bool,
     itc_available: bool,
     items: list,
+    supprd: str,
     normalization_notes: dict,
 ) -> dict:
     invoice_date_norm = (
@@ -368,6 +370,7 @@ def _build_invoice_record(
         "pos": pos,
         "reverse_charge": reverse_charge,
         "itc_available": itc_available,
+        "supprd": supprd,
         "unique_key": None,
         "items": items,
         "normalization_notes": normalization_notes,
@@ -392,7 +395,7 @@ def _parse_b2b_invoice(
     result = _validate_result(normalize_invoice_number(raw_inum), "invoice_number")
     if result.notes:
         normalization_notes["invoice_number"] = result.notes
-    invoice_number = result.value
+    invoice_number = normalize_invoice(result.value)
 
     raw_dt = _invoice_date_value(invoice, is_cdnr=False)
     if raw_dt is None:
@@ -430,7 +433,7 @@ def _parse_b2b_invoice(
             )
             if result.notes:
                 normalization_notes["original_invoice_number"] = result.notes
-            original_invoice_number = result.value
+            original_invoice_number = normalize_invoice(result.value)
 
         oidt_raw = invoice.get("oidt")
         if oidt_raw is not None:
@@ -462,6 +465,7 @@ def _parse_b2b_invoice(
         pos=pos,
         reverse_charge=reverse_charge,
         itc_available=itc_available,
+        supprd=str(invoice.get("supprd", "")).strip(),
         items=item_records,
         normalization_notes=normalization_notes,
     )
@@ -494,7 +498,7 @@ def _parse_cdnr_invoice(
     result = _validate_result(normalize_invoice_number(raw_inum), "invoice_number")
     if result.notes:
         normalization_notes["invoice_number"] = result.notes
-    invoice_number = result.value
+    invoice_number = normalize_invoice(result.value)
 
     raw_dt = _invoice_date_value(invoice, is_cdnr=True)
     if raw_dt is None:
@@ -532,7 +536,7 @@ def _parse_cdnr_invoice(
             )
             if result.notes:
                 normalization_notes["original_invoice_number"] = result.notes
-            original_invoice_number = result.value
+            original_invoice_number = normalize_invoice(result.value)
 
         ointdt_raw = invoice.get("ointdt")
         if ointdt_raw is not None:
@@ -564,6 +568,7 @@ def _parse_cdnr_invoice(
         pos=pos,
         reverse_charge=reverse_charge,
         itc_available=itc_available,
+        supprd=str(invoice.get("supprd", "")).strip(),
         items=item_records,
         normalization_notes=normalization_notes,
     )

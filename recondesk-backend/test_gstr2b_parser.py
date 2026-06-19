@@ -46,4 +46,4 @@ def test_parse_gstr2b_sample_with_invalid_fixture_gstins(monkeypatch):
 
     assert result["total_parsed"] == 1
     assert result["total_skipped"] == 0
-    assert result["records"][0]["invoice_number"] == "INV001"
+    assert result["records"][0]["invoice_number"] == "INV1"

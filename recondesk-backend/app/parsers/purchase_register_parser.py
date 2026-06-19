@@ -21,6 +21,7 @@ from app.services.normalizer import (
     normalize_date,
     normalize_gstin,
 )
+from app.services.matcher import normalize_invoice
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ STANDARD_TO_CANONICAL: dict[str, str] = {
     "payment_status": "payment_status",
     "payment_date": "payment_date",
     "amount_paid": "amount_paid_paise",
+    "itc_eligibility": "itc_eligibility",
 }
 
 COLUMN_ALIASES: dict[str, list[str]] = {
@@ -105,6 +107,9 @@ COLUMN_ALIASES: dict[str, list[str]] = {
     "amount_paid": [
         "amount paid", "paid amount", "payment amount", "amount remitted",
         "supplier payment amount",
+    ],
+    "itc_eligibility": [
+        "itc eligible", "itc eligibility", "is itc eligible", "eligible for itc", "itc status", "eligible",
     ],
 }
 
@@ -384,10 +389,10 @@ def _normalize_invoice_number_cell(val: Any) -> str | None:
         return None
     if isinstance(val, (int, float)) and not pd.isna(val):
         if isinstance(val, float) and val == int(val):
-            return str(int(val)).strip().upper()
+            return normalize_invoice(str(int(val)))
         if isinstance(val, int):
-            return str(val).strip().upper()
-    return str(s).strip().upper()
+            return normalize_invoice(str(val))
+    return normalize_invoice(str(s))
 
 
 def normalize_amount(value: Any) -> int:
@@ -472,6 +477,8 @@ def normalize_dataframe_to_canonical_schema(
             out_cols[canon] = ser.map(_safe_cell)
         elif canon == "amount_paid_paise":
             out_cols[canon] = ser.map(_amount_int_unsigned)
+        elif canon == "itc_eligibility":
+            out_cols[canon] = ser.map(_safe_cell)
 
     if not out_cols:
         return pd.DataFrame(index=df.index)

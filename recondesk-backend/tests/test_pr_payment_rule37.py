@@ -149,7 +149,7 @@ def test_adversarial_pr_payment_columns_detected():
     paid = [
         r
         for r in parsed["records"]
-        if r.get("invoice_number_normalized") == "INV-001"
+        if r.get("invoice_number_normalized") == "INV1"
     ]
     assert len(paid) == 1
     assert paid[0].get("payment_status") == "paid"
@@ -157,7 +157,7 @@ def test_adversarial_pr_payment_columns_detected():
     unpaid = [
         r
         for r in parsed["records"]
-        if r.get("invoice_number_normalized") == "INV-012"
+        if r.get("invoice_number_normalized") == "INV12"
     ]
     assert len(unpaid) == 1
     assert unpaid[0].get("payment_status") == "unpaid"

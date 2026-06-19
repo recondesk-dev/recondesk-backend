@@ -189,6 +189,7 @@ def build_stored_results_payload(
     matching_version: str,
     rules_version: str,
     decision_version: str,
+    late_filing: list[dict[str, Any]] | None = None,
     gstin_mismatch: list[dict[str, Any]] | None = None,
     duplicates: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -205,6 +206,7 @@ def build_stored_results_payload(
             "rule37": rule37,
             "section_17_5": section_175_warnings,
             "credit_notes": credit_note_adjustment or {},
+            "late_filing": late_filing or [],
         },
         "decisions": slim_decision_payload(decision_payload),
         "meta": {
