@@ -32,6 +32,7 @@ def make_pr(
         "invoice_date": invoice_date,
         "taxable_amount_paise": taxable_amount_paise,
         "total_tax_paise": total_tax_paise,
+        "invoice_value_paise": taxable_amount_paise,
     }
 
 

@@ -81,7 +81,19 @@ def build_payment_records_from_pr(
         if raw_amt is not None:
             amount_paise = _stored_pr_amount_to_paise(raw_amt)
         elif status == "paid":
-            amount_paise = int(pr.get("taxable_amount_paise") or 0)
+            # If "paid" but no amount specified, assume full invoice value was paid
+            inv_val = int(pr.get("invoice_value_paise") or 0)
+            if inv_val <= 0:
+                taxable = int(pr.get("taxable_amount_paise") or 0)
+                if "igst_paise" in pr or "cgst_paise" in pr or "sgst_paise" in pr:
+                    igst = int(pr.get("igst_paise") or 0)
+                    cgst = int(pr.get("cgst_paise") or 0)
+                    sgst = int(pr.get("sgst_paise") or 0)
+                    tot_tax = igst + cgst + sgst
+                else:
+                    tot_tax = int(pr.get("total_tax_paise") or 0)
+                inv_val = taxable + tot_tax
+            amount_paise = inv_val
         else:
             continue
 
@@ -168,10 +180,11 @@ def check_rule_37_compliance(
         else:
             eligible_itc_paise = total_tax_paise
 
-        if "taxable_amount_paise" in pr_rec:
-            total_invoice_value_paise = int(pr_rec["taxable_amount_paise"] or 0)
-        else:
-            total_invoice_value_paise = int(pr_rec.get("invoice_value_paise") or 0)
+        inv_val = int(pr_rec.get("invoice_value_paise") or 0)
+        if inv_val <= 0:
+            taxable = int(pr_rec.get("taxable_amount_paise") or 0)
+            inv_val = taxable + total_tax_paise
+        total_invoice_value_paise = inv_val
 
         pr_id = str(pr_rec["id"])
         payments = payment_index.get(pr_id, [])
