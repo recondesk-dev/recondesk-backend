@@ -73,8 +73,6 @@ def build_payment_records_from_pr(
         pay_date = _iso_payment_date(raw.get("payment_date"))
         if status not in ("paid", "partial") and pay_date is None:
             continue
-        if pay_date is None:
-            continue
 
         amount_paise = 0
         raw_amt = raw.get("amount_paid_paise")
