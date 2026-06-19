@@ -7,6 +7,7 @@ import {
 } from "@/components/reconcile/Rule37MarkPaidModal";
 import { ReconcilePaginationFooter } from "@/components/reconcile/ReconcilePaginationFooter";
 import { Rule37SummarySection } from "@/components/reconcile/Rule37SummarySection";
+import type { Rule37SummaryResponse } from "@/lib/rule37Summary";
 import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
 import { Gstr3bCheckPanel } from "@/components/reconcile/Gstr3bCheckPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
@@ -1367,11 +1368,20 @@ export default function ReconcileResultsPage() {
     openFollowupLetter,
   ]);
 
-  const rule37TotalAmount = useMemo(() => {
-    const rows = rule37Data?.data ?? [];
-    if (rows.length === 0) return null;
-    return rows.reduce((sum, row) => sum + row.amount, 0);
-  }, [rule37Data?.data]);
+  const rule37SummaryKey = useMemo(
+    () =>
+      authReady && runId
+        ? ([`/api/reconcile/runs/${encodeURIComponent(runId)}/rule37/summary`, authToken, rule37SummaryRefreshKey] as const)
+        : null,
+    [authReady, runId, authToken, rule37SummaryRefreshKey]
+  );
+  const { data: rule37SummaryData } = useSWR(
+    rule37SummaryKey,
+    ([url, token]) => apiFetch<Rule37SummaryResponse>(url, { token }),
+    { revalidateOnFocus: false }
+  );
+
+  const rule37TotalAmount = rule37SummaryData?.summary.total_itc_at_risk ?? null;
 
   const unresolvedRule37Count = useMemo(() => {
     const rows = rule37Data?.data ?? [];
