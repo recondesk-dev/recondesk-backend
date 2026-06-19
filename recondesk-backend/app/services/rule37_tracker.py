@@ -151,6 +151,8 @@ def check_rule_37_compliance(
             continue
 
         days_remaining = (deadline - today).days
+        if days_remaining >= 0:
+            continue
 
         if "igst_paise" in pr_rec or "cgst_paise" in pr_rec or "sgst_paise" in pr_rec:
             igst = int(pr_rec.get("igst_paise") or 0)
