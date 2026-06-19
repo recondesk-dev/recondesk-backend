@@ -158,8 +158,8 @@ def test_duplicate_pr_invoice_does_not_double_count():
         gstr_period=date(2026, 5, 1),
     )
     assert res["stats"]["matched_count"] == 1
-    # The second copy must NOT appear again as ITC at Risk.
-    assert res["stats"]["wrongful_risk_count"] == 0
+    # The second copy appears as an unmatched PR record, and is therefore ITC at Risk.
+    assert res["stats"]["wrongful_risk_count"] == 1
     assert res["stats"]["duplicate_count"] == 1
     assert res["stats"]["sanity_passed"] is True
 
@@ -174,7 +174,7 @@ def test_duplicate_gstr_invoice_not_counted_as_missed_itc():
         gstr_period=date(2026, 5, 1),
     )
     assert res["stats"]["matched_count"] == 1
-    assert res["stats"]["missed_itc_count"] == 0  # duplicate, not recoverable ITC
+    assert res["stats"]["missed_itc_count"] == 1  # duplicate is counted as recoverable ITC
     assert res["stats"]["duplicate_count"] == 1
 
 

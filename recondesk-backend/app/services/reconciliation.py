@@ -534,7 +534,7 @@ def resolve_orphans(
             duplicates.append({**mi, "side": "GSTR", "reason": "DUPLICATE_GSTR"})
         else:
             seen_gstr.add(key)
-            missed_final.append(mi)
+        missed_final.append(mi)
 
     seen_pr = set(matched_pr_ids)
     wrongful_final: list[dict] = []
@@ -544,7 +544,7 @@ def resolve_orphans(
             duplicates.append({**w, "side": "PR", "reason": "DUPLICATE_PR"})
         else:
             seen_pr.add(key)
-            wrongful_final.append(w)
+        wrongful_final.append(w)
 
     return missed_final, wrongful_final, gstin_mismatch, duplicates
 
@@ -582,13 +582,13 @@ def _finalize_reconciliation_result(
     dup_pr = [d for d in duplicates if d.get("side") == "PR"]
 
     missed_gstr_ids = {str(m["gstr_id"]) for m in state.missed_itc}
-    # Every GSTR row resolves to exactly one of: matched / missed / gstin_mismatch /
-    # duplicate. Every PR row to exactly one of: matched / risk / gstin_mismatch /
-    # duplicate. This is what guarantees no double counting across buckets.
+    # Every GSTR row resolves to exactly one of: matched / missed / gstin_mismatch.
+    # Every PR row to exactly one of: matched / risk / gstin_mismatch.
+    # (Duplicates are now kept inside missed/risk to ensure they are counted in totals).
     sanity_passed = (
-        matched_count + missed_itc_count + gstin_mismatch_count + len(dup_gstr)
+        matched_count + missed_itc_count + gstin_mismatch_count
         == total_gstr
-        and matched_count + wrongful_risk_count + gstin_mismatch_count + len(dup_pr)
+        and matched_count + wrongful_risk_count + gstin_mismatch_count
         == total_pr
         and not (state.matched_gstr_ids & missed_gstr_ids)
         and len(state.matched_pr_ids) == matched_count

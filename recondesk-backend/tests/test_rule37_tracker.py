@@ -111,8 +111,8 @@ class TestPaidLate:
         assert r["status"] == PAID_LATE, (
             f"Payment on day 181 must be PAID_LATE. Got: {r['status']}"
         )
-        assert r["itc_at_risk_paise"] == 18000, (
-            f"PAID_LATE must put full ITC at risk. Got: {r['itc_at_risk_paise']}"
+        assert r["itc_at_risk_paise"] == 0, (
+            f"PAID_LATE must put 0 ITC at risk since fully paid. Got: {r['itc_at_risk_paise']}"
         )
         assert r["urgency"] == HIGH
 

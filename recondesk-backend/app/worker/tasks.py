@@ -251,6 +251,14 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             parsed = parse_gstr2b(gstr_payload)
             records = list(parsed.get("records") or [])
             for_sanity = _gstr_records_for_sanity(records)
+            
+            parsed_period = str(parsed.get("period", ""))
+            if parsed_period and len(parsed_period) >= 7:
+                new_period = parsed_period[:7]
+                if new_period != period:
+                    _log.info("Updating run %s period from %s to %s based on GSTR-2B", run_id, period, new_period)
+                    period = new_period
+                    _update_run(client, run_id, {"period": period})
         elif file_type == "purchase_register":
             name = os.path.basename(r2_key) or "purchase.xlsx"
             pr = parse_purchase_register(body, name)

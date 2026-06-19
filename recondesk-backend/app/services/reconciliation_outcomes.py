@@ -130,6 +130,7 @@ class OutcomeRow:
     blocked_credit_flag: bool
     late_filing_flag: bool
     is_credit_note: bool
+    amount: int
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -151,6 +152,7 @@ class OutcomeRow:
             "blocked_credit_flag": self.blocked_credit_flag,
             "late_filing_flag": self.late_filing_flag,
             "is_credit_note": self.is_credit_note,
+            "amount": self.amount,
         }
 
 
@@ -286,6 +288,7 @@ def build_outcome_rows(
                     blocked_credit_flag=False,
                     late_filing_flag=False,
                     is_credit_note=True,
+                    amount=int(m.get("total_tax_paise") or 0),
                 )
             )
 
@@ -332,6 +335,7 @@ def build_outcome_rows(
                 blocked_credit_flag=bflag,
                 late_filing_flag=lf_flag,
                 is_credit_note=False,
+                amount=min(int(g.get("total_tax_paise") or 0), int(p.get("total_tax_paise") or 0)),
             )
         )
 
@@ -367,6 +371,7 @@ def build_outcome_rows(
                 blocked_credit_flag=False,
                 late_filing_flag=False,
                 is_credit_note=False,
+                amount=int(mi.get("total_tax_paise") or 0),
             )
         )
 
@@ -400,6 +405,7 @@ def build_outcome_rows(
                 blocked_credit_flag=False,
                 late_filing_flag=False,
                 is_credit_note=False,
+                amount=int(wr.get("total_tax_paise") or 0),
             )
         )
 
@@ -437,7 +443,9 @@ def build_outcome_rows(
                 ),
                 rule37_flag=False,
                 blocked_credit_flag=False,
+                late_filing_flag=False,
                 is_credit_note=False,
+                amount=int(gm.get("total_tax_paise") or 0),
             )
         )
 
@@ -473,7 +481,9 @@ def build_outcome_rows(
                 decision_next=DecisionNext.FOLLOW_UP_SUPPLIER,
                 rule37_flag=True,
                 blocked_credit_flag=False,
+                late_filing_flag=False,
                 is_credit_note=False,
+                amount=int(rrow.get("itc_at_risk_paise") or 0),
             )
         )
 
@@ -521,6 +531,7 @@ def build_outcome_rows(
                 blocked_credit_flag=True,
                 late_filing_flag=False,
                 is_credit_note=False,
+                amount=int(g.get("total_tax_paise") or 0),
             )
         )
 
