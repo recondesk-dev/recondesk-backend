@@ -114,7 +114,7 @@ def test_rule37_paid_on_time_after_payment_parse():
         "invoice_date": "2026-05-01",
     }
     results = check_rule_37_compliance([pr_row], payments, today=date(2026, 6, 10))
-    assert results[0]["status"] == OK
+    assert len(results) == 0
 
 
 def test_rule37_unpaid_overdue_from_pr_status():
