@@ -98,6 +98,22 @@ def check_blocked_credits(invoices: list[dict]) -> list[dict]:
     warnings: list[dict] = []
 
     for record in invoices:
+        itc_eligibility = str(record.get("itc_eligibility") or "").strip().lower()
+        if itc_eligibility in ("no", "false", "ineligible", "n", "f", "0", "not eligible"):
+            warnings.append(
+                {
+                    "invoice_number": record.get("invoice_number")
+                    or record.get("invoice_number_norm"),
+                    "supplier_gstin": str(
+                        record.get("supplier_gstin")
+                        or record.get("supplier_gstin_norm")
+                        or ""
+                    ),
+                    "reason": "Marked ITC-ineligible in purchase register",
+                    "section": "17(5)",
+                }
+            )
+
         hsn_code = _raw_hsn_from_record(record)
         hsn_chapter = _hsn_chapter_key(hsn_code)
         if hsn_chapter is None or hsn_chapter not in BLOCKED_HSN_CODES:

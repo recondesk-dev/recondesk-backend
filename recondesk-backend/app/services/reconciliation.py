@@ -18,7 +18,7 @@ from app.services.matcher import (
     invoice_similarity,
     is_invoice_format_variant,
     match_gstr_to_pr,
-    normalize_invoice_number,
+    normalize_invoice,
     same_pan,
 )
 from app.services.vendor_name_matcher import find_best_vendor_match
@@ -440,7 +440,7 @@ def build_wrongful_itc_risk(
 def _identity_key(gstin: str | None, invoice: str | None) -> tuple[str, str]:
     return (
         str(gstin or "").strip().upper(),
-        normalize_invoice_number(invoice or ""),
+        normalize_invoice(invoice or ""),
     )
 
 
@@ -481,7 +481,7 @@ def resolve_orphans(
     wrongful_by_pan_inv: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for w in wrongful_itc_risk:
         pan = _gstin_pan(w.get("supplier_gstin"))
-        inv = normalize_invoice_number(w.get("invoice_number_normalized") or "")
+        inv = normalize_invoice(w.get("invoice_number_normalized") or "")
         wrongful_by_pan_inv[(pan, inv)].append(w)
 
     consumed_wrongful: set[int] = set()
@@ -489,7 +489,7 @@ def resolve_orphans(
     for mi in missed_itc:
         g_gstin = str(mi.get("supplier_gstin") or "")
         pan = _gstin_pan(g_gstin)
-        inv = normalize_invoice_number(mi.get("invoice_number_normalized") or "")
+        inv = normalize_invoice(mi.get("invoice_number_normalized") or "")
         g_tax = int(mi.get("total_tax_paise") or 0)
         partner = None
         if pan and inv:
