@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from app.services.matcher import normalize_invoice
+from app.services.matcher import normalize_invoice_number
 
 
 def _iso_date(val: Any) -> str | None:
@@ -53,7 +53,7 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         rd = {}
     sup = (rd.get("supplier_gstin_norm") or rd.get("supplier_gstin") or "").strip()
     inv_raw = rd.get("invoice_number_norm") or rd.get("invoice_number") or ""
-    inv = normalize_invoice(str(inv_raw).strip() if inv_raw is not None else None)
+    inv = normalize_invoice_number(str(inv_raw).strip() if inv_raw is not None else None)
     cg, sg, ig, ttp = _gstr_tax_paise_from_record(rd)
     taxable = _gstr_taxable_paise_from_record(rd)
     inv_d = _iso_date(rd.get("invoice_date_norm") or rd.get("invoice_date"))
@@ -85,7 +85,7 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         rd = {}
     gstin = (rd.get("gstin") or rd.get("supplier_gstin") or "").strip()
     inv_raw = rd.get("invoice_number_normalized") or rd.get("invoice_number") or ""
-    invn = normalize_invoice(
+    invn = normalize_invoice_number(
         str(inv_raw).strip() if inv_raw is not None else None
     )
     inv_d = _iso_date(rd.get("invoice_date"))
