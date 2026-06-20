@@ -188,21 +188,75 @@ def build_pr_by_invoice(
     return {g: dict(inv_map) for g, inv_map in out.items()}
 
 
-def _order_pr_candidates(
-    candidates: list[dict],
-    *,
+def _get_tax_bucket(amount_paise: int | None) -> int:
+    if amount_paise is None:
+        return 0
+    return int(round(amount_paise / 10000.0))
+
+@dataclass
+class PRCandidateIndices:
+    by_taxable: dict[str, dict[int, list[dict]]] = field(default_factory=dict)
+    by_tax: dict[str, dict[int, list[dict]]] = field(default_factory=dict)
+
+def build_pr_candidate_indices(pr_index: dict[str, list[dict]]) -> PRCandidateIndices:
+    indices = PRCandidateIndices()
+    for gstin, prs in pr_index.items():
+        taxable_dict = defaultdict(list)
+        tax_dict = defaultdict(list)
+        for pr in prs:
+            tb = _get_tax_bucket(pr.get("taxable_amount_paise"))
+            txb = _get_tax_bucket(pr.get("total_tax_paise"))
+            taxable_dict[tb].append(pr)
+            tax_dict[txb].append(pr)
+        indices.by_taxable[gstin] = dict(taxable_dict)
+        indices.by_tax[gstin] = dict(tax_dict)
+    return indices
+
+def _get_narrowed_candidates(
+    gstr_record: dict,
     gstin: str,
     inv_norm: str,
     pr_by_invoice: dict[str, dict[str, dict]] | None,
+    candidate_indices: PRCandidateIndices | None,
+    pr_index_candidates: list[dict],
 ) -> list[dict]:
-    """Put hash-index hit first so L1 pairs resolve without scanning the full GSTIN bucket."""
-    if not pr_by_invoice or not inv_norm:
+    """Narrow candidates using exact match and tax amount buckets to avoid O(N*M) fuzzy comparisons."""
+    direct = pr_by_invoice.get(gstin, {}).get(inv_norm) if pr_by_invoice and inv_norm else None
+
+    if not candidate_indices:
+        candidates = pr_index_candidates
+        if direct:
+            direct_id = str(direct["id"])
+            return [direct] + [p for p in candidates if str(p["id"]) != direct_id]
         return candidates
-    direct = pr_by_invoice.get(gstin, {}).get(inv_norm)
-    if direct is None:
-        return candidates
-    direct_id = str(direct["id"])
-    return [direct] + [p for p in candidates if str(p["id"]) != direct_id]
+
+    candidates_set = {}
+    if direct:
+        candidates_set[str(direct["id"])] = direct
+
+    g_taxable = gstr_record.get("taxable_amount_paise")
+    g_tax = gstr_record.get("total_tax_paise")
+
+    tb = _get_tax_bucket(g_taxable)
+    txb = _get_tax_bucket(g_tax)
+
+    taxable_buckets = candidate_indices.by_taxable.get(gstin, {})
+    for b in (tb - 1, tb, tb + 1):
+        for pr in taxable_buckets.get(b, []):
+            candidates_set[str(pr["id"])] = pr
+
+    tax_buckets = candidate_indices.by_tax.get(gstin, {})
+    for b in (txb - 1, txb, txb + 1):
+        for pr in tax_buckets.get(b, []):
+            candidates_set[str(pr["id"])] = pr
+
+    ordered = []
+    if direct:
+        ordered.append(direct)
+        candidates_set.pop(str(direct["id"]), None)
+
+    ordered.extend(candidates_set.values())
+    return ordered
 
 
 @dataclass
@@ -224,6 +278,7 @@ def process_gstr_records_chunk(
     *,
     gstr_by_invoice: dict[str, dict] | None = None,
     pr_by_invoice: dict[str, dict[str, dict]] | None = None,
+    candidate_indices: PRCandidateIndices | None = None,
 ) -> None:
     """Match a chunk of GSTR rows using shared *state* (same invariants as full run)."""
     gstr_period = date(effective_gstr_period.year, effective_gstr_period.month, 1)
@@ -233,11 +288,13 @@ def process_gstr_records_chunk(
         gstin_str = str(gstin)
         candidates = pr_index.get(gstin_str, [])
         inv_norm = str(gstr_record.get("invoice_number_normalized") or "")
-        ordered_candidates = _order_pr_candidates(
-            candidates,
+        ordered_candidates = _get_narrowed_candidates(
+            gstr_record,
             gstin=gstin_str,
             inv_norm=inv_norm,
             pr_by_invoice=pr_by_invoice,
+            candidate_indices=candidate_indices,
+            pr_index_candidates=candidates,
         )
 
         best_result: MatchResult | None = None
@@ -679,6 +736,7 @@ def run_bidirectional_reconciliation(
 
     gstr_by_invoice = build_gstr_by_invoice(gstr_records)
     pr_by_invoice = build_pr_by_invoice(pr_index)
+    candidate_indices = build_pr_candidate_indices(pr_index)
 
     state = ReconState()
     process_gstr_records_chunk(
@@ -689,6 +747,7 @@ def run_bidirectional_reconciliation(
         state,
         gstr_by_invoice=gstr_by_invoice,
         pr_by_invoice=pr_by_invoice,
+        candidate_indices=candidate_indices,
     )
     wrongful_itc_risk = build_wrongful_itc_risk(pr_records, state.matched_pr_ids)
 

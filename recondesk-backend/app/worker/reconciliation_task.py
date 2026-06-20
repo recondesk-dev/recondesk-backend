@@ -26,6 +26,7 @@ from app.services.reconciliation import (
     _build_pr_index_by_period,
     build_gstr_by_invoice,
     build_pr_by_invoice,
+    build_pr_candidate_indices,
     build_wrongful_itc_risk,
     notify_reconciliation_run_completed_email_maybe,
     process_gstr_records_chunk,
@@ -49,7 +50,7 @@ from app.worker.tasks import _json_safe, _supabase, _update_run
 
 _log = logging.getLogger(__name__)
 
-BATCH = 2_000
+BATCH = 500
 CHUNK_SIZE = 500
 # Supabase/PostgREST caps each ``.range()`` response (~1000 rows). Never request
 # more than CHUNK_SIZE in one query or pagination stops early and drops records.
@@ -592,6 +593,7 @@ def execute_reconciliation(run_id: str) -> None:
             len(gstr_matcher),
         )
         pr_by_invoice = build_pr_by_invoice(pr_index_current)
+        candidate_indices = build_pr_candidate_indices(pr_index_current)
         pr_total_chunks = max(1, (pr_index_loaded + CHUNK_SIZE - 1) // CHUNK_SIZE)
 
         n_gstr_chunks = max(1, (len(gstr_matcher) + BATCH - 1) // BATCH)
@@ -615,6 +617,7 @@ def execute_reconciliation(run_id: str) -> None:
                 state,
                 gstr_by_invoice=gstr_by_invoice,
                 pr_by_invoice=pr_by_invoice,
+                candidate_indices=candidate_indices,
             )
             done = i // BATCH + 1
             if done == n_gstr_chunks:
