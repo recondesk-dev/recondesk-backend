@@ -90,7 +90,7 @@ def test_build_payment_records_skips_unpaid():
     assert build_payment_records_from_pr([matcher], {"pr-2": raw}) == []
 
 
-def test_rule37_paid_on_time_after_payment_parse():
+def test_rule37_paid_on_time_after_payment_parse_obsolete():
     raw = {
         "payment_status": "paid",
         "payment_date": "2026-06-05",

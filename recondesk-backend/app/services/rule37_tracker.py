@@ -63,15 +63,15 @@ def build_payment_records_from_pr(
 
         status = raw.get("payment_status")
         if isinstance(status, str):
-            status = status.strip().lower() or None
+            status = status.strip().lower()
         else:
-            status = None
+            status = "unpaid"
 
         if status == "unpaid":
             continue
 
         pay_date = _iso_payment_date(raw.get("payment_date"))
-        if status not in ("paid", "partial") and pay_date is None:
+        if status not in ("partially paid", "partial") and pay_date is None:
             continue
 
         amount_paise = 0
@@ -143,27 +143,29 @@ def check_rule_37_compliance(
     results: list[dict] = []
 
     for pr_rec in pr_records:
-        invoice_date = date.fromisoformat(pr_rec["invoice_date"])
+        invoice_date_str = pr_rec.get("invoice_date")
+        if not invoice_date_str:
+            continue
+        try:
+            invoice_date = date.fromisoformat(invoice_date_str)
+        except ValueError:
+            continue
+            
         deadline = invoice_date + timedelta(days=180)
 
-        # Rule 37 payment_status filter: only unpaid / unknown-status invoices
-        # are candidates. A "paid" invoice is never a Rule 37 violation, and an
-        # invoice settled within the 180-day window clears the requirement.
+        # Rule 37 payment_status filter: only Unpaid or Partially Paid
         payment_status = pr_rec.get("payment_status")
         if isinstance(payment_status, str):
-            payment_status = payment_status.strip().lower() or None
+            payment_status = payment_status.strip().lower()
         else:
-            payment_status = None
-        if payment_status == "paid":
-            continue
-        pay_date_iso = _iso_payment_date(pr_rec.get("payment_date"))
-        if pay_date_iso is not None and date.fromisoformat(pay_date_iso) <= deadline:
+            payment_status = "unpaid"
+            
+        if payment_status not in ("unpaid", "partially paid", "partial"):
             continue
 
         days_remaining = (deadline - today).days
-        if days_remaining >= 0:
-            continue
 
+        # Calculate reversal amount as igst + cgst + sgst
         if "igst_paise" in pr_rec or "cgst_paise" in pr_rec or "sgst_paise" in pr_rec:
             igst = int(pr_rec.get("igst_paise") or 0)
             cgst = int(pr_rec.get("cgst_paise") or 0)
@@ -172,11 +174,7 @@ def check_rule_37_compliance(
         else:
             total_tax_paise = int(pr_rec.get("total_tax_paise") or 0)
 
-        itc_eligibility = str(pr_rec.get("itc_eligibility") or "").strip().lower()
-        if itc_eligibility in ("no", "false", "ineligible", "n", "f", "0", "not eligible"):
-            eligible_itc_paise = 0
-        else:
-            eligible_itc_paise = total_tax_paise
+        itc_at_risk_paise = total_tax_paise
 
         inv_val = int(pr_rec.get("invoice_value_paise") or 0)
         if inv_val <= 0:
@@ -186,91 +184,26 @@ def check_rule_37_compliance(
 
         pr_id = str(pr_rec["id"])
         payments = payment_index.get(pr_id, [])
-        # Important: sum actual payment amounts only; never default to invoice value
         total_paid_paise = sum(_payment_row_amount_paise(p) for p in payments)
         if total_paid_paise > total_invoice_value_paise:
             total_paid_paise = total_invoice_value_paise
         unpaid_paise = total_invoice_value_paise - total_paid_paise
         unpaid_paise = max(unpaid_paise, 0)
-        unpaid_ratio = (
-            unpaid_paise / total_invoice_value_paise if total_invoice_value_paise > 0 else 0.0
-        )
 
-        base_itc_at_risk = round(eligible_itc_paise * unpaid_ratio)
+        # The Rule 37 trigger is: invoice_date + 180 days < today's date
+        if days_remaining >= 0:
+            continue
 
-        is_fully_paid = unpaid_paise == 0
-        has_partial_payment = total_paid_paise > 0 and unpaid_paise > 0
-
-        if is_fully_paid:
-            # Critical: payment presence ≠ full payment; use amount-based logic only
-            if total_paid_paise == 0:
-                status = OK
-                urgency = LOW
-                action = "No action required"
-                itc_at_risk_paise = 0
-            else:
-                payment_dates = [
-                    date.fromisoformat(p["payment_date"])
-                    for p in payments
-                    if p.get("payment_date")
-                ]
-                if not payment_dates:
-                    status = OK
-                    urgency = LOW
-                    action = "No action required"
-                    itc_at_risk_paise = 0
-                else:
-                    latest_payment_date = max(payment_dates)
-                    if latest_payment_date > deadline:
-                        status = PAID_LATE
-                        urgency = HIGH
-                        action = (
-                            "ITC reversal required. Payment made after 180-day limit."
-                        )
-                        itc_at_risk_paise = 0
-                    else:
-                        status = OK
-                        urgency = LOW
-                        action = "No action required"
-                        itc_at_risk_paise = 0
-        else:
-            # Critical: unpaid invoices past 180 days must never return OK
-            if has_partial_payment and days_remaining >= 0:
-                status = OK
-                urgency = LOW
-                action = "No action required"
-                itc_at_risk_paise = base_itc_at_risk
-            elif days_remaining < 0:
-                status = OVERDUE_UNPAID
-                urgency = CRITICAL
-                action = (
-                    "Reverse ITC immediately. Payment overdue beyond 180 days."
-                )
-                itc_at_risk_paise = base_itc_at_risk
-            elif days_remaining <= 30:
-                status = WARNING_30_DAYS
-                urgency = HIGH
-                action = (
-                    "Pay supplier within 30 days to avoid ITC reversal."
-                )
-                itc_at_risk_paise = base_itc_at_risk
-            elif days_remaining <= 60:
-                status = WARNING_60_DAYS
-                urgency = MEDIUM
-                action = "Pay supplier within 60 days."
-                itc_at_risk_paise = base_itc_at_risk
-            else:
-                status = OK
-                urgency = LOW
-                action = "No immediate action required."
-                itc_at_risk_paise = base_itc_at_risk
+        status = OVERDUE_UNPAID
+        urgency = CRITICAL
+        action = "Reverse ITC immediately. Payment overdue beyond 180 days."
 
         results.append(
             {
                 "pr_id": pr_id,
-                "supplier_gstin": pr_rec["supplier_gstin"],
-                "invoice_number": pr_rec["invoice_number_normalized"],
-                "invoice_date": pr_rec["invoice_date"],
+                "supplier_gstin": pr_rec.get("supplier_gstin", ""),
+                "invoice_number": pr_rec.get("invoice_number_normalized", ""),
+                "invoice_date": invoice_date_str,
                 "deadline": deadline.isoformat(),
                 "days_remaining": days_remaining,
                 "total_invoice_value_paise": total_invoice_value_paise,

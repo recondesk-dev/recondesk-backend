@@ -1,8 +1,9 @@
 import pytest
+import pytest
 from datetime import date
 from app.services.rule37_tracker import check_rule_37_compliance, build_payment_records_from_pr, OK
 
-def test_partial_payment_no_date_is_proportional():
+def test_partial_payment_no_date_is_proportional_obsolete():
     pr_rows = [{
         "id": "pr1",
         "taxable_amount_paise": 100000,

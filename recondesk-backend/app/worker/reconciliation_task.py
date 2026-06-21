@@ -725,18 +725,30 @@ def execute_reconciliation(run_id: str) -> None:
             int(x.get("total_tax_paise") or 0) for x in wrongful_itc
         )
         pr_for_rule37 = []
-        for p in pr_current:
-            pid = str(p["id"])
-            raw = pr_raw_by_id.get(pid) or {}
+        for m in state.matched:
+            pr_id = str(m.get("pr_id"))
+            p = pr_by_id.get(pr_id)
+            if not p:
+                continue
+            raw = pr_raw_by_id.get(pr_id) or {}
             if not isinstance(raw, dict):
                 raw = {}
+                
+            status_str = raw.get("payment_status")
+            if isinstance(status_str, str):
+                status_str = status_str.strip().lower()
+            else:
+                status_str = "unpaid"
+                
+            if status_str not in ("unpaid", "partially paid", "partial"):
+                continue
+
             pr_for_rule37.append(
                 {
                     **p,
-                    "id": pid,
-                    "invoice_date": p.get("invoice_date")
-                    or gstr_start.isoformat(),
-                    "payment_status": raw.get("payment_status"),
+                    "id": pr_id,
+                    "invoice_date": p.get("invoice_date") or gstr_start.isoformat(),
+                    "payment_status": status_str,
                     "payment_date": raw.get("payment_date"),
                 }
             )
