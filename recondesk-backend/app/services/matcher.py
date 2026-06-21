@@ -119,7 +119,7 @@ def is_invoice_format_variant(
     # We enforce len(na) != len(nb) so we don't accidentally swallow equal-length typos like "INV1" vs "INX1"
     if len(na) != len(nb):
         def _extract_numeric(s: str) -> set[int]:
-            return {int(t) for t in re.findall(r"\d+", str(s)) if int(t) > 0}
+            return {int(t) for t in re.findall(r"\d+", str(s)) if int(t) >= 1000}
 
         nums_a = _extract_numeric(a_raw or a or "")
         nums_b = _extract_numeric(b_raw or b or "")
