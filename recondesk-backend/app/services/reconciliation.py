@@ -298,10 +298,8 @@ def _push_matched(state, gstr_id, pr_id, score, best_result, is_late_filing=Fals
         "financial_status": getattr(best_result, "financial_status", "Exact"),
         "review_reason": best_result.review_reason,
     }
-    if best_result.requires_human_review:
-        state.review_required.append(match_dict)
-    else:
-        state.matched.append(match_dict)
+    state.matched.append(match_dict)
+    
     state.matched_pr_ids.add(str(pr_id))
     state.matched_gstr_ids.add(str(gstr_id))
 

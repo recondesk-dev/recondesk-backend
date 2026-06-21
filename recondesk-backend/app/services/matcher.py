@@ -40,17 +40,10 @@ _RE_TRAILING_DIGITS = re.compile(r"\d+$")
 
 
 def normalize_invoice(inv: str | None) -> str:
-    """Uppercase; alphanumerics only; leading zeros removed from the trailing ``\\d+``."""
+    """Uppercase; alphanumerics only; NO leading zeros removed to prevent corruption."""
     if inv is None or inv == "":
         return ""
-    s = _RE_NON_ALNUM.sub("", str(inv)).upper()
-    if not s:
-        return ""
-    m = _RE_TRAILING_DIGITS.search(s)
-    if not m:
-        return s
-    digs = m.group(0).lstrip("0") or "0"
-    return s[: m.start()] + digs
+    return _RE_NON_ALNUM.sub("", str(inv)).upper()
 
 
 def normalize_invoice_number(value: str | None) -> str:
@@ -150,17 +143,24 @@ def levenshtein(s1: str, s2: str) -> int:
 
 
 def invoice_similarity(inv1: str, inv2: str) -> float:
-    norm1 = normalize_invoice(inv1)
-    norm2 = normalize_invoice(inv2)
-    if norm1 == "" or norm2 == "":
+    """Similarity score between two normalized invoice strings [0.0, 1.0]."""
+    a = normalize_invoice(inv1)
+    b = normalize_invoice(inv2)
+    if not a or not b:
         return 0.0
-    if norm1 == norm2:
+    if a == b:
         return 1.0
-    d = levenshtein(norm1, norm2)
-    denom = max(len(norm1), len(norm2))
-    if denom == 0:
+    # Strip leading zeros per numeric segment for fuzzy comparison
+    a = re.sub(r'(?<![0-9])0+(?=[0-9])', '', a)
+    b = re.sub(r'(?<![0-9])0+(?=[0-9])', '', b)
+    if a == b:
+        return 1.0
+    
+    max_len = max(len(a), len(b))
+    dist = levenshtein(a, b)
+    if max_len == 0:
         return 0.0
-    return 1.0 - (d / denom)
+    return 1.0 - (dist / max_len)
 
 
 def explain_invoice_difference(inv1: str, inv2: str) -> str:
@@ -593,7 +593,7 @@ def _match_gstr_to_pr_pair(
             
     if not gstin_match and (same_pan(g_gst, p_gst) or lev <= 2) and strong_invoice and amount_within_l2 and date_within_l2:
         return MatchResult(
-            level=4, matched=True, confidence=50, requires_human_review=True,
+            level=4, matched=False, confidence=50, requires_human_review=True,
             decision_what="GSTIN Mismatch", decision_why="Invoice number, amount and date match, but GSTIN differs",
             decision_next="Correct the supplier GSTIN", review_reason="GSTIN_MISMATCH",
             discrepancies=discrepancies, identity_confidence="High", financial_status=financial_status
