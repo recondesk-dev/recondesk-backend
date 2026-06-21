@@ -44,12 +44,12 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "next": "Verify with physical invoice. If same transaction, correct the invoice number in purchase register.",
     },
     "MISSED_ITC": {
-        "what": "Invoice in GSTR-2B not recorded in purchase register",
+        "what": "Available in 2B but Missing in Books",
         "why": "Invoice not entered in {source_software} or entered under a different GSTIN",
         "next": "Locate physical invoice. If genuine, add to purchase register and claim ITC of {itc_amount}.",
     },
     "WRONGFUL_ITC": {
-        "what": "Invoice in purchase register but supplier has not filed GSTR-1",
+        "what": "Supplier Has Not Reported / Not Reflected in 2B",
         "why": "Supplier missed filing or filed under wrong GSTIN. ITC of {itc_amount} is at risk.",
         "next": "Contact {supplier_gstin} immediately. Do not claim this ITC in GSTR-3B until it appears in GSTR-2B.",
     },
