@@ -12,6 +12,7 @@ def test_gstin_mismatch_resolution():
             "gstr_id": "g1",
             "supplier_gstin": "27AAAAA0000A1Z5",
             "invoice_number_normalized": "INV001",
+            "taxable_amount_paise": 10000,
             "total_tax_paise": 1800,
         }
     ]

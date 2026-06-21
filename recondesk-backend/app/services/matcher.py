@@ -88,27 +88,45 @@ def _is_subsequence(short: str, long: str) -> bool:
     return all(ch in it for ch in short)
 
 
-def is_invoice_format_variant(a: str | None, b: str | None) -> bool:
+def is_invoice_format_variant(
+    a: str | None, b: str | None, a_raw: str | None = None, b_raw: str | None = None
+) -> bool:
     """True when two invoice numbers are the same identity in a different format.
 
     Conservative: requires the same leading alphabetic prefix and that the shorter
     normalized token is a subsequence of the longer one with a genuine length gap
     (e.g. ``DS/26/78`` vs ``DS-2026-00078``). Equal-length single-character typos
     are intentionally NOT treated as variants (they remain L4 review).
+
+    Fuzzy fallback: if the invoices share at least one identical non-zero numeric
+    sequence (e.g. ``INV-00001-26`` vs ``1``), they are also treated as variants.
     """
     na, nb = normalize_invoice_number(a), normalize_invoice_number(b)
     if not na or not nb:
         return False
     if na == nb:
         return True
+
+    # Check 1: Shared prefix and subsequence
     pa = _RE_LEADING_ALPHA.match(na)
     pb = _RE_LEADING_ALPHA.match(nb)
-    if not pa or not pb or pa.group(0) != pb.group(0):
-        return False
-    short, long = (na, nb) if len(na) <= len(nb) else (nb, na)
-    if len(short) == len(long):
-        return False
-    return _is_subsequence(short, long)
+    if pa and pb and pa.group(0) == pb.group(0):
+        short, long = (na, nb) if len(na) <= len(nb) else (nb, na)
+        if len(short) != len(long) and _is_subsequence(short, long):
+            return True
+
+    # Check 2: Shared exact core numeric sequence (using raw tokens to split by separators)
+    # We enforce len(na) != len(nb) so we don't accidentally swallow equal-length typos like "INV1" vs "INX1"
+    if len(na) != len(nb):
+        def _extract_numeric(s: str) -> set[int]:
+            return {int(t) for t in re.findall(r"\d+", str(s)) if int(t) > 0}
+
+        nums_a = _extract_numeric(a_raw or a or "")
+        nums_b = _extract_numeric(b_raw or b or "")
+        if nums_a and nums_b and (nums_a & nums_b):
+            return True
+
+    return False
 
 
 def levenshtein(s1: str, s2: str) -> int:
@@ -777,7 +795,12 @@ def _match_gstr_to_pr_pair(
         and not inv_ok
         and amount_within_l1
         and (skip_date or date_within_l1)
-        and is_invoice_format_variant(g_inv, p_inv)
+        and is_invoice_format_variant(
+            g_inv, 
+            p_inv, 
+            gstr_rec.get("invoice_number"), 
+            pr_rec.get("invoice_number")
+        )
     ):
         return MatchResult(
             level=5,
