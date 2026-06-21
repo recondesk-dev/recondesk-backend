@@ -22,6 +22,7 @@ RULE37_CONCERNS = frozenset(
         "OVERDUE_UNPAID",
         "WARNING_30_DAYS",
         "WARNING_60_DAYS",
+        "LATE_FILING",
     }
 )
 _RULE37_CONCERNS = RULE37_CONCERNS

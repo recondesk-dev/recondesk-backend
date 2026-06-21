@@ -857,9 +857,10 @@ def execute_reconciliation(run_id: str) -> None:
             },
         )
 
+        merged_rule37 = (rule37 or []) + (late_filing or [])
         decision_payload = populate_decisions(
             state.matched,
-            rule37=rule37,
+            rule37=merged_rule37,
             section_175_warnings=s175,
             credit_note_adjustment=cn_net,
         )

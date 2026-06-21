@@ -202,31 +202,45 @@ def populate_decisions(
 
     enriched_rule37 = []
     for r in rule37 or []:
-        days_remaining = r.get("days_remaining")
+        status = r.get("status")
         mf = _row_identity_fields(r)
         if r.get("itc_at_risk_paise") is not None:
             mf = list(dict.fromkeys(mf + ["itc_at_risk_paise"]))
-        if days_remaining is not None and days_remaining <= 0:
+            
+        if status == "LATE_FILING":
             decision = generate_decision(
-                "RULE37_OVERDUE",
+                "RULE37_LATE_FILING",
                 confidence="HIGH",
                 matched_fields=mf,
                 differed_fields=[],
                 normalized_pairs=[],
+                actual_filing_date=r.get("actual_filing_date", "?"),
+                due_date=r.get("due_date", "?"),
                 itc_amount=f"₹{r.get('itc_at_risk_paise', 0) / 100:,.2f}",
             )
         else:
-            decision = generate_decision(
-                "RULE37_WARNING",
-                confidence="MEDIUM",
-                matched_fields=mf,
-                differed_fields=[],
-                normalized_pairs=[],
-                days_remaining=days_remaining or "?",
-                deadline_date=r.get("deadline", "?"),
-                supplier_gstin=r.get("supplier_gstin", "?"),
-                itc_amount=f"₹{r.get('itc_at_risk_paise', 0) / 100:,.2f}",
-            )
+            days_remaining = r.get("days_remaining")
+            if days_remaining is not None and days_remaining <= 0:
+                decision = generate_decision(
+                    "RULE37_OVERDUE",
+                    confidence="HIGH",
+                    matched_fields=mf,
+                    differed_fields=[],
+                    normalized_pairs=[],
+                    itc_amount=f"₹{r.get('itc_at_risk_paise', 0) / 100:,.2f}",
+                )
+            else:
+                decision = generate_decision(
+                    "RULE37_WARNING",
+                    confidence="MEDIUM",
+                    matched_fields=mf,
+                    differed_fields=[],
+                    normalized_pairs=[],
+                    days_remaining=days_remaining or "?",
+                    deadline_date=r.get("deadline", "?"),
+                    supplier_gstin=r.get("supplier_gstin", "?"),
+                    itc_amount=f"₹{r.get('itc_at_risk_paise', 0) / 100:,.2f}",
+                )
         enriched_rule37.append(_enrich_with_decision(r, decision))
 
     enriched_175 = []

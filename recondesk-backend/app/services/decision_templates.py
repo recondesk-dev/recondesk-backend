@@ -59,9 +59,14 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "next": "Reverse ITC of {itc_amount} in next GSTR-3B. Pay supplier immediately or face 24% interest.",
     },
     "RULE37_WARNING": {
-        "what": "{days_remaining} days remaining before mandatory ITC reversal on {deadline_date}",
-        "why": "Rule 37 -- ITC only valid if supplier paid within 180 days of invoice date",
-        "next": "Pay {supplier_gstin} before {deadline_date} to retain ITC of {itc_amount}.",
+        "what": "Supplier payment due in {days_remaining} days ({deadline_date})",
+        "why": "Section 16(2) limits ITC if consideration not paid within 180 days",
+        "next": "Pay supplier by {deadline_date} or face {itc_amount} ITC reversal",
+    },
+    "RULE37_LATE_FILING": {
+        "what": "Supplier filed GSTR-1 late (actual filing: {actual_filing_date}, due: {due_date})",
+        "why": "GSTR-1 filed after the statutory due date (11th of following month)",
+        "next": "Evaluate supplier compliance. {itc_amount} ITC at risk due to late filing.",
     },
     "BLOCKED_CREDIT": {
         "what": "Invoice may be under Section 17(5) blocked credit: {category}",
