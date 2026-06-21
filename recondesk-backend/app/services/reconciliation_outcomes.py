@@ -108,14 +108,16 @@ def _load_pr_map(sb: Client, run_id: str) -> dict[str, dict[str, Any]]:
     return out
 
 
-@dataclass
+@dataclass(kw_only=True)
 class OutcomeRow:
     """Single invoice line for the public API (before pagination)."""
 
     id: str
     category: str
     supplier_gstin: str
-    supplier_name: Optional[str]
+    pr_supplier_gstin: Optional[str] = None
+    gstr_supplier_gstin: Optional[str] = None
+    supplier_name: Optional[str] = None
     invoice_number: str
     invoice_date: Optional[str]
     match_status: str
@@ -136,7 +138,10 @@ class OutcomeRow:
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
+            "category": self.category,
             "supplier_gstin": self.supplier_gstin,
+            "pr_supplier_gstin": self.pr_supplier_gstin,
+            "gstr_supplier_gstin": self.gstr_supplier_gstin,
             "supplier_name": self.supplier_name,
             "invoice_number": self.invoice_number,
             "invoice_date": self.invoice_date,
@@ -423,10 +428,12 @@ def build_outcome_rows(
         rows.append(
             OutcomeRow(
                 id=f"gm:{pid}",
-                category="wrongful_risk",
+                category="gstin_mismatch",
                 supplier_gstin=str(
                     gm.get("pr_supplier_gstin") or p.get("supplier_gstin") or ""
                 ),
+                pr_supplier_gstin=gm.get("pr_supplier_gstin"),
+                gstr_supplier_gstin=gm.get("gstr_supplier_gstin"),
                 supplier_name=None,
                 invoice_number=invn,
                 invoice_date=str(invd) if invd else None,
@@ -544,6 +551,7 @@ def build_outcome_rows(
         "rule37_warnings",
         "blocked_credit",
         "credit_notes",
+        "gstin_mismatch",
     ]}
     for r in rows:
         ccounts[r.category] = ccounts.get(r.category, 0) + 1
@@ -566,10 +574,7 @@ def build_outcome_rows(
         int(x.get("total_tax_paise") or 0) for x in (engine.get("missed_itc") or [])
     )
     w_risk = sum(int(x.get("total_tax_paise") or 0) for x in (engine.get("wrongful_itc_risk") or []))
-    # GSTIN-mismatch pairs are surfaced in the ITC-at-Risk bucket as review items.
-    w_risk += sum(
-        int(x.get("total_tax_paise") or 0) for x in (engine.get("gstin_mismatch") or [])
-    )
+
 
     matched_itc = 0
     for m0 in engine.get("matched") or []:

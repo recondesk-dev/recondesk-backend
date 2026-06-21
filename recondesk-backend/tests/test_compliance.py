@@ -112,8 +112,8 @@ class TestRule37Decisions:
             supplier_gstin="27ABCDE1234F1Z0",
             itc_amount="9000.00",
         )
-        assert "27ABCDE1234F1Z0" in d.next, (
-            f"Supplier GSTIN must appear in next action. Got: '{d.next}'"
+        assert "Pay supplier by 15-Oct-2024" in d.next, (
+            f"Next action must mention the deadline date. Got: '{d.next}'"
         )
 
     def test_rule37_zero_days_remaining_is_overdue(self):

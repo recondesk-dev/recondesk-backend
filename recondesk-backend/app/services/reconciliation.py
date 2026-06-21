@@ -501,6 +501,22 @@ def _identity_key(gstin: str | None, invoice: str | None) -> tuple[str, str]:
     )
 
 
+def _levenshtein_distance(s1: str, s2: str) -> int:
+    if len(s1) < len(s2):
+        return _levenshtein_distance(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    previous_row = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    return previous_row[-1]
+
 def resolve_orphans(
     matched: list[dict],
     missed_itc: list[dict],
@@ -513,9 +529,9 @@ def resolve_orphans(
     """Reclassify orphan pools so no invoice is double-counted.
 
     1. **GSTIN mismatch** — a GSTR-only (missed) row and a PR-only (risk) row that
-       share the same PAN + normalized invoice number + ITC (within tolerance) but
-       have different GSTINs are a likely typo: paired into ``gstin_mismatch`` and
-       removed from both orphan pools.
+       share the same normalized invoice number + ITC (within tolerance) but
+       have different GSTINs (edit distance <= 2) are a likely typo: paired into
+       ``gstin_mismatch`` and removed from both orphan pools.
     2. **Duplicates** — an orphan whose (GSTIN, normalized invoice) identity already
        appears in the matched set, or earlier in the same orphan pool, is a repeat
        filing/booking: moved to ``duplicates`` so it is not counted again.
@@ -534,28 +550,27 @@ def resolve_orphans(
     gstin_mismatch: list[dict] = []
     duplicates: list[dict] = []
 
-    # --- 1. GSTIN-mismatch pairing (different GSTIN, same PAN + invoice + ITC) ---
-    wrongful_by_pan_inv: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    # --- 1. GSTIN-mismatch pairing (different GSTIN edit distance <= 2, same invoice + ITC) ---
+    wrongful_by_inv: dict[str, list[dict]] = defaultdict(list)
     for w in wrongful_itc_risk:
-        pan = _gstin_pan(w.get("supplier_gstin"))
         inv = normalize_invoice(w.get("invoice_number_normalized") or "")
-        wrongful_by_pan_inv[(pan, inv)].append(w)
+        wrongful_by_inv[inv].append(w)
 
     consumed_wrongful: set[int] = set()
     remaining_missed: list[dict] = []
     for mi in missed_itc:
         g_gstin = str(mi.get("supplier_gstin") or "")
-        pan = _gstin_pan(g_gstin)
         inv = normalize_invoice(mi.get("invoice_number_normalized") or "")
         g_tax = int(mi.get("total_tax_paise") or 0)
         partner = None
-        if pan and inv:
-            for w in wrongful_by_pan_inv.get((pan, inv), []):
+        if inv:
+            for w in wrongful_by_inv.get(inv, []):
                 if id(w) in consumed_wrongful:
                     continue
-                if str(w.get("supplier_gstin") or "") == g_gstin:
+                w_gstin = str(w.get("supplier_gstin") or "")
+                if w_gstin == g_gstin:
                     continue  # same GSTIN handled by the matcher, not here
-                if not same_pan(g_gstin, w.get("supplier_gstin")):
+                if _levenshtein_distance(g_gstin, w_gstin) > 2:
                     continue
                 if abs(int(w.get("total_tax_paise") or 0) - g_tax) <= amount_tolerance_paise:
                     partner = w
