@@ -198,6 +198,8 @@ class MatchResult:
     decision_what: str
     decision_why: str
     decision_next: str
+    identity_confidence: str = "High"
+    financial_status: str = "Exact"
     review_reason: str | None = None
     discrepancies: list[str] = field(default_factory=list)
     is_late_filing: bool = False
@@ -478,452 +480,133 @@ def _match_gstr_to_pr_pair(
     pr_is_igst = _safe_paise_field(pr_rec, "igst_paise") > 0
     tax_structure_match = gstr_is_igst == pr_is_igst
     has_tax_lines = _has_explicit_total_tax_line(gstr_rec, pr_rec)
-    l12_total_ok = (
-        total_diff <= TOTAL_TOLERANCE_PAISE if has_tax_lines else True
-    )
-    l12_total_ok_l2 = (
-        total_diff <= AMOUNT_TOLERANCE_L2_PAISE if has_tax_lines else True
-    )
-    l12_finance_ok = l12_total_ok and tax_structure_match
-    l12_finance_ok_l2 = l12_total_ok_l2 and tax_structure_match
-    enforce_total_for_downgrade = has_tax_lines
-
+    
     discrepancies = build_discrepancies(
-        gstr_rec,
-        pr_rec,
-        tg=tg,
-        tp=tp,
-        dg=dg,
-        dp=dp,
-        amount_diff=amount_diff,
-        date_diff_days=date_diff_days,
-        skip_amount=skip_amount,
-        skip_date=skip_date,
+        gstr_rec, pr_rec, tg=tg, tp=tp, dg=dg, dp=dp,
+        amount_diff=amount_diff, date_diff_days=date_diff_days,
+        skip_amount=skip_amount, skip_date=skip_date,
     )
     _append_financial_discrepancies(
-        discrepancies,
-        gstr_rec=gstr_rec,
-        pr_rec=pr_rec,
-        gstr_total=gstr_total,
-        pr_total=pr_total,
-        total_diff=total_diff,
-        tax_structure_match=tax_structure_match,
-        gstr_is_igst=gstr_is_igst,
-        pr_is_igst=pr_is_igst,
+        discrepancies, gstr_rec=gstr_rec, pr_rec=pr_rec,
+        gstr_total=gstr_total, pr_total=pr_total, total_diff=total_diff,
+        tax_structure_match=tax_structure_match, gstr_is_igst=gstr_is_igst, pr_is_igst=pr_is_igst,
     )
 
     inv_ok = invoices_effectively_match(g_inv, p_inv)
+    format_variant = False
+    if not inv_ok:
+        format_variant = is_invoice_format_variant(g_inv, p_inv, gstr_rec.get("invoice_number"), pr_rec.get("invoice_number"))
+    inv_sim = invoice_similarity(g_inv, p_inv)
+    strong_invoice = inv_ok or format_variant or inv_sim >= INVOICE_SIMILARITY_L5_MIN
 
-    amount_diff_paise = amount_diff
-    percentage_diff = _compute_percentage_diff(amount_diff_paise, skip_amount, tg, tp)
-
-    amount_within_l1 = skip_amount or amount_diff_paise <= AMOUNT_TOLERANCE_L1_PAISE
-    amount_within_l2 = skip_amount or amount_diff_paise <= AMOUNT_TOLERANCE_L2_PAISE
+    amount_within_l1 = skip_amount or amount_diff <= AMOUNT_TOLERANCE_L1_PAISE
+    amount_within_l2 = skip_amount or amount_diff <= AMOUNT_TOLERANCE_L2_PAISE
     date_within_l1 = skip_date or date_diff_days <= DATE_TOLERANCE_L1_DAYS
     date_within_l2 = skip_date or date_diff_days <= DATE_TOLERANCE_L2_DAYS
-    date_within_l3 = skip_date or date_diff_days <= DATE_TOLERANCE_L3_DAYS
 
-    # Fast path — L1 exact match via hash lookup (skip L2–L5 when hash + L1 criteria align)
-    if gstr_by_invoice is not None:
-        pr_inv = invoice_match_key_for_record(pr_rec)
-        if pr_inv and pr_inv in gstr_by_invoice:
-            candidate = gstr_by_invoice[pr_inv]
-            if (
-                str(candidate.get("id")) == str(gstr_rec.get("id"))
-                and gstin_match
-                and inv_ok
-                and amount_within_l1
-                and date_within_l1
-                and l12_finance_ok
-            ):
-                return _financial_downgrade_l13(
-                    MatchResult(
-                        level=1,
-                        matched=True,
-                        confidence=100,
-                        requires_human_review=False,
-                        decision_what="Exact match found",
-                        decision_why="Invoice number, amount, and date all match within rounding tolerance",
-                        decision_next="No action required",
-                        discrepancies=discrepancies,
-                    ),
-                    gstin_match=gstin_match,
-                    total_diff=total_diff,
-                    enforce_total_tolerance=enforce_total_for_downgrade,
+    # Helper for evaluating financial match severity
+    financial_status = "Exact"
+    if not tax_structure_match:
+        financial_status = "Tax Mismatch"
+    elif not skip_amount and amount_diff > AMOUNT_TOLERANCE_L1_PAISE:
+        financial_status = "Amount Mismatch"
+    elif has_tax_lines and total_diff > TOTAL_TOLERANCE_PAISE:
+        financial_status = "Tax Mismatch"
+    elif not skip_amount and amount_diff > 0:
+        financial_status = "Round-off"
+
+    l12_finance_ok = financial_status in ("Exact", "Round-off")
+
+    # Tier 1: Same GSTIN + exact normalized invoice number
+    if gstin_match and inv_ok:
+        if financial_status in ("Exact", "Round-off") and date_within_l1:
+            return MatchResult(
+                level=1, matched=True, confidence=100, requires_human_review=False,
+                decision_what="Exact match found", decision_why="Invoice number, amount, and date align",
+                decision_next="No action required", discrepancies=discrepancies,
+                identity_confidence="High", financial_status=financial_status
+            )
+        else:
+            return MatchResult(
+                level=3, matched=True, confidence=80, requires_human_review=True,
+                decision_what="Invoice matched but with differences", decision_why="Same invoice number and GSTIN, but amount or date differ",
+                decision_next="Review differences and correct if needed", review_reason=f"{financial_status} or Date mismatch",
+                discrepancies=discrepancies, identity_confidence="High", financial_status=financial_status
+            )
+
+    # Tier 2: Same GSTIN + strong invoice fuzzy score
+    if gstin_match and strong_invoice:
+        identity_conf = "High" if format_variant else "Medium"
+        if amount_within_l2 and date_within_l2:
+            if l12_finance_ok:
+                return MatchResult(
+                    level=2 if format_variant else 5, matched=True, confidence=90 if format_variant else 70, requires_human_review=False if format_variant else True,
+                    decision_what="Fuzzy match found", decision_why="Invoice format variant or highly similar invoice number with matching amounts",
+                    decision_next="Verify if needed", discrepancies=discrepancies,
+                    identity_confidence=identity_conf, financial_status=financial_status,
+                    review_reason="Fuzzy invoice match" if not format_variant else None
                 )
+            else:
+                return MatchResult(
+                    level=3, matched=True, confidence=60, requires_human_review=True,
+                    decision_what="Fuzzy match with amount mismatch", decision_why="Similar invoice number but differing amounts",
+                    decision_next="Review differences", review_reason=f"Fuzzy invoice + {financial_status}",
+                    discrepancies=discrepancies, identity_confidence=identity_conf, financial_status=financial_status
+                )
+        else:
+            # Amount Mismatch but strong invoice identity
+            return MatchResult(
+                level=3, matched=True, confidence=60, requires_human_review=True,
+                decision_what="Fuzzy match with amount mismatch", decision_why="Similar invoice number but differing amounts",
+                decision_next="Review differences", review_reason="Amount Mismatch",
+                discrepancies=discrepancies, identity_confidence=identity_conf, financial_status="Amount Mismatch"
+            )
 
-    # Rs1 bucket is L1-only when invoice+GSTIN+L1 date would apply; never L2/L3 for that slice.
-    in_l1_rounding_band = (not skip_amount) and amount_diff_paise < AMOUNT_TOLERANCE_L1_PAISE
-    may_use_l2_l3 = skip_amount or not in_l1_rounding_band or not date_within_l1
+    # Tier 3: Same GSTIN + amount nearby + date nearby + vendor/trade name similarity
+    if gstin_match and amount_within_l1 and date_within_l2:
+        vendor_sim = vendor_name_similarity(pr_rec.get("vendor_name", ""), gstr_rec.get("supplier_name", ""))
+        if vendor_sim > 0.8:
+            return MatchResult(
+                level=4, matched=True, confidence=50, requires_human_review=True,
+                decision_what="Possible match on supplier and amount", decision_why="Vendor name and amount match, but invoice number differs",
+                decision_next="Verify invoice number", review_reason="Invoice mismatch, Vendor match",
+                discrepancies=discrepancies, identity_confidence="Low", financial_status=financial_status,
+                vendor_similarity_score=vendor_sim
+            )
 
-    l2_pct_ok = percentage_diff <= AMOUNT_TOLERANCE_L2_PCT
-    l3_pct_ok = (
-        percentage_diff > AMOUNT_TOLERANCE_L2_PCT
-        and percentage_diff <= AMOUNT_TOLERANCE_L3_PCT
-    )
-    l3_absolute_guard = skip_amount or amount_diff_paise > AMOUNT_TOLERANCE_L1_PAISE
-    within_l3_pct_cap = skip_amount or percentage_diff <= AMOUNT_TOLERANCE_L3_PCT
-
-    # L1 — Exact (supplier GSTIN must align; L4/L5 also require gstin_match)
-    if (
-        gstin_match
-        and inv_ok
-        and amount_within_l1
-        and date_within_l1
-        and l12_finance_ok
-    ):
-        return _financial_downgrade_l13(
-            MatchResult(
-                level=1,
-                matched=True,
-                confidence=100,
-                requires_human_review=False,
-                decision_what="Exact match found",
-                decision_why="Invoice number, amount, and date all match within rounding tolerance",
-                decision_next="No action required",
-                discrepancies=discrepancies,
-            ),
-            gstin_match=gstin_match,
-            total_diff=total_diff,
-            enforce_total_tolerance=enforce_total_for_downgrade,
-        )
-
-    # L2 — Near (absolute ≤ Rs100 AND relative ≤ 1%; exclusive with L3)
-    if (
-        gstin_match
-        and inv_ok
-        and may_use_l2_l3
-        and amount_within_l2
-        and l2_pct_ok
-        and date_within_l2
-        and l12_finance_ok_l2
-    ):
-        return _financial_downgrade_l13(
-            MatchResult(
-                level=2,
-                matched=True,
-                confidence=90,
-                requires_human_review=False,
-                decision_what="Near match found",
-                decision_why="Invoice number matches. Small amount or date difference detected.",
-                decision_next="Auto-accepted. Verify with supplier if amount difference exceeds Rs50.",
-                discrepancies=discrepancies,
-            ),
-            gstin_match=gstin_match,
-            total_diff=total_diff,
-            enforce_total_tolerance=enforce_total_for_downgrade,
-        )
-
-    # L3 — Amount mismatch (1% < relative ≤ 5%; mutually exclusive with L2)
-    if (
-        gstin_match
-        and inv_ok
-        and may_use_l2_l3
-        and l3_absolute_guard
-        and l3_pct_ok
-        and date_within_l2
-    ):
-        rupees_diff = amount_diff_paise / 100.0
-        pct_display = 100.0 * percentage_diff
-        return _financial_downgrade_l13(
-            MatchResult(
-                level=3,
-                matched=True,
-                confidence=75,
-                requires_human_review=True,
-                decision_what="Invoice matched but amount differs significantly",
-                decision_why="Same invoice number but taxable amount differs by more than Rs100",
-                decision_next="Contact supplier to issue credit/debit note or verify correct invoice",
-                review_reason=(
-                    f"Amount differs by {pct_display:.1f}% (Rs {rupees_diff:.2f})"
-                ),
-                discrepancies=discrepancies,
-            ),
-            gstin_match=gstin_match,
-            total_diff=total_diff,
-            enforce_total_tolerance=enforce_total_for_downgrade,
-        )
-
-    # L2 — Near taxable (≤ Rs100, ≤1%) with tax structure or total discrepancies.
-    # Standard L2 requires l12_finance_ok_l2; this path pairs same GSTIN+invoice when
-    # taxable is close but IGST vs CGST+SGST or invoice total diverges (e.g. INV-003).
-    if (
-        gstin_match
-        and inv_ok
-        and may_use_l2_l3
-        and amount_within_l2
-        and l2_pct_ok
-        and date_within_l2
-        and not l12_finance_ok_l2
-    ):
-        return _financial_downgrade_l13(
-            MatchResult(
-                level=2,
-                matched=True,
-                confidence=90,
-                requires_human_review=False,
-                decision_what="Near match found",
-                decision_why=(
-                    "Invoice number matches with small taxable difference, "
-                    "but tax structure or total value differs"
-                ),
-                decision_next=(
-                    "Verify tax lines and total with supplier; "
-                    "reconcile IGST vs CGST+SGST if needed"
-                ),
-                discrepancies=discrepancies,
-            ),
-            gstin_match=gstin_match,
-            total_diff=total_diff,
-            enforce_total_tolerance=enforce_total_for_downgrade,
-        )
-
-    # Same invoice + GSTIN + amount within L1, but date beyond L2 window — date-only mismatch
-    if (
-        gstin_match
-        and inv_ok
-        and amount_within_l1
-        and not date_within_l2
-    ):
+    # Tier 4: GSTIN typo/mismatch + strong invoice number + strong amount/date evidence
+    
+    # We will compute levenshtein distance inline here if not same pan
+    lev = 999
+    if not same_pan(g_gst, p_gst) and len(g_gst) > 0 and len(p_gst) > 0:
+        s1, s2 = g_gst, p_gst
+        if len(s1) < len(s2): s1, s2 = s2, s1
+        if len(s2) == 0: lev = len(s1)
+        else:
+            prev = range(len(s2) + 1)
+            for i, c1 in enumerate(s1):
+                curr = [i + 1]
+                for j, c2 in enumerate(s2):
+                    curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (c1 != c2)))
+                prev = curr
+            lev = prev[-1]
+            
+    if not gstin_match and (same_pan(g_gst, p_gst) or lev <= 2) and strong_invoice and amount_within_l2 and date_within_l2:
         return MatchResult(
-            level=3,
-            matched=True,
-            confidence=75,
-            requires_human_review=True,
-            decision_what="Invoice matched but date differs significantly",
-            decision_why="Same invoice number, GSTIN and amount match, but date differs by more than 7 days",
-            decision_next="Verify invoice date in purchase register against physical invoice copy. Correct if needed.",
-            review_reason=f"Date gap: {date_diff_days} days between GSTR-2B and purchase register",
-            discrepancies=discrepancies,
-        )
-
-    # Identity + taxable align but invoice total (taxable + tax) differs — match with review, not L6.
-    invoice_number_match = inv_ok
-    date_match = not skip_date and date_within_l1
-    taxable_amount_match = not skip_amount and amount_within_l1
-    if (
-        gstin_match
-        and invoice_number_match
-        and date_match
-        and taxable_amount_match
-        and total_diff > TOTAL_TOLERANCE_PAISE
-    ):
-        return MatchResult(
-            level=3,
-            matched=True,
-            confidence=75,
-            requires_human_review=True,
-            decision_what="Invoice matched but total value differs",
-            decision_why=(
-                "Supplier GSTIN, invoice number, date, and taxable amount align within "
-                "tolerance, but total invoice value (taxable + tax) differs beyond Rs1 rounding"
-            ),
-            decision_next=(
-                "Reconcile tax lines in GSTR-2B vs purchase register; "
-                "verify with supplier if totals should match"
-            ),
-            review_reason="Total value mismatch",
-            discrepancies=discrepancies,
-        )
-
-    # Same invoice identity + taxable as L1, but IGST vs CGST+SGST — L3 review, not L6.
-    if (
-        gstin_match
-        and invoice_number_match
-        and date_match
-        and taxable_amount_match
-        and not tax_structure_match
-    ):
-        return MatchResult(
-            level=3,
-            matched=True,
-            confidence=75,
-            requires_human_review=True,
-            decision_what="Invoice matched but tax structure differs",
-            decision_why=(
-                "Supplier GSTIN, invoice number, date, and taxable amount align within "
-                "tolerance, but GSTR and PR disagree on IGST vs CGST+SGST treatment"
-            ),
-            decision_next=(
-                "Verify interstate vs intrastate treatment and tax lines in both books; "
-                "reconcile with supplier if needed"
-            ),
-            review_reason="Tax structure mismatch",
-            discrepancies=discrepancies,
-        )
-
-    # DISCREPANCY — same supplier GSTIN + same invoice number, amount differs beyond
-    # the L1/L2/L3 bands. Link as one matched-with-discrepancy pair (AMOUNT_MISMATCH)
-    # instead of dropping to L6, which would orphan the invoice into BOTH Missed ITC
-    # and ITC at Risk (double counting). Date must still be within the L2 window
-    # (or absent) so we never link a re-used invoice number across distant dates.
-    if (
-        gstin_match
-        and inv_ok
-        and (skip_date or date_within_l2)
-        and not skip_amount
-        and amount_diff_paise > AMOUNT_TOLERANCE_L1_PAISE
-    ):
-        rupees_diff = amount_diff_paise / 100.0
-        pct_display = 100.0 * percentage_diff
-        return MatchResult(
-            level=3,
-            matched=True,
-            confidence=70,
-            requires_human_review=True,
-            decision_what="Invoice matched but amount differs significantly",
-            decision_why=(
-                "Supplier GSTIN and invoice number match, but taxable amount "
-                "differs beyond tolerance"
-            ),
-            decision_next=(
-                "Contact supplier to verify the correct invoice value or issue a "
-                "credit/debit note"
-            ),
-            review_reason=(
-                f"AMOUNT_MISMATCH: differs by {pct_display:.1f}% (Rs {rupees_diff:.2f})"
-            ),
-            discrepancies=discrepancies,
-        )
-
-    # NORMALIZED INVOICE VARIANT — same GSTIN, amount + date align, and the invoice
-    # numbers are the same identity in a different format (e.g. DS/26/78 vs
-    # DS-2026-00078). Levenshtein similarity can fall below the L5 floor for these,
-    # so link explicitly as a fuzzy/normalized match rather than orphaning.
-    if (
-        gstin_match
-        and not inv_ok
-        and amount_within_l1
-        and (skip_date or date_within_l1)
-        and is_invoice_format_variant(
-            g_inv, 
-            p_inv, 
-            gstr_rec.get("invoice_number"), 
-            pr_rec.get("invoice_number")
-        )
-    ):
-        return MatchResult(
-            level=5,
-            matched=True,
-            confidence=60,
-            requires_human_review=True,
-            decision_what="Invoice matched after format normalization",
-            decision_why=(
-                "Supplier GSTIN, amount and date match; invoice numbers are the same "
-                "after removing separators and format differences"
-            ),
-            decision_next=(
-                "Auto-linked as a format variant. Confirm the invoice identity with "
-                "the supplier if needed."
-            ),
-            review_reason=(
-                f"NORMALIZED_MATCH: '{g_inv}' <-> '{p_inv}' after normalization"
-            ),
-            discrepancies=discrepancies,
-        )
-
-    # L4 — Invoice number mismatch
-    if (
-        gstin_match
-        and not inv_ok
-        and amount_within_l2
-        and date_within_l2
-        and invoice_similarity(g_inv, p_inv) >= 0.40
-    ):
-        vendor_sim = vendor_name_similarity(
-            pr_rec.get("vendor_name", ""),
-            gstr_rec.get("supplier_name", ""),
-        )
-        return MatchResult(
-            level=4,
-            matched=True,
-            confidence=50,
-            requires_human_review=True,
-            decision_what="Possible match on supplier and amount but invoice number differs",
-            decision_why="Same supplier GSTIN and similar amount but different invoice number",
-            decision_next="Verify invoice number with supplier. May be a typo or amended invoice.",
-            review_reason=f"Invoice number mismatch: GSTR has {g_inv}, PR has {p_inv}",
-            discrepancies=discrepancies,
-            vendor_similarity_score=vendor_sim,
-        )
-
-    # L5 — Fuzzy invoice (after L1–L4; GSTIN + Rs50 + normalized similarity)
-    amount_within_l5 = skip_amount or amount_diff_paise <= AMOUNT_TOLERANCE_L5_PAISE
-    inv_sim = invoice_similarity(g_inv, p_inv)
-    if (
-        gstin_match
-        and not inv_ok
-        and amount_within_l5
-        and inv_sim >= INVOICE_SIMILARITY_L5_MIN
-    ):
-        vendor_sim = vendor_name_similarity(
-            pr_rec.get("vendor_name", ""),
-            gstr_rec.get("supplier_name", ""),
-        )
-        return MatchResult(
-            level=5,
-            matched=True,
-            confidence=30,
-            requires_human_review=True,
-            decision_what="Weak fuzzy match on supplier, amount, and similar invoice number",
-            decision_why=(
-                "Supplier GSTIN matches, taxable amount within Rs50, and invoice numbers are "
-                "similar after normalization"
-            ),
-            decision_next=(
-                "Manually verify with supplier. Do not auto-accept this match without "
-                "confirming the invoice identity."
-            ),
-            review_reason=(
-                f"Fuzzy invoice match (similarity {inv_sim:.2f}); "
-                f"{explain_invoice_difference(g_inv, p_inv)}"
-            ),
-            discrepancies=discrepancies,
-            vendor_similarity_score=vendor_sim,
-        )
-
-    # GSTIN_MISMATCH — invoice number + amount + date align, but the supplier GSTIN
-    # differs while sharing the same PAN (a likely typo, e.g. ...1ZF vs ...1ZZ). This
-    # must NEVER be a clean EXACT/FUZZY match. Surface as a human-review record so the
-    # pair can be linked once in a review bucket instead of producing two orphans.
-    # ``matched=False`` keeps it out of the auto-accepted matched pool; the
-    # reconciliation orphan-resolver pairs these explicitly.
-    if (
-        not gstin_match
-        and inv_ok
-        and amount_within_l1
-        and (skip_date or date_within_l1)
-        and same_pan(g_gst, p_gst)
-    ):
-        return MatchResult(
-            level=4,
-            matched=False,
-            confidence=0,
-            requires_human_review=True,
-            decision_what="Possible GSTIN typo — supplier GSTIN differs",
-            decision_why=(
-                "Invoice number, amount and date match, but the supplier GSTIN differs "
-                "from the GSTR-2B GSTIN (same PAN). Likely a data-entry error."
-            ),
-            decision_next=(
-                "Correct the supplier GSTIN in the purchase register, then re-run. Do "
-                "not claim ITC until the GSTIN matches the GSTR-2B record."
-            ),
-            review_reason=f"GSTIN_MISMATCH: GSTR={g_gst}, PR={p_gst}",
-            discrepancies=discrepancies,
+            level=4, matched=True, confidence=50, requires_human_review=True,
+            decision_what="GSTIN Mismatch", decision_why="Invoice number, amount and date match, but GSTIN differs",
+            decision_next="Correct the supplier GSTIN", review_reason="GSTIN_MISMATCH",
+            discrepancies=discrepancies, identity_confidence="High", financial_status=financial_status
         )
 
     # L6 — No match
     return MatchResult(
-        level=6,
-        matched=False,
-        confidence=0,
-        requires_human_review=False,
-        decision_what="No match found in purchase register",
-        decision_why="No PR record matches this GSTR invoice on any criteria",
+        level=6, matched=False, confidence=0, requires_human_review=False,
+        decision_what="No match found in purchase register", decision_why="No PR record matches this GSTR invoice on any criteria",
         decision_next="Check if supplier filed late. If missing, raise ITC risk flag and follow up with supplier.",
-        discrepancies=discrepancies,
+        discrepancies=discrepancies, identity_confidence="None", financial_status="None"
     )
+
 
 
 def match_gstr_to_pr(

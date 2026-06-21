@@ -91,27 +91,22 @@ def _tie_key(
 def _accept_reconciliation_pair(
     gstr_rec: dict, pr_rec: dict, result: MatchResult
 ) -> bool:
-    """Gate matcher output for 1:1 reconciliation: same GSTIN, no L4/L6, min invoice sim."""
+    """Gate matcher output for 1:1 reconciliation."""
     if result.level == 6 or result.level > 5:
         return False
     g_gst = str(gstr_rec.get("supplier_gstin") or "").strip()
     p_gst = str(pr_rec.get("supplier_gstin") or "").strip()
-    if not g_gst or g_gst != p_gst:
+    
+    if not g_gst or not p_gst:
         return False
-    # L4 links different invoice numbers with similar amounts — too weak for strict pairing
-    # (e.g. INV099 vs INV999 at the same taxable totals).
-    if result.level == 4:
+        
+    if g_gst != p_gst:
+        # Only allow GSTIN mismatch if explicitly marked as Review Required (Tier 4)
+        if result.requires_human_review and result.review_reason == "GSTIN_MISMATCH":
+            return True
         return False
-    g_inv = str(gstr_rec.get("invoice_number_normalized") or "")
-    p_inv = str(pr_rec.get("invoice_number_normalized") or "")
-    if invoice_similarity(g_inv, p_inv) >= INVOICE_SIMILARITY_L5_MIN:
-        return True
-    # Format variants (e.g. DS/26/78 vs DS-2026-00078) can score below the
-    # similarity floor; accept them when the matcher already linked the pair.
-    return is_invoice_format_variant(
-        gstr_rec.get("invoice_number") or g_inv,
-        pr_rec.get("invoice_number") or p_inv,
-    )
+
+    return True
 
 
 def _match_reasons_from_result(result: MatchResult) -> list[str]:
@@ -197,6 +192,7 @@ def _get_tax_bucket(amount_paise: int | None) -> int:
 class PRCandidateIndices:
     by_taxable: dict[str, dict[int, list[dict]]] = field(default_factory=dict)
     by_tax: dict[str, dict[int, list[dict]]] = field(default_factory=dict)
+    by_invoice_norm_global: dict[str, list[dict]] = field(default_factory=dict)
 
 def build_pr_candidate_indices(pr_index: dict[str, list[dict]]) -> PRCandidateIndices:
     indices = PRCandidateIndices()
@@ -208,6 +204,14 @@ def build_pr_candidate_indices(pr_index: dict[str, list[dict]]) -> PRCandidateIn
             txb = _get_tax_bucket(pr.get("total_tax_paise"))
             taxable_dict[tb].append(pr)
             tax_dict[txb].append(pr)
+            
+            # Global invoice norm index
+            inv_norm = str(pr.get("invoice_number_normalized") or "")
+            if inv_norm:
+                if inv_norm not in indices.by_invoice_norm_global:
+                    indices.by_invoice_norm_global[inv_norm] = []
+                indices.by_invoice_norm_global[inv_norm].append(pr)
+                
         indices.by_taxable[gstin] = dict(taxable_dict)
         indices.by_tax[gstin] = dict(tax_dict)
     return indices
@@ -240,14 +244,21 @@ def _get_narrowed_candidates(
     tb = _get_tax_bucket(g_taxable)
     txb = _get_tax_bucket(g_tax)
 
+    # Candidates by exact GSTIN and nearby taxable bucket
     taxable_buckets = candidate_indices.by_taxable.get(gstin, {})
     for b in (tb - 1, tb, tb + 1):
         for pr in taxable_buckets.get(b, []):
             candidates_set[str(pr["id"])] = pr
 
+    # Candidates by exact GSTIN and nearby tax bucket
     tax_buckets = candidate_indices.by_tax.get(gstin, {})
     for b in (txb - 1, txb, txb + 1):
         for pr in tax_buckets.get(b, []):
+            candidates_set[str(pr["id"])] = pr
+
+    # Candidates by exact normalized invoice number globally (handles GSTIN typos)
+    if inv_norm:
+        for pr in candidate_indices.by_invoice_norm_global.get(inv_norm, []):
             candidates_set[str(pr["id"])] = pr
 
     ordered = []
@@ -264,10 +275,35 @@ class ReconState:
     """Mutable state for multi-chunk GSTR↔PR matching (avoids re-processing or duplicate PR use)."""
 
     matched: list[dict] = field(default_factory=list)
+    review_required: list[dict] = field(default_factory=list)
     matched_pr_ids: set[str] = field(default_factory=set)
     matched_gstr_ids: set[str] = field(default_factory=set)
     missed_itc: list[dict] = field(default_factory=list)
+    metrics: dict[str, int] = field(default_factory=lambda: defaultdict(int))
 
+
+
+def _push_matched(state, gstr_id, pr_id, score, best_result, is_late_filing=False, original_period=None, late_months=0):
+    match_dict = {
+        "gstr_id": str(gstr_id),
+        "pr_id": str(pr_id),
+        "confidence_score": score,
+        "match_reasons": _match_reasons_from_result(best_result),
+        "is_late_filing": is_late_filing,
+        "original_period": original_period,
+        "late_months": late_months,
+        "match_status_text": "Review Required" if best_result.requires_human_review else "Matched",
+        "vendor_similarity_score": best_result.vendor_similarity_score,
+        "identity_confidence": getattr(best_result, "identity_confidence", "High"),
+        "financial_status": getattr(best_result, "financial_status", "Exact"),
+        "review_reason": best_result.review_reason,
+    }
+    if best_result.requires_human_review:
+        state.review_required.append(match_dict)
+    else:
+        state.matched.append(match_dict)
+    state.matched_pr_ids.add(str(pr_id))
+    state.matched_gstr_ids.add(str(gstr_id))
 
 def process_gstr_records_chunk(
     gstr_records: list[dict],
@@ -279,6 +315,7 @@ def process_gstr_records_chunk(
     gstr_by_invoice: dict[str, dict] | None = None,
     pr_by_invoice: dict[str, dict[str, dict]] | None = None,
     candidate_indices: PRCandidateIndices | None = None,
+    audit_mode: bool = False,
 ) -> None:
     """Match a chunk of GSTR rows using shared *state* (same invariants as full run)."""
     gstr_period = date(effective_gstr_period.year, effective_gstr_period.month, 1)
@@ -354,21 +391,7 @@ def process_gstr_records_chunk(
 
         if best_result is not None and best_pr is not None:
             score = compute_match_score(best_result)
-            state.matched.append(
-                {
-                    "gstr_id": str(gstr_record["id"]),
-                    "pr_id": str(best_pr["id"]),
-                    "confidence_score": score,
-                    "match_reasons": _match_reasons_from_result(best_result),
-                    "is_late_filing": False,
-                    "original_period": None,
-                    "late_months": 0,
-                    "match_status_text": "Matched",
-                    "vendor_similarity_score": best_result.vendor_similarity_score,
-                }
-            )
-            state.matched_pr_ids.add(str(best_pr["id"]))
-            state.matched_gstr_ids.add(gstr_id)
+            _push_matched(state, gstr_record["id"], best_pr["id"], score, best_result)
             continue
 
         inv_raw = gstr_record.get("invoice_date")
@@ -677,6 +700,7 @@ def _finalize_reconciliation_result(
 
     return {
         "matched": state.matched,
+        "review_required": state.review_required,
         "missed_itc": state.missed_itc,
         "wrongful_itc_risk": wrongful_itc_risk,
         "gstin_mismatch": gstin_mismatch,
@@ -685,6 +709,7 @@ def _finalize_reconciliation_result(
             "total_gstr": total_gstr,
             "total_pr": total_pr,
             "matched_count": matched_count,
+            "review_required_count": len(state.review_required),
             "missed_itc_count": missed_itc_count,
             "missed_itc_amount_paise": missed_itc_amount_paise,
             "wrongful_risk_count": wrongful_risk_count,
@@ -703,6 +728,7 @@ def run_bidirectional_reconciliation(
     pr_records: list[dict],
     gstr_period: date | None = None,
     pr_records_by_period: dict[date, list[dict]] | None = None,
+    audit_mode: bool = False,
 ) -> dict:
     total_gstr = len(gstr_records)
     total_pr = len(pr_records)
@@ -767,6 +793,7 @@ def run_bidirectional_reconciliation(
         gstr_by_invoice=gstr_by_invoice,
         pr_by_invoice=pr_by_invoice,
         candidate_indices=candidate_indices,
+        audit_mode=audit_mode,
     )
     wrongful_itc_risk = build_wrongful_itc_risk(pr_records, state.matched_pr_ids)
 
