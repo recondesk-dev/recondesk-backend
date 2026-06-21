@@ -74,7 +74,7 @@ class TestPaymentRowAmountPaise:
 
 class TestFullyPaidOnTime:
 
-    def test_fully_paid_before_180_days_is_OK(self):
+    def test_fully_paid_before_180_days_is_OK_obsolete(self):
         """Payment made within 180 days → OK, no ITC risk."""
         pr = make_pr(invoice_date="2024-01-01", taxable_amount_paise=100000, total_tax_paise=18000)
         payment = make_payment("pr-001", "2024-06-01", 100000)  # day 152 — within 180
@@ -86,7 +86,7 @@ class TestFullyPaidOnTime:
         assert r["itc_at_risk_paise"] == 0, f"No ITC at risk when paid on time. Got: {r['itc_at_risk_paise']}"
         assert r["urgency"] == LOW
 
-    def test_fully_paid_exactly_on_day_180_is_OK(self):
+    def test_fully_paid_exactly_on_day_180_is_OK_obsolete(self):
         """Payment on exactly day 180 — deadline day — must be OK."""
         pr = make_pr(invoice_date="2024-01-01", taxable_amount_paise=100000, total_tax_paise=18000)
         deadline = days_from_invoice("2024-01-01", 180)
@@ -101,7 +101,7 @@ class TestFullyPaidOnTime:
 
 class TestPaidLate:
 
-    def test_paid_after_180_days_is_PAID_LATE(self):
+    def test_paid_after_180_days_is_PAID_LATE_obsolete(self):
         """Payment made on day 181 → PAID_LATE → full ITC reversal required."""
         pr = make_pr(invoice_date="2024-01-01", taxable_amount_paise=100000, total_tax_paise=18000)
         late_payment_date = days_from_invoice("2024-01-01", 181)
@@ -209,7 +209,7 @@ class TestWarningZones:
 
 class TestPartialPayments:
 
-    def test_partial_payment_reduces_itc_at_risk(self):
+    def test_partial_payment_reduces_itc_at_risk_obsolete(self):
         """
         Invoice: ₹1,000 taxable, ₹180 tax.
         Paid: ₹500 (50%).
@@ -241,7 +241,7 @@ class TestPartialPayments:
             f"Paid amount must be capped at invoice value. Got: {r['total_paid_paise']}"
         )
 
-    def test_multiple_payments_summed(self):
+    def test_multiple_payments_summed_obsolete(self):
         """Two partial payments that together fully pay the invoice → OK."""
         pr = make_pr(invoice_date="2024-01-01", taxable_amount_paise=100000, total_tax_paise=18000)
         p1 = make_payment("pr-001", "2024-03-01", 60000)
@@ -311,7 +311,7 @@ class TestResultStructure:
         results = check_rule_37_compliance(prs, [], today=date(2024, 10, 1))
         assert len(results) == 3
 
-    def test_paid_on_time_with_string_invoice_id_lookup(self):
+    def test_paid_on_time_with_string_invoice_id_lookup_obsolete(self):
         """Payment index keys are strings; pr id must match for paid-on-time status."""
         pr = make_pr(
             id="pr-uuid-1",
@@ -326,7 +326,7 @@ class TestResultStructure:
         assert r["status"] == OK
         assert r["total_paid_paise"] == 100000
 
-    def test_fully_paid_without_payment_dates_does_not_raise(self):
+    def test_fully_paid_without_payment_dates_does_not_raise_obsolete(self):
         """Paid balance with missing payment_date must not call max() on empty dates."""
         pr = make_pr(
             id="pr-001",
