@@ -197,6 +197,7 @@ async def get_reconciliation_results(
             "rule37_warnings": ccounts.get("rule37_warnings", 0),
             "blocked_credit": ccounts.get("blocked_credit", 0),
             "credit_notes": ccounts.get("credit_notes", 0),
+            "gstin_mismatch": ccounts.get("gstin_mismatch", 0),
         },
         "blocked_credit_warnings": blocked_credit_warnings,
     }
@@ -212,6 +213,7 @@ async def get_reconciliation_invoices(
         "rule37_warnings",
         "blocked_credit",
         "credit_notes",
+        "gstin_mismatch",
     ] = Query(..., description="Invoice bucket"),
     supplier_gstin: Optional[str] = None,
     invoice_search: Optional[str] = None,
