@@ -454,6 +454,7 @@ def process_gstr_records_chunk(
             continue
 
         ttp = gstr_record.get("total_tax_paise")
+        tap = gstr_record.get("taxable_amount_paise")
         state.missed_itc.append(
             {
                 "gstr_id": gstr_id,
@@ -462,6 +463,7 @@ def process_gstr_records_chunk(
                     gstr_record.get("invoice_number_normalized") or ""
                 ),
                 "invoice_date": gstr_record.get("invoice_date"),
+                "taxable_amount_paise": int(tap) if tap is not None else 0,
                 "total_tax_paise": int(ttp) if ttp is not None else 0,
             }
         )
@@ -562,6 +564,7 @@ def resolve_orphans(
         g_gstin = str(mi.get("supplier_gstin") or "")
         inv = normalize_invoice(mi.get("invoice_number_normalized") or "")
         g_tax = int(mi.get("total_tax_paise") or 0)
+        g_taxable = int(mi.get("taxable_amount_paise") or 0)
         partner = None
         if inv:
             for w in wrongful_by_inv.get(inv, []):
@@ -572,7 +575,8 @@ def resolve_orphans(
                     continue  # same GSTIN handled by the matcher, not here
                 if _levenshtein_distance(g_gstin, w_gstin) > 2:
                     continue
-                if abs(int(w.get("total_tax_paise") or 0) - g_tax) <= amount_tolerance_paise:
+                w_taxable = int(w.get("taxable_amount_paise") or 0)
+                if abs(w_taxable - g_taxable) <= amount_tolerance_paise:
                     partner = w
                     break
         if partner is not None:
