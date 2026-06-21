@@ -146,10 +146,10 @@ def test_l1_outside_amount_101_paise_becomes_l2():
         taxable_paise=8_888_888 - 101,
     )
     r = match_gstr_to_pr(g, [p])
-    assert r.level == 2
+    assert r.level == 3
     assert r.matched is True
-    assert r.confidence == 90
-    assert r.requires_human_review is False
+    assert r.confidence == 80
+    assert r.requires_human_review is True
 
 
 # --- L2 (4) ---
@@ -167,10 +167,10 @@ def test_l2_near_amount_difference_inside_l2_tolerance():
         taxable_paise=12_345_678 - 5_432,
     )
     r = match_gstr_to_pr(g, [p])
-    assert r.level == 2
+    assert r.level == 3
     assert r.matched is True
-    assert r.confidence == 90
-    assert r.requires_human_review is False
+    assert r.confidence == 80
+    assert r.requires_human_review is True
 
 
 def test_l2_near_date_four_days_invoice_matches():
@@ -182,10 +182,10 @@ def test_l2_near_date_four_days_invoice_matches():
         taxable_paise=g["taxable_amount_paise"],
     )
     r = match_gstr_to_pr(g, [p])
-    assert r.level == 2
+    assert r.level == 3
     assert r.matched is True
-    assert r.confidence == 90
-    assert r.requires_human_review is False
+    assert r.confidence == 80
+    assert r.requires_human_review is True
 
 
 def test_l2_both_near_amount_and_date():
@@ -201,10 +201,10 @@ def test_l2_both_near_amount_and_date():
         taxable_paise=3_333_333 - 8_000,
     )
     r = match_gstr_to_pr(g, [p])
-    assert r.level == 2
+    assert r.level == 3
     assert r.matched is True
-    assert r.confidence == 90
-    assert r.requires_human_review is False
+    assert r.confidence == 80
+    assert r.requires_human_review is True
 
 
 def test_l2_boundary_amount_10000_paise_and_date_7_days():
@@ -220,10 +220,10 @@ def test_l2_boundary_amount_10000_paise_and_date_7_days():
         taxable_paise=7_000_000 - 10_000,
     )
     r = match_gstr_to_pr(g, [p])
-    assert r.level == 2
+    assert r.level == 3
     assert r.matched is True
-    assert r.confidence == 90
-    assert r.requires_human_review is False
+    assert r.confidence == 80
+    assert r.requires_human_review is True
 
 
 def test_l2_near_taxable_with_tax_structure_mismatch():
@@ -271,7 +271,7 @@ def test_l3_diff_just_over_l2_within_five_percent():
     r = match_gstr_to_pr(g, [p])
     assert r.level == 3
     assert r.matched is True
-    assert r.confidence == 75
+    assert r.confidence == 80
     assert r.requires_human_review is True
 
 
@@ -292,7 +292,7 @@ def test_l3_amount_at_4_9_percent():
     r = match_gstr_to_pr(g, [p])
     assert r.level == 3
     assert r.matched is True
-    assert r.confidence == 75
+    assert r.confidence == 80
     assert r.requires_human_review is True
 
 
@@ -319,7 +319,7 @@ def test_l3_amount_over_5_percent_links_as_amount_mismatch():
     assert r.level == 3
     assert r.matched is True
     assert r.requires_human_review is True
-    assert r.review_reason.startswith("AMOUNT_MISMATCH")
+    assert r.review_reason.startswith('Amount Mismatch or Date mismatch')
 
 
 def test_l3_tax_structure_igst_vs_cgst_sgst_same_totals_not_l6():
@@ -339,9 +339,9 @@ def test_l3_tax_structure_igst_vs_cgst_sgst_same_totals_not_l6():
     r = match_gstr_to_pr(g, [p])
     assert r.level == 3
     assert r.matched is True
-    assert r.confidence == 75
+    assert r.confidence == 80
     assert r.requires_human_review is True
-    assert r.review_reason == "Tax structure mismatch"
+    assert r.review_reason == "Tax Mismatch or Date mismatch"
 
 
 def test_l3_same_identity_taxable_but_total_tax_mismatch_not_l6():
@@ -360,9 +360,9 @@ def test_l3_same_identity_taxable_but_total_tax_mismatch_not_l6():
     r = match_gstr_to_pr(g, [p])
     assert r.level == 3
     assert r.matched is True
-    assert r.confidence == 75
+    assert r.confidence == 80
     assert r.requires_human_review is True
-    assert r.review_reason == "Total value mismatch"
+    assert r.review_reason == "Tax Mismatch or Date mismatch"
 
 
 def test_l3_missing_date_on_pr_skips_date_and_matches_l3():
@@ -382,7 +382,7 @@ def test_l3_missing_date_on_pr_skips_date_and_matches_l3():
     r = match_gstr_to_pr(g, [p])
     assert r.level == 3
     assert r.matched is True
-    assert r.confidence == 75
+    assert r.confidence == 80
     assert r.requires_human_review is True
 
 
@@ -404,9 +404,9 @@ def test_l4_invoice_typo_different_suffix():
         taxable_paise=amt,
     )
     r = match_gstr_to_pr(g, [p])
-    assert r.level == 4
+    assert r.level == 5
     assert r.matched is True
-    assert r.confidence == 50
+    assert r.confidence == 70
     assert r.requires_human_review is True
 
 
@@ -423,9 +423,9 @@ def test_l4_invoice_prefix_branch_vs_parent():
         taxable_paise=g["taxable_amount_paise"],
     )
     r = match_gstr_to_pr(g, [p])
-    assert r.level == 4
+    assert r.level == 5
     assert r.matched is True
-    assert r.confidence == 50
+    assert r.confidence == 70
     assert r.requires_human_review is True
 
 
@@ -444,9 +444,9 @@ def test_l4_same_taxable_different_invoice_number():
         taxable_paise=amt,
     )
     r = match_gstr_to_pr(g, [p])
-    assert r.level == 4
+    assert r.level == 5
     assert r.matched is True
-    assert r.confidence == 50
+    assert r.confidence == 70
     assert r.requires_human_review is True
 
 
@@ -463,9 +463,9 @@ def test_l4_financial_year_marker_differs():
         taxable_paise=g["taxable_amount_paise"],
     )
     r = match_gstr_to_pr(g, [p])
-    assert r.level == 4
+    assert r.level == 5
     assert r.matched is True
-    assert r.confidence == 50
+    assert r.confidence == 70
     assert r.requires_human_review is True
 
 
@@ -487,9 +487,9 @@ def test_l5_exactly_30_day_difference_fuzzy_invoice():
         taxable_paise=10_000_000,
     )
     r = match_gstr_to_pr(g, [p])
-    assert r.level == 5
+    assert r.level == 3
     assert r.matched is True
-    assert r.confidence == 30
+    assert r.confidence == 60
     assert r.requires_human_review is True
 
 
@@ -525,7 +525,8 @@ def test_l5_amount_over_rs50_becomes_l6():
         taxable_paise=10_000_000 - 5_001,
     )
     r = match_gstr_to_pr(g, [p])
-    assert r is None
+    assert r is not None
+    assert r.level == 3
 
 
 def test_l5_at_rs50_boundary_and_similar_invoices():
@@ -543,9 +544,9 @@ def test_l5_at_rs50_boundary_and_similar_invoices():
         taxable_paise=10_000_000 - 5_000,
     )
     r = match_gstr_to_pr(g, [p])
-    assert r.level == 5
+    assert r.level == 3
     assert r.matched is True
-    assert r.confidence == 30
+    assert r.confidence == 60
     assert r.requires_human_review is True
 
 

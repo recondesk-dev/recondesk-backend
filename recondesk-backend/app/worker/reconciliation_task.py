@@ -894,6 +894,16 @@ def execute_reconciliation(run_id: str) -> None:
         matched_count = len(state.matched)
         missed_itc_count = len(state.missed_itc)
         wrongful_count = len(wrongful_itc)
+        
+        assert matched_count + missed_itc_count + len(gstin_mismatch) == n_gstr, (
+            f"GSTR Data Loss! Matched:{matched_count} Missed:{missed_itc_count} "
+            f"Typo:{len(gstin_mismatch)} Total:{n_gstr}"
+        )
+        assert matched_count + wrongful_count + len(gstin_mismatch) == n_pr, (
+            f"PR Data Loss! Matched:{matched_count} Risk:{wrongful_count} "
+            f"Typo:{len(gstin_mismatch)} Total:{n_pr}"
+        )
+
         run_summary = build_run_summary_metrics(
             n_gstr=n_gstr,
             n_pr=n_pr,
