@@ -548,40 +548,128 @@ def resolve_orphans(
     pr_by_id: dict[str, dict],
     *,
     amount_tolerance_paise: int = TOTAL_TOLERANCE_PAISE,
-) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict]]:
     """Reclassify orphan pools so no invoice is double-counted.
 
+    0. **Duplicate Conflicts** — Any identity (GSTIN, inv_norm) with multiple GSTRs or PRs
+       that cannot be unambiguously paired is pulled into ``review_required``.
     1. **GSTIN mismatch** — a GSTR-only (missed) row and a PR-only (risk) row that
        share the same normalized invoice number + ITC (within tolerance) but
        have different GSTINs (edit distance <= 2) are a likely typo: paired into
        ``gstin_mismatch`` and removed from both orphan pools.
-    2. **Duplicates** — an orphan whose (GSTIN, normalized invoice) identity already
-       appears in the matched set, or earlier in the same orphan pool, is a repeat
-       filing/booking: moved to ``duplicates`` so it is not counted again.
 
-    Returns ``(missed_itc, wrongful_itc_risk, gstin_mismatch, duplicates)``.
+    Returns ``(matched_final, missed_final, wrongful_final, gstin_mismatch, review_required)``.
     """
-    matched_gstr_ids = {_identity_key(
-        (gstr_by_id.get(str(m.get("gstr_id"))) or {}).get("supplier_gstin"),
-        (gstr_by_id.get(str(m.get("gstr_id"))) or {}).get("invoice_number_normalized"),
-    ) for m in matched}
-    matched_pr_ids = {_identity_key(
-        (pr_by_id.get(str(m.get("pr_id"))) or {}).get("supplier_gstin"),
-        (pr_by_id.get(str(m.get("pr_id"))) or {}).get("invoice_number_normalized"),
-    ) for m in matched}
+    review_required: list[dict] = []
+    
+    # --- 0. Duplicate / Conflict detection ---
+    groups = defaultdict(lambda: {"gstr": [], "pr": []})
+    
+    for m in matched:
+        gid = str(m.get("gstr_id"))
+        g = gstr_by_id.get(gid)
+        if g:
+            groups[_identity_key(g.get("supplier_gstin"), g.get("invoice_number_normalized"))]["gstr"].append({
+                "gstr_id": gid,
+                "supplier_gstin": str(g.get("supplier_gstin") or ""),
+                "invoice_number_normalized": str(g.get("invoice_number_normalized") or ""),
+                "invoice_date": g.get("invoice_date"),
+                "taxable_amount_paise": int(g.get("taxable_amount_paise") or 0),
+                "total_tax_paise": int(g.get("total_tax_paise") or 0),
+            })
+            
+        pid = str(m.get("pr_id"))
+        p = pr_by_id.get(pid)
+        if p:
+            groups[_identity_key(p.get("supplier_gstin"), p.get("invoice_number_normalized"))]["pr"].append({
+                "id": pid,
+                "supplier_gstin": str(p.get("supplier_gstin") or ""),
+                "invoice_number_normalized": str(p.get("invoice_number_normalized") or ""),
+                "invoice_date": p.get("invoice_date"),
+                "taxable_amount_paise": int(p.get("taxable_amount_paise") or 0),
+                "total_tax_paise": int(p.get("total_tax_paise") or 0),
+            })
+
+    for mi in missed_itc:
+        groups[_identity_key(mi.get("supplier_gstin"), mi.get("invoice_number_normalized"))]["gstr"].append(mi)
+        
+    for w in wrongful_itc_risk:
+        groups[_identity_key(w.get("supplier_gstin"), w.get("invoice_number_normalized"))]["pr"].append(w)
+
+    conflicted_gstr_ids = set()
+    conflicted_pr_ids = set()
+
+    for key, group in groups.items():
+        g_list = group["gstr"]
+        p_list = group["pr"]
+        
+        if len(g_list) <= 1 and len(p_list) <= 1:
+            continue
+            
+        is_unambiguous = False
+        if len(g_list) == len(p_list):
+            g_sigs = [(int(g.get("taxable_amount_paise") or 0), str(g.get("invoice_date") or "")) for g in g_list]
+            p_sigs = [(int(p.get("taxable_amount_paise") or 0), str(p.get("invoice_date") or "")) for p in p_list]
+            if len(set(g_sigs)) == len(g_list) and sorted(g_sigs) == sorted(p_sigs):
+                is_unambiguous = True
+
+        if not is_unambiguous:
+            for g in g_list:
+                gid = str(g.get("gstr_id") or g.get("id"))
+                if gid not in conflicted_gstr_ids:
+                    conflicted_gstr_ids.add(gid)
+                    review_required.append({**g, "side": "GSTR", "reason": "DUPLICATE_CONFLICT"})
+            for p in p_list:
+                pid = str(p.get("id") or p.get("pr_id"))
+                if pid not in conflicted_pr_ids:
+                    conflicted_pr_ids.add(pid)
+                    review_required.append({**p, "side": "PR", "reason": "DUPLICATE_CONFLICT"})
+
+    # Ensure if one half of a matched pair is conflicted, the other half is too
+    for m in matched:
+        gid = str(m.get("gstr_id"))
+        pid = str(m.get("pr_id"))
+        if gid in conflicted_gstr_ids or pid in conflicted_pr_ids:
+            if gid not in conflicted_gstr_ids:
+                g = gstr_by_id.get(gid)
+                if g:
+                    review_required.append({
+                        "side": "GSTR", "reason": "DUPLICATE_CONFLICT", "gstr_id": gid,
+                        "supplier_gstin": str(g.get("supplier_gstin") or ""),
+                        "invoice_number_normalized": str(g.get("invoice_number_normalized") or ""),
+                        "invoice_date": g.get("invoice_date"),
+                        "taxable_amount_paise": int(g.get("taxable_amount_paise") or 0),
+                        "total_tax_paise": int(g.get("total_tax_paise") or 0),
+                    })
+                    conflicted_gstr_ids.add(gid)
+            if pid not in conflicted_pr_ids:
+                p = pr_by_id.get(pid)
+                if p:
+                    review_required.append({
+                        "side": "PR", "reason": "DUPLICATE_CONFLICT", "id": pid,
+                        "supplier_gstin": str(p.get("supplier_gstin") or ""),
+                        "invoice_number_normalized": str(p.get("invoice_number_normalized") or ""),
+                        "invoice_date": p.get("invoice_date"),
+                        "taxable_amount_paise": int(p.get("taxable_amount_paise") or 0),
+                        "total_tax_paise": int(p.get("total_tax_paise") or 0),
+                    })
+                    conflicted_pr_ids.add(pid)
+
+    matched_final = [m for m in matched if str(m.get("gstr_id")) not in conflicted_gstr_ids and str(m.get("pr_id")) not in conflicted_pr_ids]
+    missed_after_conflict = [mi for mi in missed_itc if str(mi.get("gstr_id")) not in conflicted_gstr_ids]
+    wrongful_after_conflict = [w for w in wrongful_itc_risk if str(w.get("id")) not in conflicted_pr_ids]
 
     gstin_mismatch: list[dict] = []
-    duplicates: list[dict] = []
 
     # --- 1. GSTIN-mismatch pairing (different GSTIN edit distance <= 2, same invoice + ITC) ---
     wrongful_by_inv: dict[str, list[dict]] = defaultdict(list)
-    for w in wrongful_itc_risk:
+    for w in wrongful_after_conflict:
         inv = normalize_invoice(w.get("invoice_number_normalized") or "")
         wrongful_by_inv[inv].append(w)
 
     consumed_wrongful: set[int] = set()
-    remaining_missed: list[dict] = []
-    for mi in missed_itc:
+    missed_final: list[dict] = []
+    for mi in missed_after_conflict:
         g_gstin = str(mi.get("supplier_gstin") or "")
         inv = normalize_invoice(mi.get("invoice_number_normalized") or "")
         g_tax = int(mi.get("total_tax_paise") or 0)
@@ -616,34 +704,13 @@ def resolve_orphans(
                 }
             )
         else:
-            remaining_missed.append(mi)
+            missed_final.append(mi)
 
-    wrongful_after_gm = [
-        w for w in wrongful_itc_risk if id(w) not in consumed_wrongful
+    wrongful_final = [
+        w for w in wrongful_after_conflict if id(w) not in consumed_wrongful
     ]
 
-    # --- 2. Duplicate collapse (repeat filing / booking of an already-seen invoice) ---
-    seen_gstr = set(matched_gstr_ids)
-    missed_final: list[dict] = []
-    for mi in remaining_missed:
-        key = _identity_key(mi.get("supplier_gstin"), mi.get("invoice_number_normalized"))
-        if key in seen_gstr:
-            duplicates.append({**mi, "side": "GSTR", "reason": "DUPLICATE_GSTR"})
-        else:
-            seen_gstr.add(key)
-        missed_final.append(mi)
-
-    seen_pr = set(matched_pr_ids)
-    wrongful_final: list[dict] = []
-    for w in wrongful_after_gm:
-        key = _identity_key(w.get("supplier_gstin"), w.get("invoice_number_normalized"))
-        if key in seen_pr:
-            duplicates.append({**w, "side": "PR", "reason": "DUPLICATE_PR"})
-        else:
-            seen_pr.add(key)
-        wrongful_final.append(w)
-
-    return missed_final, wrongful_final, gstin_mismatch, duplicates
+    return matched_final, missed_final, wrongful_final, gstin_mismatch, review_required
 
 
 def _gstin_pan(gstin: str | None) -> str:
@@ -678,14 +745,17 @@ def _finalize_reconciliation_result(
     dup_gstr = [d for d in duplicates if d.get("side") == "GSTR"]
     dup_pr = [d for d in duplicates if d.get("side") == "PR"]
 
+    review_gstr_count = sum(1 for r in state.review_required if r.get("side") == "GSTR")
+    review_pr_count = sum(1 for r in state.review_required if r.get("side") == "PR")
+
     missed_gstr_ids = {str(m["gstr_id"]) for m in state.missed_itc}
-    # Every GSTR row resolves to exactly one of: matched / missed / gstin_mismatch.
-    # Every PR row to exactly one of: matched / risk / gstin_mismatch.
-    # (Duplicates are now kept inside missed/risk to ensure they are counted in totals).
+    state.matched_gstr_ids = {str(m["gstr_id"]) for m in state.matched}
+    state.matched_pr_ids = {str(m["pr_id"]) for m in state.matched}
+
     sanity_passed = (
-        matched_count + missed_itc_count + gstin_mismatch_count
+        matched_count + missed_itc_count + gstin_mismatch_count + review_gstr_count
         == total_gstr
-        and matched_count + wrongful_risk_count + gstin_mismatch_count
+        and matched_count + wrongful_risk_count + gstin_mismatch_count + review_pr_count
         == total_pr
         and not (state.matched_gstr_ids & missed_gstr_ids)
         and len(state.matched_pr_ids) == matched_count
@@ -707,7 +777,7 @@ def _finalize_reconciliation_result(
             "total_gstr": total_gstr,
             "total_pr": total_pr,
             "matched_count": matched_count,
-            "review_required_count": len(state.review_required),
+            "review_required_count": review_gstr_count,
             "missed_itc_count": missed_itc_count,
             "missed_itc_amount_paise": missed_itc_amount_paise,
             "wrongful_risk_count": wrongful_risk_count,
@@ -715,6 +785,12 @@ def _finalize_reconciliation_result(
             "gstin_mismatch_count": gstin_mismatch_count,
             "gstin_mismatch_amount_paise": gstin_mismatch_amount_paise,
             "duplicate_count": len(duplicates),
+            "duplicate_conflict_count": review_gstr_count,
+            "genuine_gstr_only_count": missed_itc_count,
+            "genuine_pr_only_count": wrongful_risk_count,
+            "clean_matched_count": matched_count,
+            "itc_at_risk_total": wrongful_risk_amount_paise,
+            "missed_itc_total": missed_itc_amount_paise,
             "match_rate_pct": match_rate_pct,
             "sanity_passed": sanity_passed,
         },
@@ -797,15 +873,20 @@ def run_bidirectional_reconciliation(
 
     gstr_by_id = {str(g.get("id")): g for g in gstr_records}
     pr_by_id = {str(p.get("id")): p for p in pr_records}
-    state.missed_itc, wrongful_itc_risk, gstin_mismatch, duplicates = resolve_orphans(
-        state.matched,
-        state.missed_itc,
-        wrongful_itc_risk,
-        gstr_by_id,
-        pr_by_id,
+
+    state.matched, state.missed_itc, wrongful_itc_risk, gstin_mismatch, review_required = resolve_orphans(
+        state.matched, state.missed_itc, wrongful_itc_risk, gstr_by_id, pr_by_id
     )
+
+    state.review_required.extend(review_required)
+
     return _finalize_reconciliation_result(
-        state, wrongful_itc_risk, total_gstr, total_pr, gstin_mismatch, duplicates
+        state,
+        wrongful_itc_risk,
+        total_gstr,
+        total_pr,
+        gstin_mismatch=gstin_mismatch,
+        duplicates=[],
     )
 
 
