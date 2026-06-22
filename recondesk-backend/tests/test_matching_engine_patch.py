@@ -49,8 +49,16 @@ def _rec(rid, gstin, inv, taxable, *, inv_date="2026-05-10", cgst=None, sgst=Non
 def test_normalize_invoice_number_examples():
     assert normalize_invoice_number("DS-2026-00078") == "DS202600078"
     assert normalize_invoice_number("DS/26/78") == "DS2678"
-    assert normalize_invoice_number("INV 001") == "INV001"
-    assert normalize_invoice_number("inv_001") == "INV001"
+    assert normalize_invoice_number("INV 001") == "INV1"   # space stripped, 001→1
+    assert normalize_invoice_number("inv_001") == "INV1"   # underscore stripped, 001→1
+    
+    # Bug fix regression tests: zero-padded without separators
+    assert normalize_invoice_number("002312526") == normalize_invoice_number("2312526")
+    assert normalize_invoice_number("003652526") == normalize_invoice_number("3652526")
+    assert normalize_invoice_number("004992526") == normalize_invoice_number("4992526")
+    assert normalize_invoice_number("INV-001") == normalize_invoice_number("INV001")
+    assert normalize_invoice_number("RD-25-APR-00224") != normalize_invoice_number("RD/2025/APR/00224")
+
     assert normalize_invoice_number(None) == ""
     assert normalize_invoice_number("") == ""
 

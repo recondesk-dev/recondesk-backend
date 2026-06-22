@@ -40,28 +40,19 @@ _RE_TRAILING_DIGITS = re.compile(r"\d+$")
 
 
 def normalize_invoice(inv: str | None) -> str:
-    """Uppercase; alphanumerics only; NO leading zeros removed to prevent corruption."""
-    if inv is None or inv == "":
+    """Normalize invoice number by stripping leading zeros per numeric segment and removing non-alphanumerics."""
+    if not inv:
         return ""
-    return _RE_NON_ALNUM.sub("", str(inv)).upper()
+    s = str(inv).strip().upper()
+    s = _RE_NON_ALNUM.sub("", s)
+    parts = re.findall(r'\d+|\D+', s)
+    parts = [p.lstrip('0') or '0' if p.isdigit() else p for p in parts]
+    return ''.join(parts)
 
 
 def normalize_invoice_number(value: str | None) -> str:
-    """Shared invoice normalization: uppercase, alphanumerics only.
-
-    Unlike :func:`normalize_invoice`, this preserves the full token (leading zeros
-    and embedded year segments are kept). Used for cross-side identity grouping
-    and invoice-format-variant detection.
-
-    Examples:
-        ``DS-2026-00078`` -> ``DS202600078``
-        ``DS/26/78``      -> ``DS2678``
-        ``INV 001``       -> ``INV001``
-        ``inv_001``       -> ``INV001``
-    """
-    if value is None:
-        return ""
-    return _RE_NON_ALNUM.sub("", str(value)).upper().strip()
+    """Shared invoice normalization: uppercase, alphanumerics only, leading zeros stripped per segment."""
+    return normalize_invoice(value)
 
 
 def _pan_of(gstin: str | None) -> str:
