@@ -105,7 +105,7 @@ def test_amount_mismatch_links_as_discrepancy():
     assert r is not None and r.matched is True
     assert r.level == 3
     assert r.requires_human_review is True
-    assert r.review_reason.startswith('Amount Mismatch or Date mismatch')
+    assert r.review_reason.startswith('AMOUNT_MISMATCH')
 
 
 def test_gstin_mismatch_is_review_not_match():

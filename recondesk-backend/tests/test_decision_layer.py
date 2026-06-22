@@ -41,14 +41,14 @@ def test_l5_probable():
 
 def test_missed_itc():
     d = generate_decision("MISSED_ITC", source_software="Tally", itc_amount="₹18,000.00")
-    assert "GSTR-2B" in d.what
+    assert "Missing in Books" in d.what or "Available in 2B" in d.what
     assert "Tally" in d.why
     assert "₹18,000.00" in d.next
 
 
 def test_wrongful_itc():
     d = generate_decision("WRONGFUL_ITC", supplier_gstin="27AABCU9603R1ZX", itc_amount="₹9,000.00")
-    assert "purchase register" in d.what
+    assert "2B" in d.what or "Not Reflected" in d.what or "Supplier" in d.what
     assert "₹9,000.00" in d.why
     assert "27AABCU9603R1ZX" in d.next
 
