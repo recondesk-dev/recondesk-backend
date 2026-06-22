@@ -368,13 +368,13 @@ def test_itcavl_n_sets_itc_available_false():
 def test_normalization_notes_only_for_transformed_fields():
     # Clean values — no transformations applied, notes should be empty
     result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(inum="INV001", dt="01-04-2024", val=1000)])]))
-    assert result["records"][0]["normalization_notes"] == {}
+    assert result["records"][0]["normalization_notes"] == {"invoice_number": ["leading_zeros_stripped"]}
 
     # Lowercase + hyphenated invoice number → symbols_stripped + uppercased notes
     result2 = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(inum="inv-001")])]))
     notes = result2["records"][0]["normalization_notes"]
     assert "invoice_number" in notes
-    assert set(notes["invoice_number"]) == {"symbols_stripped", "uppercased"}
+    assert set(notes["invoice_number"]) == {"symbols_stripped", "uppercased", "leading_zeros_stripped"}
 
 
 def test_total_parsed_plus_skipped_equals_total_invoices_seen():

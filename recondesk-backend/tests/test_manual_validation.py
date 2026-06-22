@@ -77,18 +77,19 @@ def test_date_cases():
 
 def test_invoice_cases():
     assert normalize_invoice_number("INV/2024-25/001").value == "INV202425001"
-    assert normalize_invoice_number("inv-001").value == "INV001"
-    assert normalize_invoice_number("INV#(001)").value == "INV001"
+    assert normalize_invoice_number("inv-001").value == "INV1"    # dash stripped + 001 → 1
+    assert normalize_invoice_number("INV#(001)").value == "INV1"  # parens stripped + 001 → 1
 
     # numeric → strip leading zeros
     assert normalize_invoice_number("000123").value == "123"
 
-    # alphanumeric → preserve zeros
-    assert normalize_invoice_number("INV001").value == "INV001"
+    # alphanumeric → numeric segments also stripped
+    assert normalize_invoice_number("INV001").value == "INV1"  # 001 → 1
 
-    # all zeros → error
-    with pytest.raises(NormalizationError):
-        normalize_invoice_number("000000")
+    # all zeros → returns "0" (guard against empty)
+    r = normalize_invoice_number("000000")
+    assert r.value == "0"
+    assert "leading_zeros_stripped" in r.notes
 
     # empty after strip
     with pytest.raises(NormalizationError):

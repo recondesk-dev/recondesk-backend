@@ -463,13 +463,14 @@ def normalize_invoice_number(raw: str) -> NormalizationResult:
     upper = stripped.upper()
     did_uppercase = upper != stripped
 
-    # 3. Segment-based zero stripping.
+    # 3. Segment-based zero stripping — strip leading zeros from all numeric segments.
+    # This normalises "INV-001" → "INV1", "000123" → "123", "INV001" → "INV1".
     parts = re.findall(r'\d+|\D+', upper)
     stripped_zeros = []
     did_strip_leading_zeros = False
     for p in parts:
         if p.isdigit():
-            no_zeros = p.lstrip('0') or '0'
+            no_zeros = p.lstrip('0') or '0'  # guard: "000000" → "0" (not empty)
             if no_zeros != p:
                 did_strip_leading_zeros = True
             stripped_zeros.append(no_zeros)
@@ -478,7 +479,6 @@ def normalize_invoice_number(raw: str) -> NormalizationResult:
     upper = ''.join(stripped_zeros)
 
     # 4. Empty check — catches symbol-only inputs like "@@@" that leave nothing.
-    #    All-zeros ("000000") resolves to "0" via the `or '0'` guard above, not empty.
     if not upper:
         raise NormalizationError("invoice_number", raw, "empty_after_normalization")
 
