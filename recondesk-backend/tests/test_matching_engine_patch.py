@@ -165,10 +165,12 @@ def test_duplicate_pr_invoice_does_not_double_count():
         ],
         gstr_period=date(2026, 5, 1),
     )
-    # New behavior: one-to-many maps to review_required
-    assert res["stats"]["matched_count"] == 0
+    # Correct behavior: first PR matches normally, second is a duplicate data-entry flag
+    assert res["stats"]["matched_count"] == 1
     assert res["stats"]["wrongful_risk_count"] == 0
-    assert res["stats"]["duplicate_conflict_count"] == 1
+    assert res["stats"]["missed_itc_count"] == 0
+    assert res["stats"]["duplicate_pr_count"] == 1
+    assert res["stats"]["duplicate_conflict_count"] == 0
     assert res["stats"]["sanity_passed"] is True
 
 
@@ -205,7 +207,7 @@ def test_resolver_leaves_genuine_pr_only_risk_for_rule37():
             "total_tax_paise": 1_620_000,
         }
     ]
-    matched_final, new_missed, new_wrongful, gm, review_required = resolve_orphans(
+    matched_final, new_missed, new_wrongful, gm, review_required, _dup_pr = resolve_orphans(
         matched=[],
         missed_itc=missed,
         wrongful_itc_risk=wrongful,

@@ -29,7 +29,7 @@ def test_gstin_mismatch_resolution():
     
     # Run resolve_orphans
     # matched, missed_itc, wrongful_itc_risk, gstr_by_id, pr_by_id
-    matched_final, m_missed, m_wrongful, gstin_mismatch, review_required = resolve_orphans(
+    matched_final, m_missed, m_wrongful, gstin_mismatch, review_required, _dup_pr = resolve_orphans(
         matched=[],
         missed_itc=missed_itc,
         wrongful_itc_risk=wrongful_itc_risk,
