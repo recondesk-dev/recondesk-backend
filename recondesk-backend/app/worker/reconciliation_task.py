@@ -7,6 +7,7 @@ import calendar
 import json
 import logging
 import os
+import subprocess
 import time
 import traceback
 from collections import defaultdict
@@ -481,12 +482,21 @@ def execute_reconciliation(run_id: str) -> None:
             _log.warning("execute_reconciliation: run %s not in MATCHING (got %s)", run_id, st)
             return
 
+        try:
+            git_hash = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL
+            ).decode("utf-8").strip()
+        except Exception:
+            git_hash = os.environ.get("RAILWAY_GIT_COMMIT_SHA", "unknown")[:7]
+
+        _log.info("execute_reconciliation: claiming run %s on worker version=%s", run_id, git_hash)
+
         claimed = (
             client.table("reconciliation_run")
             .update(
                 {
                     "status": "PROCESSING",
-                    "status_message": "Initializing",
+                    "status_message": f"Initializing (Worker: {git_hash})",
                     "progress_percent": 2,
                     "updated_at": _now_iso(),
                 }
