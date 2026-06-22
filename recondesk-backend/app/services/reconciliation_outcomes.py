@@ -356,6 +356,11 @@ def build_outcome_rows(
             or ""
         )
         invd = mi.get("invoice_date") or g.get("invoice_date")
+        
+        amt = int(mi.get("total_tax_paise") or 0)
+        if amt == 0:
+            amt = int(g.get("total_tax_paise") or 0)
+
         rows.append(
             OutcomeRow(
                 id=f"mi:{gid}",
@@ -377,7 +382,7 @@ def build_outcome_rows(
                 blocked_credit_flag=False,
                 late_filing_flag=False,
                 is_credit_note=False,
-                amount=int(mi.get("total_tax_paise") or 0),
+                amount=amt,
             )
         )
 
@@ -570,9 +575,13 @@ def build_outcome_rows(
         int((x.get("matcher") or {}).get("total_tax_paise") or 0)
         for x in gstr_m.values()
     )
-    itc_missed = sum(
-        int(x.get("total_tax_paise") or 0) for x in (engine.get("missed_itc") or [])
-    )
+    itc_missed = 0
+    for x in (engine.get("missed_itc") or []):
+        amt = int(x.get("total_tax_paise") or 0)
+        if amt == 0:
+            gid = str(x.get("gstr_id") or "")
+            amt = int(((gstr_m.get(gid) or {}).get("matcher") or {}).get("total_tax_paise") or 0)
+        itc_missed += amt
     w_risk = sum(int(x.get("total_tax_paise") or 0) for x in (engine.get("wrongful_itc_risk") or []))
 
 
