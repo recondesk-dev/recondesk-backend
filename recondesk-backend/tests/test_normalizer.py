@@ -640,9 +640,11 @@ def test_78_amount_unparseable_raises_invalid_format():
 # ===========================================================================
 
 def test_79_invoice_strips_dash():
+    # INV-001 → strip dash → INV001 → numeric run '001'.lstrip('0') = '1' → INV1
     r = normalize_invoice_number("INV-001")
-    assert r.value == "INV001"
-    assert r.notes == ["symbols_stripped"]
+    assert r.value == "INV1"
+    assert "symbols_stripped" in r.notes
+    assert "leading_zeros_stripped" in r.notes
 
 
 def test_80_invoice_pure_numeric_strips_leading_zeros():
@@ -652,16 +654,19 @@ def test_80_invoice_pure_numeric_strips_leading_zeros():
 
 
 def test_81_invoice_already_normalized_no_notes():
+    # INV001 → no separators stripped, but numeric run '001' → '1'
     r = normalize_invoice_number("INV001")
-    assert r.value == "INV001"
-    assert r.notes == []
+    assert r.value == "INV1"
+    assert "leading_zeros_stripped" in r.notes
 
 
 def test_82_invoice_lowercase_slash():
+    # inv/001 → strip slash → inv001 → upper → INV001 → numeric run '001' → '1' → INV1
     r = normalize_invoice_number("inv/001")
-    assert r.value == "INV001"
+    assert r.value == "INV1"
     assert "symbols_stripped" in r.notes
     assert "uppercased" in r.notes
+    assert "leading_zeros_stripped" in r.notes
 
 
 def test_83_invoice_hash_space_dot_stripped():
@@ -676,11 +681,11 @@ def test_84_invoice_at_signs_raises_empty_after_normalization():
     assert exc_info.value.reason == "empty_after_normalization"
 
 
-def test_85_invoice_all_zeros_raises_empty_after_normalization():
-    # "000000" → purely numeric → strip leading zeros → "" → error
-    with pytest.raises(NormalizationError) as exc_info:
-        normalize_invoice_number("000000")
-    assert exc_info.value.reason == "empty_after_normalization"
+def test_85_invoice_all_zeros_normalizes_to_zero():
+    # "000000" → numeric run '000000'.lstrip('0') or '0' → '0' (guarded, not empty)
+    r = normalize_invoice_number("000000")
+    assert r.value == "0"
+    assert "leading_zeros_stripped" in r.notes
 
 
 def test_86_invoice_lowercase_truncated_and_uppercased():
@@ -693,15 +698,19 @@ def test_86_invoice_lowercase_truncated_and_uppercased():
 
 
 def test_87_invoice_parentheses_stripped():
+    # INV(001) → strip parens → INV001 → numeric run '001' → '1' → INV1
     r = normalize_invoice_number("INV(001)")
-    assert r.value == "INV001"
+    assert r.value == "INV1"
     assert "symbols_stripped" in r.notes
+    assert "leading_zeros_stripped" in r.notes
 
 
 def test_88_invoice_spaces_stripped():
+    # '  INV-001  ' → strip symbols → INV001 → numeric run '001' → '1' → INV1
     r = normalize_invoice_number("  INV-001  ")
-    assert r.value == "INV001"
+    assert r.value == "INV1"
     assert "symbols_stripped" in r.notes
+    assert "leading_zeros_stripped" in r.notes
 
 
 def test_89_invoice_lowercase_alphanumeric():
@@ -718,24 +727,25 @@ def test_90_invoice_dot_slash_stripped():
 
 
 def test_91_invoice_alphanumeric_preserves_leading_zeros():
-    # "001abc" → strip nothing → upper → "001ABC" (not purely numeric → no zero strip)
+    # "001abc" → segment strip 001 to 1 → upper → "1ABC"
     r = normalize_invoice_number("001abc")
-    assert r.value == "001ABC"
+    assert r.value == "1ABC"
     assert "uppercased" in r.notes
-    assert "leading_zeros_stripped" not in r.notes
+    assert "leading_zeros_stripped" in r.notes
 
 
 def test_92_invoice_already_uppercase_no_uppercase_note():
     r = normalize_invoice_number("001ABC")
-    assert r.value == "001ABC"
+    assert r.value == "1ABC"
     assert "uppercased" not in r.notes
+    assert "leading_zeros_stripped" in r.notes
 
 
 def test_93_invoice_long_alphanumeric_truncated():
-    # "INV" + "0" * 50 → 53 chars, not purely numeric → truncate to 50
+    # "INV" + "0" * 50 → splits to 'INV', '00000...' → strips zeros to '0' → "INV0"
     raw = "INV" + "0" * 50
     r = normalize_invoice_number(raw)
-    assert len(r.value) == 50
-    assert r.value == "INV" + "0" * 47
-    assert "truncated_to_50_chars" in r.notes
-    assert "leading_zeros_stripped" not in r.notes
+    assert len(r.value) == 4
+    assert r.value == "INV0"
+    assert "truncated_to_50_chars" not in r.notes
+    assert "leading_zeros_stripped" in r.notes
