@@ -709,10 +709,11 @@ def execute_reconciliation(run_id: str) -> None:
         # Orphan resolver: pair GSTIN-typo orphans and collapse duplicate filings so
         # no invoice is counted in both Missed ITC and ITC at Risk (double counting).
         (
+            state.matched,
             state.missed_itc,
             wrongful_itc,
             gstin_mismatch,
-            duplicates,
+            review_required,
         ) = resolve_orphans(
             state.matched,
             state.missed_itc,
@@ -894,14 +895,16 @@ def execute_reconciliation(run_id: str) -> None:
         matched_count = len(state.matched)
         missed_itc_count = len(state.missed_itc)
         wrongful_count = len(wrongful_itc)
-        
-        assert matched_count + missed_itc_count + len(gstin_mismatch) == n_gstr, (
+        review_gstr_count = sum(1 for r in review_required if r.get("side") == "GSTR")
+        review_pr_count = sum(1 for r in review_required if r.get("side") == "PR")
+
+        assert matched_count + missed_itc_count + len(gstin_mismatch) + review_gstr_count == n_gstr, (
             f"GSTR Data Loss! Matched:{matched_count} Missed:{missed_itc_count} "
-            f"Typo:{len(gstin_mismatch)} Total:{n_gstr}"
+            f"Typo:{len(gstin_mismatch)} Review:{review_gstr_count} Total:{n_gstr}"
         )
-        assert matched_count + wrongful_count + len(gstin_mismatch) == n_pr, (
+        assert matched_count + wrongful_count + len(gstin_mismatch) + review_pr_count == n_pr, (
             f"PR Data Loss! Matched:{matched_count} Risk:{wrongful_count} "
-            f"Typo:{len(gstin_mismatch)} Total:{n_pr}"
+            f"Typo:{len(gstin_mismatch)} Review:{review_pr_count} Total:{n_pr}"
         )
 
         run_summary = build_run_summary_metrics(
@@ -932,7 +935,7 @@ def execute_reconciliation(run_id: str) -> None:
                 rules_version=RULES_VERSION,
                 decision_version=DECISION_VERSION,
                 gstin_mismatch=gstin_mismatch,
-                duplicates=duplicates,
+                duplicates=review_required,
             )
         )
         if isinstance(payload, str):
