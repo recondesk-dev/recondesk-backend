@@ -108,6 +108,26 @@ def build_debug_report(
             }
         )
 
+    review_required: list[dict[str, Any]] = []
+    for rr in result.get("review_required") or []:
+        side = rr.get("side")
+        rid = str(rr.get("gstr_id") or rr.get("id", ""))
+        if side == "GSTR":
+            consumed_gstr.add(rid)
+            rec = g_by_id.get(rid)
+        else:
+            consumed_pr.add(rid)
+            rec = p_by_id.get(rid)
+        review_required.append(
+            {
+                "record": _side(rec),
+                "side": side,
+                "reason": rr.get("reason"),
+                "itc": _rupees(rr.get("total_tax_paise")),
+                "consumed": True,
+            }
+        )
+
     at_risk: list[dict[str, Any]] = []
     for wr in result.get("wrongful_itc_risk") or []:
         pid = str(wr.get("id", ""))
@@ -134,6 +154,13 @@ def build_debug_report(
         gstr_seen[str(mi.get("gstr_id"))] = gstr_seen.get(str(mi.get("gstr_id")), 0) + 1
     for wr in result.get("wrongful_itc_risk") or []:
         pr_seen[str(wr.get("id"))] = pr_seen.get(str(wr.get("id")), 0) + 1
+    for rr in result.get("review_required") or []:
+        side = rr.get("side")
+        rid = str(rr.get("gstr_id") or rr.get("id", ""))
+        if side == "GSTR":
+            gstr_seen[rid] = gstr_seen.get(rid, 0) + 1
+        else:
+            pr_seen[rid] = pr_seen.get(rid, 0) + 1
 
     double_counted_gstr = sorted(k for k, v in gstr_seen.items() if v > 1)
     double_counted_pr = sorted(k for k, v in pr_seen.items() if v > 1)
@@ -147,6 +174,7 @@ def build_debug_report(
         "gstin_mismatch": len(gstin_mismatch_pairs),
         "missed_itc": len(missed),
         "itc_at_risk": len(at_risk),
+        "review_required": len(review_required),
         "missed_itc_rupees": round(sum(m["itc"] for m in missed), 2),
         "itc_at_risk_rupees": round(sum(r["itc"] for r in at_risk), 2),
         "double_counted_gstr_ids": double_counted_gstr,
@@ -162,6 +190,7 @@ def build_debug_report(
         "gstin_mismatch_pairs": gstin_mismatch_pairs,
         "missed_itc": missed,
         "itc_at_risk": at_risk,
+        "review_required": review_required,
     }
 
 
@@ -177,9 +206,20 @@ def print_debug_report(report: Mapping[str, Any]) -> None:
     print(
         f"  matched(clean)={s['matched']}  discrepancy={s['discrepancy']}  "
         f"gstin_mismatch={s['gstin_mismatch']}  "
+        f"review_required={s['review_required']}  "
         f"missed_itc={s['missed_itc']} (Rs {s['missed_itc_rupees']:,})  "
         f"itc_at_risk={s['itc_at_risk']} (Rs {s['itc_at_risk_rupees']:,})"
     )
+    st = report["engine_stats"]
+    print("\nBENCHMARK STATS:")
+    print(f" - clean_matched_count: {st.get('clean_matched_count')}")
+    print(f" - review_required_count: {st.get('review_required_count')}")
+    print(f" - duplicate_conflict_count: {st.get('duplicate_conflict_count')}")
+    print(f" - genuine_gstr_only_count: {st.get('genuine_gstr_only_count')}")
+    print(f" - genuine_pr_only_count: {st.get('genuine_pr_only_count')}")
+    print(f" - missed_itc_total: Rs {st.get('missed_itc_total', 0)/100:,.2f}")
+    print(f" - itc_at_risk_total: Rs {st.get('itc_at_risk_total', 0)/100:,.2f}")
+
     if s["double_counted_gstr_ids"] or s["double_counted_pr_ids"]:
         print(
             f"  !! DOUBLE COUNTED gstr={s['double_counted_gstr_ids']} "
@@ -218,4 +258,8 @@ def print_debug_report(report: Mapping[str, Any]) -> None:
             f"  [RISK] {p.get('gstin','-')} {p.get('invoice','-')} "
             f"itc={e['itc']} reason={e.get('risk_reason')}"
         )
+    print("\n-- REVIEW REQUIRED / DUPLICATE CONFLICT --")
+    for e in report["review_required"]:
+        r = e["record"]
+        print(f"  [REVIEW] {e['side']} {r.get('gstin','-')} {r.get('invoice','-')} itc={e['itc']} reason={e['reason']}")
     print("=" * 78)
