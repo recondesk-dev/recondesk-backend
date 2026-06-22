@@ -549,7 +549,7 @@ def resolve_orphans(
     pr_by_id: dict[str, dict],
     *,
     amount_tolerance_paise: int = TOTAL_TOLERANCE_PAISE,
-) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict], list[dict]]:
     """Reclassify orphan pools so no invoice is double-counted.
 
     Lifecycle (in order):
@@ -558,6 +558,8 @@ def resolve_orphans(
       2. **Classify connected components**:
          - 1 GSTR + 1 PR: if already matched, keep matched. If orphans with
            different GSTIN (edit distance ≤ 2), ``gstin_mismatch``. Else orphans.
+         - 1 GSTR + N PRs (N > 1): if the GSTR is already matched to one PR,
+           keep that match and flag extra PRs as ``duplicate_pr_rows``.
          - Any component with > 1 node on either side → check if deterministic
            pairing is possible. If yes, pair them. If no, ``review_required``.
          - 1 GSTR + 0 PRs → genuine ``missed_itc``
@@ -565,7 +567,7 @@ def resolve_orphans(
       3. **Bucket exclusivity** is guaranteed: each GSTR/PR id appears in exactly
          one output list.
 
-    Returns ``(matched_final, missed_final, wrongful_final, gstin_mismatch, review_required)``.
+    Returns ``(matched_final, missed_final, wrongful_final, gstin_mismatch, review_required, duplicate_pr_rows)``.
     """
     # ── Step 1: Build bipartite candidate graph ──────────────────────────────
     # Nodes: gstr ids and pr ids from matched, missed_itc, wrongful_itc_risk
@@ -641,6 +643,7 @@ def resolve_orphans(
     wrongful_final: list[dict] = []
     gstin_mismatch: list[dict] = []
     review_required: list[dict] = []
+    duplicate_pr_rows: list[dict] = []
 
     for root in all_roots:
         g_ids = comp_gstr.get(root, [])
@@ -689,6 +692,33 @@ def resolve_orphans(
             wrongful_final.append(pr_by_id_local[p_ids[0]])
             continue
 
+        # Case E: 1 GSTR + N PRs (N > 1) — duplicate PR data entry
+        # If the GSTR is already matched to one of the PRs, keep that match
+        # and flag the remaining PR(s) as duplicate data-entry rows.
+        if len(g_ids) == 1 and len(p_ids) > 1:
+            gid = g_ids[0]
+            # Find if the GSTR is already matched to one of these PRs
+            matched_pid = None
+            for pid in p_ids:
+                if (gid, pid) in matched_pairs_by_ids:
+                    matched_pid = pid
+                    break
+            if matched_pid is not None:
+                # Keep the existing match
+                matched_final.append(matched_pairs_by_ids[(gid, matched_pid)])
+                # Flag the other PRs as duplicate data-entry rows
+                for pid in p_ids:
+                    if pid != matched_pid:
+                        w = pr_by_id_local[pid]
+                        duplicate_pr_rows.append({
+                            **w,
+                            "is_duplicate_pr_row": True,
+                            "matched_to_gstr_id": gid,
+                            "matched_pr_id": matched_pid,
+                            "reason": "DUPLICATE_PR_DATA_ENTRY",
+                        })
+                continue
+
         # Case D: N:M (Ambiguous group)
         # Check if deterministic 1:1 pairing is possible
         if len(g_ids) == len(p_ids) and len(g_ids) > 1:
@@ -733,7 +763,7 @@ def resolve_orphans(
             w = pr_by_id_local[pid]
             review_required.append({**w, "side": "PR", "reason": "DUPLICATE_CONFLICT"})
 
-    return matched_final, missed_final, wrongful_final, gstin_mismatch, review_required
+    return matched_final, missed_final, wrongful_final, gstin_mismatch, review_required, duplicate_pr_rows
 
 
 def _gstin_pan(gstin: str | None) -> str:
@@ -748,10 +778,12 @@ def _finalize_reconciliation_result(
     total_pr: int,
     gstin_mismatch: list[dict] | None = None,
     duplicates: list[dict] | None = None,
+    duplicate_pr_rows: list[dict] | None = None,
 ) -> dict:
     """Shared stats and sanity payload (same as :func:`run_bidirectional_reconciliation` output)."""
     gstin_mismatch = gstin_mismatch or []
     duplicates = duplicates or []
+    duplicate_pr_rows = duplicate_pr_rows or []
     matched_count = len(state.matched)
     missed_itc_count = len(state.missed_itc)
     missed_itc_amount_paise = sum(
@@ -775,10 +807,12 @@ def _finalize_reconciliation_result(
     state.matched_gstr_ids = {str(m["gstr_id"]) for m in state.matched}
     state.matched_pr_ids = {str(m["pr_id"]) for m in state.matched}
 
+    duplicate_pr_count = len(duplicate_pr_rows)
+
     sanity_passed = (
         matched_count + missed_itc_count + gstin_mismatch_count + review_gstr_count
         == total_gstr
-        and matched_count + wrongful_risk_count + gstin_mismatch_count + review_pr_count
+        and matched_count + wrongful_risk_count + gstin_mismatch_count + review_pr_count + duplicate_pr_count
         == total_pr
         and not (state.matched_gstr_ids & missed_gstr_ids)
         and len(state.matched_pr_ids) == matched_count
@@ -808,6 +842,7 @@ def _finalize_reconciliation_result(
             "gstin_mismatch_count": gstin_mismatch_count,
             "gstin_mismatch_amount_paise": gstin_mismatch_amount_paise,
             "duplicate_count": len(duplicates),
+            "duplicate_pr_count": duplicate_pr_count,
             "duplicate_conflict_count": review_gstr_count,
             "genuine_gstr_only_count": missed_itc_count,
             "genuine_pr_only_count": wrongful_risk_count,
@@ -879,7 +914,7 @@ def run_bidirectional_reconciliation(
             for p in prs:
                 pr_by_id[str(p.get("id"))] = p
 
-    state.matched, state.missed_itc, wrongful_itc_risk, gstin_mismatch, review_required = resolve_orphans(
+    state.matched, state.missed_itc, wrongful_itc_risk, gstin_mismatch, review_required, duplicate_pr_rows = resolve_orphans(
         state.matched, state.missed_itc, wrongful_itc_risk, gstr_by_id, pr_by_id
     )
 
@@ -892,6 +927,7 @@ def run_bidirectional_reconciliation(
         total_pr,
         gstin_mismatch=gstin_mismatch,
         duplicates=[],
+        duplicate_pr_rows=duplicate_pr_rows,
     )
 
 

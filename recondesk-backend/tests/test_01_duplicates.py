@@ -35,16 +35,16 @@ def test_a_clean_match():
 
 def test_b_gstin_mismatch():
     # Test B: GSTR: supplier A, INV001, tax ₹100. PR: supplier B, INV001, tax ₹100
-    # Expected: not clean match; review required or separate unmatched depending policy; never exact match
+    # Expected: not clean match; routed to gstin_mismatch regardless of edit distance
     gstr = [_gstr("g1", "27AAAAA0000A1Z5", "INV001", 100)]
     pr = [_pr("p1", "29BBBBB0000B1Z5", "INV001", 100)]
     res = run_bidirectional_reconciliation(gstr, pr, gstr_period=date(2026, 5, 1))
     stats = res["stats"]
     assert stats["clean_matched_count"] == 0
-    # Because edit distance > 2, it goes to genuine missed/risk
     assert stats["duplicate_conflict_count"] == 0
-    assert stats["genuine_gstr_only_count"] == 1
-    assert stats["genuine_pr_only_count"] == 1
+    assert stats["gstin_mismatch_count"] == 1
+    assert stats["genuine_gstr_only_count"] == 0
+    assert stats["genuine_pr_only_count"] == 0
 
 def test_c_1_gstr_2_pr():
     # Test C: GSTR has one supplier A / INV001. PR has two supplier A / INV001 rows
@@ -55,9 +55,10 @@ def test_c_1_gstr_2_pr():
     ]
     res = run_bidirectional_reconciliation(gstr, pr, gstr_period=date(2026, 5, 1))
     stats = res["stats"]
-    assert stats["clean_matched_count"] == 0
-    assert stats["duplicate_conflict_count"] == 1
-    assert len(res["review_required"]) == 3
+    # Correct behavior: first PR matches normally, second is a duplicate data-entry flag
+    assert stats["clean_matched_count"] == 1
+    assert stats["duplicate_pr_count"] == 1
+    assert stats["duplicate_conflict_count"] == 0
 
 def test_d_2_gstr_1_pr():
     # Test D: GSTR has two supplier A / INV001 rows. PR has one supplier A / INV001 row

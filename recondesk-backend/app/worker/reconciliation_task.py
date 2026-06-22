@@ -724,6 +724,7 @@ def execute_reconciliation(run_id: str) -> None:
             wrongful_itc,
             gstin_mismatch,
             review_required,
+            _duplicate_pr_rows,
         ) = resolve_orphans(
             state.matched,
             state.missed_itc,
