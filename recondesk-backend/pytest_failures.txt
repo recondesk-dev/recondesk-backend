@@ -1,0 +1,163 @@
+....F.F..F.F......F.F..........................................FF....... [ 14%]
+.............................FF..........................F.............. [ 29%]
+...........................................................F............ [ 44%]
+........................................................................ [ 59%]
+.......................................................................F [ 74%]
+..................................FFF....F.F....FF...................... [ 89%]
+....................................................                     [100%]
+=================================== FAILURES ===================================
+______________ TestL2Boundary.test_large_invoice_rs100_diff_is_L2 ______________
+/Users/omkarkadam/Documents/ReconDesk/ recondesk-backend/tests/test_amount_bands.py:67: in test_large_invoice_rs100_diff_is_L2
+    ???
+E   AssertionError: Rs100 on Rs1L invoice (0.1%) must be L2. Got L3.
+E   assert (MatchResult(level=3, matched=True, confidence=80, requires_human_review=True, decision_what='Invoice matched but with ...s 100080.00, diff=Rs 100.00'], is_late_filing=False, original_period=None, late_months=0, vendor_similarity_score=None) is not None and 3 == 2)
+E    +  where 3 = MatchResult(level=3, matched=True, confidence=80, requires_human_review=True, decision_what='Invoice matched but with ...s 100080.00, diff=Rs 100.00'], is_late_filing=False, original_period=None, late_months=0, vendor_similarity_score=None).level
+________________ TestL2Boundary.test_exactly_1pct_diff_boundary ________________
+/Users/omkarkadam/Documents/ReconDesk/ recondesk-backend/tests/test_amount_bands.py:88: in test_exactly_1pct_diff_boundary
+    ???
+E   AssertionError: Exactly 1.0% diff must be L2 (inclusive boundary). Got L3.
+E   assert (MatchResult(level=3, matched=True, confidence=80, requires_human_review=True, decision_what='Invoice matched but with ...Rs 10080.00, diff=Rs 100.00'], is_late_filing=False, original_period=None, late_months=0, vendor_similarity_score=None) is not None and 3 == 2)
+E    +  where 3 = MatchResult(level=3, matched=True, confidence=80, requires_human_review=True, decision_what='Invoice matched but with ...Rs 10080.00, diff=Rs 100.00'], is_late_filing=False, original_period=None, late_months=0, vendor_similarity_score=None).level
+_____ TestL3Boundary.test_above_5pct_links_as_amount_mismatch_discrepancy ______
+/Users/omkarkadam/Documents/ReconDesk/ recondesk-backend/tests/test_amount_bands.py:120: in test_above_5pct_links_as_amount_mismatch_discrepancy
+    ???
+E   AssertionError: assert False
+E    +  where False = <built-in method startswith of str object at 0x10ec7a3d0>('AMOUNT_MISMATCH')
+E    +    where <built-in method startswith of str object at 0x10ec7a3d0> = 'Amount Mismatch or Date mismatch'.startswith
+E    +      where 'Amount Mismatch or Date mismatch' = MatchResult(level=3, matched=True, confidence=80, requires_human_review=True, decision_what='Invoice matched but with ...=Rs 9580.00, diff=Rs 600.00'], is_late_filing=False, original_period=None, late_months=0, vendor_similarity_score=None).review_reason
+___________________ TestL3Boundary.test_L3_confidence_is_75 ____________________
+/Users/omkarkadam/Documents/ReconDesk/ recondesk-backend/tests/test_amount_bands.py:135: in test_L3_confidence_is_75
+    ???
+E   AssertionError: L3 confidence must be 75. Got 80.
+E   assert (MatchResult(level=3, matched=True, confidence=80, requires_human_review=True, decision_what='Invoice matched but with ...=Rs 9880.00, diff=Rs 300.00'], is_late_filing=False, original_period=None, late_months=0, vendor_similarity_score=None) is not None and 80 == 75)
+E    +  where 80 = MatchResult(level=3, matched=True, confidence=80, requires_human_review=True, decision_what='Invoice matched but with ...=Rs 9880.00, diff=Rs 300.00'], is_late_filing=False, original_period=None, late_months=0, vendor_similarity_score=None).confidence
+________ TestDateAndAmountCombined.test_large_diff_date_beyond_l2_is_L6 ________
+/Users/omkarkadam/Documents/ReconDesk/ recondesk-backend/tests/test_amount_bands.py:188: in test_large_diff_date_beyond_l2_is_L6
+    ???
+E   AssertionError: 3% diff + 9-day date gap must be L6. Got L3.
+E   assert (MatchResult(level=3, matched=True, confidence=80, requires_human_review=True, decision_what='Invoice matched but with ...=Rs 9880.00, diff=Rs 300.00'], is_late_filing=False, original_period=None, late_months=0, vendor_similarity_score=None) is None or not True)
+E    +  where True = MatchResult(level=3, matched=True, confidence=80, requires_human_review=True, decision_what='Invoice matched but with ...=Rs 9880.00, diff=Rs 300.00'], is_late_filing=False, original_period=None, late_months=0, vendor_similarity_score=None).matched
+__________ TestL5AmountTolerance.test_beyond_rs50_fuzzy_invoice_is_L6 __________
+/Users/omkarkadam/Documents/ReconDesk/ recondesk-backend/tests/test_amount_bands.py:207: in test_beyond_rs50_fuzzy_invoice_is_L6
+    ???
+E   AssertionError: Rs51 diff on fuzzy invoice must be L4 or L6. Got L3.
+E   assert (MatchResult(level=3, matched=True, confidence=60, requires_human_review=True, decision_what='Fuzzy match with amount m...R=Rs 1231.00, diff=Rs 51.00'], is_late_filing=False, original_period=None, late_months=0, vendor_similarity_score=None) is None or not True or 3 >= 4)
+E    +  where True = MatchResult(level=3, matched=True, confidence=60, requires_human_review=True, decision_what='Fuzzy match with amount m...R=Rs 1231.00, diff=Rs 51.00'], is_late_filing=False, original_period=None, late_months=0, vendor_similarity_score=None).matched
+E    +  and   3 = MatchResult(level=3, matched=True, confidence=60, requires_human_review=True, decision_what='Fuzzy match with amount m...R=Rs 1231.00, diff=Rs 51.00'], is_late_filing=False, original_period=None, late_months=0, vendor_similarity_score=None).level
+_______________________________ test_missed_itc ________________________________
+/Users/omkarkadam/Documents/ReconDesk/ recondesk-backend/tests/test_decision_layer.py:44: in test_missed_itc
+    ???
+E   AssertionError: assert 'GSTR-2B' in 'Available in 2B but Missing in Books'
+E    +  where 'Available in 2B but Missing in Books' = DecisionOutput(what='Available in 2B but Missing in Books', why='Invoice not entered in Tally or entered under a diffe...m ITC of ₹18,000.00.', rule='MISSED_ITC', confidence='LOW', matched_fields=(), differed_fields=(), normalized_pairs=()).what
+______________________________ test_wrongful_itc _______________________________
+/Users/omkarkadam/Documents/ReconDesk/ recondesk-backend/tests/test_decision_layer.py:51: in test_wrongful_itc
+    ???
+E   AssertionError: assert 'purchase register' in 'Supplier Has Not Reported / Not Reflected in 2B'
+E    +  where 'Supplier Has Not Reported / Not Reflected in 2B' = DecisionOutput(what='Supplier Has Not Reported / Not Reflected in 2B', why='Supplier missed filing or filed under wron...ppears in GSTR-2B.', rule='WRONGFUL_ITC', confidence='LOW', matched_fields=(), differed_fields=(), normalized_pairs=()).what
+_________________ test_is_invoice_format_variant_fuzzy_numeric _________________
+tests/test_fuzzy_invoice_variants.py:16: in test_is_invoice_format_variant_fuzzy_numeric
+    assert is_invoice_format_variant("INV-00001-26", "1")
+E   AssertionError: assert False
+E    +  where False = is_invoice_format_variant('INV-00001-26', '1')
+_____________________ test_matcher_l5_fuzzy_format_variant _____________________
+tests/test_fuzzy_invoice_variants.py:46: in test_matcher_l5_fuzzy_format_variant
+    assert match_result is not None
+E   assert None is not None
+_____________ test_normalization_notes_only_for_transformed_fields _____________
+tests/test_gstr2b_parser.py:371: in test_normalization_notes_only_for_transformed_fields
+    assert result["records"][0]["normalization_notes"] == {}
+E   AssertionError: assert {'invoice_num...os_stripped']} == {}
+E     
+E     Left contains 1 more item:
+E     {'invoice_number': ['leading_zeros_stripped']}
+E     Use -v to get more diff
+______________________________ test_invoice_cases ______________________________
+tests/test_manual_validation.py:80: in test_invoice_cases
+    assert normalize_invoice_number("inv-001").value == "INV001"
+E   AssertionError: assert 'INV1' == 'INV001'
+E     
+E     - INV001
+E     ?    --
+E     + INV1
+____________ test_partial_payment_no_date_is_proportional_obsolete _____________
+tests/test_partial_no_date.py:41: in test_partial_payment_no_date_is_proportional_obsolete
+    assert res[0]["itc_at_risk_paise"] == 9000
+E   assert 18000 == 9000
+______ TestFullyPaidOnTime.test_fully_paid_before_180_days_is_OK_obsolete ______
+tests/test_rule37_tracker.py:85: in test_fully_paid_before_180_days_is_OK_obsolete
+    assert r["status"] == OK, f"Paid on time must be OK. Got: {r['status']}"
+E   AssertionError: Paid on time must be OK. Got: OVERDUE_UNPAID
+E   assert 'OVERDUE_UNPAID' == 'OK'
+E     
+E     - OK
+E     + OVERDUE_UNPAID
+____ TestFullyPaidOnTime.test_fully_paid_exactly_on_day_180_is_OK_obsolete _____
+tests/test_rule37_tracker.py:97: in test_fully_paid_exactly_on_day_180_is_OK_obsolete
+    assert r["status"] == OK, f"Payment on day 180 must be OK. Got: {r['status']}"
+E   AssertionError: Payment on day 180 must be OK. Got: OVERDUE_UNPAID
+E   assert 'OVERDUE_UNPAID' == 'OK'
+E     
+E     - OK
+E     + OVERDUE_UNPAID
+_________ TestPaidLate.test_paid_after_180_days_is_PAID_LATE_obsolete __________
+tests/test_rule37_tracker.py:112: in test_paid_after_180_days_is_PAID_LATE_obsolete
+    assert r["status"] == PAID_LATE, (
+E   AssertionError: Payment on day 181 must be PAID_LATE. Got: OVERDUE_UNPAID
+E   assert 'OVERDUE_UNPAID' == 'PAID_LATE'
+E     
+E     - PAID_LATE
+E     + OVERDUE_UNPAID
+____ TestPartialPayments.test_partial_payment_reduces_itc_at_risk_obsolete _____
+tests/test_rule37_tracker.py:223: in test_partial_payment_reduces_itc_at_risk_obsolete
+    assert r["itc_at_risk_paise"] == 9000, (
+E   AssertionError: 50% unpaid → 50% ITC at risk = 9000 paise. Got: 18000
+E   assert 18000 == 9000
+__________ TestPartialPayments.test_multiple_payments_summed_obsolete __________
+tests/test_rule37_tracker.py:254: in test_multiple_payments_summed_obsolete
+    assert r["status"] == OK
+E   AssertionError: assert 'OVERDUE_UNPAID' == 'OK'
+E     
+E     - OK
+E     + OVERDUE_UNPAID
+_ TestResultStructure.test_paid_on_time_with_string_invoice_id_lookup_obsolete _
+tests/test_rule37_tracker.py:326: in test_paid_on_time_with_string_invoice_id_lookup_obsolete
+    assert r["status"] == OK
+E   AssertionError: assert 'OVERDUE_UNPAID' == 'OK'
+E     
+E     - OK
+E     + OVERDUE_UNPAID
+_ TestResultStructure.test_fully_paid_without_payment_dates_does_not_raise_obsolete _
+tests/test_rule37_tracker.py:344: in test_fully_paid_without_payment_dates_does_not_raise_obsolete
+    assert results[0]["status"] == OK
+E   AssertionError: assert 'OVERDUE_UNPAID' == 'OK'
+E     
+E     - OK
+E     + OVERDUE_UNPAID
+=============================== warnings summary ===============================
+app/routers/auth.py:51
+  /Users/omkarkadam/Documents/ReconDesk/recondesk-backend/app/routers/auth.py:51: UserWarning: Field name "schema" in "UserProfileInsertWebhook" shadows an attribute in parent "BaseModel"
+    class UserProfileInsertWebhook(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_amount_bands.py::TestL2Boundary::test_large_invoice_rs100_diff_is_L2
+FAILED tests/test_amount_bands.py::TestL2Boundary::test_exactly_1pct_diff_boundary
+FAILED tests/test_amount_bands.py::TestL3Boundary::test_above_5pct_links_as_amount_mismatch_discrepancy
+FAILED tests/test_amount_bands.py::TestL3Boundary::test_L3_confidence_is_75
+FAILED tests/test_amount_bands.py::TestDateAndAmountCombined::test_large_diff_date_beyond_l2_is_L6
+FAILED tests/test_amount_bands.py::TestL5AmountTolerance::test_beyond_rs50_fuzzy_invoice_is_L6
+FAILED tests/test_decision_layer.py::test_missed_itc - AssertionError: assert...
+FAILED tests/test_decision_layer.py::test_wrongful_itc - AssertionError: asse...
+FAILED tests/test_fuzzy_invoice_variants.py::test_is_invoice_format_variant_fuzzy_numeric
+FAILED tests/test_fuzzy_invoice_variants.py::test_matcher_l5_fuzzy_format_variant
+FAILED tests/test_gstr2b_parser.py::test_normalization_notes_only_for_transformed_fields
+FAILED tests/test_manual_validation.py::test_invoice_cases - AssertionError: ...
+FAILED tests/test_partial_no_date.py::test_partial_payment_no_date_is_proportional_obsolete
+FAILED tests/test_rule37_tracker.py::TestFullyPaidOnTime::test_fully_paid_before_180_days_is_OK_obsolete
+FAILED tests/test_rule37_tracker.py::TestFullyPaidOnTime::test_fully_paid_exactly_on_day_180_is_OK_obsolete
+FAILED tests/test_rule37_tracker.py::TestPaidLate::test_paid_after_180_days_is_PAID_LATE_obsolete
+FAILED tests/test_rule37_tracker.py::TestPartialPayments::test_partial_payment_reduces_itc_at_risk_obsolete
+FAILED tests/test_rule37_tracker.py::TestPartialPayments::test_multiple_payments_summed_obsolete
+FAILED tests/test_rule37_tracker.py::TestResultStructure::test_paid_on_time_with_string_invoice_id_lookup_obsolete
+FAILED tests/test_rule37_tracker.py::TestResultStructure::test_fully_paid_without_payment_dates_does_not_raise_obsolete
+20 failed, 464 passed, 1 warning in 47.87s
