@@ -661,7 +661,7 @@ def resolve_orphans(
             g_taxable = int(mi.get("taxable_amount_paise") or 0)
             w_taxable = int(w.get("taxable_amount_paise") or 0)
 
-            if g_gstin != w_gstin and _levenshtein_distance(g_gstin, w_gstin) <= 2 and abs(w_taxable - g_taxable) <= amount_tolerance_paise:
+            if g_gstin != w_gstin and abs(w_taxable - g_taxable) <= amount_tolerance_paise:
                 gstin_mismatch.append({
                     "gstr_id": str(mi.get("gstr_id") or ""),
                     "pr_id": str(w.get("id") or ""),
@@ -703,11 +703,26 @@ def resolve_orphans(
                     if (gid, pid) in matched_pairs_by_ids:
                         matched_final.append(matched_pairs_by_ids[(gid, pid)])
                     else:
-                        matched_final.append({
-                            "gstr_id": gid, "pr_id": pid,
-                            "match_status_text": "Matched (deterministic duplicate pair)",
-                            "match_level": 1, "confidence_score": 95,
-                        })
+                        g_gstin = str(gstr_by_id_local[gid].get("supplier_gstin") or "")
+                        p_gstin = str(pr_by_id_local[pid].get("supplier_gstin") or "")
+                        if g_gstin != p_gstin:
+                            gstin_mismatch.append({
+                                "gstr_id": gid,
+                                "pr_id": pid,
+                                "gstr_supplier_gstin": g_gstin,
+                                "pr_supplier_gstin": p_gstin,
+                                "invoice_number_normalized": gstr_by_id_local[gid].get("invoice_number_normalized"),
+                                "invoice_date": gstr_by_id_local[gid].get("invoice_date"),
+                                "taxable_amount_paise": int(pr_by_id_local[pid].get("taxable_amount_paise") or 0),
+                                "total_tax_paise": int(gstr_by_id_local[gid].get("total_tax_paise") or 0),
+                                "reason": "GSTIN_MISMATCH",
+                            })
+                        else:
+                            matched_final.append({
+                                "gstr_id": gid, "pr_id": pid,
+                                "match_status_text": "Matched (deterministic duplicate pair)",
+                                "match_level": 1, "confidence_score": 95,
+                            })
                 continue
 
         # Truly ambiguous → review_required
