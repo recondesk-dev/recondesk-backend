@@ -461,6 +461,49 @@ def build_outcome_rows(
                 amount=int(gm.get("total_tax_paise") or 0),
             )
         )
+    for dup in list(engine.get("duplicates") or []):
+        side = dup.get("side")
+        if side == "GSTR":
+            rid = str(dup.get("gstr_id", ""))
+            cell = gstr_m.get(rid) or {}
+            m_rec = cell.get("matcher") or {}
+            sname = _gstr_name(cell.get("record_data") or {}) if cell.get("record_data") else None
+            cid = f"dg:{rid}"
+        else:
+            rid = str(dup.get("id", ""))
+            cell = pr_m.get(rid) or {}
+            m_rec = cell.get("matcher") or {}
+            sname = None
+            cid = f"dp:{rid}"
+        
+        invn = str(dup.get("invoice_number_normalized") or m_rec.get("invoice_number_normalized") or "")
+        invd = dup.get("invoice_date") or m_rec.get("invoice_date")
+        reason = str(dup.get("reason") or "DUPLICATE_CONFLICT")
+        rows.append(
+            OutcomeRow(
+                id=cid,
+                category="review_required",
+                supplier_gstin=str(dup.get("supplier_gstin") or m_rec.get("supplier_gstin") or ""),
+                supplier_name=sname,
+                invoice_number=invn,
+                invoice_date=str(invd) if invd else None,
+                match_status="REVIEW_REQUIRED",
+                taxable_value_diff=0,
+                igst_diff=0,
+                cgst_diff=0,
+                sgst_diff=0,
+                total_tax_diff_paise=0,
+                decision_what="Ambiguous Duplicate / Conflict",
+                decision_why=reason,
+                decision_next="Manual review required to verify correct pairing.",
+                rule37_flag=False,
+                blocked_credit_flag=False,
+                late_filing_flag=False,
+                is_credit_note=False,
+                amount=int(dup.get("total_tax_paise") or m_rec.get("total_tax_paise") or 0),
+            )
+        )
+
 
     for pr_id, rrow in r37x.items():
         if (rrow.get("status") or "") not in _RULE37_CONCERNS:
@@ -557,6 +600,7 @@ def build_outcome_rows(
         "blocked_credit",
         "credit_notes",
         "gstin_mismatch",
+        "review_required",
     ]}
     for r in rows:
         ccounts[r.category] = ccounts.get(r.category, 0) + 1
