@@ -46,3 +46,50 @@ def test_gstr_row_normalizes_invoice_to_match_matcher():
     m = gstr_db_row_to_matcher_row(row)
     assert m["invoice_number_normalized"] == "INV9"
     assert m["taxable_amount_paise"] == 1_000_000
+
+def test_gstr_row_computes_tax_from_top_level_fallback():
+    row = {
+        "id": 3,
+        "record_data": {
+            "supplier_gstin_norm": "27AABCU9603R1ZX",
+            "invoice_number": "inv-10",
+            "invoice_date_norm": "2025-01-16",
+            "cgst_paise": 90_000,
+            "sgst_paise": 90_000,
+            "taxable_value_paise": 1_000_000,
+        },
+    }
+    m = gstr_db_row_to_matcher_row(row)
+    assert m["total_tax_paise"] == 180_000
+
+def test_gstr_row_computes_tax_from_invoice_value_difference():
+    row = {
+        "id": 4,
+        "record_data": {
+            "supplier_gstin_norm": "27AABCU9603R1ZX",
+            "invoice_number": "inv-11",
+            "invoice_value_paise": 1_180_000,
+            "items": [
+                {
+                    "taxable_value_paise": 1_000_000,
+                }
+            ],
+        },
+    }
+    m = gstr_db_row_to_matcher_row(row)
+    assert m["taxable_amount_paise"] == 1_000_000
+    assert m["total_tax_paise"] == 180_000
+
+def test_gstr_row_prefers_explicit_total_tax_paise():
+    row = {
+        "id": 5,
+        "record_data": {
+            "supplier_gstin_norm": "27AABCU9603R1ZX",
+            "invoice_number": "inv-12",
+            "total_tax_paise": 250_000,
+            "taxable_value_paise": 1_000_000,
+        },
+    }
+    m = gstr_db_row_to_matcher_row(row)
+    assert m["total_tax_paise"] == 250_000
+

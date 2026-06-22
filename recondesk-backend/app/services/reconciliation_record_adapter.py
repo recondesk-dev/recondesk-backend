@@ -33,16 +33,41 @@ def _gstr_taxable_paise_from_record(rd: dict[str, Any]) -> int:
     return int(rd.get("invoice_value_paise") or 0)
 
 
-def _gstr_tax_paise_from_record(rd: dict[str, Any]) -> tuple[int, int, int, int]:
+def _gstr_tax_paise_from_record(rd: dict[str, Any]) -> tuple[int, int, int, int, int]:
+    """Return (cgst, sgst, igst, cess, total) from GSTR record_data.
+
+    Strategy:
+    1. If ``items`` array is present and non-empty, sum component paise from items.
+    2. Otherwise fall back to top-level ``*_paise`` fields on the record itself
+       (some normalised / synthetic records carry tax directly at root level).
+    3. Always include cess in the total so Missed ITC is never understated.
+    """
     items = rd.get("items") or []
+    cgst, sgst, igst, cess = 0, 0, 0, 0
     if items:
         cgst = sum(int(i.get("cgst_paise") or 0) for i in items)
         sgst = sum(int(i.get("sgst_paise") or 0) for i in items)
         igst = sum(int(i.get("igst_paise") or 0) for i in items)
-    else:
-        cgst = sgst = igst = 0
-    total = cgst + sgst + igst
-    return (cgst, sgst, igst, total)
+        cess = sum(int(i.get("cess_paise") or 0) for i in items)
+    
+    total = cgst + sgst + igst + cess
+    if total == 0:
+        # Fallback: top-level tax fields (e.g. pre-computed or synthetic records)
+        cgst = int(rd.get("cgst_paise") or rd.get("cgst_amount") or 0)
+        sgst = int(rd.get("sgst_paise") or rd.get("sgst_amount") or 0)
+        igst = int(rd.get("igst_paise") or rd.get("igst_amount") or 0)
+        cess = int(rd.get("cess_paise") or rd.get("cess_amount") or 0)
+        total = cgst + sgst + igst + cess
+
+    if total == 0:
+        total = int(rd.get("total_tax_paise") or 0)
+        if total == 0:
+            inv_val = int(rd.get("invoice_value_paise") or 0)
+            tax_val = int(rd.get("taxable_value_paise") or _gstr_taxable_paise_from_record(rd) or 0)
+            if inv_val > tax_val and tax_val > 0:
+                total = inv_val - tax_val
+
+    return (cgst, sgst, igst, cess, total)
 
 
 def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -54,7 +79,7 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     sup = (rd.get("supplier_gstin_norm") or rd.get("supplier_gstin") or "").strip()
     inv_raw = rd.get("invoice_number_norm") or rd.get("invoice_number") or ""
     inv = normalize_invoice(str(inv_raw).strip() if inv_raw is not None else None)
-    cg, sg, ig, ttp = _gstr_tax_paise_from_record(rd)
+    cg, sg, ig, cs, ttp = _gstr_tax_paise_from_record(rd)
     taxable = _gstr_taxable_paise_from_record(rd)
     inv_d = _iso_date(rd.get("invoice_date_norm") or rd.get("invoice_date"))
     return {
@@ -66,6 +91,7 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "cgst_paise": int(cg),
         "sgst_paise": int(sg),
         "igst_paise": int(ig),
+        "cess_paise": int(cs),
         "total_tax_paise": int(ttp if ttp else 0),
     }
 
