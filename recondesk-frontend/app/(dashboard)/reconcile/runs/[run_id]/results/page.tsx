@@ -1268,6 +1268,20 @@ export default function ReconcileResultsPage() {
     [itcRows]
   );
 
+  /** True when the loaded ITC rows contain at least one GSTR-2B-only credit or
+   *  debit note.  Used to adjust section labels so the net figure is not
+   *  presented as purely claimable ITC. */
+  const itcHasCdnRows = useMemo(
+    () =>
+      itcRows.some((r) => {
+        const dt =
+          (r.gstr2b_data?.["doc_type"] as string | undefined) ??
+          (r.gstr2b_data?.["document_type"] as string | undefined);
+        return dt === "CREDIT_NOTE" || dt === "DEBIT_NOTE";
+      }),
+    [itcRows]
+  );
+
   useEffect(() => {
     const el = itcHeaderRef.current;
     if (!el || !itcRows.length) return;
@@ -1703,7 +1717,7 @@ export default function ReconcileResultsPage() {
               </div>
               <div className="min-w-0 overflow-hidden rounded-2xl">
                 <StatCard
-                  label="Missed ITC"
+                  label={itcHasCdnRows ? "Net 2B Difference" : "Missed ITC"}
                   accent="missed"
                   value={
                     <span className={`${statCardValueClass} tabular-nums text-gray-900`}>
@@ -1772,10 +1786,16 @@ export default function ReconcileResultsPage() {
         {resultsTab === "itc" && summary && summary.missed_itc_count > 0 && (
           <div className={sectionContainerClass}>
             <SectionHeader
-              title="ITC You Can Still Claim"
+              title={
+                itcHasCdnRows
+                  ? "Net 2B Documents Not Booked in PR"
+                  : "ITC You Can Still Claim"
+              }
               dotColor="#16A34A"
               amount={summary.missed_itc_total_amount}
-              amountLabel="TOTAL RECOVERABLE"
+              amountLabel={
+                itcHasCdnRows ? "NET 2B DIFFERENCE" : "TOTAL RECOVERABLE"
+              }
               actions={
                 <button
                   type="button"
@@ -1790,6 +1810,31 @@ export default function ReconcileResultsPage() {
                 </button>
               }
             />
+
+            {/* Helper note: shown only when credit/debit notes are in the ITC bucket */}
+            {itcHasCdnRows && (
+              <div className="mb-5 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800">
+                <svg
+                  className="mt-0.5 h-4 w-4 shrink-0 text-amber-500"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                <span>
+                  This amount is net of GSTR-2B-only debit notes and credit
+                  notes.{" "}
+                  <strong>Credit notes reduce ITC; debit notes increase the
+                  difference.</strong>{" "}Some rows may not be directly claimable
+                  — review each entry before filing.
+                </span>
+              </div>
+            )}
 
             <div className={`${filterRowClass} mb-4 items-center`}>
                 <input
