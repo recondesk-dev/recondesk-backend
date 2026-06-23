@@ -24,6 +24,7 @@ def make_pr(
     total_tax_paise=18000,
     gstin=GSTIN,
     invoice_number="INV001",
+    payment_status="unpaid",
 ):
     return {
         "id": id,
@@ -33,6 +34,7 @@ def make_pr(
         "taxable_amount_paise": taxable_amount_paise,
         "total_tax_paise": total_tax_paise,
         "invoice_value_paise": taxable_amount_paise,
+        "payment_status": payment_status,
     }
 
 

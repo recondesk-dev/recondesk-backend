@@ -44,6 +44,8 @@ from app.services.carry_forward import update_invoice_tracking
 from app.services.rule37_tracker import (
     build_payment_records_from_pr,
     check_rule_37_compliance,
+    _is_itc_claimed,
+    PENDING_VERIFICATION,
 )
 from app.services.late_filing_tracker import check_late_filing
 from app.worker.celery_app import celery_app
@@ -745,14 +747,27 @@ def execute_reconciliation(run_id: str) -> None:
             raw = pr_raw_by_id.get(pr_id) or {}
             if not isinstance(raw, dict):
                 raw = {}
-                
+
+            # ── BUG 1 FIX: ITC-claimed gate ──────────────────────────────────
+            # If the PR's itc_eligibility column says "No"/"Ineligible" etc.,
+            # exclude this invoice from Rule 37 entirely — no ITC was claimed
+            # so there is nothing to reverse.
+            if not _is_itc_claimed(raw):
+                continue
+
             status_str = raw.get("payment_status")
             if isinstance(status_str, str):
                 status_str = status_str.strip().lower()
             else:
-                status_str = "unpaid"
-                
-            if status_str not in ("unpaid", "partially paid", "partial"):
+                status_str = None  # BUG 2 FIX: blank/None → do NOT default to "unpaid"
+
+            # Only forward unpaid, partially paid, and blank-status records.
+            # Blank status is handled inside check_rule_37_compliance as
+            # PENDING_VERIFICATION (not added to itc_at_risk).  Paid / other
+            # statuses are skipped here for efficiency.
+            if status_str is not None and status_str not in (
+                "unpaid", "partially paid", "partial"
+            ):
                 continue
 
             pr_for_rule37.append(
@@ -760,19 +775,33 @@ def execute_reconciliation(run_id: str) -> None:
                     **p,
                     "id": pr_id,
                     "invoice_date": p.get("invoice_date") or gstr_start.isoformat(),
+                    # Pass None through so check_rule_37_compliance routes it to
+                    # PENDING_VERIFICATION instead of treating it as "unpaid".
                     "payment_status": status_str,
                     "payment_date": raw.get("payment_date"),
+                    # itc_claimed=True here because we already filtered above;
+                    # passing explicitly so the gate inside the tracker is a no-op.
+                    "itc_claimed": True,
                 }
             )
         payment_records = build_payment_records_from_pr(
             pr_current, pr_raw_by_id
         )
-        rule37 = check_rule_37_compliance(
+        rule37_all = check_rule_37_compliance(
             pr_for_rule37,
             payment_records,
         )
+        # Split tracker output: at-risk rows go to rule37; pending-verification
+        # rows are surfaced separately and excluded from itc_at_risk totals.
+        rule37 = [r for r in rule37_all if r.get("status") != PENDING_VERIFICATION]
+        rule37_pending_verification = [
+            r for r in rule37_all if r.get("status") == PENDING_VERIFICATION
+        ]
         rule37_itc_paise = sum(
-            int(r.get("itc_at_risk_paise") or 0) for r in (rule37 or [])
+            int(r.get("itc_at_risk_paise") or 0) for r in rule37
+        )
+        rule37_pending_paise = sum(
+            int(r.get("total_tax_paise") or 0) for r in rule37_pending_verification
         )
         late_filing = check_late_filing(
             state.matched, gstr_raw_by_id, claim_period=period
@@ -930,6 +959,8 @@ def execute_reconciliation(run_id: str) -> None:
             itc_at_risk_total=itc_at_risk_total,
             late_itc_paise=late_itc_paise,
             late_match_count=late_itc,
+            rule37_pending_verification_count=len(rule37_pending_verification),
+            rule37_pending_verification_paise=rule37_pending_paise,
         )
 
         payload = _json_safe(
@@ -947,6 +978,7 @@ def execute_reconciliation(run_id: str) -> None:
                 decision_version=DECISION_VERSION,
                 gstin_mismatch=gstin_mismatch,
                 duplicates=review_required,
+                rule37_pending_verification=rule37_pending_verification,
             )
         )
         if isinstance(payload, str):
