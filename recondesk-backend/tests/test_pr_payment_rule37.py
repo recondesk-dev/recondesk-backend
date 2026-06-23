@@ -132,7 +132,10 @@ def test_rule37_unpaid_overdue_from_pr_status():
         }
     )
     payments = build_payment_records_from_pr([matcher], {"pr-4": raw})
-    pr_row = {**matcher, "invoice_date": "2025-10-30"}
+    # The worker explicitly copies payment_status from raw into the pr_for_rule37
+    # dict. Mirror that behaviour here so check_rule_37_compliance can classify
+    # the record correctly (absent status → PENDING_VERIFICATION, not OVERDUE_UNPAID).
+    pr_row = {**matcher, "invoice_date": "2025-10-30", "payment_status": raw["payment_status"]}
     results = check_rule_37_compliance(
         [pr_row], payments, today=date(2026, 6, 3)
     )

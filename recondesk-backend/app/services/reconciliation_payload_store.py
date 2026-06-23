@@ -160,6 +160,8 @@ def build_run_summary_metrics(
     itc_at_risk_total: int,
     late_itc_paise: int,
     late_match_count: int,
+    rule37_pending_verification_count: int = 0,
+    rule37_pending_verification_paise: int = 0,
 ) -> dict[str, Any]:
     """Scalar run_summary only — no decisions/compliance blobs (kept in results payload)."""
     return {
@@ -174,6 +176,8 @@ def build_run_summary_metrics(
         "late_match_count": late_match_count,
         "gstr_in_scope": n_gstr,
         "pr_in_scope": n_pr,
+        "rule37_pending_verification_count": rule37_pending_verification_count,
+        "rule37_pending_verification_paise": rule37_pending_verification_paise,
     }
 
 
@@ -192,6 +196,7 @@ def build_stored_results_payload(
     late_filing: list[dict[str, Any]] | None = None,
     gstin_mismatch: list[dict[str, Any]] | None = None,
     duplicates: list[dict[str, Any]] | None = None,
+    rule37_pending_verification: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Minimal JSON persisted to reconciliation_results (invoice detail loaded from row tables)."""
     return {
@@ -204,6 +209,7 @@ def build_stored_results_payload(
         },
         "compliance": {
             "rule37": rule37,
+            "rule37_pending_verification": rule37_pending_verification or [],
             "section_17_5": section_175_warnings,
             "credit_notes": credit_note_adjustment or {},
             "late_filing": late_filing or [],
