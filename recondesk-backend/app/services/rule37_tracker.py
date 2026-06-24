@@ -170,10 +170,11 @@ def check_rule_37_compliance(
 
     BUG 3 FIX — Proportionate reversal for partial payments
     ────────────────────────────────────────────────────────
-    When ``payment_status`` is "partially paid" / "partial", only 50% of the tax
-    amount is at risk.
-    TODO: replace the flat 50% with ``(unpaid_amount / invoice_value) * total_tax``
-    once an ``amount_paid_paise`` field is consistently populated in the PR schema.
+    When ``payment_status`` is "partially paid" / "partial", the reversal is
+    proportionate to the unpaid fraction of the invoice value:
+      ``itc_at_risk = total_tax * (invoice_value - amount_paid) / invoice_value``
+    Uses ``amount_paid_paise`` from the payment index when available; falls back
+    to 50% only when no paid-amount data exists (legacy records).
     """
     if today is None:
         today = date.today()
@@ -279,9 +280,19 @@ def check_rule_37_compliance(
 
         # ── BUG 3 FIX: Proportionate reversal for partial payments ────────────
         if payment_status in ("partially paid", "partial"):
-            # TODO: replace flat 50% with (unpaid_amount / invoice_value) * total_tax
-            # once amount_paid_paise is consistently present in the PR schema.
-            itc_at_risk_paise = int(total_tax_paise * 0.5)
+            # Use actual amount_paid from payment records to compute the unpaid
+            # proportion; fall back to 50% only for legacy records with no paid
+            # amount data.
+            if total_invoice_value_paise > 0 and total_paid_paise > 0:
+                unpaid_pct = (
+                    total_invoice_value_paise - total_paid_paise
+                ) / total_invoice_value_paise
+                # Clamp to [0, 1] — guard against overpayment edge-cases
+                unpaid_pct = max(0.0, min(1.0, unpaid_pct))
+                itc_at_risk_paise = int(total_tax_paise * unpaid_pct)
+            else:
+                # No amount_paid data → fall back to 50% (conservative default)
+                itc_at_risk_paise = int(total_tax_paise * 0.5)
         else:
             # Fully unpaid past deadline → full ITC reversal
             itc_at_risk_paise = total_tax_paise

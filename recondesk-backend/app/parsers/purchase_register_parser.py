@@ -109,7 +109,10 @@ COLUMN_ALIASES: dict[str, list[str]] = {
         "supplier payment amount",
     ],
     "itc_eligibility": [
-        "itc eligible", "itc eligibility", "is itc eligible", "eligible for itc", "itc status", "eligible",
+        "itc eligible", "itc eligibility", "is itc eligible", "eligible for itc",
+        "itc status", "eligible",
+        # Production PR template uses "ITC Claimed" with Yes/No values:
+        "itc claimed", "itc claim", "itc availed", "itc availed yn",
     ],
 }
 
@@ -854,6 +857,10 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 out["payment_date"] = payment_date
             if amount_paid_paise is not None:
                 out["amount_paid_paise"] = amount_paid_paise
+            if "itc_eligibility" in column_mapping:
+                _itc = row.get("itc_eligibility")
+                if _itc is not None and not (isinstance(_itc, float) and pd.isna(_itc)):
+                    out["itc_eligibility"] = str(_itc)
 
             records.append(out)
 
