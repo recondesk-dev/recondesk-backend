@@ -118,7 +118,7 @@ COLUMN_ALIASES: dict[str, list[str]] = {
 
 # Sheets whose normalised name contains any of these words are skipped.
 _SKIP_SHEET_WORDS: frozenset[str] = frozenset(
-    ["summary", "total", "instruction", "readme", "sheet"]
+    ["summary", "total", "instruction", "readme"]
 )
 
 # Row-level skip markers (normalised cell value must start with one of these).
@@ -208,6 +208,62 @@ _FIELD_MATCH_PRIORITY: dict[str, int] = {
     "payment_date": 50,
     "amount_paid": 45,
 }
+
+def _find_best_header_from_raw(raw_df: pd.DataFrame, max_rows: int = 20) -> tuple[pd.DataFrame | None, dict[str, str] | None, int]:
+    """
+    Given a DataFrame parsed without headers (header=None), scan the first
+    `max_rows` to find the row that matches the most standard fields.
+    """
+    best_df: pd.DataFrame | None = None
+    best_mapping: dict[str, str] | None = None
+    best_header_row = -1
+    max_score = -1
+
+    fallback_df: pd.DataFrame | None = None
+    fallback_mapping: dict[str, str] | None = None
+
+    max_check = min(max_rows, len(raw_df))
+    for header_row in range(max_check):
+        headers = list(raw_df.iloc[header_row].fillna("").astype(str))
+        
+        seen: dict[str, int] = {}
+        unique_headers: list[str] = []
+        for h in headers:
+            if h in seen:
+                seen[h] += 1
+                unique_headers.append(f"{h}.{seen[h]}")
+            else:
+                seen[h] = 0
+                unique_headers.append(h)
+                
+        candidate = raw_df.iloc[header_row + 1:].copy()
+        candidate.columns = unique_headers
+        candidate = candidate.reset_index(drop=True)
+        
+        try:
+            mapping = detect_column_mapping(candidate)
+            score = len(mapping)
+            if score > max_score:
+                max_score = score
+                best_df = candidate
+                best_mapping = mapping
+                best_header_row = header_row
+        except ParseError:
+            pass
+            
+        if header_row == 0:
+            fallback_df = candidate
+            try:
+                fallback_mapping = detect_column_mapping(candidate)
+            except ParseError:
+                fallback_mapping = None
+                
+    if max_score >= 3:
+        return best_df, best_mapping, best_header_row
+    elif fallback_mapping is not None:
+        return fallback_df, fallback_mapping, 0
+        
+    return None, None, -1
 
 
 def detect_column_mapping(df: pd.DataFrame) -> dict[str, str]:
@@ -597,25 +653,23 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     logger.debug("Skipping sheet '%s' (matched skip-word).", sheet_name)
                     continue
 
-                for header_row in (0, 1, 2, 3):
-                    try:
-                        candidate = pd.read_excel(
-                            io.BytesIO(file_content),
-                            sheet_name=sheet_name,
-                            header=header_row,
-                            dtype=str,
-                        ).reset_index(drop=True)
-                        mapping = detect_column_mapping(candidate)
-                        df = candidate
-                        column_mapping = mapping
-                        selected_header_row = header_row
-                        source_cols = list(candidate.columns)
-                        found = True
-                        break
-                    except ParseError:
-                        continue
+                try:
+                    raw_df = pd.read_excel(
+                        io.BytesIO(file_content),
+                        sheet_name=sheet_name,
+                        header=None,
+                        dtype=str,
+                    )
+                except Exception:
+                    continue
 
-                if found:
+                best_df, best_mapping, best_header_row = _find_best_header_from_raw(raw_df)
+                if best_df is not None:
+                    df = best_df
+                    column_mapping = best_mapping
+                    selected_header_row = best_header_row
+                    source_cols = list(best_df.columns)
+                    found = True
                     break
 
             if not found:
@@ -632,22 +686,24 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     raw_text = file_content.decode(encoding, errors="replace")
                 except Exception:
                     continue
-                for header_row in (0, 1, 2):
-                    try:
-                        candidate = pd.read_csv(
-                            io.StringIO(raw_text),
-                            header=header_row,
-                            dtype=str,
-                        ).reset_index(drop=True)
-                        mapping = detect_column_mapping(candidate)
-                        df = candidate
-                        column_mapping = mapping
-                        selected_header_row = header_row
-                        source_cols = list(candidate.columns)
-                        found = True
-                        break
-                    except ParseError:
-                        continue
+                
+                try:
+                    raw_df = pd.read_csv(
+                        io.StringIO(raw_text),
+                        header=None,
+                        dtype=str,
+                    )
+                except Exception:
+                    continue
+                    
+                best_df, best_mapping, best_header_row = _find_best_header_from_raw(raw_df)
+                if best_df is not None:
+                    df = best_df
+                    column_mapping = best_mapping
+                    selected_header_row = best_header_row
+                    source_cols = list(best_df.columns)
+                    found = True
+                    break
 
             if not found:
                 raise ParseError(
