@@ -56,24 +56,54 @@ _UNMATCHED_STATUSES = frozenset(
 )
 _MATCHED_STATUSES = frozenset({"matched", "wrongful_claim"})
 
+# How many rows to fetch / upsert per DB round-trip.
+_PAGE_SIZE = 1000
+_UPSERT_BATCH = 200
 
-def _fetch_tracking_row(
+
+def _bulk_fetch_tracking_rows(
+    supabase,
     client_gstin_id: UUID,
-    invoice_number: str,
-    supplier_gstin: str,
-) -> dict | None:
-    supabase = get_supabase()
-    result = (
-        supabase.table("invoice_tracking")
-        .select("*")
-        .eq("client_gstin_id", str(client_gstin_id))
-        .eq("invoice_number", invoice_number)
-        .eq("supplier_gstin", supplier_gstin)
-        .limit(1)
-        .execute()
-    )
-    rows = result.data or []
-    return rows[0] if rows else None
+) -> dict[tuple[str, str], dict]:
+    """Fetch ALL existing tracking rows for this client in one paginated read.
+
+    Returns a dict keyed by (invoice_number, supplier_gstin).
+    This replaces the previous per-row SELECT that caused N+1 timeouts.
+    """
+    index: dict[tuple[str, str], dict] = {}
+    offset = 0
+    while True:
+        result = (
+            supabase.table("invoice_tracking")
+            .select(
+                "id, invoice_number, supplier_gstin, "
+                "consecutive_unmatched_runs, is_resolved"
+            )
+            .eq("client_gstin_id", str(client_gstin_id))
+            .order("id")
+            .range(offset, offset + _PAGE_SIZE - 1)
+            .execute()
+        )
+        rows = result.data or []
+        for row in rows:
+            key = (str(row["invoice_number"]), str(row["supplier_gstin"]))
+            index[key] = row
+        if len(rows) < _PAGE_SIZE:
+            break
+        offset += len(rows)
+    return index
+
+
+def _batched_upsert(supabase, table: str, rows: list[dict], on_conflict: str) -> None:
+    for i in range(0, len(rows), _UPSERT_BATCH):
+        chunk = rows[i : i + _UPSERT_BATCH]
+        try:
+            supabase.table(table).upsert(chunk, on_conflict=on_conflict).execute()
+        except Exception as exc:
+            logger.error(
+                "carry_forward batched upsert into %s failed (batch %d, size %d): %s",
+                table, i // _UPSERT_BATCH, len(chunk), exc,
+            )
 
 
 async def update_invoice_tracking(
@@ -89,10 +119,23 @@ async def update_invoice_tracking(
         (match_status from record_data JSONB)
 
     Returns summary: {upserted, resolved, chronic_risks}
+
+    Performance: O(1) bulk fetch + O(ceil(n/200)) batched upserts instead
+    of the previous O(n) per-row SELECT + individual INSERT/UPDATE.
     """
     supabase = get_supabase()
-    upserted = 0
-    resolved = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # ── 1. Bulk-fetch all existing tracking rows for this client ──────────────
+    existing_index = _bulk_fetch_tracking_rows(supabase, client_gstin_id)
+    logger.info(
+        "carry_forward run_id=%s: fetched %d existing tracking rows for client=%s",
+        run_id, len(existing_index), client_gstin_id,
+    )
+
+    # ── 2. Classify each PR record in Python (zero extra DB queries) ──────────
+    rows_to_insert: list[dict] = []
+    rows_to_update: list[dict] = []
     chronic_risks: list[dict] = []
 
     for row in pr_records:
@@ -107,24 +150,23 @@ async def update_invoice_tracking(
         is_unmatched = match_status in _UNMATCHED_STATUSES
         is_matched = match_status in _MATCHED_STATUSES
 
-        try:
-            existing = _fetch_tracking_row(
-                client_gstin_id, str(invoice_number), str(supplier_gstin)
-            )
+        key = (str(invoice_number), str(supplier_gstin))
+        existing = existing_index.get(key)
 
+        try:
             if is_unmatched:
                 if existing:
                     new_count = int(existing["consecutive_unmatched_runs"]) + 1
-                    supabase.table("invoice_tracking").update(
+                    rows_to_update.append(
                         {
+                            "id": existing["id"],
                             "last_seen_run_id": str(run_id),
                             "consecutive_unmatched_runs": new_count,
                             "last_match_status": match_status,
                             "is_resolved": False,
-                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                            "updated_at": now_iso,
                         }
-                    ).eq("id", existing["id"]).execute()
-
+                    )
                     if new_count >= CHRONIC_RISK_THRESHOLD:
                         chronic_risks.append(
                             {
@@ -134,11 +176,11 @@ async def update_invoice_tracking(
                             }
                         )
                 else:
-                    supabase.table("invoice_tracking").insert(
+                    rows_to_insert.append(
                         {
                             "client_gstin_id": str(client_gstin_id),
-                            "invoice_number": invoice_number,
-                            "supplier_gstin": supplier_gstin,
+                            "invoice_number": str(invoice_number),
+                            "supplier_gstin": str(supplier_gstin),
                             "taxable_amount": int(taxable_amount),
                             "first_seen_run_id": str(run_id),
                             "last_seen_run_id": str(run_id),
@@ -146,32 +188,41 @@ async def update_invoice_tracking(
                             "last_match_status": match_status,
                             "is_resolved": False,
                         }
-                    ).execute()
-
-                upserted += 1
+                    )
 
             elif is_matched and existing and not existing.get("is_resolved"):
-                supabase.table("invoice_tracking").update(
+                rows_to_update.append(
                     {
+                        "id": existing["id"],
                         "last_seen_run_id": str(run_id),
                         "last_match_status": match_status,
                         "is_resolved": True,
                         "consecutive_unmatched_runs": 0,
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                        "updated_at": now_iso,
                     }
-                ).eq("id", existing["id"]).execute()
-                resolved += 1
+                )
 
-        except Exception as e:
-            logger.error("carry_forward error for %s: %s", invoice_number, e)
+        except Exception as exc:
+            logger.error(
+                "carry_forward classification error for %s: %s", invoice_number, exc
+            )
             continue
 
+    # ── 3. Batched writes ─────────────────────────────────────────────────────
+    upserted = len(rows_to_insert) + len(
+        [r for r in rows_to_update if not r.get("is_resolved")]
+    )
+    resolved = len([r for r in rows_to_update if r.get("is_resolved")])
+
+    if rows_to_insert:
+        _batched_upsert(supabase, "invoice_tracking", rows_to_insert, "id")
+
+    if rows_to_update:
+        _batched_upsert(supabase, "invoice_tracking", rows_to_update, "id")
+
     logger.info(
-        "carry_forward run_id=%s: upserted=%d resolved=%d chronic=%d",
-        run_id,
-        upserted,
-        resolved,
-        len(chronic_risks),
+        "carry_forward run_id=%s: inserts=%d updates=%d resolved=%d chronic=%d",
+        run_id, len(rows_to_insert), len(rows_to_update), resolved, len(chronic_risks),
     )
     return {"upserted": upserted, "resolved": resolved, "chronic_risks": chronic_risks}
 

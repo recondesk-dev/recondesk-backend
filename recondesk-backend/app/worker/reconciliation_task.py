@@ -861,14 +861,21 @@ def execute_reconciliation(run_id: str) -> None:
                 }
             )
         if amount_diff_upsert_rows:
-            try:
-                client.table("gstr_records").upsert(
-                    amount_diff_upsert_rows,
-                    on_conflict="id",
-                    returning="minimal",
-                ).execute()
-            except Exception:
-                _log.exception("amount_difference_paise bulk upsert failed")
+            _DIFF_BATCH = 200
+            for _di in range(0, len(amount_diff_upsert_rows), _DIFF_BATCH):
+                _chunk = amount_diff_upsert_rows[_di : _di + _DIFF_BATCH]
+                try:
+                    client.table("gstr_records").upsert(
+                        _chunk,
+                        on_conflict="id",
+                        returning="minimal",
+                    ).execute()
+                except Exception:
+                    _log.exception(
+                        "amount_difference_paise bulk upsert failed (batch %d, size %d)",
+                        _di // _DIFF_BATCH,
+                        len(_chunk),
+                    )
 
         try:
             carry_forward_summary = asyncio.run(
