@@ -45,6 +45,18 @@ def _comma_int(n: float) -> str:
     return f"{int(round(float(n))):,}"
 
 
+def _doc_type_display(doc_type: Any) -> str:
+    """Return formatted document type, defaulting to 'Invoice'."""
+    if not doc_type:
+        return "Invoice"
+    s = str(doc_type).strip().upper()
+    if s in ("CREDIT_NOTE", "CREDIT"):
+        return "Credit Note"
+    if s in ("DEBIT_NOTE", "DEBIT"):
+        return "Debit Note"
+    return "Invoice"
+
+
 def _period_mmm_yyyy(period: str) -> str:
     s = (period or "").strip()
     try:
@@ -195,6 +207,7 @@ def build_excel_workbook_bytes(
             "Supplier GSTIN",
             "Invoice#",
             "Date",
+            "Document Type",
             "Taxable Amount",
             "Total Tax",
             "Match Level",
@@ -242,6 +255,7 @@ def build_excel_workbook_bytes(
                 api_row.get("supplier_gstin", ""),
                 api_row.get("invoice_number", ""),
                 api_row.get("invoice_date", ""),
+                _doc_type_display(api_row.get("document_type")),
                 _comma_int(taxable),
                 _comma_int(float(api_row.get("amount") or 0)),
                 api_row.get("match_level", ""),
@@ -284,6 +298,7 @@ def build_excel_workbook_bytes(
             "Supplier GSTIN",
             "Invoice#",
             "Date",
+            "Document Type",
             "Taxable Amount",
             "ITC Amount",
             "WHAT IS WRONG",
@@ -306,10 +321,16 @@ def build_excel_workbook_bytes(
             tax_amt = _taxable_from_missed_row(row)
             itc_am = float(row.get("amount") or 0)
             sum_itc += itc_am
+            gstr_doc = row.get("gstr2b_data", {}).get("document_type") if isinstance(row.get("gstr2b_data"), dict) else None
+            # fallback to top-level if gstr2b_data doesn't have it
+            if not gstr_doc:
+                gstr_doc = row.get("document_type")
+
             vals = (
                 row.get("supplier_gstin", ""),
                 row.get("invoice_number", ""),
                 row.get("invoice_date", ""),
+                _doc_type_display(gstr_doc),
                 _comma_int(tax_amt),
                 _comma_int(itc_am),
                 _decision_cell(row.get("decision_what")),
@@ -353,6 +374,7 @@ def build_excel_workbook_bytes(
             "Supplier GSTIN",
             "Invoice#",
             "Date",
+            "Document Type",
             "ITC at Risk",
             "WHAT IS WRONG",
             "WHY",
@@ -377,6 +399,7 @@ def build_excel_workbook_bytes(
                 row.get("supplier_gstin", ""),
                 row.get("invoice_number", ""),
                 row.get("invoice_date", ""),
+                _doc_type_display(row.get("document_type")),
                 _comma_int(am),
                 _decision_cell(row.get("decision_what")),
                 _decision_cell(row.get("decision_why")),
