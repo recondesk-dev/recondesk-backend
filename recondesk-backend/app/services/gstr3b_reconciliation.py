@@ -44,8 +44,13 @@ def _overall_status(igst_s: str, cgst_s: str, sgst_s: str) -> str:
 
 
 def _paise_to_rupees(paise: Any) -> float:
+    """Convert paise to rupees WITHOUT rounding.
+
+    Callers that sum multiple rows must apply round(..., 2) once on the
+    final accumulated total, not per-row, to avoid cumulative drift.
+    """
     try:
-        return round(float(paise) / 100.0, 2)
+        return float(paise) / 100.0
     except (TypeError, ValueError):
         return 0.0
 
@@ -128,6 +133,8 @@ def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
                 sgst_total += _paise_to_rupees(item.get("sgst_paise") or 0)
 
     return {
+        # round() applied once on the accumulated sum, not per-row, to avoid
+        # cumulative drift from summing multiple round(paise/100, 2) values.
         "igst": round(igst_total, 2),
         "cgst": round(cgst_total, 2),
         "sgst": round(sgst_total, 2),

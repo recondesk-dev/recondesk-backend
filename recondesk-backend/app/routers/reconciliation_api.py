@@ -952,10 +952,30 @@ def _display_status(st: Optional[str]) -> str:
 
 
 def _paise_to_rupees(paise: Optional[int]) -> float:
+    """Convert paise integer to rounded rupees (2 dp). Use for per-row display.
+
+    For totals that must avoid cumulative rounding drift, sum raw paise integers
+    and call this function once on the final sum — do NOT sum the return values
+    of multiple per-row calls.
+    """
     if paise is None:
         return 0.0
     try:
         return round(float(paise) / 100.0, 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _paise_to_rupees_exact(paise: Optional[int]) -> float:
+    """Convert paise integer to rupees WITHOUT rounding.
+
+    Use this inside aggregation loops so that accumulated float values retain
+    full precision; apply round(..., 2) once on the final sum.
+    """
+    if paise is None:
+        return 0.0
+    try:
+        return float(paise) / 100.0
     except (TypeError, ValueError):
         return 0.0
 
@@ -1342,28 +1362,37 @@ def _build_rule37_summary_payload(
     rows = _all_rule37_rows_for_run(sb, rid, payload, notes)
     row_by_id = {str(r.get("id") or ""): r for r in rows}
 
-    total = 0.0
-    saved = 0.0
-    reversed_amt = 0.0
-    pending = 0.0
+    # Use integer paise accumulators to avoid cumulative float rounding drift.
+    # row["amount"] is already a rounded-float (rupees); instead we recover the
+    # raw paise from itc_at_risk_paise when available, falling back to the
+    # pre-rounded float only for DB-sourced rows that lack the paise key.
+    total_exact = 0.0
+    saved_exact = 0.0
+    reversed_exact = 0.0
+    pending_exact = 0.0
     action_details = _rule37_action_details_for_run(sb, rid)
 
     for row in rows:
-        amt = float(row.get("amount") or 0)
-        total += amt
+        # Prefer raw paise (no per-row rounding); fall back to stored float.
+        raw_paise = row.get("itc_at_risk_paise")
+        if raw_paise is not None:
+            amt_exact = _paise_to_rupees_exact(int(raw_paise))
+        else:
+            amt_exact = float(row.get("amount") or 0)
+        total_exact += amt_exact
         row_id = str(row.get("id") or "")
         status = str(row.get("rule37_action_status") or "").strip().lower()
         detail = action_details.get(row_id, {})
         coverage = str(detail.get("payment_coverage") or "").strip().lower()
         if status == "resolved":
             if coverage == "partial":
-                pending += amt
+                pending_exact += amt_exact
             else:
-                saved += amt
+                saved_exact += amt_exact
         elif status == "acknowledged":
-            reversed_amt += amt
+            reversed_exact += amt_exact
         else:
-            pending += amt
+            pending_exact += amt_exact
 
     action_rows = _rule37_actions_history_for_run(sb, rid)
     uids = {
@@ -1419,10 +1448,12 @@ def _build_rule37_summary_payload(
 
     return {
         "summary": {
-            "total_itc_at_risk": round(total, 2),
-            "itc_saved": round(saved, 2),
-            "itc_reversed": round(reversed_amt, 2),
-            "pending_action": round(pending, 2),
+            # Round once on the accumulated sum — not per-row — to eliminate
+            # cumulative drift from summing multiple round(paise/100, 2) values.
+            "total_itc_at_risk": round(total_exact, 2),
+            "itc_saved": round(saved_exact, 2),
+            "itc_reversed": round(reversed_exact, 2),
+            "pending_action": round(pending_exact, 2),
         },
         "action_history": history,
     }
