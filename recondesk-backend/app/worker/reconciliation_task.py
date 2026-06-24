@@ -738,6 +738,7 @@ def execute_reconciliation(run_id: str) -> None:
         wrongful_paise = sum(
             int(x.get("total_tax_paise") or 0) for x in wrongful_itc
         )
+        _phase("rule37")
         pr_for_rule37 = []
         for m in state.matched:
             pr_id = str(m.get("pr_id"))
@@ -838,6 +839,8 @@ def execute_reconciliation(run_id: str) -> None:
                     
             gstr_invoices_for_blocked.append(merged)
         s175 = check_blocked_credits(gstr_invoices_for_blocked)
+
+        _phase("amount-diff-upsert")
         amount_diff_upsert_rows: list[dict[str, Any]] = []
         amount_diff_ts = _now_iso()
         for m in state.matched:
@@ -877,6 +880,7 @@ def execute_reconciliation(run_id: str) -> None:
                         len(_chunk),
                     )
 
+        _phase("carry-forward")
         try:
             carry_forward_summary = asyncio.run(
                 update_invoice_tracking(
@@ -889,6 +893,7 @@ def execute_reconciliation(run_id: str) -> None:
         except Exception:
             _log.exception("carry_forward failed run_id=%s", run_id)
 
+        _phase("credit-notes")
         credit_rows = [
             {**p, "doc_kind": classify_document(p)}
             for p in pr_current
@@ -922,6 +927,7 @@ def execute_reconciliation(run_id: str) -> None:
             },
         )
 
+        _phase("decision-layer")
         merged_rule37 = (rule37 or []) + (late_filing or [])
         decision_payload = populate_decisions(
             state.matched,
