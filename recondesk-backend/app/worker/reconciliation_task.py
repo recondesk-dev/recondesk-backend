@@ -790,6 +790,11 @@ def execute_reconciliation(run_id: str) -> None:
         rule37_all = check_rule_37_compliance(
             pr_for_rule37,
             payment_records,
+            # BUG 4 FIX: evaluate the 180-day threshold at the period end date,
+            # not date.today().  Without this, invoices whose 180-day window
+            # had NOT yet expired as of the reconciliation period (e.g. Sep 2025)
+            # but have since expired in wall-clock time are incorrectly flagged.
+            today=gstr_end,
         )
         # Split tracker output: at-risk rows go to rule37; pending-verification
         # rows are surfaced separately and excluded from itc_at_risk totals.
