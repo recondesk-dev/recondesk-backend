@@ -854,6 +854,11 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 igst_paise is not None or cgst_paise is not None or sgst_paise is not None
             ):
                 total_tax_paise = (igst_paise or 0) + (cgst_paise or 0) + (sgst_paise or 0)
+            # normalize_dataframe_to_canonical_schema stores tax columns as abs()
+            # (unsigned) to handle mixed-sign inputs. Re-apply sign for credit
+            # notes here so that ITC-at-risk aggregation correctly subtracts them.
+            if invoice_type == "CREDIT_NOTE" and total_tax_paise is not None and total_tax_paise > 0:
+                total_tax_paise = -total_tax_paise
 
             _rcell = row.get("reverse_charge")
             if _rcell is None or (isinstance(_rcell, float) and pd.isna(_rcell)):
