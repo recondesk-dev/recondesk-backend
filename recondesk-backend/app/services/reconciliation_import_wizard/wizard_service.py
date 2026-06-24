@@ -20,7 +20,11 @@ from supabase import Client
 
 from app.config import settings
 from app.database import get_supabase
-from app.parsers.purchase_register_parser import ParseError, detect_column_mapping
+from app.parsers.purchase_register_parser import (
+    ParseError,
+    detect_column_mapping,
+    _find_best_header_from_raw,
+)
 from app.services.reconciliation_import_wizard import state_machine
 
 _log = logging.getLogger(__name__)
@@ -331,16 +335,61 @@ def _skip_breakdown_affected_records(
 
 
 def _read_pr_dataframe(raw: bytes, filename: str) -> pd.DataFrame:
+    """Read a purchase-register file, scanning the first 20 rows to find the
+    correct header row (handles CA exports with noisy title/blank rows before
+    the actual column headers)."""
     ext = (filename or "").rsplit(".", 1)[-1].lower() if "." in (filename or "") else "csv"
     bio = io.BytesIO(raw)
+
     if ext == "csv":
+        for encoding in ("utf-8", "latin-1"):
+            try:
+                raw_text = raw.decode(encoding, errors="replace")
+                raw_df = pd.read_csv(io.StringIO(raw_text), header=None, dtype=str)
+                best_df, _, _ = _find_best_header_from_raw(raw_df)
+                if best_df is not None:
+                    return best_df
+            except Exception:  # noqa: BLE001
+                continue
+        # final fallback — try row 0 directly
         return pd.read_csv(bio, dtype=str)
-    if ext == "xls":
+
+    # Excel path
+    try:
+        xl = pd.ExcelFile(io.BytesIO(raw))
+    except Exception:  # noqa: BLE001
+        return pd.DataFrame()
+
+    for sheet_name in xl.sheet_names:
         try:
-            return pd.read_excel(bio, dtype=str, engine="xlrd")
+            raw_df = pd.read_excel(
+                io.BytesIO(raw),
+                sheet_name=sheet_name,
+                header=None,
+                dtype=str,
+            )
         except Exception:  # noqa: BLE001
-            return pd.read_excel(bio, dtype=str, engine="openpyxl")
-    return pd.read_excel(bio, dtype=str, engine="openpyxl")
+            continue
+        _log.info(
+            "[detect-columns] _read_pr_dataframe: scanning sheet '%s', shape=%s",
+            sheet_name,
+            raw_df.shape,
+        )
+        best_df, best_mapping, best_header_row = _find_best_header_from_raw(raw_df)
+        _log.info(
+            "[detect-columns] _read_pr_dataframe: best_header_row=%s, mapping=%s",
+            best_header_row,
+            best_mapping,
+        )
+        if best_df is not None:
+            return best_df
+
+    # Nothing worked — fall back to openpyxl row-0 parse
+    _log.warning("[detect-columns] _read_pr_dataframe: no best header found, falling back to row 0")
+    try:
+        return pd.read_excel(io.BytesIO(raw), dtype=str, engine="openpyxl")
+    except Exception:  # noqa: BLE001
+        return pd.DataFrame()
 
 
 def detect_pr_columns_from_r2(key: str, filename: str) -> tuple[list[dict], list[str], int]:
