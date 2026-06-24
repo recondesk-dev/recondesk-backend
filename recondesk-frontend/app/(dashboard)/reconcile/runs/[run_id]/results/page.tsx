@@ -618,6 +618,25 @@ export default function ReconcileResultsPage() {
 
   const [matchedSearch, setMatchedSearch] = useState("");
   const [debouncedMatchedSearch, setDebouncedMatchedSearch] = useState("");
+
+  const [docTypeFilterMatched, setDocTypeFilterMatched] = useState<string>("");
+  const [docTypeFilterItc, setDocTypeFilterItc] = useState<string>("");
+  const [docTypeFilterRisk, setDocTypeFilterRisk] = useState<string>("");
+
+  const checkDocType = (row: any, filterVal: string) => {
+    if (!filterVal) return true;
+    const rawDt = String(
+      row?.document_type ||
+      row?.gstr2b_data?.document_type ||
+      row?.gstr2b_data?.doc_type ||
+      row?.pr_data?.document_type ||
+      "Invoice"
+    );
+    const dt = rawDt.toLowerCase().replace("_", " ").trim();
+    const f = filterVal.toLowerCase().replace("_", " ").trim();
+    return dt === f;
+  };
+
   useEffect(() => {
     const h = window.setTimeout(() => setDebouncedMatchedSearch(matchedSearch), 400);
     return () => window.clearTimeout(h);
@@ -1885,19 +1904,20 @@ export default function ReconcileResultsPage() {
                     setItcFilters((f) => ({ ...f, date_to: e.target.value }))
                   }
                 />
-                {hasActiveItcFilters(itcFilters) && (
+                {(hasActiveItcFilters(itcFilters) || !!docTypeFilterItc) && (
                   <button
                     type="button"
                     className="text-[13px] font-medium text-brand hover:underline"
-                    onClick={() =>
+                    onClick={() => {
+                      setDocTypeFilterItc("");
                       setItcFilters({
                         amount_min: "",
                         amount_max: "",
                         supplier_gstin: "",
                         date_from: "",
                         date_to: "",
-                      })
-                    }
+                      });
+                    }}
                   >
                     Clear filters
                   </button>
@@ -2039,7 +2059,7 @@ export default function ReconcileResultsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {itcRows.map((row, i) => (
+                      {itcRows.filter(r => checkDocType(r, docTypeFilterItc)).map((row, i) => (
                         <tr key={row.id} className={`group ${tableRowClass}`}>
                           <td className={tableStickyCheckboxCellClass}>
                             <input
@@ -2300,18 +2320,19 @@ export default function ReconcileResultsPage() {
                   <option value="medium">Medium</option>
                   <option value="low">Low</option>
                 </select>
-                {hasActiveRiskFilters(riskFilters) && (
+                {(hasActiveRiskFilters(riskFilters) || !!docTypeFilterRisk) && (
                   <button
                     type="button"
                     className="text-[13px] font-medium text-brand hover:underline"
-                    onClick={() =>
+                    onClick={() => {
+                      setDocTypeFilterRisk("");
                       setRiskFilters({
                         amount_min: "",
                         amount_max: "",
                         supplier_gstin: "",
                         risk_level: "",
-                      })
-                    }
+                      });
+                    }}
                   >
                     Clear filters
                   </button>
@@ -2479,7 +2500,7 @@ export default function ReconcileResultsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {riskRows.map((row, i) => (
+                      {riskRows.filter(r => checkDocType(r, docTypeFilterRisk)).map((row, i) => (
                         <tr key={row.id} className={`group ${tableRowClass}`}>
                           <td className={tableStickyCheckboxCellClass}>
                             <input
@@ -2673,6 +2694,16 @@ export default function ReconcileResultsPage() {
             <div className="flex flex-wrap items-center gap-2">
               <select
                 className={filterInputClass}
+                value={docTypeFilterMatched}
+                onChange={(e) => setDocTypeFilterMatched(e.target.value)}
+              >
+                <option value="">All Document Types</option>
+                <option value="Invoice">Invoice</option>
+                <option value="Credit Note">Credit Note</option>
+                <option value="Debit Note">Debit Note</option>
+              </select>
+              <select
+                className={filterInputClass}
                 value={matchedFilters.match_level}
                 onChange={(e) =>
                   setMatchedFilters((f) => ({
@@ -2757,13 +2788,14 @@ export default function ReconcileResultsPage() {
               >
                 Section 17(5)
               </button>
-              {hasActiveMatchedFilters(debouncedMatchedSearch, matchedFilters) && (
+              {(hasActiveMatchedFilters(debouncedMatchedSearch, matchedFilters) || !!docTypeFilterMatched) && (
                 <button
                   type="button"
                   className="text-[13px] font-medium text-brand hover:underline"
                   onClick={() => {
                     setMatchedSearch("");
                     setDebouncedMatchedSearch("");
+                    setDocTypeFilterMatched("");
                     setMatchedFilters({
                       match_level: "",
                       has_notes: false,
@@ -2807,6 +2839,7 @@ export default function ReconcileResultsPage() {
                   onClick={() => {
                     setMatchedSearch("");
                     setDebouncedMatchedSearch("");
+                    setDocTypeFilterMatched("");
                     setMatchedFilters({
                       match_level: "",
                       has_notes: false,
@@ -2839,7 +2872,7 @@ export default function ReconcileResultsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {matchedData.data.map((row) => {
+                    {matchedData.data.filter(r => checkDocType(r, docTypeFilterMatched)).map((row) => {
                       const taxDiff = formatTaxDifferenceDisplay(
                         row.tax_difference_paise,
                         row.discrepancy_note
