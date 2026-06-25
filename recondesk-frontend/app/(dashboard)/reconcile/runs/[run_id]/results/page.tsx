@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, FileSpreadsheet, FileText, Loader2, Shield, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, FileSpreadsheet, FileText, Info, Loader2, Shield, Trash2, X } from "lucide-react";
 import {
   Rule37MarkPaidModal,
   type Rule37MarkPaidTarget,
@@ -1630,6 +1630,19 @@ export default function ReconcileResultsPage() {
     return <div className="p-8 text-gray-600">Invalid run.</div>;
   }
 
+  const isProcessing = summary?.status?.toUpperCase() === "PROCESSING" || summary?.status?.toUpperCase() === "PENDING" || summary?.status?.toUpperCase() === "RUNNING";
+
+  if (isProcessing) {
+    return (
+      <div className="box-border -mx-8 -mt-8 flex min-h-[60vh] flex-col items-center justify-center bg-white px-8">
+        <Loader2 className="mb-4 h-10 w-10 animate-spin text-[#7B5CFA]" />
+        <p className="text-base font-medium text-gray-900">
+          Running reconciliation... This usually takes 20–40 seconds.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden bg-white pb-28">
       <div
@@ -1690,20 +1703,6 @@ export default function ReconcileResultsPage() {
                       <FileSpreadsheet className="h-4 w-4 shrink-0 text-gray-500" />
                     )}
                     Excel
-                  </button>
-                  <span className="mx-0.5 h-5 w-px bg-gray-200" aria-hidden />
-                  <button
-                    type="button"
-                    disabled={pdfDownloading || !summary}
-                    className={exportToolbarBtn}
-                    onClick={() => void downloadPdfReport()}
-                  >
-                    {pdfDownloading ? (
-                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" />
-                    ) : (
-                      <FileText className="h-4 w-4 shrink-0 text-gray-500" />
-                    )}
-                    PDF
                   </button>
                 </div>
                 <button
@@ -1780,7 +1779,25 @@ export default function ReconcileResultsPage() {
 
       <div className={pageContentClass}>
         {summary && (
-          <ResultsBucketTabs active={resultsTab} onChange={setResultsTab} />
+          <ResultsBucketTabs
+            active={resultsTab}
+            onChange={setResultsTab}
+            rightContent={
+              <button
+                type="button"
+                disabled={pdfDownloading || !summary}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-4 text-[13px] font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void downloadPdfReport()}
+              >
+                {pdfDownloading ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#7B5CFA]" />
+                ) : (
+                  <FileText className="h-4 w-4 shrink-0 text-[#7B5CFA]" />
+                )}
+                Download Reconciliation Report (PDF)
+              </button>
+            }
+          />
         )}
 
         {/* ITC */}
@@ -2055,7 +2072,7 @@ export default function ReconcileResultsPage() {
                         <th className={decisionTh("what")}>WHAT</th>
                         <th className={decisionTh("why")}>WHY</th>
                         <th className={decisionTh("next")}>NEXT</th>
-                        <th className={decisionTh("status")}>Status</th>
+                        <th className={decisionTh("status")}>Match Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2122,9 +2139,18 @@ export default function ReconcileResultsPage() {
                             />
                           </td>
                           <td className={decisionTd("status")}>
-                            <span className="inline-flex">
-                              <DecisionStatusPill status={effectiveStatus(row)} />
-                            </span>
+                            <div className="flex flex-col gap-1.5">
+                              <div>
+                                <span className="inline-flex">
+                                  <DecisionStatusPill status={effectiveStatus(row)} />
+                                </span>
+                              </div>
+                              {effectiveStatus(row) === "pending" && (
+                                <div className="text-[11px] font-medium text-[#6B7280]">
+                                  {row.discrepancy_note || "Review required"}
+                                </div>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -2493,7 +2519,7 @@ export default function ReconcileResultsPage() {
                         <th className={decisionTh("what")}>WHAT</th>
                         <th className={decisionTh("why")}>WHY</th>
                         <th className={decisionTh("next")}>NEXT</th>
-                        <th className={decisionTh("status")}>Status</th>
+                        <th className={decisionTh("status")}>Match Status</th>
                         <th className={decisionTh("notice", "right")}>
                           Follow-up
                         </th>
@@ -2563,9 +2589,18 @@ export default function ReconcileResultsPage() {
                             />
                           </td>
                           <td className={decisionTd("status")}>
-                            <span className="inline-flex">
-                              <DecisionStatusPill status={effectiveStatus(row)} />
-                            </span>
+                            <div className="flex flex-col gap-1.5">
+                              <div>
+                                <span className="inline-flex">
+                                  <DecisionStatusPill status={effectiveStatus(row)} />
+                                </span>
+                              </div>
+                              {effectiveStatus(row) === "pending" && (
+                                <div className="text-[11px] font-medium text-[#6B7280]">
+                                  {row.discrepancy_note || "Review required"}
+                                </div>
+                              )}
+                            </div>
                           </td>
                           <td className={decisionTd("notice", { align: "right" })}>
                             <button
@@ -2811,6 +2846,23 @@ export default function ReconcileResultsPage() {
                 </button>
               )}
             </div>
+            
+            <div className="mt-4 mb-2 flex flex-wrap items-center gap-3 rounded-xl border border-[#F0F0F0] bg-[#FAFAFA] px-4 py-3 text-[13px] font-medium">
+              <div className="flex items-center gap-1.5 text-gray-900">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-[#22C55E]" aria-hidden />
+                {summary.matched_count} Matched
+              </div>
+              <span className="text-gray-300" aria-hidden>·</span>
+              <div className="flex items-center gap-1.5 text-gray-900">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-[#F59E0B]" aria-hidden />
+                {summary.wrongful_risk_count} Needs Review
+              </div>
+              <span className="text-gray-300" aria-hidden>·</span>
+              <div className="flex items-center gap-1.5 text-gray-900">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-[#D9D9E3]" aria-hidden />
+                {summary.missed_itc_count} Missing
+              </div>
+            </div>
           </div>
 
           {matchedError && (
@@ -2865,7 +2917,15 @@ export default function ReconcileResultsPage() {
                       <th className={matchedThInvoice}>Invoice#</th>
                       <th className={matchedThDate}>Date</th>
                       <th className={matchedThAmount}>Amount</th>
-                      <th className={matchedThMatchLevel}>Match Level</th>
+                      <th className={matchedThMatchLevel}>
+                        <div className="flex items-center gap-1">
+                          Match Method
+                          <Info
+                            className="h-3.5 w-3.5 text-gray-400 cursor-help"
+                            title="L1 = Exact GSTIN + Invoice Number match&#10;L2 = GSTIN match + fuzzy invoice number&#10;L3 = GSTIN match + amount match&#10;L4 = Fuzzy vendor name + amount match&#10;L5 = Partial / manual review needed"
+                          />
+                        </div>
+                      </th>
                       <th className={matchedThConfidence}>Confidence</th>
                       <th className={matchedThDiscrepancy}>Discrepancy</th>
                       <th className={matchedThNotes}>Notes</th>

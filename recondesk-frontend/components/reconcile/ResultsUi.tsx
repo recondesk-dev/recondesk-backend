@@ -471,16 +471,19 @@ const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
 export function ResultsBucketTabs({
   active,
   onChange,
+  rightContent,
 }: {
   active: ResultsBucketTabId;
   onChange: (tab: ResultsBucketTabId) => void;
+  rightContent?: ReactNode;
 }) {
   return (
-    <nav
-      className="mb-6 flex flex-wrap gap-1 border-b border-[#F0F0F0]"
-      role="tablist"
-      aria-label="Reconciliation results"
-    >
+    <div className="mb-6 flex flex-col sm:flex-row sm:items-end justify-between border-b border-[#F0F0F0] gap-4">
+      <nav
+        className="flex flex-wrap gap-1"
+        role="tablist"
+        aria-label="Reconciliation results"
+      >
       {RESULTS_BUCKET_TABS.map(({ id, label }) => {
         const isActive = active === id;
         return (
@@ -500,6 +503,8 @@ export function ResultsBucketTabs({
           </button>
         );
       })}
-    </nav>
+      </nav>
+      {rightContent && <div className="mb-1">{rightContent}</div>}
+    </div>
   );
 }
