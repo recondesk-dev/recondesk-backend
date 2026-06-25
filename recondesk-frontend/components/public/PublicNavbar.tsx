@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Logo } from "@/components/ui/Logo";
 import { Menu, X } from "lucide-react";
 
 type PublicNavbarProps = {
@@ -36,15 +37,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
           }`}
           onClick={() => setMobileMenuOpen(false)}
         >
-          <span className={isLight ? "text-xl sm:text-3xl" : "text-2xl sm:text-3xl"}>ReconDesk</span>
-          <span
-            className={`-ml-1.5 leading-none text-brand sm:ml-0 ${
-              isLight ? "text-xl sm:text-3xl" : "text-2xl sm:text-3xl"
-            }`}
-            aria-hidden="true"
-          >
-            •
-          </span>
+          <Logo height="1.2em" />
         </Link>
 
         {isLight ? (

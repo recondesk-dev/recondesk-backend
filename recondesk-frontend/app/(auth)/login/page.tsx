@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Logo } from "@/components/ui/Logo";
 import { createClient } from "@/lib/supabase/client";
 import { EMAIL_VALIDATION_MESSAGE, isValidEmail } from "@/lib/auth-validation";
 import {
@@ -95,13 +96,8 @@ export default function LoginPage() {
     <div className="recondesk-textured-bg flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-md">
         {/* Logo */}
-        <div className="mb-10 text-center">
-          <h1 className="font-brand inline-flex items-baseline justify-center gap-0 text-[64px] leading-none font-bold tracking-tight text-gray-900">
-            <span>ReconDesk</span>
-            <span className="text-[64px] leading-none text-brand" aria-hidden="true">
-              •
-            </span>
-          </h1>
+        <div className="mb-10 text-center flex flex-col items-center">
+          <Logo width={280} height={50} className="mb-2" />
           <p className="mt-2 text-sm text-gray-900">Protect your clients&apos; ITC. Every month.</p>
         </div>
 
