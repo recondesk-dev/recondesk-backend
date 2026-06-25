@@ -421,7 +421,10 @@ def _normalize_payment_status(val: Any) -> str | None:
 
 def _preprocess_amount(raw: str) -> str:
     """Strip trailing accounting Dr/Cr suffixes before passing to the normaliser."""
-    return _ACCT_SUFFIX_RE.sub("", raw).strip()
+    if not isinstance(raw, str):
+        raw = str(raw)
+    s = _ACCT_SUFFIX_RE.sub("", raw)
+    return s.replace("₹", "").replace(",", "").replace(" ", "").strip()
 
 
 def _parse_amount(raw_str: str) -> int | None:
@@ -790,7 +793,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     row_errors.append("missing GSTIN")
                 else:
                     try:
-                        gstin_value = normalize_gstin(str(raw_gstin))
+                        gstin_value = normalize_gstin(str(raw_gstin).strip())
                         gstin_valid = True
                     except NormalizationError:
                         # Invalid format but non-blank: keep the row.
@@ -799,6 +802,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                         # row_errors — that would silently drop the row.
                         gstin_value = str(raw_gstin).strip().upper() or None
                         gstin_valid = False
+
 
             # invoice_number_normalized
             inv_raw: str | None = None
@@ -841,10 +845,15 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
 
             # ---- Row decision: any error → reject the whole row ----
             if row_errors:
-                errors.append(f"Row {row_number}: {', '.join(row_errors)}")
-                skipped_rows += 1
-                _bump_skip("invalid_row")
-                continue
+                if "missing GSTIN" in row_errors and "missing invoice number" in row_errors:
+                    skipped_rows += 1
+                    _bump_skip("truly_unparseable_row")
+                    # Don't silently discard! It will be passed to matcher and skipped there.
+                else:
+                    errors.append(f"Row {row_number}: {', '.join(row_errors)}")
+                    skipped_rows += 1
+                    _bump_skip("invalid_row")
+                    continue
 
             igst_paise = _df_cell_int(row.get("igst_paise"))
             cgst_paise = _df_cell_int(row.get("cgst_paise"))

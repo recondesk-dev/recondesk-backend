@@ -175,11 +175,11 @@ def test_write_pr_match_status_chunk_writes_unmatched_for_skipped_ids():
     assert matched == 0
     assert written == 1
     assert len(tracking) == 1
-    assert tracking[0]["match_status"] == "unmatched"
+    assert tracking[0]["match_status"] == "skipped"
     assert len(upserted) == 1
     assert upserted[0]["id"] == "bad-id"
-    assert upserted[0]["match_status"] == "unmatched"
-    assert upserted[0]["record_data"]["match_status"] == "unmatched"
+    assert upserted[0]["match_status"] == "skipped"
+    assert upserted[0]["record_data"]["match_status"] == "skipped"
 
 
 def test_load_pr_matcher_and_raw_page_returns_db_row_count():

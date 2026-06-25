@@ -305,13 +305,13 @@ def _write_pr_match_status_chunk(
                 or rd.get("invoice_number_normalized"),
                 "supplier_gstin": rd.get("gstin") or rd.get("supplier_gstin"),
                 "taxable_amount": rd.get("taxable_amount_paise"),
-                "match_status": "unmatched",
+                "match_status": "skipped",
             }
         )
         try:
             pr_match_status_rows.append(
                 _build_pr_post_match_upsert_row(
-                    pid, run_id, base_rd, "unmatched", None
+                    pid, run_id, base_rd, "skipped", None
                 )
             )
         except (TypeError, ValueError):
@@ -955,14 +955,15 @@ def execute_reconciliation(run_id: str) -> None:
         wrongful_count = len(wrongful_itc)
         review_gstr_count = sum(1 for r in review_required if r.get("side") == "GSTR")
         review_pr_count = sum(1 for r in review_required if r.get("side") == "PR")
+        skipped_count = sum(1 for r in pr_current if r.get("match_status") == "skipped")
 
         assert matched_count + missed_itc_count + len(gstin_mismatch) + review_gstr_count == n_gstr, (
             f"GSTR Data Loss! Matched:{matched_count} Missed:{missed_itc_count} "
             f"Typo:{len(gstin_mismatch)} Review:{review_gstr_count} Total:{n_gstr}"
         )
-        assert matched_count + wrongful_count + len(gstin_mismatch) + review_pr_count == n_pr, (
+        assert matched_count + wrongful_count + len(gstin_mismatch) + review_pr_count + skipped_count == n_pr, (
             f"PR Data Loss! Matched:{matched_count} Risk:{wrongful_count} "
-            f"Typo:{len(gstin_mismatch)} Review:{review_pr_count} Total:{n_pr}"
+            f"Typo:{len(gstin_mismatch)} Review:{review_pr_count} Skipped:{skipped_count} Total:{n_pr}"
         )
 
         run_summary = build_run_summary_metrics(
@@ -979,6 +980,7 @@ def execute_reconciliation(run_id: str) -> None:
             late_match_count=late_itc,
             rule37_pending_verification_count=len(rule37_pending_verification),
             rule37_pending_verification_paise=rule37_pending_paise,
+            skipped_count=skipped_count,
         )
 
         payload = _json_safe(
