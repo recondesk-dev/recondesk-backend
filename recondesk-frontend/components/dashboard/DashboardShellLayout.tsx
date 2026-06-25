@@ -67,17 +67,6 @@ function ProfileBillingSkeleton() {
   );
 }
 
-function pageTitle(pathname: string): string {
-  if (pathname === "/dashboard") return "Dashboard";
-  if (pathname === "/clients") return "Clients";
-  if (pathname === "/runs") return "Runs";
-  if (pathname === "/billing") return "Billing";
-  if (pathname.startsWith("/settings/team")) return "Team";
-  if (pathname.startsWith("/settings")) return "Settings";
-  if (/^\/clients\/[^/]+$/.test(pathname)) return "Client Detail";
-  return "ReconDesk";
-}
-
 function NavIconDashboard({ className }: { className?: string }) {
   return (
     <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -161,7 +150,6 @@ export default function DashboardShellLayout({
   const router = useRouter();
   const supabase = createClient();
   const toast = useToast();
-  const title = pageTitle(pathname);
   const [panelOpen, setPanelOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -455,9 +443,7 @@ export default function DashboardShellLayout({
 
       <div className="ml-[240px] flex min-h-screen min-w-0 w-[calc(100%-240px)] max-w-[calc(100%-240px)] flex-1 flex-col overflow-x-hidden">
         <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-8">
-          <h1 className="text-lg font-semibold text-gray-900" style={{ fontSize: 18, fontWeight: 600 }}>
-            {title}
-          </h1>
+          <div />
           <div className="flex items-center gap-4">
             <button
               type="button"
