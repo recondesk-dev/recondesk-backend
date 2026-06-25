@@ -14,6 +14,13 @@ import {
   type TeamMemberListItem,
 } from "@/lib/api";
 import {
+  CheckCircleIcon,
+  ChevronRightIcon,
+  PlusIcon,
+  XMarkIcon,
+} from "@heroicons/react/24/outline";
+import { Logo } from "@/components/ui/Logo";
+import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
 } from "@/lib/auth-profile";
@@ -257,9 +264,7 @@ export default function OnboardingPage() {
 
       <header className="border-b border-gray-100 px-6 py-4">
         <div className="mx-auto flex max-w-[560px] items-center justify-between">
-          <span className="font-brand text-lg font-semibold tracking-tight text-gray-900">
-            ReconDesk
-          </span>
+          <Logo className="text-gray-900" height="1.125rem" />
           <span className="text-xs text-gray-500">
             Step {step} of {STEPS}
           </span>

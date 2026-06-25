@@ -2,32 +2,37 @@ import React from "react";
 
 interface LogoProps {
   className?: string;
-  width?: number | string;
-  height?: number | string;
+  width?: number | string; // Kept for backward compatibility
+  height?: number | string; // Maps to font size
 }
 
-export function Logo({ className = "", width = "auto", height = "1em" }: LogoProps) {
+export function Logo({ className = "", height }: LogoProps) {
+  // Approximate the SVG's visual size based on the height attribute (font size is ~80% of height)
+  // If height is a string like "1.2em", it passes through directly.
+  let fontSize: string | undefined = undefined;
+  if (height) {
+    if (typeof height === "number") {
+      fontSize = `${Math.round(height * 0.8)}px`;
+    } else {
+      fontSize = height;
+    }
+  }
+
   return (
-    <svg
-      width={width}
-      height={height}
-      viewBox="0 0 420 80"
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
-      aria-label="ReconDesk"
-      role="img"
-    >
-      <text
-        x="0"
-        y="60"
-        fontFamily="'Plus Jakarta Sans', 'Helvetica Neue', Arial, sans-serif"
-        fontWeight="700"
-        fontSize="64px"
-        fill="currentColor"
-        letterSpacing="-1"
-      >
-        ReconDesk<tspan fill="#7B5CFA">•</tspan>
-      </text>
-    </svg>
+    <span className={`whitespace-nowrap ${className}`} style={{ fontSize }}>
+      <span style={{ fontWeight: 700, fontSize: "inherit" }}>ReconDesk</span>
+      <span
+        style={{
+          display: "inline-block",
+          width: "0.35em",
+          height: "0.35em",
+          borderRadius: "50%",
+          backgroundColor: "#7B5CFA",
+          marginLeft: "1px",
+          marginBottom: "1px",
+          verticalAlign: "baseline",
+        }}
+      />
+    </span>
   );
 }
