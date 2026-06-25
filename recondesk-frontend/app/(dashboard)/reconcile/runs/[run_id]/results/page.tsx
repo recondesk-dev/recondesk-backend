@@ -2952,10 +2952,36 @@ export default function ReconcileResultsPage() {
                   </thead>
                   <tbody>
                     {matchedData.data.filter(r => checkDocType(r, docTypeFilterMatched)).map((row) => {
-                      const taxDiff = formatTaxDifferenceDisplay(
+                      let taxDiff = formatTaxDifferenceDisplay(
                         row.tax_difference_paise,
                         row.discrepancy_note
                       );
+
+                      if (row.match_level === "FUZZY" || row.match_level === "EXACT") {
+                        const gstrAmt = row.amount;
+                        let prAmt = row.invoice_amount;
+                        if (prAmt === undefined || prAmt === null) {
+                          const raw = readDataField(row.purchase_register_data, [
+                            "Invoice Amount", "Invoice Value", "amount", "Total", "Total Amount", "Grand Total", "invoice_amount"
+                          ]);
+                          if (raw !== "—") {
+                            const parsed = Number(String(raw).replace(/,/g, ""));
+                            if (Number.isFinite(parsed)) prAmt = parsed;
+                          }
+                        }
+                        if (prAmt !== undefined && prAmt !== null) {
+                          const diff = Math.abs(gstrAmt - prAmt);
+                          if (diff <= 1) {
+                            taxDiff = { display: "—", tooltip: "—" };
+                          } else {
+                            const inr = formatINR(diff);
+                            taxDiff = { display: inr, tooltip: `Amount difference: ${inr}` };
+                          }
+                        } else {
+                          taxDiff = { display: "—", tooltip: "—" };
+                        }
+                      }
+
                       return (
                       <tr
                         key={row.id}
