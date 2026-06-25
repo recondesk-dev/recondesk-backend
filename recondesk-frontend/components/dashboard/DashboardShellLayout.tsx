@@ -357,7 +357,7 @@ export default function DashboardShellLayout({
             href="/dashboard"
             className="flex items-center"
           >
-            <Logo width={160} height={28} />
+            <Logo width={210} height={40} />
           </Link>
         </div>
         <nav className="flex-1 space-y-0.5 px-3">

@@ -25,7 +25,7 @@ export function PublicFooter({ theme = "dark" }: PublicFooterProps) {
                 isLight ? "text-[#0A0A0A]" : "text-white"
               }`}
             >
-              <Logo height="1.2em" />
+              <Logo width={210} height={40} />
             </div>
             <p className={`mt-3 text-sm ${isLight ? "text-[#6B6B6B]" : "text-slate-400"}`}>
               GST reconciliation built for CA firms.
