@@ -2847,22 +2847,24 @@ export default function ReconcileResultsPage() {
               )}
             </div>
             
-            <div className="mt-4 mb-2 flex flex-wrap items-center gap-3 rounded-xl border border-[#F0F0F0] bg-[#FAFAFA] px-4 py-3 text-[13px] font-medium">
-              <div className="flex items-center gap-1.5 text-gray-900">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-[#22C55E]" aria-hidden />
-                {summary.matched_count} Matched
+            {summary && (
+              <div className="mt-4 mb-2 flex flex-wrap items-center gap-3 rounded-xl border border-[#F0F0F0] bg-[#FAFAFA] px-4 py-3 text-[13px] font-medium">
+                <div className="flex items-center gap-1.5 text-gray-900">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-[#22C55E]" aria-hidden />
+                  {summary?.matched_count ?? 0} Matched
+                </div>
+                <span className="text-gray-300" aria-hidden>·</span>
+                <div className="flex items-center gap-1.5 text-gray-900">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-[#F59E0B]" aria-hidden />
+                  {summary?.wrongful_risk_count ?? 0} Needs Review
+                </div>
+                <span className="text-gray-300" aria-hidden>·</span>
+                <div className="flex items-center gap-1.5 text-gray-900">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-[#D9D9E3]" aria-hidden />
+                  {summary?.missed_itc_count ?? 0} Missing
+                </div>
               </div>
-              <span className="text-gray-300" aria-hidden>·</span>
-              <div className="flex items-center gap-1.5 text-gray-900">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-[#F59E0B]" aria-hidden />
-                {summary.wrongful_risk_count} Needs Review
-              </div>
-              <span className="text-gray-300" aria-hidden>·</span>
-              <div className="flex items-center gap-1.5 text-gray-900">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-[#D9D9E3]" aria-hidden />
-                {summary.missed_itc_count} Missing
-              </div>
-            </div>
+            )}
           </div>
 
           {matchedError && (
@@ -2920,10 +2922,9 @@ export default function ReconcileResultsPage() {
                       <th className={matchedThMatchLevel}>
                         <div className="flex items-center gap-1">
                           Match Method
-                          <Info
-                            className="h-3.5 w-3.5 text-gray-400 cursor-help"
-                            title="L1 = Exact GSTIN + Invoice Number match&#10;L2 = GSTIN match + fuzzy invoice number&#10;L3 = GSTIN match + amount match&#10;L4 = Fuzzy vendor name + amount match&#10;L5 = Partial / manual review needed"
-                          />
+                          <span title="L1 = Exact GSTIN + Invoice Number match&#10;L2 = GSTIN match + fuzzy invoice number&#10;L3 = GSTIN match + amount match&#10;L4 = Fuzzy vendor name + amount match&#10;L5 = Partial / manual review needed">
+                            <Info className="h-3.5 w-3.5 text-gray-400 cursor-help" />
+                          </span>
                         </div>
                       </th>
                       <th className={matchedThConfidence}>Confidence</th>
