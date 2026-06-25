@@ -1695,6 +1695,8 @@ def _build_reconcile_summary(
     wr_list = engine.get("wrongful_itc_risk") or []
     matched_engine = engine.get("matched") or []
     late_match_count = sum(1 for m in matched_engine if m.get("is_late_filing"))
+    mismatched_count = sum(1 for m in matched_engine if isinstance(m.get("match_level"), int) and m.get("match_level") >= 3)
+    exact_match_count = matched_count - mismatched_count
     missed_count = len(missed_list)
     wrongful_count = len(wr_list)
 
@@ -1774,6 +1776,8 @@ def _build_reconcile_summary(
         "finalized_at": run_row.get("finalized_at"),
         "total_gstr_records": n_g,
         "matched_count": matched_count,
+        "mismatched_count": mismatched_count,
+        "exact_match_count": exact_match_count,
         "missed_itc_count": missed_count,
         "missed_itc_total_amount": round(missed_total_rupees, 2),
         "wrongful_risk_count": wrongful_count,

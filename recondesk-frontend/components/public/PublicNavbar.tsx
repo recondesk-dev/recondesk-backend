@@ -37,7 +37,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
           }`}
           onClick={() => setMobileMenuOpen(false)}
         >
-          <Logo height="1.2em" />
+          <Logo width={210} height={40} />
         </Link>
 
         {isLight ? (

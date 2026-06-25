@@ -159,6 +159,8 @@ type RunSummary = {
   finalized_at: string | null;
   total_gstr_records: number;
   matched_count: number;
+  exact_match_count?: number;
+  mismatched_count?: number;
   missed_itc_count: number;
   missed_itc_total_amount: number;
   wrongful_risk_count: number;
@@ -2848,21 +2850,37 @@ export default function ReconcileResultsPage() {
             </div>
             
             {summary && (
-              <div className="mt-4 mb-2 flex flex-wrap items-center gap-3 rounded-xl border border-[#F0F0F0] bg-[#FAFAFA] px-4 py-3 text-[13px] font-medium">
-                <div className="flex items-center gap-1.5 text-gray-900">
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-[#22C55E]" aria-hidden />
-                  {summary?.matched_count ?? 0} Matched
-                </div>
-                <span className="text-gray-300" aria-hidden>·</span>
-                <div className="flex items-center gap-1.5 text-gray-900">
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-[#F59E0B]" aria-hidden />
-                  {summary?.wrongful_risk_count ?? 0} Needs Review
-                </div>
-                <span className="text-gray-300" aria-hidden>·</span>
-                <div className="flex items-center gap-1.5 text-gray-900">
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-[#D9D9E3]" aria-hidden />
-                  {summary?.missed_itc_count ?? 0} Missing
-                </div>
+              <div className="mt-4 mb-2 flex flex-wrap items-center gap-2 text-[13px] font-medium w-fit">
+                <button
+                  type="button"
+                  onClick={() => setMatchedFilters((f) => ({
+                    ...f,
+                    match_level: f.match_level === "EXACT" ? "" : "EXACT"
+                  }))}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all ${
+                    matchedFilters.match_level === "EXACT" 
+                      ? "bg-[#22C55E]/10 border-[#22C55E]/30 text-[#22C55E]" 
+                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300"
+                  }`}
+                >
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${matchedFilters.match_level === "EXACT" ? "bg-[#22C55E]" : "bg-gray-300"}`} aria-hidden />
+                  {summary?.exact_match_count ?? 0} Matched
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMatchedFilters((f) => ({
+                    ...f,
+                    match_level: f.match_level === "FUZZY" ? "" : "FUZZY"
+                  }))}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all ${
+                    matchedFilters.match_level === "FUZZY" 
+                      ? "bg-[#F59E0B]/10 border-[#F59E0B]/30 text-[#F59E0B]" 
+                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300"
+                  }`}
+                >
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${matchedFilters.match_level === "FUZZY" ? "bg-[#F59E0B]" : "bg-gray-300"}`} aria-hidden />
+                  {summary?.mismatched_count ?? 0} Mismatch
+                </button>
               </div>
             )}
           </div>
