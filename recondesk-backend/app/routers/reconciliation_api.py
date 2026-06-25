@@ -117,6 +117,17 @@ def _wrongful_risk_taxable_paise(
     )
 
 
+def _wrongful_risk_invoice_value_paise(
+    w: dict[str, Any], matcher: Optional[dict[str, Any]] = None
+) -> int:
+    """Full invoice value in paise for wrongful ITC risk rows."""
+    mt = matcher or {}
+    return _safe_int_paise(
+        w.get("invoice_value_paise"),
+        _safe_int_paise(mt.get("invoice_value_paise"), 0),
+    )
+
+
 def _wrongful_risk_record_ids_for_run(sb, rid: str) -> set[str]:
     """API record ids (``wr:{pr_id}``) from stored engine payload — no PR table scan."""
     p = _payload_or_404(sb, rid)
@@ -1716,7 +1727,7 @@ def _build_reconcile_summary(
     )
     wrongful_purchase_total_rupees = sum(
         _paise_to_rupees(
-            _wrongful_risk_taxable_paise(
+            _wrongful_risk_invoice_value_paise(
                 w,
                 (pr_db.get(str(w.get("id") or "").strip()) or {}).get("matcher")
                 or {},
