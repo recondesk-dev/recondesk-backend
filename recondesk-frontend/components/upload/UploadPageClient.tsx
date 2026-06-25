@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { Logo } from "@/components/ui/Logo";
 
 type UploadRequest = {
   id: string;
@@ -374,7 +375,7 @@ export default function UploadPageClient({ token }: { token: string }) {
   return (
     <div className="recondesk-textured-bg min-h-screen">
       <div className="mx-auto max-w-lg px-4 py-16">
-        <p className="font-brand text-lg font-semibold text-indigo-600">ReconDesk</p>
+        <Logo width={160} height={28} />
         {/* TODO: Replace with organization logo and name */}
 
         <div className="mt-8 rounded-xl border border-gray-200 bg-white p-8 dark:border-gray-800 dark:bg-gray-900">

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { Logo } from "@/components/ui/Logo";
 import useSWR, { mutate } from "swr";
 import { Avatar } from "@/components/ui/Avatar";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -354,12 +355,9 @@ export default function DashboardShellLayout({
         <div className="px-5 py-6">
           <Link
             href="/dashboard"
-            className="font-brand inline-flex items-center gap-0.5 text-lg font-semibold tracking-tight text-gray-900"
+            className="flex items-center"
           >
-            <span>ReconDesk</span>
-            <span className="text-brand" aria-hidden="true">
-              •
-            </span>
+            <Logo width={160} height={28} />
           </Link>
         </div>
         <nav className="flex-1 space-y-0.5 px-3">

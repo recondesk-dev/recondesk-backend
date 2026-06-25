@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Logo } from "@/components/ui/Logo";
 
 const DEFAULT_FIRM_GSTIN = "27ISKPK1273H1ZF";
 const firmGstin = process.env.NEXT_PUBLIC_FIRM_GSTIN?.trim() || DEFAULT_FIRM_GSTIN;
@@ -24,10 +25,7 @@ export function PublicFooter({ theme = "dark" }: PublicFooterProps) {
                 isLight ? "text-[#0A0A0A]" : "text-white"
               }`}
             >
-              <span className="text-2xl sm:text-3xl">ReconDesk</span>
-              <span className="-ml-1.5 text-2xl leading-none text-brand sm:ml-0 sm:text-3xl" aria-hidden="true">
-                •
-              </span>
+              <Logo height="1.2em" />
             </div>
             <p className={`mt-3 text-sm ${isLight ? "text-[#6B6B6B]" : "text-slate-400"}`}>
               GST reconciliation built for CA firms.
