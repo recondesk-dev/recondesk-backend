@@ -122,10 +122,13 @@ def _wrongful_risk_invoice_value_paise(
 ) -> int:
     """Full invoice value in paise for wrongful ITC risk rows."""
     mt = matcher or {}
-    return _safe_int_paise(
+    val = _safe_int_paise(
         w.get("invoice_value_paise"),
         _safe_int_paise(mt.get("invoice_value_paise"), 0),
     )
+    if val <= 0:
+        val = _wrongful_risk_taxable_paise(w, matcher) + _wrongful_risk_itc_paise(w, matcher)
+    return val
 
 
 def _wrongful_risk_record_ids_for_run(sb, rid: str) -> set[str]:
