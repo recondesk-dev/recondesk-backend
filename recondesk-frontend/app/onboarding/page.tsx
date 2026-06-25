@@ -14,17 +14,11 @@ import {
   type TeamMemberListItem,
 } from "@/lib/api";
 import {
-  CheckCircleIcon,
-  ChevronRightIcon,
-  PlusIcon,
-  XMarkIcon,
-} from "@heroicons/react/24/outline";
-import { Logo } from "@/components/ui/Logo";
-import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
 } from "@/lib/auth-profile";
 import { createClient, fetchAccessTokenFromServer } from "@/lib/supabase/client";
+import { Logo } from "@/components/ui/Logo";
 
 const STEPS = 4;
 
