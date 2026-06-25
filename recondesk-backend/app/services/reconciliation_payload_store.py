@@ -162,6 +162,7 @@ def build_run_summary_metrics(
     late_match_count: int,
     rule37_pending_verification_count: int = 0,
     rule37_pending_verification_paise: int = 0,
+    skipped_count: int = 0,
 ) -> dict[str, Any]:
     """Scalar run_summary only — no decisions/compliance blobs (kept in results payload)."""
     return {
@@ -178,6 +179,7 @@ def build_run_summary_metrics(
         "pr_in_scope": n_pr,
         "rule37_pending_verification_count": rule37_pending_verification_count,
         "rule37_pending_verification_paise": rule37_pending_verification_paise,
+        "skipped_count": skipped_count,
     }
 
 
