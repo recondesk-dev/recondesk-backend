@@ -163,11 +163,15 @@ def build_run_summary_metrics(
     rule37_pending_verification_count: int = 0,
     rule37_pending_verification_paise: int = 0,
     skipped_count: int = 0,
+    review_required_count: int = 0,
 ) -> dict[str, Any]:
     """Scalar run_summary only — no decisions/compliance blobs (kept in results payload)."""
     return {
         "total_records": n_gstr + n_pr,
-        "matched_count": matched_count,
+        "matched_count": matched_count + review_required_count, # total linked
+        "clean_matched_count": matched_count,
+        "review_required_count": review_required_count,
+        "total_linked_count": matched_count + review_required_count,
         "unmatched_count": missed_itc_count + wrongful_count,
         "itc_at_risk": itc_at_risk_total,
         "missed_itc_paise": itc_missed,
