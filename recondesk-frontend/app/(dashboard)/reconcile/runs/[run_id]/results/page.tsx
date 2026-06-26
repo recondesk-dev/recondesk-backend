@@ -158,16 +158,24 @@ type RunSummary = {
   finalized_by_name: string | null;
   finalized_at: string | null;
   total_gstr_records: number;
-  matched_count: number;
+  // Stable canonical fields (guaranteed from backend)
+  clean_matched_count: number;
+  review_required_count: number;
+  total_linked_count: number;
+  matched_count: number;          // = clean_matched_count (backward compat)
   exact_match_count?: number;
   mismatched_count?: number;
   missed_itc_count: number;
   missed_itc_total_amount: number;
+  missed_itc_amount_paise?: number;
   wrongful_risk_count: number;
   wrongful_risk_total_amount: number;
+  wrongful_risk_amount_paise?: number;
   wrongful_risk_purchase_total_amount?: number;
+  purchase_value_at_risk_paise?: number;
   late_match_count?: number | null;
   match_rate_percent: number;
+  match_rate_pct?: number;        // alias for match_rate_percent
   user_role: "admin" | "staff";
 };
 
@@ -1732,7 +1740,7 @@ export default function ReconcileResultsPage() {
                 <StatCard
                   label="Matched"
                   accent="matched"
-                  value={summary.matched_count.toLocaleString("en-IN")}
+                  value={(summary.clean_matched_count ?? summary.matched_count).toLocaleString("en-IN")}
                 />
               </div>
               <div className="min-w-0 overflow-hidden rounded-2xl">
@@ -1740,9 +1748,13 @@ export default function ReconcileResultsPage() {
                   label={itcHasCdnRows ? "Net 2B Difference" : "Missed ITC"}
                   accent="missed"
                   value={
-                    <span className={`${statCardValueClass} tabular-nums text-gray-900`}>
-                      {formatINR(summary.missed_itc_total_amount)}
-                    </span>
+                    isProcessing ? (
+                      <span className={`${statCardValueClass} text-gray-400`}>—</span>
+                    ) : (
+                      <span className={`${statCardValueClass} tabular-nums text-gray-900`}>
+                        {formatINR(summary.missed_itc_total_amount)}
+                      </span>
+                    )
                   }
                 />
               </div>
@@ -1751,9 +1763,13 @@ export default function ReconcileResultsPage() {
                   label="ITC at Risk"
                   accent="risk"
                   value={
-                    <span className={`${statCardValueClass} tabular-nums text-gray-900`}>
-                      {formatINR(summary.wrongful_risk_total_amount)}
-                    </span>
+                    isProcessing ? (
+                      <span className={`${statCardValueClass} text-gray-400`}>—</span>
+                    ) : (
+                      <span className={`${statCardValueClass} tabular-nums text-gray-900`}>
+                        {formatINR(summary.wrongful_risk_total_amount)}
+                      </span>
+                    )
                   }
                 />
               </div>
@@ -1767,13 +1783,13 @@ export default function ReconcileResultsPage() {
                 <div
                   className="h-1.5 max-w-full rounded-full bg-brand transition-all duration-150"
                   style={{
-                    width: `${Math.min(100, Math.max(0, summary.match_rate_percent))}%`,
+                    width: `${Math.min(100, Math.max(0, summary.match_rate_percent ?? summary.match_rate_pct ?? 0))}%`,
                   }}
                 />
               </div>
             </div>
             <p className="shrink-0 whitespace-nowrap rounded-md bg-brand/10 px-2 py-0.5 text-[12px] font-medium text-brand">
-              {summary.match_rate_percent}% matched
+              {summary.match_rate_percent ?? summary.match_rate_pct ?? 0}% matched
             </p>
           </div>
         )}
@@ -2864,7 +2880,7 @@ export default function ReconcileResultsPage() {
                   }`}
                 >
                   <span className={`h-2 w-2 shrink-0 rounded-full ${matchedFilters.match_level === "EXACT" ? "bg-[#22C55E]" : "bg-gray-300"}`} aria-hidden />
-                  {summary?.exact_match_count ?? 0} Matched
+                  {(summary?.clean_matched_count ?? summary?.matched_count ?? 0).toLocaleString("en-IN")} Matched
                 </button>
                 <button
                   type="button"
