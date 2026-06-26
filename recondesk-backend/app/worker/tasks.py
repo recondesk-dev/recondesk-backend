@@ -200,6 +200,7 @@ def _bulk_insert(
         chunk = rows[i : i + CHUNK_SIZE]
         try:
             client.table(table).insert(chunk).execute()
+            _log.info(f"[WORKER] Inserted {table} batch {i//CHUNK_SIZE + 1} ({len(chunk)} rows)")
         except Exception as exc:
             raise RuntimeError(
                 f"Insert into {table} failed ({len(chunk)} row(s), offset {i}): {exc}"
