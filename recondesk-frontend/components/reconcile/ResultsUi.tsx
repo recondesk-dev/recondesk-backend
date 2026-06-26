@@ -187,7 +187,9 @@ type StatAccent =
   | "risk"
   | "saved"
   | "reversed"
-  | "pending";
+  | "pending"
+  | "review_required"
+  | "linked";
 
 const statAccentValue: Record<
   StatAccent,
@@ -212,16 +214,28 @@ const statAccentValue: Record<
     dot: "bg-amber-500",
     card: "bg-amber-50 border-amber-100",
   },
+  review_required: {
+    value: "text-[#B45309]",
+    dot: "bg-[#F59E0B]",
+    card: "bg-white border-[#F0F0F0] border-l-4 border-l-[#F59E0B]",
+  },
+  linked: {
+    value: "text-[#5B41C7]",
+    dot: "bg-[#7B5CFA]",
+    card: "bg-white border-[#F0F0F0] border-l-4 border-l-[#7B5CFA]",
+  },
 };
 
 export function StatCard({
   label,
   value,
   accent = "neutral",
+  subtext,
 }: {
   label: string;
   value: ReactNode;
   accent?: StatAccent;
+  subtext?: string;
 }) {
   const colors = statAccentValue[accent];
   const isCurrency =
@@ -253,6 +267,9 @@ export function StatCard({
       >
         {value}
       </div>
+      {subtext && (
+        <p className="truncate text-[11px] text-gray-400">{subtext}</p>
+      )}
     </div>
   );
 }
