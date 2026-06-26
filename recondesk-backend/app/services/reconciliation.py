@@ -874,6 +874,16 @@ def _finalize_reconciliation_result(
     else:
         match_rate_pct = 0.0
 
+    l1 = sum(1 for m in state.matched if m.get("match_level") == 1)
+    l2 = sum(1 for m in state.matched if m.get("match_level") == 2)
+    l3 = sum(1 for m in state.matched if m.get("match_level") == 3)
+    l4 = sum(1 for m in state.matched if m.get("match_level") == 4)
+    l5 = sum(1 for m in state.matched if m.get("match_level") == 5)
+    unmatched = total_gstr - matched_count
+
+    logger.info(f"[MATCH SUMMARY] L1: {l1}, L2: {l2}, L3: {l3}, L4: {l4}, L5: {l5}, Unmatched: {unmatched}")
+    logger.info(f"Total matched: {matched_count} / {total_gstr}")
+
     return {
         "matched": state.matched,
         "review_required_typo": state.review_required_typo,
