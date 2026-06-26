@@ -255,13 +255,13 @@ def _get_narrowed_candidates(
 
     # Candidates by exact GSTIN and nearby taxable bucket
     taxable_buckets = candidate_indices.by_taxable.get(gstin, {})
-    for b in (tb - 1, tb, tb + 1):
+    for b in range(tb - 30, tb + 31):
         for pr in taxable_buckets.get(b, []):
             candidates_set[str(pr["id"])] = pr
 
     # Candidates by exact GSTIN and nearby tax bucket
     tax_buckets = candidate_indices.by_tax.get(gstin, {})
-    for b in (txb - 1, txb, txb + 1):
+    for b in range(txb - 30, txb + 31):
         for pr in tax_buckets.get(b, []):
             candidates_set[str(pr["id"])] = pr
 
@@ -294,7 +294,7 @@ class ReconState:
 
 
 def _push_matched(state, gstr_id, pr_id, score, best_result, is_late_filing=False, original_period=None, late_months=0):
-    match_status = "review_required" if getattr(best_result, "level", 0) == 5 else "matched"
+    match_status = "review_required" if getattr(best_result, "level", 0) >= 4 else "matched"
 
     match_dict = {
         "gstr_id": str(gstr_id),
@@ -305,7 +305,7 @@ def _push_matched(state, gstr_id, pr_id, score, best_result, is_late_filing=Fals
         "original_period": original_period,
         "late_months": late_months,
         "match_status": match_status,
-        "match_status_text": "Review Required" if match_status == "review_required" or best_result.requires_human_review else "Matched",
+        "match_status_text": "Review Required" if match_status == "review_required" else "Matched",
         "vendor_similarity_score": best_result.vendor_similarity_score,
         "identity_confidence": getattr(best_result, "identity_confidence", "High"),
         "financial_status": getattr(best_result, "financial_status", "Exact"),
@@ -404,7 +404,7 @@ def process_gstr_records_chunk(
         if best_result is not None and best_pr is not None:
             score = compute_match_score(best_result)
             
-            if score == 100:
+            if score >= 85:
                 gstr_inv_exact = normalize_invoice_number(gstr_record.get("invoice_number"))
                 pr_inv_exact = normalize_invoice_number(best_pr.get("invoice_number"))
                 if gstr_inv_exact != pr_inv_exact:
@@ -484,7 +484,7 @@ def process_gstr_records_chunk(
                 gstr_period.month - period.month
             )
             
-            if score == 100:
+            if score >= 85:
                 gstr_inv_exact = normalize_invoice_number(gstr_record.get("invoice_number"))
                 pr_inv_exact = normalize_invoice_number(best_p.get("invoice_number"))
                 if gstr_inv_exact != pr_inv_exact:
