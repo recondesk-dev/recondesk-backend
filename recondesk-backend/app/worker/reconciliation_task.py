@@ -1007,8 +1007,8 @@ def execute_reconciliation(run_id: str) -> None:
             payload = json.loads(payload)
         res_payload = _finalize_reconciliation_result(
             state,
-            total_gstr_count,
-            total_pr_count,
+            n_gstr,
+            n_pr,
             pr_current,
             gstr_matcher,
         )
