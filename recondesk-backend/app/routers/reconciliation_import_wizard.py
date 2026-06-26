@@ -602,37 +602,13 @@ async def poll_status(run_id: uuid.UUID, user_id: str = Depends(get_current_user
     wizard_pct = int(r.get("progress_pct") or 0)
     message = r.get("status_message") or ""
 
-    # During the engine phase (wizard is at 70%) blend reconciliation_run
-    # progress (0-100) into the 70-95 window so the frontend bar moves.
-    blended_pct = wizard_pct
-    if status in ("processing", "pending") and wizard_pct < 95:
-        try:
-            recon_res = (
-                sb.table("reconciliation_run")
-                .select("progress_percent, status_message")
-                .eq("id", str(run_id))
-                .limit(1)
-                .execute()
-            )
-            if recon_res.data:
-                recon_row = recon_res.data[0]
-                engine_pct = int(recon_row.get("progress_percent") or 0)
-                recon_msg = recon_row.get("status_message") or ""
-                if recon_msg:
-                    message = recon_msg
-                # Scale engine progress (0-100) into the 70-95 window.
-                if wizard_pct >= 70 and engine_pct > 0:
-                    blended_pct = 70 + int(engine_pct * 25 / 100)
-        except Exception:
-            pass  # Non-fatal — fall back to wizard pct
-
     # Map "error" → "failed" for frontend compatibility.
     if status == "error":
         status = "failed"
 
     return {
         "status": status,
-        "progress_pct": blended_pct,
+        "progress_pct": wizard_pct,
         "message": message,
     }
 
