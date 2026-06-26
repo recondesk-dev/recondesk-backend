@@ -31,7 +31,8 @@ from app.services.reconciliation import (
     build_wrongful_itc_risk,
     notify_reconciliation_run_completed_email_maybe,
     process_gstr_records_chunk,
-    resolve_orphans,
+    execute_phase2_and_3,
+    _finalize_reconciliation_result,
 )
 from app.services.reconciliation_payload_store import (
     build_run_summary_metrics,
@@ -668,10 +669,10 @@ def execute_reconciliation(run_id: str) -> None:
                 run_id=run_id,
                 pr_chunk=pr_chunk,
                 pr_raw_by_id=pr_raw_chunk,
-                matched_pr_ids=state.matched_pr_ids,
+                matched_pr_ids=state.clean_matched_pr_ids,
                 gstr_by_gstin=gstr_by_gstin,
                 gstr_by_id=gstr_by_id,
-                matched=state.matched,
+                matched=state.clean_matched,
                 skipped_pr_ids=skipped,
                 chunk_idx=chunk_idx,
             )
@@ -704,39 +705,36 @@ def execute_reconciliation(run_id: str) -> None:
 
         _phase("matching")
         pr_current, pr_raw_by_id = _load_pr_matcher_and_raw(client, run_id)
-        wrongful_itc = build_wrongful_itc_risk(pr_current, state.matched_pr_ids)
+        wrongful_itc = build_wrongful_itc_risk(pr_current, state.clean_matched_pr_ids)
         late_itc = sum(
             1
-            for m in state.matched
+            for m in state.clean_matched
             if m.get("is_late_filing")
         )
 
         pr_by_id: dict[str, dict] = {str(p["id"]): p for p in pr_current}
         gstr_by_id: dict[str, dict] = {str(x.get("id")): x for x in gstr_matcher}
 
-        # Orphan resolver: pair GSTIN-typo orphans and collapse duplicate filings so
+# Orphan resolver: pair GSTIN-typo orphans and collapse duplicate filings so
         # no invoice is counted in both Missed ITC and ITC at Risk (double counting).
-        (
-            state.matched,
-            state.missed_itc,
-            wrongful_itc,
-            gstin_mismatch,
-            review_required,
-            _duplicate_pr_rows,
-        ) = resolve_orphans(
-            state.matched,
-            state.missed_itc,
-            wrongful_itc,
-            gstr_by_id,
-            pr_by_id,
+        execute_phase2_and_3(
+            gstr_matcher,
+            pr_current,
+            state,
+            candidate_indices,
         )
+        
+        # Calculate financial risk
+        wrongful_itc = [
+            pr_by_id[pid] for pid in pr_by_id if pid not in state.consumed_pr_ids
+        ]
         itc_missed = sum(int(x.get("total_tax_paise") or 0) for x in state.missed_itc)
         wrongful_paise = sum(
             int(x.get("total_tax_paise") or 0) for x in wrongful_itc
         )
         _phase("rule37")
         pr_for_rule37 = []
-        for m in state.matched:
+        for m in state.clean_matched:
             pr_id = str(m.get("pr_id"))
             p = pr_by_id.get(pr_id)
             if not p:
@@ -806,13 +804,13 @@ def execute_reconciliation(run_id: str) -> None:
             int(r.get("total_tax_paise") or 0) for r in rule37_pending_verification
         )
         late_filing = check_late_filing(
-            state.matched, gstr_raw_by_id, claim_period=period
+            state.clean_matched, gstr_raw_by_id, claim_period=period
         )
         # Runs-list "ITC at risk" = missed ITC (GSTR-2B invoices with no PR match).
         itc_at_risk_total = itc_missed
 
         # Build lookup for matched PR ids to enrich GSTR rows with PR-level ITC eligibility
-        matched_gstr_to_pr = {str(m["gstr_id"]): str(m["pr_id"]) for m in state.matched}
+        matched_gstr_to_pr = {str(m["gstr_id"]): str(m["pr_id"]) for m in state.clean_matched}
 
         gstr_invoices_for_blocked: list[dict[str, Any]] = []
         for ggr in gstr_matcher:
@@ -839,7 +837,7 @@ def execute_reconciliation(run_id: str) -> None:
         _phase("amount-diff-upsert")
         amount_diff_upsert_rows: list[dict[str, Any]] = []
         amount_diff_ts = _now_iso()
-        for m in state.matched:
+        for m in state.clean_matched:
             gid = str(m.get("gstr_id") or "")
             pid = str(m.get("pr_id") or "")
             ggr = gstr_by_id.get(gid, {})
@@ -929,7 +927,7 @@ def execute_reconciliation(run_id: str) -> None:
         _phase("decision-layer")
         merged_rule37 = (rule37 or []) + (late_filing or [])
         decision_payload = populate_decisions(
-            state.matched,
+            state.clean_matched,
             rule37=merged_rule37,
             section_175_warnings=s175,
             credit_note_adjustment=cn_net,
@@ -949,7 +947,7 @@ def execute_reconciliation(run_id: str) -> None:
         total_invoices = n_gstr + n_pr
         late_itc_paise = sum(int(r.get("amount_paise") or 0) for r in late_filing)
         late_itc = len(late_filing)
-        matched_count = len(state.matched)
+        matched_count = len(state.clean_matched)
         missed_itc_count = len(state.missed_itc)
         wrongful_count = len(wrongful_itc)
         review_gstr_count = sum(1 for r in review_required if r.get("side") == "GSTR")
@@ -985,7 +983,7 @@ def execute_reconciliation(run_id: str) -> None:
 
         payload = _json_safe(
             build_stored_results_payload(
-                matched=state.matched,
+                matched=state.clean_matched,
                 missed_itc=state.missed_itc,
                 wrongful_itc_risk=wrongful_itc,
                 rule37=rule37,
@@ -996,10 +994,10 @@ def execute_reconciliation(run_id: str) -> None:
                 matching_version=MATCHING_VERSION,
                 rules_version=RULES_VERSION,
                 decision_version=DECISION_VERSION,
-                gstin_mismatch=gstin_mismatch,
-                duplicates=review_required,
+                gstin_mismatch=[],
+                duplicates=state.review_required,
                 rule37_pending_verification=rule37_pending_verification,
-                review_required_typo=state.review_required_typo,
+                review_required_typo=[],
             )
         )
         if isinstance(payload, str):
@@ -1026,7 +1024,7 @@ def execute_reconciliation(run_id: str) -> None:
                 "updated_at": _now_iso(),
             },
         )
-        match_rate = round(len(state.matched) / n_gstr * 100, 2) if n_gstr else 0.0
+        match_rate = round(len(state.clean_matched) / n_gstr * 100, 2) if n_gstr else 0.0
 
         to_email = ""
         full_nm = ""
@@ -1057,7 +1055,7 @@ def execute_reconciliation(run_id: str) -> None:
             full_name=full_nm,
             client_name=client_display_name,
             period=period,
-            matched_count=len(state.matched),
+            matched_count=len(state.clean_matched),
             missed_itc_amount_paise=itc_missed,
             wrongful_risk_amount_paise=wrongful_paise,
             match_rate_percent=match_rate,
@@ -1086,7 +1084,7 @@ def execute_reconciliation(run_id: str) -> None:
             run_id,
             entity_label,
             {
-                "matched_count": len(state.matched),
+                "matched_count": len(state.clean_matched),
                 "match_rate_percent": match_rate,
             },
         )
