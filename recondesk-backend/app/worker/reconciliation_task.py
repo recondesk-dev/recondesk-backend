@@ -1000,6 +1000,7 @@ def execute_reconciliation(run_id: str) -> None:
                 gstin_mismatch=gstin_mismatch,
                 duplicates=review_required,
                 rule37_pending_verification=rule37_pending_verification,
+                review_required_typo=state.review_required_typo,
             )
         )
         if isinstance(payload, str):

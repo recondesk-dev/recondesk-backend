@@ -120,9 +120,10 @@ class TestExcelExport:
             matched_pairs=MATCHED_PAIRS,
             missed_rows=MISSED_ROWS,
             risk_rows=RISK_ROWS,
-            rule37_rows=RULE37_ROWS,
-            section17_rows=SECTION17_ROWS,
-            generated_at=GENERATED_AT,
+            rule37_rows=overrides.get("rule37_rows", RULE37_ROWS),
+            section17_rows=overrides.get("section17_rows", SECTION17_ROWS),
+            review_required_rows=overrides.get("review_required_rows", []),
+            generated_at=overrides.get("generated_at", datetime(2024, 5, 1, 10, 0)),
             generated_by_name="Omkar Kadam",
         )
         kwargs.update(overrides)

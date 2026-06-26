@@ -504,6 +504,38 @@ def build_outcome_rows(
             )
         )
 
+    for typo in list(engine.get("review_required_typo") or []):
+        rid = str(typo.get("pr_id", ""))
+        gstr_id = str(typo.get("gstr_id", ""))
+        cell = pr_m.get(rid) or {}
+        m_rec = cell.get("matcher") or {}
+        invn = str(typo.get("gstr_raw_invoice") or m_rec.get("invoice_number_normalized") or "")
+        invd = m_rec.get("invoice_date")
+        reason = str(typo.get("reason") or "Invoice Number Typos / Mismatch")
+        rows.append(
+            OutcomeRow(
+                id=f"rtp:{rid}-{gstr_id}",
+                category="review_required",
+                supplier_gstin=str(m_rec.get("supplier_gstin") or ""),
+                supplier_name=None,
+                invoice_number=invn,
+                invoice_date=str(invd) if invd else None,
+                match_status="REVIEW_REQUIRED",
+                taxable_value_diff=0,
+                igst_diff=0,
+                cgst_diff=0,
+                sgst_diff=0,
+                total_tax_diff_paise=0,
+                decision_what="Invoice Number Typo / Mismatch",
+                decision_why=reason,
+                decision_next="Manual review required to confirm if these are the same invoice.",
+                rule37_flag=False,
+                blocked_credit_flag=False,
+                late_filing_flag=bool(typo.get("is_late_filing")),
+                is_credit_note=False,
+                amount=int(m_rec.get("total_tax_paise") or 0),
+            )
+        )
 
     for pr_id, rrow in r37x.items():
         if (rrow.get("status") or "") not in _RULE37_CONCERNS:

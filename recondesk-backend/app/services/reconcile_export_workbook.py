@@ -135,6 +135,7 @@ def build_excel_workbook_bytes(
     risk_rows: list[dict[str, Any]],
     rule37_rows: list[dict[str, Any]],
     section17_rows: list[dict[str, Any]],
+    review_required_rows: list[dict[str, Any]],
     generated_at: datetime,
     generated_by_name: str,
 ) -> tuple[bytes, str]:
@@ -526,6 +527,46 @@ def build_excel_workbook_bytes(
         _log.exception("excel rule37/s17 sheet failed run=%s", run_id)
         tracks.append(_SheetTrack("Rule 37 & 17(5)", 0, f"FAILED: {e}"))
 
+    # --- Sheet 6 Review Required ---
+    try:
+        ws_rev = wb.create_sheet("Review Required")
+        ws_rev.append(
+            [
+                "Supplier GSTIN",
+                "Invoice Number",
+                "Invoice Date",
+                "Reason",
+                "Amount",
+            ]
+        )
+        for c in range(1, 6):
+            ws_rev.cell(row=1, column=c).font = Font(bold=True)
+            ws_rev.cell(row=1, column=c).fill = hf
+        r = 2
+        for row in review_required_rows:
+            ws_rev.append(
+                [
+                    row.get("supplier_gstin") or "—",
+                    row.get("invoice_number") or "—",
+                    row.get("invoice_date") or "—",
+                    row.get("decision_why") or "—",
+                    _rs_int(row.get("amount") or 0),
+                ]
+            )
+            r += 1
+        _autosize_columns(ws_rev)
+        tracks.append(
+            _SheetTrack(
+                "Review Required",
+                row_count=len(review_required_rows),
+                status="OK",
+                capped=False,
+            )
+        )
+    except Exception as e:
+        _log.exception("excel review required sheet failed run=%s", run_id)
+        tracks.append(_SheetTrack("Review Required", 0, f"FAILED: {e}"))
+
     # --- Sheet 6 Export Notes ---
     ws6 = wb.create_sheet("Export Notes")
     ws6["A1"] = "Export Notes"
@@ -549,6 +590,7 @@ def build_excel_workbook_bytes(
         "Missed ITC": "Missed ITC",
         "Compliance Risk": "Compliance Risk",
         "Rule 37 & 17(5)": "Rule 37 & 17(5)",
+        "Review Required": "Review Required",
     }
     for tr in tracks:
         disp = name_map.get(tr.name, tr.name)

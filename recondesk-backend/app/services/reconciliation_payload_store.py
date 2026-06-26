@@ -199,6 +199,7 @@ def build_stored_results_payload(
     gstin_mismatch: list[dict[str, Any]] | None = None,
     duplicates: list[dict[str, Any]] | None = None,
     rule37_pending_verification: list[dict[str, Any]] | None = None,
+    review_required_typo: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Minimal JSON persisted to reconciliation_results (invoice detail loaded from row tables)."""
     return {
@@ -208,6 +209,7 @@ def build_stored_results_payload(
             "wrongful_itc_risk": slim_wrongful_itc(wrongful_itc_risk),
             "gstin_mismatch": slim_gstin_mismatch(gstin_mismatch or []),
             "duplicates": slim_duplicates(duplicates or []),
+            "review_required_typo": review_required_typo or [],
         },
         "compliance": {
             "rule37": rule37,
