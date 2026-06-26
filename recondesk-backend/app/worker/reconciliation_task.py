@@ -439,6 +439,151 @@ def _load_gstr_matcher_and_raw(
 
 
 @celery_app.task(
+    name="worker.run_wizard_job",
+    max_retries=0,
+    soft_time_limit=900,
+    time_limit=960,
+)
+def run_wizard_job(run_id: str) -> None:
+    """
+    Full pipeline for the import-wizard flow, executed entirely inside the
+    Celery worker — NOT in the web-process thread.  Sequence:
+
+      1. Load the wizard_runs row.
+      2. Import GSTR-2B  (run_import_job).
+      3. Import Purchase Register  (run_import_job).
+      4. Set reconciliation_run.status → MATCHING.
+      5. Run the reconciliation engine  (execute_reconciliation).
+      6. Mark wizard run as complete / error.
+
+    Using .apply() (eager execution *inside the worker process*) rather than
+    .delay() means the sub-tasks run synchronously within this worker task,
+    which is exactly what we want — no extra round-trips through Redis.
+    """
+    from app.worker.tasks import run_import_job
+
+    _log.info("run_wizard_job: starting run_id=%s", run_id)
+    sb = _supabase()
+
+    # ── progress helper ───────────────────────────────────────────────────────
+    def _set_wizard_pct(pct: int, msg: str) -> None:
+        try:
+            sb.table("wizard_runs").update(
+                {"progress_pct": pct, "status_message": msg, "updated_at": _now_iso()}
+            ).eq("id", run_id).execute()
+        except Exception:
+            pass  # non-fatal
+
+    # ── failure helper ────────────────────────────────────────────────────────
+    def _fail(detail: str) -> None:
+        now = _now_iso()
+        for tbl in ("wizard_runs", "reconciliation_run"):
+            try:
+                sb.table(tbl).update(
+                    {
+                        "status": "error",
+                        "error_detail": detail[:2000],
+                        "status_message": "Processing failed",
+                        "updated_at": now,
+                    }
+                ).eq("id", run_id).execute()
+            except Exception:
+                pass
+
+    # ── fetch wizard run ──────────────────────────────────────────────────────
+    try:
+        row_res = sb.table("wizard_runs").select("*").eq("id", run_id).limit(1).execute()
+        if not row_res.data:
+            _log.error("run_wizard_job: wizard run %s not found", run_id)
+            return
+        row = row_res.data[0]
+    except Exception as exc:
+        _log.exception("run_wizard_job: failed to fetch wizard run %s", run_id)
+        _fail(str(exc))
+        return
+
+    client_id   = str(row.get("client_id") or "").strip()
+    period_raw  = str(row.get("period") or "").strip()
+    gstr2b_key  = str(row.get("gstr2b_r2_key") or "").strip()
+    pr_key      = str(row.get("pr_r2_key") or "").strip()
+
+    if not all([client_id, period_raw, gstr2b_key, pr_key]):
+        err = (
+            f"Wizard run missing required fields: client_id={client_id!r} "
+            f"period={period_raw!r} gstr2b_r2_key={gstr2b_key!r} "
+            f"pr_r2_key={pr_key!r}"
+        )
+        _log.error("run_wizard_job: %s", err)
+        _fail(err)
+        return
+
+    # reconciliation_task._parse_period expects "YYYY-MM"; wizard stores "YYYY-MM-DD"
+    period = period_raw[:7]
+    now = _now_iso()
+
+    try:
+        # Ensure the reconciliation_run row exists before run_import_job writes to it.
+        existing = (
+            sb.table("reconciliation_run")
+            .select("id, status")
+            .eq("id", run_id)
+            .limit(1)
+            .execute()
+        )
+        if not existing.data:
+            sb.table("reconciliation_run").insert(
+                {
+                    "id": run_id,
+                    "client_gstin_id": client_id,
+                    "period": period,
+                    "status": "uploading",
+                    "progress_percent": 0,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            ).execute()
+
+        # ── 1. GSTR-2B ───────────────────────────────────────────────────────
+        _log.info("run_wizard_job: importing GSTR-2B for run %s", run_id)
+        _set_wizard_pct(10, "Reading GSTR-2B…")
+        run_import_job.apply(args=[run_id, "gstr2b", gstr2b_key])
+
+        # ── 2. Purchase Register ─────────────────────────────────────────────
+        _log.info("run_wizard_job: importing PR for run %s", run_id)
+        _set_wizard_pct(45, "Reading purchase register…")
+        run_import_job.apply(args=[run_id, "purchase_register", pr_key])
+
+        # ── 3. Set MATCHING ──────────────────────────────────────────────────
+        _log.info("run_wizard_job: setting MATCHING for run %s", run_id)
+        _set_wizard_pct(70, "Matching invoices…")
+        sb.table("reconciliation_run").update(
+            {"status": "MATCHING", "updated_at": _now_iso()}
+        ).eq("id", run_id).execute()
+
+        # ── 4. Reconciliation engine ─────────────────────────────────────────
+        _log.info("run_wizard_job: running reconciliation engine for run %s", run_id)
+        execute_reconciliation.apply(args=[run_id])
+
+        # ── 5. Mark wizard run complete ──────────────────────────────────────
+        _log.info("run_wizard_job: finalising wizard run %s", run_id)
+        sb.table("wizard_runs").update(
+            {
+                "status": "complete",
+                "progress_pct": 100,
+                "status_message": "Complete",
+                "updated_at": _now_iso(),
+            }
+        ).eq("id", run_id).execute()
+
+        _log.info("run_wizard_job: completed successfully run_id=%s", run_id)
+
+    except Exception as exc:
+        _log.exception("run_wizard_job: failed for run_id=%s", run_id)
+        _fail(str(exc))
+        raise
+
+
+@celery_app.task(
     name="worker.execute_reconciliation",
     max_retries=0,
     soft_time_limit=600,

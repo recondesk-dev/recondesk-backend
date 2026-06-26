@@ -724,7 +724,7 @@ export default function NewReconcileWizardPage() {
           router.push(`/reconcile/runs/${runId}/results`);
           return;
         }
-        if (s.status === "error") {
+        if (s.status === "error" || s.status === "failed") {
           await refreshRun(runId, token);
           return;
         }
