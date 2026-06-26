@@ -3979,6 +3979,10 @@ async def reconcile_export_excel_workbook(
     risk = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
     r37 = _build_rule37_rows(sb, rid, p, notes)
     s17 = _build_section175_rows(sb, rid, p, notes)
+
+    oc_rows, _cc, _st = ro.build_outcome_rows(sb, rid, p)
+    review_rows = [x.model_dump() for x in oc_rows if x.category == "review_required"]
+
     blob, fn = build_excel_workbook_bytes(
         run_id=rid,
         firm_name=firm_name,
@@ -3990,6 +3994,7 @@ async def reconcile_export_excel_workbook(
         risk_rows=risk,
         rule37_rows=r37,
         section17_rows=s17,
+        review_required_rows=review_rows,
         generated_at=datetime.now(timezone.utc),
         generated_by_name=gen_name,
     )

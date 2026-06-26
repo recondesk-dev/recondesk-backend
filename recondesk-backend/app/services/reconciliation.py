@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import date
@@ -24,6 +25,14 @@ from app.services.matcher import (
 from app.services.vendor_name_matcher import find_best_vendor_match
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_invoice_number(s: str | None) -> str:
+    """Uppercase the string, strip all non-alphanumeric characters. Do NOT strip leading zeros."""
+    if not s:
+        return ""
+    return re.sub(r'[^A-Z0-9]', '', str(s).upper())
+
 
 
 def get_search_periods(
@@ -275,6 +284,7 @@ class ReconState:
     """Mutable state for multi-chunk GSTR↔PR matching (avoids re-processing or duplicate PR use)."""
 
     matched: list[dict] = field(default_factory=list)
+    review_required_typo: list[dict] = field(default_factory=list)
     review_required: list[dict] = field(default_factory=list)
     matched_pr_ids: set[str] = field(default_factory=set)
     matched_gstr_ids: set[str] = field(default_factory=set)
@@ -389,6 +399,24 @@ def process_gstr_records_chunk(
 
         if best_result is not None and best_pr is not None:
             score = compute_match_score(best_result)
+            
+            if score == 100:
+                gstr_inv_exact = normalize_invoice_number(gstr_record.get("invoice_number"))
+                pr_inv_exact = normalize_invoice_number(best_pr.get("invoice_number"))
+                if gstr_inv_exact != pr_inv_exact:
+                    state.review_required_typo.append({
+                        "gstr_id": str(gstr_record["id"]),
+                        "pr_id": str(best_pr["id"]),
+                        "gstr_raw_invoice": gstr_record.get("invoice_number"),
+                        "pr_raw_invoice": best_pr.get("invoice_number"),
+                        "reason": "INVOICE_NUMBER_TYPO",
+                        "confidence_score": score,
+                        "match_reasons": _match_reasons_from_result(best_result) + ["Invoice number mismatch despite GSTIN/amount similarity"]
+                    })
+                    state.matched_pr_ids.add(str(best_pr["id"]))
+                    state.matched_gstr_ids.add(gstr_id)
+                    continue
+
             _push_matched(state, gstr_record["id"], best_pr["id"], score, best_result)
             continue
 
@@ -451,6 +479,28 @@ def process_gstr_records_chunk(
             late_months = (gstr_period.year - period.year) * 12 + (
                 gstr_period.month - period.month
             )
+            
+            if score == 100:
+                gstr_inv_exact = normalize_invoice_number(gstr_record.get("invoice_number"))
+                pr_inv_exact = normalize_invoice_number(best_p.get("invoice_number"))
+                if gstr_inv_exact != pr_inv_exact:
+                    state.review_required_typo.append({
+                        "gstr_id": str(gstr_record["id"]),
+                        "pr_id": str(best_p["id"]),
+                        "gstr_raw_invoice": gstr_record.get("invoice_number"),
+                        "pr_raw_invoice": best_p.get("invoice_number"),
+                        "reason": "INVOICE_NUMBER_TYPO",
+                        "confidence_score": score,
+                        "match_reasons": _match_reasons_from_result(final_mr) + ["Invoice number mismatch despite GSTIN/amount similarity"],
+                        "is_late_filing": True,
+                        "original_period": period,
+                        "late_months": late_months
+                    })
+                    state.matched_pr_ids.add(str(best_p["id"]))
+                    state.matched_gstr_ids.add(gstr_id)
+                    cross_matched = True
+                    break
+
             state.matched.append(
                 {
                     "gstr_id": str(gstr_record["id"]),
@@ -808,11 +858,12 @@ def _finalize_reconciliation_result(
     state.matched_pr_ids = {str(m["pr_id"]) for m in state.matched}
 
     duplicate_pr_count = len(duplicate_pr_rows)
+    typo_count = len(state.review_required_typo)
 
     sanity_passed = (
-        matched_count + missed_itc_count + gstin_mismatch_count + review_gstr_count
+        matched_count + missed_itc_count + gstin_mismatch_count + review_gstr_count + typo_count
         == total_gstr
-        and matched_count + wrongful_risk_count + gstin_mismatch_count + review_pr_count + duplicate_pr_count
+        and matched_count + wrongful_risk_count + gstin_mismatch_count + review_pr_count + duplicate_pr_count + typo_count
         == total_pr
         and not (state.matched_gstr_ids & missed_gstr_ids)
         and len(state.matched_pr_ids) == matched_count
@@ -825,6 +876,7 @@ def _finalize_reconciliation_result(
 
     return {
         "matched": state.matched,
+        "review_required_typo": state.review_required_typo,
         "review_required": state.review_required,
         "missed_itc": state.missed_itc,
         "wrongful_itc_risk": wrongful_itc_risk,
