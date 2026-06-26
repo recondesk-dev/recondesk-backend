@@ -1753,28 +1753,7 @@ def _build_reconcile_summary(
         .limit(1)
         .execute()
     )
-    
-    # ...
 
-    return {
-        "id": rid,
-        "run_name": run_row.get("run_name"),
-        "period": run_row.get("period"),
-        "status": run_row.get("status"),
-        "created_at": run_row.get("created_at"),
-        "total_gstr_records": n_g,
-        "matched_count": exact_match_count,
-        "mismatched_count": mismatched_count,
-        "clean_matched_count": matched_count,
-        "review_required_count": review_required_count,
-        "total_linked_count": total_linked_count,
-        "missed_count": missed_count,
-        "wrongful_count": wrongful_count,
-        "missed_total_rupees": missed_total_rupees,
-        "wrongful_total_rupees": wrongful_total_rupees,
-        "wrongful_purchase_total_rupees": wrongful_purchase_total_rupees,
-        "match_pct": match_pct,
-    }
     crow = (cg.data or [{}])[0]
     client_display = crow.get("trade_name") or crow.get("gstin") or ""
     assigned_to_uid = crow.get("assigned_to")
@@ -1803,6 +1782,11 @@ def _build_reconcile_summary(
 
     client_gstin = str(crow.get("gstin") or "").strip()
 
+    # Paise-denominated amounts for frontend cards
+    missed_itc_amount_paise = int(round(missed_total_rupees * 100))
+    wrongful_risk_amount_paise = int(round(wrongful_total_rupees * 100))
+    purchase_value_at_risk_paise = int(round(wrongful_purchase_total_rupees * 100))
+
     return {
         "run_id": rid,
         "client_name": client_display,
@@ -1813,6 +1797,11 @@ def _build_reconcile_summary(
         "finalized_by_name": finalized_name,
         "finalized_at": run_row.get("finalized_at"),
         "total_gstr_records": n_g,
+        # Stable canonical fields consumed by the results page
+        "clean_matched_count": matched_count,
+        "review_required_count": review_required_count,
+        "total_linked_count": total_linked_count,
+        # matched_count kept for backward compat (= clean_matched_count)
         "matched_count": matched_count,
         "mismatched_count": mismatched_count,
         "exact_match_count": exact_match_count,
@@ -1823,8 +1812,13 @@ def _build_reconcile_summary(
         "wrongful_risk_purchase_total_amount": round(
             wrongful_purchase_total_rupees, 2
         ),
+        # Paise fields for the frontend stat cards
+        "missed_itc_amount_paise": missed_itc_amount_paise,
+        "wrongful_risk_amount_paise": wrongful_risk_amount_paise,
+        "purchase_value_at_risk_paise": purchase_value_at_risk_paise,
         "late_match_count": late_match_count,
         "match_rate_percent": match_pct,
+        "match_rate_pct": match_pct,
         "user_role": role_out,
     }
 
