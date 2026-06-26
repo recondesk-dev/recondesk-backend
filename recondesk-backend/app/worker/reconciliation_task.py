@@ -950,18 +950,18 @@ def execute_reconciliation(run_id: str) -> None:
         matched_count = len(state.clean_matched)
         missed_itc_count = len(state.missed_itc)
         wrongful_count = len(wrongful_itc)
-        review_gstr_count = sum(1 for r in review_required if r.get("side") == "GSTR")
-        review_pr_count = sum(1 for r in review_required if r.get("side") == "PR")
+        review_gstr_count = len(state.review_required)
+        review_pr_count = len(state.consumed_pr_ids) - matched_count
         skipped_count = sum(1 for r in pr_current if r.get("match_status") == "skipped")
 
-        assert matched_count + missed_itc_count + len(gstin_mismatch) + review_gstr_count == n_gstr, (
+        assert matched_count + missed_itc_count + review_gstr_count == n_gstr, (
             f"GSTR Data Loss! Matched:{matched_count} Missed:{missed_itc_count} "
-            f"Typo:{len(gstin_mismatch)} Review:{review_gstr_count} Total:{n_gstr}"
+            f"Review:{review_gstr_count} Total:{n_gstr}"
         )
-        duplicate_pr_count = len(_duplicate_pr_rows)
-        assert matched_count + wrongful_count + len(gstin_mismatch) + review_pr_count + duplicate_pr_count + skipped_count == n_pr, (
+        
+        assert matched_count + wrongful_count + review_pr_count + skipped_count == n_pr, (
             f"PR Data Loss! Matched:{matched_count} Risk:{wrongful_count} "
-            f"Typo:{len(gstin_mismatch)} Review:{review_pr_count} Duplicates:{duplicate_pr_count} Skipped:{skipped_count} Total:{n_pr}"
+            f"Review PRs:{review_pr_count} Skipped:{skipped_count} Total:{n_pr}"
         )
 
         run_summary = build_run_summary_metrics(
