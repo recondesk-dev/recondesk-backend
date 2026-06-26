@@ -669,7 +669,7 @@ def execute_reconciliation(run_id: str) -> None:
                 run_id=run_id,
                 pr_chunk=pr_chunk,
                 pr_raw_by_id=pr_raw_chunk,
-                matched_pr_ids=state.clean_matched_pr_ids,
+                matched_pr_ids=state.consumed_pr_ids,
                 gstr_by_gstin=gstr_by_gstin,
                 gstr_by_id=gstr_by_id,
                 matched=state.clean_matched,
@@ -705,7 +705,7 @@ def execute_reconciliation(run_id: str) -> None:
 
         _phase("matching")
         pr_current, pr_raw_by_id = _load_pr_matcher_and_raw(client, run_id)
-        wrongful_itc = build_wrongful_itc_risk(pr_current, state.clean_matched_pr_ids)
+        wrongful_itc = build_wrongful_itc_risk(pr_current, state.consumed_pr_ids)
         late_itc = sum(
             1
             for m in state.clean_matched
