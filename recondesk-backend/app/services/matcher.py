@@ -452,6 +452,9 @@ def _match_gstr_to_pr_pair(
 
     g_inv = _invoice_number(gstr_rec)
     p_inv = _invoice_number(pr_rec)
+    g_inv_raw = str(gstr_rec.get("invoice_number", "")).strip().upper()
+    p_inv_raw = str(pr_rec.get("invoice_number", "")).strip().upper()
+
     if not g_inv or not p_inv:
         return MatchResult(
             level=6,
@@ -496,9 +499,11 @@ def _match_gstr_to_pr_pair(
     inv_sim = invoice_similarity(g_inv, p_inv)
     strong_invoice = inv_ok or format_variant or inv_sim >= INVOICE_SIMILARITY_L5_MIN
 
-    amount_within_l1 = skip_amount or amount_diff <= AMOUNT_TOLERANCE_L1_PAISE
-    # L2 band: BOTH absolute ≤ Rs100 AND relative ≤ 1% (strict and-gate)
+    raw_inv_ok = bool(g_inv_raw and p_inv_raw and g_inv_raw == p_inv_raw)
     amount_pct = _compute_percentage_diff(amount_diff, skip_amount, tg, tp)
+
+    amount_within_l1 = skip_amount or (amount_pct <= 0.01)
+    # L2 band: BOTH absolute ≤ Rs100 AND relative ≤ 1% (strict and-gate)
     amount_within_l2 = skip_amount or (
         amount_diff <= AMOUNT_TOLERANCE_L2_PAISE and amount_pct <= AMOUNT_TOLERANCE_L2_PCT
     )
@@ -521,9 +526,9 @@ def _match_gstr_to_pr_pair(
 
     l12_finance_ok = financial_status in ("Exact", "Round-off")
 
-    # ── Tier 1: Same GSTIN + exact normalized invoice number ─────────────────
-    if gstin_match and inv_ok:
-        if financial_status in ("Exact", "Round-off") and date_within_l1:
+    # ── Tier 1: Same GSTIN + exact raw invoice number + amount within 1% ─────────────────
+    if gstin_match and raw_inv_ok:
+        if amount_within_l1 and date_within_l1:
             return MatchResult(
                 level=1, matched=True, confidence=100, requires_human_review=False,
                 decision_what="Exact match found",
@@ -532,21 +537,19 @@ def _match_gstr_to_pr_pair(
                 discrepancies=discrepancies,
                 identity_confidence="High", financial_status=financial_status,
             )
-        # L2 sub-path: amount within L2 band (Rs100 AND ≤1%) + date within L2 window
-        # This handles small rounding differences that are auto-acceptable.
-        # Note: financial_status may read "Amount Mismatch" even for Rs100 diffs because
-        # it's calibrated to the L1 threshold; but L2 is by definition an auto-accept band.
+    # ── Tier 2: Same GSTIN + normalized invoice number (L2) ─────────────────
+    if gstin_match and inv_ok:
         if amount_within_l2 and date_within_l2 and tax_structure_match:
             return MatchResult(
                 level=2, matched=True, confidence=90, requires_human_review=False,
-                decision_what="Invoice matched with minor amount difference",
-                decision_why="Same invoice and GSTIN, amount within acceptable tolerance",
+                decision_what="Invoice matched with normalized invoice and minor amount difference",
+                decision_why="Same normalized invoice and GSTIN, amount within acceptable tolerance",
                 decision_next="Verify if needed",
                 discrepancies=discrepancies,
                 identity_confidence="High", financial_status=financial_status,
                 review_reason=None,
             )
-        # Same GSTIN + same invoice but amount or date exceeds L2 — L3 review
+        # Same GSTIN + same normalized invoice but amount or date exceeds L2 — L3 review
         # Large diff + date outside L2 window → return L6 (no match) for extreme cases
         if not date_within_l2 and not amount_within_l2:
             return MatchResult(

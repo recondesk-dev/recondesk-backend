@@ -348,10 +348,6 @@ def _pr_match_status_for_record(
     pr_id = str(pr_rec["id"])
     if pr_id in matched_pr_ids:
         return "matched"
-    gstin = str(pr_rec.get("supplier_gstin") or "")
-    for gstr_rec in gstr_by_gstin.get(gstin, ()):
-        if match_gstr_to_pr(gstr_rec, [pr_rec]) is not None:
-            return "missing_in_2b"
     return "unmatched"
 
 
@@ -860,6 +856,9 @@ def execute_reconciliation(run_id: str) -> None:
                 {
                     "id": gid_int,
                     "amount_difference_paise": diff,
+                    "match_status": m.get("match_status", "matched"),
+                    "match_level": m.get("match_level"),
+                    "matched_pr_record_id": pid,
                     "updated_at": amount_diff_ts,
                 }
             )

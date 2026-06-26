@@ -294,6 +294,8 @@ class ReconState:
 
 
 def _push_matched(state, gstr_id, pr_id, score, best_result, is_late_filing=False, original_period=None, late_months=0):
+    match_status = "review_required" if getattr(best_result, "level", 0) == 5 else "matched"
+
     match_dict = {
         "gstr_id": str(gstr_id),
         "pr_id": str(pr_id),
@@ -302,11 +304,13 @@ def _push_matched(state, gstr_id, pr_id, score, best_result, is_late_filing=Fals
         "is_late_filing": is_late_filing,
         "original_period": original_period,
         "late_months": late_months,
-        "match_status_text": "Review Required" if best_result.requires_human_review else "Matched",
+        "match_status": match_status,
+        "match_status_text": "Review Required" if match_status == "review_required" or best_result.requires_human_review else "Matched",
         "vendor_similarity_score": best_result.vendor_similarity_score,
         "identity_confidence": getattr(best_result, "identity_confidence", "High"),
         "financial_status": getattr(best_result, "financial_status", "Exact"),
         "review_reason": best_result.review_reason,
+        "match_level": getattr(best_result, "level", 0),
     }
     state.matched.append(match_dict)
     
@@ -877,9 +881,11 @@ def _finalize_reconciliation_result(
     l1 = sum(1 for m in state.matched if m.get("match_level") == 1)
     l2 = sum(1 for m in state.matched if m.get("match_level") == 2)
     l3 = sum(1 for m in state.matched if m.get("match_level") == 3)
-    unmatched = total_gstr - matched_count
+    l5_review = sum(1 for m in state.matched if m.get("match_level") == 5)
+    unmatched_gstr = total_gstr - matched_count
+    unmatched_pr = total_pr - matched_count
 
-    logger.info(f"[MATCH SUMMARY] L1: {l1}, L2: {l2}, L3: {l3}, Unmatched: {unmatched}")
+    logger.info(f"[MATCH SUMMARY] L1: {l1}, L2: {l2}, L3: {l3}, L5_review: {l5_review}, Unmatched_GSTR: {unmatched_gstr}, Unmatched_PR: {unmatched_pr}")
     logger.info(f"Total matched: {matched_count} / {total_gstr}")
 
     return {
