@@ -392,7 +392,10 @@ def process_gstr_records_chunk(
 
         if best_result is not None and best_pr is not None:
             score = compute_match_score(best_result)
-            _push_clean_matched(state, gstr_record["id"], best_pr["id"], score, best_result)
+            if best_result.requires_human_review:
+                _push_review_required(state, gstr_record["id"], best_pr["id"], score, best_result.review_reason, best_result)
+            else:
+                _push_clean_matched(state, gstr_record["id"], best_pr["id"], score, best_result)
             continue
             
         # Cross-period check for clean match (late filing)
@@ -421,7 +424,10 @@ def process_gstr_records_chunk(
                 best_r, best_p = acceptable[0]
                 score = compute_match_score(best_r)
                 late_months = (gstr_period.year - period.year) * 12 + (gstr_period.month - period.month)
-                _push_clean_matched(state, gstr_record["id"], best_p["id"], score, best_r, is_late_filing=True, original_period=period, late_months=late_months)
+                if best_r.requires_human_review:
+                    _push_review_required(state, gstr_record["id"], best_p["id"], score, best_r.review_reason, best_r)
+                else:
+                    _push_clean_matched(state, gstr_record["id"], best_p["id"], score, best_r, is_late_filing=True, original_period=period, late_months=late_months)
                 break
 
 
@@ -527,6 +533,7 @@ def execute_phase2_and_3(
         inv = str(p.get("invoice_number_normalized") or "")
         if inv: rem_pr_by_inv_norm[inv].append(p)
     
+    from app.services.matcher import invoice_similarity, _parse_invoice_date
     # 2. GSTIN_MISMATCH & 3. TYPO_MISMATCH
     for g in unconsumed_gstr:
         gid = str(g["id"])
@@ -536,6 +543,7 @@ def execute_phase2_and_3(
             
         inv = str(g.get("invoice_number_normalized") or "")
         g_amt = g.get("total_tax_paise") or 0
+        g_date = _parse_invoice_date(g)
         
         # Look for GSTIN_MISMATCH (same inv norm, amt within 2%)
         candidates_gstin_mismatch = []
@@ -552,7 +560,10 @@ def execute_phase2_and_3(
                     diff_pct = abs(g_amt - p_amt) / float(p_amt)
                 
                 if diff_pct <= 0.02:
-                    candidates_gstin_mismatch.append(p)
+                    p_date = _parse_invoice_date(p)
+                    date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
+                    if not g_date or not p_date or date_diff <= 30:
+                        candidates_gstin_mismatch.append(p)
         
         if candidates_gstin_mismatch:
             if len(candidates_gstin_mismatch) > 1:
@@ -562,7 +573,6 @@ def execute_phase2_and_3(
             continue
             
         # Look for TYPO_MISMATCH
-        from app.services.matcher import invoice_similarity
         g_inv_raw = str(g.get("invoice_number") or "")
         candidates_typo = []
         for prs_in_bucket in candidate_indices.by_taxable.get(gst, {}).values():
@@ -573,14 +583,16 @@ def execute_phase2_and_3(
                 
                 sim = invoice_similarity(g_inv_raw, p_inv_raw)
                 if sim >= 0.80:
-                    g_amt = g.get("total_tax_paise") or 0
                     p_amt = p.get("total_tax_paise") or 0
                     if g_amt == 0 and p_amt == 0: diff_pct = 0
                     elif p_amt == 0: diff_pct = 1.0
                     else: diff_pct = abs(g_amt - p_amt) / float(p_amt)
                     
                     if diff_pct <= 0.05:
-                        candidates_typo.append(p)
+                        p_date = _parse_invoice_date(p)
+                        date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
+                        if not g_date or not p_date or date_diff <= 45:
+                            candidates_typo.append(p)
                         
         if candidates_typo:
             if len(candidates_typo) > 1:
