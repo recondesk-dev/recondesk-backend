@@ -619,6 +619,54 @@ def execute_phase2_and_3(
                 _push_review_required(state, gid, candidates_vendor[0]["id"], 50, "VENDOR_FUZZY")
             continue
 
+    # 5. CREDIBLE_CANDIDATE_FALLBACK
+    # Find unconsumed GSTR/PR records that still have a credible candidate
+    # Those should become review_required, not final financial risk.
+    unconsumed_gstr = [g for g in gstr_records if str(g["id"]) not in state.consumed_gstr_ids]
+    unconsumed_pr_fallback = [p for p in pr_records if str(p["id"]) not in state.consumed_pr_ids]
+    
+    for g in unconsumed_gstr:
+        gid = str(g["id"])
+        if gid in state.consumed_gstr_ids: continue
+        
+        gst = str(g.get("supplier_gstin") or "").strip()
+        g_amt = g.get("total_tax_paise") or 0
+        g_date = _parse_invoice_date(g)
+        g_inv_norm = str(g.get("invoice_number_normalized") or "")
+        
+        credible_candidates = []
+        for p in unconsumed_pr_fallback:
+            pid = str(p["id"])
+            if pid in state.consumed_pr_ids: continue
+            
+            p_gst = str(p.get("supplier_gstin") or "").strip()
+            p_amt = p.get("total_tax_paise") or 0
+            p_date = _parse_invoice_date(p)
+            p_inv_norm = str(p.get("invoice_number_normalized") or "")
+            
+            if g_amt == 0 and p_amt == 0: diff_pct = 0
+            elif p_amt == 0: diff_pct = 1.0
+            else: diff_pct = abs(g_amt - p_amt) / float(p_amt)
+            
+            date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
+            
+            # criteria 1: same GSTIN + amount within 5% + date within 45 days
+            if gst and gst == p_gst and diff_pct <= 0.05 and (not g_date or not p_date or date_diff <= 45):
+                credible_candidates.append((p, "POSSIBLE_MATCH"))
+                continue
+                
+            # criteria 2: same normalized invoice + amount within 2% + date within 30 days
+            if g_inv_norm and g_inv_norm == p_inv_norm and diff_pct <= 0.02 and (not g_date or not p_date or date_diff <= 30):
+                credible_candidates.append((p, "POSSIBLE_MATCH"))
+                continue
+                
+        if credible_candidates:
+            if len(credible_candidates) > 1:
+                _push_review_required(state, gid, credible_candidates[0][0]["id"], 40, "MULTIPLE_CANDIDATES")
+            else:
+                _push_review_required(state, gid, credible_candidates[0][0]["id"], 40, credible_candidates[0][1])
+            continue
+
     # PHASE 3: True Financial Buckets
     unconsumed_gstr = [g for g in gstr_records if str(g["id"]) not in state.consumed_gstr_ids]
     for g in unconsumed_gstr:
@@ -646,6 +694,7 @@ def _finalize_reconciliation_result(
     total_gstr: int,
     total_pr: int,
     pr_records: list[dict],
+    gstr_records: list[dict] = None,
 ) -> dict:
     matched_count = len(state.clean_matched)
     review_gstr_count = len(state.review_required)
@@ -678,14 +727,27 @@ def _finalize_reconciliation_result(
     l2 = sum(1 for m in state.clean_matched if m.get("match_level") == 2)
     l3 = sum(1 for m in state.clean_matched if m.get("match_level") == 3)
     
-    review_dup = sum(1 for m in state.review_required if m.get("review_reason") == "DUPLICATE_AMBIGUITY")
-    review_gstin = sum(1 for m in state.review_required if m.get("review_reason") == "GSTIN_MISMATCH")
-    review_typo = sum(1 for m in state.review_required if m.get("review_reason") == "TYPO_MISMATCH")
-    review_vendor = sum(1 for m in state.review_required if m.get("review_reason") == "VENDOR_FUZZY")
-    review_mult = sum(1 for m in state.review_required if m.get("review_reason") == "MULTIPLE_CANDIDATES")
+    gstr_by_id = {str(g["id"]): g for g in (gstr_records or [])}
+    def _review_metrics(reason_match: str) -> tuple[int, float]:
+        count = 0
+        amt_paise = 0
+        for m in state.review_required:
+            if reason_match == m.get("review_reason") or (reason_match == "POSSIBLE_MATCH" and m.get("review_reason") == "POSSIBLE_MATCH"):
+                count += 1
+                gid = m.get("gstr_id")
+                if gid and gid in gstr_by_id:
+                    amt_paise += int(gstr_by_id[gid].get("total_tax_paise") or 0)
+        return count, amt_paise
 
-    logger.info(f"[MATCH SUMMARY] L1: {l1}, L2: {l2}, L3: {l3}, Review_Duplicate: {review_dup}, Review_GSTIN: {review_gstin}, Review_Typo: {review_typo}, Review_Vendor: {review_vendor}, Review_Multiple: {review_mult}, Missed_ITC: {missed_itc_count}, ITC_at_Risk: {wrongful_risk_count}")
-    logger.info(f"[MATCH AMOUNTS] Missed_ITC: {missed_itc_amount_paise}, ITC_at_Risk: {wrongful_risk_amount_paise}, Purchase_Value_At_Risk: 0")
+    review_dup, review_dup_amt = _review_metrics("DUPLICATE_AMBIGUITY")
+    review_gstin, review_gstin_amt = _review_metrics("GSTIN_MISMATCH")
+    review_typo, review_typo_amt = _review_metrics("TYPO_MISMATCH")
+    review_vendor, review_vendor_amt = _review_metrics("VENDOR_FUZZY")
+    review_mult, review_mult_amt = _review_metrics("MULTIPLE_CANDIDATES")
+    review_possible, review_possible_amt = _review_metrics("POSSIBLE_MATCH")
+
+    logger.info(f"[MATCH SUMMARY] L1: {l1}, L2: {l2}, L3: {l3}, Review_Duplicate: {review_dup}, Review_GSTIN: {review_gstin}, Review_Typo: {review_typo}, Review_Vendor: {review_vendor}, Review_Multiple: {review_mult}, Review_Possible: {review_possible}, Missed_ITC: {missed_itc_count}, ITC_at_Risk: {wrongful_risk_count}")
+    logger.info(f"[MATCH AMOUNTS] Missed_ITC: {_paise_to_rupees(missed_itc_amount_paise)}, ITC_at_Risk: {_paise_to_rupees(wrongful_risk_amount_paise)}, Review_Duplicate: {_paise_to_rupees(review_dup_amt)}, Review_GSTIN: {_paise_to_rupees(review_gstin_amt)}, Review_Typo: {_paise_to_rupees(review_typo_amt)}, Review_Vendor: {_paise_to_rupees(review_vendor_amt)}, Review_Multiple: {_paise_to_rupees(review_mult_amt)}, Review_Possible: {_paise_to_rupees(review_possible_amt)}")
 
     return {
         "matched": state.clean_matched,
