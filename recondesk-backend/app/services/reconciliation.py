@@ -572,62 +572,51 @@ def execute_phase2_and_3(
                 _push_review_required(state, gid, candidates_gstin_mismatch[0]["id"], 50, "GSTIN_MISMATCH")
             continue
             
-        # Look for TYPO_MISMATCH
-        g_inv_raw = str(g.get("invoice_number") or "")
+        # 3. TYPO_MISMATCH
+        # same GSTIN + amount within 5% + date within 45 days + invoice similarity > 80%
         candidates_typo = []
+        for prs_in_bucket in candidate_indices.by_taxable.get(gst, {}).values():
+            for p in prs_in_bucket:
+                if str(p["id"]) in state.consumed_pr_ids: continue
+                p_amt = p.get("total_tax_paise") or 0
+                if g_amt == 0 and p_amt == 0: diff_pct = 0
+                elif p_amt == 0: diff_pct = 1.0
+                else: diff_pct = abs(g_amt - p_amt) / float(p_amt)
+                
+                if diff_pct <= 0.05:
+                    p_date = _parse_invoice_date(p)
+                    date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
+                    if not g_date or not p_date or date_diff <= 45:
+                        g_inv_norm = str(g.get("invoice_number_normalized") or "")
+                        p_inv_norm = str(p.get("invoice_number_normalized") or "")
+                        sim = invoice_similarity(g_inv_norm, p_inv_norm)
+                        if sim > 0.80 and g_inv_norm != p_inv_norm:
+                            candidates_typo.append((p, sim))
+                            
+        if candidates_typo:
+            candidates_typo.sort(key=lambda x: x[1], reverse=True)
+            if len(candidates_typo) > 1 and candidates_typo[0][1] == candidates_typo[1][1]:
+                _push_review_required(state, gid, candidates_typo[0][0]["id"], 60, "MULTIPLE_CANDIDATES")
+            else:
+                _push_review_required(state, gid, candidates_typo[0][0]["id"], 60, "TYPO_MISMATCH")
+            continue
+
+        # 4. MULTIPLE_CANDIDATES / VENDOR_FUZZY
+        # same GSTIN + exact amount.
+        candidates_vendor = []
         for prs_in_bucket in candidate_indices.by_taxable.get(gst, {}).values():
             for p in prs_in_bucket:
                 pid = str(p["id"])
                 if pid in state.consumed_pr_ids: continue
-                p_inv_raw = str(p.get("invoice_number") or "")
-                
-                sim = invoice_similarity(g_inv_raw, p_inv_raw)
-                if sim >= 0.80:
-                    p_amt = p.get("total_tax_paise") or 0
-                    if g_amt == 0 and p_amt == 0: diff_pct = 0
-                    elif p_amt == 0: diff_pct = 1.0
-                    else: diff_pct = abs(g_amt - p_amt) / float(p_amt)
-                    
-                    if diff_pct <= 0.05:
-                        p_date = _parse_invoice_date(p)
-                        date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
-                        if not g_date or not p_date or date_diff <= 45:
-                            candidates_typo.append(p)
-                        
-        if candidates_typo:
-            if len(candidates_typo) > 1:
-                _push_review_required(state, gid, candidates_typo[0]["id"], 60, "MULTIPLE_CANDIDATES")
-            else:
-                _push_review_required(state, gid, candidates_typo[0]["id"], 60, "TYPO_MISMATCH")
-            continue
-
-    # 4. VENDOR_FUZZY (includes missing/invalid GSTINs)
-    unconsumed_gstr = [g for g in gstr_records if str(g["id"]) not in state.consumed_gstr_ids]
-    from app.services.vendor_name_matcher import vendor_name_similarity
-    for g in unconsumed_gstr:
-        gid = str(g["id"])
-        g_name = str(g.get("supplier_name") or "")
-        g_amt = g.get("total_tax_paise") or 0
-        if not g_name: continue
-        
-        candidates_vendor = []
-        # Search all unconsumed PRs where amounts match exactly or within 100 paise
-        for p in pr_records:
-            pid = str(p["id"])
-            if pid in state.consumed_pr_ids: continue
-            p_amt = p.get("total_tax_paise") or 0
-            if abs(g_amt - p_amt) <= TOTAL_TOLERANCE_PAISE:
-                p_name = str(p.get("vendor_name") or "")
-                sim = vendor_name_similarity(g_name, p_name)
-                if sim > 0.82:
-                    candidates_vendor.append((p, sim))
+                p_amt = p.get("total_tax_paise") or 0
+                if abs(g_amt - p_amt) <= TOTAL_TOLERANCE_PAISE:
+                    candidates_vendor.append(p)
                     
         if candidates_vendor:
-            candidates_vendor.sort(key=lambda x: x[1], reverse=True)
-            if len(candidates_vendor) > 1 and candidates_vendor[0][1] == candidates_vendor[1][1]:
-                _push_review_required(state, gid, candidates_vendor[0][0]["id"], 50, "MULTIPLE_CANDIDATES")
+            if len(candidates_vendor) > 1:
+                _push_review_required(state, gid, candidates_vendor[0]["id"], 50, "MULTIPLE_CANDIDATES")
             else:
-                _push_review_required(state, gid, candidates_vendor[0][0]["id"], 50, "VENDOR_FUZZY")
+                _push_review_required(state, gid, candidates_vendor[0]["id"], 50, "VENDOR_FUZZY")
             continue
 
     # PHASE 3: True Financial Buckets
