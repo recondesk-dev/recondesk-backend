@@ -293,36 +293,20 @@ class ReconState:
 
 
 
-def _push_matched(state, gstr_id, pr_id, score, best_result, is_late_filing=False, original_period=None, late_months=0, invoice_typo=False):
-    match_status = "clean_match"
-    review_type = None
-    if invoice_typo:
-        match_status = "review_required"
-        review_type = "TYPO_MISMATCH"
-    elif getattr(best_result, "level", 0) >= 4:
-        match_status = "review_required"
-        review_type = "VENDOR_FUZZY"
-
-    reasons = _match_reasons_from_result(best_result)
-    if invoice_typo:
-        reasons.append("Invoice number mismatch despite GSTIN/amount similarity")
-
+def _push_matched(state, gstr_id, pr_id, score, best_result, is_late_filing=False, original_period=None, late_months=0):
     match_dict = {
         "gstr_id": str(gstr_id),
         "pr_id": str(pr_id),
         "confidence_score": score,
-        "match_reasons": reasons,
+        "match_reasons": _match_reasons_from_result(best_result),
         "is_late_filing": is_late_filing,
         "original_period": original_period,
         "late_months": late_months,
-        "match_status": match_status,
-        "match_status_text": "Review Required" if match_status == "review_required" else "Matched",
-        "review_type": review_type,
-        "vendor_similarity_score": getattr(best_result, "vendor_similarity_score", None),
+        "match_status_text": "Review Required" if best_result.requires_human_review else "Matched",
+        "vendor_similarity_score": best_result.vendor_similarity_score,
         "identity_confidence": getattr(best_result, "identity_confidence", "High"),
         "financial_status": getattr(best_result, "financial_status", "Exact"),
-        "review_reason": getattr(best_result, "review_reason", None),
-        "match_level": getattr(best_result, "level", 0),
+        "review_reason": best_result.review_reason,
     }
     state.matched.append(match_dict)
     
@@ -384,30 +368,56 @@ def process_gstr_records_chunk(
                 break
 
         if tied_at_best:
-            if len(tied_at_best) > 1:
-                # MULTIPLE_CANDIDATES logic: Do NOT pair greedily
-                state.review_required.append({**gstr_record, "side": "GSTR", "reason": "MULTIPLE_CANDIDATES", "review_type": "MULTIPLE_CANDIDATES"})
-                for result, pr_rec in tied_at_best:
-                    state.review_required.append({**pr_rec, "side": "PR", "reason": "MULTIPLE_CANDIDATES", "review_type": "MULTIPLE_CANDIDATES", "linked_to_gstr": str(gstr_record["id"])})
-                # Mark as processed so they don't fall into missed_itc
-                state.matched_gstr_ids.add(gstr_id)
-                for _, pr_rec in tied_at_best:
-                    state.matched_pr_ids.add(str(pr_rec["id"]))
-                continue
+            if len(tied_at_best) > 1 and tied_at_best[0][0].level == 5:
+                vendor_pick = find_best_vendor_match(
+                    gstr_record.get("supplier_name", ""),
+                    [
+                        {
+                            "vendor_name": pr.get("vendor_name", ""),
+                            "record": pr,
+                        }
+                        for _, pr in tied_at_best
+                    ],
+                    threshold=0.82,
+                )
+                if vendor_pick is not None:
+                    picked_pr = vendor_pick["record"]
+                    for result, pr_rec in tied_at_best:
+                        if pr_rec is picked_pr:
+                            best_result = replace(
+                                result,
+                                vendor_similarity_score=vendor_pick[
+                                    "vendor_similarity_score"
+                                ],
+                            )
+                            best_pr = pr_rec
+                            break
+                else:
+                    best_result, best_pr = tied_at_best[0]
             else:
                 best_result, best_pr = tied_at_best[0]
 
         if best_result is not None and best_pr is not None:
             score = compute_match_score(best_result)
             
-            invoice_typo = False
             if score == 100:
                 gstr_inv_exact = normalize_invoice_number(gstr_record.get("invoice_number"))
                 pr_inv_exact = normalize_invoice_number(best_pr.get("invoice_number"))
                 if gstr_inv_exact != pr_inv_exact:
-                    invoice_typo = True
+                    state.review_required_typo.append({
+                        "gstr_id": str(gstr_record["id"]),
+                        "pr_id": str(best_pr["id"]),
+                        "gstr_raw_invoice": gstr_record.get("invoice_number"),
+                        "pr_raw_invoice": best_pr.get("invoice_number"),
+                        "reason": "INVOICE_NUMBER_TYPO",
+                        "confidence_score": score,
+                        "match_reasons": _match_reasons_from_result(best_result) + ["Invoice number mismatch despite GSTIN/amount similarity"]
+                    })
+                    state.matched_pr_ids.add(str(best_pr["id"]))
+                    state.matched_gstr_ids.add(gstr_id)
+                    continue
 
-            _push_matched(state, gstr_record["id"], best_pr["id"], score, best_result, invoice_typo=invoice_typo)
+            _push_matched(state, gstr_record["id"], best_pr["id"], score, best_result)
             continue
 
         inv_raw = gstr_record.get("invoice_date")
@@ -705,8 +715,17 @@ def resolve_orphans(
             w_taxable = int(w.get("taxable_amount_paise") or 0)
 
             if g_gstin != w_gstin and abs(w_taxable - g_taxable) <= amount_tolerance_paise:
-                review_required.append({**mi, "side": "GSTR", "reason": "GSTIN_MISMATCH", "review_type": "GSTIN_MISMATCH", "linked_to_pr": str(w.get("id") or "")})
-                review_required.append({**w, "side": "PR", "reason": "GSTIN_MISMATCH", "review_type": "GSTIN_MISMATCH", "linked_to_gstr": str(mi.get("gstr_id") or "")})
+                gstin_mismatch.append({
+                    "gstr_id": str(mi.get("gstr_id") or ""),
+                    "pr_id": str(w.get("id") or ""),
+                    "gstr_supplier_gstin": g_gstin,
+                    "pr_supplier_gstin": w_gstin,
+                    "invoice_number_normalized": mi.get("invoice_number_normalized"),
+                    "invoice_date": mi.get("invoice_date"),
+                    "taxable_amount_paise": w_taxable,
+                    "total_tax_paise": int(mi.get("total_tax_paise") or 0),
+                    "reason": "GSTIN_MISMATCH",
+                })
             else:
                 # Genuine orphans
                 missed_final.append(mi)
@@ -724,15 +743,31 @@ def resolve_orphans(
             continue
 
         # Case E: 1 GSTR + N PRs (N > 1) — duplicate PR data entry
-        # DO NOT pair greedily. Push all to review_required as DUPLICATE_AMBIGUITY.
+        # If the GSTR is already matched to one of the PRs, keep that match
+        # and flag the remaining PR(s) as duplicate data-entry rows.
         if len(g_ids) == 1 and len(p_ids) > 1:
             gid = g_ids[0]
-            mi = gstr_by_id_local[gid]
-            review_required.append({**mi, "side": "GSTR", "reason": "DUPLICATE_AMBIGUITY", "review_type": "DUPLICATE_AMBIGUITY"})
+            # Find if the GSTR is already matched to one of these PRs
+            matched_pid = None
             for pid in p_ids:
-                w = pr_by_id_local[pid]
-                review_required.append({**w, "side": "PR", "reason": "DUPLICATE_AMBIGUITY", "review_type": "DUPLICATE_AMBIGUITY"})
-            continue
+                if (gid, pid) in matched_pairs_by_ids:
+                    matched_pid = pid
+                    break
+            if matched_pid is not None:
+                # Keep the existing match
+                matched_final.append(matched_pairs_by_ids[(gid, matched_pid)])
+                # Flag the other PRs as duplicate data-entry rows
+                for pid in p_ids:
+                    if pid != matched_pid:
+                        w = pr_by_id_local[pid]
+                        duplicate_pr_rows.append({
+                            **w,
+                            "is_duplicate_pr_row": True,
+                            "matched_to_gstr_id": gid,
+                            "matched_pr_id": matched_pid,
+                            "reason": "DUPLICATE_PR_DATA_ENTRY",
+                        })
+                continue
 
         # Case D: N:M (Ambiguous group)
         # Check if deterministic 1:1 pairing is possible
@@ -751,10 +786,17 @@ def resolve_orphans(
                         g_gstin = str(gstr_by_id_local[gid].get("supplier_gstin") or "")
                         p_gstin = str(pr_by_id_local[pid].get("supplier_gstin") or "")
                         if g_gstin != p_gstin:
-                            mi = gstr_by_id_local[gid]
-                            w = pr_by_id_local[pid]
-                            review_required.append({**mi, "side": "GSTR", "reason": "GSTIN_MISMATCH", "review_type": "GSTIN_MISMATCH", "linked_to_pr": str(w.get("id") or "")})
-                            review_required.append({**w, "side": "PR", "reason": "GSTIN_MISMATCH", "review_type": "GSTIN_MISMATCH", "linked_to_gstr": str(mi.get("gstr_id") or "")})
+                            gstin_mismatch.append({
+                                "gstr_id": gid,
+                                "pr_id": pid,
+                                "gstr_supplier_gstin": g_gstin,
+                                "pr_supplier_gstin": p_gstin,
+                                "invoice_number_normalized": gstr_by_id_local[gid].get("invoice_number_normalized"),
+                                "invoice_date": gstr_by_id_local[gid].get("invoice_date"),
+                                "taxable_amount_paise": int(pr_by_id_local[pid].get("taxable_amount_paise") or 0),
+                                "total_tax_paise": int(gstr_by_id_local[gid].get("total_tax_paise") or 0),
+                                "reason": "GSTIN_MISMATCH",
+                            })
                         else:
                             matched_final.append({
                                 "gstr_id": gid, "pr_id": pid,
@@ -766,10 +808,10 @@ def resolve_orphans(
         # Truly ambiguous → review_required
         for gid in g_ids:
             mi = gstr_by_id_local[gid]
-            review_required.append({**mi, "side": "GSTR", "reason": "DUPLICATE_AMBIGUITY", "review_type": "DUPLICATE_AMBIGUITY"})
+            review_required.append({**mi, "side": "GSTR", "reason": "DUPLICATE_CONFLICT"})
         for pid in p_ids:
             w = pr_by_id_local[pid]
-            review_required.append({**w, "side": "PR", "reason": "DUPLICATE_AMBIGUITY", "review_type": "DUPLICATE_AMBIGUITY"})
+            review_required.append({**w, "side": "PR", "reason": "DUPLICATE_CONFLICT"})
 
     return matched_final, missed_final, wrongful_final, gstin_mismatch, review_required, duplicate_pr_rows
 
@@ -792,7 +834,7 @@ def _finalize_reconciliation_result(
     gstin_mismatch = gstin_mismatch or []
     duplicates = duplicates or []
     duplicate_pr_rows = duplicate_pr_rows or []
-    matched_pairs_count = len(state.matched)
+    matched_count = len(state.matched)
     missed_itc_count = len(state.missed_itc)
     missed_itc_amount_paise = sum(
         int(m["total_tax_paise"]) for m in state.missed_itc
@@ -801,7 +843,13 @@ def _finalize_reconciliation_result(
     wrongful_risk_amount_paise = sum(
         int(w["total_tax_paise"]) for w in wrongful_itc_risk
     )
-    
+    gstin_mismatch_count = len(gstin_mismatch)
+    gstin_mismatch_amount_paise = sum(
+        int(g.get("total_tax_paise") or 0) for g in gstin_mismatch
+    )
+    dup_gstr = [d for d in duplicates if d.get("side") == "GSTR"]
+    dup_pr = [d for d in duplicates if d.get("side") == "PR"]
+
     review_gstr_count = sum(1 for r in state.review_required if r.get("side") == "GSTR")
     review_pr_count = sum(1 for r in state.review_required if r.get("side") == "PR")
 
@@ -809,59 +857,56 @@ def _finalize_reconciliation_result(
     state.matched_gstr_ids = {str(m["gstr_id"]) for m in state.matched}
     state.matched_pr_ids = {str(m["pr_id"]) for m in state.matched}
 
-    # "They should be counted in matched total but flagged separately"
-    total_matched_gstr = matched_pairs_count + review_gstr_count
+    duplicate_pr_count = len(duplicate_pr_rows)
+    typo_count = len(state.review_required_typo)
 
     sanity_passed = (
-        total_matched_gstr + missed_itc_count == total_gstr
-        and matched_pairs_count + review_pr_count + wrongful_risk_count == total_pr
+        matched_count + missed_itc_count + gstin_mismatch_count + review_gstr_count + typo_count
+        == total_gstr
+        and matched_count + wrongful_risk_count + gstin_mismatch_count + review_pr_count + duplicate_pr_count + typo_count
+        == total_pr
         and not (state.matched_gstr_ids & missed_gstr_ids)
-        and len(state.matched_pr_ids) == matched_pairs_count
+        and len(state.matched_pr_ids) == matched_count
     )
 
     if total_gstr > 0:
-        match_rate_pct = round(total_matched_gstr / total_gstr * 100, 2)
+        match_rate_pct = round(matched_count / total_gstr * 100, 2)
     else:
         match_rate_pct = 0.0
 
     l1 = sum(1 for m in state.matched if m.get("match_level") == 1)
     l2 = sum(1 for m in state.matched if m.get("match_level") == 2)
     l3 = sum(1 for m in state.matched if m.get("match_level") == 3)
-    
-    # Review components (some are in state.matched as 1:1, some in state.review_required as 1:N or N:M)
-    rev_typo = sum(1 for m in state.matched if m.get("review_type") in ("TYPO_MISMATCH", "VENDOR_FUZZY"))
-    rev_mult = sum(1 for r in state.review_required if r.get("side") == "GSTR" and r.get("review_type") == "MULTIPLE_CANDIDATES")
-    rev_gstin = sum(1 for r in state.review_required if r.get("side") == "GSTR" and r.get("review_type") == "GSTIN_MISMATCH")
-    rev_dup = sum(1 for r in state.review_required if r.get("side") == "GSTR" and r.get("review_type") == "DUPLICATE_AMBIGUITY")
+    unmatched = total_gstr - matched_count
 
-    logger.info(f"[MATCH SUMMARY] L1: {l1}, L2: {l2}, L3: {l3}, Review_Duplicate: {rev_dup}, Review_GSTIN: {rev_gstin}, Review_Typo: {rev_typo}, Review_Multiple: {rev_mult}, Missed_ITC: {missed_itc_count}, ITC_at_Risk: {wrongful_risk_count}")
-    logger.info(f"Total matched (including review required): {total_matched_gstr} / {total_gstr}")
+    logger.info(f"[MATCH SUMMARY] L1: {l1}, L2: {l2}, L3: {l3}, Unmatched: {unmatched}")
+    logger.info(f"Total matched: {matched_count} / {total_gstr}")
 
     return {
         "matched": state.matched,
-        "review_required_typo": [], # deprecated
+        "review_required_typo": state.review_required_typo,
         "review_required": state.review_required,
         "missed_itc": state.missed_itc,
         "wrongful_itc_risk": wrongful_itc_risk,
-        "gstin_mismatch": [], # deprecated
-        "duplicates": [], # deprecated
+        "gstin_mismatch": gstin_mismatch,
+        "duplicates": duplicates,
         "stats": {
             "total_gstr": total_gstr,
             "total_pr": total_pr,
-            "matched_count": total_matched_gstr,
-            "review_required_count": review_gstr_count + rev_typo,
+            "matched_count": matched_count,
+            "review_required_count": review_gstr_count,
             "missed_itc_count": missed_itc_count,
             "missed_itc_amount_paise": missed_itc_amount_paise,
             "wrongful_risk_count": wrongful_risk_count,
             "wrongful_risk_amount_paise": wrongful_risk_amount_paise,
-            "gstin_mismatch_count": rev_gstin,
-            "gstin_mismatch_amount_paise": 0,
-            "duplicate_count": 0,
-            "duplicate_pr_count": 0,
-            "duplicate_conflict_count": rev_dup,
+            "gstin_mismatch_count": gstin_mismatch_count,
+            "gstin_mismatch_amount_paise": gstin_mismatch_amount_paise,
+            "duplicate_count": len(duplicates),
+            "duplicate_pr_count": duplicate_pr_count,
+            "duplicate_conflict_count": review_gstr_count,
             "genuine_gstr_only_count": missed_itc_count,
             "genuine_pr_only_count": wrongful_risk_count,
-            "clean_matched_count": matched_pairs_count - rev_typo,
+            "clean_matched_count": matched_count,
             "itc_at_risk_total": wrongful_risk_amount_paise,
             "missed_itc_total": missed_itc_amount_paise,
             "match_rate_pct": match_rate_pct,
