@@ -14,20 +14,15 @@ from app.services.vendor_name_matcher import (
     vendor_name_similarity,
 )
 
-AMOUNT_TOLERANCE_L1_PAISE = 100
-AMOUNT_TOLERANCE_L2_PAISE = 10000
-AMOUNT_TOLERANCE_L3_PCT = 0.05
-DATE_TOLERANCE_L1_DAYS = 3
+AMOUNT_TOLERANCE_L1_PAISE = 0
+AMOUNT_TOLERANCE_L2_PCT = 0.005
+AMOUNT_TOLERANCE_L3_PCT = 0.02
+DATE_TOLERANCE_L1_DAYS = 0
 DATE_TOLERANCE_L2_DAYS = 7
 DATE_TOLERANCE_L3_DAYS = 30
 
-# L2: absolute Rs100 cap AND relative ≤1%. L3: relative in (1%, 5%] — mutually exclusive bands.
-AMOUNT_TOLERANCE_L2_PCT = 0.01
-
 TOTAL_TOLERANCE_PAISE = 100  # Rs1 rounding on taxable + total tax
 
-# L5: fuzzy invoice match — Rs50 and normalized Levenshtein similarity
-AMOUNT_TOLERANCE_L5_PAISE = 5_000
 INVOICE_SIMILARITY_L5_MIN = 0.70
 
 FINANCIAL_MISMATCH_REASON = (
@@ -502,16 +497,13 @@ def _match_gstr_to_pr_pair(
     raw_inv_ok = bool(g_inv_raw and p_inv_raw and g_inv_raw == p_inv_raw)
     amount_pct = _compute_percentage_diff(amount_diff, skip_amount, tg, tp)
 
-    amount_within_l1 = skip_amount or (amount_pct <= 0.01)
-    # L2 band: BOTH absolute ≤ Rs100 AND relative ≤ 1% (strict and-gate)
-    amount_within_l2 = skip_amount or (
-        amount_diff <= AMOUNT_TOLERANCE_L2_PAISE and amount_pct <= AMOUNT_TOLERANCE_L2_PCT
-    )
-    # L5 band: amount within Rs50 for fuzzy invoice matching
-    amount_within_l5 = skip_amount or amount_diff <= AMOUNT_TOLERANCE_L5_PAISE
-    date_within_l1 = skip_date or date_diff_days <= DATE_TOLERANCE_L1_DAYS
-    date_within_l2 = skip_date or date_diff_days <= DATE_TOLERANCE_L2_DAYS
-    date_within_l3 = skip_date or date_diff_days <= DATE_TOLERANCE_L3_DAYS
+    amount_within_l1 = skip_amount or (amount_diff == 0)
+    amount_within_l2 = skip_amount or (amount_pct <= AMOUNT_TOLERANCE_L2_PCT)
+    amount_within_l3 = skip_amount or (amount_pct <= AMOUNT_TOLERANCE_L3_PCT)
+    
+    date_within_l1 = skip_date or (date_diff_days == 0)
+    date_within_l2 = skip_date or (date_diff_days <= DATE_TOLERANCE_L2_DAYS)
+    date_within_l3 = skip_date or (date_diff_days <= DATE_TOLERANCE_L3_DAYS)
 
     # Financial severity classification
     financial_status = "Exact"
@@ -574,89 +566,31 @@ def _match_gstr_to_pr_pair(
             identity_confidence="High", financial_status=financial_status,
         )
 
-    # ── Tier 2: Same GSTIN + format-variant invoice (L2) ────────────────────
-    if gstin_match and format_variant:
-        if amount_within_l2 and date_within_l2 and l12_finance_ok:
+    # ── Tier 3: Same GSTIN + normalized invoice number + amount within 2% + date within 30 days (L3) ─────────────────
+    if gstin_match and inv_ok:
+        if amount_within_l3 and date_within_l3:
             return MatchResult(
-                level=2, matched=True, confidence=90, requires_human_review=False,
-                decision_what="Invoice matched after format normalization",
-                decision_why="Invoice format variant with matching amounts",
-                decision_next="Verify if needed",
+                level=3, matched=True, confidence=75, requires_human_review=False,
+                decision_what="Invoice matched with differences",
+                decision_why="Same normalized invoice and GSTIN, but amount or date differ within 2%/30d",
+                decision_next="Review differences and correct if needed",
+                review_reason="Amount Mismatch or Date mismatch",
                 discrepancies=discrepancies,
                 identity_confidence="High", financial_status=financial_status,
-                review_reason=None,
             )
-        # Format variant but amount or date fails L2 — L3
-        return MatchResult(
-            level=3, matched=True, confidence=75, requires_human_review=True,
-            decision_what="Format variant with amount or date mismatch",
-            decision_why="Invoice format matches but amounts or dates differ",
-            decision_next="Review differences",
-            review_reason="AMOUNT_MISMATCH" if not l12_finance_ok else "Amount Mismatch or Date mismatch",
-            discrepancies=discrepancies,
-            identity_confidence="High", financial_status=financial_status,
-        )
 
-    # ── Tier 3: Same GSTIN + fuzzy similar invoice (L5) ─────────────────────
-    # L5 requires: amount within Rs50 AND date within 30 days
-    if gstin_match and strong_invoice and not format_variant:
-        if amount_within_l5 and date_within_l3:
+    # ── Tier 3: Same GSTIN + format-variant invoice (L3) ────────────────────
+    if gstin_match and format_variant:
+        if amount_within_l3 and date_within_l3:
             return MatchResult(
-                level=5, matched=True, confidence=70, requires_human_review=True,
-                decision_what="Fuzzy match found",
-                decision_why="Highly similar invoice number with matching amounts",
-                decision_next="Verify invoice number with supplier",
+                level=3, matched=True, confidence=75, requires_human_review=False,
+                decision_what="Format variant with amount or date mismatch",
+                decision_why="Invoice format matches, amount/date within L3 tolerances",
+                decision_next="Review differences",
+                review_reason="Amount Mismatch or Date mismatch",
                 discrepancies=discrepancies,
-                identity_confidence="Medium", financial_status=financial_status,
-                review_reason="Fuzzy invoice match",
+                identity_confidence="High", financial_status=financial_status,
             )
-        # Strong invoice identity but amount or date fails L5 — L6 (no match)
-        return MatchResult(
-            level=6, matched=False, confidence=0, requires_human_review=False,
-            decision_what="No match found in purchase register",
-            decision_why="Invoice number is similar but amount or date difference is too large",
-            decision_next="Check if supplier filed late. If missing, raise ITC risk flag.",
-            discrepancies=discrepancies, identity_confidence="None", financial_status="None",
-        )
-
-    # ── Tier 4: Same GSTIN + amount nearby + date nearby + vendor name ───────
-    if gstin_match and amount_within_l1 and date_within_l2:
-        vendor_sim = vendor_name_similarity(pr_rec.get("vendor_name", ""), gstr_rec.get("supplier_name", ""))
-        if vendor_sim > 0.8:
-            return MatchResult(
-                level=4, matched=True, confidence=50, requires_human_review=True,
-                decision_what="Possible match on supplier and amount",
-                decision_why="Vendor name and amount match, but invoice number differs",
-                decision_next="Verify invoice number",
-                review_reason="Invoice mismatch, Vendor match",
-                discrepancies=discrepancies, identity_confidence="Low", financial_status=financial_status,
-                vendor_similarity_score=vendor_sim,
-            )
-
-    # ── Tier 5: GSTIN typo/mismatch + strong invoice + amount/date evidence ──
-    lev = 999
-    if not same_pan(g_gst, p_gst) and len(g_gst) > 0 and len(p_gst) > 0:
-        s1, s2 = g_gst, p_gst
-        if len(s1) < len(s2): s1, s2 = s2, s1
-        if len(s2) == 0: lev = len(s1)
-        else:
-            prev = range(len(s2) + 1)
-            for i, c1 in enumerate(s1):
-                curr = [i + 1]
-                for j, c2 in enumerate(s2):
-                    curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (c1 != c2)))
-                prev = curr
-            lev = prev[-1]
-
-    if not gstin_match and (same_pan(g_gst, p_gst) or lev <= 2) and strong_invoice and amount_within_l2 and date_within_l2:
-        return MatchResult(
-            level=4, matched=False, confidence=50, requires_human_review=True,
-            decision_what="GSTIN Mismatch",
-            decision_why="Invoice number, amount and date match, but GSTIN differs",
-            decision_next="Correct the supplier GSTIN",
-            review_reason="GSTIN_MISMATCH",
-            discrepancies=discrepancies, identity_confidence="High", financial_status=financial_status,
-        )
 
     # ── L6 — No match ────────────────────────────────────────────────────────
     return MatchResult(
