@@ -466,13 +466,25 @@ def run_wizard_job(run_id: str) -> None:
     sb = _supabase()
 
     # ── progress helper ───────────────────────────────────────────────────────
-    def _set_wizard_pct(pct: int, msg: str) -> None:
+    def _set_wizard_pct(pct: int, msg: str, final_status: str = None) -> None:
+        now = _now_iso()
         try:
-            sb.table("wizard_runs").update(
-                {"progress_pct": pct, "status_message": msg, "updated_at": _now_iso()}
-            ).eq("id", run_id).execute()
+            wiz_update = {"progress_pct": pct, "status_message": msg, "updated_at": now}
+            if final_status:
+                wiz_update["status"] = final_status
+            sb.table("wizard_runs").update(wiz_update).eq("id", run_id).execute()
         except Exception:
             pass  # non-fatal
+            
+        try:
+            rec_update = {"progress_percent": pct, "updated_at": now}
+            if final_status:
+                rec_update["status"] = "COMPLETED" if final_status == "complete" else final_status.upper()
+            if msg:
+                rec_update["status_message"] = msg
+            sb.table("reconciliation_run").update(rec_update).eq("id", run_id).execute()
+        except Exception:
+            pass
 
     # ── failure helper ────────────────────────────────────────────────────────
     def _fail(detail: str) -> None:
@@ -481,7 +493,7 @@ def run_wizard_job(run_id: str) -> None:
             try:
                 sb.table(tbl).update(
                     {
-                        "status": "error",
+                        "status": "error" if tbl == "wizard_runs" else "FAILED",
                         "error_detail": detail[:2000],
                         "status_message": "Processing failed",
                         "updated_at": now,
@@ -543,19 +555,21 @@ def run_wizard_job(run_id: str) -> None:
                 }
             ).execute()
 
+        _set_wizard_pct(10, "Loading files…")
+
         # ── 1. GSTR-2B ───────────────────────────────────────────────────────
         _log.info("run_wizard_job: importing GSTR-2B for run %s", run_id)
-        _set_wizard_pct(10, "Reading GSTR-2B…")
         run_import_job.apply(args=[run_id, "gstr2b", gstr2b_key])
+        _set_wizard_pct(25, "Parsed GSTR-2B")
 
         # ── 2. Purchase Register ─────────────────────────────────────────────
         _log.info("run_wizard_job: importing PR for run %s", run_id)
-        _set_wizard_pct(45, "Reading purchase register…")
         run_import_job.apply(args=[run_id, "purchase_register", pr_key])
+        _set_wizard_pct(40, "Parsed Purchase Register")
 
         # ── 3. Set MATCHING ──────────────────────────────────────────────────
         _log.info("run_wizard_job: setting MATCHING for run %s", run_id)
-        _set_wizard_pct(70, "Matching invoices…")
+        _set_wizard_pct(40, "Matching invoices…", final_status="processing") # Keep wizard status processing
         sb.table("reconciliation_run").update(
             {"status": "MATCHING", "updated_at": _now_iso()}
         ).eq("id", run_id).execute()
@@ -563,17 +577,14 @@ def run_wizard_job(run_id: str) -> None:
         # ── 4. Reconciliation engine ─────────────────────────────────────────
         _log.info("run_wizard_job: running reconciliation engine for run %s", run_id)
         execute_reconciliation.apply(args=[run_id])
+        _set_wizard_pct(80, "Running engine")
 
         # ── 5. Mark wizard run complete ──────────────────────────────────────
         _log.info("run_wizard_job: finalising wizard run %s", run_id)
-        sb.table("wizard_runs").update(
-            {
-                "status": "complete",
-                "progress_pct": 100,
-                "status_message": "Complete",
-                "updated_at": _now_iso(),
-            }
-        ).eq("id", run_id).execute()
+        _set_wizard_pct(95, "Saving results…")
+        
+        # After completion: 100
+        _set_wizard_pct(100, "Complete", final_status="complete")
 
         _log.info("run_wizard_job: completed successfully run_id=%s", run_id)
 
@@ -581,6 +592,7 @@ def run_wizard_job(run_id: str) -> None:
         _log.exception("run_wizard_job: failed for run_id=%s", run_id)
         _fail(str(exc))
         raise
+
 
 
 @celery_app.task(
