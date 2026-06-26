@@ -293,20 +293,34 @@ class ReconState:
 
 
 
-def _push_matched(state, gstr_id, pr_id, score, best_result, is_late_filing=False, original_period=None, late_months=0):
+def _push_matched(state, gstr_id, pr_id, score, best_result, is_late_filing=False, original_period=None, late_months=0, invoice_typo=False):
+    match_status = "clean_match"
+    if invoice_typo:
+        match_status = "review_required"
+    elif getattr(best_result, "level", 0) == 4 and score < 90:
+        match_status = "review_required"
+    elif getattr(best_result, "level", 0) == 5:
+        match_status = "review_required"
+
+    reasons = _match_reasons_from_result(best_result)
+    if invoice_typo:
+        reasons.append("Invoice number mismatch despite GSTIN/amount similarity")
+
     match_dict = {
         "gstr_id": str(gstr_id),
         "pr_id": str(pr_id),
         "confidence_score": score,
-        "match_reasons": _match_reasons_from_result(best_result),
+        "match_reasons": reasons,
         "is_late_filing": is_late_filing,
         "original_period": original_period,
         "late_months": late_months,
-        "match_status_text": "Review Required" if best_result.requires_human_review else "Matched",
-        "vendor_similarity_score": best_result.vendor_similarity_score,
+        "match_status": match_status,
+        "match_status_text": "Review Required" if match_status == "review_required" else "Matched",
+        "vendor_similarity_score": getattr(best_result, "vendor_similarity_score", None),
         "identity_confidence": getattr(best_result, "identity_confidence", "High"),
         "financial_status": getattr(best_result, "financial_status", "Exact"),
-        "review_reason": best_result.review_reason,
+        "review_reason": getattr(best_result, "review_reason", None),
+        "match_level": getattr(best_result, "level", 0),
     }
     state.matched.append(match_dict)
     
@@ -400,24 +414,14 @@ def process_gstr_records_chunk(
         if best_result is not None and best_pr is not None:
             score = compute_match_score(best_result)
             
+            invoice_typo = False
             if score == 100:
                 gstr_inv_exact = normalize_invoice_number(gstr_record.get("invoice_number"))
                 pr_inv_exact = normalize_invoice_number(best_pr.get("invoice_number"))
                 if gstr_inv_exact != pr_inv_exact:
-                    state.review_required_typo.append({
-                        "gstr_id": str(gstr_record["id"]),
-                        "pr_id": str(best_pr["id"]),
-                        "gstr_raw_invoice": gstr_record.get("invoice_number"),
-                        "pr_raw_invoice": best_pr.get("invoice_number"),
-                        "reason": "INVOICE_NUMBER_TYPO",
-                        "confidence_score": score,
-                        "match_reasons": _match_reasons_from_result(best_result) + ["Invoice number mismatch despite GSTIN/amount similarity"]
-                    })
-                    state.matched_pr_ids.add(str(best_pr["id"]))
-                    state.matched_gstr_ids.add(gstr_id)
-                    continue
+                    invoice_typo = True
 
-            _push_matched(state, gstr_record["id"], best_pr["id"], score, best_result)
+            _push_matched(state, gstr_record["id"], best_pr["id"], score, best_result, invoice_typo=invoice_typo)
             continue
 
         inv_raw = gstr_record.get("invoice_date")
@@ -877,11 +881,12 @@ def _finalize_reconciliation_result(
     l1 = sum(1 for m in state.matched if m.get("match_level") == 1)
     l2 = sum(1 for m in state.matched if m.get("match_level") == 2)
     l3 = sum(1 for m in state.matched if m.get("match_level") == 3)
-    l4 = sum(1 for m in state.matched if m.get("match_level") == 4)
-    l5 = sum(1 for m in state.matched if m.get("match_level") == 5)
+    l4_clean = sum(1 for m in state.matched if m.get("match_level") == 4 and m.get("match_status") != "review_required")
+    l4_review = sum(1 for m in state.matched if m.get("match_level") == 4 and m.get("match_status") == "review_required")
+    l5_review = sum(1 for m in state.matched if m.get("match_level") == 5)
     unmatched = total_gstr - matched_count
 
-    logger.info(f"[MATCH SUMMARY] L1: {l1}, L2: {l2}, L3: {l3}, L4: {l4}, L5: {l5}, Unmatched: {unmatched}")
+    logger.info(f"[MATCH SUMMARY] L1: {l1}, L2: {l2}, L3: {l3}, L4_clean: {l4_clean}, L4_review: {l4_review}, L5_review: {l5_review}, Unmatched: {unmatched}")
     logger.info(f"Total matched: {matched_count} / {total_gstr}")
 
     return {
