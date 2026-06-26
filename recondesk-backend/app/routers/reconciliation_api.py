@@ -1713,6 +1713,8 @@ def _build_reconcile_summary(
     exact_match_count = matched_count - mismatched_count
     missed_count = len(missed_list)
     wrongful_count = len(wr_list)
+    review_required_count = len(engine.get("duplicates") or [])
+    total_linked_count = matched_count + review_required_count
 
     missed_total_rupees = sum(
         _paise_to_rupees(int(m.get("total_tax_paise") or 0)) for m in missed_list
@@ -1751,6 +1753,28 @@ def _build_reconcile_summary(
         .limit(1)
         .execute()
     )
+    
+    # ...
+
+    return {
+        "id": rid,
+        "run_name": run_row.get("run_name"),
+        "period": run_row.get("period"),
+        "status": run_row.get("status"),
+        "created_at": run_row.get("created_at"),
+        "total_gstr_records": n_g,
+        "matched_count": exact_match_count,
+        "mismatched_count": mismatched_count,
+        "clean_matched_count": matched_count,
+        "review_required_count": review_required_count,
+        "total_linked_count": total_linked_count,
+        "missed_count": missed_count,
+        "wrongful_count": wrongful_count,
+        "missed_total_rupees": missed_total_rupees,
+        "wrongful_total_rupees": wrongful_total_rupees,
+        "wrongful_purchase_total_rupees": wrongful_purchase_total_rupees,
+        "match_pct": match_pct,
+    }
     crow = (cg.data or [{}])[0]
     client_display = crow.get("trade_name") or crow.get("gstin") or ""
     assigned_to_uid = crow.get("assigned_to")
