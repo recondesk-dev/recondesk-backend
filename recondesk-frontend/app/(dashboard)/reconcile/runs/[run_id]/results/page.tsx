@@ -1741,6 +1741,23 @@ export default function ReconcileResultsPage() {
                   label="Matched"
                   accent="matched"
                   value={(summary.clean_matched_count ?? summary.matched_count).toLocaleString("en-IN")}
+                  subtext="Clean matched records"
+                />
+              </div>
+              <div className="min-w-0 overflow-hidden rounded-2xl">
+                <StatCard
+                  label="Review Required"
+                  accent="review_required"
+                  value={(summary.review_required_count ?? 0).toLocaleString("en-IN")}
+                  subtext="Needs manual verification"
+                />
+              </div>
+              <div className="min-w-0 overflow-hidden rounded-2xl">
+                <StatCard
+                  label="Total Linked"
+                  accent="linked"
+                  value={((summary.clean_matched_count ?? summary.matched_count) + (summary.review_required_count ?? 0)).toLocaleString("en-IN")}
+                  subtext="Matched + Under Review"
                 />
               </div>
               <div className="min-w-0 overflow-hidden rounded-2xl">
@@ -1776,23 +1793,56 @@ export default function ReconcileResultsPage() {
             </div>
           </>
         )}
-        {summary && !summaryError && (
-          <div className="mt-3 flex w-full items-center gap-3">
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F0F0F0]">
-                <div
-                  className="h-1.5 max-w-full rounded-full bg-brand transition-all duration-150"
-                  style={{
-                    width: `${Math.min(100, Math.max(0, summary.match_rate_percent ?? summary.match_rate_pct ?? 0))}%`,
-                  }}
-                />
+        {summary && !summaryError && (() => {
+          const cleanCount = summary.clean_matched_count ?? summary.matched_count;
+          const reviewCount = summary.review_required_count ?? 0;
+          const totalLinked = cleanCount + reviewCount;
+          const total = summary.total_gstr_records || 1;
+          const cleanPct = Math.round((cleanCount / total) * 1000) / 10;
+          const linkedPct = Math.round((totalLinked / total) * 1000) / 10;
+          return (
+            <div className="mt-3 space-y-2">
+              {/* Clean match rate bar */}
+              <div className="flex w-full items-center gap-3">
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#D9D9E3]">
+                    <div
+                      className="h-1.5 max-w-full rounded-full bg-brand transition-all duration-150"
+                      style={{ width: `${Math.min(100, Math.max(0, cleanPct))}%` }}
+                    />
+                  </div>
+                </div>
+                <p className="shrink-0 whitespace-nowrap text-[11px] text-gray-400">
+                  Clean Match Rate
+                </p>
+              </div>
+              {/* Total linked rate bar */}
+              <div className="flex w-full items-center gap-3">
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#D9D9E3]">
+                    <div
+                      className="h-1.5 max-w-full rounded-full bg-[#7B5CFA] transition-all duration-150"
+                      style={{ width: `${Math.min(100, Math.max(0, linkedPct))}%` }}
+                    />
+                  </div>
+                </div>
+                <p className="shrink-0 whitespace-nowrap text-[11px] text-gray-400">
+                  Total Linked Rate
+                </p>
+              </div>
+              {/* Combined label */}
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-md bg-brand/10 px-2 py-0.5 text-[12px] font-medium text-brand">
+                  {cleanPct}% clean
+                </span>
+                <span className="text-[11px] text-gray-300">|</span>
+                <span className="inline-flex items-center gap-1 rounded-md bg-[#7B5CFA]/10 px-2 py-0.5 text-[12px] font-medium text-[#7B5CFA]">
+                  {linkedPct}% linked
+                </span>
               </div>
             </div>
-            <p className="shrink-0 whitespace-nowrap rounded-md bg-brand/10 px-2 py-0.5 text-[12px] font-medium text-brand">
-              {summary.match_rate_percent ?? summary.match_rate_pct ?? 0}% matched
-            </p>
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       <div className={pageContentClass}>
