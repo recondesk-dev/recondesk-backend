@@ -564,10 +564,9 @@ def execute_phase2_and_3(
         # Look for TYPO_MISMATCH
         from app.services.matcher import invoice_similarity
         g_inv_raw = str(g.get("invoice_number") or "")
-        tb = _get_tax_bucket(g.get("taxable_amount_paise"))
         candidates_typo = []
-        for b in range(tb - 30, tb + 31):
-            for p in candidate_indices.by_taxable.get(gst, {}).get(b, []):
+        for prs_in_bucket in candidate_indices.by_taxable.get(gst, {}).values():
+            for p in prs_in_bucket:
                 pid = str(p["id"])
                 if pid in state.consumed_pr_ids: continue
                 p_inv_raw = str(p.get("invoice_number") or "")
