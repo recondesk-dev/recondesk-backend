@@ -7,6 +7,7 @@ export type ReconcileTablePageSize =
 
 export const RECONCILE_PAGE_SIZE_STORAGE_KEYS = {
   matched: "recondesk.reconcile.matchedPageSize",
+  review_required: "recondesk.reconcile.reviewRequiredPageSize",
   itc: "recondesk.reconcile.itcPageSize",
   risk: "recondesk.reconcile.riskPageSize",
   rule37: "recondesk.reconcile.rule37PageSize",
