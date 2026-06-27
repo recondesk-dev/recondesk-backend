@@ -416,15 +416,115 @@ def _set_wizard_progress(sb: Client, run_id: str, pct: int, msg: str) -> None:
     ).eq("id", run_id).execute()
 
 
-def schedule_processing_job(run_id: str) -> None:
-    """Dispatch the full wizard pipeline to a Celery worker and return immediately.
+def run_processing_job_sync(run_id: str) -> None:
+    """Run the full import-wizard pipeline synchronously.
 
-    Previously this ran in a daemon thread (which Railway killed on dyno
-    restarts).  Now we fire-and-forget via run_wizard_job.delay() so the work
-    survives web-process recycling.
+    Called via asyncio.to_thread() from the FastAPI endpoint so it executes in
+    a thread pool without blocking the event loop.  Everything runs in-process —
+    no Celery workers required.
     """
-    from app.worker.reconciliation_task import run_wizard_job
+    from app.worker.tasks import run_import_job
+    from app.worker.reconciliation_task import execute_reconciliation
 
-    _log.info("schedule_processing_job: dispatching run_wizard_job for run_id=%s", run_id)
-    run_wizard_job.delay(run_id)
-    _log.info("schedule_processing_job: dispatched run_id=%s", run_id)
+    sb = get_supabase()
+    row = fetch_run(sb, run_id)
+    actor = str(row.get("created_by") or row.get("firm_owner_id") or "")
+    if not actor:
+        actor = "00000000-0000-0000-0000-000000000000"
+
+    client_id = str(row.get("client_id") or "").strip()
+    period_raw = str(row.get("period") or "").strip()
+    gstr2b_key = str(row.get("gstr2b_r2_key") or "").strip()
+    pr_key = str(row.get("pr_r2_key") or "").strip()
+
+    if not client_id or not period_raw or not gstr2b_key or not pr_key:
+        raise ValueError(
+            "wizard run is missing required fields "
+            f"(client_id={client_id!r}, period={period_raw!r}, "
+            f"gstr2b_r2_key={gstr2b_key!r}, pr_r2_key={pr_key!r})"
+        )
+
+    # reconciliation_task._parse_period expects "YYYY-MM"; wizard stores "YYYY-MM-DD".
+    period = period_raw[:7]
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Ensure reconciliation_run row exists before run_import_job writes to it.
+    existing = (
+        sb.table("reconciliation_run")
+        .select("id, status")
+        .eq("id", run_id)
+        .limit(1)
+        .execute()
+    )
+    if not existing.data:
+        sb.table("reconciliation_run").insert(
+            {
+                "id": run_id,
+                "client_gstin_id": client_id,
+                "period": period,
+                "status": "uploading",
+                "progress_percent": 0,
+                "created_at": now,
+                "updated_at": now,
+            }
+        ).execute()
+
+    try:
+        _set_wizard_progress(sb, run_id, 10, "Loading files…")
+        run_import_job.apply(args=[run_id, "gstr2b", gstr2b_key])
+
+        _set_wizard_progress(sb, run_id, 25, "Parsed GSTR-2B")
+        run_import_job.apply(args=[run_id, "purchase_register", pr_key])
+
+        _set_wizard_progress(sb, run_id, 40, "Matching invoices…")
+        sb.table("reconciliation_run").update(
+            {"status": "MATCHING", "updated_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", run_id).execute()
+
+        _set_wizard_progress(sb, run_id, 50, "Running engine…")
+        execute_reconciliation.apply(args=[run_id])
+
+        _set_wizard_progress(sb, run_id, 95, "Finalising…")
+        transition_run(
+            sb,
+            run_id,
+            actor,
+            "complete",
+            extra_patch={
+                "progress_pct": 100,
+                "status_message": "Complete",
+            },
+            audit_event="processing_complete",
+            audit_detail={},
+        )
+    except Exception as e:  # noqa: BLE001
+        _log.exception("run_processing_job_sync failed for run_id=%s", run_id)
+        try:
+            row2 = fetch_run(sb, run_id)
+            actor2 = str(row2.get("created_by") or row2.get("firm_owner_id") or actor)
+            transition_run(
+                sb,
+                run_id,
+                actor2,
+                "error",
+                extra_patch={
+                    "error_detail": str(e),
+                    "status_message": "Processing failed",
+                },
+                audit_event="processing_error",
+                audit_detail={"error": str(e)},
+            )
+        except Exception:  # noqa: BLE001
+            try:
+                sb.table(T_RUNS).update(
+                    {
+                        "status": "error",
+                        "error_detail": str(e),
+                        "status_message": "Processing failed",
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                ).eq("id", run_id).execute()
+            except Exception:  # noqa: BLE001
+                pass
+        raise
+

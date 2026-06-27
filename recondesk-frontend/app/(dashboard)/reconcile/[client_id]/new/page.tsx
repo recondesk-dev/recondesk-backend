@@ -628,13 +628,31 @@ export default function NewReconcileWizardPage() {
     setStart409(null);
     setStartBusy(true);
     setErr(null);
+    // Show the "processing" spinner immediately while the blocking request runs.
+    setPoll({ pct: 0, message: "Starting…", status: "processing" });
+    // Transition local run state to "processing" so the spinner screen renders
+    // before the long-running fetch resolves.
+    setRun((prev) => prev ? { ...prev, status: "processing", progress_pct: 0, status_message: "Starting…" } : prev);
     try {
+      // This call blocks until the engine finishes (or errors). Railway
+      // keep-alive is 300s; asyncio.to_thread() keeps the event loop unblocked.
       await importWizardApi.start(token, runId);
       const r = await refreshRun(runId, token);
       setRun(r);
+      // If the engine finished synchronously, redirect immediately.
+      if (r.status === "complete") {
+        router.push(`/reconcile/runs/${runId}/results`);
+        return;
+      }
+      // Error state: let the error UI show.
+      if (r.status === "error") {
+        setPoll(null);
+        return;
+      }
+      // Fallback: still processing (shouldn't normally happen) — start polling.
       pollStartRef.current = Date.now();
       setPollSlow(false);
-      setPoll({ pct: 0, message: "Starting…", status: r.status });
+      setPoll({ pct: r.progress_pct ?? 0, message: r.status_message ?? "Processing…", status: r.status });
     } catch (err: unknown) {
       const e = err as {
         response?: { status?: number; data?: { detail?: unknown } };
@@ -646,10 +664,12 @@ export default function NewReconcileWizardPage() {
 
       if (status === 402) {
         setErr("No runs remaining on your current plan. Please upgrade to continue.");
+        setPoll(null);
         return;
       }
       if (status === 429) {
         setErr("Too many requests. Please wait a moment and try again.");
+        setPoll(null);
         return;
       }
 
@@ -666,10 +686,12 @@ export default function NewReconcileWizardPage() {
 
       if (status === 409) setStart409(message);
       else setErr(message);
+      setPoll(null);
     } finally {
       setStartBusy(false);
     }
   };
+
 
   const onCancelRun = async () => {
     if (typeof token !== "string" || !runId) return;
@@ -790,7 +812,7 @@ export default function NewReconcileWizardPage() {
         <p className="font-mono text-sm text-[var(--text-secondary)]">{pct}%</p>
         {pollSlow ? (
           <p className="text-sm text-[var(--text-secondary)]">
-            This is taking longer than expected. You can close this page — the run will continue in the background.
+            This is taking longer than expected. Please keep this page open — reconciliation is still running.
           </p>
         ) : null}
         <div className="flex flex-wrap gap-3">
