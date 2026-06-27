@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -553,7 +554,6 @@ async def start_reconciliation(
         audit_event="run_started",
         audit_detail={"gstr2b_record_count": gstr_n, "pr_record_count": pr_n},
     )
-    ws.schedule_processing_job(str(run_id))
     client_name = client_display_label(sb, str(r["client_id"]))
     period = str(r.get("period") or "")
     entity_label = f"{client_name} ({period})" if period else client_name
@@ -566,6 +566,15 @@ async def start_reconciliation(
         entity_label,
         {"gstr2b_record_count": gstr_n, "pr_record_count": pr_n},
     )
+    # Run the full pipeline in a thread pool so the event loop stays responsive.
+    # This blocks until the engine finishes or errors — Railway timeout is
+    # extended via --timeout-keep-alive 300 in the Procfile.
+    try:
+        await asyncio.to_thread(ws.run_processing_job_sync, str(run_id))
+    except Exception:  # noqa: BLE001
+        # run_processing_job_sync already persisted the error state; just
+        # return the run row so the frontend can show the error UI.
+        pass
     invalidate_user_dashboard(user_id)
     return ws.fetch_run(sb, str(run_id))
 
