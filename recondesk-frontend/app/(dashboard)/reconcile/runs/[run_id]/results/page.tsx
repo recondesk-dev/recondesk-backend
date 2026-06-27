@@ -378,10 +378,11 @@ function buildMatchedQuery(
   f: {
     match_level: string;
     has_notes: boolean;
-    review_required: boolean;
     section_17_5: boolean;
     amount_min: string;
     amount_max: string;
+    /** When true, forces review_required=true in the query (Review Required tab). */
+    force_review_required?: boolean;
   }
 ): string {
   const p = new URLSearchParams();
@@ -392,7 +393,7 @@ function buildMatchedQuery(
   if (q) p.set("search", q);
   if (f.match_level) p.set("match_level", f.match_level);
   if (f.has_notes) p.set("has_notes", "true");
-  if (f.review_required) p.set("review_required", "true");
+  if (f.force_review_required) p.set("review_required", "true");
   if (f.section_17_5) p.set("section_17_5", "true");
   if (f.amount_min.trim()) p.set("amount_min", f.amount_min.trim());
   if (f.amount_max.trim()) p.set("amount_max", f.amount_max.trim());
@@ -404,7 +405,6 @@ function hasActiveMatchedFilters(
   f: {
     match_level: string;
     has_notes: boolean;
-    review_required: boolean;
     section_17_5: boolean;
     amount_min: string;
     amount_max: string;
@@ -414,7 +414,6 @@ function hasActiveMatchedFilters(
     !!search.trim() ||
     !!f.match_level ||
     f.has_notes ||
-    f.review_required ||
     f.section_17_5 ||
     !!f.amount_min.trim() ||
     !!f.amount_max.trim()
@@ -587,6 +586,10 @@ export default function ReconcileResultsPage() {
   const [matchedPageSize, setMatchedPageSize] = useState(() =>
     readStoredReconcileTablePageSize(RECONCILE_PAGE_SIZE_STORAGE_KEYS.matched)
   );
+  const [reviewRequiredPage, setReviewRequiredPage] = useState(1);
+  const [reviewRequiredPageSize, setReviewRequiredPageSize] = useState(() =>
+    readStoredReconcileTablePageSize(RECONCILE_PAGE_SIZE_STORAGE_KEYS.review_required)
+  );
   const [itcPageSize, setItcPageSize] = useState(() =>
     readStoredReconcileTablePageSize(RECONCILE_PAGE_SIZE_STORAGE_KEYS.itc)
   );
@@ -628,8 +631,11 @@ export default function ReconcileResultsPage() {
 
   const [matchedSearch, setMatchedSearch] = useState("");
   const [debouncedMatchedSearch, setDebouncedMatchedSearch] = useState("");
+  const [reviewRequiredSearch, setReviewRequiredSearch] = useState("");
+  const [debouncedReviewRequiredSearch, setDebouncedReviewRequiredSearch] = useState("");
 
   const [docTypeFilterMatched, setDocTypeFilterMatched] = useState<string>("");
+  const [docTypeFilterReviewRequired, setDocTypeFilterReviewRequired] = useState<string>("");
   const [docTypeFilterItc, setDocTypeFilterItc] = useState<string>("");
   const [docTypeFilterRisk, setDocTypeFilterRisk] = useState<string>("");
 
@@ -652,10 +658,23 @@ export default function ReconcileResultsPage() {
     return () => window.clearTimeout(h);
   }, [matchedSearch]);
 
+  useEffect(() => {
+    const h = window.setTimeout(() => setDebouncedReviewRequiredSearch(reviewRequiredSearch), 400);
+    return () => window.clearTimeout(h);
+  }, [reviewRequiredSearch]);
+
   const [matchedFilters, setMatchedFilters] = useState({
     match_level: "",
     has_notes: false,
-    review_required: false,
+    // review_required is no longer a filter in the Matched tab — those records have their own tab
+    section_17_5: false,
+    amount_min: "",
+    amount_max: "",
+  });
+
+  const [reviewRequiredFilters, setReviewRequiredFilters] = useState({
+    match_level: "",
+    has_notes: false,
     section_17_5: false,
     amount_min: "",
     amount_max: "",
@@ -664,6 +683,10 @@ export default function ReconcileResultsPage() {
   useEffect(() => {
     setMatchedPage(1);
   }, [debouncedMatchedSearch, matchedFilters, matchedPageSize]);
+
+  useEffect(() => {
+    setReviewRequiredPage(1);
+  }, [debouncedReviewRequiredSearch, reviewRequiredFilters, reviewRequiredPageSize]);
 
   const handleTablePageSizeChange = useCallback(
     (
@@ -687,6 +710,18 @@ export default function ReconcileResultsPage() {
         size,
         setMatchedPageSize,
         setMatchedPage
+      );
+    },
+    [handleTablePageSizeChange]
+  );
+
+  const handleReviewRequiredPageSizeChange = useCallback(
+    (size: number) => {
+      handleTablePageSizeChange(
+        RECONCILE_PAGE_SIZE_STORAGE_KEYS.review_required,
+        size,
+        setReviewRequiredPageSize,
+        setReviewRequiredPage
       );
     },
     [handleTablePageSizeChange]
@@ -1654,7 +1689,7 @@ export default function ReconcileResultsPage() {
   }
 
   return (
-    <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden bg-white pb-28">
+    <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden bg-white pb-32">
       <div
         ref={summaryRef}
         className="sticky top-0 z-40 box-border w-full min-w-0 overflow-x-hidden border-b border-[#F0F0F0] bg-white px-8 py-4"
@@ -3650,7 +3685,7 @@ export default function ReconcileResultsPage() {
 
       {/* Finalize bar */}
       {finalizeBarVisible && (
-        <div className="fixed bottom-0 left-[240px] right-0 z-40 border-t border-[#F0F0F0] bg-white py-4 px-4">
+        <div className="fixed bottom-0 left-[240px] right-0 z-40 h-20 border-t border-[#F0F0F0] bg-white py-4 px-4">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
             <p className="text-[13px] text-gray-500">
               Review all sections before finalizing
@@ -3667,7 +3702,7 @@ export default function ReconcileResultsPage() {
       )}
 
       {staffFinalizeMessageVisible && (
-        <div className="fixed bottom-0 left-[240px] right-0 z-40 border-t border-[#F0F0F0] bg-white py-3 px-6">
+        <div className="fixed bottom-0 left-[240px] right-0 z-40 h-20 border-t border-[#F0F0F0] bg-white py-4 px-6 flex items-center justify-center">
           <p className="text-center text-[13px] text-gray-600">
             Only your CA principal (admin) can finalize this reconciliation.
           </p>

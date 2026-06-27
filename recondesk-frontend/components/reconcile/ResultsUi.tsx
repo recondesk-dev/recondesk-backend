@@ -470,6 +470,7 @@ export function rule37BorderClass(
 
 export type ResultsBucketTabId =
   | "matched"
+  | "review_required"
   | "risk"
   | "itc"
   | "rule37"
@@ -478,6 +479,7 @@ export type ResultsBucketTabId =
 
 const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "matched", label: "Matched" },
+  { id: "review_required", label: "Review Required" },
   { id: "risk", label: "ITC at Risk" },
   { id: "itc", label: "Missed ITC" },
   { id: "rule37", label: "Rule 37" },
@@ -489,10 +491,13 @@ export function ResultsBucketTabs({
   active,
   onChange,
   rightContent,
+  tabCounts,
 }: {
   active: ResultsBucketTabId;
   onChange: (tab: ResultsBucketTabId) => void;
   rightContent?: ReactNode;
+  /** Optional record count to display next to each tab label, e.g. { matched: 4222, review_required: 860 } */
+  tabCounts?: Partial<Record<ResultsBucketTabId, number>>;
 }) {
   return (
     <div className="mb-6 flex flex-col sm:flex-row sm:items-end justify-between border-b border-[#F0F0F0] gap-4">
@@ -503,6 +508,11 @@ export function ResultsBucketTabs({
       >
       {RESULTS_BUCKET_TABS.map(({ id, label }) => {
         const isActive = active === id;
+        const count = tabCounts?.[id];
+        const displayLabel =
+          count != null
+            ? `${label} (${count.toLocaleString("en-IN")})`
+            : label;
         return (
           <button
             key={id}
@@ -516,7 +526,7 @@ export function ResultsBucketTabs({
             }
             onClick={() => onChange(id)}
           >
-            {label}
+            {displayLabel}
           </button>
         );
       })}
