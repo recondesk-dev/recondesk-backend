@@ -235,6 +235,10 @@ def payload_json_byte_size(payload: dict[str, Any]) -> int:
     return len(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
 
 
+import gzip
+import base64
+import json
+
 def save_reconciliation_results(
     client: Client,
     run_id: str,
@@ -251,13 +255,17 @@ def save_reconciliation_results(
         len((payload.get("engine") or {}).get("matched") or []),
         len((payload.get("engine") or {}).get("missed_itc") or []),
     )
+    
+    payload_str = json.dumps(payload)
+    compressed_payload = base64.b64encode(gzip.compress(payload_str.encode("utf-8"))).decode("utf-8")
+    
     client.table("reconciliation_results").delete().eq("run_id", run_id).execute()
     res_ins = (
         client.table("reconciliation_results")
         .insert(
             {
                 "run_id": run_id,
-                "payload": payload,
+                "payload": compressed_payload,
                 "created_at": created_at,
             }
         )
