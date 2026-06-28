@@ -1141,9 +1141,29 @@ def execute_reconciliation(run_id: str) -> None:
             review_required_count=review_gstr_count,
         )
 
+        valid_matched = []
+        for m in state.clean_matched:
+            if m.get("confidence") is None:
+                _log.warning(f"Skipping matched record with None confidence: {m}")
+                continue
+            valid_matched.append(m)
+
+        valid_review_required = []
+        for r in state.review_required:
+            side = r.get("side")
+            gid = r.get("gstr_id") if side == "GSTR" else None
+            pid = r.get("id") if side != "GSTR" else None
+            if not gid and not pid:
+                _log.warning(f"Skipping REVIEW_REQUIRED record with missing IDs: {r}")
+                continue
+            if not r.get("reason"):
+                _log.warning(f"Skipping REVIEW_REQUIRED record with missing reason: {r}")
+                continue
+            valid_review_required.append(r)
+
         payload = _json_safe(
             build_stored_results_payload(
-                matched=state.clean_matched,
+                matched=valid_matched,
                 missed_itc=state.missed_itc,
                 wrongful_itc_risk=wrongful_itc,
                 rule37=rule37,
@@ -1155,7 +1175,7 @@ def execute_reconciliation(run_id: str) -> None:
                 rules_version=RULES_VERSION,
                 decision_version=DECISION_VERSION,
                 gstin_mismatch=[],
-                duplicates=state.review_required,
+                duplicates=valid_review_required,
                 rule37_pending_verification=rule37_pending_verification,
                 review_required_typo=[],
             )

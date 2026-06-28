@@ -133,7 +133,7 @@ class OutcomeRow:
     blocked_credit_flag: bool
     late_filing_flag: bool
     is_credit_note: bool
-    amount: int
+    amount: Optional[int]
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -236,6 +236,15 @@ def _blocked_index(blocked: list[dict]) -> set[tuple[str, str]]:
     return s
 
 
+def _opt_int(v: Any) -> Optional[int]:
+    if v is None or str(v).strip() == "":
+        return None
+    try:
+        return int(float(str(v).strip()))
+    except ValueError:
+        return None
+
+
 def build_outcome_rows(
     sb: Client,
     run_id: str,
@@ -294,7 +303,7 @@ def build_outcome_rows(
                     blocked_credit_flag=False,
                     late_filing_flag=False,
                     is_credit_note=True,
-                    amount=int(m.get("total_tax_paise") or 0),
+                    amount=_opt_int(m.get("total_tax_paise")),
                 )
             )
 
@@ -341,7 +350,7 @@ def build_outcome_rows(
                 blocked_credit_flag=bflag,
                 late_filing_flag=lf_flag,
                 is_credit_note=False,
-                amount=min(int(g.get("total_tax_paise") or 0), int(p.get("total_tax_paise") or 0)),
+                amount=_opt_int(g.get("total_tax_paise")) if _opt_int(g.get("total_tax_paise")) is not None else _opt_int(p.get("total_tax_paise")),
             )
         )
 
@@ -357,9 +366,9 @@ def build_outcome_rows(
         )
         invd = mi.get("invoice_date") or g.get("invoice_date")
         
-        amt = int(mi.get("total_tax_paise") or 0)
-        if amt == 0:
-            amt = int(g.get("total_tax_paise") or 0)
+        amt = _opt_int(mi.get("total_tax_paise"))
+        if amt is None:
+            amt = _opt_int(g.get("total_tax_paise"))
 
         rows.append(
             OutcomeRow(
@@ -416,7 +425,7 @@ def build_outcome_rows(
                 blocked_credit_flag=False,
                 late_filing_flag=False,
                 is_credit_note=False,
-                amount=int(wr.get("total_tax_paise") or 0),
+                amount=_opt_int(wr.get("total_tax_paise")),
             )
         )
 
@@ -458,7 +467,7 @@ def build_outcome_rows(
                 blocked_credit_flag=False,
                 late_filing_flag=False,
                 is_credit_note=False,
-                amount=int(gm.get("total_tax_paise") or 0),
+                amount=_opt_int(gm.get("total_tax_paise")),
             )
         )
     for dup in list(engine.get("duplicates") or []):
@@ -500,7 +509,7 @@ def build_outcome_rows(
                 blocked_credit_flag=False,
                 late_filing_flag=False,
                 is_credit_note=False,
-                amount=int(dup.get("total_tax_paise") or m_rec.get("total_tax_paise") or 0),
+                amount=_opt_int(dup.get("total_tax_paise")) if _opt_int(dup.get("total_tax_paise")) is not None else _opt_int(m_rec.get("total_tax_paise")),
             )
         )
 
@@ -533,7 +542,7 @@ def build_outcome_rows(
                 blocked_credit_flag=False,
                 late_filing_flag=bool(typo.get("is_late_filing")),
                 is_credit_note=False,
-                amount=int(m_rec.get("total_tax_paise") or 0),
+                amount=_opt_int(m_rec.get("total_tax_paise")),
             )
         )
 
@@ -571,7 +580,7 @@ def build_outcome_rows(
                 blocked_credit_flag=False,
                 late_filing_flag=False,
                 is_credit_note=False,
-                amount=int(rrow.get("itc_at_risk_paise") or 0),
+                amount=_opt_int(rrow.get("itc_at_risk_paise")),
             )
         )
 
@@ -619,7 +628,7 @@ def build_outcome_rows(
                 blocked_credit_flag=True,
                 late_filing_flag=False,
                 is_credit_note=False,
-                amount=int(g.get("total_tax_paise") or 0),
+                amount=_opt_int(g.get("total_tax_paise")),
             )
         )
 
