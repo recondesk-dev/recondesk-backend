@@ -1822,6 +1822,16 @@ export default function ReconcileResultsPage() {
                   accent="linked"
                   value={((summary.clean_matched_count ?? summary.matched_count) + (summary.review_required_count ?? 0)).toLocaleString("en-IN")}
                   subtext="Matched + Under Review"
+                  extraContent={
+                    <div className="mt-0.5 flex flex-col">
+                      <span className="text-xs font-medium text-gray-500">
+                        Unresolved: {(summary.total_gstr_records - ((summary.clean_matched_count ?? summary.matched_count) + (summary.review_required_count ?? 0))).toLocaleString("en-IN")}
+                      </span>
+                      <span className="text-[10px] text-gray-400">
+                        In Missed ITC tab
+                      </span>
+                    </div>
+                  }
                 />
               </div>
               <div className="min-w-0 overflow-hidden rounded-2xl">
