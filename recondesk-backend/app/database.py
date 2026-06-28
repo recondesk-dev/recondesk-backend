@@ -12,7 +12,10 @@ from app.config import get_settings, httpx_timeout_client
 def get_supabase() -> Client:
     """Cached Supabase client using the service-role key (bypasses RLS)."""
     s = get_settings()
-    opts = SyncClientOptions(httpx_client=httpx_timeout_client())
+    opts = SyncClientOptions(
+        httpx_client=httpx_timeout_client(),
+        postgrest_client_timeout=120
+    )
     return create_client(s.SUPABASE_URL, s.SUPABASE_SERVICE_ROLE_KEY, options=opts)
 
 
@@ -20,7 +23,10 @@ def get_supabase() -> Client:
 def get_supabase_anon() -> Client:
     """Cached Supabase client using the anon/public key (respects RLS)."""
     s = get_settings()
-    opts = SyncClientOptions(httpx_client=httpx_timeout_client())
+    opts = SyncClientOptions(
+        httpx_client=httpx_timeout_client(),
+        postgrest_client_timeout=120
+    )
     return create_client(s.SUPABASE_URL, s.SUPABASE_ANON_KEY, options=opts)
 
 
