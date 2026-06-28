@@ -1996,17 +1996,18 @@ def _build_matched_pair_records(
     rid: str,
     payload: dict[str, Any],
     note_counts: Counter[str],
+    fetch_review_required: bool = False,
 ) -> list[tuple[dict[str, Any], Any]]:
     """Return list of ({api_row}, outcome_row) for pagination / filters."""
     gstr_db = ro.load_gstr_map(sb, rid)
     pr_db = ro.load_pr_map(sb, rid)
-    engine_matched = payload.get("engine", {}).get("matched") or []
-    decisions_rows = (
-        ((payload.get("decisions") or {}).get("rows")) or []
-    )
-
-    oc_rows = ro.build_outcome_rows(sb, rid, payload)[0]
-    oc_matched_in_order = [r for r in oc_rows if r.category == "matched"]
+    
+    if fetch_review_required:
+        engine_matched = payload.get("engine", {}).get("duplicates") or []
+        oc_matched_in_order = [r for r in ro.build_outcome_rows(sb, rid, payload)[0] if r.category == "review_required"]
+    else:
+        engine_matched = payload.get("engine", {}).get("matched") or []
+        oc_matched_in_order = [r for r in ro.build_outcome_rows(sb, rid, payload)[0] if r.category == "matched"]
 
     if len(oc_matched_in_order) != len(engine_matched):
         _log.warning(
@@ -2019,8 +2020,21 @@ def _build_matched_pair_records(
     out_pairs: list[tuple[dict[str, Any], Any]] = []
 
     for idx, en_row in enumerate(engine_matched):
-        gid = str(en_row.get("gstr_id", "")).strip()
-        pid = str(en_row.get("pr_id", "")).strip()
+        gid = ""
+        pid = ""
+        if fetch_review_required:
+            side = en_row.get("side")
+            if side == "GSTR":
+                gid = str(en_row.get("gstr_id", "")).strip()
+                rid_str = f"dg:{gid}"
+            else:
+                pid = str(en_row.get("id", "")).strip()
+                rid_str = f"dp:{pid}"
+        else:
+            gid = str(en_row.get("gstr_id", "")).strip()
+            pid = str(en_row.get("pr_id", "")).strip()
+            rid_str = f"pm:{gid}"
+
         gm = ((gstr_db.get(gid) or {}).get("matcher")) or {}
         grd_raw = (
             (gstr_db.get(gid) or {}).get("record_data")
@@ -2037,15 +2051,23 @@ def _build_matched_pair_records(
         orow = oc_matched_in_order[idx] if idx < len(oc_matched_in_order) else None
         mst_disp = getattr(orow, "match_status", None)
         lvl = _matched_ui_match_level(dict(en_row), mst_disp)
-        amt = _paise_to_rupees(int(gm.get("total_tax_paise") or 0))
+        
+        if fetch_review_required:
+            amt_paise = int(en_row.get("total_tax_paise") or gm.get("total_tax_paise") or pm.get("total_tax_paise") or 0)
+            amt = _paise_to_rupees(amt_paise)
+        else:
+            amt = _paise_to_rupees(int(gm.get("total_tax_paise") or 0))
 
         tax_diff_paise: Optional[int] = None
         if getattr(orow, "match_status", "") == "MISMATCHED" and orow is not None:
             tax_diff_paise = int(orow.total_tax_diff_paise)
 
-        dm: dict[str, Any] = (
-            decisions_rows[idx] if idx < len(decisions_rows) and isinstance(decisions_rows[idx], dict) else {}
-        )
+        # For review required, we can ignore decisions_rows as they don't apply to duplicates
+        dm: dict[str, Any] = {}
+        if not fetch_review_required:
+            decisions_rows = ((payload.get("decisions") or {}).get("rows")) or []
+            dm = decisions_rows[idx] if idx < len(decisions_rows) and isinstance(decisions_rows[idx], dict) else {}
+            
         d_what = dm.get("decision_what")
         d_why = dm.get("decision_why")
         d_next = dm.get("decision_next")
@@ -2053,17 +2075,17 @@ def _build_matched_pair_records(
         gd2 = _merged_record_data(grd_raw, gm)
         pd2 = _merged_record_data(prd_raw, pm)
 
-        rid_str = f"pm:{gid}"
         api_row = {
             "id": rid_str,
-            "supplier_gstin": str(gm.get("supplier_gstin") or pm.get("supplier_gstin") or ""),
+            "supplier_gstin": str(en_row.get("supplier_gstin") or gm.get("supplier_gstin") or pm.get("supplier_gstin") or ""),
             "invoice_number": str(
-                gm.get("invoice_number_normalized")
+                en_row.get("invoice_number_normalized")
+                or gm.get("invoice_number_normalized")
                 or pm.get("invoice_number_normalized")
                 or ""
             ),
             "invoice_date": str(
-                gm.get("invoice_date") or pm.get("invoice_date") or ""
+                en_row.get("invoice_date") or gm.get("invoice_date") or pm.get("invoice_date") or ""
             )[:40],
             "amount": amt,
             "match_level": lvl,
@@ -3583,9 +3605,9 @@ async def reconcile_run_matched_bucket(
         except ValueError:
             return None
 
-    pairs = _build_matched_pair_records(sb, rid=rid, payload=p, note_counts=notes)
-    hn = bool(has_notes and has_notes.strip().lower() in ("true", "1", "yes"))
     rr_req = bool(review_required and review_required.strip().lower() in ("true", "1", "yes"))
+    pairs = _build_matched_pair_records(sb, rid=rid, payload=p, note_counts=notes, fetch_review_required=rr_req)
+    hn = bool(has_notes and has_notes.strip().lower() in ("true", "1", "yes"))
     s174 = bool(section_17_5 and section_17_5.strip().lower() in ("true", "1", "yes"))
     filtered_pairs = _filter_matched(
         pairs,
