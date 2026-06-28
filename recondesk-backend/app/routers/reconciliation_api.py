@@ -2020,112 +2020,118 @@ def _build_matched_pair_records(
     out_pairs: list[tuple[dict[str, Any], Any]] = []
 
     for idx, en_row in enumerate(engine_matched):
-        gid = ""
-        pid = ""
-        if fetch_review_required:
-            if "side" in en_row:
-                side = en_row.get("side")
-                if side == "GSTR":
-                    gid = str(en_row.get("gstr_id", "")).strip()
+        try:
+            gid = ""
+            pid = ""
+            if fetch_review_required:
+                if "side" in en_row:
+                    side = en_row.get("side")
+                    if side == "GSTR":
+                        gid = str(en_row.get("gstr_id", "")).strip()
+                    else:
+                        pid = str(en_row.get("id", "")).strip()
+                    if not gid and not pid:
+                        _log.warning("Skipping REVIEW_REQUIRED pair with missing both IDs")
+                        continue
+                    if not en_row.get("reason"):
+                        _log.warning(f"Skipping REVIEW_REQUIRED pair with missing reason: {en_row}")
+                        continue
                 else:
-                    pid = str(en_row.get("id", "")).strip()
-                if not gid and not pid:
-                    _log.warning("Skipping REVIEW_REQUIRED pair with missing both IDs")
-                    continue
-                if not en_row.get("reason"):
-                    _log.warning(f"Skipping REVIEW_REQUIRED pair with missing reason: {en_row}")
-                    continue
+                    gid = str(en_row.get("gstr_id", "")).strip()
+                    pid = str(en_row.get("pr_id", "")).strip()
+                    if not gid and not pid:
+                        _log.warning("Skipping REVIEW_REQUIRED pair with missing both IDs")
+                        continue
+                rid_str = f"rr:{gid or pid}"
             else:
                 gid = str(en_row.get("gstr_id", "")).strip()
                 pid = str(en_row.get("pr_id", "")).strip()
-                if not gid and not pid:
-                    _log.warning("Skipping REVIEW_REQUIRED pair with missing both IDs")
+                if not gid or not pid:
+                    _log.warning("Skipping MATCHED pair with missing gstr_id or pr_id")
                     continue
-        else:
-            gid = str(en_row.get("gstr_id", "")).strip()
-            pid = str(en_row.get("pr_id", "")).strip()
-            if not gid or not pid:
-                _log.warning("Skipping MATCHED pair with missing gstr_id or pr_id")
+                rid_str = f"pm:{gid}"
+
+            gm = ((gstr_db.get(gid) or {}).get("matcher")) or {}
+            grd_raw = (
+                (gstr_db.get(gid) or {}).get("record_data")
+                if isinstance((gstr_db.get(gid) or {}).get("record_data"), dict)
+                else {}
+            )
+            pm = ((pr_db.get(pid) or {}).get("matcher")) or {}
+            prd_raw = (
+                (pr_db.get(pid) or {}).get("record_data")
+                if isinstance((pr_db.get(pid) or {}).get("record_data"), dict)
+                else {}
+            )
+
+            # Ensure that if the join resulted in nothing (both gm and pm are empty), we skip it
+            if not gm and not pm:
                 continue
-            rid_str = f"pm:{gid}"
 
-        gm = ((gstr_db.get(gid) or {}).get("matcher")) or {}
-        grd_raw = (
-            (gstr_db.get(gid) or {}).get("record_data")
-            if isinstance((gstr_db.get(gid) or {}).get("record_data"), dict)
-            else {}
-        )
-        pm = ((pr_db.get(pid) or {}).get("matcher")) or {}
-        prd_raw = (
-            (pr_db.get(pid) or {}).get("record_data")
-            if isinstance((pr_db.get(pid) or {}).get("record_data"), dict)
-            else {}
-        )
-
-        # Ensure that if the join resulted in nothing (both gm and pm are empty), we skip it
-        if not gm and not pm:
-            continue
-
-        orow = oc_matched_in_order[idx] if idx < len(oc_matched_in_order) else None
-        mst_disp = getattr(orow, "match_status", None)
-        lvl = _matched_ui_match_level(dict(en_row), mst_disp)
-        
-        if fetch_review_required:
-            amt_paise = int(en_row.get("total_tax_paise") or gm.get("total_tax_paise") or pm.get("total_tax_paise") or 0)
-            amt = _paise_to_rupees(amt_paise)
-        else:
-            amt = _paise_to_rupees(int(gm.get("total_tax_paise") or 0))
-
-        tax_diff_paise: Optional[int] = None
-        if getattr(orow, "match_status", "") == "MISMATCHED" and orow is not None:
-            tax_diff_paise = int(orow.total_tax_diff_paise)
-
-        # For review required, we can ignore decisions_rows as they don't apply to duplicates
-        dm: dict[str, Any] = {}
-        if not fetch_review_required:
-            decisions_rows = ((payload.get("decisions") or {}).get("rows")) or []
-            dm = decisions_rows[idx] if idx < len(decisions_rows) and isinstance(decisions_rows[idx], dict) else {}
+            orow = oc_matched_in_order[idx] if idx < len(oc_matched_in_order) else None
+            mst_disp = getattr(orow, "match_status", None)
+            lvl = _matched_ui_match_level(dict(en_row), mst_disp)
             
-        d_what = dm.get("decision_what")
-        d_why = dm.get("decision_why")
-        d_next = dm.get("decision_next")
+            if fetch_review_required:
+                amt_paise = int(en_row.get("total_tax_paise") or gm.get("total_tax_paise") or pm.get("total_tax_paise") or 0)
+                amt = _paise_to_rupees(amt_paise)
+            else:
+                amt = _paise_to_rupees(int(gm.get("total_tax_paise") or 0))
 
-        gd2 = _merged_record_data(grd_raw, gm)
-        pd2 = _merged_record_data(prd_raw, pm)
+            tax_diff_paise: Optional[int] = None
+            if getattr(orow, "match_status", "") == "MISMATCHED" and orow is not None:
+                tax_diff_paise = int(orow.total_tax_diff_paise)
 
-        api_row = {
-            "id": rid_str,
-            "supplier_gstin": str(en_row.get("supplier_gstin") or gm.get("supplier_gstin") or pm.get("supplier_gstin") or ""),
-            "invoice_number": str(
-                en_row.get("invoice_number_normalized")
-                or gm.get("invoice_number_normalized")
-                or pm.get("invoice_number_normalized")
-                or ""
-            ),
-            "invoice_date": str(
-                en_row.get("invoice_date") or gm.get("invoice_date") or pm.get("invoice_date") or ""
-            )[:40],
-            "amount": amt,
-            "match_level": lvl,
-            "confidence_score": float(en_row.get("confidence_score") or 0.0),
-            "discrepancy_note": None,
-            "tax_difference_paise": tax_diff_paise,
-            "decision_what": d_what
-            if d_what
-            else (str(getattr(orow, "decision_what", "")) if orow else None),
-            "decision_why": d_why
-            if d_why
-            else (str(getattr(orow, "decision_why", "")) if orow else None),
-            "decision_next": d_next
-            if d_next
-            else (str(getattr(orow, "decision_next", "")) if orow else None),
-            "decision_status": "pending",
-            "decision_type": None,
-            "notes_count": int(note_counts.get(rid_str, 0)),
-            "gstr2b_data": gd2,
-            "purchase_register_data": pd2,
-        }
-        out_pairs.append((api_row, orow))
+            # For review required, we can ignore decisions_rows as they don't apply to duplicates
+            dm: dict[str, Any] = {}
+            if not fetch_review_required:
+                decisions_rows = ((payload.get("decisions") or {}).get("rows")) or []
+                dm = decisions_rows[idx] if idx < len(decisions_rows) and isinstance(decisions_rows[idx], dict) else {}
+                
+            d_what = dm.get("decision_what")
+            d_why = dm.get("decision_why")
+            d_next = dm.get("decision_next")
+
+            gd2 = _merged_record_data(grd_raw, gm)
+            pd2 = _merged_record_data(prd_raw, pm)
+
+            api_row = {
+                "id": rid_str,
+                "supplier_gstin": str(en_row.get("supplier_gstin") or gm.get("supplier_gstin") or pm.get("supplier_gstin") or ""),
+                "invoice_number": str(
+                    en_row.get("invoice_number_normalized")
+                    or gm.get("invoice_number_normalized")
+                    or pm.get("invoice_number_normalized")
+                    or ""
+                ),
+                "invoice_date": str(
+                    en_row.get("invoice_date") or gm.get("invoice_date") or pm.get("invoice_date") or ""
+                )[:40],
+                "amount": amt,
+                "match_level": lvl,
+                "confidence_score": float(en_row.get("confidence_score") or 0.0),
+                "discrepancy_note": None,
+                "discrepancy_reason": str(en_row.get("reason", "") or ""),
+                "tax_difference_paise": tax_diff_paise or 0,
+                "decision_what": d_what
+                if d_what
+                else (str(getattr(orow, "decision_what", "")) if orow else None),
+                "decision_why": d_why
+                if d_why
+                else (str(getattr(orow, "decision_why", "")) if orow else None),
+                "decision_next": d_next
+                if d_next
+                else (str(getattr(orow, "decision_next", "")) if orow else None),
+                "decision_status": "pending",
+                "decision_type": None,
+                "notes_count": int(note_counts.get(rid_str, 0)),
+                "gstr2b_data": gd2,
+                "purchase_register_data": pd2,
+            }
+            out_pairs.append((api_row, orow))
+        except Exception as e:
+            _log.error(f"Error building matched pair record (idx={idx}): {e}")
+            continue
     out_pairs.sort(key=lambda t: (-t[0]["amount"], t[0]["id"]))
     return out_pairs
 
@@ -3623,7 +3629,7 @@ async def reconcile_run_matched_bucket(
         except ValueError:
             return None
 
-    rr_req = bool(review_required and review_required.strip().lower() in ("true", "1", "yes"))
+    rr_req = bool(review_required and review_required.strip().lower() in ("true", "1", "yes", "review_required"))
     pairs = _build_matched_pair_records(sb, rid=rid, payload=p, note_counts=notes, fetch_review_required=rr_req)
     hn = bool(has_notes and has_notes.strip().lower() in ("true", "1", "yes"))
     s174 = bool(section_17_5 and section_17_5.strip().lower() in ("true", "1", "yes"))
