@@ -2003,7 +2003,7 @@ def _build_matched_pair_records(
     pr_db = ro.load_pr_map(sb, rid)
     
     if fetch_review_required:
-        engine_matched = payload.get("engine", {}).get("duplicates") or []
+        engine_matched = (payload.get("engine", {}).get("duplicates") or []) + (payload.get("engine", {}).get("review_required_typo") or [])
         oc_matched_in_order = [r for r in ro.build_outcome_rows(sb, rid, payload)[0] if r.category == "review_required"]
     else:
         engine_matched = payload.get("engine", {}).get("matched") or []
@@ -2023,20 +2023,24 @@ def _build_matched_pair_records(
         gid = ""
         pid = ""
         if fetch_review_required:
-            side = en_row.get("side")
-            if side == "GSTR":
-                gid = str(en_row.get("gstr_id", "")).strip()
-                rid_str = f"dg:{gid}"
+            if "side" in en_row:
+                side = en_row.get("side")
+                if side == "GSTR":
+                    gid = str(en_row.get("gstr_id", "")).strip()
+                else:
+                    pid = str(en_row.get("id", "")).strip()
+                if not gid and not pid:
+                    _log.warning("Skipping REVIEW_REQUIRED pair with missing both IDs")
+                    continue
+                if not en_row.get("reason"):
+                    _log.warning(f"Skipping REVIEW_REQUIRED pair with missing reason: {en_row}")
+                    continue
             else:
-                pid = str(en_row.get("id", "")).strip()
-                rid_str = f"dp:{pid}"
-                
-            if not gid and not pid:
-                _log.warning("Skipping REVIEW_REQUIRED pair with missing both IDs")
-                continue
-            if not en_row.get("reason"):
-                _log.warning(f"Skipping REVIEW_REQUIRED pair with missing reason: {en_row}")
-                continue
+                gid = str(en_row.get("gstr_id", "")).strip()
+                pid = str(en_row.get("pr_id", "")).strip()
+                if not gid and not pid:
+                    _log.warning("Skipping REVIEW_REQUIRED pair with missing both IDs")
+                    continue
         else:
             gid = str(en_row.get("gstr_id", "")).strip()
             pid = str(en_row.get("pr_id", "")).strip()
