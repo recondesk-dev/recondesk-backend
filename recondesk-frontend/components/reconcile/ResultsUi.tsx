@@ -30,7 +30,7 @@ export const pageContentClass =
   "box-border w-full max-w-full space-y-4 overflow-x-hidden px-8 pt-2";
 
 export const statCardsGridClass =
-  "mt-4 grid w-full min-w-0 grid-cols-2 gap-3 border-t border-[#F0F0F0] pt-4 md:[grid-template-columns:repeat(4,minmax(0,1fr))]";
+  "mt-4 grid w-full min-w-0 grid-cols-2 gap-3 border-t border-[#F0F0F0] pt-4 xl:grid-cols-6 lg:grid-cols-3";
 
 export const statCardValueClass = "text-xl font-semibold tabular-nums";
 
@@ -247,9 +247,9 @@ export function StatCard({
     accent === "neutral";
   return (
     <div
-      className={`box-border flex min-w-0 w-full flex-col gap-2 overflow-hidden rounded-2xl border py-3.5 ${
+      className={`box-border flex min-w-0 w-full flex-col gap-2 overflow-hidden rounded-2xl border py-3 ${
         colors.card ?? "border-[#F0F0F0] bg-white"
-      } ${isCurrency ? "px-4" : "pl-5 pr-4"}`}
+      } ${isCurrency ? "px-3" : "pl-4 pr-3"}`}
     >
       <div className="flex min-w-0 items-center gap-1.5">
         <span
