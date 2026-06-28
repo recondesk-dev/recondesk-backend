@@ -1916,7 +1916,7 @@ export default function ReconcileResultsPage() {
               </div>
             </div>
           );
-        })()}
+        })}
       </div>
 
       <div className={pageContentClass}>
@@ -3491,7 +3491,8 @@ export default function ReconcileResultsPage() {
                         </td>
                       </tr>
                     );
-                    })}
+                    })
+})()}
                   </tbody>
                 </table>
               </div>
