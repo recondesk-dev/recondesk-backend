@@ -185,7 +185,7 @@ def explain_invoice_difference(inv1: str, inv2: str) -> str:
 class MatchResult:
     level: int
     matched: bool
-    confidence: int
+    confidence: int | None
     requires_human_review: bool
     decision_what: str
     decision_why: str
@@ -449,6 +449,12 @@ def _match_gstr_to_pr_pair(
     p_inv = _invoice_number(pr_rec)
     g_inv_raw = str(gstr_rec.get("invoice_number", "")).strip().upper()
     p_inv_raw = str(pr_rec.get("invoice_number", "")).strip().upper()
+
+    if not gstr_rec.get("id") or not pr_rec.get("id"):
+        # Log as warning if missing ID
+        import logging
+        logging.getLogger(__name__).warning("Skipping match because gstr_record_id or pr_record_id is missing")
+        return None
 
     if not g_inv or not p_inv:
         return MatchResult(

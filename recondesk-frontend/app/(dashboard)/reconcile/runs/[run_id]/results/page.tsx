@@ -3403,7 +3403,11 @@ export default function ReconcileResultsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {reviewRequiredData.data.filter(r => checkDocType(r, docTypeFilterReviewRequired)).map((row) => {
+                    {(() => {
+                      const validRows = reviewRequiredData.data
+                        .filter(r => checkDocType(r, docTypeFilterReviewRequired))
+                        .filter(r => r.supplier_gstin || r.invoice_number || (r.amount && r.amount > 0));
+                      return validRows.map((row) => {
                       let taxDiff = formatTaxDifferenceDisplay(
                         row.tax_difference_paise,
                         row.discrepancy_note

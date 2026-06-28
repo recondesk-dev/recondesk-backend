@@ -2030,9 +2030,19 @@ def _build_matched_pair_records(
             else:
                 pid = str(en_row.get("id", "")).strip()
                 rid_str = f"dp:{pid}"
+                
+            if not gid and not pid:
+                _log.warning("Skipping REVIEW_REQUIRED pair with missing both IDs")
+                continue
+            if not en_row.get("reason"):
+                _log.warning(f"Skipping REVIEW_REQUIRED pair with missing reason: {en_row}")
+                continue
         else:
             gid = str(en_row.get("gstr_id", "")).strip()
             pid = str(en_row.get("pr_id", "")).strip()
+            if not gid or not pid:
+                _log.warning("Skipping MATCHED pair with missing gstr_id or pr_id")
+                continue
             rid_str = f"pm:{gid}"
 
         gm = ((gstr_db.get(gid) or {}).get("matcher")) or {}
@@ -2047,6 +2057,10 @@ def _build_matched_pair_records(
             if isinstance((pr_db.get(pid) or {}).get("record_data"), dict)
             else {}
         )
+
+        # Ensure that if the join resulted in nothing (both gm and pm are empty), we skip it
+        if not gm and not pm:
+            continue
 
         orow = oc_matched_in_order[idx] if idx < len(oc_matched_in_order) else None
         mst_disp = getattr(orow, "match_status", None)
