@@ -1141,13 +1141,6 @@ def execute_reconciliation(run_id: str) -> None:
             review_required_count=review_gstr_count,
         )
 
-        valid_matched = []
-        for m in state.clean_matched:
-            if m.get("confidence") is None:
-                _log.warning(f"Skipping matched record with None confidence: {m}")
-                continue
-            valid_matched.append(m)
-
         valid_review_required = []
         for r in state.review_required:
             gid = r.get("gstr_id")
@@ -1172,7 +1165,7 @@ def execute_reconciliation(run_id: str) -> None:
 
         payload = _json_safe(
             build_stored_results_payload(
-                matched=valid_matched,
+                matched=state.clean_matched,
                 missed_itc=state.missed_itc,
                 wrongful_itc_risk=wrongful_itc,
                 rule37=rule37,
