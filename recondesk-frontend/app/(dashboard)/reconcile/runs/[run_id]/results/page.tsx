@@ -1098,6 +1098,35 @@ export default function ReconcileResultsPage() {
     // the fetch and leaving matchedData undefined forever.
   });
 
+  // ─── Review Required tab ─────────────────────────────────────────────────
+  const reviewRequiredQuery = useMemo(
+    () =>
+      buildMatchedQuery(
+        reviewRequiredPage,
+        reviewRequiredPageSize,
+        debouncedReviewRequiredSearch,
+        { ...reviewRequiredFilters, force_review_required: true }
+      ),
+    [reviewRequiredPage, reviewRequiredPageSize, debouncedReviewRequiredSearch, reviewRequiredFilters]
+  );
+
+  const reviewRequiredKey = useMemo(
+    () =>
+      authReady && runId
+        ? ([`/api/reconcile/runs/${runId}/matched?${reviewRequiredQuery}`, authToken] as const)
+        : null,
+    [authReady, runId, reviewRequiredQuery, authToken]
+  );
+
+  const {
+    data: reviewRequiredData,
+    error: reviewRequiredError,
+    isLoading: reviewRequiredLoading,
+    mutate: mutateReviewRequired,
+  } = useSWR<Paginated<ReconcileRow>>(reviewRequiredKey, authJsonFetcher, {
+    revalidateOnFocus: false,
+  });
+
   // Keys are null until the accordion is opened — this guarantees SWR
   // triggers a real fetch the moment the user expands the section.
   // Using isPaused() alone is unreliable in SWR v2: it does not re-trigger
@@ -1885,6 +1914,10 @@ export default function ReconcileResultsPage() {
           <ResultsBucketTabs
             active={resultsTab}
             onChange={setResultsTab}
+            tabCounts={{
+              matched: summary.clean_matched_count ?? summary.matched_count,
+              review_required: summary.review_required_count ?? 0,
+            }}
             rightContent={
               <button
                 type="button"
@@ -2812,14 +2845,26 @@ export default function ReconcileResultsPage() {
         {/* Matched */}
         {resultsTab === "matched" && (
         <div className={sectionContainerClass}>
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">
-            Matched Records{" "}
-            {matchedData != null && (
+          <h2 className="mb-1 text-lg font-semibold text-gray-900">
+            Matched{" "}
+            {summary != null && (
               <span className="font-normal text-gray-500">
-                ({matchedData.total})
+                ({(summary.clean_matched_count ?? summary.matched_count).toLocaleString("en-IN")})
               </span>
             )}
           </h2>
+          {/* Requirement 4: info line */}
+          <p className="mb-4 text-[12px] text-gray-400">
+            Showing auto-matched records with no discrepancies. Records requiring review are in the{" "}
+            <button
+              type="button"
+              className="font-medium text-[#D97706] hover:underline"
+              onClick={() => setResultsTab("review_required")}
+            >
+              Review Required tab
+            </button>
+            .
+          </p>
 
           <div className="mb-4 space-y-2">
             <input
@@ -2894,22 +2939,7 @@ export default function ReconcileResultsPage() {
               >
                 Has Notes
               </button>
-              <button
-                type="button"
-                className={`rounded-xl border px-3 py-2 text-[13px] font-medium transition-all duration-150 ${
-                  matchedFilters.review_required
-                    ? "border-[#D97706] text-[#D97706] bg-white"
-                    : "border-[#E5E7EB] text-gray-600 bg-white hover:bg-gray-50"
-                }`}
-                onClick={() =>
-                  setMatchedFilters((f) => ({
-                    ...f,
-                    review_required: !f.review_required,
-                  }))
-                }
-              >
-                Review Required
-              </button>
+
               <button
                 type="button"
                 className={`rounded-xl border px-3 py-2 text-[13px] font-medium transition-all duration-150 ${
@@ -2937,7 +2967,6 @@ export default function ReconcileResultsPage() {
                     setMatchedFilters({
                       match_level: "",
                       has_notes: false,
-                      review_required: false,
                       section_17_5: false,
                       amount_min: "",
                       amount_max: "",
@@ -3003,8 +3032,7 @@ export default function ReconcileResultsPage() {
             matchedData.data.length === 0 && (
               <div className="rounded-2xl border border-[#F0F0F0] bg-[#FAFAFA] p-6 text-center">
                 <p className="text-[13px] text-gray-600">
-                  No records match your filters. Try adjusting the search or
-                  filters.
+                  No clean matches found for this filter. Try adjusting the search or filters.
                 </p>
                 <button
                   type="button"
@@ -3016,7 +3044,6 @@ export default function ReconcileResultsPage() {
                     setMatchedFilters({
                       match_level: "",
                       has_notes: false,
-                      review_required: false,
                       section_17_5: false,
                       amount_min: "",
                       amount_max: "",
@@ -3166,6 +3193,312 @@ export default function ReconcileResultsPage() {
 
         {resultsTab === "followup" && authToken && (
           <SupplierFollowupAuditLogPanel runId={runId} authToken={authToken} />
+        )}
+
+        {/* Review Required */}
+        {resultsTab === "review_required" && (
+        <div className={sectionContainerClass}>
+          <h2 className="mb-1 text-lg font-semibold text-gray-900">
+            Review Required{" "}
+            {summary != null && (
+              <span className="font-normal text-gray-500">
+                ({(summary.review_required_count ?? 0).toLocaleString("en-IN")})
+              </span>
+            )}
+          </h2>
+          <p className="mb-4 text-[12px] text-gray-400">
+            These records were matched but have discrepancies or low confidence that need manual verification before finalizing.
+          </p>
+
+          <div className="mb-4 space-y-2">
+            <input
+              type="search"
+              className={`w-full ${filterInputClass}`}
+              placeholder="Search by supplier GSTIN or invoice number..."
+              value={reviewRequiredSearch}
+              onChange={(e) => setReviewRequiredSearch(e.target.value)}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                className={filterInputClass}
+                value={docTypeFilterReviewRequired}
+                onChange={(e) => setDocTypeFilterReviewRequired(e.target.value)}
+              >
+                <option value="">All Document Types</option>
+                <option value="Invoice">Invoice</option>
+                <option value="Credit Note">Credit Note</option>
+                <option value="Debit Note">Debit Note</option>
+              </select>
+              <select
+                className={filterInputClass}
+                value={reviewRequiredFilters.match_level}
+                onChange={(e) =>
+                  setReviewRequiredFilters((f) => ({
+                    ...f,
+                    match_level: e.target.value,
+                  }))
+                }
+              >
+                <option value="">All levels</option>
+                <option value="EXACT">EXACT</option>
+                <option value="FUZZY">FUZZY</option>
+                <option value="MANUAL">MANUAL</option>
+              </select>
+              <input
+                className={`w-28 ${filterInputClass}`}
+                placeholder="₹ Min"
+                value={reviewRequiredFilters.amount_min}
+                onChange={(e) =>
+                  setReviewRequiredFilters((f) => ({
+                    ...f,
+                    amount_min: e.target.value,
+                  }))
+                }
+              />
+              <input
+                className={`w-28 ${filterInputClass}`}
+                placeholder="₹ Max"
+                value={reviewRequiredFilters.amount_max}
+                onBlur={() => setReviewRequiredPage(1)}
+                onChange={(e) =>
+                  setReviewRequiredFilters((f) => ({
+                    ...f,
+                    amount_max: e.target.value,
+                  }))
+                }
+              />
+              <button
+                type="button"
+                className={`rounded-xl border px-3 py-2 text-[13px] font-medium transition-all duration-150 ${
+                  reviewRequiredFilters.has_notes
+                    ? "border-brand text-brand bg-white"
+                    : "border-[#E5E7EB] text-gray-600 bg-white hover:bg-gray-50"
+                }`}
+                onClick={() =>
+                  setReviewRequiredFilters((f) => ({
+                    ...f,
+                    has_notes: !f.has_notes,
+                  }))
+                }
+              >
+                Has Notes
+              </button>
+              <button
+                type="button"
+                className={`rounded-xl border px-3 py-2 text-[13px] font-medium transition-all duration-150 ${
+                  reviewRequiredFilters.section_17_5
+                    ? "border-gray-800 text-gray-800 bg-white"
+                    : "border-[#E5E7EB] text-gray-600 bg-white hover:bg-gray-50"
+                }`}
+                onClick={() =>
+                  setReviewRequiredFilters((f) => ({
+                    ...f,
+                    section_17_5: !f.section_17_5,
+                  }))
+                }
+              >
+                Section 17(5)
+              </button>
+              {(!!debouncedReviewRequiredSearch.trim() ||
+                !!reviewRequiredFilters.match_level ||
+                reviewRequiredFilters.has_notes ||
+                reviewRequiredFilters.section_17_5 ||
+                !!reviewRequiredFilters.amount_min.trim() ||
+                !!reviewRequiredFilters.amount_max.trim() ||
+                !!docTypeFilterReviewRequired) && (
+                <button
+                  type="button"
+                  className="text-[13px] font-medium text-brand hover:underline"
+                  onClick={() => {
+                    setReviewRequiredSearch("");
+                    setDebouncedReviewRequiredSearch("");
+                    setDocTypeFilterReviewRequired("");
+                    setReviewRequiredFilters({
+                      match_level: "",
+                      has_notes: false,
+                      section_17_5: false,
+                      amount_min: "",
+                      amount_max: "",
+                    });
+                    setReviewRequiredPage(1);
+                  }}
+                >
+                  Clear all filters
+                </button>
+              )}
+            </div>
+          </div>
+
+          {reviewRequiredError && (
+            <SectionError
+              message="Failed to load."
+              onRetry={() => void mutateReviewRequired()}
+            />
+          )}
+          {reviewRequiredLoading && !reviewRequiredData && !reviewRequiredError && (
+            <div className="animate-pulse space-y-2 py-4">
+              <div className="h-8 rounded bg-gray-100" />
+              <div className="h-8 rounded bg-gray-100/80" />
+            </div>
+          )}
+          {reviewRequiredData &&
+            !reviewRequiredError &&
+            reviewRequiredData.data.length === 0 && (
+              <div className="rounded-2xl border border-[#F0F0F0] bg-[#FAFAFA] p-6 text-center">
+                <p className="text-[13px] text-gray-600">
+                  No records requiring review found for this filter. Try adjusting the search or filters.
+                </p>
+                <button
+                  type="button"
+                  className="mt-3 rounded-xl border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50"
+                  onClick={() => {
+                    setReviewRequiredSearch("");
+                    setDebouncedReviewRequiredSearch("");
+                    setDocTypeFilterReviewRequired("");
+                    setReviewRequiredFilters({
+                      match_level: "",
+                      has_notes: false,
+                      section_17_5: false,
+                      amount_min: "",
+                      amount_max: "",
+                    });
+                    setReviewRequiredPage(1);
+                  }}
+                >
+                  Clear filters
+                </button>
+              </div>
+            )}
+          {reviewRequiredData && !reviewRequiredError && reviewRequiredData.data.length > 0 && (
+            <>
+              <div className={tableWrapClass}>
+                <table className={matchedTableClass}>
+                  <thead className={tableHeadClass}>
+                    <tr>
+                      <th className={matchedThGstin}>Supplier GSTIN</th>
+                      <th className={matchedThInvoice}>Invoice#</th>
+                      <th className={matchedThDate}>Date</th>
+                      <th className={matchedThAmount}>Amount</th>
+                      <th className={matchedThMatchLevel}>
+                        <div className="flex items-center gap-1">
+                          Match Method
+                          <span title="L1 = Exact GSTIN + Invoice Number match&#10;L2 = GSTIN match + fuzzy invoice number&#10;L3 = GSTIN match + amount match&#10;L4 = Fuzzy vendor name + amount match&#10;L5 = Partial / manual review needed">
+                            <Info className="h-3.5 w-3.5 text-gray-400 cursor-help" />
+                          </span>
+                        </div>
+                      </th>
+                      <th className={matchedThConfidence}>Confidence</th>
+                      <th className={matchedThDiscrepancy}>Discrepancy / Reason</th>
+                      <th className={matchedThNotes}>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reviewRequiredData.data.filter(r => checkDocType(r, docTypeFilterReviewRequired)).map((row) => {
+                      let taxDiff = formatTaxDifferenceDisplay(
+                        row.tax_difference_paise,
+                        row.discrepancy_note
+                      );
+
+                      if (row.match_level === "FUZZY" || row.match_level === "EXACT") {
+                        const gstrAmt = row.amount;
+                        let prAmt = row.invoice_amount;
+                        if (prAmt === undefined || prAmt === null) {
+                          const raw = readDataField(row.purchase_register_data, [
+                            "Invoice Amount", "Invoice Value", "amount", "Total", "Total Amount", "Grand Total", "invoice_amount"
+                          ]);
+                          if (raw !== "—") {
+                            const parsed = Number(String(raw).replace(/,/g, ""));
+                            if (Number.isFinite(parsed)) prAmt = parsed;
+                          }
+                        }
+                        if (prAmt !== undefined && prAmt !== null) {
+                          const diff = Math.abs(gstrAmt - prAmt);
+                          if (diff <= 1) {
+                            taxDiff = { display: "—", tooltip: "—" };
+                          } else {
+                            const inr = formatINR(diff);
+                            taxDiff = { display: inr, tooltip: `Amount difference: ${inr}` };
+                          }
+                        } else {
+                          taxDiff = { display: "—", tooltip: "—" };
+                        }
+                      }
+
+                      return (
+                      <tr
+                        key={row.id}
+                        className={`group cursor-pointer ${tableRowClass}`}
+                        onClick={() => {
+                          setActiveRecord(row);
+                          setDrawerDecisionError(null);
+                          setNotePostError(null);
+                        }}
+                      >
+                        <td className={matchedTdGstin}>
+                          <GstinCell gstin={row.supplier_gstin} />
+                        </td>
+                        <td className={matchedTdInvoice}>
+                          <HoverTextCell
+                            text={row.invoice_number}
+                            displayClassName="text-[13px] font-medium text-gray-800"
+                          />
+                        </td>
+                        <td className={matchedTdDate}>
+                          {formatDate(row.invoice_date)}
+                        </td>
+                        <td className={matchedTdAmount}>
+                          <AmountDisplay amount={row.amount} />
+                        </td>
+                        <td className={matchedTdMatchLevel}>
+                          <MatchLevelBadge level={row.match_level} />
+                        </td>
+                        <td className={matchedTdConfidence}>
+                          {Math.round(
+                            Math.min(1, Math.max(0, row.confidence_score)) *
+                              100
+                          )}
+                          %
+                        </td>
+                        <td className={matchedTdDiscrepancy}>
+                          <HoverTextCell
+                            text={taxDiff.display}
+                            tooltipText={taxDiff.tooltip}
+                            displayClassName="text-[13px] text-gray-600"
+                          />
+                        </td>
+                        <td className={matchedTdNotes}>
+                          {row.notes_count > 0 ? (
+                            <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                              {row.notes_count} notes
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      </tr>
+                    );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <ReconcilePaginationFooter
+                page={reviewRequiredData.page}
+                totalPages={reviewRequiredData.total_pages}
+                total={reviewRequiredData.total}
+                limit={reviewRequiredData.limit}
+                pageSizeOptions={RECONCILE_TABLE_PAGE_SIZE_OPTIONS}
+                pageSize={reviewRequiredPageSize}
+                onPageSizeChange={handleReviewRequiredPageSizeChange}
+                onPrev={() => setReviewRequiredPage((p) => Math.max(1, p - 1))}
+                onNext={() =>
+                  setReviewRequiredPage((p) =>
+                    Math.min(reviewRequiredData.total_pages, p + 1)
+                  )
+                }
+              />
+            </>
+          )}
+        </div>
         )}
 
         {/* Rule 37 */}
