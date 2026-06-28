@@ -734,7 +734,9 @@ def _decode_if_compressed(data: Any) -> Any:
     if isinstance(data, str) and not data.strip().startswith(("{", "[")):
         try:
             return json.loads(gzip.decompress(base64.b64decode(data)).decode("utf-8"))
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to decompress payload: {e}")
             pass
     return data
 
