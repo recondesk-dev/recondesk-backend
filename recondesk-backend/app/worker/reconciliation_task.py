@@ -1150,15 +1150,24 @@ def execute_reconciliation(run_id: str) -> None:
 
         valid_review_required = []
         for r in state.review_required:
-            side = r.get("side")
-            gid = r.get("gstr_id") if side == "GSTR" else None
-            pid = r.get("id") if side != "GSTR" else None
+            gid = r.get("gstr_id")
+            pid = r.get("pr_id")
             if not gid and not pid:
                 _log.warning(f"Skipping REVIEW_REQUIRED record with missing IDs: {r}")
                 continue
-            if not r.get("reason"):
+            reason = r.get("review_reason") or r.get("reason")
+            if not reason:
                 _log.warning(f"Skipping REVIEW_REQUIRED record with missing reason: {r}")
                 continue
+            
+            r["reason"] = reason
+            if gid and str(gid).strip() and str(gid).strip() != "None":
+                r["side"] = "GSTR"
+                r["gstr_id"] = gid
+            elif pid and str(pid).strip() and str(pid).strip() != "None":
+                r["side"] = "PR"
+                r["id"] = pid
+
             valid_review_required.append(r)
 
         payload = _json_safe(
