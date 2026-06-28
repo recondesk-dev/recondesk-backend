@@ -626,7 +626,7 @@ def match_gstr_to_pr(
     candidates: list[dict[str, Any]] = []
     for pr_rec in pr_records:
         r = _match_gstr_to_pr_pair(gstr_rec, pr_rec, gstr_by_invoice)
-        if not r.matched:
+        if r is None or not r.matched:
             continue
         gstr = gstr_rec
         pr = pr_rec
