@@ -727,7 +727,19 @@ load_gstr_map = _load_gstr_map
 load_pr_map = _load_pr_map
 
 
+import gzip
+import base64
+
+def _decode_if_compressed(data: Any) -> Any:
+    if isinstance(data, str) and not data.strip().startswith(("{", "[")):
+        try:
+            return json.loads(gzip.decompress(base64.b64decode(data)).decode("utf-8"))
+        except Exception:
+            pass
+    return data
+
 def _merge_payload_blobs(record_data: Any, payload: Any) -> dict[str, Any]:
+    payload = _decode_if_compressed(payload)
     if isinstance(payload, dict) and payload:
         return payload
     if isinstance(payload, str) and payload.strip().startswith(("{", "[")):
@@ -737,6 +749,8 @@ def _merge_payload_blobs(record_data: Any, payload: Any) -> dict[str, Any]:
             d = None
         if isinstance(d, dict) and d:
             return d
+            
+    record_data = _decode_if_compressed(record_data)
     if isinstance(record_data, dict) and record_data:
         return record_data
     if isinstance(record_data, str) and record_data.strip().startswith(("{", "[")):

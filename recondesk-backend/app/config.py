@@ -171,7 +171,7 @@ def get_r2_s3_endpoint_url() -> str:
 
 
 def httpx_timeout_client() -> httpx.Client:
-    return httpx.Client(timeout=60.0)
+    return httpx.Client(timeout=120.0)
 
 
 settings: Settings = get_settings()
