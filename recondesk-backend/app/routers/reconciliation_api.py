@@ -3140,6 +3140,9 @@ async def reconcile_run_summary(
         run_row = assert_run_accessible(sb, rid, current_user)
         p = ro.load_payload(sb, rid)
         if not p:
+            # Let's check what the raw DB row looks like
+            raw_res = sb.table("reconciliation_results").select("record_data, payload").eq("run_id", rid).limit(1).execute()
+            _log.error(f"RAW DB PAYLOAD CHECK for run {rid}: has_row={bool(raw_res.data)} type(payload)={type(raw_res.data[0].get('payload')) if raw_res.data else 'N/A'}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="no reconciliation payload for this run",
@@ -3148,6 +3151,8 @@ async def reconcile_run_summary(
         return _build_reconcile_summary(
             sb, run_row=run_row, payload=p, current_user_id=uid
         )
+    except HTTPException:
+        raise
     except Exception as e:
         _log.error(f"Error in reconcile_run_summary: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
