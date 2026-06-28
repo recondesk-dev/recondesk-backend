@@ -535,7 +535,7 @@ def _match_gstr_to_pr_pair(
     if gstin_match and inv_ok:
         if amount_within_l2 and date_within_l2 and tax_structure_match:
             return MatchResult(
-                level=2, matched=True, confidence=90, requires_human_review=False,
+                level=2, matched=True, confidence=90, requires_human_review=True,
                 decision_what="Invoice matched with normalized invoice and minor amount difference",
                 decision_why="Same normalized invoice and GSTIN, amount within acceptable tolerance",
                 decision_next="Verify if needed",
@@ -572,7 +572,7 @@ def _match_gstr_to_pr_pair(
     if gstin_match and inv_ok:
         if amount_within_l3 and date_within_l3:
             return MatchResult(
-                level=3, matched=True, confidence=75, requires_human_review=False,
+                level=3, matched=True, confidence=75, requires_human_review=True,
                 decision_what="Invoice matched with differences",
                 decision_why="Same normalized invoice and GSTIN, but amount or date differ within 2%/30d",
                 decision_next="Review differences and correct if needed",
@@ -585,7 +585,7 @@ def _match_gstr_to_pr_pair(
     if gstin_match and format_variant:
         if amount_within_l3 and date_within_l3:
             return MatchResult(
-                level=3, matched=True, confidence=75, requires_human_review=False,
+                level=3, matched=True, confidence=75, requires_human_review=True,
                 decision_what="Format variant with amount or date mismatch",
                 decision_why="Invoice format matches, amount/date within L3 tolerances",
                 decision_next="Review differences",
