@@ -450,8 +450,7 @@ def _match_gstr_to_pr_pair(
     g_inv_raw = str(gstr_rec.get("invoice_number", "")).strip().upper()
     p_inv_raw = str(pr_rec.get("invoice_number", "")).strip().upper()
 
-    if not gstr_rec.get("id") or not pr_rec.get("id"):
-        return None
+    pass
 
     if not g_inv or not p_inv:
         return MatchResult(
@@ -623,6 +622,19 @@ def match_gstr_to_pr(
     candidates: list[dict[str, Any]] = []
     skipped_count = 0
     for pr_rec in pr_records:
+        gstr_record_id = gstr_rec.get("id")
+        pr_record_id = pr_rec.get("id")
+        status = gstr_rec.get("status") or pr_rec.get("status") or "matched"
+
+        if status == 'matched':
+            if not gstr_record_id or not pr_record_id:
+                skipped_count += 1
+                continue
+        elif status == 'review_required':
+            if not gstr_record_id and not pr_record_id:
+                skipped_count += 1
+                continue
+
         r = _match_gstr_to_pr_pair(gstr_rec, pr_rec, gstr_by_invoice)
         if r is None:
             skipped_count += 1
