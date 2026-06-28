@@ -3133,19 +3133,24 @@ async def reconcile_run_summary(
     run_id: str,
     current_user: dict = Depends(get_current_active_user),
 ):
-    rid = _parse_uuid(run_id, "run_id")
-    sb = get_supabase()
-    run_row = assert_run_accessible(sb, rid, current_user)
-    p = ro.load_payload(sb, rid)
-    if not p:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="no reconciliation payload for this run",
+    import traceback
+    try:
+        rid = _parse_uuid(run_id, "run_id")
+        sb = get_supabase()
+        run_row = assert_run_accessible(sb, rid, current_user)
+        p = ro.load_payload(sb, rid)
+        if not p:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="no reconciliation payload for this run",
+            )
+        uid = str(current_user.get("id", ""))
+        return _build_reconcile_summary(
+            sb, run_row=run_row, payload=p, current_user_id=uid
         )
-    uid = str(current_user.get("id", ""))
-    return _build_reconcile_summary(
-        sb, run_row=run_row, payload=p, current_user_id=uid
-    )
+    except Exception as e:
+        _log.error(f"Error in reconcile_run_summary: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def _payload_or_404(sb, rid: str) -> dict[str, Any]:
