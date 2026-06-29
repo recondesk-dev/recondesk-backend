@@ -85,6 +85,7 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(rid),
         "supplier_gstin": sup,
+        "invoice_number": str(inv_raw).strip() if inv_raw else "",
         "invoice_number_normalized": inv,
         "invoice_date": inv_d,
         "taxable_amount_paise": int(taxable),
@@ -118,11 +119,13 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(rid),
         "supplier_gstin": gstin,
+        "invoice_number": str(inv_raw).strip() if inv_raw else "",
         "invoice_number_normalized": invn,
         "invoice_date": inv_d,
         "taxable_amount_paise": _pr_stored_paise(rd.get("taxable_amount_paise")),
         "cgst_paise": _pr_stored_paise(rd.get("cgst_paise")),
         "sgst_paise": _pr_stored_paise(rd.get("sgst_paise")),
         "igst_paise": _pr_stored_paise(rd.get("igst_paise")),
+        "cess_paise": _pr_stored_paise(rd.get("cess_paise")),
         "total_tax_paise": _pr_stored_paise(rd.get("total_tax_paise")),
     }
