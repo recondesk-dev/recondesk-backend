@@ -447,8 +447,8 @@ def _match_gstr_to_pr_pair(
 
     g_inv = _invoice_number(gstr_rec)
     p_inv = _invoice_number(pr_rec)
-    g_inv_raw = str(gstr_rec.get("invoice_number", "")).strip().upper()
-    p_inv_raw = str(pr_rec.get("invoice_number", "")).strip().upper()
+    g_inv_raw = str(gstr_rec.get("invoice_number", "")).strip()
+    p_inv_raw = str(pr_rec.get("invoice_number", "")).strip()
 
     pass
 
@@ -521,7 +521,20 @@ def _match_gstr_to_pr_pair(
     l12_finance_ok = financial_status in ("Exact", "Round-off")
 
     # ── Tier 1: Same GSTIN + exact raw invoice number + amount within 1% ─────────────────
-    if gstin_match and raw_inv_ok:
+    # Vendor-name guard: if both sides carry a name and they diverge (< 0.95 similarity),
+    # do NOT grant a clean L1 — fall through so Tier 2/3 flags the name discrepancy.
+    g_vendor = str(gstr_rec.get("supplier_name") or "").strip()
+    p_vendor = str(pr_rec.get("vendor_name") or "").strip()
+    _vendor_names_present = bool(g_vendor and p_vendor)
+    _vendor_name_ok = (
+        not _vendor_names_present
+        or vendor_name_similarity(g_vendor, p_vendor) >= 0.95
+    )
+    if not _vendor_name_ok:
+        discrepancies.append(
+            f"vendor_name: GSTR={g_vendor!r}, PR={p_vendor!r}"
+        )
+    if gstin_match and raw_inv_ok and _vendor_name_ok:
         if amount_within_l1 and date_within_l1:
             return MatchResult(
                 level=1, matched=True, confidence=100, requires_human_review=False,
