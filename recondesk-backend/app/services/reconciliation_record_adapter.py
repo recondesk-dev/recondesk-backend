@@ -77,6 +77,7 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(rd, dict):
         rd = {}
     sup = (rd.get("supplier_gstin_norm") or rd.get("supplier_gstin") or "").strip()
+    supplier_name = str(rd.get("supplier_name") or "").strip()
     inv_raw = rd.get("invoice_number_norm") or rd.get("invoice_number") or ""
     inv = normalize_invoice(str(inv_raw).strip() if inv_raw is not None else None)
     cg, sg, ig, cs, ttp = _gstr_tax_paise_from_record(rd)
@@ -85,6 +86,7 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(rid),
         "supplier_gstin": sup,
+        "supplier_name": supplier_name,
         "invoice_number": str(inv_raw).strip() if inv_raw else "",
         "invoice_number_normalized": inv,
         "invoice_date": inv_d,
@@ -111,6 +113,7 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(rd, dict):
         rd = {}
     gstin = (rd.get("gstin") or rd.get("supplier_gstin") or "").strip()
+    vendor_name = str(rd.get("supplier_name") or "").strip()
     inv_raw = rd.get("invoice_number_normalized") or rd.get("invoice_number") or ""
     invn = normalize_invoice(
         str(inv_raw).strip() if inv_raw is not None else None
@@ -119,6 +122,7 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(rid),
         "supplier_gstin": gstin,
+        "vendor_name": vendor_name,
         "invoice_number": str(inv_raw).strip() if inv_raw else "",
         "invoice_number_normalized": invn,
         "invoice_date": inv_d,
