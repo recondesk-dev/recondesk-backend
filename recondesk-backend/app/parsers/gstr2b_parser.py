@@ -321,6 +321,7 @@ def _build_invoice_record(
     section: str,
     supplier_gstin_raw: str,
     supplier_gstin: str,
+    supplier_name: str,
     invoice_number_raw: str,
     invoice_date_raw: str,
     invoice_value_raw: str,
@@ -357,6 +358,7 @@ def _build_invoice_record(
         "schema_version": SCHEMA_VERSION,
         "supplier_gstin_raw": supplier_gstin_raw,
         "supplier_gstin": supplier_gstin,
+        "supplier_name": supplier_name,
         "invoice_number_raw": invoice_number_raw,
         "invoice_date_raw": invoice_date_raw,
         "invoice_value_raw": invoice_value_raw,
@@ -387,6 +389,7 @@ def _parse_b2b_invoice(
     supplier_gstin_raw: str,
     section: str,
     is_amendment: bool,
+    supplier_name: str = "",
 ) -> dict:
     normalization_notes: dict = {}
 
@@ -452,6 +455,7 @@ def _parse_b2b_invoice(
         section=section,
         supplier_gstin_raw=supplier_gstin_raw,
         supplier_gstin=supplier_gstin,
+        supplier_name=supplier_name,
         invoice_number_raw=raw_inum,
         invoice_date_raw=str(raw_dt),
         invoice_value_raw=raw_val,
@@ -481,6 +485,7 @@ def _parse_cdnr_invoice(
     supplier_gstin_raw: str,
     section: str,
     is_amendment: bool,
+    supplier_name: str = "",
 ) -> dict:
     normalization_notes: dict = {}
 
@@ -555,6 +560,7 @@ def _parse_cdnr_invoice(
         section=section,
         supplier_gstin_raw=supplier_gstin_raw,
         supplier_gstin=supplier_gstin,
+        supplier_name=supplier_name,
         invoice_number_raw=raw_inum,
         invoice_date_raw=str(raw_dt),
         invoice_value_raw=raw_val,
@@ -705,6 +711,7 @@ def _process_section(
             inv_list = []
 
         raw_ctin = supplier.get("ctin")
+        supplier_name = str(supplier.get("trdnm") or "").strip()
         if raw_ctin is None or (isinstance(raw_ctin, str) and not raw_ctin.strip()):
             ctin_error = ERR_MISSING_SUPPLIER_GSTIN
             ctin_category = SKIP_MISSING_GSTIN
@@ -797,11 +804,13 @@ def _process_section(
             try:
                 if is_cdnr:
                     record = _parse_cdnr_invoice(
-                        invoice, supplier_gstin, raw_ctin, section_name, is_amendment
+                        invoice, supplier_gstin, raw_ctin, section_name, is_amendment,
+                        supplier_name=supplier_name,
                     )
                 else:
                     record = _parse_b2b_invoice(
-                        invoice, supplier_gstin, raw_ctin, section_name, is_amendment
+                        invoice, supplier_gstin, raw_ctin, section_name, is_amendment,
+                        supplier_name=supplier_name,
                     )
                 records.append(record)
             except (NormalizationError, ValueError, KeyError, TypeError) as e:
