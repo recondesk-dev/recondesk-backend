@@ -2050,7 +2050,9 @@ def _build_matched_pair_records(
                         continue
                 else:
                     gid = str(en_row.get("gstr_id", "")).strip()
-                    pid = str(en_row.get("pr_id", "")).strip()
+                    # Paired records store the PR id under "id" (set by reconciliation_task.py).
+                    # Fall back to "id" when the canonical "pr_id" key is absent.
+                    pid = str(en_row.get("pr_id") or en_row.get("id", "")).strip()
                     if not gid and not pid:
                         _log.warning("Skipping REVIEW_REQUIRED pair with missing both IDs")
                         continue
