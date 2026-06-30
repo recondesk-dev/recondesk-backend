@@ -10,7 +10,6 @@ from app.services.matcher import (
     normalize_invoice,
 )
 
-from app.services.reconciliation import run_bidirectional_reconciliation
 
 # Valid 15-char GSTINs (normalized uppercase)
 GSTIN_MH = "27AABCU9603R1ZX"

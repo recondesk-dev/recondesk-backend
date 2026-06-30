@@ -325,6 +325,7 @@ def _push_review_required(state, gstr_id, pr_id, score, review_type, best_result
         "match_status": "review_required",
         "match_status_text": "Review Required",
         "review_reason": review_type,
+        "reason": review_type,
         "match_level": getattr(best_result, "level", 0) if best_result else 0,
         "vendor_similarity_score": getattr(best_result, "vendor_similarity_score", None) if best_result else None,
     }
@@ -393,8 +394,8 @@ def process_gstr_records_chunk(
 
         if best_result is not None and best_pr is not None:
             score = compute_match_score(best_result)
-            if best_result.requires_human_review:
-                _push_review_required(state, gstr_record["id"], best_pr["id"], score, best_result.review_reason, best_result)
+            if best_result.requires_human_review or best_result.level > 1:
+                _push_review_required(state, gstr_record["id"], best_pr["id"], score, best_result.review_reason or "Amount/Date mismatch", best_result)
             else:
                 _push_clean_matched(state, gstr_record["id"], best_pr["id"], score, best_result)
             continue
@@ -425,8 +426,8 @@ def process_gstr_records_chunk(
                 best_r, best_p = acceptable[0]
                 score = compute_match_score(best_r)
                 late_months = (gstr_period.year - period.year) * 12 + (gstr_period.month - period.month)
-                if best_r.requires_human_review:
-                    _push_review_required(state, gstr_record["id"], best_p["id"], score, best_r.review_reason, best_r)
+                if best_r.requires_human_review or best_r.level > 1:
+                    _push_review_required(state, gstr_record["id"], best_p["id"], score, best_r.review_reason or "Amount/Date mismatch", best_r)
                 else:
                     _push_clean_matched(state, gstr_record["id"], best_p["id"], score, best_r, is_late_filing=True, original_period=period, late_months=late_months)
                 break
