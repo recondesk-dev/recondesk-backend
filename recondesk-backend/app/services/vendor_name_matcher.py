@@ -75,47 +75,39 @@ _L1_TRAILING_TOKENS = {
     "ASSOCIATES", "ASSOC",
 }
 
-# Common single-token abbreviations → canonical expansion.
-# These expansions normalize abbreviated tokens to their full form BEFORE
-# similarity scoring — e.g. "Royal Mfg" becomes "ROYAL MANUFACTURING" and
-# scores correctly against "Royal Manufacturing". Critically, the expanded
-# forms (MANUFACTURING, ENTERPRISES, etc.) are NOT in _L1_TRAILING_TOKENS,
-# so they are preserved in the normalized core and used for comparison.
-# This means "Royal Manufacturing" and "Royal Exports" remain distinct strings.
+# LEGAL-FORM ABBREVIATIONS ONLY — CORP and ASSOC.
+# Business-type abbreviations (ENT→ENTERPRISES, IND→INDUSTRIES, MFG→MANUFACTURING,
+# SOLN→SOLUTIONS, DIST→DISTRIBUTORS, SERV→SERVICES, TRDG→TRADING …) are
+# intentionally NOT here. Expanding them makes "Nirvaan Ent" look identical
+# to "Nirvaan Enterprises" after expansion, defeating the fuzzy-case test
+# scenario where abbreviated business-type words are the human-review signal.
+#
+# CORP→CORPORATION and ASSOC→ASSOCIATES are safe: both their abbreviated and
+# expanded forms are in _L1_TRAILING_TOKENS, so after expansion the token is
+# stripped anyway. "Prime Corp" → CORP→CORPORATION → strip → "PRIME". No leak.
 _ABBREV_MAP: dict[str, str] = {
-    # Legal/form abbreviations
     "ASSOC": "ASSOCIATES",
     "CORP":  "CORPORATION",
-    # Business-type abbreviations — expanded for better fuzzy scoring only
-    "MFG":   "MANUFACTURING",
-    "MFRS":  "MANUFACTURERS",
-    "IND":   "INDUSTRIES",
-    "INDS":  "INDUSTRIES",
-    "ENT":   "ENTERPRISES",
-    "ENTS":  "ENTERPRISES",
-    "DIST":  "DISTRIBUTORS",
-    "DISTS": "DISTRIBUTORS",
-    "SOLN":  "SOLUTIONS",
-    "SOLNS": "SOLUTIONS",
-    "SERV":  "SERVICES",
-    "TRDG":  "TRADING",
-    # Geographic/other
-    "INTL":  "INTERNATIONAL",
-    "NATL":  "NATIONAL",
-    "MGMT":  "MANAGEMENT",
 }
 
 
 _RE_PUNCT = re.compile(r"[.,&()\-/]")
 _RE_SPACE = re.compile(r"\s+")
+_RE_DIGITS_ONLY = re.compile(r'^\d+$')
+
 
 
 def _normalize_for_l1(name: str) -> str:
-    """Return a suffix-stripped, abbreviation-expanded, uppercased name core.
+    """Return a suffix-stripped, uppercased name core for L1 comparison.
 
-    Only trailing business-entity tokens are removed — mid-name proper nouns
-    (e.g. "Corporation Bank", "Industries Limited" where "Industries" is core)
-    are preserved because we strip token-by-token from the right end only.
+    Steps:
+    1. Uppercase + strip punctuation.
+    2. Drop pure-numeric tokens (e.g. sequence numbers like 4324).
+    3. Expand ONLY legal-form abbreviations (CORP→CORPORATION, ASSOC→ASSOCIATES).
+       Business-type abbreviations (ENT, IND, SOLN, MFG etc.) are NOT expanded
+       here — they remain as their abbreviated form so token_sort_ratio can see
+       the true difference between a full word and its 3-letter stub.
+    4. Strip trailing legal-form tokens from the right end only.
     """
     if not name:
         return ""
@@ -124,16 +116,43 @@ def _normalize_for_l1(name: str) -> str:
     s = _RE_PUNCT.sub(" ", name.upper())
     s = _RE_SPACE.sub(" ", s).strip()
 
-    # 2. Expand abbreviations (whole-token match only)
-    tokens = s.split()
+    # 2. Drop pure-numeric tokens (sequence numbers embedded in vendor names)
+    tokens = [t for t in s.split() if not _RE_DIGITS_ONLY.match(t)]
+
+    # 3. Expand ONLY legal-form abbreviations
     tokens = [_ABBREV_MAP.get(t, t) for t in tokens]
 
-    # 3. Strip trailing business-entity tokens (from right end only)
+    # 4. Strip trailing legal-form tokens (from right end only)
     while tokens and tokens[-1] in _L1_TRAILING_TOKENS:
         tokens.pop()
 
-    # 4. Re-join and collapse spaces
+    # 5. Re-join
     return " ".join(tokens).strip()
+
+
+# Business-type abbreviation stubs and their full-word expansions.
+# Used by the stub-mismatch guard in l1_vendor_name_ok (Rule 3b):
+# if one side has the stub and the other has the full word, block L1.
+# These are NOT in _ABBREV_MAP (intentionally not expanded during normalisation)
+# so they remain in the normalized token list as short stubs.
+_BTYPE_STUB_TO_FULL: dict[str, str] = {
+    "ENT":   "ENTERPRISES",
+    "ENTS":  "ENTERPRISES",
+    "IND":   "INDUSTRIES",
+    "INDS":  "INDUSTRIES",
+    "MFG":   "MANUFACTURING",
+    "MFRS":  "MANUFACTURERS",
+    "SOLN":  "SOLUTIONS",
+    "SOLNS": "SOLUTIONS",
+    "SERV":  "SERVICES",
+    "DIST":  "DISTRIBUTORS",
+    "DISTS": "DISTRIBUTORS",
+    "TRDG":  "TRADING",
+    "SUPP":  "SUPPLIERS",
+    "SUPPS": "SUPPLIERS",
+}
+# Reverse map: full word → canonical stub
+_BTYPE_FULL_TO_STUB: dict[str, str] = {v: k for k, v in _BTYPE_STUB_TO_FULL.items()}
 
 
 def l1_vendor_name_ok(
@@ -152,6 +171,11 @@ def l1_vendor_name_ok(
        Additionally the shorter must cover ≥ ceil(len(longer_tokens) / 2) of
        the longer's tokens, preventing a 2-token shorter from matching a 6-token
        longer on the first two tokens alone.
+    3b. Stub-mismatch guard: if one side has a known business-type abbreviation
+        stub (ENT, IND, SOLN, MFG, SERV, DIST…) and the other has its full
+        expansion as a distinct token → False (block). This fires before the
+        similarity threshold so that "Apex Serv" vs "Apex Services" (score=0.82)
+        is correctly blocked.
     4. token_sort_ratio on the normalized cores ≥ threshold → True.
     5. Otherwise → False (block L1, let the pair fall through to L2/L3 review).
     """
@@ -178,6 +202,54 @@ def l1_vendor_name_ok(
     coverage_ok = len(shorter_t) >= 2 and len(shorter_t) >= min_coverage
     if is_token_prefix and coverage_ok:
         return True
+
+    # Rule 3b — stub-mismatch guard (per-user spec: "≥2 proper-noun tokens required")
+    # If side A has a known business-type stub (e.g. "SOLN") and side B has its
+    # full expansion ("SOLUTIONS") as a distinct token, this is a stub-vs-full-word
+    # mismatch. We block UNLESS the stub side already has ≥2 proper-noun tokens
+    # that match the start of the other side's proper-noun sequence.
+    #
+    # "Noble Tech Soln" vs "Noble Tech Solutions":
+    #   stub side proper-noun tokens: [NOBLE, TECH] (2 tokens) ≥2 → allowed
+    # "ABC Ent" vs "ABC Enterprises":
+    #   stub side proper-noun tokens: [ABC] (1 token) < 2 → blocked
+    # "Nirvaan Ent 4324" vs "Nirvaan Enterprises":
+    #   stub side proper-noun tokens: [NIRVAAN] (1 token, 4324 stripped) < 2 → blocked
+    ta_set = set(ta)
+    tb_set = set(tb)
+    stub_tokens = set(_BTYPE_STUB_TO_FULL.keys())
+
+    for stub, full in _BTYPE_STUB_TO_FULL.items():
+        for (stub_side_t, other_side_t) in [(ta, tb), (tb, ta)]:
+            stub_side_set = set(stub_side_t)
+            other_side_set = set(other_side_t)
+            if stub in stub_side_set and full in other_side_set and stub not in other_side_set:
+                # Stub-vs-full-word mismatch detected.
+                # Count proper-noun tokens on the stub side: all tokens that are
+                # neither the stub nor any other known business-type stub token.
+                proper_noun_tokens_stub_side = [
+                    t for t in stub_side_t if t not in stub_tokens
+                ]
+                # Count proper-noun tokens on the full-word side (exclude the full
+                # expansion word itself — it's the business-type descriptor).
+                proper_noun_tokens_other_side = [
+                    t for t in other_side_t if t != full and t not in stub_tokens
+                ]
+                # Require ≥2 proper-noun tokens AND that the stub side's proper-noun
+                # tokens are a prefix of the other side's proper-noun tokens.
+                # This allows "Noble Tech Soln" vs "Noble Tech Solutions" but blocks
+                # "ABC Ent" vs "ABC Enterprises".
+                if len(proper_noun_tokens_stub_side) < 2:
+                    return False
+                # Even with ≥2 proper nouns, the proper-noun portions must agree.
+                # "Noble Tech Soln" vs "Prime Tech Solutions" would have proper nouns
+                # [NOBLE,TECH] vs [PRIME,TECH] — they don't match → block.
+                pn_a = proper_noun_tokens_stub_side
+                pn_b = proper_noun_tokens_other_side
+                pn_shorter, pn_longer = (pn_a, pn_b) if len(pn_a) <= len(pn_b) else (pn_b, pn_a)
+                if pn_longer[: len(pn_shorter)] != pn_shorter:
+                    return False  # proper-noun prefixes don't match even with ≥2 tokens
+
 
     # Rule 4 — normalized similarity
     score = fuzz.token_sort_ratio(na, nb) / 100.0
