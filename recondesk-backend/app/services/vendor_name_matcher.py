@@ -1,4 +1,5 @@
 from rapidfuzz import fuzz
+import math
 import re
 
 _STRIP_SUFFIXES = [
@@ -57,48 +58,53 @@ def find_best_vendor_match(
 # ---------------------------------------------------------------------------
 # L1-guard-specific normalisation (independent of the functions above)
 # ---------------------------------------------------------------------------
-# These trailing tokens are stripped from the END of the name only, so that
-# mid-name proper nouns like "Corporation Bank" are never mangled.
+# CONSERVATIVE: only pure legal-entity FORM tokens are stripped from the
+# trailing end — words that describe HOW a company is incorporated, not WHAT
+# it does. Business-type words (EXPORTS, INDUSTRIES, TRADERS, SOLUTIONS,
+# SERVICES, AGENCIES, MANUFACTURING, etc.) are deliberately NOT stripped
+# because they are the distinguishing part of the vendor name:
+#   "Sunrise Exports" vs "Sunrise Industries" must NOT collapse to "SUNRISE".
 _L1_TRAILING_TOKENS = {
-    "PVT", "PRIVATE", "LTD", "LIMITED", "LLP",
+    # Pure legal form
+    "PVT", "PRIVATE", "LTD", "LIMITED", "LLP", "LLC",
     "CORP", "CORPORATION", "CO", "COMPANY", "INC",
-    "ENTERPRISES", "ENTERPRISE",
-    "TRADERS", "TRADING",
-    "INDUSTRIES", "INDUSTRY",
-    "SOLUTIONS", "SERVICES",
-    "AGENCY", "AGENCIES",
-    "AND", "&",                    # "… AND SONS", "… & CO" residuals
-    "SONS", "ASSOCIATES", "ASSOC",
-    "DISTRIBUTORS", "DISTRIBUTOR",
-    "SUPPLIERS", "SUPPLIER",
-    "MANUFACTURING", "MANUFACTURERS",
-    "EXPORTS", "EXPORT",
-    "IMPORTS", "IMPORT",
-    "GARAGE", "GROUP",
+    # Ownership / connector words that appear as trailing noise
+    "AND", "&", "SONS",
+    # Abbreviation expansions: ASSOC is kept because it expands to ASSOCIATES
+    # which is a form word (not a business-type distinguisher).
+    "ASSOCIATES", "ASSOC",
 }
 
-# Common single-token business abbreviations → their canonical expansion.
-# Expanded BEFORE stripping trailing tokens so e.g. "SOLN" becomes
-# "SOLUTIONS" and then is stripped just like the full word.
+# Common single-token abbreviations → canonical expansion.
+# These expansions normalize abbreviated tokens to their full form BEFORE
+# similarity scoring — e.g. "Royal Mfg" becomes "ROYAL MANUFACTURING" and
+# scores correctly against "Royal Manufacturing". Critically, the expanded
+# forms (MANUFACTURING, ENTERPRISES, etc.) are NOT in _L1_TRAILING_TOKENS,
+# so they are preserved in the normalized core and used for comparison.
+# This means "Royal Manufacturing" and "Royal Exports" remain distinct strings.
 _ABBREV_MAP: dict[str, str] = {
-    "SOLN":  "SOLUTIONS",
-    "SOLNS": "SOLUTIONS",
+    # Legal/form abbreviations
+    "ASSOC": "ASSOCIATES",
+    "CORP":  "CORPORATION",
+    # Business-type abbreviations — expanded for better fuzzy scoring only
     "MFG":   "MANUFACTURING",
+    "MFRS":  "MANUFACTURERS",
     "IND":   "INDUSTRIES",
     "INDS":  "INDUSTRIES",
     "ENT":   "ENTERPRISES",
     "ENTS":  "ENTERPRISES",
     "DIST":  "DISTRIBUTORS",
     "DISTS": "DISTRIBUTORS",
-    "ASSOC": "ASSOCIATES",
-    "CORP":  "CORPORATION",
+    "SOLN":  "SOLUTIONS",
+    "SOLNS": "SOLUTIONS",
     "SERV":  "SERVICES",
-    "MKTG":  "MARKETING",
-    "MGMT":  "MANAGEMENT",
+    "TRDG":  "TRADING",
+    # Geographic/other
     "INTL":  "INTERNATIONAL",
     "NATL":  "NATIONAL",
-    "TRDG":  "TRADING",
+    "MGMT":  "MANAGEMENT",
 }
+
 
 _RE_PUNCT = re.compile(r"[.,&()\-/]")
 _RE_SPACE = re.compile(r"\s+")
@@ -138,11 +144,14 @@ def l1_vendor_name_ok(
     """Return True if the two vendor names are close enough to allow L1 match.
 
     Logic (applied to suffix-stripped, abbreviation-expanded, uppercased cores):
-    1. If either name is empty → True (no signal, do not block L1).
-    2. Containment / prefix check: if the shorter core IS the longer or is a
-       prefix of the longer → True (handles "Metro Supplier" vs "Metro Suppliers").
-    3. Length-ratio shortcut: if shorter is ≥ 90% the length of longer AND
-       the shorter is a prefix of the longer → True.
+    1. If either normalized core is empty → True (no signal, do not block L1).
+    2. Exact equality of normalized cores → True.
+    3. Token-prefix check: the shorter token list must be a true prefix of the
+       longer token list, AND the shorter must carry at least 2 tokens (a single
+       shared word like "OM", "SHREE", "CROWN" is insufficient on its own).
+       Additionally the shorter must cover ≥ ceil(len(longer_tokens) / 2) of
+       the longer's tokens, preventing a 2-token shorter from matching a 6-token
+       longer on the first two tokens alone.
     4. token_sort_ratio on the normalized cores ≥ threshold → True.
     5. Otherwise → False (block L1, let the pair fall through to L2/L3 review).
     """
@@ -153,11 +162,21 @@ def l1_vendor_name_ok(
     if not na or not nb:
         return True
 
-    # Rule 2 & 3 — containment / prefix check
-    shorter, longer = (na, nb) if len(na) <= len(nb) else (nb, na)
-    if longer.startswith(shorter):
+    # Rule 2 — exact equality (catches identical names after normalisation)
+    if na == nb:
         return True
-    if len(shorter) >= 0.90 * len(longer) and longer.startswith(shorter[: len(shorter)]):
+
+    # Rule 3 — whole-token prefix check (only when shorter has ≥ 2 tokens)
+    ta = na.split()
+    tb = nb.split()
+    shorter_t, longer_t = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+
+    min_coverage = math.ceil(len(longer_t) / 2)
+    is_token_prefix = longer_t[: len(shorter_t)] == shorter_t
+    # Require at least 2 tokens in the shorter AND coverage ≥ ceil(longer/2).
+    # This prevents any single-word prefix ("OM", "SHREE") from passing.
+    coverage_ok = len(shorter_t) >= 2 and len(shorter_t) >= min_coverage
+    if is_token_prefix and coverage_ok:
         return True
 
     # Rule 4 — normalized similarity

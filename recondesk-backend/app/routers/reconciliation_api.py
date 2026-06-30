@@ -1670,6 +1670,18 @@ def _matched_ui_match_level(engine_row: dict[str, Any], match_status_display: Op
         return "MANUAL"
     if st == "MATCHED":
         return "EXACT"
+    # For Review Required rows, use the stored numeric match_level to return
+    # a meaningful label rather than the generic "FUZZY" fallback.
+    lvl = engine_row.get("match_level")
+    _LEVEL_LABEL = {
+        1: "EXACT",
+        2: "L2_NORMALIZED",
+        3: "L3_AMOUNT_MISMATCH",
+        4: "L4_VENDOR_FUZZY",
+        5: "L5_TYPO_INVOICE",
+    }
+    if isinstance(lvl, int) and lvl in _LEVEL_LABEL:
+        return _LEVEL_LABEL[lvl]
     return "FUZZY"
 
 
