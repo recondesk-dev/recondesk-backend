@@ -1725,7 +1725,7 @@ def _build_reconcile_summary(
     exact_match_count = matched_count - mismatched_count
     missed_count = len(missed_list)
     wrongful_count = len(wr_list)
-    review_required_count = len(engine.get("duplicates") or [])
+    review_required_count = len(engine.get("duplicates") or []) + len(engine.get("review_required_typo") or [])
     total_linked_count = matched_count + review_required_count
 
     missed_total_rupees = sum(

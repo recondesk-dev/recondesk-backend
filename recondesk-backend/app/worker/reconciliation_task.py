@@ -1154,10 +1154,17 @@ def execute_reconciliation(run_id: str) -> None:
                 continue
             
             r["reason"] = reason
-            if gid and str(gid).strip() and str(gid).strip() != "None":
+            gid_valid = gid and str(gid).strip() and str(gid).strip() != "None"
+            pid_valid = pid and str(pid).strip() and str(pid).strip() != "None"
+            
+            if gid_valid and pid_valid:
+                # Paired record, keep both IDs, no single "side"
+                r["gstr_id"] = gid
+                r["id"] = pid
+            elif gid_valid:
                 r["side"] = "GSTR"
                 r["gstr_id"] = gid
-            elif pid and str(pid).strip() and str(pid).strip() != "None":
+            elif pid_valid:
                 r["side"] = "PR"
                 r["id"] = pid
 

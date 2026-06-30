@@ -472,7 +472,16 @@ def build_outcome_rows(
         )
     for dup in list(engine.get("duplicates") or []):
         side = dup.get("side")
-        if side == "GSTR":
+        if not side:
+            # Paired record
+            gid = str(dup.get("gstr_id", ""))
+            pid = str(dup.get("id", ""))
+            g_cell = gstr_m.get(gid) or {}
+            p_cell = pr_m.get(pid) or {}
+            m_rec = g_cell.get("matcher") or p_cell.get("matcher") or {}
+            sname = _gstr_name(g_cell.get("record_data") or {}) if g_cell.get("record_data") else None
+            cid = f"rrp:{gid}-{pid}"
+        elif side == "GSTR":
             rid = str(dup.get("gstr_id", ""))
             cell = gstr_m.get(rid) or {}
             m_rec = cell.get("matcher") or {}
@@ -488,6 +497,10 @@ def build_outcome_rows(
         invn = str(dup.get("invoice_number_normalized") or m_rec.get("invoice_number_normalized") or "")
         invd = dup.get("invoice_date") or m_rec.get("invoice_date")
         reason = str(dup.get("reason") or "DUPLICATE_CONFLICT")
+        
+        d_what = reason.replace("_", " ").title() if reason else "Manual Review Required"
+        d_next = "Manual review required to verify correct pairing."
+        
         rows.append(
             OutcomeRow(
                 id=cid,
@@ -502,9 +515,9 @@ def build_outcome_rows(
                 cgst_diff=0,
                 sgst_diff=0,
                 total_tax_diff_paise=0,
-                decision_what="Ambiguous Duplicate / Conflict",
+                decision_what=d_what,
                 decision_why=reason,
-                decision_next="Manual review required to verify correct pairing.",
+                decision_next=d_next,
                 rule37_flag=False,
                 blocked_credit_flag=False,
                 late_filing_flag=False,
