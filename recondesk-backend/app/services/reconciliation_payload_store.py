@@ -63,6 +63,12 @@ _DUPLICATE_KEYS = (
     "total_tax_paise",
     "side",
     "reason",
+    # Review-required rows are stored via duplicates; these three fields
+    # must be preserved so the API can show real match_level, confidence,
+    # and review reason instead of defaulting to FUZZY / 0%.
+    "confidence_score",
+    "match_level",
+    "review_reason",
 )
 
 _DECISION_ROW_KEYS = (
