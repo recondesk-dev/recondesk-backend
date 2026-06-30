@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 from app.services.vendor_name_matcher import (
     find_best_vendor_match,
+    l1_vendor_name_ok,
     vendor_name_similarity,
 )
 
@@ -521,14 +522,18 @@ def _match_gstr_to_pr_pair(
     l12_finance_ok = financial_status in ("Exact", "Round-off")
 
     # ── Tier 1: Same GSTIN + exact raw invoice number + amount within 1% ─────────────────
-    # Vendor-name guard: if both sides carry a name and they diverge (< 0.95 similarity),
-    # do NOT grant a clean L1 — fall through so Tier 2/3 flags the name discrepancy.
+    # Vendor-name guard: if both sides carry a name and they are clearly different
+    # vendors (after suffix-stripping and abbreviation expansion), do NOT grant a
+    # clean L1 — fall through so Tier 2/3 flags the name discrepancy.
+    # Uses l1_vendor_name_ok() which normalises trailing legal suffixes (Pvt Ltd,
+    # Corp, etc.) and expands abbreviations (Soln→Solutions, Mfg→Manufacturing)
+    # before comparing, with a 0.80 threshold on normalized cores.
     g_vendor = str(gstr_rec.get("supplier_name") or "").strip()
     p_vendor = str(pr_rec.get("vendor_name") or "").strip()
     _vendor_names_present = bool(g_vendor and p_vendor)
     _vendor_name_ok = (
         not _vendor_names_present
-        or vendor_name_similarity(g_vendor, p_vendor) >= 0.95
+        or l1_vendor_name_ok(g_vendor, p_vendor)
     )
     if not _vendor_name_ok:
         discrepancies.append(
