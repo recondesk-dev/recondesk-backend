@@ -1,6 +1,11 @@
 import pytest
 from datetime import date
-from app.services.reconciliation import process_gstr_records_chunk, ReconState
+from app.services.reconciliation import (
+    process_gstr_records_chunk,
+    execute_phase2_and_3,
+    build_pr_candidate_indices,
+    ReconState,
+)
 from app.services.matcher import normalize_invoice
 
 def _gstr(id_, inv_num, inv_date, tax=1000):
@@ -80,10 +85,13 @@ def test_6k_benchmark_classification():
         if gstin not in pr_by_invoice: pr_by_invoice[gstin] = {}
         inv = p["invoice_number_normalized"]
         pr_by_invoice[gstin][inv] = p
+
+    candidate_indices = build_pr_candidate_indices(pr_index)
         
     period = date(2024, 3, 1)
     pr_index_by_period = {period: pr_index}
     
+    # Phase 1: strict clean matching
     process_gstr_records_chunk(
         gstr_records=gstr_records,
         effective_gstr_period=period,
@@ -91,7 +99,16 @@ def test_6k_benchmark_classification():
         pr_index_by_period=pr_index_by_period,
         state=state,
         gstr_by_invoice=gstr_by_invoice,
-        pr_by_invoice=pr_by_invoice
+        pr_by_invoice=pr_by_invoice,
+        candidate_indices=candidate_indices,
+    )
+
+    # Phase 2+3: resolve review_required, classify orphans into missed_itc
+    execute_phase2_and_3(
+        gstr_records=gstr_records,
+        pr_records=pr_records,
+        state=state,
+        candidate_indices=candidate_indices,
     )
     
     print(f"Clean Matched: {len(state.clean_matched)}")
@@ -99,7 +116,7 @@ def test_6k_benchmark_classification():
     print(f"Missed ITC: {len(state.missed_itc)}")
     print(f"ITC at Risk: {len(pr_records) - len(state.consumed_pr_ids)}")
     
-    assert len(state.clean_matched) == 4200
-    assert len(state.review_required) == 1350
-    assert len(state.missed_itc) == 450
-    assert len(pr_records) - len(state.consumed_pr_ids) == 450
+    assert len(state.clean_matched) == 4200, f"Expected 4200 clean matched, got {len(state.clean_matched)}"
+    assert len(state.review_required) == 1350, f"Expected 1350 review required, got {len(state.review_required)}"
+    assert len(state.missed_itc) == 450, f"Expected 450 missed ITC, got {len(state.missed_itc)}"
+    assert len(pr_records) - len(state.consumed_pr_ids) == 450, f"Expected 450 ITC at risk, got {len(pr_records) - len(state.consumed_pr_ids)}"
