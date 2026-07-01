@@ -730,6 +730,23 @@ def _finalize_reconciliation_result(
     l3 = sum(1 for m in state.clean_matched if m.get("match_level") == 3)
     
     gstr_by_id = {str(g["id"]): g for g in (gstr_records or [])}
+    
+    # ── INJECT IMS STATUS (Stage 3 Integration) ──
+    for m in state.clean_matched:
+        gid = m.get("gstr_id")
+        if gid and gid in gstr_by_id:
+            m["ims_status"] = gstr_by_id[gid].get("ims_status", "no_action_taken")
+            
+    for m in state.review_required:
+        gid = m.get("gstr_id")
+        if gid and gid in gstr_by_id:
+            m["ims_status"] = gstr_by_id[gid].get("ims_status", "no_action_taken")
+            
+    for m in state.missed_itc:
+        gid = m.get("gstr_id")
+        if gid and gid in gstr_by_id:
+            m["ims_status"] = gstr_by_id[gid].get("ims_status", "no_action_taken")
+
     def _review_metrics(reason_match: str) -> tuple[int, float]:
         count = 0
         amt_paise = 0
