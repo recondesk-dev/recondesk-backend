@@ -23,6 +23,7 @@ DATE_TOLERANCE_L2_DAYS = 7
 DATE_TOLERANCE_L3_DAYS = 30
 
 TOTAL_TOLERANCE_PAISE = 100  # Rs1 rounding on taxable + total tax
+AMOUNT_TOLERANCE_L2_PAISE = 5000  # Rs50 — 0.5% of a typical Rs10k invoice
 
 INVOICE_SIMILARITY_L5_MIN = 0.70
 
@@ -540,7 +541,7 @@ def _match_gstr_to_pr_pair(
             f"vendor_name: GSTR={g_vendor!r}, PR={p_vendor!r}"
         )
     if gstin_match and raw_inv_ok and _vendor_name_ok:
-        if amount_within_l1 and date_within_l1:
+        if amount_within_l1 and date_within_l1 and l12_finance_ok:
             return MatchResult(
                 level=1, matched=True, confidence=100, requires_human_review=False,
                 decision_what="Exact match found",
@@ -549,6 +550,8 @@ def _match_gstr_to_pr_pair(
                 discrepancies=discrepancies,
                 identity_confidence="High", financial_status=financial_status,
             )
+        # Same raw invoice, same GSTIN, vendor ok — but financial mismatch (tax
+        # structure or total_tax differs). Fall through to L2/L3 for human review.
     # ── Tier 2: Same GSTIN + normalized invoice number (L2) ─────────────────
     if gstin_match and inv_ok:
         if amount_within_l2 and date_within_l2 and tax_structure_match:
@@ -809,8 +812,26 @@ def match_gstr_to_pr(
         is_late_filing_sel = best_candidate["is_late_filing"]
         original_period_sel = best_candidate["original_period"]
 
-    return replace(
+    final = replace(
         best_candidate["r"],
         is_late_filing=is_late_filing_sel,
         original_period=original_period_sel,
+    )
+    # Safety net: if an L1/L2 slipped through with a financial mismatch
+    # (e.g. has_tax_lines was False so the l12_finance_ok guard wasn't active),
+    # cap it to L3-review so it never lands in clean_matched.
+    pr_sel = best_candidate["pr"]
+    gstr_total = _invoice_total_paise(gstr_rec)
+    pr_total = _invoice_total_paise(pr_sel)
+    total_diff_sel = abs(gstr_total - pr_total)
+    gstin_match_sel = _gstin_match_spec(gstr_rec, pr_sel)
+    enforce = bool(
+        _safe_paise_field(gstr_rec, "total_tax_paise") != 0
+        or _safe_paise_field(pr_sel, "total_tax_paise") != 0
+    )
+    return _financial_downgrade_l13(
+        final,
+        gstin_match=gstin_match_sel,
+        total_diff=total_diff_sel,
+        enforce_total_tolerance=enforce,
     )
