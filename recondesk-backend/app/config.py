@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     SENTRY_DSN: Optional[str] = None
     ADMIN_USER_ID: Optional[str] = None
 
+    # Sandbox.co.in GST API
+    SANDBOX_API_KEY: str = ""
+    SANDBOX_BASE_URL: str = "https://api.sandbox.co.in"
+    SANDBOX_API_VERSION: str = "1.0.0"
+
     @computed_field  # type: ignore[misc]
     @property
     def ENV(self) -> str:  # noqa: N802

@@ -1,0 +1,110 @@
+{
+  "code": 200,
+  "data": {
+    "data": {
+      "gstin": "27AABCU9603R1ZP",
+      "rtnprd": "112024",
+      "gendt": "15-12-2024",
+      "b2b": [
+        {
+          "ctin": "27AABCU9603R1ZP",
+          "inv": [
+            {
+              "chksum": "ABCDE12345",
+              "cfs": "Y",
+              "cfs3b": "Y",
+              "dt": "05-11-2024",
+              "iamt": 0,
+              "inum": "AO2SA2425002517",
+              "itcavl": "Y",
+              "pos": "27",
+              "rchrg": "N",
+              "rev": "N",
+              "srctyp": "FILED_RETURN",
+              "supprd": "112024",
+              "val": 142700,
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "csamt": 0,
+                    "camt": 10883.91,
+                    "iamt": 0,
+                    "samt": 10883.91,
+                    "rt": 18,
+                    "txval": 120932.18
+                  }
+                }
+              ]
+            },
+            {
+              "chksum": "FGHIJ67890",
+              "cfs": "Y",
+              "cfs3b": "Y",
+              "dt": "12-11-2024",
+              "iamt": 0,
+              "inum": "INV2024-001",
+              "itcavl": "Y",
+              "pos": "27",
+              "rchrg": "N",
+              "rev": "N",
+              "srctyp": "FILED_RETURN",
+              "supprd": "112024",
+              "val": 70800.0,
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "csamt": 0,
+                    "camt": 5400.0,
+                    "iamt": 0,
+                    "samt": 5400.0,
+                    "rt": 18,
+                    "txval": 60000.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "07AAACR5055K1ZE",
+          "inv": [
+            {
+              "chksum": "KLMNO11223",
+              "cfs": "Y",
+              "cfs3b": "Y",
+              "dt": "20-10-2024",
+              "iamt": 18000.0,
+              "inum": "GST/2024/555",
+              "itcavl": "Y",
+              "pos": "07",
+              "rchrg": "N",
+              "rev": "N",
+              "srctyp": "FILED_RETURN",
+              "supprd": "102024",
+              "val": 118000.0,
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "csamt": 0,
+                    "camt": 0,
+                    "iamt": 18000.0,
+                    "samt": 0,
+                    "rt": 18,
+                    "txval": 100000.0
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "cdnr": []
+    },
+    "status_cd": "1"
+  },
+  "timestamp": 1763447000000,
+  "transaction_id": "bb222222-c333-d444-e555-ff6666666666"
+}

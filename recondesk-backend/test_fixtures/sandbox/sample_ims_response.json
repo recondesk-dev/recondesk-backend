@@ -1,0 +1,94 @@
+{
+  "code": 200,
+  "data": {
+    "data": {
+      "b2b": [
+        {
+          "action": "A",
+          "camt": 10883.91,
+          "cess": 0,
+          "hash": "dbd0f1c65631f9fdbfd3ab8d56c2949c3354b688ea53dee44e42768c07b676e2",
+          "iamt": 0,
+          "idt": "05-11-2024",
+          "inum": "AO2SA2425002517",
+          "inv_typ": "R",
+          "ispendactblocked": "N",
+          "pos": "27",
+          "rtnprd": "112024",
+          "samt": 10883.91,
+          "srcfilstatus": "Filed",
+          "srcform": "R1",
+          "stin": "27AABCU9603R1ZP",
+          "txval": 120932.18,
+          "val": 142700,
+          "ims_status": "no_action_taken"
+        },
+        {
+          "action": "A",
+          "camt": 5400.0,
+          "cess": 0,
+          "hash": "ae1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1",
+          "iamt": 0,
+          "idt": "12-11-2024",
+          "inum": "INV2024-001",
+          "inv_typ": "R",
+          "ispendactblocked": "N",
+          "pos": "27",
+          "rtnprd": "112024",
+          "samt": 5400.0,
+          "srcfilstatus": "Filed",
+          "srcform": "R1",
+          "stin": "27AABCU9603R1ZP",
+          "txval": 60000.0,
+          "val": 70800.0,
+          "ims_status": "pending"
+        },
+        {
+          "action": "R",
+          "camt": 0,
+          "cess": 0,
+          "hash": "bb2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0b2c3",
+          "iamt": 18000.0,
+          "idt": "20-10-2024",
+          "inum": "GST/2024/555",
+          "inv_typ": "R",
+          "ispendactblocked": "N",
+          "pos": "07",
+          "rtnprd": "112024",
+          "samt": 0,
+          "srcfilstatus": "Filed",
+          "srcform": "R1",
+          "stin": "07AAACR5055K1ZE",
+          "txval": 100000.0,
+          "val": 118000.0,
+          "ims_status": "rejected"
+        }
+      ],
+      "cn": [
+        {
+          "action": "A",
+          "camt": 900.0,
+          "cess": 0,
+          "hash": "cc3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0c3d4e5",
+          "iamt": 0,
+          "idt": "15-11-2024",
+          "inum": "CN-2024-0089",
+          "inv_typ": "CR",
+          "ispendactblocked": "N",
+          "pos": "27",
+          "rtnprd": "112024",
+          "samt": 900.0,
+          "srcfilstatus": "Filed",
+          "srcform": "R1",
+          "stin": "27AABCU9603R1ZP",
+          "txval": 10000.0,
+          "val": 11800.0,
+          "ims_status": "no_action_taken"
+        }
+      ]
+    },
+    "status_cd": "1"
+  },
+  "timestamp": 1763446641000,
+  "transaction_id": "fd976f56-b9a9-4012-9504-a351b1f2b7fa"
+}
