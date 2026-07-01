@@ -1,0 +1,52 @@
+{
+  "code": 200,
+  "data": {
+    "data": {
+      "b2b": [
+        {
+          "action": "A",
+          "camt": 10883.91,
+          "cess": 0,
+          "hash": "dbd0f1c65631f9fdbfd3ab8d56c2949c3354b688ea53dee44e42768c07b676e2",
+          "iamt": 0,
+          "idt": "05-11-2024",
+          "inum": "AO2SA2425002517",
+          "inv_typ": "R",
+          "ispendactblocked": "N",
+          "pos": "27",
+          "rtnprd": "112024",
+          "samt": 10883.91,
+          "srcfilstatus": "Filed",
+          "srcform": "R1",
+          "stin": "27AABCU9603R1ZP",
+          "txval": 120932.18,
+          "val": 142700,
+          "ims_status": "accepted"
+        },
+        {
+          "action": "A",
+          "camt": 2700.0,
+          "cess": 0,
+          "hash": "ee5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0e5f6a7b8c9",
+          "iamt": 0,
+          "idt": "03-11-2024",
+          "inum": "VEND-B2B-9001",
+          "inv_typ": "R",
+          "ispendactblocked": "N",
+          "pos": "27",
+          "rtnprd": "112024",
+          "samt": 2700.0,
+          "srcfilstatus": "Filed",
+          "srcform": "R1",
+          "stin": "27AABCU9603R1ZP",
+          "txval": 30000.0,
+          "val": 35400.0,
+          "ims_status": "accepted"
+        }
+      ]
+    },
+    "status_cd": "1"
+  },
+  "timestamp": 1763446700000,
+  "transaction_id": "aa111111-b222-c333-d444-ee5555555555"
+}
