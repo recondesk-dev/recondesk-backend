@@ -91,19 +91,32 @@ def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
         _log.exception("gstr3b_recon: failed to load reconciliation_results run_id=%s", run_id)
         return {"igst": 0.0, "cgst": 0.0, "sgst": 0.0}
 
-    payload: dict = (res.data or {}).get("payload") or {}
-    engine: dict  = payload.get("engine") or {}
+    payload = (res.data or {}).get("payload")
+    if not isinstance(payload, dict):
+        payload = {}
+        
+    engine = payload.get("engine")
+    if not isinstance(engine, dict):
+        engine = {}
 
     # 2. Collect gstr record IDs that appear in matched + missed ITC
     gstr_ids: set[str] = set()
-    for m in engine.get("matched") or []:
-        gid = str(m.get("gstr_id") or "").strip()
-        if gid:
-            gstr_ids.add(gid)
-    for m in engine.get("missed_itc") or []:
-        gid = str(m.get("gstr_id") or "").strip()
-        if gid:
-            gstr_ids.add(gid)
+    
+    matched = engine.get("matched")
+    if isinstance(matched, list):
+        for m in matched:
+            if isinstance(m, dict):
+                gid = str(m.get("gstr_id") or "").strip()
+                if gid:
+                    gstr_ids.add(gid)
+                    
+    missed = engine.get("missed_itc")
+    if isinstance(missed, list):
+        for m in missed:
+            if isinstance(m, dict):
+                gid = str(m.get("gstr_id") or "").strip()
+                if gid:
+                    gstr_ids.add(gid)
 
     if not gstr_ids:
         return {"igst": 0.0, "cgst": 0.0, "sgst": 0.0}
@@ -125,12 +138,19 @@ def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
             _log.exception("gstr3b_recon: gstr_records fetch failed run_id=%s", run_id)
             continue
         for row in recs.data or []:
-            rd: dict = row.get("record_data") or {}
+            if not isinstance(row, dict):
+                continue
+            rd = row.get("record_data")
+            if not isinstance(rd, dict):
+                continue
             # Items hold paise values; sum across all items per record
-            for item in rd.get("items") or []:
-                igst_total += _paise_to_rupees(item.get("igst_paise") or 0)
-                cgst_total += _paise_to_rupees(item.get("cgst_paise") or 0)
-                sgst_total += _paise_to_rupees(item.get("sgst_paise") or 0)
+            items = rd.get("items")
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict):
+                        igst_total += _paise_to_rupees(item.get("igst_paise") or 0)
+                        cgst_total += _paise_to_rupees(item.get("cgst_paise") or 0)
+                        sgst_total += _paise_to_rupees(item.get("sgst_paise") or 0)
 
     return {
         # round() applied once on the accumulated sum, not per-row, to avoid
@@ -186,7 +206,10 @@ def reconcile_gstr3b(
     g2b_sgst = gstr2b_itc["sgst"]
 
     # -- GSTR-3B side: net ITC after reversals (what was actually claimed)
-    itc_net: dict = gstr3b_data.get("itc_net") or {}
+    itc_net = gstr3b_data.get("itc_net")
+    if not isinstance(itc_net, dict):
+        itc_net = {}
+        
     g3b_igst = _safe_float(itc_net.get("igst"))
     g3b_cgst = _safe_float(itc_net.get("cgst"))
     g3b_sgst = _safe_float(itc_net.get("sgst"))
@@ -206,7 +229,9 @@ def reconcile_gstr3b(
     g3b_total = round(g3b_igst + g3b_cgst + g3b_sgst, 2)
     diff_total = round(g3b_total - g2b_total, 2)
 
-    outward: dict = gstr3b_data.get("outward_supply") or {}
+    outward = gstr3b_data.get("outward_supply")
+    if not isinstance(outward, dict):
+        outward = {}
 
     return {
         "igst": {
