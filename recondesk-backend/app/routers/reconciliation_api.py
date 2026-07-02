@@ -2017,17 +2017,26 @@ def _build_matched_pair_records(
     if fetch_review_required:
         engine_matched = (payload.get("engine", {}).get("duplicates") or []) + (payload.get("engine", {}).get("review_required_typo") or [])
         oc_matched_in_order = [r for r in ro.build_outcome_rows(sb, rid, payload)[0] if r.category == "review_required"]
+        if len(oc_matched_in_order) != len(engine_matched):
+            _log.warning(
+                "review_required outcome vs engine mismatch run=%s oc=%s engine=%s",
+                rid,
+                len(oc_matched_in_order),
+                len(engine_matched),
+            )
+        oc_matched_by_gid: dict[str, Any] = {}  # unused in review_required branch
     else:
         engine_matched = payload.get("engine", {}).get("matched") or []
-        oc_matched_in_order = [r for r in ro.build_outcome_rows(sb, rid, payload)[0] if r.category == "matched"]
-
-    if len(oc_matched_in_order) != len(engine_matched):
-        _log.warning(
-            "matched outcome vs engine mismatch run=%s %s vs %s",
-            rid,
-            len(oc_matched_in_order),
-            len(engine_matched),
-        )
+        # Build a gstr_id-keyed dict instead of a positional list.
+        # engine["matched"] can contain ghost rows (gstr_id not in DB) that
+        # build_outcome_rows silently skips, causing oc_matched_in_order[idx]
+        # to return the WRONG orow for every row after the gap.
+        oc_matched_by_gid = {
+            r.id.removeprefix("pm:"): r
+            for r in ro.build_outcome_rows(sb, rid, payload)[0]
+            if r.category == "matched" and r.id.startswith("pm:")
+        }
+        oc_matched_in_order = []  # unused in matched branch (kept for type consistency)
 
     out_pairs: list[tuple[dict[str, Any], Any]] = []
 
@@ -2082,7 +2091,11 @@ def _build_matched_pair_records(
             if not gm and not pm:
                 continue
 
-            orow = oc_matched_in_order[idx] if idx < len(oc_matched_in_order) else None
+            orow = (
+                oc_matched_by_gid.get(gid)
+                if not fetch_review_required
+                else (oc_matched_in_order[idx] if idx < len(oc_matched_in_order) else None)
+            )
             mst_disp = getattr(orow, "match_status", None)
             lvl = _matched_ui_match_level(dict(en_row), mst_disp)
             
