@@ -127,6 +127,7 @@ type ReconcileRow = {
   match_level: MatchLevel;
   confidence_score: number;
   discrepancy_note: string | null;
+  discrepancy_reason?: string | null;
   tax_difference_paise?: number | null;
   decision_what: string | null;
   decision_why: string | null;
@@ -3019,7 +3020,7 @@ export default function ReconcileResultsPage() {
                   }`}
                 >
                   <span className={`h-2 w-2 shrink-0 rounded-full ${matchedFilters.match_level === "FUZZY" ? "bg-[#F59E0B]" : "bg-gray-300"}`} aria-hidden />
-                  {summary?.mismatched_count ?? 0} Mismatch
+                  {((summary?.clean_matched_count ?? summary?.matched_count ?? 0) - (summary?.exact_match_count ?? 0)).toLocaleString("en-IN")} Non-exact match
                 </button>
               </div>
             )}
@@ -3094,6 +3095,14 @@ export default function ReconcileResultsPage() {
                         row.tax_difference_paise,
                         row.discrepancy_note
                       );
+
+                      if (taxDiff.display === "₹0.00" && row.discrepancy_reason) {
+                        const reasonDisplay = row.discrepancy_reason.replace(/_/g, " ");
+                        const titleCased = reasonDisplay === reasonDisplay.toUpperCase()
+                          ? reasonDisplay.charAt(0).toUpperCase() + reasonDisplay.slice(1).toLowerCase()
+                          : reasonDisplay;
+                        taxDiff = { display: titleCased, tooltip: row.discrepancy_reason };
+                      }
 
                       if (row.match_level === "FUZZY" || row.match_level === "EXACT") {
                         const gstrAmt = row.amount;
@@ -3412,6 +3421,14 @@ export default function ReconcileResultsPage() {
                         row.tax_difference_paise,
                         row.discrepancy_note
                       );
+
+                      if (taxDiff.display === "₹0.00" && row.discrepancy_reason) {
+                        const reasonDisplay = row.discrepancy_reason.replace(/_/g, " ");
+                        const titleCased = reasonDisplay === reasonDisplay.toUpperCase()
+                          ? reasonDisplay.charAt(0).toUpperCase() + reasonDisplay.slice(1).toLowerCase()
+                          : reasonDisplay;
+                        taxDiff = { display: titleCased, tooltip: row.discrepancy_reason };
+                      }
 
                       if (row.match_level === "FUZZY" || row.match_level === "EXACT") {
                         const gstrAmt = row.amount;
