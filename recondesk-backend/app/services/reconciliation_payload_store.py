@@ -20,6 +20,10 @@ _MATCHED_KEYS = (
     "original_period",
     "late_months",
     "vendor_similarity_score",
+    # Required for exact vs non-exact chip count and match-level badge.
+    # These are small scalars and do not materially increase payload size.
+    "match_level",
+    "financial_status",
 )
 
 _MISSED_ITC_KEYS = (

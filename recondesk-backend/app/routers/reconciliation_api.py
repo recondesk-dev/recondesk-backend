@@ -1738,12 +1738,23 @@ def _build_reconcile_summary(
     )
     matched_count = sum(1 for r in outcome_rows if r.category == "matched")
     review_required_count = sum(1 for r in outcome_rows if r.category == "review_required")
-    mismatched_count = sum(
-        1 for r in outcome_rows
-        if r.category == "matched" and getattr(r, "match_status", "") == "MISMATCHED"
-    )
-    exact_match_count = matched_count - mismatched_count
     total_linked_count = matched_count + review_required_count
+
+    # exact_match_count: count of matched pairs where the match method was L1
+    # (identical GSTIN + invoice number + amounts — no normalisation or fuzzy logic).
+    # Source of truth is match_level == 1 in the engine payload, which is preserved
+    # in _MATCHED_KEYS since this fix.  For runs serialized before this fix (where
+    # match_level is absent / None), fall back to confidence_score == 100 which only
+    # L1 pairs emit.  Do NOT use financial match_status == "MISMATCHED" — that is a
+    # discrepancy flag, not a match-method flag, and produces wildly wrong counts.
+    matched_engine_rows = engine.get("matched") or []
+    exact_match_count = sum(
+        1 for m in matched_engine_rows
+        if isinstance(m, dict) and (
+            m.get("match_level") == 1
+            or (m.get("match_level") is None and m.get("confidence_score") == 100)
+        )
+    )
 
     # Count gstr_records with a single COUNT query instead of fetching all rows.
     _cnt = (
