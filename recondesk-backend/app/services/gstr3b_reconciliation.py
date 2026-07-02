@@ -219,7 +219,7 @@ def reconcile_gstr3b(
             "gstr2b":     g2b_total,
             "gstr3b":     g3b_total,
             "difference": diff_total,
-            "status":     _overall_status(status_igst, status_cgst, status_sgst),
+            "status":     _head_status(g2b_total, g3b_total),
         },
         "outward_supply": {
             "taxable_value": _safe_float(outward.get("taxable_value")),
