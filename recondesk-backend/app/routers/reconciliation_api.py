@@ -4277,11 +4277,15 @@ async def upload_and_reconcile_gstr3b(
             detail=str(exc),
         ) from exc
 
-    client_gstin = str(run_row.get("client_gstin_id") or "").strip().upper()
-    if parsed.get("gstin") != client_gstin:
+    client_gstin_id = str(run_row.get("client_gstin_id") or "").strip()
+    # Fetch the actual GSTIN string from the database using the ID
+    client_gstin_res = sb.table("client_gstins").select("gstin").eq("id", client_gstin_id).single().execute()
+    actual_client_gstin = str((client_gstin_res.data or {}).get("gstin") or "").strip().upper()
+
+    if parsed.get("gstin") != actual_client_gstin:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"GSTIN mismatch: file is for {parsed.get('gstin')}, but run is for {client_gstin}",
+            detail=f"GSTIN mismatch: file is for {parsed.get('gstin')}, but run is for {actual_client_gstin}",
         )
 
     expected_period = str(run_row.get("period") or "").strip()
@@ -4292,7 +4296,7 @@ async def upload_and_reconcile_gstr3b(
         )
 
     try:
-        result = reconcile_gstr3b(rid, parsed, client_gstin, sb=sb)
+        result = reconcile_gstr3b(rid, parsed, actual_client_gstin, sb=sb)
     except Exception as exc:
         _log.exception("gstr3b_reconciliation failed run_id=%s", rid)
         raise HTTPException(
@@ -4308,7 +4312,7 @@ async def upload_and_reconcile_gstr3b(
 
     row_data: dict[str, Any] = {
         "run_id":                run_id,
-        "client_gstin":          client_gstin,
+        "client_gstin":          actual_client_gstin,
         "tax_period":            result["tax_period"],
         "gstr3b_igst_claimed":   igst_r["gstr3b"],
         "gstr3b_cgst_claimed":   cgst_r["gstr3b"],
