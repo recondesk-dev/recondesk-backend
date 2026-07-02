@@ -1702,10 +1702,29 @@ def _build_reconcile_summary(
     run_row: dict[str, Any],
     payload: dict[str, Any],
     current_user_id: str,
+    precomputed_outcome_rows: Optional[list[Any]] = None,
 ) -> dict[str, Any]:
     rid = str(run_row.get("id", "")).strip()
     engine = payload.get("engine") or {}
-    matched_n = len(engine.get("matched") or [])
+
+    # Derive counts from build_outcome_rows so the KPI cards agree with the
+    # corrected tab contents.  Raw engine list lengths diverge when ghost rows
+    # (gstr_id absent from DB) are present — empirically confirmed as 686-row
+    # drift on a 4,886-record run.
+    outcome_rows = (
+        precomputed_outcome_rows
+        if precomputed_outcome_rows is not None
+        else ro.build_outcome_rows(sb, rid, payload)[0]
+    )
+    matched_count = sum(1 for r in outcome_rows if r.category == "matched")
+    review_required_count = sum(1 for r in outcome_rows if r.category == "review_required")
+    mismatched_count = sum(
+        1 for r in outcome_rows
+        if r.category == "matched" and getattr(r, "match_status", "") == "MISMATCHED"
+    )
+    exact_match_count = matched_count - mismatched_count
+    total_linked_count = matched_count + review_required_count
+
     # Count gstr_records with a single COUNT query instead of fetching all rows.
     _cnt = (
         sb.table("gstr_records")
@@ -1716,17 +1735,14 @@ def _build_reconcile_summary(
     )
     n_g = int(_cnt.count if getattr(_cnt, "count", None) is not None else len(_cnt.data or []))
 
-    matched_count = matched_n
     missed_list = engine.get("missed_itc") or []
     wr_list = engine.get("wrongful_itc_risk") or []
     matched_engine = engine.get("matched") or []
+    # late_match_count reads the engine rows directly: is_late_filing is a stable
+    # flag written at reconciliation time and is not subject to reclassification.
     late_match_count = sum(1 for m in matched_engine if m.get("is_late_filing"))
-    mismatched_count = sum(1 for m in matched_engine if isinstance(m.get("match_level"), int) and m.get("match_level") >= 3)
-    exact_match_count = matched_count - mismatched_count
     missed_count = len(missed_list)
     wrongful_count = len(wr_list)
-    review_required_count = len(engine.get("duplicates") or []) + len(engine.get("review_required_typo") or [])
-    total_linked_count = matched_count + review_required_count
 
     missed_total_rupees = sum(
         _paise_to_rupees(int(m.get("total_tax_paise") or 0)) for m in missed_list
@@ -2009,14 +2025,21 @@ def _build_matched_pair_records(
     payload: dict[str, Any],
     note_counts: Counter[str],
     fetch_review_required: bool = False,
+    precomputed_outcome_rows: Optional[list[Any]] = None,
 ) -> list[tuple[dict[str, Any], Any]]:
     """Return list of ({api_row}, outcome_row) for pagination / filters."""
     gstr_db = ro.load_gstr_map(sb, rid)
     pr_db = ro.load_pr_map(sb, rid)
-    
+
+    all_outcome_rows = (
+        precomputed_outcome_rows
+        if precomputed_outcome_rows is not None
+        else ro.build_outcome_rows(sb, rid, payload)[0]
+    )
+
     if fetch_review_required:
         engine_matched = (payload.get("engine", {}).get("duplicates") or []) + (payload.get("engine", {}).get("review_required_typo") or [])
-        oc_matched_in_order = [r for r in ro.build_outcome_rows(sb, rid, payload)[0] if r.category == "review_required"]
+        oc_matched_in_order = [r for r in all_outcome_rows if r.category == "review_required"]
         if len(oc_matched_in_order) != len(engine_matched):
             _log.warning(
                 "review_required outcome vs engine mismatch run=%s oc=%s engine=%s",
@@ -2033,7 +2056,7 @@ def _build_matched_pair_records(
         # to return the WRONG orow for every row after the gap.
         oc_matched_by_gid = {
             r.id.removeprefix("pm:"): r
-            for r in ro.build_outcome_rows(sb, rid, payload)[0]
+            for r in all_outcome_rows
             if r.category == "matched" and r.id.startswith("pm:")
         }
         oc_matched_in_order = []  # unused in matched branch (kept for type consistency)
@@ -4064,12 +4087,25 @@ async def reconcile_export_excel_workbook(
         .execute()
     )
     run_row = (run_ex.data or [{}])[0]
-    summ = _build_reconcile_summary(sb, run_row=run_row, payload=p, current_user_id=uid)
+    summ_outcome_rows = ro.build_outcome_rows(sb, rid, payload)[0]
+    summ = _build_reconcile_summary(
+        sb,
+        run_row=run_row,
+        payload=p,
+        current_user_id=uid,
+        precomputed_outcome_rows=summ_outcome_rows,
+    )
     prof = get_user_profile(uid) or {}
     firm_name = str(prof.get("firm_name") or "")
     gen_name = str(prof.get("full_name") or "")
     notes = _notes_count_for_run(sb, rid)
-    matched_pairs = _build_matched_pair_records(sb, rid=rid, payload=p, note_counts=notes)
+    matched_pairs = _build_matched_pair_records(
+        sb,
+        rid=rid,
+        payload=p,
+        note_counts=notes,
+        precomputed_outcome_rows=summ_outcome_rows,
+    )
     missed = _build_missed_itc_records(
         sb,
         rid=rid,
