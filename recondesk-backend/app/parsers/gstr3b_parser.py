@@ -94,6 +94,12 @@ def _parse_ret_period(raw: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _get_any(d: dict, *keys: str) -> Any:
+    for k in keys:
+        if k in d:
+            return d[k]
+    return None
+
 def parse_gstr3b(raw: Any) -> dict:
     """Parse a decoded GSTR-3B JSON object and return a normalised summary.
 
@@ -111,46 +117,66 @@ def parse_gstr3b(raw: Any) -> dict:
     Raises
     ------
     ParseError
-        If ``gstin`` or ``ret_period`` are missing, or ``data`` is absent.
+        If ``gstin`` or ``ret_period`` are missing, or required data is absent.
     TypeError
         If *raw* is not a dict.
     """
     if not isinstance(raw, dict):
         raise TypeError(f"GSTR-3B payload must be a dict, got {type(raw).__name__}")
 
-    # ── Mandatory top-level fields ────────────────────────────────────────────
-    gstin = str(raw.get("gstin") or "").strip().upper()
+    # 1. Unpack API wrapper if present (e.g. { "status_cd": "1", "data": { ... } })
+    if "status_cd" in raw and "data" in raw and isinstance(raw["data"], dict):
+        inner = raw["data"]
+        if "gstin" not in inner and "gstin" in raw:
+            inner["gstin"] = raw["gstin"]
+        raw = inner
+
+    # 2. Extract GSTIN and Return Period
+    gstin = str(_get_any(raw, "gstin", "GSTIN") or "").strip().upper()
+    ret_period_raw = str(_get_any(raw, "ret_period", "rtnprd", "fp", "rtn_prd") or "").strip()
+
+    # Sometimes these are inside the 'data' block if one exists
+    data_block = raw.get("data")
+    if isinstance(data_block, dict):
+        if not gstin:
+            gstin = str(_get_any(data_block, "gstin", "GSTIN") or "").strip().upper()
+        if not ret_period_raw:
+            ret_period_raw = str(_get_any(data_block, "ret_period", "rtnprd", "fp", "rtn_prd") or "").strip()
+
     if not gstin:
         raise ParseError("Missing required field: gstin")
-
-    ret_period_raw = str(raw.get("ret_period") or "").strip()
     if not ret_period_raw:
-        raise ParseError("Missing required field: ret_period")
+        raise ParseError("Missing required field: ret_period (or rtnprd/fp/rtn_prd)")
+
     ret_period = _parse_ret_period(ret_period_raw)
 
-    # ── Navigate into `data` ──────────────────────────────────────────────────
-    data = raw.get("data")
-    if not isinstance(data, dict):
-        raise ParseError("Missing or invalid 'data' block in GSTR-3B JSON")
+    # 3. Determine where the actual tax data lives
+    if isinstance(data_block, dict) and (_get_any(data_block, "itcElg", "itc_elg") or _get_any(data_block, "sup_details")):
+        source = data_block
+    else:
+        source = raw
 
     # ── ITC eligible section ──────────────────────────────────────────────────
-    itc_elg = data.get("itcElg") or {}
+    itc_elg = _get_any(source, "itcElg", "itc_elg") or {}
     if not isinstance(itc_elg, dict):
         itc_elg = {}
 
-    itc_avl_rows: list[dict]   = itc_elg.get("itcAvl")   or []
-    itc_rev_rows: list[dict]   = itc_elg.get("itcRev")   or []
-    itc_net_rows: list[dict]   = itc_elg.get("itcNet")   or []
-    itc_inelg_rows: list[dict] = itc_elg.get("itcInelg") or []
+    itc_avl_rows   = _get_any(itc_elg, "itcAvl", "itc_avl") or []
+    itc_rev_rows   = _get_any(itc_elg, "itcRev", "itc_rev") or []
+    itc_net_rows   = _get_any(itc_elg, "itcNet", "itc_net") or []
+    itc_inelg_rows = _get_any(itc_elg, "itcInelg", "itc_inelg") or []
 
     itc_avl   = _sum_rows(itc_avl_rows)
     itc_rev   = _sum_rows(itc_rev_rows)
     itc_net   = _sum_rows(itc_net_rows)
     itc_inelg = _sum_rows(itc_inelg_rows)
 
-    # ── Outward supply details ────────────────────────────────────────────────
-    sup_details = data.get("sup_details") or {}
-    osup_det = sup_details.get("osup_det") or {}
+    # ── Outward supplies ──────────────────────────────────────────────────────
+    sup_details = _get_any(source, "sup_details") or {}
+    if not isinstance(sup_details, dict):
+        sup_details = {}
+
+    osup_det = _get_any(sup_details, "osup_det") or {}
     outward_supply = {
         "taxable_value": _safe_num(osup_det.get("txval"), "osup_det.txval"),
         "igst":  _safe_num(osup_det.get("iamt"),  "osup_det.iamt"),
@@ -163,9 +189,12 @@ def parse_gstr3b(raw: Any) -> dict:
         ),
     }
 
-    # ── Interest / late fee ───────────────────────────────────────────────────
-    intr_ltfee = data.get("intr_ltfee") or {}
-    intr_details = intr_ltfee.get("intr_details") or {}
+    # ── Interest and Late Fee ─────────────────────────────────────────────────
+    intr_ltfee = _get_any(source, "intr_ltfee", "intr_details") or {}
+    if not isinstance(intr_ltfee, dict):
+        intr_ltfee = {}
+
+    intr_details = _get_any(intr_ltfee, "intr_details") or intr_ltfee
     interest_late_fee = {
         "igst": _safe_num(intr_details.get("iamt"),  "intr_details.iamt"),
         "cgst": _safe_num(intr_details.get("camt"),  "intr_details.camt"),
