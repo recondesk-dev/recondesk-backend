@@ -63,7 +63,14 @@ def _sum_rows(rows: list[dict], *, iamt_key: str = "iamt", camt_key: str = "camt
                samt_key: str = "samt", csamt_key: str = "csamt") -> dict[str, float]:
     """Sum tax components across a list of ITC rows."""
     igst = cgst = sgst = cess = 0.0
-    for row in rows or []:
+    if not isinstance(rows, list):
+        logger.warning("gstr3b_parser: expected list for rows, got %s", type(rows).__name__)
+        rows = []
+        
+    for row in rows:
+        if not isinstance(row, dict):
+            logger.warning("gstr3b_parser: skipping non-dict row: %r", row)
+            continue
         igst  += _safe_num(row.get(iamt_key),  f"iamt[{row.get('ty','')}]")
         cgst  += _safe_num(row.get(camt_key),  f"camt[{row.get('ty','')}]")
         sgst  += _safe_num(row.get(samt_key),  f"samt[{row.get('ty','')}]")
@@ -161,10 +168,18 @@ def parse_gstr3b(raw: Any) -> dict:
     if not isinstance(itc_elg, dict):
         itc_elg = {}
 
-    itc_avl_rows   = _get_any(itc_elg, "itcAvl", "itc_avl") or []
-    itc_rev_rows   = _get_any(itc_elg, "itcRev", "itc_rev") or []
-    itc_net_rows   = _get_any(itc_elg, "itcNet", "itc_net") or []
-    itc_inelg_rows = _get_any(itc_elg, "itcInelg", "itc_inelg") or []
+    def _ensure_list(val: Any, field_name: str) -> list[dict]:
+        if val == "" or val is None:
+            return []
+        if not isinstance(val, list):
+            logger.warning("gstr3b_parser: %s is not a list, got %s", field_name, type(val).__name__)
+            return []
+        return val
+
+    itc_avl_rows   = _ensure_list(_get_any(itc_elg, "itcAvl", "itc_avl"), "itc_avl")
+    itc_rev_rows   = _ensure_list(_get_any(itc_elg, "itcRev", "itc_rev"), "itc_rev")
+    itc_net_rows   = _ensure_list(_get_any(itc_elg, "itcNet", "itc_net"), "itc_net")
+    itc_inelg_rows = _ensure_list(_get_any(itc_elg, "itcInelg", "itc_inelg"), "itc_inelg")
 
     itc_avl   = _sum_rows(itc_avl_rows)
     itc_rev   = _sum_rows(itc_rev_rows)
