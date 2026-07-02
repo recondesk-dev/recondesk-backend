@@ -4,7 +4,6 @@ import { ClipboardList, GitMerge, Upload } from "lucide-react";
 import { FaqAccordion } from "@/components/public/FaqAccordion";
 import { FeatureStatsStrip } from "@/components/public/FeatureStatsStrip";
 import { SecurityTrustStrip } from "@/components/public/SecurityTrustStrip";
-import DashboardParallaxHero from "@/components/DashboardParallaxHero";
 import { formatInrFull } from "@/lib/format";
 
 function Section({
@@ -99,9 +98,6 @@ export default function LandingPage() {
               </span>
               <span>✓ First 2 runs completely free</span>
             </p>
-          </div>
-          <div className="mx-auto mt-10 mb-10 max-w-5xl sm:mt-14 sm:mb-12">
-            <DashboardParallaxHero />
           </div>
           <FeatureStatsStrip />
         </div>
