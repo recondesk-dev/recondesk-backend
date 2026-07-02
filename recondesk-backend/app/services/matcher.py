@@ -449,6 +449,9 @@ def _match_gstr_to_pr_pair(
 
     g_inv = _invoice_number(gstr_rec)
     p_inv = _invoice_number(pr_rec)
+    # g_inv_raw / p_inv_raw: must be the truly raw (pre-normalization) invoice strings.
+    # The adapters (gstr_db_row_to_matcher_row / pr_db_row_to_matcher_row) are responsible
+    # for ensuring that "invoice_number" = original raw, "invoice_number_normalized" = normalized.
     g_inv_raw = str(gstr_rec.get("invoice_number", "")).strip()
     p_inv_raw = str(pr_rec.get("invoice_number", "")).strip()
 

@@ -78,8 +78,9 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         rd = {}
     sup = (rd.get("supplier_gstin_norm") or rd.get("supplier_gstin") or "").strip()
     supplier_name = str(rd.get("supplier_name") or "").strip()
-    inv_raw = rd.get("invoice_number_norm") or rd.get("invoice_number") or ""
-    inv = normalize_invoice(str(inv_raw).strip() if inv_raw is not None else None)
+    inv_true_raw = rd.get("invoice_number") or ""
+    inv_raw_for_norm = rd.get("invoice_number_norm") or inv_true_raw or ""
+    inv = normalize_invoice(str(inv_raw_for_norm).strip() if inv_raw_for_norm else None)
     cg, sg, ig, cs, ttp = _gstr_tax_paise_from_record(rd)
     taxable = _gstr_taxable_paise_from_record(rd)
     inv_d = _iso_date(rd.get("invoice_date_norm") or rd.get("invoice_date"))
@@ -87,7 +88,7 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "id": str(rid),
         "supplier_gstin": sup,
         "supplier_name": supplier_name,
-        "invoice_number": str(inv_raw).strip() if inv_raw else "",
+        "invoice_number": str(inv_true_raw).strip() if inv_true_raw else "",
         "invoice_number_normalized": inv,
         "invoice_date": inv_d,
         "taxable_amount_paise": int(taxable),
@@ -114,16 +115,17 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         rd = {}
     gstin = (rd.get("gstin") or rd.get("supplier_gstin") or "").strip()
     vendor_name = str(rd.get("supplier_name") or "").strip()
-    inv_raw = rd.get("invoice_number_normalized") or rd.get("invoice_number") or ""
+    inv_true_raw = rd.get("invoice_number") or ""
+    inv_raw_for_norm = rd.get("invoice_number_normalized") or inv_true_raw or ""
     invn = normalize_invoice(
-        str(inv_raw).strip() if inv_raw is not None else None
+        str(inv_raw_for_norm).strip() if inv_raw_for_norm else None
     )
     inv_d = _iso_date(rd.get("invoice_date"))
     return {
         "id": str(rid),
         "supplier_gstin": gstin,
         "vendor_name": vendor_name,
-        "invoice_number": str(inv_raw).strip() if inv_raw else "",
+        "invoice_number": str(inv_true_raw).strip() if inv_true_raw else "",
         "invoice_number_normalized": invn,
         "invoice_date": inv_d,
         "taxable_amount_paise": _pr_stored_paise(rd.get("taxable_amount_paise")),

@@ -8,8 +8,9 @@ from datetime import date
 from app.services.matcher import match_gstr_to_pr, normalize_invoice, invoice_similarity
 
 def make_gstr(invoice, gstin="27ABCDE1234F1Z0", invoice_date="2024-04-01",
-              taxable_paise=100000, igst_paise=0, cgst_paise=9000, sgst_paise=9000):
+              taxable_paise=100000, igst_paise=0, cgst_paise=9000, sgst_paise=9000, id="gstr-001"):
     return {
+        "id": id,
         "supplier_gstin": gstin,
         "invoice_number_normalized": normalize_invoice(invoice),
         "invoice_number": invoice,
@@ -73,28 +74,32 @@ class TestNormalizeInvoice:
         assert result == "", f"Expected '', got '{result}'"
 
 class TestSeparatorDifferences:
-    def test_hyphen_vs_no_hyphen_is_L1(self):
+    def test_hyphen_vs_no_hyphen_is_L2(self):
+        # raw_inv_ok=False (hyphens differ), inv_ok=True (both normalize to INV1) → L2.
+        # L1 is reserved for byte-identical raw invoice numbers.
         g = make_gstr(invoice="INV-001")
         p = make_pr(invoice="INV001")
         result = match_gstr_to_pr(g, [p])
-        assert result is not None and result.level == 1, (
-            f"Hyphen vs no-hyphen must normalize to L1. Got L{getattr(result,'level',None)}."
+        assert result is not None and result.level == 2, (
+            f"Hyphen vs no-hyphen must be L2 (normalized match). Got L{getattr(result,'level',None)}."
         )
 
-    def test_slash_vs_no_slash_is_L1(self):
+    def test_slash_vs_no_slash_is_L2(self):
+        # raw_inv_ok=False (slash differs), inv_ok=True (both normalize to INV1) → L2.
         g = make_gstr(invoice="INV/001")
         p = make_pr(invoice="INV001")
         result = match_gstr_to_pr(g, [p])
-        assert result is not None and result.level == 1, (
-            f"Slash vs no-slash must normalize to L1. Got L{getattr(result,'level',None)}."
+        assert result is not None and result.level == 2, (
+            f"Slash vs no-slash must be L2 (normalized match). Got L{getattr(result,'level',None)}."
         )
 
-    def test_mixed_separators_vs_clean_is_L1(self):
+    def test_mixed_separators_vs_clean_is_L2(self):
+        # raw_inv_ok=False (separators differ), inv_ok=True (both normalize to INV2024001) → L2.
         g = make_gstr(invoice="INV-2024/001")
         p = make_pr(invoice="INV2024001")
         result = match_gstr_to_pr(g, [p])
-        assert result is not None and result.level == 1, (
-            f"Mixed separators must normalize to L1. Got L{getattr(result,'level',None)}."
+        assert result is not None and result.level == 2, (
+            f"Mixed separators must be L2 (normalized match). Got L{getattr(result,'level',None)}."
         )
 
 class TestYearFormatDifferences:
@@ -127,12 +132,14 @@ class TestLeadingZeroCollision:
     def test_inv001_and_inv1_normalize_identically(self):
         assert normalize_invoice("INV001") == normalize_invoice("INV1")
 
-    def test_two_invoices_differing_only_in_leading_zeros_match_L1(self):
+    def test_two_invoices_differing_only_in_leading_zeros_match_L2(self):
+        # INV001 (raw) vs INV1 (raw): raw_inv_ok=False, but both normalize to INV1 → L2.
+        # L1 requires byte-identical raw strings on both sides.
         g = make_gstr(invoice="INV001")
         p = make_pr(invoice="INV1")
         result = match_gstr_to_pr(g, [p])
-        assert result is not None and result.level == 1, (
-            f"INV001 vs INV1 must be L1. Got L{getattr(result,'level',None)}."
+        assert result is not None and result.level == 2, (
+            f"INV001 vs INV1 must be L2 (normalized match, raw differs). Got L{getattr(result,'level',None)}."
         )
 
 class TestEmptyAndMissingInvoice:
