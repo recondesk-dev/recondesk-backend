@@ -30,3 +30,33 @@ def test_parse_gstr3b_empty_string_itc_section():
 
     # Ensure outward supply is also safely handled
     assert parsed["outward_supply"]["igst"] == 0.0
+
+def test_parse_gstr3b_dict_itc_section():
+    """Test that a GSTR-3B with dicts instead of lists for ITC sections correctly wraps them and sums them."""
+    raw = {
+        "gstin": "27AABCM4162G1ZM",
+        "ret_period": "052026",
+        "data": {
+            "itcElg": {
+                "itcAvl": {"iamt": 100.0, "camt": 50.0, "samt": 50.0},
+                "itcNet": {"iamt": 100.0, "camt": 50.0, "samt": 50.0}
+            }
+        }
+    }
+    parsed = parse_gstr3b(raw)
+    assert parsed["itc_avl"]["igst"] == 100.0
+    assert parsed["itc_avl"]["cgst"] == 50.0
+    assert parsed["itc_net"]["sgst"] == 50.0
+
+def test_parse_gstr3b_unsupported_schema():
+    """Test that missing ITC section entirely raises ParseError."""
+    raw = {
+        "gstin": "27AABCM4162G1ZM",
+        "ret_period": "052026",
+        "data": {
+            "sup_details": {}
+        }
+    }
+    with pytest.raises(ParseError) as exc_info:
+        parse_gstr3b(raw)
+    assert "Unsupported schema" in str(exc_info.value)

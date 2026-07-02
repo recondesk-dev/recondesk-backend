@@ -62,6 +62,8 @@ def _safe_float(val: Any) -> float:
         return 0.0
 
 
+from app.services.reconciliation_outcomes import load_payload
+
 # ---------------------------------------------------------------------------
 # GSTR-2B ITC extraction from run payload
 # ---------------------------------------------------------------------------
@@ -80,18 +82,11 @@ def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
     """
     # 1. Fetch payload
     try:
-        res = (
-            sb.table("reconciliation_results")
-            .select("payload")
-            .eq("run_id", run_id)
-            .single()
-            .execute()
-        )
+        payload = load_payload(sb, run_id)
     except Exception:
         _log.exception("gstr3b_recon: failed to load reconciliation_results run_id=%s", run_id)
-        return {"igst": 0.0, "cgst": 0.0, "sgst": 0.0}
+        return {"igst": 0.0, "cgst": 0.0, "sgst": 0.0, "_has_data": False}
 
-    payload = (res.data or {}).get("payload")
     if not isinstance(payload, dict):
         payload = {}
         
@@ -119,7 +114,7 @@ def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
                     gstr_ids.add(gid)
 
     if not gstr_ids:
-        return {"igst": 0.0, "cgst": 0.0, "sgst": 0.0}
+        return {"igst": 0.0, "cgst": 0.0, "sgst": 0.0, "_has_data": False}
 
     # 3. Fetch gstr_records for those IDs (paginated in chunks of 200)
     igst_total = cgst_total = sgst_total = 0.0
@@ -158,6 +153,7 @@ def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
         "igst": round(igst_total, 2),
         "cgst": round(cgst_total, 2),
         "sgst": round(sgst_total, 2),
+        "_has_data": True,
     }
 
 
@@ -209,6 +205,7 @@ def reconcile_gstr3b(
     itc_net = gstr3b_data.get("itc_net")
     if not isinstance(itc_net, dict):
         itc_net = {}
+    g3b_has_data = bool(itc_net)
         
     g3b_igst = _safe_float(itc_net.get("igst"))
     g3b_cgst = _safe_float(itc_net.get("cgst"))
@@ -223,6 +220,9 @@ def reconcile_gstr3b(
     status_cgst = _head_status(g2b_cgst, g3b_cgst)
     status_sgst = _head_status(g2b_sgst, g3b_sgst)
     overall = _overall_status(status_igst, status_cgst, status_sgst)
+    
+    if overall == "MATCHED" and not gstr2b_itc.get("_has_data") and not g3b_has_data:
+        overall = "UNSUPPORTED_SCHEMA_OR_NO_DATA"
 
     # -- Totals
     g2b_total = round(g2b_igst + g2b_cgst + g2b_sgst, 2)

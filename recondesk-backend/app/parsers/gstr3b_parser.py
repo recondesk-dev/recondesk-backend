@@ -164,6 +164,9 @@ def parse_gstr3b(raw: Any) -> dict:
         source = raw
 
     # ── ITC eligible section ──────────────────────────────────────────────────
+    if "itcElg" not in source and "itc_elg" not in source:
+        raise ParseError("Missing required ITC section (itcElg or itc_elg). Unsupported schema.")
+        
     itc_elg = _get_any(source, "itcElg", "itc_elg") or {}
     if not isinstance(itc_elg, dict):
         itc_elg = {}
@@ -171,8 +174,10 @@ def parse_gstr3b(raw: Any) -> dict:
     def _ensure_list(val: Any, field_name: str) -> list[dict]:
         if val == "" or val is None:
             return []
+        if isinstance(val, dict):
+            return [val]
         if not isinstance(val, list):
-            logger.warning("gstr3b_parser: %s is not a list, got %s", field_name, type(val).__name__)
+            logger.warning("gstr3b_parser: %s is not a list or dict, got %s", field_name, type(val).__name__)
             return []
         return val
 
