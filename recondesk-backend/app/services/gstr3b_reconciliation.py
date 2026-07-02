@@ -69,76 +69,37 @@ from app.services.reconciliation_outcomes import load_payload
 # ---------------------------------------------------------------------------
 
 def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
-    """Derive GSTR-2B available ITC from the reconciliation run.
-
-    Reads ``reconciliation_results.payload`` and sums IGST/CGST/SGST across
-    matched + missed ITC (= total eligible ITC in GSTR-2B for the period).
-
-    Values in the engine payload are stored in **paise** for matched/risk rows
-    and in ``total_tax_paise`` per record.  We decompose them using the
-    igst/cgst/sgst breakdown stored in each gstr_record's ``record_data``.
-
-    Returns rupee floats keyed ``igst``, ``cgst``, ``sgst``.
-    """
-    # 1. Fetch payload
-    try:
-        payload = load_payload(sb, run_id)
-    except Exception:
-        _log.exception("gstr3b_recon: failed to load reconciliation_results run_id=%s", run_id)
-        return {"igst": 0.0, "cgst": 0.0, "sgst": 0.0, "_has_data": False}
-
-    if not isinstance(payload, dict):
-        payload = {}
-        
-    engine = payload.get("engine")
-    if not isinstance(engine, dict):
-        engine = {}
-
-    # 2. Collect gstr record IDs that appear in matched + missed ITC
-    gstr_ids: set[str] = set()
-    
-    matched = engine.get("matched")
-    if isinstance(matched, list):
-        for m in matched:
-            if isinstance(m, dict):
-                gid = str(m.get("gstr_id") or "").strip()
-                if gid:
-                    gstr_ids.add(gid)
-                    
-    missed = engine.get("missed_itc")
-    if isinstance(missed, list):
-        for m in missed:
-            if isinstance(m, dict):
-                gid = str(m.get("gstr_id") or "").strip()
-                if gid:
-                    gstr_ids.add(gid)
-
-    if not gstr_ids:
-        return {"igst": 0.0, "cgst": 0.0, "sgst": 0.0, "_has_data": False}
-
-    # 3. Fetch gstr_records for those IDs (paginated in chunks of 200)
+    """Derive total GSTR-2B available ITC directly from the database rows."""
     igst_total = cgst_total = sgst_total = 0.0
-    ids_list = list(gstr_ids)
-    chunk_size = 200
-    for i in range(0, len(ids_list), chunk_size):
-        chunk = ids_list[i : i + chunk_size]
+    offset = 0
+    chunk_size = 1000
+    has_data = False
+    
+    while True:
         try:
             recs = (
                 sb.table("gstr_records")
-                .select("id, record_data")
-                .in_("id", chunk)
+                .select("record_data")
+                .eq("run_id", run_id)
+                .range(offset, offset + chunk_size - 1)
                 .execute()
             )
         except Exception:
             _log.exception("gstr3b_recon: gstr_records fetch failed run_id=%s", run_id)
-            continue
-        for row in recs.data or []:
+            break
+            
+        rows = recs.data or []
+        if not rows:
+            break
+            
+        has_data = True
+        for row in rows:
             if not isinstance(row, dict):
                 continue
             rd = row.get("record_data")
             if not isinstance(rd, dict):
                 continue
-            # Items hold paise values; sum across all items per record
+                
             items = rd.get("items")
             if isinstance(items, list):
                 for item in items:
@@ -146,14 +107,16 @@ def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
                         igst_total += _paise_to_rupees(item.get("igst_paise") or 0)
                         cgst_total += _paise_to_rupees(item.get("cgst_paise") or 0)
                         sgst_total += _paise_to_rupees(item.get("sgst_paise") or 0)
+                        
+        if len(rows) < chunk_size:
+            break
+        offset += chunk_size
 
     return {
-        # round() applied once on the accumulated sum, not per-row, to avoid
-        # cumulative drift from summing multiple round(paise/100, 2) values.
         "igst": round(igst_total, 2),
         "cgst": round(cgst_total, 2),
         "sgst": round(sgst_total, 2),
-        "_has_data": True,
+        "_has_data": has_data
     }
 
 
