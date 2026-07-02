@@ -1664,15 +1664,35 @@ def _enrich_reconcile_display_fields(merged: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _matched_ui_match_level(engine_row: dict[str, Any], match_status_display: Optional[str]) -> str:
+def _matched_ui_match_level(
+    engine_row: dict[str, Any],
+    match_status_display: Optional[str],
+    *,
+    for_matched_tab: bool = True,
+) -> str:
+    """Return the match_level string for UI display.
+
+    For the Matched tab (for_matched_tab=True) the frontend MatchLevelBadge only
+    accepts EXACT | FUZZY | MANUAL | UNMATCHED.  All non-exact engine levels
+    (L2 normalised, L3 amount, L4 vendor fuzzy, L5 typo) collapse to "FUZZY".
+
+    For the Review Required tab (for_matched_tab=False) the granular label is
+    returned as-is because that tab renders it as raw text with no badge map.
+    """
     st = str(match_status_display or "").strip().upper()
     if engine_row.get("is_late_filing"):
         return "MANUAL"
     if st == "MATCHED":
         return "EXACT"
-    # For Review Required rows, use the stored numeric match_level to return
-    # a meaningful label rather than the generic "FUZZY" fallback.
     lvl = engine_row.get("match_level")
+    if for_matched_tab:
+        # Collapse all non-exact levels to FUZZY — the only non-EXACT value the
+        # frontend badge map accepts.  L1 exact matches have st=="MATCHED" above.
+        if isinstance(lvl, int) and lvl == 1:
+            return "EXACT"
+        return "FUZZY"
+    # Review Required tab: return granular label so the table cell shows the
+    # specific reason (L3_AMOUNT_MISMATCH, L2_NORMALIZED, etc.).
     _LEVEL_LABEL = {
         1: "EXACT",
         2: "L2_NORMALIZED",
@@ -2120,8 +2140,12 @@ def _build_matched_pair_records(
                 else (oc_matched_in_order[idx] if idx < len(oc_matched_in_order) else None)
             )
             mst_disp = getattr(orow, "match_status", None)
-            lvl = _matched_ui_match_level(dict(en_row), mst_disp)
-            
+            lvl = _matched_ui_match_level(
+                dict(en_row),
+                mst_disp,
+                for_matched_tab=not fetch_review_required,
+            )
+
             if fetch_review_required:
                 amt_paise = int(en_row.get("total_tax_paise") or gm.get("total_tax_paise") or pm.get("total_tax_paise") or 0)
                 amt = _paise_to_rupees(amt_paise)
@@ -2129,7 +2153,22 @@ def _build_matched_pair_records(
                 amt = _paise_to_rupees(int(gm.get("total_tax_paise") or 0))
 
             tax_diff_paise: Optional[int] = None
-            if getattr(orow, "match_status", "") == "MISMATCHED" and orow is not None:
+            if fetch_review_required:
+                # Review Required rows have match_status="REVIEW_REQUIRED", so the
+                # MISMATCHED guard below never fires.  Read the component-level diff
+                # directly from the engine row so the Discrepancy/Reason column shows
+                # the actual ₹ gap instead of ₹0.
+                raw_tdiff = (
+                    en_row.get("tax_difference_paise")
+                    or en_row.get("total_tax_diff_paise")
+                    or en_row.get("taxable_diff_paise")
+                )
+                if raw_tdiff is not None:
+                    try:
+                        tax_diff_paise = int(raw_tdiff)
+                    except (TypeError, ValueError):
+                        pass
+            elif getattr(orow, "match_status", "") == "MISMATCHED" and orow is not None:
                 tax_diff_paise = int(orow.total_tax_diff_paise)
 
             # For review required, we can ignore decisions_rows as they don't apply to duplicates
@@ -4225,12 +4264,32 @@ async def upload_and_reconcile_gstr3b(
     try:
         parsed = parse_gstr3b(raw_json)
     except ParseError as exc:
+        _log.warning(
+            "GSTR-3B parse failed: run_id=%s, top_keys=%s, gstin_found=%s, period_found=%s",
+            rid,
+            list(raw_json.keys()) if isinstance(raw_json, dict) else type(raw_json).__name__,
+            raw_json.get("gstin") if isinstance(raw_json, dict) else None,
+            raw_json.get("ret_period") if isinstance(raw_json, dict) else None,
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
 
     client_gstin = str(run_row.get("client_gstin_id") or "").strip().upper()
+    if parsed.get("gstin") != client_gstin:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"GSTIN mismatch: file is for {parsed.get('gstin')}, but run is for {client_gstin}",
+        )
+
+    expected_period = str(run_row.get("period") or "").strip()
+    if parsed.get("ret_period") and parsed.get("ret_period") != expected_period:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Period mismatch: file is for {parsed.get('ret_period')}, but run is for {expected_period}",
+        )
 
     try:
         result = reconcile_gstr3b(rid, parsed, client_gstin, sb=sb)

@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import useSWR from "swr";
 
 import type { Gstr3bReconciliationResult, Gstr3bHeadResult } from "@/lib/api";
-import { gstr3bApi } from "@/lib/api";
+import { gstr3bApi, isApiError } from "@/lib/api";
 import { formatINR } from "@/lib/format";
 import { SectionHeader, sectionContainerClass, StatCard, statCardsGridClass } from "./ResultsUi";
 
@@ -372,12 +372,14 @@ export function Gstr3bCheckPanel({
         const result = await gstr3bApi.upload(authToken, runId, file);
         await mutate(result, false);
       } catch (err: unknown) {
-        const msg =
-          err instanceof Error
-            ? err.message
-            : typeof err === "string"
-            ? err
-            : "Upload failed. Please try again.";
+        let msg = "Upload failed. Please try again.";
+        if (isApiError(err)) {
+          msg = err.detail || msg;
+        } else if (err instanceof Error) {
+          msg = err.message;
+        } else if (typeof err === "string") {
+          msg = err;
+        }
         setUploadError(msg);
       } finally {
         setUploading(false);
