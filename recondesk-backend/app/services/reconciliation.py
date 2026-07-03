@@ -724,7 +724,13 @@ def execute_phase2_and_3(
                     g_inv_norm == p_inv_norm
                     or is_invoice_format_variant(g_inv_norm, p_inv_norm)
                 ):
-                    candidates_inv_match.append(p)
+                    p_amt = p.get("total_tax_paise") or 0
+                    if g_amt == 0 and p_amt == 0: diff_pct = 0.0
+                    elif p_amt == 0: diff_pct = 1.0
+                    else: diff_pct = abs(g_amt - p_amt) / float(p_amt)
+                    
+                    if diff_pct <= 0.50:
+                        candidates_inv_match.append(p)
         # Also scan the global invoice-norm index in case the PR GSTIN differs
         # (edge case: GSTIN typo + large amount diff both present)
         if not candidates_inv_match and g_inv_norm:
@@ -734,7 +740,13 @@ def execute_phase2_and_3(
                     continue
                 p_gst = str(p.get("supplier_gstin") or "").strip()
                 if p_gst == gst or _gstin_is_fuzzy_match(gst, p_gst):
-                    candidates_inv_match.append(p)
+                    p_amt = p.get("total_tax_paise") or 0
+                    if g_amt == 0 and p_amt == 0: diff_pct = 0.0
+                    elif p_amt == 0: diff_pct = 1.0
+                    else: diff_pct = abs(g_amt - p_amt) / float(p_amt)
+                    
+                    if diff_pct <= 0.50:
+                        candidates_inv_match.append(p)
 
         if candidates_inv_match:
             if len(candidates_inv_match) > 1:
@@ -789,9 +801,11 @@ def execute_phase2_and_3(
             # Any amount diff is tolerated here — INVOICE_MATCH_AMOUNT_REVIEW handles
             # the precise amount-mismatch path; this is the fallback for cases that
             # slipped through (e.g. PR GSTIN slightly different but still exact inv).
+            # CAP: amount diff <= 50% and date shift <= 365 days
             if gst and gst == p_gst and g_inv_norm and g_inv_norm == p_inv_norm:
-                credible_candidates.append((p, "POSSIBLE_MATCH"))
-                continue
+                if diff_pct <= 0.50 and (not g_date or not p_date or date_diff <= 365):
+                    credible_candidates.append((p, "POSSIBLE_MATCH"))
+                    continue
                 
         if credible_candidates:
             if len(credible_candidates) > 1:
