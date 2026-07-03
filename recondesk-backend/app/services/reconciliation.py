@@ -549,7 +549,12 @@ def execute_phase2_and_3(
     for p in unconsumed_pr:
         inv = str(p.get("invoice_number_normalized") or "")
         if inv: rem_pr_by_inv_norm[inv].append(p)
-    
+
+    # Snapshot of all unconsumed PRs for the fuzzy-GSTIN fallback scan.
+    # This list is intentionally built once here; the per-iteration consumed-id
+    # guard inside the loop keeps it correct without rebuilding.
+    _all_unconsumed_pr_snapshot = list(unconsumed_pr)
+
     from app.services.matcher import invoice_similarity, _parse_invoice_date
     # 2. GSTIN_MISMATCH & 3. TYPO_MISMATCH
     for g in unconsumed_gstr:
@@ -587,6 +592,63 @@ def execute_phase2_and_3(
                 _push_review_required(state, gid, candidates_gstin_mismatch[0]["id"], 50, "MULTIPLE_CANDIDATES")
             else:
                 _push_review_required(state, gid, candidates_gstin_mismatch[0]["id"], 50, "GSTIN_MISMATCH")
+            continue
+
+        # ── FUZZY-GSTIN FALLBACK ────────────────────────────────────────────────────
+        # The exact-invoice GSTIN_MISMATCH check above found nothing, which means
+        # either the invoice number also differs slightly OR the PR was indexed under
+        # a different GSTIN key.  Do a broader scan across all remaining PRs:
+        #   • GSTIN is a near-match  (Levenshtein ≤ 2  OR  same PAN)
+        #   • Invoice similarity ≥ 0.75
+        #   • Amount within 2 %
+        #   • Date within 30 days
+        # If found → Review Required (GSTIN_MISMATCH), NOT missed_itc.
+        # This path is ONLY reached when no exact-GSTIN match was found in Phase 1
+        # and the exact-invoice GSTIN_MISMATCH check above also failed.
+        candidates_fuzzy_gstin: list[tuple[dict, float]] = []
+        for p in _all_unconsumed_pr_snapshot:
+            pid = str(p["id"])
+            if pid in state.consumed_pr_ids:
+                continue
+            p_gst = str(p.get("supplier_gstin") or "").strip()
+            # Must be a near-match GSTIN (not exact — exact case already handled above)
+            if not _gstin_is_fuzzy_match(gst, p_gst):
+                continue
+            # Invoice must be plausibly the same
+            p_inv_norm = str(p.get("invoice_number_normalized") or "")
+            inv_sim = invoice_similarity(inv, p_inv_norm) if inv and p_inv_norm else 0.0
+            if inv_sim < 0.75:
+                continue
+            # Amount within 2 %
+            p_amt = p.get("total_tax_paise") or 0
+            if g_amt == 0 and p_amt == 0:
+                diff_pct = 0.0
+            elif p_amt == 0:
+                diff_pct = 1.0
+            else:
+                diff_pct = abs(g_amt - p_amt) / float(p_amt)
+            if diff_pct > 0.02:
+                continue
+            # Date within 30 days (skip check when either side has no date)
+            p_date = _parse_invoice_date(p)
+            date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
+            if g_date and p_date and date_diff > 30:
+                continue
+            candidates_fuzzy_gstin.append((p, inv_sim))
+
+        if candidates_fuzzy_gstin:
+            # Pick best by invoice similarity, then lowest amount diff as tiebreaker
+            candidates_fuzzy_gstin.sort(
+                key=lambda x: (
+                    -x[1],
+                    abs((x[0].get("total_tax_paise") or 0) - g_amt),
+                )
+            )
+            best_p, _best_sim = candidates_fuzzy_gstin[0]
+            if len(candidates_fuzzy_gstin) > 1:
+                _push_review_required(state, gid, best_p["id"], 45, "MULTIPLE_CANDIDATES")
+            else:
+                _push_review_required(state, gid, best_p["id"], 45, "GSTIN_MISMATCH")
             continue
             
         # 3. TYPO_MISMATCH
@@ -704,6 +766,29 @@ def execute_phase2_and_3(
 def _gstin_pan(gstin: str | None) -> str:
     g = (gstin or "").strip().upper()
     return g[2:12] if len(g) >= 12 else ""
+
+
+def _gstin_is_fuzzy_match(gst_a: str, gst_b: str) -> bool:
+    """Return True when two GSTINs are near-matches but NOT identical.
+
+    Criteria (either is sufficient):
+    * Levenshtein distance ≤ 2  (handles state-code swap, checksum typo, extra space)
+    * Identical PAN (positions 3-12) — catches valid GSTIN variants for the same entity
+
+    Identical GSTINs return False intentionally so callers can distinguish the
+    fuzzy-mismatch path from the exact-match path.
+    """
+    a = gst_a.strip().upper()
+    b = gst_b.strip().upper()
+    if not a or not b or a == b:
+        return False
+    # Same PAN ⇒ almost certainly the same supplier filed under a different state/branch
+    pan_a = a[2:12] if len(a) >= 12 else ""
+    pan_b = b[2:12] if len(b) >= 12 else ""
+    if pan_a and pan_b and pan_a == pan_b:
+        return True
+    # Levenshtein ≤ 2 handles one-off typos, case issues, single-digit checksum errors
+    return _levenshtein_distance(a, b) <= 2
 
 
 def _finalize_reconciliation_result(
