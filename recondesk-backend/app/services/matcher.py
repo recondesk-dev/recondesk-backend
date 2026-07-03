@@ -644,7 +644,6 @@ def match_gstr_to_pr(
     if not pr_records:
         return None
     candidates: list[dict[str, Any]] = []
-    skipped_count = 0
     for pr_rec in pr_records:
         gstr_record_id = gstr_rec.get("id")
         pr_record_id = pr_rec.get("id")
@@ -652,16 +651,13 @@ def match_gstr_to_pr(
 
         if status == 'matched':
             if not gstr_record_id or not pr_record_id:
-                skipped_count += 1
                 continue
         elif status == 'review_required':
             if not gstr_record_id and not pr_record_id:
-                skipped_count += 1
                 continue
 
         r = _match_gstr_to_pr_pair(gstr_rec, pr_rec, gstr_by_invoice)
         if r is None:
-            skipped_count += 1
             continue
         if not r.matched:
             continue
@@ -731,10 +727,6 @@ def match_gstr_to_pr(
                 "score": (-r.level, r.confidence, score),
             }
         )
-
-    if skipped_count > 0:
-        import logging
-        logging.getLogger(__name__).warning(f"Skipped {skipped_count} invalid match records missing gstr_record_id or pr_record_id")
 
     if not candidates:
         return None

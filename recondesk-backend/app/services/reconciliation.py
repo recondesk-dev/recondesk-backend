@@ -348,6 +348,7 @@ def process_gstr_records_chunk(
 ) -> None:
     """PHASE 1: Strict Clean Matching (L1, L2, L3)."""
     gstr_period = date(effective_gstr_period.year, effective_gstr_period.month, 1)
+    run_skipped_count = 0  # batched across entire chunk — logged once at end
     for gstr_record in gstr_records:
         gstr_id = str(gstr_record["id"])
         if gstr_id in state.consumed_gstr_ids:
@@ -375,7 +376,10 @@ def process_gstr_records_chunk(
         best_key: tuple[int, int, int] | None = None
 
         for pr_rec in ordered_candidates:
-            pr_id = str(pr_rec["id"])
+            pr_id = str(pr_rec.get("id") or "")
+            if not pr_id:
+                run_skipped_count += 1
+                continue
             if pr_id in state.consumed_pr_ids:
                 continue
                 
@@ -415,6 +419,9 @@ def process_gstr_records_chunk(
             raw_candidates = pr_index_by_period.get(period, {}).get(gstin, {}).get(inv_norm, [])
             acceptable = []
             for p in raw_candidates:
+                if not p.get("id"):
+                    run_skipped_count += 1
+                    continue
                 if str(p["id"]) in state.consumed_pr_ids: continue
                 r = match_gstr_to_pr(gstr_record, [p], gstr_by_invoice=gstr_by_invoice)
                 if r and r.level in (1, 2, 3) and _accept_reconciliation_pair(gstr_record, p, r):
@@ -431,6 +438,14 @@ def process_gstr_records_chunk(
                 else:
                     _push_clean_matched(state, gstr_record["id"], best_p["id"], score, best_r, is_late_filing=True, original_period=period, late_months=late_months)
                 break
+
+    if run_skipped_count > 0:
+        logger.warning(
+            "[MATCH] Skipped %d PR candidate(s) with missing id during chunk matching "
+            "(chunk size=%d). These are likely index entries missing 'id' — investigate "
+            "PR record import if count is high.",
+            run_skipped_count, len(gstr_records),
+        )
 
 
 def build_wrongful_itc_risk(
