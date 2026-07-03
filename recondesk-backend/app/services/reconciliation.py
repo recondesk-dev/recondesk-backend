@@ -720,9 +720,13 @@ def execute_phase2_and_3(
                     continue
                 p_inv_norm = str(p.get("invoice_number_normalized") or "")
                 # Accept exact normalized match OR a recognised format variant
+                # Pass raw invoice strings so Check 2 can tokenise on separators
+                # (e.g. 'FZ/2026/03763' → {2026, 3763} which intersects 'F3763' → {3763})
+                g_inv_raw = str(g.get("invoice_number") or "")
+                p_inv_raw = str(p.get("invoice_number") or "")
                 if g_inv_norm and p_inv_norm and (
                     g_inv_norm == p_inv_norm
-                    or is_invoice_format_variant(g_inv_norm, p_inv_norm)
+                    or is_invoice_format_variant(g_inv_norm, p_inv_norm, g_inv_raw, p_inv_raw)
                 ):
                     p_amt = p.get("total_tax_paise") or 0
                     if g_amt == 0 and p_amt == 0: diff_pct = 0.0
@@ -805,6 +809,24 @@ def execute_phase2_and_3(
             if gst and gst == p_gst and g_inv_norm and g_inv_norm == p_inv_norm:
                 if diff_pct <= 0.50 and (not g_date or not p_date or date_diff <= 365):
                     reason = "TIME_BARRED_RISK" if (g_date and p_date and date_diff > 180) else "POSSIBLE_MATCH"
+                    credible_candidates.append((p, reason))
+                    continue
+
+            # criteria 4: same GSTIN + format-variant invoice + amount diff <= 50%
+            # Catches the pattern where the PR uses a stripped/abbreviated invoice number
+            # (e.g. GSTR "FZ202603763" ↔ PR "F3763") AND the amount also differs.
+            # These pairs fell through INVOICE_MATCH_AMOUNT_REVIEW (which uses the
+            # by_taxable bucket scan and is fine for exact invoices with big amounts)
+            # but were missed because the format variant + amount mismatch combo
+            # exhausted all earlier sequential checks.  They must never go to missed_itc.
+            # CAP: amount diff <= 50% and date within 365 days (same safety rails as C3).
+            if gst and gst == p_gst and g_inv_norm and p_inv_norm:
+                # Pass raw invoice strings so Check 2's numeric-intersection can work
+                g_inv_raw_fb = str(g.get("invoice_number") or "")
+                p_inv_raw_fb = str(p.get("invoice_number") or "")
+                _is_fmt_variant = is_invoice_format_variant(g_inv_norm, p_inv_norm, g_inv_raw_fb, p_inv_raw_fb)
+                if _is_fmt_variant and diff_pct <= 0.50 and (not g_date or not p_date or date_diff <= 365):
+                    reason = "TIME_BARRED_RISK" if (g_date and p_date and date_diff > 180) else "FORMAT_VARIANT_AMOUNT_REVIEW"
                     credible_candidates.append((p, reason))
                     continue
                 
