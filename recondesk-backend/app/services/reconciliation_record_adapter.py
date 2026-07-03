@@ -78,7 +78,7 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         rd = {}
     sup = (rd.get("supplier_gstin_norm") or rd.get("supplier_gstin") or "").strip()
     supplier_name = str(rd.get("supplier_name") or "").strip()
-    inv_true_raw = rd.get("invoice_number") or ""
+    inv_true_raw = rd.get("invoice_number_raw") or rd.get("invoice_number") or ""
     inv_raw_for_norm = rd.get("invoice_number_norm") or inv_true_raw or ""
     inv = normalize_invoice(str(inv_raw_for_norm).strip() if inv_raw_for_norm else None)
     cg, sg, ig, cs, ttp = _gstr_tax_paise_from_record(rd)

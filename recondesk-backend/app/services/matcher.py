@@ -105,13 +105,49 @@ def is_invoice_format_variant(
 
         nums_a = _extract_numeric(a_raw or a or "")
         nums_b = _extract_numeric(b_raw or b or "")
-        if nums_a and nums_b and (nums_a & nums_b):
-            # Extra guard: one side must have more structure (alpha prefix or longer numeric)
-            # to prevent "123" matching "456" via coincidence
+        if nums_a and nums_b:
             has_alpha_a = bool(re.search(r'[A-Za-z]', (a_raw or a or "")))
             has_alpha_b = bool(re.search(r'[A-Za-z]', (b_raw or b or "")))
-            if has_alpha_a or has_alpha_b:
-                return True
+            if (nums_a & nums_b):
+                # Extra guard: one side must have more structure (alpha prefix or longer numeric)
+                # to prevent "123" matching "456" via coincidence
+                if has_alpha_a or has_alpha_b:
+                    return True
+            else:
+                # Fuzzy numeric check: allow 1 char typo when both tokens have
+                # string length >= 3 (preserves leading zeros, e.g. '00051' vs '00057').
+                # This catches zero-padded format variants like FX/2026/00051 vs 00057
+                # while preventing short collisions like '368' vs '361'.
+                def _extract_str_tokens(s: str) -> set[str]:
+                    return {t for t in re.findall(r'\d+', str(s)) if int(t) >= 1}
+                strs_a = _extract_str_tokens(a_raw or a or "")
+                strs_b = _extract_str_tokens(b_raw or b or "")
+                for sa in strs_a:
+                    for sb in strs_b:
+                        ia, ib = int(sa), int(sb)
+                        if ia == ib:
+                            continue
+                        # 1) String-level: allow 1 char typo (preserves zero-padding)
+                        if max(len(sa), len(sb)) >= 3 and levenshtein(sa, sb) <= 1:
+                            if has_alpha_a or has_alpha_b:
+                                return True
+                        # 2) Integer-level: allow ±10 numeric proximity for invoice-sequence
+                        #    variants where one side has alpha structure.
+                        #    Guard: only apply when the other side has exactly ONE numeric
+                        #    token >= 50, so OCR-corrupted multi-fragment invoices like
+                        #    'FX2O260I361A' (nums: {2, 260, 361}) don’t accidentally match
+                        #    a nearby but different invoice (e.g. FX/2026/00368).
+                        sig_b = [n for n in nums_b if n >= 50]
+                        if len(sig_b) == 1:
+                            ib2 = sig_b[0]
+                            # Find the closest significant number on the GSTR side
+                            # (nums_a may include the year 2026; pick the closest)
+                            sig_a_candidates = [n for n in nums_a if n >= 50]
+                            if sig_a_candidates:
+                                closest = min(sig_a_candidates, key=lambda n: abs(n - ib2))
+                                if min(closest, ib2) >= 50 and abs(closest - ib2) <= 10:
+                                    if has_alpha_a or has_alpha_b:
+                                        return True
 
     return False
 
