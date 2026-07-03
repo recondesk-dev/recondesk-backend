@@ -13,7 +13,7 @@ Expected:
 import uuid
 from datetime import date
 
-from app.services.reconciliation import run_bidirectional_reconciliation
+from app.matching.engine import run_bidirectional_reconciliation
 
 
 GSTIN = "27AABCU9603R1ZX"

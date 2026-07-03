@@ -19,7 +19,7 @@ from app.services.matcher import (
     normalize_invoice_number,
     same_pan,
 )
-from app.services.reconciliation import resolve_orphans, run_bidirectional_reconciliation
+from app.matching.engine import run_bidirectional_reconciliation
 
 GSTIN = "27AABCU9603R1ZX"
 GSTIN_TYPO = "27AABCU9603R1ZF"  # same PAN (AABCU9603R), different check char

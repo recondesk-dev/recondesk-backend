@@ -614,12 +614,18 @@ def execute_phase2_and_3(
             # Must be a near-match GSTIN (not exact — exact case already handled above)
             if not _gstin_is_fuzzy_match(gst, p_gst):
                 continue
-            # Invoice must be plausibly the same
+            # Invoice must be plausibly the same.
+            # Accept if similarity >= 0.75 OR if the two invoice numbers are recognised
+            # format variants (e.g. "DS/26/78" ↔ "DS-2026-00078").  Format variants can
+            # score low on raw Levenshtein even though they are clearly the same invoice.
             p_inv_norm = str(p.get("invoice_number_normalized") or "")
             inv_sim = invoice_similarity(inv, p_inv_norm) if inv and p_inv_norm else 0.0
-            if inv_sim < 0.75:
+            _is_fv = is_invoice_format_variant(inv, p_inv_norm) if inv and p_inv_norm else False
+            if inv_sim < 0.75 and not _is_fv:
                 continue
-            # Amount within 2 %
+            # Amount within 5 % (relaxed from 2 % because we already require a
+            # near-match GSTIN *and* a plausible invoice — the extra amount slack
+            # only adds a human-review flag, never a clean match).
             p_amt = p.get("total_tax_paise") or 0
             if g_amt == 0 and p_amt == 0:
                 diff_pct = 0.0
@@ -627,7 +633,7 @@ def execute_phase2_and_3(
                 diff_pct = 1.0
             else:
                 diff_pct = abs(g_amt - p_amt) / float(p_amt)
-            if diff_pct > 0.02:
+            if diff_pct > 0.05:
                 continue
             # Date within 30 days (skip check when either side has no date)
             p_date = _parse_invoice_date(p)
@@ -698,6 +704,45 @@ def execute_phase2_and_3(
                 _push_review_required(state, gid, candidates_vendor[0]["id"], 50, "VENDOR_FUZZY")
             continue
 
+        # ── INVOICE_MATCH_AMOUNT_REVIEW ──────────────────────────────────────────
+        # Catches: same GSTIN + same (or format-variant) invoice + amount diff too
+        # large for L2/L3 or the TYPO/VENDOR threshold.  Invoice identity is certain
+        # so this must NEVER go to missed_itc — always Review Required.
+        # Triggered ONLY when all earlier Phase 2 checks (including TYPO_MISMATCH and
+        # VENDOR_FUZZY) have produced no candidate, meaning the amount gap is the
+        # sole remaining issue.
+        g_inv_norm = str(g.get("invoice_number_normalized") or "")
+        candidates_inv_match: list[dict] = []
+        for prs_in_bucket in candidate_indices.by_taxable.get(gst, {}).values():
+            for p in prs_in_bucket:
+                pid = str(p["id"])
+                if pid in state.consumed_pr_ids:
+                    continue
+                p_inv_norm = str(p.get("invoice_number_normalized") or "")
+                # Accept exact normalized match OR a recognised format variant
+                if g_inv_norm and p_inv_norm and (
+                    g_inv_norm == p_inv_norm
+                    or is_invoice_format_variant(g_inv_norm, p_inv_norm)
+                ):
+                    candidates_inv_match.append(p)
+        # Also scan the global invoice-norm index in case the PR GSTIN differs
+        # (edge case: GSTIN typo + large amount diff both present)
+        if not candidates_inv_match and g_inv_norm:
+            for p in candidate_indices.by_invoice_norm_global.get(g_inv_norm, []):
+                pid = str(p["id"])
+                if pid in state.consumed_pr_ids:
+                    continue
+                p_gst = str(p.get("supplier_gstin") or "").strip()
+                if p_gst == gst or _gstin_is_fuzzy_match(gst, p_gst):
+                    candidates_inv_match.append(p)
+
+        if candidates_inv_match:
+            if len(candidates_inv_match) > 1:
+                _push_review_required(state, gid, candidates_inv_match[0]["id"], 55, "MULTIPLE_CANDIDATES")
+            else:
+                _push_review_required(state, gid, candidates_inv_match[0]["id"], 55, "AMOUNT_MISMATCH")
+            continue
+
     # 5. CREDIBLE_CANDIDATE_FALLBACK
     # Find unconsumed GSTR/PR records that still have a credible candidate
     # Those should become review_required, not final financial risk.
@@ -733,9 +778,18 @@ def execute_phase2_and_3(
             if gst and gst == p_gst and diff_pct <= 0.05 and (not g_date or not p_date or date_diff <= 45):
                 credible_candidates.append((p, "POSSIBLE_MATCH"))
                 continue
-                
+
             # criteria 2: same normalized invoice + amount within 2% + date within 30 days
             if g_inv_norm and g_inv_norm == p_inv_norm and diff_pct <= 0.02 and (not g_date or not p_date or date_diff <= 30):
+                credible_candidates.append((p, "POSSIBLE_MATCH"))
+                continue
+
+            # criteria 3: same GSTIN + same normalized invoice → date/amount are secondary
+            # (late_date_shift: date diff > 45 days but invoice identity is unambiguous).
+            # Any amount diff is tolerated here — INVOICE_MATCH_AMOUNT_REVIEW handles
+            # the precise amount-mismatch path; this is the fallback for cases that
+            # slipped through (e.g. PR GSTIN slightly different but still exact inv).
+            if gst and gst == p_gst and g_inv_norm and g_inv_norm == p_inv_norm:
                 credible_candidates.append((p, "POSSIBLE_MATCH"))
                 continue
                 

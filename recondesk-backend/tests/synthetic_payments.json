@@ -1,0 +1,27 @@
+[
+  {
+    "invoice_id": "p001",
+    "payment_date": "2024-04-10",
+    "amount_paid_paise": 100000
+  },
+  {
+    "invoice_id": "p002",
+    "payment_date": "2024-04-15",
+    "amount_paid_paise": 200000
+  },
+  {
+    "invoice_id": "p003",
+    "payment_date": "2024-09-20",
+    "amount_paid_paise": 500000
+  },
+  {
+    "invoice_id": "p007",
+    "payment_date": "2024-04-20",
+    "amount_paid_paise": 450000
+  },
+  {
+    "invoice_id": "p013",
+    "payment_date": "2024-04-25",
+    "amount_paid_paise": 10000000
+  }
+]

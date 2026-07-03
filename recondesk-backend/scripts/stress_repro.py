@@ -19,7 +19,7 @@ from datetime import date
 import openpyxl
 
 from app.services.matcher import normalize_invoice
-from app.services.reconciliation import run_bidirectional_reconciliation
+from app.matching.engine import run_bidirectional_reconciliation
 from app.services.reconciliation_debug import build_debug_report, print_debug_report
 
 

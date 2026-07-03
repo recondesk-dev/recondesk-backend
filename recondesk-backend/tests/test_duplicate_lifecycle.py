@@ -21,7 +21,7 @@ from datetime import date
 
 import pytest
 
-from app.services.reconciliation import run_bidirectional_reconciliation
+from app.matching.engine import run_bidirectional_reconciliation
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
