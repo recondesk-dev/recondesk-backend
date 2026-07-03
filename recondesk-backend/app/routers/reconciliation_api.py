@@ -1862,7 +1862,7 @@ def _build_reconcile_summary(
         "total_linked_count": total_linked_count,
         # matched_count kept for backward compat (= clean_matched_count)
         "matched_count": matched_count,
-        "mismatched_count": mismatched_count,
+        "mismatched_count": 0,  # deprecated: was match_status==MISMATCHED proxy, now unused
         "exact_match_count": exact_match_count,
         "missed_itc_count": missed_count,
         "missed_itc_total_amount": round(missed_total_rupees, 2),
