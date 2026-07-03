@@ -1,0 +1,130 @@
+[
+  {
+    "id": "p001",
+    "supplier_gstin": "27ABCDE1234F1Z5",
+    "invoice_number_normalized": "INV2024001",
+    "invoice_date": "2024-03-15",
+    "taxable_amount_paise": 100000,
+    "total_tax_paise": 18000
+  },
+  {
+    "id": "p002",
+    "supplier_gstin": "27ABCDE1234F1Z5",
+    "invoice_number_normalized": "INV2024002",
+    "invoice_date": "2024-03-20",
+    "taxable_amount_paise": 200000,
+    "total_tax_paise": 36000
+  },
+  {
+    "id": "p003",
+    "supplier_gstin": "27XYZAB5678G2Z9",
+    "invoice_number_normalized": "BILL001",
+    "invoice_date": "2024-03-10",
+    "taxable_amount_paise": 500000,
+    "total_tax_paise": 90000
+  },
+  {
+    "id": "p004",
+    "supplier_gstin": "27ABCDE1234F1Z5",
+    "invoice_number_normalized": "INV20240003",
+    "invoice_date": "2024-03-18",
+    "taxable_amount_paise": 150000,
+    "total_tax_paise": 27000
+  },
+  {
+    "id": "p005",
+    "supplier_gstin": "27XYZAB5678G2Z9",
+    "invoice_number_normalized": "TAX00123",
+    "invoice_date": "2024-03-22",
+    "taxable_amount_paise": 75000,
+    "total_tax_paise": 13500
+  },
+  {
+    "id": "p006",
+    "supplier_gstin": "29PQRST9012H3Z8",
+    "invoice_number_normalized": "RC2024001",
+    "invoice_date": "2024-03-05",
+    "taxable_amount_paise": 302000,
+    "total_tax_paise": 54360
+  },
+  {
+    "id": "p007",
+    "supplier_gstin": "29PQRST9012H3Z8",
+    "invoice_number_normalized": "RC2024002",
+    "invoice_date": "2024-03-12",
+    "taxable_amount_paise": 450000,
+    "total_tax_paise": 81000
+  },
+  {
+    "id": "p008",
+    "supplier_gstin": "27ABCDE1234F1Z5",
+    "invoice_number_normalized": "INV2024004",
+    "invoice_date": null,
+    "taxable_amount_paise": 80000,
+    "total_tax_paise": 14400
+  },
+  {
+    "id": "p009",
+    "supplier_gstin": "27XYZAB5678G2Z9",
+    "invoice_number_normalized": "INV001",
+    "invoice_date": "2024-03-01",
+    "taxable_amount_paise": 120000,
+    "total_tax_paise": 21600
+  },
+  {
+    "id": "p010",
+    "supplier_gstin": "27XYZAB5678G2Z9",
+    "invoice_number_normalized": "INV001",
+    "invoice_date": "2024-03-15",
+    "taxable_amount_paise": 130000,
+    "total_tax_paise": 23400
+  },
+  {
+    "id": "p011",
+    "supplier_gstin": "33MNOPQ3456I4Z7",
+    "invoice_number_normalized": "FEB2024001",
+    "invoice_date": "2024-02-10",
+    "taxable_amount_paise": 200000,
+    "total_tax_paise": 36000
+  },
+  {
+    "id": "p012",
+    "supplier_gstin": "33MNOPQ3456I4Z7",
+    "invoice_number_normalized": "JAN2024001",
+    "invoice_date": "2024-01-05",
+    "taxable_amount_paise": 350000,
+    "total_tax_paise": 63000
+  },
+  {
+    "id": "p013",
+    "supplier_gstin": "29PQRST9012H3Z8",
+    "invoice_number_normalized": "BULK001",
+    "invoice_date": "2024-03-20",
+    "taxable_amount_paise": 10000000,
+    "total_tax_paise": 1800000
+  },
+  {
+    "id": "p014",
+    "supplier_gstin": "33MNOPQ3456I4Z7",
+    "invoice_number_normalized": "GST20240MAR001",
+    "invoice_date": "2024-03-14",
+    "taxable_amount_paise": 175000,
+    "total_tax_paise": 31500
+  },
+  {
+    "id": "p015",
+    "supplier_gstin": "27ABCDE1234F1Z5",
+    "invoice_number_normalized": "EXTRA001",
+    "invoice_date": "2024-03-08",
+    "taxable_amount_paise": 90000,
+    "total_tax_paise": 16200
+  },
+  {
+    "id": "p016",
+    "supplier_gstin": "29PQRST9012H3Z8",
+    "invoice_number_normalized": "EXTRA002",
+    "invoice_date": "2024-03-22",
+    "taxable_amount_paise": 110000,
+    "total_tax_paise": 19800
+  }
+]
