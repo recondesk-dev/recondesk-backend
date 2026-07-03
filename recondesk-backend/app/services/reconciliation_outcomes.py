@@ -662,9 +662,6 @@ def build_outcome_rows(
     n_g = len(gstr_m)
     n_p = len(pr_m)
     total_invoices = n_g + n_p
-    mis_n = len(
-        [r for r in rows if r.category == "matched" and r.match_status == "MISMATCHED"]
-    )
     # In 2B not in books = missed_itc; in books not in 2B = wrongful_risk
     missing_in_books = ccounts.get("missed_itc", 0)
     missing_in_2b = ccounts.get("wrongful_risk", 0)
@@ -726,7 +723,6 @@ def build_outcome_rows(
     return rows, ccounts, {
         "total_invoices": total_invoices,
         "matched_count": len(engine.get("matched") or []),
-        "mismatched_count": mis_n,
         "missing_in_2b_count": missing_in_2b,
         "missing_in_books_count": missing_in_books,
         "rule37_warnings_count": r37_warn_n,
