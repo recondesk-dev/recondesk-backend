@@ -660,3 +660,115 @@ class TestFalsePositiveGuards:
         res = run_bidirectional_reconciliation([], pr, gstr_period=PERIOD)
         assert res["stats"]["wrongful_risk_count"] == 1
         assert res["stats"]["matched_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Format-variant + amount-diff combo (criteria 4 regression)
+# Mirrors the dominant failure pattern in the production dataset:
+#   FZ202603763 (GSTR) ↔ F3763 (PR), same GSTIN, same date, ~7% amount diff
+# ---------------------------------------------------------------------------
+
+class TestFormatVariantAmountDiffCombo:
+    """
+    Ensures pairs with a stripped/abbreviated PR invoice AND an amount diff
+    above L3 (2%) are routed to Review Required, not missed_itc or matched.
+    """
+
+    def test_format_variant_7pct_amount_diff_goes_to_review_required(self):
+        """
+        GSTR 'FZ/2026/03763' (raw) → normalized 'FZ202603763' vs PR 'F3763'.
+        Amount diff is ~7 % (above L3's 2 % cap).
+        Must land in review_required, never missed_itc.
+        """
+        from app.services.matcher import normalize_invoice
+        gstr = [{
+            "id": "g_fv1", "supplier_gstin": GSTIN_A,
+            "invoice_number": "FZ/2026/03763",
+            "invoice_number_normalized": normalize_invoice("FZ/2026/03763"),
+            "invoice_date": "2026-05-10",
+            "taxable_amount_paise": 4_466_710,
+            "cgst_paise": 401_903, "sgst_paise": 401_903, "igst_paise": 0,
+            "total_tax_paise": 803_806,
+        }]
+        pr = [{
+            "id": "p_fv1", "supplier_gstin": GSTIN_A,
+            "invoice_number": "F3763",
+            "invoice_number_normalized": normalize_invoice("F3763"),
+            "invoice_date": "2026-05-10",
+            "taxable_amount_paise": 4_166_710,
+            "cgst_paise": 375_003, "sgst_paise": 375_003, "igst_paise": 0,
+            "total_tax_paise": 750_006,
+        }]
+        res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+        assert res["stats"]["missed_itc_count"] == 0, (
+            "Format-variant + 7% amount diff must NOT fall into missed_itc"
+        )
+        assert res["stats"]["matched_count"] == 0, (
+            "Format-variant + 7% amount diff must not produce a clean match"
+        )
+        assert res["stats"]["review_required_count"] == 1, (
+            "Format-variant + 7% amount diff must be routed to review_required"
+        )
+
+    def test_format_variant_15pct_amount_diff_goes_to_review_required(self):
+        """
+        GSTR 'FZ/2026/02949' (raw) → normalized 'FZ202602949' vs PR '2949'.
+        Amount diff is ~10% (above L3 cap).
+        """
+        from app.services.matcher import normalize_invoice
+        gstr = [{
+            "id": "g_fv2", "supplier_gstin": GSTIN_A,
+            "invoice_number": "FZ/2026/02949",
+            "invoice_number_normalized": normalize_invoice("FZ/2026/02949"),
+            "invoice_date": "2026-05-10",
+            "taxable_amount_paise": 1_610_000,
+            "cgst_paise": 144_900, "sgst_paise": 144_900, "igst_paise": 0,
+            "total_tax_paise": 289_800,
+        }]
+        pr = [{
+            "id": "p_fv2", "supplier_gstin": GSTIN_A,
+            "invoice_number": "2949",
+            "invoice_number_normalized": normalize_invoice("2949"),
+            "invoice_date": "2026-05-10",
+            "taxable_amount_paise": 1_465_000,
+            "cgst_paise": 131_850, "sgst_paise": 131_850, "igst_paise": 0,
+            "total_tax_paise": 263_700,
+        }]
+        res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+        assert res["stats"]["missed_itc_count"] == 0, (
+            "Format-variant + 10% amount diff must NOT fall into missed_itc"
+        )
+        assert res["stats"]["review_required_count"] == 1
+
+    def test_format_variant_different_gstin_stays_missed(self):
+        """
+        GSTR 'FZ202603763' vs PR 'F3763' BUT from a different supplier GSTIN.
+        The format variant guard must only fire when GSTINs are the same.
+        No cross-supplier rescue is allowed.
+        """
+        gstr = [_gstr("g_fv3", GSTIN_A, "FZ202603763", taxable=4_466_710)]
+        pr   = [_pr  ("p_fv3", GSTIN_B, "F3763",        taxable=4_466_710)]  # different PAN
+        res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+        assert res["stats"]["matched_count"] == 0, (
+            "Different-GSTIN format variant must not produce a clean match"
+        )
+        # GSTR side (different GSTIN) should remain unlinked since GSTIN doesn't match
+        # (GSTIN_A and GSTIN_B have different PANs so GSTIN_MISMATCH path won't rescue it)
+        assert res["stats"]["missed_itc_count"] == 1, (
+            "Different-GSTIN format variant: GSTR side must stay in missed_itc"
+        )
+
+    def test_format_variant_50pct_amount_diff_is_cap(self):
+        """
+        Format variant but amount diff > 50 % should NOT be rescued — too risky.
+        """
+        gstr = [_gstr("g_fv4", GSTIN_A, "FZ202603763", taxable=4_000_000)]
+        pr   = [_pr  ("p_fv4", GSTIN_A, "F3763",        taxable=1_000_000)]  # 75% diff
+        res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+        assert res["stats"]["review_required_count"] == 0, (
+            "Format variant with >50% amount diff must not be rescued"
+        )
+        assert res["stats"]["missed_itc_count"] == 1, (
+            "Format variant with >50% amount diff: GSTR side stays in missed_itc"
+        )
+
