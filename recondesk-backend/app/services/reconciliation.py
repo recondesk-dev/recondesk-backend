@@ -804,7 +804,8 @@ def execute_phase2_and_3(
             # CAP: amount diff <= 50% and date shift <= 365 days
             if gst and gst == p_gst and g_inv_norm and g_inv_norm == p_inv_norm:
                 if diff_pct <= 0.50 and (not g_date or not p_date or date_diff <= 365):
-                    credible_candidates.append((p, "POSSIBLE_MATCH"))
+                    reason = "TIME_BARRED_RISK" if (g_date and p_date and date_diff > 180) else "POSSIBLE_MATCH"
+                    credible_candidates.append((p, reason))
                     continue
                 
         if credible_candidates:
