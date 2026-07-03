@@ -620,7 +620,9 @@ def execute_phase2_and_3(
             # score low on raw Levenshtein even though they are clearly the same invoice.
             p_inv_norm = str(p.get("invoice_number_normalized") or "")
             inv_sim = invoice_similarity(inv, p_inv_norm) if inv and p_inv_norm else 0.0
-            _is_fv = is_invoice_format_variant(inv, p_inv_norm) if inv and p_inv_norm else False
+            g_inv_raw_fuzzy = str(g.get("invoice_number") or "")
+            p_inv_raw_fuzzy = str(p.get("invoice_number") or "")
+            _is_fv = is_invoice_format_variant(inv, p_inv_norm, g_inv_raw_fuzzy, p_inv_raw_fuzzy) if inv and p_inv_norm else False
             if inv_sim < 0.75 and not _is_fv:
                 continue
             # Amount within 5 % (relaxed from 2 % because we already require a
