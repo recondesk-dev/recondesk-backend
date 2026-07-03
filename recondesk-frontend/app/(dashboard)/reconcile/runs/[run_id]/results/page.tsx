@@ -165,7 +165,6 @@ type RunSummary = {
   total_linked_count: number;
   matched_count: number;          // = clean_matched_count (backward compat)
   exact_match_count?: number;
-  mismatched_count?: number;
   missed_itc_count: number;
   missed_itc_total_amount: number;
   missed_itc_amount_paise?: number;
