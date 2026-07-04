@@ -599,6 +599,20 @@ def _match_gstr_to_pr_pair(
             # effectively a clean match (the raw invoice differed only in formatting —
             # e.g. FY/2026/00002 vs FY202600002 — but all financial fields agree).
             needs_review = not (amount_within_l1 and date_within_l1 and l12_finance_ok)
+            if not needs_review:
+                # Zero-discrepancy L2: promote to level=1 so the exact_match_count
+                # chip and match-level badge reflect the true business outcome —
+                # the pair is financially identical; the raw-string difference is
+                # purely a parser pre-normalisation artefact and not a real mismatch.
+                return MatchResult(
+                    level=1, matched=True, confidence=100, requires_human_review=False,
+                    decision_what="Exact match found",
+                    decision_why="Invoice number, amount, and date align (invoice format normalised)",
+                    decision_next="No action required",
+                    discrepancies=discrepancies,
+                    identity_confidence="High", financial_status=financial_status,
+                    review_reason=None,
+                )
             return MatchResult(
                 level=2, matched=True, confidence=90, requires_human_review=needs_review,
                 decision_what="Invoice matched with normalized invoice and minor amount difference",
@@ -606,8 +620,9 @@ def _match_gstr_to_pr_pair(
                 decision_next="Verify if needed",
                 discrepancies=discrepancies,
                 identity_confidence="High", financial_status=financial_status,
-                review_reason="Amount/Date mismatch" if needs_review else None,
+                review_reason="Amount/Date mismatch",
             )
+
         # Same GSTIN + same normalized invoice but amount or date exceeds L2 — L3 review
         # Large diff + date outside L2 window → return L6 (no match) for extreme cases
         if not date_within_l2 and not amount_within_l2:
