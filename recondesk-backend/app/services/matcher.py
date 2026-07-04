@@ -594,14 +594,19 @@ def _match_gstr_to_pr_pair(
     # ── Tier 2: Same GSTIN + normalized invoice number (L2) ─────────────────
     if gstin_match and inv_ok:
         if amount_within_l2 and date_within_l2 and tax_structure_match:
+            # requires_human_review is True only when there is an actual discrepancy.
+            # If amounts and dates are exactly zero-diff AND finance is clean, this is
+            # effectively a clean match (the raw invoice differed only in formatting —
+            # e.g. FY/2026/00002 vs FY202600002 — but all financial fields agree).
+            needs_review = not (amount_within_l1 and date_within_l1 and l12_finance_ok)
             return MatchResult(
-                level=2, matched=True, confidence=90, requires_human_review=True,
+                level=2, matched=True, confidence=90, requires_human_review=needs_review,
                 decision_what="Invoice matched with normalized invoice and minor amount difference",
                 decision_why="Same normalized invoice and GSTIN, amount within acceptable tolerance",
                 decision_next="Verify if needed",
                 discrepancies=discrepancies,
                 identity_confidence="High", financial_status=financial_status,
-                review_reason=None,
+                review_reason="Amount/Date mismatch" if needs_review else None,
             )
         # Same GSTIN + same normalized invoice but amount or date exceeds L2 — L3 review
         # Large diff + date outside L2 window → return L6 (no match) for extreme cases
@@ -848,17 +853,25 @@ def match_gstr_to_pr(
         is_late_filing=is_late_filing_sel,
         original_period=original_period_sel,
     )
-    # Safety net: if an L1/L2 slipped through with a financial mismatch
+    # Safety net: if an L2/L3 slipped through with a financial mismatch
     # (e.g. has_tax_lines was False so the l12_finance_ok guard wasn't active),
     # cap it to L3-review so it never lands in clean_matched.
+    # NOTE: L1 pairs are intentionally EXCLUDED from the total-tolerance enforcement
+    # below. The pair-level L1 gate in _match_gstr_to_pr_pair already enforces
+    # 0-paise amount tolerance.  Re-enforcing Rs-1 total-tolerance here against
+    # parser-rounded totals (taxable + total_tax may differ by 1–2 paise between
+    # GSTR-2B item sums and PR pre-computed fields) incorrectly demotes L1 to L3.
     pr_sel = best_candidate["pr"]
     gstr_total = _invoice_total_paise(gstr_rec)
     pr_total = _invoice_total_paise(pr_sel)
     total_diff_sel = abs(gstr_total - pr_total)
     gstin_match_sel = _gstin_match_spec(gstr_rec, pr_sel)
     enforce = bool(
-        _safe_paise_field(gstr_rec, "total_tax_paise") != 0
-        or _safe_paise_field(pr_sel, "total_tax_paise") != 0
+        final.level >= 2  # skip enforcement for L1: pair gate already validated
+        and (
+            _safe_paise_field(gstr_rec, "total_tax_paise") != 0
+            or _safe_paise_field(pr_sel, "total_tax_paise") != 0
+        )
     )
     return _financial_downgrade_l13(
         final,
