@@ -346,7 +346,38 @@ async def _do_verify(gstin: str, *, allow_reauth: bool) -> dict[str, Any]:
             "raw_response": raw_response,
         }
 
-    # ── General non-2xx HTTP errors (not 401 — handled above) ────────────────
+    # ── HTTP 400: Sandbox rejects GSTIN as invalid/not in registry ───────────
+    # Sandbox returns 400 + {"message": "Invalid GSTIN pattern"} when a GSTIN
+    # passes format checks but doesn't exist in the GST registry.  This is the
+    # same semantic as "Not Found" — not an infrastructure error.
+    if resp.status_code == 400:
+        msg = str(body.get("message") or body.get("error") or "").lower()
+        if "invalid gstin" in msg or "gstin pattern" in msg or "not found" in msg or not msg:
+            logger.info(
+                "gstin_verification: GSTIN %s – not found (HTTP 400: %s)",
+                _mask_gstin(gstin),
+                body.get("message", "Invalid GSTIN pattern"),
+            )
+            return {
+                "valid": False,
+                "status": "Not Found",
+                "legal_name": None,
+                "trade_name": None,
+                "taxpayer_type": None,
+                "registration_date": None,
+                "raw_response": raw_response,
+            }
+        # 400 with an unexpected message — fall through to generic error
+        logger.error(
+            "gstin_verification: HTTP 400 from Sandbox – body=%s", resp.text[:300]
+        )
+        return _error_result(
+            status="API Error",
+            raw=raw_response,
+            detail=f"Sandbox returned HTTP 400: {body.get('message', '')}",
+        )
+
+    # ── General non-2xx HTTP errors (not 400/401 — handled above) ────────────
     if resp.status_code not in (200, 422):
         logger.error(
             "gstin_verification: unexpected HTTP %s from Sandbox – body=%s",
