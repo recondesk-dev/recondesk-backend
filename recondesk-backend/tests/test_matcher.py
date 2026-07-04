@@ -100,7 +100,8 @@ def test_l1_hash_index_fast_path_skips_full_loop():
 
 def test_l1_match_differing_only_by_invoice_punctuation():
     # INV-2025-001 (raw) and INV2025001 (raw) are the same identity after normalization.
-    # raw_inv_ok=False (hyphens differ), inv_ok=True (both normalize to INV20251) → L2.
+    # raw_inv_ok=False (hyphens differ), inv_ok=True (both normalize to INV20251).
+    # Amounts and dates identical → zero-discrepancy → promoted to level=1.
     g = _base_rec(invoice_number="INV-2025-001")
     p = _base_rec(
         supplier_gstin=g["supplier_gstin"],
@@ -111,9 +112,10 @@ def test_l1_match_differing_only_by_invoice_punctuation():
     r = match_gstr_to_pr(g, [p])
     assert r is not None
     assert r.matched is True
-    assert r.level == 2, (
-        f"Separator-only diff must be L2 (normalized match, raw differs). Got L{r.level}."
+    assert r.level == 1, (
+        f"Separator-only diff with identical amounts/dates must be promoted to L1. Got L{r.level}."
     )
+    assert r.requires_human_review is False
 
 
 def test_l1_amount_at_upper_boundary_rs1_tolerance():

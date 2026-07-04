@@ -101,17 +101,26 @@ def _stats(res):   return res["stats"]
 # 1. Exact match: raw invoice strings differ (parser pre-normalised PR)
 #    GSTR: "FY/2026/00001" → norm "FY202600001"
 #    PR:   "FY202600001"   → norm "FY202600001"  (already stripped by parser)
-#    Amounts, dates, tax structure identical → must be Matched, not Review Required
+#    Amounts, dates, tax structure identical.
+#    Expected:
+#      - Matched bucket (not Review Required)  ← Bug 1 fix
+#      - match_level == 1, confidence == 100   ← Bug 4 fix (Non-exact chip)
 # ─────────────────────────────────────────────────────────────────────────────
 def test_exact_match_raw_string_differs_goes_to_matched():
     g = _gstr(gstin=GSTIN_A, inv="FY/2026/00001", inv_norm="FY202600001")
     p = _pr(  gstin=GSTIN_A, inv="FY202600001",   inv_norm="FY202600001")
     res = _run([g], [p])
     assert g["id"] in _matched(res), (
-        "Pre-normalised exact match (L2, zero diff) must be Matched, not Review Required"
+        "Pre-normalised exact match must be Matched, not Review Required"
     )
     assert _stats(res)["matched_count"] == 1
     assert _stats(res)["review_required_count"] == 0
+    # match_level=1 / confidence=100 so exact_match_count chip is correct
+    matched_row = next(m for m in res["matched"] if m["gstr_id"] == g["id"])
+    assert matched_row.get("match_level") == 1, (
+        "Zero-diff L2 must be promoted to level=1 so Non-exact chip shows 0, not total matched"
+    )
+    assert matched_row.get("confidence_score") == 100
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -293,3 +302,60 @@ def test_mixed_batch_routes_correctly():
     assert g_exact["id"]  in _matched(res), "Exact row must be Matched"
     assert g_review["id"] in _review(res),  "Amount-diff row must be Review Required"
     assert g_missed["id"] in _missed(res),  "No-PR row must be Missed ITC"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 14. exact_match_count chip formula:
+#     4 L1 raw-exact + 2 L2 zero-diff-exact → all 6 should report match_level=1
+#     → non_exact_count = total_matched - exact_match_count = 6 - 6 = 0
+#     3 L2 with real diff → in review, not matched at all
+# ─────────────────────────────────────────────────────────────────────────────
+def test_exact_match_count_chip_formula():
+    G = GSTIN_A
+
+    # 4 raw-L1 (raw strings equal, pure L1 path)
+    l1_pairs = [
+        (_gstr(gstin=G, inv=f"L1INV{i:03d}", inv_norm=f"L1INV{i:03d}"),
+         _pr(  gstin=G, inv=f"L1INV{i:03d}", inv_norm=f"L1INV{i:03d}"))
+        for i in range(4)
+    ]
+
+    # 2 zero-diff L2 (raw differs, norm same, amounts exact → promoted to level=1)
+    l2_exact_pairs = [
+        (_gstr(gstin=G, inv=f"FY/2026/{i:05d}", inv_norm=f"FY2026{i:05d}"),
+         _pr(  gstin=G, inv=f"FY2026{i:05d}",   inv_norm=f"FY2026{i:05d}"))
+        for i in range(2)
+    ]
+
+    # 3 L2 with real amount diff (must be review, not matched)
+    l2_review_pairs = [
+        (_gstr(gstin=G, inv=f"FY/2026/{10+i:05d}", inv_norm=f"FY2026{10+i:05d}",
+               total_tax=18_00000, igst=18_00000),
+         _pr(  gstin=G, inv=f"FY2026{10+i:05d}",   inv_norm=f"FY2026{10+i:05d}",
+               total_tax=17_50000, igst=17_50000))   # ~2.8% diff
+        for i in range(3)
+    ]
+
+    all_gstr = [g for g, _ in l1_pairs + l2_exact_pairs + l2_review_pairs]
+    all_pr   = [p for _, p in l1_pairs + l2_exact_pairs + l2_review_pairs]
+    res = _run(all_gstr, all_pr)
+
+    s = _stats(res)
+    assert s["matched_count"] == 6, f"Expected 6 matched, got {s['matched_count']}"
+    assert s["review_required_count"] == 3
+
+    # Simulate the API's exact_match_count formula
+    matched_rows = res["matched"]
+    exact_count = sum(
+        1 for m in matched_rows
+        if m.get("match_level") == 1
+        or (m.get("match_level") is None and m.get("confidence_score") == 100)
+    )
+    non_exact_count = len(matched_rows) - exact_count
+
+    assert exact_count == 6, (
+        f"exact_match_count must be 6 (4 L1 + 2 zero-diff L2 promoted); got {exact_count}"
+    )
+    assert non_exact_count == 0, (
+        f"Non-exact chip must be 0 when all matched rows are level=1; got {non_exact_count}"
+    )
