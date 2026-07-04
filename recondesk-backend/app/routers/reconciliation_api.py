@@ -2165,10 +2165,12 @@ def _build_matched_pair_records(
 
             tax_diff_paise: Optional[int] = None
             if fetch_review_required:
-                # Review Required rows have match_status="REVIEW_REQUIRED", so the
-                # MISMATCHED guard below never fires.  Read the component-level diff
-                # directly from the engine row so the Discrepancy/Reason column shows
-                # the actual ₹ gap instead of ₹0.
+                # BUG FIX: Review Required rows have always shown ₹0 in the Discrepancy
+                # column because `tax_difference_paise`, `total_tax_diff_paise`, and
+                # `taxable_diff_paise` were never written into the stored payload (they
+                # were absent from `_DUPLICATE_KEYS` in reconciliation_payload_store.py).
+                # Step 1: try the stored keys (will work for newly re-run reconciliations
+                # after the _push_review_required + _DUPLICATE_KEYS fix is applied).
                 raw_tdiff = (
                     en_row.get("tax_difference_paise")
                     or en_row.get("total_tax_diff_paise")
@@ -2179,8 +2181,25 @@ def _build_matched_pair_records(
                         tax_diff_paise = int(raw_tdiff)
                     except (TypeError, ValueError):
                         pass
+
+                # Step 2 (fallback for all existing runs): compute the absolute
+                # taxable-amount diff directly from the GSTR and PR matcher rows,
+                # which are always available in gm / pm loaded from the DB above.
+                # This gives the correct ₹ gap without requiring a re-run.
+                if tax_diff_paise is None and (gm or pm):
+                    gstr_taxable = int(gm.get("taxable_amount_paise") or 0)
+                    pr_taxable = int(pm.get("taxable_amount_paise") or 0)
+                    if gstr_taxable or pr_taxable:
+                        tax_diff_paise = abs(gstr_taxable - pr_taxable)
+                    else:
+                        # Fall back to total_tax diff if taxable is absent on both sides
+                        gstr_tax = int(gm.get("total_tax_paise") or 0)
+                        pr_tax = int(pm.get("total_tax_paise") or 0)
+                        if gstr_tax or pr_tax:
+                            tax_diff_paise = abs(gstr_tax - pr_tax)
             elif getattr(orow, "match_status", "") == "MISMATCHED" and orow is not None:
                 tax_diff_paise = int(orow.total_tax_diff_paise)
+
 
             # For review required, we can ignore decisions_rows as they don't apply to duplicates
             dm: dict[str, Any] = {}

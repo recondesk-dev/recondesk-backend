@@ -319,7 +319,30 @@ def _push_clean_matched(state, gstr_id, pr_id, score, best_result, is_late_filin
     state.consumed_pr_ids.add(str(pr_id))
     state.consumed_gstr_ids.add(str(gstr_id))
 
-def _push_review_required(state, gstr_id, pr_id, score, review_type, best_result=None):
+def _push_review_required(
+    state,
+    gstr_id,
+    pr_id,
+    score,
+    review_type,
+    best_result=None,
+    gstr_rec: "dict | None" = None,
+    pr_rec: "dict | None" = None,
+):
+    # Compute the absolute taxable-amount diff (paise) so it can be stored and
+    # later shown in the Review Required → Discrepancy / Reason column.
+    # Previously this was never stored, causing the column to always display ₹0.
+    taxable_diff: int = 0
+    if gstr_rec is not None and pr_rec is not None:
+        g_tax = int(gstr_rec.get("taxable_amount_paise") or 0)
+        p_tax = int(pr_rec.get("taxable_amount_paise") or 0)
+        if g_tax or p_tax:
+            taxable_diff = abs(g_tax - p_tax)
+        else:
+            # Fall back to total_tax_paise if taxable is unavailable
+            g_tt = int(gstr_rec.get("total_tax_paise") or 0)
+            p_tt = int(pr_rec.get("total_tax_paise") or 0)
+            taxable_diff = abs(g_tt - p_tt)
     match_dict = {
         "gstr_id": str(gstr_id),
         "pr_id": str(pr_id),
@@ -331,6 +354,7 @@ def _push_review_required(state, gstr_id, pr_id, score, review_type, best_result
         "reason": review_type,
         "match_level": getattr(best_result, "level", 0) if best_result else 0,
         "vendor_similarity_score": getattr(best_result, "vendor_similarity_score", None) if best_result else None,
+        "taxable_diff_paise": taxable_diff,
     }
     state.review_required.append(match_dict)
     if pr_id:
@@ -402,7 +426,11 @@ def process_gstr_records_chunk(
         if best_result is not None and best_pr is not None:
             score = compute_match_score(best_result)
             if best_result.requires_human_review:
-                _push_review_required(state, gstr_record["id"], best_pr["id"], score, best_result.review_reason or "Amount/Date mismatch", best_result)
+                _push_review_required(
+                    state, gstr_record["id"], best_pr["id"], score,
+                    best_result.review_reason or "Amount/Date mismatch", best_result,
+                    gstr_rec=gstr_record, pr_rec=best_pr,
+                )
             else:
                 _push_clean_matched(state, gstr_record["id"], best_pr["id"], score, best_result)
             continue
@@ -437,7 +465,11 @@ def process_gstr_records_chunk(
                 score = compute_match_score(best_r)
                 late_months = (gstr_period.year - period.year) * 12 + (gstr_period.month - period.month)
                 if best_r.requires_human_review:
-                    _push_review_required(state, gstr_record["id"], best_p["id"], score, best_r.review_reason or "Amount/Date mismatch", best_r)
+                    _push_review_required(
+                        state, gstr_record["id"], best_p["id"], score,
+                        best_r.review_reason or "Amount/Date mismatch", best_r,
+                        gstr_rec=gstr_record, pr_rec=best_p,
+                    )
                 else:
                     _push_clean_matched(state, gstr_record["id"], best_p["id"], score, best_r, is_late_filing=True, original_period=period, late_months=late_months)
                 break

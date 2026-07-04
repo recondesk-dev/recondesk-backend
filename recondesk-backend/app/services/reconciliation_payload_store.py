@@ -73,6 +73,10 @@ _DUPLICATE_KEYS = (
     "confidence_score",
     "match_level",
     "review_reason",
+    # The absolute taxable-amount diff (paise) between GSTR and PR — shown as
+    # ₹ discrepancy in the Review Required table.  Previously absent from this
+    # whitelist, which caused the column to always display ₹0.
+    "taxable_diff_paise",
 )
 
 _DECISION_ROW_KEYS = (
