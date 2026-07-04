@@ -294,7 +294,7 @@ export const clientsApi = {
     apiFetch<ClientGstin>(clientsApiPath(id), { token }),
 
   create: (token: string, data: ClientCreatePayload) =>
-    apiFetch<ClientGstin>(clientsApiPath(), {
+    apiFetch<ClientGstin & { gstin_verification_warning?: string }>(clientsApiPath(), {
       method: "POST",
       body: JSON.stringify(data),
       token,
@@ -305,6 +305,22 @@ export const clientsApi = {
       | { valid: true; normalized: string; state: string }
       | { valid: false; error: string }
     >(clientsApiPath("validate-gstin"), {
+      method: "POST",
+      body: JSON.stringify({ gstin }),
+      token,
+    }),
+
+  /** Verify a GSTIN against Sandbox.co.in Public GST API. */
+  gstinVerify: (token: string, gstin: string) =>
+    apiFetch<{
+      valid: boolean;
+      status: string;
+      legal_name: string | null;
+      trade_name: string | null;
+      taxpayer_type: string | null;
+      registration_date: string | null;
+      raw_response: Record<string, unknown>;
+    }>("/api/gstin/verify", {
       method: "POST",
       body: JSON.stringify({ gstin }),
       token,
@@ -331,6 +347,7 @@ export const clientsApi = {
   delete: (token: string, id: string) =>
     apiFetch<void>(clientsApiPath(id), { method: "DELETE", token }),
 };
+
 
 // ─── Reconciliation runs ─────────────────────────────────────────────────────
 
