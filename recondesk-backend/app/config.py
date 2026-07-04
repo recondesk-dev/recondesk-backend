@@ -72,6 +72,7 @@ class Settings(BaseSettings):
 
     # Sandbox.co.in GST API
     SANDBOX_API_KEY: str = ""
+    SANDBOX_API_SECRET: str = ""  # Used only for /authenticate (public GSTIN verification)
     SANDBOX_BASE_URL: str = "https://api.sandbox.co.in"
     SANDBOX_API_VERSION: str = "1.0.0"
 
