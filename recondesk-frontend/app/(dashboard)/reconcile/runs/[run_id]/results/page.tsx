@@ -3450,9 +3450,20 @@ export default function ReconcileResultsPage() {
                             taxDiff = { display: inr, tooltip: `Amount difference: ${inr}` };
                           }
                         } else {
-                          taxDiff = { display: "—", tooltip: "—" };
+                          // prAmt unavailable from api_row and purchase_register_data.
+                          // Fall back to the server-computed tax_difference_paise which is
+                          // always calculated from live gm/pm matcher rows — this gives the
+                          // real ₹ gap for FUZZY matches instead of a blank "—".
+                          const serverDiff = row.tax_difference_paise;
+                          if (serverDiff != null && serverDiff > 0) {
+                            const inr = formatINR(serverDiff / 100);
+                            taxDiff = { display: inr, tooltip: `Amount difference: ${inr}` };
+                          } else {
+                            taxDiff = { display: "—", tooltip: "—" };
+                          }
                         }
                       }
+
 
                       return (
                       <tr
