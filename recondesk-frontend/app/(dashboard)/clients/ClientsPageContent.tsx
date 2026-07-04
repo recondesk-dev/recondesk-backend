@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { useSearchParams } from "next/navigation";
 
@@ -140,6 +140,20 @@ export function ClientsPageContent() {
   const [formAssignedTo, setFormAssignedTo] = useState("");
   const [addBusy, setAddBusy] = useState(false);
 
+  // ── GSTIN verification state ──────────────────────────────────────────────
+  type VerifyResult = {
+    valid: boolean;
+    status: string;
+    legal_name: string | null;
+    trade_name: string | null;
+  };
+  const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  // Track which GSTIN the current result belongs to so we reset on change
+  const verifiedForRef = useRef<string>("");
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
+
   const filtered = useMemo(() => {
     const list = clients ?? [];
     const q = debouncedSearch.trim().toLowerCase();
@@ -173,6 +187,11 @@ export function ClientsPageContent() {
     setFormContactEmail("");
     setFormContactPhone("");
     setFormAssignedTo(assignOptions[0]?.userId ?? "");
+    setVerifyResult(null);
+    setVerifyBusy(false);
+    setVerifyError(null);
+    setSaveWarning(null);
+    verifiedForRef.current = "";
   };
 
   useEffect(() => {
@@ -185,11 +204,42 @@ export function ClientsPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- open-once from query; avoid re-running when form changes
   }, [searchParams]);
 
+  // Reset verify result whenever the GSTIN changes
+  useEffect(() => {
+    const upper = formGstin.trim().toUpperCase();
+    if (upper !== verifiedForRef.current) {
+      setVerifyResult(null);
+      setVerifyError(null);
+    }
+  }, [formGstin]);
+
+  const handleVerifyGstin = async () => {
+    if (!authToken || !gstinOk) return;
+    const gstin = formGstin.trim().toUpperCase();
+    setVerifyBusy(true);
+    setVerifyResult(null);
+    setVerifyError(null);
+    try {
+      const res = await clientsApi.gstinVerify(authToken, gstin);
+      setVerifyResult(res);
+      verifiedForRef.current = gstin;
+      // Pre-fill trade name from verified data if the field is still blank
+      if (!formTradeName.trim() && (res.trade_name || res.legal_name)) {
+        setFormTradeName((res.trade_name ?? res.legal_name ?? "").trim());
+      }
+    } catch {
+      setVerifyError("Verification unavailable — you may proceed manually.");
+    } finally {
+      setVerifyBusy(false);
+    }
+  };
+
   const submitAdd = async () => {
     if (!authToken || !canSubmitAdd) return;
     setAddBusy(true);
+    setSaveWarning(null);
     try {
-      await clientsApi.create(authToken, {
+      const result = await clientsApi.create(authToken, {
         gstin: formGstin.trim().toUpperCase(),
         trade_name: formTradeName.trim(),
         contact_name: formContactName.trim(),
@@ -197,9 +247,13 @@ export function ClientsPageContent() {
         contact_phone: formContactPhone.trim(),
         assigned_to: formAssignedTo || undefined,
       });
-      toast("Client added", "success");
-      setAddOpen(false);
-      resetAddForm();
+      if (result.gstin_verification_warning) {
+        setSaveWarning(result.gstin_verification_warning);
+      } else {
+        toast("Client added", "success");
+        setAddOpen(false);
+        resetAddForm();
+      }
       await mutateClients();
     } catch (e: unknown) {
       toast(isApiError(e) ? e.detail : "Could not add client.", "error");
@@ -429,7 +483,82 @@ export function ClientsPageContent() {
         }
       >
         <div className="space-y-4">
+          {/* ── Save warning banner (shown after save if GSTIN is Cancelled/Not Found) */}
+          {saveWarning && (
+            <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <span className="mt-0.5 text-base leading-none">⚠️</span>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-amber-800">GSTIN Warning</p>
+                <p className="mt-0.5 text-xs text-amber-700">{saveWarning}</p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  className="inline-flex min-h-[32px] items-center rounded-full bg-amber-700 px-3 text-xs font-semibold text-white hover:bg-amber-800 transition-colors"
+                  onClick={() => {
+                    setSaveWarning(null);
+                    setAddOpen(false);
+                    resetAddForm();
+                    toast("Client added (with warning)", "success");
+                  }}
+                >
+                  Got it, close
+                </button>
+              </div>
+            </div>
+          )}
           <GstinInput value={formGstin} onChange={setFormGstin} id="add-gstin" />
+
+          {/* ── GSTIN Verify button + result chip ──────────────────────── */}
+          {gstinOk && (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={verifyBusy || !authToken}
+                onClick={() => void handleVerifyGstin()}
+                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-brand px-4 text-xs font-semibold text-brand hover:bg-brand/5 disabled:opacity-40 transition-colors"
+              >
+                {verifyBusy ? (
+                  <>
+                    <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                    Verifying…
+                  </>
+                ) : (
+                  <>🔍 Verify GSTIN</>
+                )}
+              </button>
+
+              {/* Result chip */}
+              {verifyResult && (() => {
+                const s = verifyResult.status;
+                const isActive = verifyResult.valid;
+                const isCancelled = s === "Cancelled";
+                const isNotFound = s === "Not Found";
+                const chip = isActive
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                  : isCancelled || isNotFound
+                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                    : "bg-gray-100 text-gray-600 border-gray-200";
+                const icon = isActive ? "✓" : isNotFound ? "✗" : "⚠";
+                return (
+                  <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${chip}`}>
+                    {icon} {s}
+                    {verifyResult.legal_name && (
+                      <span className="font-normal opacity-75">· {verifyResult.legal_name}</span>
+                    )}
+                  </span>
+                );
+              })()}
+
+              {/* Unavailability notice */}
+              {verifyError && (
+                <span className="text-xs text-[var(--text-secondary)]">{verifyError}</span>
+              )}
+            </div>
+          )}
           <div>
             <label className="mb-1 block text-sm font-medium">Trade Name</label>
             <input
