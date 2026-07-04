@@ -203,6 +203,8 @@ class PRCandidateIndices:
     by_taxable: dict[str, dict[int, list[dict]]] = field(default_factory=dict)
     by_tax: dict[str, dict[int, list[dict]]] = field(default_factory=dict)
     by_invoice_norm_global: dict[str, list[dict]] = field(default_factory=dict)
+    # Full PR list per GSTIN — used for format-variant scans that cross bucket boundaries
+    by_gstin: dict[str, list[dict]] = field(default_factory=dict)
 
 def build_pr_candidate_indices(pr_index: dict[str, list[dict]]) -> PRCandidateIndices:
     indices = PRCandidateIndices()
@@ -224,6 +226,7 @@ def build_pr_candidate_indices(pr_index: dict[str, list[dict]]) -> PRCandidateIn
                 
         indices.by_taxable[gstin] = dict(taxable_dict)
         indices.by_tax[gstin] = dict(tax_dict)
+        indices.by_gstin[gstin] = list(prs)
     return indices
 
 def _get_narrowed_candidates(
@@ -398,7 +401,7 @@ def process_gstr_records_chunk(
 
         if best_result is not None and best_pr is not None:
             score = compute_match_score(best_result)
-            if best_result.requires_human_review or best_result.level > 1:
+            if best_result.requires_human_review:
                 _push_review_required(state, gstr_record["id"], best_pr["id"], score, best_result.review_reason or "Amount/Date mismatch", best_result)
             else:
                 _push_clean_matched(state, gstr_record["id"], best_pr["id"], score, best_result)
@@ -433,7 +436,7 @@ def process_gstr_records_chunk(
                 best_r, best_p = acceptable[0]
                 score = compute_match_score(best_r)
                 late_months = (gstr_period.year - period.year) * 12 + (gstr_period.month - period.month)
-                if best_r.requires_human_review or best_r.level > 1:
+                if best_r.requires_human_review:
                     _push_review_required(state, gstr_record["id"], best_p["id"], score, best_r.review_reason or "Amount/Date mismatch", best_r)
                 else:
                     _push_clean_matched(state, gstr_record["id"], best_p["id"], score, best_r, is_late_filing=True, original_period=period, late_months=late_months)
@@ -715,44 +718,78 @@ def execute_phase2_and_3(
         # sole remaining issue.
         g_inv_norm = str(g.get("invoice_number_normalized") or "")
         candidates_inv_match: list[dict] = []
-        for prs_in_bucket in candidate_indices.by_taxable.get(gst, {}).values():
-            for p in prs_in_bucket:
-                pid = str(p["id"])
-                if pid in state.consumed_pr_ids:
-                    continue
-                p_inv_norm = str(p.get("invoice_number_normalized") or "")
-                # Accept exact normalized match OR a recognised format variant
-                # Pass raw invoice strings so Check 2 can tokenise on separators
-                # (e.g. 'FZ/2026/03763' → {2026, 3763} which intersects 'F3763' → {3763})
-                g_inv_raw = str(g.get("invoice_number") or "")
-                p_inv_raw = str(p.get("invoice_number") or "")
-                if g_inv_norm and p_inv_norm and (
-                    g_inv_norm == p_inv_norm
-                    or is_invoice_format_variant(g_inv_norm, p_inv_norm, g_inv_raw, p_inv_raw)
-                ):
-                    p_amt = p.get("total_tax_paise") or 0
-                    if g_amt == 0 and p_amt == 0: diff_pct = 0.0
-                    elif p_amt == 0: diff_pct = 1.0
-                    else: diff_pct = abs(g_amt - p_amt) / float(p_amt)
-                    
-                    if diff_pct <= 0.50:
-                        candidates_inv_match.append(p)
-        # Also scan the global invoice-norm index in case the PR GSTIN differs
-        # (edge case: GSTIN typo + large amount diff both present)
-        if not candidates_inv_match and g_inv_norm:
+
+        # Pass 1: exact same-GSTIN + exact normalized-invoice match — NO amount cap.
+        # When invoice identity is unambiguous (same GSTIN, same normalized form), the
+        # pair MUST be linked as Review Required even if the amount differs by >50%.
+        # The by_taxable bucket scan (Pass 2) cannot find this PR when the amount diff
+        # pushes the PR outside the ±30-bucket window, so we check the global index first.
+        if g_inv_norm:
             for p in candidate_indices.by_invoice_norm_global.get(g_inv_norm, []):
                 pid = str(p["id"])
                 if pid in state.consumed_pr_ids:
                     continue
                 p_gst = str(p.get("supplier_gstin") or "").strip()
-                if p_gst == gst or _gstin_is_fuzzy_match(gst, p_gst):
-                    p_amt = p.get("total_tax_paise") or 0
-                    if g_amt == 0 and p_amt == 0: diff_pct = 0.0
-                    elif p_amt == 0: diff_pct = 1.0
-                    else: diff_pct = abs(g_amt - p_amt) / float(p_amt)
-                    
-                    if diff_pct <= 0.50:
-                        candidates_inv_match.append(p)
+                if p_gst == gst:
+                    # Exact GSTIN + exact normalized invoice: no amount cap.
+                    candidates_inv_match.append(p)
+
+        # Pass 2: format-variant or near-GSTIN scan via taxable-bucket index (50% cap).
+        # Only run when Pass 1 found nothing, to avoid double-counting.
+        if not candidates_inv_match:
+            g_inv_raw = str(g.get("invoice_number") or "")
+            for prs_in_bucket in candidate_indices.by_taxable.get(gst, {}).values():
+                for p in prs_in_bucket:
+                    pid = str(p["id"])
+                    if pid in state.consumed_pr_ids:
+                        continue
+                    p_inv_norm = str(p.get("invoice_number_normalized") or "")
+                    # Accept exact normalized match OR a recognised format variant
+                    # Pass raw invoice strings so Check 2 can tokenise on separators
+                    # (e.g. 'FZ/2026/03763' → {2026, 3763} which intersects 'F3763' → {3763})
+                    p_inv_raw = str(p.get("invoice_number") or "")
+                    if g_inv_norm and p_inv_norm and (
+                        g_inv_norm == p_inv_norm
+                        or is_invoice_format_variant(g_inv_norm, p_inv_norm, g_inv_raw, p_inv_raw)
+                    ):
+                        p_amt = p.get("total_tax_paise") or 0
+                        if g_amt == 0 and p_amt == 0: diff_pct = 0.0
+                        elif p_amt == 0: diff_pct = 1.0
+                        else: diff_pct = abs(g_amt - p_amt) / float(p_amt)
+                        if diff_pct <= 0.50:
+                            candidates_inv_match.append(p)
+            # Global index fallback for near-GSTIN + large-amount-diff edge cases
+            if not candidates_inv_match and g_inv_norm:
+                for p in candidate_indices.by_invoice_norm_global.get(g_inv_norm, []):
+                    pid = str(p["id"])
+                    if pid in state.consumed_pr_ids:
+                        continue
+                    p_gst = str(p.get("supplier_gstin") or "").strip()
+                    if p_gst != gst and _gstin_is_fuzzy_match(gst, p_gst):
+                        p_amt = p.get("total_tax_paise") or 0
+                        if g_amt == 0 and p_amt == 0: diff_pct = 0.0
+                        elif p_amt == 0: diff_pct = 1.0
+                        else: diff_pct = abs(g_amt - p_amt) / float(p_amt)
+                        if diff_pct <= 0.50:
+                            candidates_inv_match.append(p)
+
+        # Pass 3: format-variant full-GSTIN scan — NO amount cap.
+        # Pass 2 scans the taxable-bucket index; if the PR's taxable amount is far
+        # outside the bucket window (large amount diff), the PR is never found.
+        # When is_invoice_format_variant=True AND same GSTIN, identity is still
+        # unambiguous (e.g. GSTR 'FY202600328' ↔ PR 'FY2600328' — year prefix dropped).
+        # Such pairs must always be Review Required, not Missed ITC.
+        if not candidates_inv_match and g_inv_norm:
+            g_inv_raw = str(g.get("invoice_number") or "")
+            for p in candidate_indices.by_gstin.get(gst, []):
+                pid = str(p["id"])
+                if pid in state.consumed_pr_ids:
+                    continue
+                p_inv_norm = str(p.get("invoice_number_normalized") or "")
+                p_inv_raw = str(p.get("invoice_number") or "")
+                if (g_inv_norm != p_inv_norm  # not an exact norm match (already handled above)
+                        and is_invoice_format_variant(g_inv_norm, p_inv_norm, g_inv_raw, p_inv_raw)):
+                    candidates_inv_match.append(p)
 
         if candidates_inv_match:
             if len(candidates_inv_match) > 1:
