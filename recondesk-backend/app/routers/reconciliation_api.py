@@ -2165,38 +2165,41 @@ def _build_matched_pair_records(
 
             tax_diff_paise: Optional[int] = None
             if fetch_review_required:
-                # BUG FIX: Review Required rows have always shown ₹0 in the Discrepancy
-                # column because `tax_difference_paise`, `total_tax_diff_paise`, and
-                # `taxable_diff_paise` were never written into the stored payload (they
-                # were absent from `_DUPLICATE_KEYS` in reconciliation_payload_store.py).
-                # Step 1: try the stored keys (will work for newly re-run reconciliations
-                # after the _push_review_required + _DUPLICATE_KEYS fix is applied).
-                raw_tdiff = (
-                    en_row.get("tax_difference_paise")
-                    or en_row.get("total_tax_diff_paise")
-                    or en_row.get("taxable_diff_paise")
-                )
-                if raw_tdiff is not None:
-                    try:
-                        tax_diff_paise = int(raw_tdiff)
-                    except (TypeError, ValueError):
-                        pass
-
-                # Step 2 (fallback for all existing runs): compute the absolute
-                # taxable-amount diff directly from the GSTR and PR matcher rows,
-                # which are always available in gm / pm loaded from the DB above.
-                # This gives the correct ₹ gap without requiring a re-run.
-                if tax_diff_paise is None and (gm or pm):
+                # Always recompute from live gm/pm matcher rows rather than trusting
+                # any stored value.  Stored values were:
+                #   - absent (pre-fix runs) → old Step-1 lookup returned None; fallback fired
+                #   - 0 (Phase-2 DUPLICATE/GSTIN_MISMATCH call-sites that don't pass
+                #     gstr_rec/pr_rec to _push_review_required) → old Step-1 returned 0,
+                #     `if raw_tdiff is not None` was True, tax_diff_paise=0, fallback guard
+                #     `if tax_diff_paise is None` was False → fallback NEVER fired → still ₹0
+                # Computing from gm/pm is always correct because those rows come directly
+                # from the DB matcher projection (taxable_amount_paise is always present).
+                if gm or pm:
                     gstr_taxable = int(gm.get("taxable_amount_paise") or 0)
                     pr_taxable = int(pm.get("taxable_amount_paise") or 0)
                     if gstr_taxable or pr_taxable:
                         tax_diff_paise = abs(gstr_taxable - pr_taxable)
                     else:
-                        # Fall back to total_tax diff if taxable is absent on both sides
+                        # Taxable absent on both sides (e.g. credit notes with only tax lines):
+                        # fall back to total_tax diff.
                         gstr_tax = int(gm.get("total_tax_paise") or 0)
                         pr_tax = int(pm.get("total_tax_paise") or 0)
                         if gstr_tax or pr_tax:
                             tax_diff_paise = abs(gstr_tax - pr_tax)
+
+                # Last resort: gm and pm are both empty (data-integrity gap).
+                # Try stored keys as a best-effort fallback.
+                if tax_diff_paise is None:
+                    raw_tdiff = (
+                        en_row.get("taxable_diff_paise")
+                        or en_row.get("tax_difference_paise")
+                        or en_row.get("total_tax_diff_paise")
+                    )
+                    if raw_tdiff:
+                        try:
+                            tax_diff_paise = int(raw_tdiff)
+                        except (TypeError, ValueError):
+                            pass
             elif getattr(orow, "match_status", "") == "MISMATCHED" and orow is not None:
                 tax_diff_paise = int(orow.total_tax_diff_paise)
 
