@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -18,11 +19,14 @@ from app.routers.reconciliation_api import _parse_uuid
 from app.routers.reconciliation_api import _history_row
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.services.carry_forward import get_chronic_risks
+from app.services.gstin_verification import verify_gstin as _verify_gstin
 from app.utils.audit import log_audit
 
 router = APIRouter(redirect_slashes=False)
 # Alias for `app.include_router(clients_router, ...)` in main.py
 clients_router = router
+
+_log = logging.getLogger(__name__)
 
 GSTIN_RE = re.compile(
     r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$"
@@ -273,9 +277,37 @@ async def create_client(
         client_label,
         {"gstin": g},
     )
+
+    # ── GSTIN verification (non-blocking) ────────────────────────────────────
+    # Verification runs after the record is saved so the CA is never blocked.
+    # If Sandbox is down or misconfigured we still return a 201 without a
+    # warning; we just log the error.
+    response_body: dict = dict(out.data or {})
+    gstin_verification_warning: str | None = None
+    try:
+        verification = await _verify_gstin(g)
+        v_status = verification.get("status", "")
+        if v_status in ("Cancelled", "Not Found"):
+            gstin_verification_warning = (
+                f"GSTIN verification warning: status is '{v_status}'. "
+                "Please double-check this GSTIN before proceeding."
+            )
+            _log.warning(
+                "create_client: GSTIN %s has verification status '%s'",
+                g[:5] + "*" * max(0, len(g) - 5),
+                v_status,
+            )
+    except Exception as _exc:  # noqa: BLE001
+        _log.error(
+            "create_client: GSTIN verification failed (non-blocking) – %s", _exc
+        )
+
+    if gstin_verification_warning:
+        response_body["gstin_verification_warning"] = gstin_verification_warning
+
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
-        content=out.data,
+        content=response_body,
     )
 
 
