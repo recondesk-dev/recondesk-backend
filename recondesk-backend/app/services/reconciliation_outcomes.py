@@ -62,49 +62,81 @@ def _gstr_name(rd: dict[str, Any]) -> Optional[str]:
     return None
 
 
+# Supabase/PostgREST silently caps every request at 1,000 rows regardless of the
+# `.range()` window requested (e.g. `.range(0, 1999)` still only returns 1,000 rows).
+# Previously this loop requested 2,000-row pages and treated `len(rows) < 2000` as
+# "no more data" — since the server never returns more than 1,000, that condition
+# was true after the very first page, silently truncating the map to the first
+# ~1,000 records on any run with more gstr/pr records than that. This left the
+# majority of Matched / Missed ITC / ITC at Risk / Review Required rows with blank
+# supplier_gstin / invoice_number / invoice_date / amount fields on larger runs.
+#
+# Fix: request pages at the server's actual page size, advance the offset by the
+# number of rows *actually returned* (not an assumed constant), and terminate
+# against the table's real total row count for this run rather than guessing
+# end-of-data from a page-size comparison that the server may not honour.
+_DB_PAGE_SIZE = 1000
+
+
 def _load_gstr_map(sb: Client, run_id: str) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
+    count_res = (
+        sb.table("gstr_records")
+        .select("id", count="exact")
+        .eq("run_id", run_id)
+        .limit(1)
+        .execute()
+    )
+    total = count_res.count or 0
     off = 0
-    while True:
+    while len(out) < total:
         r = (
             sb.table("gstr_records")
             .select("id, record_data")
             .eq("run_id", run_id)
-            .range(off, off + 1999)
+            .range(off, off + _DB_PAGE_SIZE - 1)
             .execute()
         )
         rows = r.data or []
+        if not rows:
+            break
         for row in rows:
             out[str(row["id"])] = {
                 "matcher": rec_adapt.gstr_db_row_to_matcher_row(row),
                 "record_data": row.get("record_data") or {},
             }
-        if len(rows) < 2000:
-            break
-        off += 2000
+        off += len(rows)
     return out
 
 
 def _load_pr_map(sb: Client, run_id: str) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
+    count_res = (
+        sb.table("pr_records")
+        .select("id", count="exact")
+        .eq("run_id", run_id)
+        .limit(1)
+        .execute()
+    )
+    total = count_res.count or 0
     off = 0
-    while True:
+    while len(out) < total:
         r = (
             sb.table("pr_records")
             .select("id, record_data")
             .eq("run_id", run_id)
-            .range(off, off + 1999)
+            .range(off, off + _DB_PAGE_SIZE - 1)
             .execute()
         )
         rows = r.data or []
+        if not rows:
+            break
         for row in rows:
             out[str(row["id"])] = {
                 "matcher": rec_adapt.pr_db_row_to_matcher_row(row),
                 "record_data": row.get("record_data") or {},
             }
-        if len(rows) < 2000:
-            break
-        off += 2000
+        off += len(rows)
     return out
 
 
