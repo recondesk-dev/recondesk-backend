@@ -1702,7 +1702,15 @@ def _matched_ui_match_level(
     }
     if isinstance(lvl, int) and lvl in _LEVEL_LABEL:
         return _LEVEL_LABEL[lvl]
-    return "FUZZY"
+    # Phase-2 review rows (duplicate ambiguity, GSTIN mismatch, typo/vendor fuzzy,
+    # amount mismatch, etc.) never populate an int match_level because they're
+    # pushed without a MatchResult (see _push_review_required call-sites in
+    # execute_phase2_and_3). Fall back to the actual review reason so the "Match
+    # Method" column shows something truthful (e.g. "GSTIN_MISMATCH") instead of
+    # a generic "FUZZY" that the frontend used to special-case for a bogus
+    # discrepancy recompute.
+    reason = str(engine_row.get("reason") or engine_row.get("review_reason") or "").strip()
+    return reason or "FUZZY"
 
 
 def _rule37_urgency_from_status(status: Optional[str]) -> Optional[str]:
@@ -2050,6 +2058,63 @@ def _build_wrongful_risk_records(
     return out
 
 
+def _review_required_tax_diff_paise(
+    gm: dict[str, Any],
+    pm: dict[str, Any],
+    en_row: dict[str, Any],
+) -> int:
+    """Return the ₹ discrepancy (paise) for a Review Required row's Discrepancy column.
+
+    This is always recomputed from live gm/pm matcher rows rather than trusting any
+    stored value, because:
+      - Stored ``taxable_diff_paise`` was absent (pre-fix runs) or 0 for Phase-2
+        DUPLICATE/GSTIN_MISMATCH call-sites that didn't pass gstr_rec/pr_rec to
+        ``_push_review_required``.
+      - gm/pm come directly from the DB matcher projection, so taxable_amount_paise
+        is always present and authoritative for both sides.
+
+    Bug fix: only compute an actual amount diff when BOTH sides are genuinely
+    present (a real pair). One-sided review rows (e.g. DUPLICATE_AMBIGUITY, where a
+    GSTR or PR record has no confirmed counterpart) previously fell through with the
+    missing side treated as 0, so ``abs(gstr_taxable - 0)`` silently displayed the
+    *entire* one-sided taxable value as a fabricated "discrepancy" for a record that
+    has nothing to compare against — and for non-financial mismatches (GSTIN typo,
+    date shift) where both sides exist and the amounts are actually identical, the
+    correct answer is genuinely ₹0, not a raw invoice/taxable value.
+    """
+    if gm and pm:
+        gstr_taxable = int(gm.get("taxable_amount_paise") or 0)
+        pr_taxable = int(pm.get("taxable_amount_paise") or 0)
+        if gstr_taxable or pr_taxable:
+            return abs(gstr_taxable - pr_taxable)
+        # Taxable absent on both sides (e.g. credit notes with only tax lines):
+        # fall back to total_tax diff.
+        gstr_tax = int(gm.get("total_tax_paise") or 0)
+        pr_tax = int(pm.get("total_tax_paise") or 0)
+        if gstr_tax or pr_tax:
+            return abs(gstr_tax - pr_tax)
+        return 0
+
+    if gm or pm:
+        # Only one side resolved — there is no counterpart to diff against, so the
+        # discrepancy is not a financial amount gap.
+        return 0
+
+    # Last resort: gm and pm are both empty (data-integrity gap). Try stored keys
+    # as a best-effort fallback rather than showing nothing at all.
+    raw_tdiff = (
+        en_row.get("taxable_diff_paise")
+        or en_row.get("tax_difference_paise")
+        or en_row.get("total_tax_diff_paise")
+    )
+    if raw_tdiff:
+        try:
+            return abs(int(raw_tdiff))
+        except (TypeError, ValueError):
+            pass
+    return 0
+
+
 def _build_matched_pair_records(
     sb,
     *,
@@ -2176,43 +2241,9 @@ def _build_matched_pair_records(
 
             tax_diff_paise: Optional[int] = None
             if fetch_review_required:
-                # Always recompute from live gm/pm matcher rows rather than trusting
-                # any stored value.  Stored values were:
-                #   - absent (pre-fix runs) → old Step-1 lookup returned None; fallback fired
-                #   - 0 (Phase-2 DUPLICATE/GSTIN_MISMATCH call-sites that don't pass
-                #     gstr_rec/pr_rec to _push_review_required) → old Step-1 returned 0,
-                #     `if raw_tdiff is not None` was True, tax_diff_paise=0, fallback guard
-                #     `if tax_diff_paise is None` was False → fallback NEVER fired → still ₹0
-                # Computing from gm/pm is always correct because those rows come directly
-                # from the DB matcher projection (taxable_amount_paise is always present).
-                if gm or pm:
-                    gstr_taxable = int(gm.get("taxable_amount_paise") or 0)
-                    pr_taxable = int(pm.get("taxable_amount_paise") or 0)
-                    if gstr_taxable or pr_taxable:
-                        tax_diff_paise = abs(gstr_taxable - pr_taxable)
-                    else:
-                        # Taxable absent on both sides (e.g. credit notes with only tax lines):
-                        # fall back to total_tax diff.
-                        gstr_tax = int(gm.get("total_tax_paise") or 0)
-                        pr_tax = int(pm.get("total_tax_paise") or 0)
-                        if gstr_tax or pr_tax:
-                            tax_diff_paise = abs(gstr_tax - pr_tax)
-
-                # Last resort: gm and pm are both empty (data-integrity gap).
-                # Try stored keys as a best-effort fallback.
-                if tax_diff_paise is None:
-                    raw_tdiff = (
-                        en_row.get("taxable_diff_paise")
-                        or en_row.get("tax_difference_paise")
-                        or en_row.get("total_tax_diff_paise")
-                    )
-                    if raw_tdiff:
-                        try:
-                            tax_diff_paise = int(raw_tdiff)
-                        except (TypeError, ValueError):
-                            pass
+                tax_diff_paise = _review_required_tax_diff_paise(gm, pm, en_row)
             elif getattr(orow, "match_status", "") == "MISMATCHED" and orow is not None:
-                tax_diff_paise = int(orow.total_tax_diff_paise)
+                tax_diff_paise = abs(int(orow.total_tax_diff_paise))
 
 
             # For review required, we can ignore decisions_rows as they don't apply to duplicates

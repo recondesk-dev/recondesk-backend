@@ -183,7 +183,7 @@ async def send_reconciliation_complete_email(
     if wrongful_risk_amount_paise > 0:
         boxes += f"""
 <div style="margin:16px 0;padding:14px 16px;background:#ffebee;border-radius:8px;border-left:4px solid #c62828;">
-  <strong style="color:#b71c1c;">{risk_rs} ITC at risk — supplier has not filed</strong>
+  <strong style="color:#b71c1c;">{risk_rs} ITC at risk — not reflected in GSTR-2B</strong>
 </div>"""
 
     results_url = f"https://recondesk.in/reconcile/runs/{run_id}/results"
@@ -205,7 +205,7 @@ Matched: {matched_count} | Missed ITC: {missed_rs} | At Risk: {risk_rs}
     if missed_itc_amount_paise > 0:
         plain += f"\n{missed_rs} ITC you can still claim.\n"
     if wrongful_risk_amount_paise > 0:
-        plain += f"\n{risk_rs} ITC at risk — supplier has not filed.\n"
+        plain += f"\n{risk_rs} ITC at risk — not reflected in GSTR-2B.\n"
     plain += f"\nView full report: {results_url}\n"
 
     html, plain_body = _base_wrapper("Reconciliation complete", inner, plain)

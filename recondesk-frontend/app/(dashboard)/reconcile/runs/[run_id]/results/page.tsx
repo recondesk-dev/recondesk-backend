@@ -2341,7 +2341,7 @@ export default function ReconcileResultsPage() {
         {resultsTab === "risk" && summary && summary.wrongful_risk_count > 0 && (
           <div className={sectionContainerClass}>
             <SectionHeader
-              title="ITC at Risk — Supplier Has Not Filed"
+              title="ITC at Risk — Not Reflected in GSTR-2B"
               dotColor="#DC2626"
               badges={[
                 {
@@ -3103,30 +3103,16 @@ export default function ReconcileResultsPage() {
                         taxDiff = { display: titleCased, tooltip: row.discrepancy_reason };
                       }
 
-                      if (row.match_level === "FUZZY" || row.match_level === "EXACT") {
-                        const gstrAmt = row.amount;
-                        let prAmt = row.invoice_amount;
-                        if (prAmt === undefined || prAmt === null) {
-                          const raw = readDataField(row.purchase_register_data, [
-                            "Invoice Amount", "Invoice Value", "amount", "Total", "Total Amount", "Grand Total", "invoice_amount"
-                          ]);
-                          if (raw !== "—") {
-                            const parsed = Number(String(raw).replace(/,/g, ""));
-                            if (Number.isFinite(parsed)) prAmt = parsed;
-                          }
-                        }
-                        if (prAmt !== undefined && prAmt !== null) {
-                          const diff = Math.abs(gstrAmt - prAmt);
-                          if (diff <= 1) {
-                            taxDiff = { display: "—", tooltip: "—" };
-                          } else {
-                            const inr = formatINR(diff);
-                            taxDiff = { display: inr, tooltip: `Amount difference: ${inr}` };
-                          }
-                        } else {
-                          taxDiff = { display: "—", tooltip: "—" };
-                        }
-                      }
+                      // NOTE: a client-side "gstrAmt vs raw PR invoice value" recompute
+                      // used to run here for FUZZY/EXACT rows. It compared row.amount
+                      // (the GSTR record's total_tax_paise — the TAX portion only) against
+                      // a raw "Invoice Amount"/"Total"/"Grand Total" field pulled from the
+                      // uploaded Purchase Register (the FULL invoice value, taxable + tax).
+                      // Those two figures are not comparable, so the "diff" it produced was
+                      // effectively the PR's own invoice value, not a real discrepancy. The
+                      // server-computed row.tax_difference_paise above is always the correct
+                      // abs(gstr_taxable - pr_taxable) (or the ₹0/N-A discrepancy_reason
+                      // fallback for non-financial mismatches), so it is used as-is.
 
                       return (
                       <tr
@@ -3429,41 +3415,22 @@ export default function ReconcileResultsPage() {
                         taxDiff = { display: titleCased, tooltip: row.discrepancy_reason };
                       }
 
-                      if (row.match_level === "FUZZY" || row.match_level === "EXACT") {
-                        const gstrAmt = row.amount;
-                        let prAmt = row.invoice_amount;
-                        if (prAmt === undefined || prAmt === null) {
-                          const raw = readDataField(row.purchase_register_data, [
-                            "Invoice Amount", "Invoice Value", "amount", "Total", "Total Amount", "Grand Total", "invoice_amount"
-                          ]);
-                          if (raw !== "—") {
-                            const parsed = Number(String(raw).replace(/,/g, ""));
-                            if (Number.isFinite(parsed)) prAmt = parsed;
-                          }
-                        }
-                        if (prAmt !== undefined && prAmt !== null) {
-                          const diff = Math.abs(gstrAmt - prAmt);
-                          if (diff <= 1) {
-                            taxDiff = { display: "—", tooltip: "—" };
-                          } else {
-                            const inr = formatINR(diff);
-                            taxDiff = { display: inr, tooltip: `Amount difference: ${inr}` };
-                          }
-                        } else {
-                          // prAmt unavailable from api_row and purchase_register_data.
-                          // Fall back to the server-computed tax_difference_paise which is
-                          // always calculated from live gm/pm matcher rows — this gives the
-                          // real ₹ gap for FUZZY matches instead of a blank "—".
-                          const serverDiff = row.tax_difference_paise;
-                          if (serverDiff != null && serverDiff > 0) {
-                            const inr = formatINR(serverDiff / 100);
-                            taxDiff = { display: inr, tooltip: `Amount difference: ${inr}` };
-                          } else {
-                            taxDiff = { display: "—", tooltip: "—" };
-                          }
-                        }
-                      }
-
+                      // NOTE: a client-side "gstrAmt vs raw PR invoice value" recompute
+                      // used to run here for FUZZY/EXACT rows (which is most Review
+                      // Required rows, since Phase-2 review reasons like GSTIN_MISMATCH,
+                      // DUPLICATE_AMBIGUITY, TYPO_MISMATCH etc. all map to "FUZZY"). It
+                      // compared row.amount (the GSTR record's total_tax_paise — the TAX
+                      // portion only) against a raw "Invoice Amount"/"Total"/"Grand Total"
+                      // field pulled from the uploaded Purchase Register (the FULL invoice
+                      // value, taxable + tax). Those two figures are not comparable, so for
+                      // a GSTIN-mismatch or date-shift row with an identical taxable amount
+                      // on both sides, the "diff" it produced was effectively the PR's own
+                      // invoice value — a large fabricated discrepancy where the real gap is
+                      // ₹0. The server-computed row.tax_difference_paise above is always the
+                      // correct abs(gstr_taxable - pr_taxable) for genuinely paired rows (and
+                      // ₹0 when there is no counterpart to diff against), with the
+                      // discrepancy_reason label shown when that diff is ₹0, so it is used
+                      // as-is with no further client-side override.
 
                       return (
                       <tr

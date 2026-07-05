@@ -984,9 +984,15 @@ def execute_phase2_and_3(
         
         if candidates_gstin_mismatch:
             if len(candidates_gstin_mismatch) > 1:
-                _push_review_required(state, gid, candidates_gstin_mismatch[0]["id"], 50, "MULTIPLE_CANDIDATES")
+                _push_review_required(
+                    state, gid, candidates_gstin_mismatch[0]["id"], 50, "MULTIPLE_CANDIDATES",
+                    gstr_rec=g, pr_rec=candidates_gstin_mismatch[0],
+                )
             else:
-                _push_review_required(state, gid, candidates_gstin_mismatch[0]["id"], 50, "GSTIN_MISMATCH")
+                _push_review_required(
+                    state, gid, candidates_gstin_mismatch[0]["id"], 50, "GSTIN_MISMATCH",
+                    gstr_rec=g, pr_rec=candidates_gstin_mismatch[0],
+                )
             continue
 
         # ── FUZZY-GSTIN FALLBACK ────────────────────────────────────────────────────
@@ -1049,9 +1055,15 @@ def execute_phase2_and_3(
             )
             best_p, _best_sim = candidates_fuzzy_gstin[0]
             if len(candidates_fuzzy_gstin) > 1:
-                _push_review_required(state, gid, best_p["id"], 45, "MULTIPLE_CANDIDATES")
+                _push_review_required(
+                    state, gid, best_p["id"], 45, "MULTIPLE_CANDIDATES",
+                    gstr_rec=g, pr_rec=best_p,
+                )
             else:
-                _push_review_required(state, gid, best_p["id"], 45, "GSTIN_MISMATCH")
+                _push_review_required(
+                    state, gid, best_p["id"], 45, "GSTIN_MISMATCH",
+                    gstr_rec=g, pr_rec=best_p,
+                )
             continue
             
         # 3. TYPO_MISMATCH
@@ -1078,9 +1090,15 @@ def execute_phase2_and_3(
         if candidates_typo:
             candidates_typo.sort(key=lambda x: x[1], reverse=True)
             if len(candidates_typo) > 1 and candidates_typo[0][1] == candidates_typo[1][1]:
-                _push_review_required(state, gid, candidates_typo[0][0]["id"], 60, "MULTIPLE_CANDIDATES")
+                _push_review_required(
+                    state, gid, candidates_typo[0][0]["id"], 60, "MULTIPLE_CANDIDATES",
+                    gstr_rec=g, pr_rec=candidates_typo[0][0],
+                )
             else:
-                _push_review_required(state, gid, candidates_typo[0][0]["id"], 60, "TYPO_MISMATCH")
+                _push_review_required(
+                    state, gid, candidates_typo[0][0]["id"], 60, "TYPO_MISMATCH",
+                    gstr_rec=g, pr_rec=candidates_typo[0][0],
+                )
             continue
 
         # 4. MULTIPLE_CANDIDATES / VENDOR_FUZZY
@@ -1096,9 +1114,15 @@ def execute_phase2_and_3(
                     
         if candidates_vendor:
             if len(candidates_vendor) > 1:
-                _push_review_required(state, gid, candidates_vendor[0]["id"], 50, "MULTIPLE_CANDIDATES")
+                _push_review_required(
+                    state, gid, candidates_vendor[0]["id"], 50, "MULTIPLE_CANDIDATES",
+                    gstr_rec=g, pr_rec=candidates_vendor[0],
+                )
             else:
-                _push_review_required(state, gid, candidates_vendor[0]["id"], 50, "VENDOR_FUZZY")
+                _push_review_required(
+                    state, gid, candidates_vendor[0]["id"], 50, "VENDOR_FUZZY",
+                    gstr_rec=g, pr_rec=candidates_vendor[0],
+                )
             continue
 
         # ── INVOICE_MATCH_AMOUNT_REVIEW ──────────────────────────────────────────
@@ -1185,9 +1209,15 @@ def execute_phase2_and_3(
 
         if candidates_inv_match:
             if len(candidates_inv_match) > 1:
-                _push_review_required(state, gid, candidates_inv_match[0]["id"], 55, "MULTIPLE_CANDIDATES")
+                _push_review_required(
+                    state, gid, candidates_inv_match[0]["id"], 55, "MULTIPLE_CANDIDATES",
+                    gstr_rec=g, pr_rec=candidates_inv_match[0],
+                )
             else:
-                _push_review_required(state, gid, candidates_inv_match[0]["id"], 55, "AMOUNT_MISMATCH")
+                _push_review_required(
+                    state, gid, candidates_inv_match[0]["id"], 55, "AMOUNT_MISMATCH",
+                    gstr_rec=g, pr_rec=candidates_inv_match[0],
+                )
             continue
 
     # 5. CREDIBLE_CANDIDATE_FALLBACK
@@ -1263,9 +1293,15 @@ def execute_phase2_and_3(
                 
         if credible_candidates:
             if len(credible_candidates) > 1:
-                _push_review_required(state, gid, credible_candidates[0][0]["id"], 40, "MULTIPLE_CANDIDATES")
+                _push_review_required(
+                    state, gid, credible_candidates[0][0]["id"], 40, "MULTIPLE_CANDIDATES",
+                    gstr_rec=g, pr_rec=credible_candidates[0][0],
+                )
             else:
-                _push_review_required(state, gid, credible_candidates[0][0]["id"], 40, credible_candidates[0][1])
+                _push_review_required(
+                    state, gid, credible_candidates[0][0]["id"], 40, credible_candidates[0][1],
+                    gstr_rec=g, pr_rec=credible_candidates[0][0],
+                )
             continue
 
     # PHASE 3: True Financial Buckets
