@@ -74,7 +74,7 @@ RISK_ROWS = [
         "igst_paise": 36000,
         "cgst_paise": 0,
         "sgst_paise": 0,
-        "decision_what": "Supplier has not filed GSTR-1",
+        "decision_what": "Invoice not reflected in GSTR-2B",
         "decision_next": "Do not claim ITC",
     }
 ]
