@@ -2091,21 +2091,30 @@ def _pair_tax_diff_paise(
     total_tax_paise projected as 0 (see pr_db_row_to_matcher_row), that delta became
     ``gstr_tax - 0`` = the full invoice tax, i.e. a fake discrepancy exactly equal
     to the row's Amount even though the pair is a clean match. Routing the Matched
-    tab through this same taxable-based, both-sides-present computation yields ₹0 for
-    genuine matches (identical taxable on both sides) with no exceptions.
+    tab through this same both-sides-present computation yields ₹0 for genuine
+    matches (identical taxable+tax on both sides) with no exceptions.
+
+    Bug fix (false-negative regression): an earlier version of this function only
+    diffed ``taxable_amount_paise``, falling back to ``total_tax_paise`` ONLY when
+    BOTH sides' taxable values were exactly zero. That silently hid real, deliberate
+    mismatches whose amount gap lives in the tax component rather than the taxable
+    value (e.g. a wrong GST rate applied, or a total-amount typo that only shows up
+    in total_tax_paise) — taxable_amount_paise matched on both sides, so the diff
+    always resolved to ₹0 even though a genuine financial discrepancy existed. The
+    discrepancy is therefore always computed against the *total invoice value*
+    (taxable + total tax) on each side, which catches a real gap regardless of
+    which component it lives in, while still correctly collapsing to ₹0 whenever
+    both components genuinely match (byte-identical pairs, GSTIN-only or
+    date-only mismatches).
     """
     if gm and pm:
         gstr_taxable = int(gm.get("taxable_amount_paise") or 0)
         pr_taxable = int(pm.get("taxable_amount_paise") or 0)
-        if gstr_taxable or pr_taxable:
-            return abs(gstr_taxable - pr_taxable)
-        # Taxable absent on both sides (e.g. credit notes with only tax lines):
-        # fall back to total_tax diff.
         gstr_tax = int(gm.get("total_tax_paise") or 0)
         pr_tax = int(pm.get("total_tax_paise") or 0)
-        if gstr_tax or pr_tax:
-            return abs(gstr_tax - pr_tax)
-        return 0
+        gstr_total = gstr_taxable + gstr_tax
+        pr_total = pr_taxable + pr_tax
+        return abs(gstr_total - pr_total)
 
     if gm or pm:
         # Only one side resolved — there is no counterpart to diff against, so the

@@ -332,20 +332,24 @@ def _push_review_required(
     gstr_rec: "dict | None" = None,
     pr_rec: "dict | None" = None,
 ):
-    # Compute the absolute taxable-amount diff (paise) so it can be stored and
+    # Compute the absolute invoice-value diff (paise) so it can be stored and
     # later shown in the Review Required → Discrepancy / Reason column.
     # Previously this was never stored, causing the column to always display ₹0.
+    #
+    # This must be based on the TOTAL invoice value (taxable + total tax) on each
+    # side, not taxable_amount_paise alone: a real, deliberate mismatch can live
+    # entirely in the tax component (e.g. a wrong GST rate) while the taxable value
+    # matches on both sides. Diffing taxable alone made such genuine discrepancies
+    # silently report ₹0 (a false negative) even though this API-level value is
+    # only a last-resort fallback (see _pair_tax_diff_paise in reconciliation_api.py,
+    # which recomputes live from the DB and is what the UI actually reads).
     taxable_diff: int = 0
     if gstr_rec is not None and pr_rec is not None:
-        g_tax = int(gstr_rec.get("taxable_amount_paise") or 0)
-        p_tax = int(pr_rec.get("taxable_amount_paise") or 0)
-        if g_tax or p_tax:
-            taxable_diff = abs(g_tax - p_tax)
-        else:
-            # Fall back to total_tax_paise if taxable is unavailable
-            g_tt = int(gstr_rec.get("total_tax_paise") or 0)
-            p_tt = int(pr_rec.get("total_tax_paise") or 0)
-            taxable_diff = abs(g_tt - p_tt)
+        g_taxable = int(gstr_rec.get("taxable_amount_paise") or 0)
+        p_taxable = int(pr_rec.get("taxable_amount_paise") or 0)
+        g_tt = int(gstr_rec.get("total_tax_paise") or 0)
+        p_tt = int(pr_rec.get("total_tax_paise") or 0)
+        taxable_diff = abs((g_taxable + g_tt) - (p_taxable + p_tt))
     match_dict = {
         "gstr_id": str(gstr_id),
         "pr_id": str(pr_id),
