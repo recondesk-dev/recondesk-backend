@@ -34,9 +34,14 @@ Layers covered:
 Run: PYTHONPATH=. pytest tests/test_discrepancy_column.py -v
 """
 from datetime import date
+from unittest.mock import patch
 
 from app.matching.engine import run_bidirectional_reconciliation
-from app.routers.reconciliation_api import _pair_tax_diff_paise
+from app.routers.reconciliation_api import (
+    _build_matched_pair_records,
+    _matched_ui_match_level,
+    _pair_tax_diff_paise,
+)
 from app.services.reconciliation_outcomes import _mr_to_decisions
 from app.services.reconciliation_record_adapter import pr_db_row_to_matcher_row
 
@@ -179,6 +184,118 @@ def test_api_helper_zero_for_one_sided_row_not_full_side_value():
 def test_api_helper_falls_back_to_stored_value_when_both_sides_missing():
     en_row = {"taxable_diff_paise": 937800}
     assert _pair_tax_diff_paise({}, {}, en_row) == 937800
+
+
+# ── L2_NORMALIZED tier: same helper must apply, no separate/short-circuited
+#    code path that hardcodes or defaults the diff to ₹0 ──────────────────
+
+
+def test_l2_normalized_small_taxable_diff_reports_actual_delta():
+    """Same GSTIN + same invoice number, taxable off by ₹300 on a ₹280,000
+    invoice (~0.11%, well inside the 1% L2 tolerance) -> Phase 1 classifies
+    this as match_level == 2 (L2_NORMALIZED) with requires_human_review=True.
+    The stored discrepancy must be the real ₹300 gap (in paise), not ₹0 —
+    there is no tier where "the match is close enough" should mean "don't
+    bother computing the actual number"."""
+    gstr = [_gstr("g1", "27AAAAA0000A1Z5", "INV02326", 280000, tax_rs=50400)]
+    pr = [_pr("p1", "27AAAAA0000A1Z5", "INV02326", 280300, tax_rs=50400)]
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=date(2026, 5, 1))
+
+    row = _review_row_for(res, gid="g1")
+    assert row.get("match_level") == 2, (
+        f"Expected this small (<1%) taxable diff to land at L2_NORMALIZED "
+        f"(match_level=2), got match_level={row.get('match_level')}"
+    )
+    expected_diff_paise = abs(280000 - 280300) * 100
+    assert row["taxable_diff_paise"] == expected_diff_paise, (
+        f"L2_NORMALIZED row must report the real ₹300 diff "
+        f"({expected_diff_paise} paise), got {row['taxable_diff_paise']}"
+    )
+    assert row["taxable_diff_paise"] != 0
+
+
+def test_matched_ui_match_level_labels_l2_as_l2_normalized():
+    """The Review Required tab's Match Method column must show L2_NORMALIZED
+    (not FUZZY, not a blank) for match_level == 2 rows."""
+    en_row = {"match_level": 2, "reason": "Amount/Date mismatch"}
+    label = _matched_ui_match_level(en_row, None, for_matched_tab=False)
+    assert label == "L2_NORMALIZED"
+
+
+def test_l2_normalized_end_to_end_api_response_reports_actual_delta():
+    """Full simulation of the Review Required API path (_build_matched_pair_records)
+    for an L2_NORMALIZED row: gm/pm resolved from the DB matcher projection must
+    yield the real diff in the API response's tax_difference_paise field, exactly
+    like L3_AMOUNT_MISMATCH / GSTIN_MISMATCH rows do. This locks in that L2 is
+    NOT a separate, short-circuited code path."""
+    from app.routers import reconciliation_api as api
+
+    gstr_db = {
+        "g1": {
+            "matcher": {
+                "taxable_amount_paise": 28000000,
+                "total_tax_paise": 5040000,
+                "supplier_gstin": "27AAAAA0000A1Z5",
+                "invoice_number_normalized": "INV02326",
+                "invoice_date": "2026-05-01",
+            },
+            "record_data": {},
+        }
+    }
+    pr_db = {
+        "p1": {
+            "matcher": {
+                "taxable_amount_paise": 28030000,
+                "total_tax_paise": 5040000,
+                "supplier_gstin": "27AAAAA0000A1Z5",
+                "invoice_number_normalized": "INV02326",
+                "invoice_date": "2026-05-01",
+            },
+            "record_data": {},
+        }
+    }
+    en_row = {
+        "gstr_id": "g1",
+        "pr_id": "p1",
+        "id": "p1",
+        "confidence_score": 90,
+        "match_status": "review_required",
+        "review_reason": "Amount/Date mismatch",
+        "reason": "Amount/Date mismatch",
+        "match_level": 2,
+        "taxable_diff_paise": 30000,
+    }
+    payload = {"engine": {"duplicates": [en_row], "review_required_typo": []}, "decisions": {"rows": []}}
+
+    with patch.object(api.ro, "load_gstr_map", return_value=gstr_db), \
+         patch.object(api.ro, "load_pr_map", return_value=pr_db):
+        pairs = _build_matched_pair_records(
+            None, rid="r1", payload=payload, note_counts={},
+            fetch_review_required=True, precomputed_outcome_rows=[],
+        )
+
+    assert len(pairs) == 1
+    row, _orow = pairs[0]
+    assert row["match_level"] == "L2_NORMALIZED"
+    assert row["tax_difference_paise"] == 30000, (
+        f"L2_NORMALIZED API response must show the real ₹300 diff (30000 paise), "
+        f"got {row['tax_difference_paise']}"
+    )
+
+
+def test_discrepancy_helper_is_level_agnostic():
+    """_pair_tax_diff_paise takes only gm/pm — it has no match_level parameter
+    and therefore cannot special-case any tier. This test pins that behavior:
+    the same gm/pm pair yields the identical diff no matter what match_level /
+    review_reason the caller attaches to the row, proving every tier (L1-L5,
+    GSTIN_MISMATCH, TYPO_MISMATCH, ...) that reaches this helper is diffed
+    identically."""
+    gm = {"taxable_amount_paise": 28000000, "total_tax_paise": 5040000}
+    pm = {"taxable_amount_paise": 28030000, "total_tax_paise": 5040000}
+    expected = abs(28000000 - 28030000)
+    for level in (1, 2, 3, 4, 5, None):
+        en_row = {"match_level": level, "reason": "whatever"}
+        assert _pair_tax_diff_paise(gm, pm, en_row) == expected
 
 
 # ── Matched tab: clean matches must report ₹0 discrepancy ──────────────────
