@@ -361,6 +361,59 @@ def test_l3_tax_structure_igst_vs_cgst_sgst_same_totals_not_l6():
     assert r.review_reason == "AMOUNT_MISMATCH"
 
 
+def test_l1_exact_match_pr_missing_tax_component_breakdown():
+    """Reproduces the production bug: PR side has no per-head IGST/CGST/SGST
+    columns (only an aggregate total_tax_paise), while GSTR reports a real IGST
+    figure. Taxable amount and total tax agree exactly on both sides, so this
+    MUST be L1_EXACT / Matched -- the missing breakdown must not be read as a
+    fabricated CGST+SGST tax-structure conflict."""
+    g = _base_rec(invoice_number="INV-1042", taxable_paise=49_760_567)
+    g["igst_paise"] = 13_932_959
+    g["total_tax_paise"] = 13_932_959
+    p = _base_rec(
+        supplier_gstin=g["supplier_gstin"],
+        invoice_number="INV1042",
+        invoice_date=g["invoice_date"],
+        taxable_paise=49_760_567,
+    )
+    p["igst_paise"] = None
+    p["cgst_paise"] = None
+    p["sgst_paise"] = None
+    p["total_tax_paise"] = 13_932_959
+    r = match_gstr_to_pr(g, [p])
+    assert r is not None
+    assert r.level == 1
+    assert r.matched is True
+    assert r.confidence == 100
+    assert r.requires_human_review is False
+
+
+def test_l3_genuine_amount_mismatch_still_flagged_with_pr_missing_breakdown():
+    """Same missing-breakdown PR shape as the production bug, but with a real
+    amount difference -- must still be flagged for review with the correct
+    non-zero diff. Proves the fix does not over-correct into "always Matched"."""
+    base = 1_000_000_00
+    diff = int(round(0.03 * base))
+    g = _base_rec(invoice_number="INV-2001", taxable_paise=base)
+    g["igst_paise"] = 1_800_000
+    g["total_tax_paise"] = 1_800_000
+    p = _base_rec(
+        supplier_gstin=g["supplier_gstin"],
+        invoice_number="INV2001",
+        invoice_date=g["invoice_date"],
+        taxable_paise=base - diff,
+    )
+    p["igst_paise"] = None
+    p["cgst_paise"] = None
+    p["sgst_paise"] = None
+    p["total_tax_paise"] = 1_800_000
+    r = match_gstr_to_pr(g, [p])
+    assert r is not None
+    assert r.level in (2, 3)
+    assert r.matched is True
+    assert r.requires_human_review is True
+
+
 def test_l3_same_identity_taxable_but_total_tax_mismatch_not_l6():
     """Taxable + invoice identity match; total (taxable + tax) differs → matched with review."""
     g = _base_rec()

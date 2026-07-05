@@ -271,6 +271,25 @@ def _has_explicit_total_tax_line(
     )
 
 
+def _has_component_tax_breakdown(rec: Mapping[str, Any]) -> bool:
+    """True when a record carries a genuine IGST/CGST/SGST split, as opposed to
+    only an aggregate total_tax_paise.
+
+    Many real-world Purchase Register exports only have a single "Total Tax"
+    column with no separate IGST/CGST/SGST columns. In that case the adapters
+    coerce the missing per-head fields to 0 (see reconciliation_record_adapter.py),
+    which is indistinguishable from "genuinely zero" at the field level. Treating
+    that coerced 0 as proof of "not IGST" fabricates a tax-structure conflict out
+    of absent data. This helper lets callers tell "known to be zero" apart from
+    "unknown" by checking whether *any* component on the record is non-zero.
+    """
+    return (
+        _safe_paise_field(rec, "igst_paise") != 0
+        or _safe_paise_field(rec, "cgst_paise") != 0
+        or _safe_paise_field(rec, "sgst_paise") != 0
+    )
+
+
 def _append_financial_discrepancies(
     out: list[str],
     *,
@@ -543,7 +562,17 @@ def _match_gstr_to_pr_pair(
     total_diff = abs(gstr_total - pr_total)
     gstr_is_igst = _safe_paise_field(gstr_rec, "igst_paise") > 0
     pr_is_igst = _safe_paise_field(pr_rec, "igst_paise") > 0
-    tax_structure_match = gstr_is_igst == pr_is_igst
+    # Only treat a structure disagreement as real when BOTH sides actually
+    # report a per-head breakdown. If one side has no IGST/CGST/SGST data at
+    # all (common when a Purchase Register only tracks an aggregate total),
+    # there is nothing to compare — default to "not conflicting" rather than
+    # inferring CGST+SGST from an absent/zero-coerced field.
+    both_have_tax_breakdown = _has_component_tax_breakdown(
+        gstr_rec
+    ) and _has_component_tax_breakdown(pr_rec)
+    tax_structure_match = (
+        (gstr_is_igst == pr_is_igst) if both_have_tax_breakdown else True
+    )
     has_tax_lines = _has_explicit_total_tax_line(gstr_rec, pr_rec)
 
     discrepancies = build_discrepancies(
@@ -606,6 +635,44 @@ def _match_gstr_to_pr_pair(
         discrepancies.append(
             f"vendor_name: GSTR={g_vendor!r}, PR={p_vendor!r}"
         )
+
+    # ── Zero-discrepancy invariant — single authoritative rule ───────────────
+    # If the supplier GSTIN, invoice identity, and vendor name all agree, and
+    # BOTH the taxable amount and the total tax agree (within Rs1 rounding),
+    # this pair is an exact match — full stop. No downstream tier or heuristic
+    # (tax-structure inference, financial_status classification, etc.) may
+    # reclassify a genuinely zero-discrepancy pair as a review item. This is
+    # the single place that decides "zero discrepancy ⇒ L1/Matched"; it must
+    # still yield to a *proven* tax-structure conflict (tax_structure_match is
+    # only False when both sides report real, comparable IGST/CGST/SGST data —
+    # see _has_component_tax_breakdown) since a genuine IGST/CGST head-swap is
+    # a real compliance risk even when the totals coincidentally agree.
+    g_total_tax_paise = _safe_paise_field(gstr_rec, "total_tax_paise")
+    p_total_tax_paise = _safe_paise_field(pr_rec, "total_tax_paise")
+    tax_only_diff = abs(g_total_tax_paise - p_total_tax_paise)
+    zero_discrepancy = (
+        not skip_amount
+        and amount_diff <= AMOUNT_TOLERANCE_L1_PAISE
+        and tax_only_diff <= AMOUNT_TOLERANCE_L1_PAISE
+    )
+    if (
+        gstin_match
+        and (inv_ok or format_variant)
+        and _vendor_name_ok
+        and zero_discrepancy
+        and date_within_l1
+        and tax_structure_match
+    ):
+        return MatchResult(
+            level=1, matched=True, confidence=100, requires_human_review=False,
+            decision_what="Exact match found",
+            decision_why="Invoice number, amount, and date align",
+            decision_next="No action required",
+            discrepancies=discrepancies,
+            identity_confidence="High", financial_status="Exact",
+            review_reason=None,
+        )
+
     if gstin_match and raw_inv_ok and _vendor_name_ok:
         if amount_within_l1 and date_within_l1 and l12_finance_ok:
             return MatchResult(
@@ -621,27 +688,11 @@ def _match_gstr_to_pr_pair(
     # ── Tier 2: Same GSTIN + normalized invoice number (L2) ─────────────────
     if gstin_match and inv_ok:
         if amount_within_l2 and date_within_l2 and tax_structure_match:
-            # requires_human_review is True only when there is an actual discrepancy.
-            # If amounts and dates are exactly zero-diff AND finance is clean, this is
-            # effectively a clean match (the raw invoice differed only in formatting —
-            # e.g. FY/2026/00002 vs FY202600002 — but all financial fields agree).
-            needs_review = not (amount_within_l1 and date_within_l1 and l12_finance_ok)
-            if not needs_review:
-                # Zero-discrepancy L2: promote to level=1 so the exact_match_count
-                # chip and match-level badge reflect the true business outcome —
-                # the pair is financially identical; the raw-string difference is
-                # purely a parser pre-normalisation artefact and not a real mismatch.
-                return MatchResult(
-                    level=1, matched=True, confidence=100, requires_human_review=False,
-                    decision_what="Exact match found",
-                    decision_why="Invoice number, amount, and date align (invoice format normalised)",
-                    decision_next="No action required",
-                    discrepancies=discrepancies,
-                    identity_confidence="High", financial_status=financial_status,
-                    review_reason=None,
-                )
+            # A genuinely zero-discrepancy pair is already handled by the
+            # zero-discrepancy invariant above and never reaches this branch;
+            # anything landing here has a real (if small) amount/date diff.
             return MatchResult(
-                level=2, matched=True, confidence=90, requires_human_review=needs_review,
+                level=2, matched=True, confidence=90, requires_human_review=True,
                 decision_what="Invoice matched with normalized invoice and minor amount difference",
                 decision_why="Same normalized invoice and GSTIN, amount within acceptable tolerance",
                 decision_next="Verify if needed",
@@ -689,20 +740,10 @@ def _match_gstr_to_pr_pair(
             )
 
     # ── Tier 3: Same GSTIN + format-variant invoice ──────────────────────────
-    # Bug-1c fix: when amounts and dates are within L1 tolerance (zero discrepancy)
-    # the record is a clean match — the only difference is invoice number formatting
-    # (leading zeros, hyphens, slashes).  Promote to L1 instead of forcing L3 review.
+    # A genuinely zero-discrepancy format-variant pair is already handled by
+    # the zero-discrepancy invariant above; anything reaching here has a real
+    # (if small) amount/date diff.
     if gstin_match and format_variant:
-        if amount_within_l1 and date_within_l1 and l12_finance_ok:
-            return MatchResult(
-                level=1, matched=True, confidence=100, requires_human_review=False,
-                decision_what="Exact match found",
-                decision_why="Invoice number, amount, and date align (invoice format normalised)",
-                decision_next="No action required",
-                discrepancies=discrepancies,
-                identity_confidence="High", financial_status=financial_status,
-                review_reason=None,
-            )
         if amount_within_l3 and date_within_l3:
             return MatchResult(
                 level=3, matched=True, confidence=75, requires_human_review=True,
