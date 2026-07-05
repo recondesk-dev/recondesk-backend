@@ -2058,12 +2058,15 @@ def _build_wrongful_risk_records(
     return out
 
 
-def _review_required_tax_diff_paise(
+def _pair_tax_diff_paise(
     gm: dict[str, Any],
     pm: dict[str, Any],
     en_row: dict[str, Any],
 ) -> int:
-    """Return the ₹ discrepancy (paise) for a Review Required row's Discrepancy column.
+    """Return the ₹ discrepancy (paise) for a paired row's Discrepancy column.
+
+    Used by BOTH the Review Required tab and the Matched tab so the "Discrepancy"
+    figure is computed one way everywhere.
 
     This is always recomputed from live gm/pm matcher rows rather than trusting any
     stored value, because:
@@ -2073,14 +2076,23 @@ def _review_required_tax_diff_paise(
       - gm/pm come directly from the DB matcher projection, so taxable_amount_paise
         is always present and authoritative for both sides.
 
-    Bug fix: only compute an actual amount diff when BOTH sides are genuinely
-    present (a real pair). One-sided review rows (e.g. DUPLICATE_AMBIGUITY, where a
-    GSTR or PR record has no confirmed counterpart) previously fell through with the
-    missing side treated as 0, so ``abs(gstr_taxable - 0)`` silently displayed the
-    *entire* one-sided taxable value as a fabricated "discrepancy" for a record that
-    has nothing to compare against — and for non-financial mismatches (GSTIN typo,
-    date shift) where both sides exist and the amounts are actually identical, the
-    correct answer is genuinely ₹0, not a raw invoice/taxable value.
+    Bug fix (Review Required): only compute an actual amount diff when BOTH sides
+    are genuinely present (a real pair). One-sided review rows (e.g.
+    DUPLICATE_AMBIGUITY, where a GSTR or PR record has no confirmed counterpart)
+    previously fell through with the missing side treated as 0, so
+    ``abs(gstr_taxable - 0)`` silently displayed the *entire* one-sided taxable
+    value as a fabricated "discrepancy" for a record that has nothing to compare
+    against — and for non-financial mismatches (GSTIN typo, date shift) where both
+    sides exist and the amounts are actually identical, the correct answer is
+    genuinely ₹0, not a raw invoice/taxable value.
+
+    Bug fix (Matched tab): the matched path previously derived the discrepancy from
+    ``orow.total_tax_diff_paise`` (a total_tax_paise-based delta). When a PR row's
+    total_tax_paise projected as 0 (see pr_db_row_to_matcher_row), that delta became
+    ``gstr_tax - 0`` = the full invoice tax, i.e. a fake discrepancy exactly equal
+    to the row's Amount even though the pair is a clean match. Routing the Matched
+    tab through this same taxable-based, both-sides-present computation yields ₹0 for
+    genuine matches (identical taxable on both sides) with no exceptions.
     """
     if gm and pm:
         gstr_taxable = int(gm.get("taxable_amount_paise") or 0)
@@ -2239,11 +2251,13 @@ def _build_matched_pair_records(
             else:
                 amt = _paise_to_rupees(int(gm.get("total_tax_paise") or 0))
 
-            tax_diff_paise: Optional[int] = None
-            if fetch_review_required:
-                tax_diff_paise = _review_required_tax_diff_paise(gm, pm, en_row)
-            elif getattr(orow, "match_status", "") == "MISMATCHED" and orow is not None:
-                tax_diff_paise = abs(int(orow.total_tax_diff_paise))
+            # Both tabs compute the Discrepancy column identically: the real
+            # abs(gstr_taxable - pr_taxable) when both sides are present, ₹0
+            # otherwise. For a clean Matched-tab row (identical taxable on both
+            # sides) this is always 0; it no longer derives from
+            # orow.total_tax_diff_paise, which surfaced the full invoice tax as a
+            # fake discrepancy whenever the PR side's total_tax_paise projected 0.
+            tax_diff_paise: Optional[int] = _pair_tax_diff_paise(gm, pm, en_row)
 
 
             # For review required, we can ignore decisions_rows as they don't apply to duplicates

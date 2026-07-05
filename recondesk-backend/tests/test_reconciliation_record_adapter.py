@@ -26,6 +26,46 @@ def test_pr_row_preserves_parser_paise_and_normalizes_invoice():
     assert m["total_tax_paise"] == 1_800_000
 
 
+def test_pr_row_computes_total_tax_from_components_when_field_missing():
+    """When record_data has no top-level total_tax_paise, sum the components.
+
+    Mirrors the GSTR adapter so a matched pair does not project total_tax_paise=0
+    on the PR side, which would surface a fake "discrepancy" equal to the full
+    invoice tax on the Matched tab.
+    """
+    row = {
+        "id": 7,
+        "record_data": {
+            "gstin": "27AABCU9603R1ZX",
+            "invoice_number": "INV5210",
+            "taxable_amount_paise": 8_390_898,
+            "igst_paise": 1_510_362,
+            "cgst_paise": 0,
+            "sgst_paise": 0,
+            # no total_tax_paise key on purpose
+        },
+    }
+    m = pr_db_row_to_matcher_row(row)
+    assert m["total_tax_paise"] == 1_510_362
+
+
+def test_pr_row_prefers_explicit_total_tax_over_component_sum():
+    row = {
+        "id": 8,
+        "record_data": {
+            "gstin": "27AABCU9603R1ZX",
+            "invoice_number": "INV9",
+            "taxable_amount_paise": 1_000_000,
+            "igst_paise": 90_000,
+            "cgst_paise": 0,
+            "sgst_paise": 0,
+            "total_tax_paise": 250_000,
+        },
+    }
+    m = pr_db_row_to_matcher_row(row)
+    assert m["total_tax_paise"] == 250_000
+
+
 def test_gstr_row_normalizes_invoice_to_match_matcher():
     row = {
         "id": 2,

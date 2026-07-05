@@ -121,6 +121,20 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         str(inv_raw_for_norm).strip() if inv_raw_for_norm else None
     )
     inv_d = _iso_date(rd.get("invoice_date"))
+    cgst = _pr_stored_paise(rd.get("cgst_paise"))
+    sgst = _pr_stored_paise(rd.get("sgst_paise"))
+    igst = _pr_stored_paise(rd.get("igst_paise"))
+    cess = _pr_stored_paise(rd.get("cess_paise"))
+    # total_tax_paise must be derived symmetrically with the GSTR adapter:
+    # prefer the stored value, but fall back to summing components when the PR
+    # record_data has no top-level total_tax_paise (e.g. uploads that only carry
+    # separate IGST/CGST/SGST columns). Without this fallback the PR side of a
+    # genuine match projects total_tax_paise=0 on the read path, so the matched
+    # decision computes ttd = gstr_tax - 0 = the full invoice tax, surfacing a
+    # fabricated "discrepancy" equal to the row's own Amount on the Matched tab.
+    total_tax = _pr_stored_paise(rd.get("total_tax_paise"))
+    if total_tax == 0:
+        total_tax = cgst + sgst + igst + cess
     return {
         "id": str(rid),
         "supplier_gstin": gstin,
@@ -129,9 +143,9 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "invoice_number_normalized": invn,
         "invoice_date": inv_d,
         "taxable_amount_paise": _pr_stored_paise(rd.get("taxable_amount_paise")),
-        "cgst_paise": _pr_stored_paise(rd.get("cgst_paise")),
-        "sgst_paise": _pr_stored_paise(rd.get("sgst_paise")),
-        "igst_paise": _pr_stored_paise(rd.get("igst_paise")),
-        "cess_paise": _pr_stored_paise(rd.get("cess_paise")),
-        "total_tax_paise": _pr_stored_paise(rd.get("total_tax_paise")),
+        "cgst_paise": cgst,
+        "sgst_paise": sgst,
+        "igst_paise": igst,
+        "cess_paise": cess,
+        "total_tax_paise": total_tax,
     }
