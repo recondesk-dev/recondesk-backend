@@ -19,6 +19,7 @@ _HEADER_BLUE = "1F4E79"
 _HEADER_GREEN = "375623"
 _HEADER_RED = "C00000"
 _HEADER_PURPLE = "7030A0"
+_HEADER_ORANGE = "C55A11"
 
 _FILL_FUZZY = "E2EFDA"
 _FILL_MANUAL = "FFF2CC"
@@ -539,9 +540,10 @@ def build_excel_workbook_bytes(
                 "Amount",
             ]
         )
+        hdr_fill = PatternFill("solid", fgColor=_HEADER_ORANGE)
         for c in range(1, 6):
-            ws_rev.cell(row=1, column=c).font = Font(bold=True)
-            ws_rev.cell(row=1, column=c).fill = hf
+            ws_rev.cell(row=1, column=c).font = Font(bold=True, color="FFFFFF")
+            ws_rev.cell(row=1, column=c).fill = hdr_fill
         r = 2
         for row in review_required_rows:
             ws_rev.append(

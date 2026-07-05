@@ -4223,7 +4223,7 @@ async def reconcile_export_excel_workbook(
         .execute()
     )
     run_row = (run_ex.data or [{}])[0]
-    summ_outcome_rows = ro.build_outcome_rows(sb, rid, payload)[0]
+    summ_outcome_rows = ro.build_outcome_rows(sb, rid, p)[0]
     summ = _build_reconcile_summary(
         sb,
         run_row=run_row,
@@ -4254,7 +4254,7 @@ async def reconcile_export_excel_workbook(
     s17 = _build_section175_rows(sb, rid, p, notes)
 
     oc_rows, _cc, _st = ro.build_outcome_rows(sb, rid, p)
-    review_rows = [x.model_dump() for x in oc_rows if x.category == "review_required"]
+    review_rows = [x.as_dict() for x in oc_rows if x.category == "review_required"]
 
     blob, fn = build_excel_workbook_bytes(
         run_id=rid,
