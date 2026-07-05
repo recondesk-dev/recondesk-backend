@@ -81,10 +81,13 @@ def _all_ids(result):
         pr_ids.append(str(wr.get("id", "")))
 
     for rr in result.get("review_required", []):
-        if rr.get("side") == "GSTR":
+        # review_required items always carry both gstr_id and pr_id directly
+        # (there is no "side" field in the current schema — that was a stale
+        # assumption from an earlier review_required shape).
+        if rr.get("gstr_id"):
             gstr_ids.append(str(rr.get("gstr_id", "")))
-        else:
-            pr_ids.append(str(rr.get("id", "")))
+        if rr.get("pr_id"):
+            pr_ids.append(str(rr.get("pr_id", "")))
 
     return gstr_ids, pr_ids
 
