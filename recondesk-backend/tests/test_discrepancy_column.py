@@ -1,14 +1,30 @@
 """
 test_discrepancy_column.py
 
-Regression coverage for the "Discrepancy" column bug on the Review Required
-table: for records whose only difference between GSTR-2B and the Purchase
-Register is date or GSTIN (not amount), the reported discrepancy must be ₹0 —
-never a fabricated figure equal to one side's raw taxable/invoice value. For a
-genuine amount mismatch, the reported discrepancy must equal the actual
-computed delta between the two sides.
+Regression coverage for the "Discrepancy" column on both the Review Required
+and Matched tables. Three distinct bugs have hit this column and are all
+covered here so a fix for one direction can never silently reintroduce another:
 
-Two layers are covered:
+  Bug A/B (fabricated large discrepancy): comparing a tax-only figure against a
+  full invoice value, or diffing a one-sided row against an implicit zero.
+  Symptom: non-financial mismatches (date shift, GSTIN typo) or one-sided rows
+  showed a huge fake "discrepancy" equal to a raw side value.
+
+  Matched-tab total_tax_paise=0 projection: the PR DB adapter didn't fall back
+  to summing tax components, so a clean match could show a fake discrepancy
+  equal to its own Amount.
+
+  False-negative regression: the fix for the above two bugs diffed only
+  taxable_amount_paise (falling back to total_tax_paise ONLY when both taxable
+  values were exactly zero). A genuine, deliberate mismatch whose amount gap
+  lives in the tax component (not the taxable value) then silently reported
+  ₹0 — hiding a real discrepancy from the CA.
+
+The correct, single definition used everywhere: diff the TOTAL invoice value
+(taxable + total tax) on each side when both sides are genuinely present;
+₹0 when only one side (or neither) resolves.
+
+Layers covered:
   1. Engine layer (app.services.reconciliation / app.matching.engine): the
      stored ``taxable_diff_paise`` on state.review_required rows.
   2. API layer (app.routers.reconciliation_api._pair_tax_diff_paise): the pure
@@ -25,7 +41,8 @@ from app.services.reconciliation_outcomes import _mr_to_decisions
 from app.services.reconciliation_record_adapter import pr_db_row_to_matcher_row
 
 
-def _gstr(id, gstin, inv, taxable_rs, dt="2026-05-01"):
+def _gstr(id, gstin, inv, taxable_rs, tax_rs=None, dt="2026-05-01"):
+    tax_rs = int(taxable_rs * 0.18) if tax_rs is None else tax_rs
     return {
         "id": id,
         "supplier_gstin": gstin,
@@ -33,11 +50,12 @@ def _gstr(id, gstin, inv, taxable_rs, dt="2026-05-01"):
         "invoice_number_normalized": inv,
         "invoice_date": date.fromisoformat(dt) if dt else None,
         "taxable_amount_paise": taxable_rs * 100,
-        "total_tax_paise": int(taxable_rs * 18),
+        "total_tax_paise": tax_rs * 100,
     }
 
 
-def _pr(id, gstin, inv, taxable_rs, dt="2026-05-01"):
+def _pr(id, gstin, inv, taxable_rs, tax_rs=None, dt="2026-05-01"):
+    tax_rs = int(taxable_rs * 0.18) if tax_rs is None else tax_rs
     return {
         "id": id,
         "supplier_gstin": gstin,
@@ -45,7 +63,7 @@ def _pr(id, gstin, inv, taxable_rs, dt="2026-05-01"):
         "invoice_number_normalized": inv,
         "invoice_date": date.fromisoformat(dt) if dt else None,
         "taxable_amount_paise": taxable_rs * 100,
-        "total_tax_paise": int(taxable_rs * 18),
+        "total_tax_paise": tax_rs * 100,
     }
 
 
@@ -90,32 +108,60 @@ def test_date_shift_identical_amounts_has_zero_discrepancy():
     )
 
 
-def test_genuine_amount_mismatch_reports_actual_delta():
-    """Same GSTIN/invoice, real amount gap -> reported diff equals the true delta, not a raw side value."""
-    gstr = [_gstr("g1", "27AAAAA0000A1Z5", "INV7003", 300000)]
-    pr = [_pr("p1", "27AAAAA0000A1Z5", "INV7003", 300094)]  # ~9438 paise diff scaled to rupees
+def test_genuine_taxable_mismatch_reports_actual_delta():
+    """Taxable value differs (tax component held equal) -> reported diff equals
+    the true taxable delta, not a raw side value and not ₹0."""
+    gstr = [_gstr("g1", "27AAAAA0000A1Z5", "INV7003", 300000, tax_rs=54000)]
+    pr = [_pr("p1", "27AAAAA0000A1Z5", "INV7003", 300094, tax_rs=54000)]
     res = run_bidirectional_reconciliation(gstr, pr, gstr_period=date(2026, 5, 1))
 
     row = _review_row_for(res, gid="g1")
     expected_diff_paise = abs(300000 - 300094) * 100
     assert row["taxable_diff_paise"] == expected_diff_paise
-    # Sanity: must not equal either side's raw taxable value (the old bug's symptom).
     assert row["taxable_diff_paise"] not in (300000 * 100, 300094 * 100)
+
+
+def test_genuine_tax_only_mismatch_reports_actual_delta_not_zero():
+    """Regression: taxable value is IDENTICAL on both sides, but the tax
+    component genuinely differs (e.g. a wrong GST rate). The old fix diffed
+    taxable_amount_paise only and fell back to total_tax_paise ONLY when both
+    taxable values were zero, so this scenario silently reported ₹0 — hiding a
+    real discrepancy. It must report the actual tax delta instead."""
+    gstr = [_gstr("g1", "27AAAAA0000A1Z5", "INV7100", 300000, tax_rs=54000)]
+    pr = [_pr("p1", "27AAAAA0000A1Z5", "INV7100", 300000, tax_rs=54940)]  # ₹940 tax-only gap
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=date(2026, 5, 1))
+
+    row = _review_row_for(res, gid="g1")
+    expected_diff_paise = abs(54000 - 54940) * 100
+    assert row["taxable_diff_paise"] == expected_diff_paise
+    assert row["taxable_diff_paise"] != 0
 
 
 # ── API layer: _pair_tax_diff_paise pure helper ────────────────────────────
 
 
-def test_api_helper_zero_for_paired_identical_taxable():
+def test_api_helper_zero_for_paired_identical_taxable_and_tax():
     gm = {"taxable_amount_paise": 25000000, "total_tax_paise": 4500000}
     pm = {"taxable_amount_paise": 25000000, "total_tax_paise": 4500000}
     assert _pair_tax_diff_paise(gm, pm, {}) == 0
 
 
-def test_api_helper_actual_delta_for_paired_mismatch():
+def test_api_helper_actual_delta_when_taxable_differs():
     gm = {"taxable_amount_paise": 30000000, "total_tax_paise": 5400000}
-    pm = {"taxable_amount_paise": 30009438, "total_tax_paise": 5401699}
+    pm = {"taxable_amount_paise": 30009438, "total_tax_paise": 5400000}
     assert _pair_tax_diff_paise(gm, pm, {}) == abs(30000000 - 30009438)
+
+
+def test_api_helper_actual_delta_when_only_tax_differs():
+    """Regression: taxable is identical on both sides, only total_tax_paise
+    differs -> must report the real gap, not ₹0. This is the exact "large_amount
+    _review" / "small_amount_diff" symptom: taxable_amount_paise resolves to the
+    same value on both sides while the deliberately-injected mismatch lives in
+    total_tax_paise."""
+    gm = {"taxable_amount_paise": 30000000, "total_tax_paise": 5400000}
+    pm = {"taxable_amount_paise": 30000000, "total_tax_paise": 5409438}
+    assert _pair_tax_diff_paise(gm, pm, {}) == abs(5400000 - 5409438)
+    assert _pair_tax_diff_paise(gm, pm, {}) != 0
 
 
 def test_api_helper_zero_for_one_sided_row_not_full_side_value():
