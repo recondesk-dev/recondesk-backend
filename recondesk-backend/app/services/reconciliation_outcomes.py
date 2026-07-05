@@ -165,8 +165,17 @@ class OutcomeRow:
 def _mr_to_decisions(
     g: dict[str, Any], p: dict[str, Any]
 ) -> tuple[str, str, str, int, int, int, int, int, str]:
-    """Return enums + diffs; match_status MATCHED or MISMATCHED."""
-    mr = match_gstr_to_pr(g, [p])
+    """Return decision enums + diffs; derive match_status from financial diffs only.
+
+    Bug-1d fix: the old implementation called match_gstr_to_pr(g, [p]) on the
+    API read path, creating a second independent classification that could overwrite
+    the engine's decision.  If the live call returned a different result (e.g. the
+    engine matched a pair as L1 but the live call returned L3 due to a re-normalised
+    invoice), the OutcomeRow.match_status was set to MISMATCHED, causing the row to
+    be routed to the Review Required tab instead of Matched.  Fixed by computing
+    match_status purely from financial diffs — the same numeric threshold the engine
+    uses — without re-invoking the matcher.
+    """
     tg, tp = int(g.get("taxable_amount_paise") or 0), int(
         p.get("taxable_amount_paise") or 0
     )
@@ -185,35 +194,49 @@ def _mr_to_decisions(
     g_tt = int(g.get("total_tax_paise") or 0)
     p_tt = int(p.get("total_tax_paise") or 0)
     ttd = g_tt - p_tt
-    if mr is None:
-        return (
-            DecisionWhat.MISMATCH_AMOUNT,
-            DecisionWhy.GSTR_AMOUNT_HIGHER,
-            DecisionNext.FOLLOW_UP_SUPPLIER,
-            tvd,
-            igd,
-            cgd,
-            sgd,
-            ttd,
-            "MISMATCHED",
-        )
-    d_what = DecisionWhat.MISMATCH_AMOUNT
-    d_why = (
-        DecisionWhy.GSTR_AMOUNT_HIGHER
-        if g_tt > p_tt
-        else DecisionWhy.BOOKS_AMOUNT_HIGHER
-    )
-    d_next = (
-        DecisionNext.FOLLOW_UP_SUPPLIER
-        if (abs(tvd) > TOTAL_TOLERANCE_PAISE or abs(ttd) > TOTAL_TOLERANCE_PAISE)
-        else DecisionNext.NO_ACTION
-    )
+    # match_status is MATCHED when both taxable and total-tax diffs are within
+    # rounding tolerance.  This is the only classification used here; the engine
+    # payload is authoritative for whether the pair is in the Matched vs Review
+    # Required bucket.
     st = "MATCHED" if (abs(tvd) <= TOTAL_TOLERANCE_PAISE and abs(ttd) <= TOTAL_TOLERANCE_PAISE) else "MISMATCHED"
-    if abs(tvd) >= abs(ttd) and abs(tvd) > TOTAL_TOLERANCE_PAISE:
-        d_what = DecisionWhat.MISMATCH_TAXABLE_VALUE
-    if st == "MATCHED":
+    if g_tt > p_tt:
+        d_why = DecisionWhy.GSTR_AMOUNT_HIGHER
+    else:
+        d_why = DecisionWhy.BOOKS_AMOUNT_HIGHER
+    if abs(tvd) > TOTAL_TOLERANCE_PAISE or abs(ttd) > TOTAL_TOLERANCE_PAISE:
+        d_next = DecisionNext.FOLLOW_UP_SUPPLIER
+        if abs(tvd) >= abs(ttd):
+            d_what = DecisionWhat.MISMATCH_TAXABLE_VALUE
+        else:
+            d_what = DecisionWhat.MISMATCH_AMOUNT
+    else:
+        d_what = DecisionWhat.MISMATCH_AMOUNT
         d_next = DecisionNext.NO_ACTION
     return (d_what, d_why, d_next, tvd, igd, cgd, sgd, ttd, st)
+
+
+def _sum_itc_paise_with_fallback(
+    itc_list: list[dict[str, Any]],
+    gstr_m: dict[str, dict[str, Any]],
+) -> int:
+    """Sum total_tax_paise from engine missed_itc rows with DB-fallback for zeroes.
+
+    Bug-2 fix: the engine slims missed_itc rows to _MISSED_ITC_KEYS before
+    serialisation.  If total_tax_paise was None at serialisation time it is stored
+    as 0 (int cast in execute_phase2_and_3).  On read-back the engine list has 0
+    but the DB matcher row has the real amount, producing a discrepancy between
+    the KPI card (which called a bare sum()) and the tab (which had a DB fallback).
+    This helper is used in both places so they always agree.
+    """
+    total = 0
+    for item in itc_list:
+        amt = int(item.get("total_tax_paise") or 0)
+        if amt == 0:
+            gid = str(item.get("gstr_id") or "")
+            cell = gstr_m.get(gid) or {}
+            amt = int((cell.get("matcher") or {}).get("total_tax_paise") or 0)
+        total += amt
+    return total
 
 
 def _rule37_index(rule37: list[dict]) -> dict[str, dict]:
@@ -670,13 +693,7 @@ def build_outcome_rows(
         int((x.get("matcher") or {}).get("total_tax_paise") or 0)
         for x in gstr_m.values()
     )
-    itc_missed = 0
-    for x in (engine.get("missed_itc") or []):
-        amt = int(x.get("total_tax_paise") or 0)
-        if amt == 0:
-            gid = str(x.get("gstr_id") or "")
-            amt = int(((gstr_m.get(gid) or {}).get("matcher") or {}).get("total_tax_paise") or 0)
-        itc_missed += amt
+    itc_missed = _sum_itc_paise_with_fallback(engine.get("missed_itc") or [], gstr_m)
     w_risk = sum(int(x.get("total_tax_paise") or 0) for x in (engine.get("wrongful_itc_risk") or []))
 
 

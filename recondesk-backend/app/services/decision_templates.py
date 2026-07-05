@@ -49,9 +49,19 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "next": "Locate physical invoice. If genuine, add to purchase register and claim ITC of {itc_amount}.",
     },
     "WRONGFUL_ITC": {
-        "what": "Supplier Has Not Reported / Not Reflected in 2B",
-        "why": "Supplier missed filing or filed under wrong GSTIN. ITC of {itc_amount} is at risk.",
-        "next": "Contact {supplier_gstin} immediately. Do not claim this ITC in GSTR-3B until it appears in GSTR-2B.",
+        # Bug-3 fix: The old label asserted "Supplier Has Not Filed" as a fact, but
+        # PR-only records carry no supplier filing-status signal (supfildt is on the
+        # GSTR side, not available here).  The engine cannot determine whether the
+        # supplier hasn't filed, filed under the wrong GSTIN, or whether the invoice
+        # was booked in the PR by mistake.  Use a neutral, data-backed description.
+        "what": "Invoice not reflected in GSTR-2B",
+        "why": (
+            "This invoice from your purchase register does not appear in your GSTR-2B "
+            "for this period. The supplier may not have filed GSTR-1, may have filed "
+            "under a different GSTIN or period, or the invoice may need verification. "
+            "ITC of {itc_amount} cannot be claimed until it appears in GSTR-2B."
+        ),
+        "next": "Contact {supplier_gstin} to confirm filing status. Do not claim this ITC in GSTR-3B until it appears in GSTR-2B.",
     },
     "RULE37_OVERDUE": {
         "what": "Invoice unpaid beyond 180 days -- ITC reversal is now mandatory",

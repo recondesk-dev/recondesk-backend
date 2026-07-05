@@ -119,8 +119,10 @@ def test_l1_match_differing_only_by_invoice_punctuation():
 
 
 def test_l1_amount_at_upper_boundary_rs1_tolerance():
-    # AMOUNT_TOLERANCE_L1_PAISE = 0 — even 1 paise diff skips L1.
-    # 100 paise diff → amount_within_l1=False → goes to L2 (normalized match).
+    # AMOUNT_TOLERANCE_L1_PAISE = 100 (Rs1 rounding tolerance) — a 100 paise
+    # diff is still a clean L1 exact match (Bug 1 fix: rounding-level diffs
+    # between GSTR-2B item sums and PR pre-computed totals must never force a
+    # byte-for-byte-identical invoice into review).
     g = _base_rec(taxable_paise=10_000_000)
     p = _base_rec(
         supplier_gstin=g["supplier_gstin"],
@@ -129,15 +131,15 @@ def test_l1_amount_at_upper_boundary_rs1_tolerance():
         taxable_paise=10_000_000 - 100,
     )
     r = match_gstr_to_pr(g, [p])
-    assert r.level == 2
+    assert r.level == 1
     assert r.matched is True
-    assert r.confidence == 90
-    assert r.requires_human_review is True
+    assert r.confidence == 100
+    assert r.requires_human_review is False
 
 
 def test_l1_inside_tolerance_amount_99_paise_date_3_days():
-    # 99 paise diff still exceeds AMOUNT_TOLERANCE_L1_PAISE=0 → L2, not L1.
-    # date_diff=3 days also exceeds DATE_TOLERANCE_L1_DAYS=0 → L2.
+    # 99 paise diff is within AMOUNT_TOLERANCE_L1_PAISE=100 and date_diff=3 days
+    # is within DATE_TOLERANCE_L1_DAYS=3 → still a clean L1 exact match.
     g = _base_rec(invoice_date="2024-04-01", taxable_paise=5_000_000)
     p = _base_rec(
         supplier_gstin=g["supplier_gstin"],
@@ -146,10 +148,10 @@ def test_l1_inside_tolerance_amount_99_paise_date_3_days():
         taxable_paise=5_000_000 - 99,
     )
     r = match_gstr_to_pr(g, [p])
-    assert r.level == 2
+    assert r.level == 1
     assert r.matched is True
-    assert r.confidence == 90
-    assert r.requires_human_review is True
+    assert r.confidence == 100
+    assert r.requires_human_review is False
 
 
 def test_l1_outside_amount_101_paise_becomes_l2():

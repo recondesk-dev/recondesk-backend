@@ -1,6 +1,7 @@
 import pytest
 
 from app.services.matcher import TOTAL_TOLERANCE_PAISE
+from app.services.reconciliation import resolve_orphans
 
 def test_gstin_mismatch_resolution():
     # Setup test data where invoice number and amount match, but GSTIN has 1 char difference

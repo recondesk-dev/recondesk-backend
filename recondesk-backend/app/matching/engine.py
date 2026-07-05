@@ -4,6 +4,8 @@ import datetime
 from app.services.reconciliation import (  # noqa: F401
     ReconState,
     build_wrongful_itc_risk,
+    prepass_duplicate_ambiguity,
+    resolve_orphans,
     process_gstr_records_chunk,
     execute_phase2_and_3,
     _finalize_reconciliation_result,
@@ -36,6 +38,8 @@ def run_bidirectional_reconciliation(
             
     candidate_indices = build_pr_candidate_indices(pr_index)
 
+    prepass_duplicate_ambiguity(gstr_records, pr_records, state)
+
     process_gstr_records_chunk(
         gstr_records,
         gstr_period,
@@ -65,6 +69,7 @@ def run_bidirectional_reconciliation(
 __all__ = [
     "ReconState",
     "build_wrongful_itc_risk",
+    "prepass_duplicate_ambiguity",
     "process_gstr_records_chunk",
     "run_bidirectional_reconciliation",
 ]

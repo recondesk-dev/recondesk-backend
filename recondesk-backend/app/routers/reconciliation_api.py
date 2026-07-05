@@ -1775,8 +1775,9 @@ def _build_reconcile_summary(
     missed_count = len(missed_list)
     wrongful_count = len(wr_list)
 
-    missed_total_rupees = sum(
-        _paise_to_rupees(int(m.get("total_tax_paise") or 0)) for m in missed_list
+    gstr_db = ro.load_gstr_map(sb, rid)
+    missed_total_rupees = _paise_to_rupees(
+        ro._sum_itc_paise_with_fallback(missed_list, gstr_db)
     )
     pr_db = ro.load_pr_map(sb, rid)
     wrongful_total_rupees = sum(
@@ -2092,6 +2093,16 @@ def _build_matched_pair_records(
         }
         oc_matched_in_order = []  # unused in matched branch (kept for type consistency)
 
+    # Bug-1b fix: Build a dict of decisions keyed by gstr_id.
+    # The previous code used a positional index (decisions_rows[idx]) which drifts
+    # out of sync whenever engine["matched"] contains ghost rows (since the engine
+    # list includes them but the outcomes build process correctly skips them).
+    decisions_rows = ((payload.get("decisions") or {}).get("rows")) or []
+    decisions_by_gid = {
+        str(dr.get("gstr_id", "")): dr
+        for dr in decisions_rows if isinstance(dr, dict) and dr.get("gstr_id")
+    }
+
     out_pairs: list[tuple[dict[str, Any], Any]] = []
 
     for idx, en_row in enumerate(engine_matched):
@@ -2207,8 +2218,7 @@ def _build_matched_pair_records(
             # For review required, we can ignore decisions_rows as they don't apply to duplicates
             dm: dict[str, Any] = {}
             if not fetch_review_required:
-                decisions_rows = ((payload.get("decisions") or {}).get("rows")) or []
-                dm = decisions_rows[idx] if idx < len(decisions_rows) and isinstance(decisions_rows[idx], dict) else {}
+                dm = decisions_by_gid.get(gid) or {}
                 
             d_what = dm.get("decision_what")
             d_why = dm.get("decision_why")

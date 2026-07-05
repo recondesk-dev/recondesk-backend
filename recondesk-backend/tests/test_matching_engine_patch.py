@@ -19,7 +19,7 @@ from app.services.matcher import (
     normalize_invoice_number,
     same_pan,
 )
-from app.matching.engine import run_bidirectional_reconciliation
+from app.matching.engine import run_bidirectional_reconciliation, resolve_orphans
 
 GSTIN = "27AABCU9603R1ZX"
 GSTIN_TYPO = "27AABCU9603R1ZF"  # same PAN (AABCU9603R), different check char
@@ -94,7 +94,11 @@ def test_format_variant_is_fuzzy_normalized_match():
     p = _rec("p1", GSTIN, "DS/26/78", 8_500_000)
     r = match_gstr_to_pr(g, [p])
     assert r is not None and r.matched is True
-    assert r.level == 2
+    # Bug 1 fix: zero-discrepancy format variants (same GSTIN, same amount, same
+    # date — only the invoice-number formatting differs) are promoted to a clean
+    # L1 match, not left as an L2 review item.
+    assert r.level == 1
+    assert r.requires_human_review is False
     assert r.review_reason is None
 
 
@@ -122,12 +126,16 @@ def test_gstin_mismatch_is_review_not_match():
 
 
 def test_amount_mismatch_not_two_orphans():
+    # 15% amount diff is outside L3's 5% band, but same GSTIN + same invoice
+    # number means these are still clearly the same invoice, not two unrelated
+    # orphans — the pair must link as ONE reviewable record, never split into
+    # both missed_itc (GSTR-side orphan) and wrongful_itc_risk (PR-side orphan).
     res = run_bidirectional_reconciliation(
         [_rec("g1", GSTIN, "ALPHA-91", 12_000_000)],
         [_rec("p1", GSTIN, "ALPHA-91", 10_200_000)],
         gstr_period=date(2026, 5, 1),
     )
-    assert res["stats"]["matched_count"] == 1
+    assert res["stats"]["total_linked_count"] == 1
     assert res["stats"]["missed_itc_count"] == 0
     assert res["stats"]["wrongful_risk_count"] == 0
     assert res["stats"]["sanity_passed"] is True

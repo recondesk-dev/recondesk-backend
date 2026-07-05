@@ -5,6 +5,7 @@ GSTR ↔ Purchase Register invoice matcher (levels L1–L6).
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Mapping
@@ -15,10 +16,10 @@ from app.services.vendor_name_matcher import (
     vendor_name_similarity,
 )
 
-AMOUNT_TOLERANCE_L1_PAISE = 0
-AMOUNT_TOLERANCE_L2_PCT = 0.005
-AMOUNT_TOLERANCE_L3_PCT = 0.02
-DATE_TOLERANCE_L1_DAYS = 0
+AMOUNT_TOLERANCE_L1_PAISE = 100  # Rs1 rounding tolerance — still an exact/clean match
+AMOUNT_TOLERANCE_L2_PCT = 0.01
+AMOUNT_TOLERANCE_L3_PCT = 0.05
+DATE_TOLERANCE_L1_DAYS = 3
 DATE_TOLERANCE_L2_DAYS = 7
 DATE_TOLERANCE_L3_DAYS = 30
 
@@ -69,6 +70,21 @@ def _is_subsequence(short: str, long: str) -> bool:
     return all(ch in it for ch in short)
 
 
+def _extra_chars_are_digits_only(short: str, long: str) -> bool:
+    """True when every character ``long`` has beyond what ``short`` already has
+    is a digit (zero-padding / separator-derived digits), never a fresh letter.
+
+    Distinguishes genuine format padding (``DS2678`` -> ``DS202600078``, all
+    extra characters are digits from year/zero expansion) from a materially
+    different identity that merely happens to be a superstring (``TYPO0`` ->
+    ``TYPO0A``, where the extra ``A`` is a real appended suffix — e.g. an
+    amendment tag — not formatting noise).
+    """
+    extra = Counter(long)
+    extra.subtract(Counter(short))
+    return all(ch.isdigit() for ch, cnt in extra.items() if cnt > 0)
+
+
 def is_invoice_format_variant(
     a: str | None, b: str | None, a_raw: str | None = None, b_raw: str | None = None
 ) -> bool:
@@ -93,7 +109,11 @@ def is_invoice_format_variant(
     pb = _RE_LEADING_ALPHA.match(nb)
     if pa and pb and pa.group(0) == pb.group(0):
         short, long = (na, nb) if len(na) <= len(nb) else (nb, na)
-        if len(short) != len(long) and _is_subsequence(short, long):
+        if (
+            len(short) != len(long)
+            and _is_subsequence(short, long)
+            and _extra_chars_are_digits_only(short, long)
+        ):
             return True
 
     # Check 2: Shared exact core numeric sequence (using raw tokens to split by separators)
@@ -112,42 +132,26 @@ def is_invoice_format_variant(
                 # Extra guard: one side must have more structure (alpha prefix or longer numeric)
                 # to prevent "123" matching "456" via coincidence
                 if has_alpha_a or has_alpha_b:
-                    return True
-            else:
-                # Fuzzy numeric check: allow 1 char typo when both tokens have
-                # string length >= 3 (preserves leading zeros, e.g. '00051' vs '00057').
-                # This catches zero-padded format variants like FX/2026/00051 vs 00057
-                # while preventing short collisions like '368' vs '361'.
-                def _extract_str_tokens(s: str) -> set[str]:
-                    return {t for t in re.findall(r'\d+', str(s)) if int(t) >= 1}
-                strs_a = _extract_str_tokens(a_raw or a or "")
-                strs_b = _extract_str_tokens(b_raw or b or "")
-                for sa in strs_a:
-                    for sb in strs_b:
-                        ia, ib = int(sa), int(sb)
-                        if ia == ib:
-                            continue
-                        # 1) String-level: allow 1 char typo (preserves zero-padding)
-                        if max(len(sa), len(sb)) >= 3 and levenshtein(sa, sb) <= 1:
-                            if has_alpha_a or has_alpha_b:
-                                return True
-                        # 2) Integer-level: allow ±10 numeric proximity for invoice-sequence
-                        #    variants where one side has alpha structure.
-                        #    Guard: only apply when the other side has exactly ONE numeric
-                        #    token >= 50, so OCR-corrupted multi-fragment invoices like
-                        #    'FX2O260I361A' (nums: {2, 260, 361}) don’t accidentally match
-                        #    a nearby but different invoice (e.g. FX/2026/00368).
-                        sig_b = [n for n in nums_b if n >= 50]
-                        if len(sig_b) == 1:
-                            ib2 = sig_b[0]
-                            # Find the closest significant number on the GSTR side
-                            # (nums_a may include the year 2026; pick the closest)
-                            sig_a_candidates = [n for n in nums_a if n >= 50]
-                            if sig_a_candidates:
-                                closest = min(sig_a_candidates, key=lambda n: abs(n - ib2))
-                                if min(closest, ib2) >= 50 and abs(closest - ib2) <= 10:
-                                    if has_alpha_a or has_alpha_b:
-                                        return True
+                    # When BOTH sides share the same alpha prefix (e.g. "TYPO1" vs
+                    # "TYPO1A"), a shared numeric core is not enough on its own —
+                    # the extra characters must also be digit-only padding, not a
+                    # fresh appended letter, which more likely signals a distinct
+                    # document (e.g. an amendment suffix) than a format variant.
+                    if pa and pb and pa.group(0) == pb.group(0):
+                        short2, long2 = (na, nb) if len(na) <= len(nb) else (nb, na)
+                        if _extra_chars_are_digits_only(short2, long2):
+                            return True
+                    else:
+                        return True
+            # Note: a fuzzy "1-char-edit-distance numeric core" fallback used to live
+            # here (intended to catch zero-padding typos like '00051' vs '00057').
+            # It was removed: an equal-length, 1-digit-different numeric core is
+            # fundamentally indistinguishable from two adjacent, genuinely different
+            # invoices in a normal sequential numbering series (e.g. '100' vs '101'),
+            # which is an extremely common real-world pattern — treating it as a
+            # guaranteed format variant caused false auto-matches. A same-invoice
+            # digit typo without any other corroborating signal belongs in L4/L5
+            # human review, not an auto-detected format variant.
 
     return False
 
@@ -299,19 +303,42 @@ def _financial_downgrade_l13(
     gstin_match: bool,
     total_diff: int,
     enforce_total_tolerance: bool,
+    total_base_paise: int = 0,
 ) -> MatchResult:
     """If L1–L3 and GSTIN/total safety fails, cap at L3 with mandatory review.
 
     Tax structure (IGST vs CGST+SGST) is enforced only for L1/L2 via ``l12_finance_ok``;
     it must not suppress L3 or alter L3 outcomes here.
+
+    The total-tolerance safety net is percentage-based (matching the same
+    AMOUNT_TOLERANCE_L2_PCT / AMOUNT_TOLERANCE_L3_PCT bands already used to admit
+    the pair into L2/L3), not a flat rupee figure. A flat absolute cap here would
+    silently re-tighten large invoices below their own level's percentage
+    tolerance — e.g. a Rs100 diff on a Rs1,00,000 invoice (0.1%) is comfortably
+    inside the 1% L2 band, but a flat Rs50 cap would incorrectly downgrade it to L3.
     """
     unsafe = not gstin_match
+    gstin_unsafe = not gstin_match
+    total_unsafe = False
     if enforce_total_tolerance:
-        level_total_tolerance = AMOUNT_TOLERANCE_L2_PAISE if res.level == 2 else TOTAL_TOLERANCE_PAISE
+        pct = AMOUNT_TOLERANCE_L2_PCT if res.level == 2 else AMOUNT_TOLERANCE_L3_PCT
+        level_total_tolerance = max(TOTAL_TOLERANCE_PAISE, int(total_base_paise * pct))
         if total_diff > level_total_tolerance:
             unsafe = True
+            total_unsafe = True
     if res.level not in (1, 2, 3) or not unsafe:
         return res
+    # Preserve a specific, actionable reason instead of a generic financial-mismatch
+    # label: when the GSTIN genuinely matches and the only reason this pair is
+    # unsafe is the taxable/total-tax gap, the review reason must say so
+    # (AMOUNT_MISMATCH) rather than the GSTIN-safety message, which would be
+    # misleading here since the GSTIN is not actually in question.
+    if gstin_unsafe:
+        review_reason = FINANCIAL_MISMATCH_REASON
+    else:
+        review_reason = (
+            f"AMOUNT_MISMATCH: taxable/total-tax differs by Rs {total_diff / 100:.2f}"
+        )
     return MatchResult(
         level=max(res.level, 3),
         matched=True,
@@ -322,7 +349,7 @@ def _financial_downgrade_l13(
         decision_next=(
             "Contact supplier to issue credit/debit note or verify correct invoice"
         ),
-        review_reason=FINANCIAL_MISMATCH_REASON,
+        review_reason=review_reason,
         discrepancies=list(res.discrepancies),
     )
 
@@ -540,11 +567,11 @@ def _match_gstr_to_pr_pair(
     raw_inv_ok = bool(g_inv_raw and p_inv_raw and g_inv_raw == p_inv_raw)
     amount_pct = _compute_percentage_diff(amount_diff, skip_amount, tg, tp)
 
-    amount_within_l1 = skip_amount or (amount_diff == 0)
+    amount_within_l1 = skip_amount or (amount_diff <= AMOUNT_TOLERANCE_L1_PAISE)
     amount_within_l2 = skip_amount or (amount_pct <= AMOUNT_TOLERANCE_L2_PCT)
     amount_within_l3 = skip_amount or (amount_pct <= AMOUNT_TOLERANCE_L3_PCT)
     
-    date_within_l1 = skip_date or (date_diff_days == 0)
+    date_within_l1 = skip_date or (date_diff_days <= DATE_TOLERANCE_L1_DAYS)
     date_within_l2 = skip_date or (date_diff_days <= DATE_TOLERANCE_L2_DAYS)
     date_within_l3 = skip_date or (date_diff_days <= DATE_TOLERANCE_L3_DAYS)
 
@@ -661,8 +688,21 @@ def _match_gstr_to_pr_pair(
                 identity_confidence="High", financial_status=financial_status,
             )
 
-    # ── Tier 3: Same GSTIN + format-variant invoice (L3) ────────────────────
+    # ── Tier 3: Same GSTIN + format-variant invoice ──────────────────────────
+    # Bug-1c fix: when amounts and dates are within L1 tolerance (zero discrepancy)
+    # the record is a clean match — the only difference is invoice number formatting
+    # (leading zeros, hyphens, slashes).  Promote to L1 instead of forcing L3 review.
     if gstin_match and format_variant:
+        if amount_within_l1 and date_within_l1 and l12_finance_ok:
+            return MatchResult(
+                level=1, matched=True, confidence=100, requires_human_review=False,
+                decision_what="Exact match found",
+                decision_why="Invoice number, amount, and date align (invoice format normalised)",
+                decision_next="No action required",
+                discrepancies=discrepancies,
+                identity_confidence="High", financial_status=financial_status,
+                review_reason=None,
+            )
         if amount_within_l3 and date_within_l3:
             return MatchResult(
                 level=3, matched=True, confidence=75, requires_human_review=True,
@@ -673,6 +713,23 @@ def _match_gstr_to_pr_pair(
                 discrepancies=discrepancies,
                 identity_confidence="High", financial_status=financial_status,
             )
+
+    # ── Tier 4: Same-PAN GSTIN typo + same/near invoice ─────────────────────
+    # Different GSTIN but same PAN (positions 3-12) is almost certainly a
+    # check-digit / state-code typo on one side, not a genuinely different
+    # supplier. Never auto-match (matched=False) — a human must confirm which
+    # GSTIN is correct before ITC can be claimed — but flag it explicitly as
+    # GSTIN_MISMATCH review rather than silently falling through to "no match".
+    if not gstin_match and same_pan(g_gst, p_gst) and (inv_ok or format_variant) and amount_within_l2:
+        return MatchResult(
+            level=4, matched=False, confidence=50, requires_human_review=True,
+            decision_what="Possible GSTIN typo",
+            decision_why="Same PAN and invoice number, but GSTIN check-digit/state-code differs",
+            decision_next="Verify the correct GSTIN with the supplier before claiming this ITC.",
+            review_reason="GSTIN_MISMATCH: same PAN, different GSTIN",
+            discrepancies=discrepancies,
+            identity_confidence="Medium", financial_status=financial_status,
+        )
 
     # ── L6 — No match ────────────────────────────────────────────────────────
     return MatchResult(
@@ -701,17 +758,13 @@ def match_gstr_to_pr(
         return None
     candidates: list[dict[str, Any]] = []
     for pr_rec in pr_records:
-        gstr_record_id = gstr_rec.get("id")
-        pr_record_id = pr_rec.get("id")
-        status = gstr_rec.get("status") or pr_rec.get("status") or "matched"
-
-        if status == 'matched':
-            if not gstr_record_id or not pr_record_id:
-                continue
-        elif status == 'review_required':
-            if not gstr_record_id and not pr_record_id:
-                continue
-
+        # Bug-1a fix: removed the broken 'status'-field guard that was here.
+        # Matcher rows (from gstr_db_row_to_matcher_row / pr_db_row_to_matcher_row)
+        # never carry a 'status' field, so the old code always defaulted to
+        # 'matched' and then skipped any pair whose id was falsy (id=0, None, "").
+        # This caused 0 matched records on runs with early test data.  The callers
+        # (process_gstr_records_chunk, execute_phase2_and_3) already control which
+        # records are passed in; no status guard is needed or correct here.
         r = _match_gstr_to_pr_pair(gstr_rec, pr_rec, gstr_by_invoice)
         if r is None:
             continue
@@ -893,4 +946,5 @@ def match_gstr_to_pr(
         gstin_match=gstin_match_sel,
         total_diff=total_diff_sel,
         enforce_total_tolerance=enforce,
+        total_base_paise=max(gstr_total, pr_total),
     )

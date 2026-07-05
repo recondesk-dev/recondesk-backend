@@ -30,6 +30,7 @@ from app.services.reconciliation import (
     build_pr_candidate_indices,
     build_wrongful_itc_risk,
     notify_reconciliation_run_completed_email_maybe,
+    prepass_duplicate_ambiguity,
     process_gstr_records_chunk,
     execute_phase2_and_3,
     _finalize_reconciliation_result,
@@ -345,10 +346,25 @@ def _pr_match_status_for_record(
     matched_pr_ids: set[str],
     gstr_by_gstin: dict[str, list[dict[str, Any]]],
 ) -> str:
-    """Classify PR row for ``record_data.match_status`` (does not alter pairing)."""
+    """Classify PR row for ``record_data.match_status`` (does not alter pairing).
+
+    Three distinct outcomes, each backed only by data we actually have:
+      * ``matched``       — this PR row was paired with a GSTR-2B record.
+      * ``missing_in_2b``  — the supplier GSTIN DOES appear elsewhere in this
+        run's GSTR-2B data, but this specific invoice was not found there.
+        This is the only case where "this invoice is absent from 2B" is a
+        data-backed statement (Bug 3: never conflate "not in PR's matched set"
+        with a claim about the supplier's actual GSTR-1 filing status).
+      * ``unmatched``      — the supplier GSTIN does not appear in GSTR-2B at
+        all for this run, so we cannot even confirm the supplier filed
+        anything; a weaker, more honest classification than ``missing_in_2b``.
+    """
     pr_id = str(pr_rec["id"])
     if pr_id in matched_pr_ids:
         return "matched"
+    gstin = str(pr_rec.get("supplier_gstin") or "").strip()
+    if gstin and gstr_by_gstin.get(gstin):
+        return "missing_in_2b"
     return "unmatched"
 
 
@@ -761,6 +777,13 @@ def execute_reconciliation(run_id: str) -> None:
         pr_by_invoice = build_pr_by_invoice(pr_index_current)
         candidate_indices = build_pr_candidate_indices(pr_index_current)
         pr_total_chunks = max(1, (pr_index_loaded + CHUNK_SIZE - 1) // CHUNK_SIZE)
+
+        # Must run BEFORE the Phase 1 batch loop below: detects duplicate/ambiguous
+        # (GSTIN, normalized invoice) groups across the *entire* run so Phase 1's
+        # greedy per-batch matching never silently auto-picks one of several
+        # equally-plausible pairings (see prepass_duplicate_ambiguity docstring).
+        pr_flat_current = [p for prs in pr_index_current.values() for p in prs]
+        prepass_duplicate_ambiguity(gstr_matcher, pr_flat_current, state)
 
         n_gstr_chunks = max(1, (len(gstr_matcher) + BATCH - 1) // BATCH)
         _update_run(

@@ -293,7 +293,10 @@ class ReconState:
     
     consumed_pr_ids: set[str] = field(default_factory=set)
     consumed_gstr_ids: set[str] = field(default_factory=set)
-    
+    # PR rows consumed as pure data-entry duplicates of an already-matched invoice
+    # (not a review item, not ITC-at-risk — just a repeat booking of one real invoice).
+    duplicate_pr_ids: set[str] = field(default_factory=set)
+
     metrics: dict[str, int] = field(default_factory=lambda: defaultdict(int))
 
 
@@ -360,6 +363,379 @@ def _push_review_required(
     if pr_id:
         state.consumed_pr_ids.add(str(pr_id))
     state.consumed_gstr_ids.add(str(gstr_id))
+
+
+def _dup_group_key(gstin: str | None, inv_norm: str | None) -> tuple[str, str] | None:
+    gst = str(gstin or "").strip()
+    inv = str(inv_norm or "")
+    if gst and len(gst) == 15 and inv:
+        return (gst, inv)
+    return None
+
+
+def _duplicate_pair_cost(g: dict, p: dict) -> tuple[int, int]:
+    """(amount_diff_paise, date_diff_days) — lower is a better candidate pairing."""
+    g_amt = int(g.get("total_tax_paise") or g.get("taxable_amount_paise") or 0)
+    p_amt = int(p.get("total_tax_paise") or p.get("taxable_amount_paise") or 0)
+    gd = _parse_invoice_date_safe(g)
+    pd = _parse_invoice_date_safe(p)
+    date_diff = abs((gd - pd).days) if gd and pd else 0
+    return (abs(g_amt - p_amt), date_diff)
+
+
+def _parse_invoice_date_safe(rec: dict) -> date | None:
+    from app.services.matcher import _parse_invoice_date
+    return _parse_invoice_date(rec)
+
+
+def _is_deterministic_duplicate_group(g_ids: list[str], p_ids: list[str], gstr_by_id: dict, pr_by_id: dict) -> bool:
+    """True when every GSTR row in an ambiguous-key group has one unambiguous best PR
+    partner (no ties) and no two GSTR rows share the same best partner. In that case
+    the group is NOT a genuine duplicate conflict — amount/date alone disambiguate the
+    pairing, so Phase 1's normal greedy matching is left to resolve it record-by-record.
+    """
+    if len(g_ids) <= 1 or not p_ids:
+        return True
+    best_for_g: dict[str, str] = {}
+    for gid in g_ids:
+        g = gstr_by_id[gid]
+        ranked = sorted(p_ids, key=lambda pid: _duplicate_pair_cost(g, pr_by_id[pid]))
+        best_cost = _duplicate_pair_cost(g, pr_by_id[ranked[0]])
+        tied = [pid for pid in p_ids if _duplicate_pair_cost(g, pr_by_id[pid]) == best_cost]
+        if len(tied) > 1:
+            return False
+        best_for_g[gid] = ranked[0]
+    return len(set(best_for_g.values())) == len(best_for_g)
+
+
+def prepass_duplicate_ambiguity(
+    gstr_records: list[dict],
+    pr_records: list[dict],
+    state: ReconState,
+) -> None:
+    """Detect duplicate/ambiguous (GSTIN, normalized invoice) groups BEFORE Phase 1
+    greedy matching runs, so that:
+
+      * Genuinely ambiguous groups (e.g. 2 GSTR rows and 1 PR row all sharing an
+        identical invoice number, amount and date) are routed straight to Review
+        Required — Phase 1's greedy "first candidate wins" matching must never be
+        allowed to silently auto-pick one of several equally-plausible pairings.
+      * Groups that share only the invoice+GSTIN key but are deterministically
+        distinguishable by amount/date (e.g. two genuinely different invoices that
+        happen to reuse the same invoice number) are left untouched so Phase 1's
+        per-record matching — which already ranks candidates by amount/date
+        closeness — resolves them correctly.
+      * Pure data-entry duplicates (one real GSTR invoice booked twice in the
+        Purchase Register with identical values) are resolved by keeping exactly
+        one PR row available for Phase 1 to match, and flagging the rest as
+        duplicate bookings — consumed, but never counted as ITC-at-risk nor as a
+        human-review item.
+
+    This must run before ``process_gstr_records_chunk`` (Phase 1); running it
+    afterwards (as a Phase 2 step) is too late because Phase 1 will already have
+    greedily consumed one arbitrary member of the ambiguous group.
+    """
+    groups: dict[tuple[str, str], list[str]] = defaultdict(list)
+    gstr_by_id: dict[str, dict] = {}
+    pr_by_id: dict[str, dict] = {}
+
+    for g in gstr_records:
+        gid = str(g.get("id"))
+        gstr_by_id[gid] = g
+        key = _dup_group_key(g.get("supplier_gstin"), g.get("invoice_number_normalized"))
+        if key:
+            groups[key].append("G_" + gid)
+    for p in pr_records:
+        pid = str(p.get("id"))
+        pr_by_id[pid] = p
+        key = _dup_group_key(p.get("supplier_gstin"), p.get("invoice_number_normalized"))
+        if key:
+            groups[key].append("P_" + pid)
+
+    for _key, items in groups.items():
+        g_ids = [x[2:] for x in items if x.startswith("G_")]
+        p_ids = [x[2:] for x in items if x.startswith("P_")]
+
+        if len(g_ids) <= 1 and len(p_ids) <= 1:
+            continue  # nothing ambiguous about a single GSTR / single PR pairing
+
+        if len(g_ids) == 1 and len(p_ids) > 1:
+            # Pure PR-side data-entry duplication: one real invoice, booked more
+            # than once in the purchase register. Keep the best-matching PR row
+            # free for Phase 1 and flag the rest as duplicate bookings.
+            gid = g_ids[0]
+            g = gstr_by_id[gid]
+            ranked = sorted(p_ids, key=lambda pid: _duplicate_pair_cost(g, pr_by_id[pid]))
+            for pid in ranked[1:]:
+                state.consumed_pr_ids.add(pid)
+                state.duplicate_pr_ids.add(pid)
+            continue
+
+        if len(g_ids) > 1 and _is_deterministic_duplicate_group(g_ids, p_ids, gstr_by_id, pr_by_id):
+            # Amount/date make the pairing unambiguous even though several rows
+            # share the same invoice number — let Phase 1 match them normally.
+            continue
+
+        if len(g_ids) <= 1:
+            continue
+
+        # Genuine ambiguity: cannot safely auto-pair. Route every row on both
+        # sides to Review Required so a human resolves it — one row per GSTR
+        # id and one row per PR id.
+        #
+        # Each GSTR row's pr_id must NOT be filled in with an arbitrary PR id
+        # (e.g. always "the first PR in the group") — a previous version of
+        # this code did that, which caused that one PR id to be double
+        # (triple, ...) counted across every GSTR row on top of its own
+        # dedicated PR-anchored row, breaking bucket-exclusivity. Since the
+        # whole point of this branch is "we cannot safely say which GSTR
+        # pairs with which PR", a GSTR-anchored row must leave pr_id blank
+        # (and a PR-anchored row must leave gstr_id blank) so every id is
+        # attributable to exactly one row.
+        for gid in g_ids:
+            state.consumed_gstr_ids.add(gid)
+        for pid in p_ids:
+            state.consumed_pr_ids.add(pid)
+        for gid in g_ids:
+            _push_review_required(
+                state, gid, "", 50, "DUPLICATE_AMBIGUITY",
+            )
+        for pid in p_ids:
+            _push_review_required(
+                state, "", pid, 50, "DUPLICATE_AMBIGUITY_PR",
+            )
+
+
+def resolve_orphans(
+    matched: list[dict],
+    missed_itc: list[dict],
+    wrongful_itc_risk: list[dict],
+    gstr_by_id: dict[str, dict],
+    pr_by_id: dict[str, dict],
+    *,
+    amount_tolerance_paise: int = TOTAL_TOLERANCE_PAISE,
+) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict], list[dict]]:
+    """Standalone orphan-pool reclassifier (bipartite/union-find), kept as a
+    reusable utility and safety net independent of the inline Phase 1/2/3 engine.
+
+    Given already-classified ``matched`` / ``missed_itc`` / ``wrongful_itc_risk``
+    pools, re-groups every record (matched + orphans) by shared normalized
+    invoice number and re-derives bucket-exclusive outcomes so no invoice can
+    ever appear twice (e.g. as both ``missed_itc`` and ``wrongful_itc_risk``).
+
+    Lifecycle (in order):
+      1. **Build bipartite candidate graph** — connect ALL records (matched + orphans)
+         by shared normalized invoice number.
+      2. **Classify connected components**:
+         - 1 GSTR + 1 PR: if already matched, keep matched. If orphans with
+           different GSTIN, ``gstin_mismatch``. Else genuine orphans.
+         - 1 GSTR + N PRs (N > 1): if the GSTR is already matched to one PR,
+           keep that match and flag extra PRs as ``duplicate_pr_rows``.
+         - N GSTR + N PRs → deterministic pairing if amount/date uniquely
+           disambiguate; otherwise ``review_required``.
+         - 1 GSTR + 0 PRs → genuine ``missed_itc``
+         - 0 GSTRs + 1 PR → genuine ``wrongful_itc_risk``
+      3. **Bucket exclusivity** is guaranteed: each GSTR/PR id appears in exactly
+         one output list.
+
+    Returns ``(matched_final, missed_final, wrongful_final, gstin_mismatch, review_required, duplicate_pr_rows)``.
+    """
+    inv_to_gstr: dict[str, list[str]] = defaultdict(list)
+    inv_to_pr: dict[str, list[str]] = defaultdict(list)
+
+    gstr_by_id_local: dict[str, dict] = {}
+    pr_by_id_local: dict[str, dict] = {}
+
+    matched_pairs_by_ids: dict[tuple[str, str], dict] = {}
+
+    def _add_gstr(g: dict):
+        gid = str(g.get("gstr_id") or g.get("id") or "")
+        if not gid:
+            return
+        gstr_by_id_local[gid] = g
+        inv_key = normalize_invoice(g.get("invoice_number_normalized") or "").upper()
+        if inv_key:
+            inv_to_gstr[inv_key].append(gid)
+
+    def _add_pr(p: dict):
+        pid = str(p.get("pr_id") or p.get("id") or "")
+        if not pid:
+            return
+        pr_by_id_local[pid] = p
+        inv_key = normalize_invoice(p.get("invoice_number_normalized") or "").upper()
+        if inv_key:
+            inv_to_pr[inv_key].append(pid)
+
+    for m in matched:
+        gid = str(m.get("gstr_id"))
+        pid = str(m.get("pr_id"))
+        matched_pairs_by_ids[(gid, pid)] = m
+        if gid in gstr_by_id:
+            _add_gstr({"gstr_id": gid, **gstr_by_id[gid]})
+        if pid in pr_by_id:
+            _add_pr({"id": pid, **pr_by_id[pid]})
+
+    for mi in missed_itc:
+        _add_gstr(mi)
+    for w in wrongful_itc_risk:
+        _add_pr(w)
+
+    all_inv_keys = set(inv_to_gstr) | set(inv_to_pr)
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        while parent.get(x, x) != x:
+            parent[x] = parent.get(parent.get(x, x), parent.get(x, x))
+            x = parent.get(x, x)
+        return x
+
+    def union(a: str, b: str):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    for gid in gstr_by_id_local:
+        parent[f"G:{gid}"] = f"G:{gid}"
+    for pid in pr_by_id_local:
+        parent[f"P:{pid}"] = f"P:{pid}"
+    for inv_key in all_inv_keys:
+        parent[f"I:{inv_key}"] = f"I:{inv_key}"
+        for gid in inv_to_gstr.get(inv_key, []):
+            union(f"I:{inv_key}", f"G:{gid}")
+        for pid in inv_to_pr.get(inv_key, []):
+            union(f"I:{inv_key}", f"P:{pid}")
+
+    for gid, pid in matched_pairs_by_ids:
+        union(f"G:{gid}", f"P:{pid}")
+
+    comp_gstr: dict[str, list[str]] = defaultdict(list)
+    comp_pr: dict[str, list[str]] = defaultdict(list)
+    for gid in gstr_by_id_local:
+        comp_gstr[find(f"G:{gid}")].append(gid)
+    for pid in pr_by_id_local:
+        comp_pr[find(f"P:{pid}")].append(pid)
+
+    all_roots = set(comp_gstr) | set(comp_pr)
+
+    matched_final: list[dict] = []
+    missed_final: list[dict] = []
+    wrongful_final: list[dict] = []
+    gstin_mismatch: list[dict] = []
+    review_required: list[dict] = []
+    duplicate_pr_rows: list[dict] = []
+
+    for root in all_roots:
+        g_ids = comp_gstr.get(root, [])
+        p_ids = comp_pr.get(root, [])
+
+        if len(g_ids) == 1 and len(p_ids) == 1:
+            gid = g_ids[0]
+            pid = p_ids[0]
+            if (gid, pid) in matched_pairs_by_ids:
+                matched_final.append(matched_pairs_by_ids[(gid, pid)])
+                continue
+            mi = gstr_by_id_local[gid]
+            w = pr_by_id_local[pid]
+            g_gstin = str(mi.get("supplier_gstin") or "")
+            w_gstin = str(w.get("supplier_gstin") or "")
+            g_taxable = int(mi.get("taxable_amount_paise") or 0)
+            w_taxable = int(w.get("taxable_amount_paise") or 0)
+
+            if g_gstin != w_gstin and abs(w_taxable - g_taxable) <= amount_tolerance_paise:
+                gstin_mismatch.append({
+                    "gstr_id": str(mi.get("gstr_id") or ""),
+                    "pr_id": str(w.get("id") or ""),
+                    "gstr_supplier_gstin": g_gstin,
+                    "pr_supplier_gstin": w_gstin,
+                    "invoice_number_normalized": mi.get("invoice_number_normalized"),
+                    "invoice_date": mi.get("invoice_date"),
+                    "taxable_amount_paise": w_taxable,
+                    "total_tax_paise": int(mi.get("total_tax_paise") or 0),
+                    "reason": "GSTIN_MISMATCH",
+                })
+            else:
+                missed_final.append(mi)
+                wrongful_final.append(w)
+            continue
+
+        if len(g_ids) == 1 and len(p_ids) == 0:
+            missed_final.append(gstr_by_id_local[g_ids[0]])
+            continue
+
+        if len(g_ids) == 0 and len(p_ids) == 1:
+            wrongful_final.append(pr_by_id_local[p_ids[0]])
+            continue
+
+        if len(g_ids) == 1 and len(p_ids) > 1:
+            gid = g_ids[0]
+            matched_pid = None
+            for pid in p_ids:
+                if (gid, pid) in matched_pairs_by_ids:
+                    matched_pid = pid
+                    break
+            if matched_pid is not None:
+                matched_final.append(matched_pairs_by_ids[(gid, matched_pid)])
+                for pid in p_ids:
+                    if pid != matched_pid:
+                        w = pr_by_id_local[pid]
+                        duplicate_pr_rows.append({
+                            **w,
+                            "is_duplicate_pr_row": True,
+                            "matched_to_gstr_id": gid,
+                            "matched_pr_id": matched_pid,
+                            "reason": "DUPLICATE_PR_DATA_ENTRY",
+                        })
+                continue
+
+        if len(g_ids) == len(p_ids) and len(g_ids) > 1:
+            g_sigs = [
+                (int(gstr_by_id_local[gid].get("taxable_amount_paise") or 0), str(gstr_by_id_local[gid].get("invoice_date") or ""))
+                for gid in g_ids
+            ]
+            p_sigs = [
+                (int(pr_by_id_local[pid].get("taxable_amount_paise") or 0), str(pr_by_id_local[pid].get("invoice_date") or ""))
+                for pid in p_ids
+            ]
+            if len(set(g_sigs)) == len(g_ids) and sorted(g_sigs) == sorted(p_sigs):
+                for gid, pid in zip(
+                    sorted(g_ids, key=lambda x: (int(gstr_by_id_local[x].get("taxable_amount_paise") or 0), str(gstr_by_id_local[x].get("invoice_date") or ""))),
+                    sorted(p_ids, key=lambda x: (int(pr_by_id_local[x].get("taxable_amount_paise") or 0), str(pr_by_id_local[x].get("invoice_date") or ""))),
+                ):
+                    if (gid, pid) in matched_pairs_by_ids:
+                        matched_final.append(matched_pairs_by_ids[(gid, pid)])
+                    else:
+                        g_gstin = str(gstr_by_id_local[gid].get("supplier_gstin") or "")
+                        p_gstin = str(pr_by_id_local[pid].get("supplier_gstin") or "")
+                        if g_gstin != p_gstin:
+                            gstin_mismatch.append({
+                                "gstr_id": gid,
+                                "pr_id": pid,
+                                "gstr_supplier_gstin": g_gstin,
+                                "pr_supplier_gstin": p_gstin,
+                                "invoice_number_normalized": gstr_by_id_local[gid].get("invoice_number_normalized"),
+                                "invoice_date": gstr_by_id_local[gid].get("invoice_date"),
+                                "taxable_amount_paise": int(pr_by_id_local[pid].get("taxable_amount_paise") or 0),
+                                "total_tax_paise": int(gstr_by_id_local[gid].get("total_tax_paise") or 0),
+                                "reason": "GSTIN_MISMATCH",
+                            })
+                        else:
+                            matched_final.append({
+                                "gstr_id": gid, "pr_id": pid,
+                                "match_status_text": "Matched (deterministic duplicate pair)",
+                                "match_level": 1, "confidence_score": 95,
+                            })
+                continue
+
+        # Truly ambiguous → review_required
+        for gid in g_ids:
+            mi = gstr_by_id_local[gid]
+            review_required.append({**mi, "side": "GSTR", "reason": "DUPLICATE_CONFLICT"})
+        for pid in p_ids:
+            w = pr_by_id_local[pid]
+            review_required.append({**w, "side": "PR", "reason": "DUPLICATE_CONFLICT"})
+
+    return matched_final, missed_final, wrongful_final, gstin_mismatch, review_required, duplicate_pr_rows
+
 
 def process_gstr_records_chunk(
     gstr_records: list[dict],
@@ -550,30 +926,14 @@ def execute_phase2_and_3(
     pr_by_id_local = {str(p["id"]): p for p in unconsumed_pr}
     
     # 1. DUPLICATE_AMBIGUITY
-    # Same GSTIN + same normalized invoice appears in multiple GSTR or PR rows
-    dup_groups: dict[tuple[str, str], list[str]] = defaultdict(list)
-    for g in unconsumed_gstr:
-        gst = str(g.get("supplier_gstin") or "").strip()
-        inv = str(g.get("invoice_number_normalized") or "")
-        if gst and len(gst) == 15 and inv:
-            dup_groups[(gst, inv)].append("G_" + str(g["id"]))
-    for p in unconsumed_pr:
-        gst = str(p.get("supplier_gstin") or "").strip()
-        inv = str(p.get("invoice_number_normalized") or "")
-        if gst and len(gst) == 15 and inv:
-            dup_groups[(gst, inv)].append("P_" + str(p["id"]))
-            
-    for (gst, inv), items in dup_groups.items():
-        g_ids = [x[2:] for x in items if x.startswith("G_")]
-        p_ids = [x[2:] for x in items if x.startswith("P_")]
-        if (len(g_ids) > 1 and len(p_ids) > 0) or (len(g_ids) > 0 and len(p_ids) > 1):
-            # It's a duplicate ambiguity!
-            for gid in g_ids:
-                if gid not in state.consumed_gstr_ids:
-                    _push_review_required(state, gid, p_ids[0] if p_ids else "", 50, "DUPLICATE_AMBIGUITY")
-            for pid in p_ids:
-                state.consumed_pr_ids.add(pid)
-    
+    # NOTE: duplicate/ambiguous (GSTIN, normalized invoice) groups are now detected
+    # and resolved by ``prepass_duplicate_ambiguity`` BEFORE Phase 1 runs (see
+    # ``run_bidirectional_reconciliation`` / the worker task). Running this check
+    # here — after Phase 1's greedy matching has already consumed one arbitrary
+    # member of the ambiguous group — was too late and let Phase 1 silently
+    # auto-pick a pairing out of several equally-plausible candidates. Nothing
+    # left to do here; kept as a no-op for readability of the phase numbering.
+
     # Refresh unconsumed
     unconsumed_gstr = [g for g in gstr_records if str(g["id"]) not in state.consumed_gstr_ids]
     unconsumed_pr = [p for p in pr_records if str(p["id"]) not in state.consumed_pr_ids]
@@ -961,7 +1321,11 @@ def _finalize_reconciliation_result(
     gstr_records: list[dict] = None,
 ) -> dict:
     matched_count = len(state.clean_matched)
-    review_gstr_count = len(state.review_required)
+    # review_gstr_count: count only rows anchored to a real GSTR record. Genuine
+    # duplicate-ambiguity groups also emit PR-only marker rows (gstr_id="") so the
+    # raw review_required list reflects every record in conflict — those marker
+    # rows must NOT inflate the GSTR-side bucket-exclusivity invariant below.
+    review_gstr_count = sum(1 for r in state.review_required if r.get("gstr_id"))
     
     missed_itc_count = len(state.missed_itc)
     missed_itc_amount_paise = sum(
@@ -975,7 +1339,10 @@ def _finalize_reconciliation_result(
         int(x.get("total_tax_paise") or 0) for x in wrongful_itc_risk
     )
     
-    duplicate_pr_count = sum(1 for r in state.review_required if r.get("review_reason") == "DUPLICATE_AMBIGUITY")
+    # duplicate_pr_count: pure PR-side data-entry duplicates (one real invoice,
+    # booked more than once) — these are consumed silently, never routed to
+    # review, so they live in state.duplicate_pr_ids, not state.review_required.
+    duplicate_pr_count = len(state.duplicate_pr_ids)
     gstin_mismatch_count = sum(1 for r in state.review_required if r.get("review_reason") == "GSTIN_MISMATCH")
 
     sanity_passed = (
@@ -1057,7 +1424,7 @@ def _finalize_reconciliation_result(
             "gstin_mismatch_amount_paise": 0,
             "duplicate_count": 0,
             "duplicate_pr_count": duplicate_pr_count,
-            "duplicate_conflict_count": review_gstr_count,
+            "duplicate_conflict_count": review_dup,
             "genuine_gstr_only_count": missed_itc_count,
             "genuine_pr_only_count": wrongful_risk_count,
             
