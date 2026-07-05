@@ -338,6 +338,7 @@ def _build_invoice_record(
     items: list,
     supprd: str,
     normalization_notes: dict,
+    gstin_format_invalid: bool = False,
 ) -> dict:
     invoice_date_norm = (
         invoice_date.isoformat()
@@ -376,6 +377,12 @@ def _build_invoice_record(
         "unique_key": None,
         "items": items,
         "normalization_notes": normalization_notes,
+        # True when the ``ctin`` field failed strict GSTIN format validation
+        # (wrong pattern / length) but the invoice was kept in the pipeline
+        # anyway rather than silently dropped. Downstream matching must not
+        # trust ``supplier_gstin`` for these records — see
+        # ``execute_phase2_and_3``'s GSTIN_FORMAT_INVALID fallback pass.
+        "gstin_format_invalid": gstin_format_invalid,
     }
 
 
@@ -390,6 +397,7 @@ def _parse_b2b_invoice(
     section: str,
     is_amendment: bool,
     supplier_name: str = "",
+    gstin_format_invalid: bool = False,
 ) -> dict:
     normalization_notes: dict = {}
 
@@ -472,6 +480,7 @@ def _parse_b2b_invoice(
         supprd=str(invoice.get("supprd", "")).strip(),
         items=item_records,
         normalization_notes=normalization_notes,
+        gstin_format_invalid=gstin_format_invalid,
     )
 
 
@@ -486,6 +495,7 @@ def _parse_cdnr_invoice(
     section: str,
     is_amendment: bool,
     supplier_name: str = "",
+    gstin_format_invalid: bool = False,
 ) -> dict:
     normalization_notes: dict = {}
 
@@ -577,6 +587,7 @@ def _parse_cdnr_invoice(
         supprd=str(invoice.get("supprd", "")).strip(),
         items=item_records,
         normalization_notes=normalization_notes,
+        gstin_format_invalid=gstin_format_invalid,
     )
 
 
@@ -741,6 +752,7 @@ def _process_section(
                 )
             continue
 
+        gstin_format_invalid = False
         try:
             _gstin_out = normalize_gstin(raw_ctin)
             # normalize_gstin currently returns a plain str; tolerate a
@@ -763,6 +775,29 @@ def _process_section(
                     NormalizationResult(value=cleaned, notes=[]),
                     "supplier_gstin",
                 )
+            elif e.reason == "invalid_format":
+                # The cleaned value IS 15 characters (length check already
+                # passed) but fails the structural GSTIN/PAN pattern — e.g. a
+                # single corrupted character from what was otherwise clearly an
+                # attempt at a real GSTIN. This is deliberately narrower than
+                # "any GSTIN normalization failure": a hopelessly short/garbage
+                # string (invalid_length) carries no real signal and stays
+                # dropped below. Do not silently drop this invoice: a corrupted
+                # GSTIN digit still leaves a real GSTR-2B invoice that a human
+                # (or the invoice_number+amount+trade-name fallback matcher in
+                # execute_phase2_and_3) can reconcile. Dropping it here used to
+                # make the invoice vanish entirely from Total GSTR and cause its
+                # legitimate PR-side counterpart to be mislabeled as "supplier
+                # never filed" (ITC at Risk) when the supplier actually did file,
+                # just with a mangled GSTIN. Keep the cleaned (whitelisted,
+                # uppercased) value so matching still has *something* to compare,
+                # and flag the record so GSTIN is never trusted for it downstream.
+                cleaned = re.sub(r"[^0-9A-Z]", "", raw_ctin.strip().upper())
+                gstin_result = _validate_result(
+                    NormalizationResult(value=cleaned, notes=[]),
+                    "supplier_gstin",
+                )
+                gstin_format_invalid = True
             else:
                 gstin_category, gstin_reason_code = _classify_norm_error(
                     e.field, e.reason
@@ -806,11 +841,13 @@ def _process_section(
                     record = _parse_cdnr_invoice(
                         invoice, supplier_gstin, raw_ctin, section_name, is_amendment,
                         supplier_name=supplier_name,
+                        gstin_format_invalid=gstin_format_invalid,
                     )
                 else:
                     record = _parse_b2b_invoice(
                         invoice, supplier_gstin, raw_ctin, section_name, is_amendment,
                         supplier_name=supplier_name,
+                        gstin_format_invalid=gstin_format_invalid,
                     )
                 records.append(record)
             except (NormalizationError, ValueError, KeyError, TypeError) as e:
@@ -1006,6 +1043,14 @@ def parse_gstr2b(file_content) -> dict:
     total_skipped = len(skipped)
     total_invoices_seen = total_parsed + total_skipped
 
+    # Retained-but-flagged records: GSTIN failed strict format validation but
+    # the invoice was kept (see the ``gstin_format_invalid`` except branch
+    # above). These count towards total_parsed, not total_skipped — they are
+    # real invoices needing manual GSTIN verification, not dropped data.
+    gstin_format_invalid_count = sum(
+        1 for r in records if r.get("gstin_format_invalid")
+    )
+
     skip_reasons: dict = {}
     for entry in skipped:
         reason = entry["error_reason"]
@@ -1062,6 +1107,7 @@ def parse_gstr2b(file_content) -> dict:
         "sections_present": sections_present,
         "sections_empty": sections_empty,
         "normalization_note_frequency": normalization_note_frequency,
+        "gstin_format_invalid_count": gstin_format_invalid_count,
     }
 
     result = {
@@ -1074,6 +1120,7 @@ def parse_gstr2b(file_content) -> dict:
         "total_parsed": total_parsed,
         "total_skipped": total_skipped,
         "skip_breakdown": skip_breakdown,
+        "gstin_format_invalid_count": gstin_format_invalid_count,
         "metrics": metrics,
     }
     logger.debug(

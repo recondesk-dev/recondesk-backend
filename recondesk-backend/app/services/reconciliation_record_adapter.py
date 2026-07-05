@@ -97,6 +97,11 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "igst_paise": int(ig),
         "cess_paise": int(cs),
         "total_tax_paise": int(ttp if ttp else 0),
+        # Carried from gstr2b_parser.py — True when ``supplier_gstin`` above is
+        # a best-effort cleaned value that failed strict GSTIN format
+        # validation. Matching code must not trust supplier_gstin equality for
+        # these records; see execute_phase2_and_3's GSTIN_FORMAT_INVALID pass.
+        "gstin_format_invalid": bool(rd.get("gstin_format_invalid", False)),
     }
 
 

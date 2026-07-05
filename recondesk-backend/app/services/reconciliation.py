@@ -22,7 +22,7 @@ from app.services.matcher import (
     normalize_invoice,
     same_pan,
 )
-from app.services.vendor_name_matcher import find_best_vendor_match
+from app.services.vendor_name_matcher import find_best_vendor_match, vendor_name_similarity
 from app.services.gstr3b_reconciliation import _paise_to_rupees
 
 logger = logging.getLogger(__name__)
@@ -331,6 +331,7 @@ def _push_review_required(
     best_result=None,
     gstr_rec: "dict | None" = None,
     pr_rec: "dict | None" = None,
+    note: str | None = None,
 ):
     # Compute the absolute invoice-value diff (paise) so it can be stored and
     # later shown in the Review Required → Discrepancy / Reason column.
@@ -362,7 +363,10 @@ def _push_review_required(
         "match_level": getattr(best_result, "level", 0) if best_result else 0,
         "vendor_similarity_score": getattr(best_result, "vendor_similarity_score", None) if best_result else None,
         "taxable_diff_paise": taxable_diff,
+        "note": note,
     }
+    if gstr_rec is not None and gstr_rec.get("gstin_format_invalid"):
+        match_dict["gstin_format_invalid"] = True
     state.review_required.append(match_dict)
     if pr_id:
         state.consumed_pr_ids.add(str(pr_id))
@@ -955,6 +959,93 @@ def execute_phase2_and_3(
     _all_unconsumed_pr_snapshot = list(unconsumed_pr)
 
     from app.services.matcher import invoice_similarity, _parse_invoice_date
+
+    # 1b. GSTIN_FORMAT_INVALID fallback — GSTR records whose ``ctin`` failed
+    # strict GSTIN format validation at parse time (see gstr2b_parser.py) but
+    # were kept in the pipeline instead of being dropped. ``supplier_gstin`` on
+    # these records is a best-effort cleaned string, not a trustworthy key, so
+    # every other Phase 1/2 step (which all compare GSTINs) will correctly find
+    # nothing for them. Search for a PR counterpart using invoice_number +
+    # amount + trade name only, deliberately ignoring GSTIN entirely.
+    for g in list(unconsumed_gstr):
+        gid = str(g["id"])
+        if gid in state.consumed_gstr_ids:
+            continue
+        if not g.get("gstin_format_invalid"):
+            continue
+
+        g_inv_norm = str(g.get("invoice_number_normalized") or "")
+        g_inv_raw = str(g.get("invoice_number") or "")
+        g_amt = g.get("total_tax_paise") or 0
+        g_date = _parse_invoice_date(g)
+        g_name = str(g.get("supplier_name") or "")
+
+        best_candidate: dict | None = None
+        best_sort_key: tuple | None = None
+        for p in unconsumed_pr:
+            pid = str(p["id"])
+            if pid in state.consumed_pr_ids:
+                continue
+            p_inv_norm = str(p.get("invoice_number_normalized") or "")
+            if not g_inv_norm or not p_inv_norm:
+                continue
+            p_inv_raw = str(p.get("invoice_number") or "")
+            same_invoice = g_inv_norm == p_inv_norm or is_invoice_format_variant(
+                g_inv_norm, p_inv_norm, g_inv_raw, p_inv_raw
+            )
+            if not same_invoice:
+                continue
+
+            p_amt = p.get("total_tax_paise") or 0
+            if g_amt == 0 and p_amt == 0:
+                diff_pct = 0.0
+            elif p_amt == 0:
+                diff_pct = 1.0
+            else:
+                diff_pct = abs(g_amt - p_amt) / float(p_amt)
+            if diff_pct > 0.05:
+                continue
+
+            p_date = _parse_invoice_date(p)
+            date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
+            if g_date and p_date and date_diff > 30:
+                continue
+
+            # Trade name is a confirming signal, not a hard gate: a corrupted
+            # GSTIN means the whole supplier identity on the GSTR side is
+            # unreliable, and legitimate names can legally differ slightly
+            # (abbreviations, branch suffixes) between filings.
+            p_name = str(p.get("supplier_name") or "")
+            name_sim = vendor_name_similarity(g_name, p_name) if g_name and p_name else 0.0
+
+            sort_key = (diff_pct, -name_sim, date_diff)
+            if best_candidate is None or sort_key < best_sort_key:
+                best_candidate = p
+                best_sort_key = sort_key
+
+        if best_candidate is not None:
+            _push_review_required(
+                state, gid, best_candidate["id"], 35, "GSTIN_MISMATCH",
+                gstr_rec=g, pr_rec=best_candidate,
+                note="Supplier GSTIN has invalid format — verify manually",
+            )
+            state.metrics["invalid_gstin_matched_count"] += 1
+            continue
+        # No credible PR candidate found even ignoring GSTIN — leave unconsumed.
+        # Phase 3 will pick this up and tag it distinctly (see below) instead of
+        # silently reporting it as ordinary, fully-verified Missed ITC.
+
+    # Refresh unconsumed + dependent indices after the GSTIN_FORMAT_INVALID pass
+    # may have consumed some GSTR/PR ids above.
+    unconsumed_gstr = [g for g in gstr_records if str(g["id"]) not in state.consumed_gstr_ids]
+    unconsumed_pr = [p for p in pr_records if str(p["id"]) not in state.consumed_pr_ids]
+    pr_by_id_local = {str(p["id"]): p for p in unconsumed_pr}
+    rem_pr_by_inv_norm = defaultdict(list)
+    for p in unconsumed_pr:
+        inv = str(p.get("invoice_number_normalized") or "")
+        if inv: rem_pr_by_inv_norm[inv].append(p)
+    _all_unconsumed_pr_snapshot = list(unconsumed_pr)
+
     # 2. GSTIN_MISMATCH & 3. TYPO_MISMATCH
     for g in unconsumed_gstr:
         gid = str(g["id"])
@@ -1313,16 +1404,24 @@ def execute_phase2_and_3(
     for g in unconsumed_gstr:
         ttp = g.get("total_tax_paise")
         tap = g.get("taxable_amount_paise")
-        state.missed_itc.append(
-            {
-                "gstr_id": str(g["id"]),
-                "supplier_gstin": str(g.get("supplier_gstin") or ""),
-                "invoice_number_normalized": str(g.get("invoice_number_normalized") or ""),
-                "invoice_date": g.get("invoice_date"),
-                "taxable_amount_paise": int(tap) if tap is not None else 0,
-                "total_tax_paise": int(ttp) if ttp is not None else 0,
-            }
-        )
+        entry = {
+            "gstr_id": str(g["id"]),
+            "supplier_gstin": str(g.get("supplier_gstin") or ""),
+            "invoice_number_normalized": str(g.get("invoice_number_normalized") or ""),
+            "invoice_date": g.get("invoice_date"),
+            "taxable_amount_paise": int(tap) if tap is not None else 0,
+            "total_tax_paise": int(ttp) if ttp is not None else 0,
+        }
+        if g.get("gstin_format_invalid"):
+            # The GSTIN_FORMAT_INVALID fallback pass above already tried and
+            # failed to find a PR counterpart by invoice_number + amount +
+            # trade name. This is still a genuine GSTR-2B invoice — do not
+            # report it as ordinary, fully-verified Missed ITC (which implies
+            # "supplier definitely filed, you just haven't booked it yet").
+            # Flag it so downstream consumers can distinguish it.
+            entry["gstin_format_invalid"] = True
+            entry["mismatch_reason"] = "GSTIN format invalid — could not verify against PR"
+        state.missed_itc.append(entry)
 
 
 def _gstin_pan(gstin: str | None) -> str:
@@ -1384,6 +1483,16 @@ def _finalize_reconciliation_result(
     # review, so they live in state.duplicate_pr_ids, not state.review_required.
     duplicate_pr_count = len(state.duplicate_pr_ids)
     gstin_mismatch_count = sum(1 for r in state.review_required if r.get("review_reason") == "GSTIN_MISMATCH")
+
+    # Records whose GSTR-2B ``ctin`` failed strict format validation but were
+    # retained (not dropped) by the parser — see gstr2b_parser.py. Surfaced so
+    # the dashboard can show "N invoices need GSTIN verification" instead of
+    # these silently vanishing from Total GSTR or being miscounted elsewhere.
+    invalid_gstin_records = [g for g in (gstr_records or []) if g.get("gstin_format_invalid")]
+    invalid_gstin_count = len(invalid_gstin_records)
+    invalid_gstin_amount_paise = sum(int(g.get("total_tax_paise") or 0) for g in invalid_gstin_records)
+    invalid_gstin_matched_count = int(state.metrics.get("invalid_gstin_matched_count", 0))
+    invalid_gstin_unresolved_count = invalid_gstin_count - invalid_gstin_matched_count
 
     sanity_passed = (
         matched_count + missed_itc_count + review_gstr_count == total_gstr
@@ -1462,6 +1571,16 @@ def _finalize_reconciliation_result(
             # Legacy stats (optional, but keep for now if UI needs it)
             "gstin_mismatch_count": gstin_mismatch_count,
             "gstin_mismatch_amount_paise": 0,
+
+            # GSTR-2B records kept despite a structurally malformed ctin (see
+            # gstr2b_parser.py). invalid_gstin_matched_count of these were
+            # resolved via the invoice+amount+trade-name fallback and appear in
+            # review_required (GSTIN_MISMATCH); the remainder appear in
+            # missed_itc flagged with gstin_format_invalid=True.
+            "invalid_gstin_count": invalid_gstin_count,
+            "invalid_gstin_amount_paise": invalid_gstin_amount_paise,
+            "invalid_gstin_matched_count": invalid_gstin_matched_count,
+            "invalid_gstin_unresolved_count": invalid_gstin_unresolved_count,
             "duplicate_count": 0,
             "duplicate_pr_count": duplicate_pr_count,
             "duplicate_conflict_count": review_dup,
