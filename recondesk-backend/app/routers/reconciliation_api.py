@@ -2296,7 +2296,7 @@ def _build_matched_pair_records(
                 "amount": amt,
                 "match_level": lvl,
                 "confidence_score": float(en_row.get("confidence_score") or 0.0),
-                "discrepancy_note": None,
+                "discrepancy_note": en_row.get("note") if isinstance(en_row, dict) else None,
                 "discrepancy_reason": str(en_row.get("reason", "") or ""),
                 "tax_difference_paise": tax_diff_paise or 0,
                 "decision_what": d_what
