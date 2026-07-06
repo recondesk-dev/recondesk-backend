@@ -1419,6 +1419,15 @@ def execute_phase2_and_3(
     # depends on the order records were read from the DB or the source file.
     all_candidate_pairs.sort(key=lambda t: (t[0], t[1], t[2], t[3], t[4]))
 
+    # Group by PR id so we can tell, after assignment, which GSTR invoices
+    # were credible claimants of a PR row that ultimately went to a
+    # better-ranked competitor (see CREDIBLE_CANDIDATE_CONTENTION below).
+    candidates_by_pid: dict[str, list[tuple]] = defaultdict(list)
+    for pair in all_candidate_pairs:
+        candidates_by_pid[pair[4]].append(pair)  # pair[4] == pid
+
+    pid_winner_gid: dict[str, str] = {}
+
     for tier, diff_pct, date_diff, gid, pid, reason, g, p in all_candidate_pairs:
         if gid in state.consumed_gstr_ids or pid in state.consumed_pr_ids:
             continue
@@ -1426,6 +1435,46 @@ def execute_phase2_and_3(
         _push_review_required(
             state, gid, pid, 40, review_reason,
             gstr_rec=g, pr_rec=p,
+        )
+        pid_winner_gid[pid] = gid
+        if len(candidates_by_pid[pid]) > 1:
+            logger.info(
+                "[CREDIBLE_CANDIDATE_CONTENTION] PR %s had %d credible GSTR claimant(s); "
+                "winner=GSTR %s (tier=%d, diff_pct=%.4f, date_diff=%dd, reason=%s)",
+                pid, len(candidates_by_pid[pid]), gid, tier, diff_pct, date_diff, reason,
+            )
+
+    # CREDIBLE_CANDIDATE_CONTENTION — losers.
+    # A GSTR row that had at least one credible candidate (it's a key in
+    # ``candidates_by_gid``) but is still unconsumed here lost EVERY one of
+    # its candidate PR rows to a better-ranked claimant (lower identity tier,
+    # then closer amount, then closer date — see the sort key above). Without
+    # this pass such a row would silently fall through to PHASE 3 and be
+    # reported as Missed ITC, indistinguishable from a genuinely orphaned
+    # invoice with zero PR evidence. Route it to Review Required instead,
+    # with a note identifying the invoice that won the contended PR, so a
+    # human can see there WAS a plausible match, it just lost to a closer one.
+    for gid, pairs in candidates_by_gid.items():
+        if gid in state.consumed_gstr_ids:
+            continue  # won its own assignment above, or consumed earlier in the pipeline
+        tier, diff_pct, date_diff, _gid, pid, reason, g, p = min(
+            pairs, key=lambda t: (t[0], t[1], t[2])
+        )
+        winner_gid = pid_winner_gid.get(pid)
+        note = (
+            f"credible PR match existed but was claimed by a closer match: {winner_gid}"
+            if winner_gid
+            else "credible PR match existed but was claimed by a closer match"
+        )
+        _push_review_required(
+            state, gid, "", 35, "PR_CLAIMED_BY_BETTER_MATCH",
+            gstr_rec=g, pr_rec=p, note=note,
+        )
+        logger.info(
+            "[CREDIBLE_CANDIDATE_CONTENTION] GSTR %s lost PR %s to GSTR %s "
+            "(loser diff_pct=%.4f, date_diff=%dd) -> routed to Review Required "
+            "(PR_CLAIMED_BY_BETTER_MATCH) instead of Missed ITC",
+            gid, pid, winner_gid, diff_pct, date_diff,
         )
 
     # PHASE 3: True Financial Buckets
