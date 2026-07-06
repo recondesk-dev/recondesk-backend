@@ -249,8 +249,7 @@ def build_excel_workbook_bytes(
             )
             conf_pct = int(
                 round(
-                    min(1.0, max(0.0, float(api_row.get("confidence_score") or 0)))
-                    * 100
+                    min(100.0, max(0.0, float(api_row.get("confidence_score") or 0)))
                 )
             )
             vals = (

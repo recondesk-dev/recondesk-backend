@@ -3144,8 +3144,7 @@ export default function ReconcileResultsPage() {
                         </td>
                         <td className={matchedTdConfidence}>
                           {Math.round(
-                            Math.min(1, Math.max(0, row.confidence_score)) *
-                              100
+                            Math.min(100, Math.max(0, row.confidence_score))
                           )}
                           %
                         </td>
@@ -3462,8 +3461,7 @@ export default function ReconcileResultsPage() {
                         </td>
                         <td className={matchedTdConfidence}>
                           {Math.round(
-                            Math.min(1, Math.max(0, row.confidence_score)) *
-                              100
+                            Math.min(100, Math.max(0, row.confidence_score))
                           )}
                           %
                         </td>

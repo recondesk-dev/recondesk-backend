@@ -1318,43 +1318,67 @@ def execute_phase2_and_3(
     # 5. CREDIBLE_CANDIDATE_FALLBACK
     # Find unconsumed GSTR/PR records that still have a credible candidate
     # Those should become review_required, not final financial risk.
+    #
+    # IMPORTANT — deterministic, order-independent assignment:
+    # This runs as a two-pass global assignment instead of a single greedy pass
+    # over ``unconsumed_gstr`` in list order. The previous implementation picked
+    # ``credible_candidates[0]`` for whichever GSTR record happened to be
+    # processed first, and immediately consumed that PR row — so when several
+    # GSTR invoices from the same supplier had near-identical/sequential invoice
+    # numbers (a common real-world pattern), the *input row order* silently
+    # decided which invoice got the (correct) Review Required match and which
+    # one fell through to Missed ITC / ITC at Risk. Re-uploading the exact same
+    # two files with rows in a different order (e.g. after a DB re-read) could
+    # then change the classification of a handful of genuinely ambiguous
+    # invoices with no underlying data change.
+    #
+    # Fix: (1) discover every credible (GSTR, PR) candidate pair up front,
+    # without consuming anything: (2) rank all pairs globally by match quality
+    # (identity strength, then amount closeness, then date closeness, then a
+    # stable id-based tiebreak) so the *best* pairs are locked in first,
+    # regardless of which order the records arrived in; (3) walk that globally
+    # sorted list once, skipping any pair whose GSTR or PR side was already
+    # claimed by a better-ranked pair.
     unconsumed_gstr = [g for g in gstr_records if str(g["id"]) not in state.consumed_gstr_ids]
     unconsumed_pr_fallback = [p for p in pr_records if str(p["id"]) not in state.consumed_pr_ids]
-    
+
+    # identity_tier: lower = stronger evidence the two records are the same invoice.
+    #   0 = normalized invoice number matches exactly (criteria 2/3)
+    #   1 = same GSTIN + amount/date proximity only, no invoice-number check (criteria 1)
+    #   2 = invoice number is a recognised format variant (criteria 4)
+    candidates_by_gid: dict[str, list[tuple]] = defaultdict(list)
+    all_candidate_pairs: list[tuple] = []
+
     for g in unconsumed_gstr:
         gid = str(g["id"])
-        if gid in state.consumed_gstr_ids: continue
-        
         gst = str(g.get("supplier_gstin") or "").strip()
         g_amt = g.get("total_tax_paise") or 0
         g_date = _parse_invoice_date(g)
         g_inv_norm = str(g.get("invoice_number_normalized") or "")
-        
-        credible_candidates = []
+
         for p in unconsumed_pr_fallback:
             pid = str(p["id"])
-            if pid in state.consumed_pr_ids: continue
-            
+
             p_gst = str(p.get("supplier_gstin") or "").strip()
             p_amt = p.get("total_tax_paise") or 0
             p_date = _parse_invoice_date(p)
             p_inv_norm = str(p.get("invoice_number_normalized") or "")
-            
-            if g_amt == 0 and p_amt == 0: diff_pct = 0
+
+            if g_amt == 0 and p_amt == 0: diff_pct = 0.0
             elif p_amt == 0: diff_pct = 1.0
             else: diff_pct = abs(g_amt - p_amt) / float(p_amt)
-            
+
             date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
-            
-            # criteria 1: same GSTIN + amount within 5% + date within 45 days
-            if gst and gst == p_gst and diff_pct <= 0.05 and (not g_date or not p_date or date_diff <= 45):
-                credible_candidates.append((p, "POSSIBLE_MATCH"))
-                continue
+
+            found: tuple[int, str] | None = None  # (identity_tier, reason)
 
             # criteria 2: same normalized invoice + amount within 2% + date within 30 days
             if g_inv_norm and g_inv_norm == p_inv_norm and diff_pct <= 0.02 and (not g_date or not p_date or date_diff <= 30):
-                credible_candidates.append((p, "POSSIBLE_MATCH"))
-                continue
+                found = (0, "POSSIBLE_MATCH")
+
+            # criteria 1: same GSTIN + amount within 5% + date within 45 days
+            elif gst and gst == p_gst and diff_pct <= 0.05 and (not g_date or not p_date or date_diff <= 45):
+                found = (1, "POSSIBLE_MATCH")
 
             # criteria 3: same GSTIN + same normalized invoice → date/amount are secondary
             # (late_date_shift: date diff > 45 days but invoice identity is unambiguous).
@@ -1362,11 +1386,10 @@ def execute_phase2_and_3(
             # the precise amount-mismatch path; this is the fallback for cases that
             # slipped through (e.g. PR GSTIN slightly different but still exact inv).
             # CAP: amount diff <= 50% and date shift <= 365 days
-            if gst and gst == p_gst and g_inv_norm and g_inv_norm == p_inv_norm:
-                if diff_pct <= 0.50 and (not g_date or not p_date or date_diff <= 365):
-                    reason = "TIME_BARRED_RISK" if (g_date and p_date and date_diff > 180) else "POSSIBLE_MATCH"
-                    credible_candidates.append((p, reason))
-                    continue
+            elif (gst and gst == p_gst and g_inv_norm and g_inv_norm == p_inv_norm
+                    and diff_pct <= 0.50 and (not g_date or not p_date or date_diff <= 365)):
+                reason = "TIME_BARRED_RISK" if (g_date and p_date and date_diff > 180) else "POSSIBLE_MATCH"
+                found = (0, reason)
 
             # criteria 4: same GSTIN + format-variant invoice + amount diff <= 50%
             # Catches the pattern where the PR uses a stripped/abbreviated invoice number
@@ -1376,28 +1399,34 @@ def execute_phase2_and_3(
             # but were missed because the format variant + amount mismatch combo
             # exhausted all earlier sequential checks.  They must never go to missed_itc.
             # CAP: amount diff <= 50% and date within 365 days (same safety rails as C3).
-            if gst and gst == p_gst and g_inv_norm and p_inv_norm:
+            elif gst and gst == p_gst and g_inv_norm and p_inv_norm:
                 # Pass raw invoice strings so Check 2's numeric-intersection can work
                 g_inv_raw_fb = str(g.get("invoice_number") or "")
                 p_inv_raw_fb = str(p.get("invoice_number") or "")
                 _is_fmt_variant = is_invoice_format_variant(g_inv_norm, p_inv_norm, g_inv_raw_fb, p_inv_raw_fb)
                 if _is_fmt_variant and diff_pct <= 0.50 and (not g_date or not p_date or date_diff <= 365):
                     reason = "TIME_BARRED_RISK" if (g_date and p_date and date_diff > 180) else "FORMAT_VARIANT_AMOUNT_REVIEW"
-                    credible_candidates.append((p, reason))
-                    continue
-                
-        if credible_candidates:
-            if len(credible_candidates) > 1:
-                _push_review_required(
-                    state, gid, credible_candidates[0][0]["id"], 40, "MULTIPLE_CANDIDATES",
-                    gstr_rec=g, pr_rec=credible_candidates[0][0],
-                )
-            else:
-                _push_review_required(
-                    state, gid, credible_candidates[0][0]["id"], 40, credible_candidates[0][1],
-                    gstr_rec=g, pr_rec=credible_candidates[0][0],
-                )
+                    found = (2, reason)
+
+            if found is not None:
+                tier, reason = found
+                pair = (tier, diff_pct, date_diff, gid, pid, reason, g, p)
+                candidates_by_gid[gid].append(pair)
+                all_candidate_pairs.append(pair)
+
+    # Rank globally: strongest identity evidence first, then closest amount,
+    # then closest date, then a stable id-based tiebreak so the outcome never
+    # depends on the order records were read from the DB or the source file.
+    all_candidate_pairs.sort(key=lambda t: (t[0], t[1], t[2], t[3], t[4]))
+
+    for tier, diff_pct, date_diff, gid, pid, reason, g, p in all_candidate_pairs:
+        if gid in state.consumed_gstr_ids or pid in state.consumed_pr_ids:
             continue
+        review_reason = "MULTIPLE_CANDIDATES" if len(candidates_by_gid[gid]) > 1 else reason
+        _push_review_required(
+            state, gid, pid, 40, review_reason,
+            gstr_rec=g, pr_rec=p,
+        )
 
     # PHASE 3: True Financial Buckets
     unconsumed_gstr = [g for g in gstr_records if str(g["id"]) not in state.consumed_gstr_ids]
