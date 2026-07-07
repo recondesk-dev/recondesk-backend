@@ -39,6 +39,7 @@ class ManageDataFileInfo(BaseModel):
     name: str | None = None
     size: int | None = None
     uploaded_at: str | None = None
+    deleted_at: str | None = None
     is_deleted: bool = False
 
 
@@ -106,6 +107,7 @@ def _file_info(import_row: dict[str, Any] | None, prefix: str) -> ManageDataFile
         name=import_row.get(f"{prefix}_file_name"),
         size=import_row.get(f"{prefix}_file_size"),
         uploaded_at=import_row.get(f"{prefix}_uploaded_at"),
+        deleted_at=deleted_at,
         is_deleted=bool(deleted_at),
     )
 
