@@ -1,8 +1,12 @@
 """Decision layer — enriches reconciliation rows with structured what/why/next decisions."""
 from __future__ import annotations
+
+import logging
 from typing import Any
 
 from app.services.decision_templates import DecisionOutput, generate_decision
+
+_log = logging.getLogger(__name__)
 
 
 def _row_identity_fields(row: dict[str, Any]) -> list[str]:
@@ -324,7 +328,18 @@ def populate_review_decisions(
 ) -> list[dict[str, Any]]:
     """Enrich review-required rows with decision_* fields, in-place and returned."""
     enriched: list[dict[str, Any]] = []
+    sample_rule: str | None = None
     for row in review_rows:
         decision = _decision_for_review_row(row)
         enriched.append(_enrich_with_decision(row, decision))
+        if sample_rule is None and decision.rule:
+            sample_rule = decision.rule
+    with_what = sum(1 for r in enriched if r.get("decision_what"))
+    _log.info(
+        "populate_review_decisions: processed %d rows, %d with decision_what, "
+        "sample_decision_rule=%s",
+        len(enriched),
+        with_what,
+        sample_rule or "(none)",
+    )
     return enriched
