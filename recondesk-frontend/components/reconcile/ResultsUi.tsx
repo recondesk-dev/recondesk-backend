@@ -90,9 +90,15 @@ export const matchedThMatchLevel = `${tableHeadCellClass} w-[10%] text-center`;
 export const matchedTdMatchLevel = `${tableCellClass} text-center`;
 export const matchedThConfidence = `${tableHeadCellClass} w-[10%] text-center`;
 export const matchedTdConfidence = `${tableCellClass} text-center text-[13px] text-gray-600`;
-export const matchedThDiscrepancy = `${tableHeadCellClass} w-[22%]`;
+export const matchedThDiscrepancy = `${tableHeadCellClass} w-[16%]`;
 export const matchedTdDiscrepancy = `${tableCellClass} max-w-0 overflow-visible text-[13px] text-gray-600`;
-export const matchedThNotes = `${tableHeadCellClass} w-[10%]`;
+export const matchedThGuidanceWhat = `${tableHeadCellClass} w-[14%]`;
+export const matchedTdGuidanceWhat = `${tableCellClass} max-w-0 overflow-visible text-[13px] text-gray-600`;
+export const matchedThGuidanceWhy = `${tableHeadCellClass} w-[12%]`;
+export const matchedTdGuidanceWhy = `${tableCellClass} max-w-0 overflow-visible text-[13px] italic text-gray-400`;
+export const matchedThGuidanceNext = `${tableHeadCellClass} w-[12%]`;
+export const matchedTdGuidanceNext = `${tableCellClass} max-w-0 overflow-visible text-[13px] font-medium text-brand`;
+export const matchedThNotes = `${tableHeadCellClass} w-[8%]`;
 export const matchedTdNotes = `${tableCellClass}`;
 
 export function DecisionTableColGroup({

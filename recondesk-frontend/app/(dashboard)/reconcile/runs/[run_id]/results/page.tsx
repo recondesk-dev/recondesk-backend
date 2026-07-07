@@ -45,6 +45,9 @@ import {
   matchedTdConfidence,
   matchedTdDate,
   matchedTdDiscrepancy,
+  matchedTdGuidanceNext,
+  matchedTdGuidanceWhat,
+  matchedTdGuidanceWhy,
   matchedTdGstin,
   matchedTdInvoice,
   matchedTdMatchLevel,
@@ -53,6 +56,9 @@ import {
   matchedThConfidence,
   matchedThDate,
   matchedThDiscrepancy,
+  matchedThGuidanceNext,
+  matchedThGuidanceWhat,
+  matchedThGuidanceWhy,
   matchedThGstin,
   matchedThInvoice,
   matchedThMatchLevel,
@@ -3392,6 +3398,9 @@ export default function ReconcileResultsPage() {
                       </th>
                       <th className={matchedThConfidence}>Confidence</th>
                       <th className={matchedThDiscrepancy}>Discrepancy / Reason</th>
+                      <th className={matchedThGuidanceWhat}>What</th>
+                      <th className={matchedThGuidanceWhy}>Why</th>
+                      <th className={matchedThGuidanceNext}>Next</th>
                       <th className={matchedThNotes}>Notes</th>
                     </tr>
                   </thead>
@@ -3470,6 +3479,24 @@ export default function ReconcileResultsPage() {
                             text={taxDiff.display}
                             tooltipText={taxDiff.tooltip}
                             displayClassName="text-[13px] text-gray-600"
+                          />
+                        </td>
+                        <td className={matchedTdGuidanceWhat}>
+                          <HoverTextCell
+                            text={row.decision_what}
+                            displayClassName="text-[13px] text-gray-600"
+                          />
+                        </td>
+                        <td className={matchedTdGuidanceWhy}>
+                          <HoverTextCell
+                            text={row.decision_why}
+                            displayClassName="text-[13px] italic text-gray-400"
+                          />
+                        </td>
+                        <td className={matchedTdGuidanceNext}>
+                          <HoverTextCell
+                            text={row.decision_next}
+                            displayClassName="text-[13px] font-medium text-brand"
                           />
                         </td>
                         <td className={matchedTdNotes}>
