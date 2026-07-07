@@ -23,6 +23,7 @@ from app.routers import (
     billing,
     import_router,
     intelligence,
+    manage_data,
     notes,
     notifications,
     reconciliation,
@@ -241,6 +242,11 @@ app.include_router(
 )
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(audit_logs.router, prefix="/api/audit-logs", tags=["Audit Logs"])
+app.include_router(
+    manage_data.router,
+    prefix="/api/v1/manage-data",
+    tags=["Manage Data"],
+)
 
 
 # ── Core endpoints ────────────────────────────────────────────────────────────
