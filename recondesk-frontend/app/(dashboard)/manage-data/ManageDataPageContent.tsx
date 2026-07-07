@@ -39,6 +39,11 @@ function formatDate(iso: string | null | undefined): string {
   }).format(new Date(iso));
 }
 
+/** Same truthy check as manage_data delete endpoint on *_deleted_at columns. */
+function isManageDataFileDeleted(file: ManageDataFileInfo): boolean {
+  return Boolean(file.deleted_at);
+}
+
 function runStatusBadge(raw: string): { label: string; className: string } {
   const u = (raw || "").trim().toUpperCase();
   if (u === "FAILED") {
@@ -63,7 +68,7 @@ function FileCell({
   onDelete: () => void;
   busy: boolean;
 }) {
-  if (file.is_deleted) {
+  if (isManageDataFileDeleted(file)) {
     return (
       <span className="inline-flex rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
         Deleted
@@ -171,8 +176,12 @@ export function ManageDataPageContent() {
     resolving || (!!authToken && isAdmin && listLoading && !rows);
 
   const handleDownload = useCallback(
-    async (runId: string, fileType: ManageDataFileType) => {
-      if (!authToken) return;
+    async (
+      runId: string,
+      fileType: ManageDataFileType,
+      file: ManageDataFileInfo
+    ) => {
+      if (!authToken || isManageDataFileDeleted(file)) return;
       setActionBusy(true);
       try {
         const { download_url } = await manageDataApi.downloadUrl(
@@ -200,8 +209,26 @@ export function ManageDataPageContent() {
         pendingDelete.fileType
       );
       toast("File removed from storage", "success");
+      const deletedRunId = pendingDelete.runId;
+      const deletedFileType = pendingDelete.fileType;
       setPendingDelete(null);
-      await mutateList();
+      const deletedAt = new Date().toISOString();
+      await mutateList(
+        (current) =>
+          current?.map((row) => {
+            if (row.run_id !== deletedRunId) return row;
+            const fileKey = deletedFileType === "gstr2b" ? "gstr2b" : "pr";
+            return {
+              ...row,
+              [fileKey]: {
+                ...row[fileKey],
+                deleted_at: deletedAt,
+                is_deleted: true,
+              },
+            };
+          }),
+        { revalidate: true }
+      );
     } catch (e: unknown) {
       toast(isApiError(e) ? e.detail : "Delete failed", "error");
     } finally {
@@ -320,15 +347,16 @@ export function ManageDataPageContent() {
                               fileLabel="GSTR-2B"
                               busy={actionBusy}
                               onDownload={() =>
-                                void handleDownload(row.run_id, "gstr2b")
+                                void handleDownload(row.run_id, "gstr2b", row.gstr2b)
                               }
-                              onDelete={() =>
+                              onDelete={() => {
+                                if (isManageDataFileDeleted(row.gstr2b)) return;
                                 setPendingDelete({
                                   runId: row.run_id,
                                   fileType: "gstr2b",
                                   fileName: row.gstr2b.name ?? "GSTR-2B file",
-                                })
-                              }
+                                });
+                              }}
                             />
                           </td>
                           <td className="px-4 py-3">
@@ -336,14 +364,17 @@ export function ManageDataPageContent() {
                               file={row.pr}
                               fileLabel="Purchase Register"
                               busy={actionBusy}
-                              onDownload={() => void handleDownload(row.run_id, "pr")}
-                              onDelete={() =>
+                              onDownload={() =>
+                                void handleDownload(row.run_id, "pr", row.pr)
+                              }
+                              onDelete={() => {
+                                if (isManageDataFileDeleted(row.pr)) return;
                                 setPendingDelete({
                                   runId: row.run_id,
                                   fileType: "pr",
                                   fileName: row.pr.name ?? "Purchase Register file",
-                                })
-                              }
+                                });
+                              }}
                             />
                           </td>
                           <td className="px-4 py-3 text-[var(--text-secondary)]">

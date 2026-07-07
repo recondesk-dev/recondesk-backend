@@ -964,6 +964,7 @@ export interface ManageDataFileInfo {
   name: string | null;
   size: number | null;
   uploaded_at: string | null;
+  deleted_at: string | null;
   is_deleted: boolean;
 }
 
