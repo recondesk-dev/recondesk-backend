@@ -323,11 +323,6 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             },
         )
 
-        try:
-            s3.delete_object(Bucket=bucket, Key=r2_key)
-        except Exception:
-            pass
-
         patch: dict[str, Any] = {
             "progress_percent": 100,
             "sanity_report": sanity_json,
