@@ -17,7 +17,7 @@ from typing import Any
 from supabase import Client
 
 from app.constants import RunStatus
-from app.decisions.layer import populate_decisions
+from app.decisions.layer import populate_decisions, populate_review_decisions
 from app.services.matcher import match_gstr_to_pr
 from app.services import reconciliation_record_adapter as rec_adapt
 from app.services.blocked_credit_checker import check_blocked_credits
@@ -1114,6 +1114,12 @@ def execute_reconciliation(run_id: str) -> None:
             section_175_warnings=s175,
             credit_note_adjustment=cn_net,
         )
+
+        # Enrich review-required rows with decision output.
+        # Previously only clean_matched went through the decision layer;
+        # review_required rows were stored without decision_* fields,
+        # causing the Notes column to always show "—".
+        state.review_required = populate_review_decisions(state.review_required)
         _update_run(
             client,
             run_id,

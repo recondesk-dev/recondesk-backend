@@ -88,6 +88,37 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "Supplier filed this invoice late with the GST portal",
         "next": "ITC can still be claimed as the invoice is now in GSTR-2B. Verify the purchase register entry matches.",
     },
+    # ── Review Required templates ──────────────────────────────────────────
+    "REVIEW_AMOUNT_MISMATCH": {
+        "what": "Verify manually — {confidence_pct}% confidence, discrepancy of {diff}",
+        "why": "Invoice matched on identity fields but the taxable amount differs beyond auto-accept threshold",
+        "next": "Compare physical invoice with GSTR-2B entry. Reconcile the {diff} difference with supplier before claiming ITC.",
+    },
+    "REVIEW_GSTIN_MISMATCH": {
+        "what": "GSTIN mismatch — verify supplier identity",
+        "why": "Invoice number and amount match a purchase register entry but the supplier GSTIN differs",
+        "next": "Confirm correct GSTIN with supplier {supplier_gstin}. Update purchase register if supplier migrated or amended their GSTIN.",
+    },
+    "REVIEW_DUPLICATE_AMBIGUITY": {
+        "what": "Duplicate invoice — multiple entries found",
+        "why": "The same invoice appears more than once; the system cannot determine which is the original",
+        "next": "Identify the correct entry and remove or mark the duplicate(s). Do not claim ITC on duplicate bookings.",
+    },
+    "REVIEW_MULTIPLE_CANDIDATES": {
+        "what": "Multiple matching candidates — manual selection required",
+        "why": "More than one purchase register entry could match this GSTR-2B invoice",
+        "next": "Review all candidates and confirm the correct match. Mark the others as duplicates or separate transactions.",
+    },
+    "REVIEW_POSSIBLE_MATCH": {
+        "what": "Possible match — {confidence_pct}% confidence",
+        "why": "Partial field overlap detected but confidence is below the auto-match threshold",
+        "next": "Verify with physical invoice. If the same transaction, correct the mismatched fields in the purchase register.",
+    },
+    "REVIEW_GENERIC": {
+        "what": "Review required — {confidence_pct}% confidence",
+        "why": "This record requires human verification ({review_reason})",
+        "next": "Examine GSTR-2B and purchase register entries side by side. Resolve discrepancies before filing GSTR-3B.",
+    },
 }
 
 _FALLBACK = DecisionOutput(

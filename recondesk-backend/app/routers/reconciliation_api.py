@@ -2269,11 +2269,18 @@ def _build_matched_pair_records(
             tax_diff_paise: Optional[int] = _pair_tax_diff_paise(gm, pm, en_row)
 
 
-            # For review required, we can ignore decisions_rows as they don't apply to duplicates
+            # Decision data: for matched rows, look up from the decisions_by_gid
+            # map (keyed by gstr_id).  For review-required rows, the decision
+            # fields are stored directly on en_row (populated by
+            # populate_review_decisions in the worker).
             dm: dict[str, Any] = {}
-            if not fetch_review_required:
+            if fetch_review_required:
+                # en_row *is* the slim_duplicates dict — decision_* keys live on it.
+                dm = en_row if isinstance(en_row, dict) else {}
+            else:
                 dm = decisions_by_gid.get(gid) or {}
-                
+
+
             d_what = dm.get("decision_what")
             d_why = dm.get("decision_why")
             d_next = dm.get("decision_next")

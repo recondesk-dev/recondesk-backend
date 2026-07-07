@@ -269,3 +269,62 @@ def populate_decisions(
         "section_175": enriched_175,
         "credit_note_adjustment": credit_note_adjustment or {},
     }
+
+
+# ── Review Required decision helpers ─────────────────────────────────────
+
+# Map review_reason strings to the REVIEW_* template keys.
+_REVIEW_REASON_TO_TEMPLATE: dict[str, str] = {
+    "AMOUNT_MISMATCH": "REVIEW_AMOUNT_MISMATCH",
+    "Amount/Date mismatch": "REVIEW_AMOUNT_MISMATCH",
+    "GSTIN_MISMATCH": "REVIEW_GSTIN_MISMATCH",
+    "DUPLICATE_AMBIGUITY": "REVIEW_DUPLICATE_AMBIGUITY",
+    "DUPLICATE_AMBIGUITY_PR": "REVIEW_DUPLICATE_AMBIGUITY",
+    "DUPLICATE_CONFLICT": "REVIEW_DUPLICATE_AMBIGUITY",
+    "MULTIPLE_CANDIDATES": "REVIEW_MULTIPLE_CANDIDATES",
+    "POSSIBLE_MATCH": "REVIEW_POSSIBLE_MATCH",
+}
+
+
+def _decision_for_review_row(row: dict[str, Any]) -> DecisionOutput:
+    """Produce a DecisionOutput for a review-required record.
+
+    Falls back to _decision_for_row() when the row carries a numeric
+    match_level that the existing templates already handle (levels 2–5).
+    For rows with a review_reason, uses the dedicated REVIEW_* templates.
+    """
+    review_reason = row.get("review_reason") or row.get("reason") or ""
+    confidence_score = row.get("confidence_score") or 0
+    confidence_pct = int(confidence_score) if confidence_score else 0
+    diff_paise = row.get("taxable_diff_paise") or row.get("amount_difference_paise") or 0
+    diff_str = f"₹{abs(int(diff_paise)) / 100:,.2f}"
+    supplier_gstin = row.get("supplier_gstin") or "?"
+
+    template_key = _REVIEW_REASON_TO_TEMPLATE.get(review_reason, "REVIEW_GENERIC")
+
+    ident = _row_identity_fields(row)
+    amt_meta = _amount_fields_present(row)
+    mf = list(dict.fromkeys(ident + amt_meta))
+
+    return generate_decision(
+        template_key,
+        confidence="LOW",
+        matched_fields=mf,
+        differed_fields=[],
+        normalized_pairs=[],
+        confidence_pct=confidence_pct,
+        diff=diff_str,
+        supplier_gstin=supplier_gstin,
+        review_reason=review_reason,
+    )
+
+
+def populate_review_decisions(
+    review_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Enrich review-required rows with decision_* fields, in-place and returned."""
+    enriched: list[dict[str, Any]] = []
+    for row in review_rows:
+        decision = _decision_for_review_row(row)
+        enriched.append(_enrich_with_decision(row, decision))
+    return enriched

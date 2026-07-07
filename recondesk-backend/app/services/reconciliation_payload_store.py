@@ -77,6 +77,17 @@ _DUPLICATE_KEYS = (
     # ₹ discrepancy in the Review Required table.  Previously absent from this
     # whitelist, which caused the column to always display ₹0.
     "taxable_diff_paise",
+    # Decision layer output for review-required rows — without these the
+    # Notes column always shows "—" because the decision fields are dropped
+    # by the slim_duplicates whitelist.
+    "decision_what",
+    "decision_why",
+    "decision_next",
+    "decision_rule",
+    "decision_confidence",
+    "decision_matched_fields",
+    "decision_differed_fields",
+    "decision_normalized_pairs",
 )
 
 _DECISION_ROW_KEYS = (
