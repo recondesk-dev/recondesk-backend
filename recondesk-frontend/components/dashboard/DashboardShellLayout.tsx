@@ -116,6 +116,19 @@ function NavIconCredit({ className }: { className?: string }) {
   );
 }
 
+function NavIconDatabase({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <ellipse cx="12" cy="5" rx="9" ry="3" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+}
+
 function NavIconGear({ className }: { className?: string }) {
   return (
     <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -333,6 +346,9 @@ export default function DashboardShellLayout({
     { href: "/dashboard", label: "Dashboard", Icon: NavIconDashboard },
     { href: "/clients", label: "Clients", Icon: NavIconUsers },
     { href: "/runs", label: "Runs", Icon: NavIconRefresh },
+    ...(currentUser.role === "ADMIN"
+      ? [{ href: "/manage-data", label: "Manage Data", Icon: NavIconDatabase }]
+      : []),
     { href: "/billing", label: "Billing", Icon: NavIconCredit },
     { href: "/settings", label: "Settings", Icon: NavIconGear },
   ];

@@ -958,3 +958,43 @@ export const notificationsApi = {
     }),
 };
 
+// ─── Manage Data (admin raw file storage) ─────────────────────────────────────
+
+export interface ManageDataFileInfo {
+  name: string | null;
+  size: number | null;
+  uploaded_at: string | null;
+  is_deleted: boolean;
+}
+
+export interface ManageDataRow {
+  run_id: string;
+  client_gstin_id: string;
+  client_name: string;
+  gstin: string;
+  period: string | null;
+  status: string;
+  created_at: string | null;
+  gstr2b: ManageDataFileInfo;
+  pr: ManageDataFileInfo;
+}
+
+export type ManageDataFileType = "gstr2b" | "pr";
+
+export const manageDataApi = {
+  list: (token: string) =>
+    apiFetch<ManageDataRow[]>("/api/v1/manage-data", { token }),
+
+  deleteFile: (token: string, runId: string, fileType: ManageDataFileType) =>
+    apiFetch<{ ok: boolean; run_id: string; file_type: ManageDataFileType }>(
+      `/api/v1/manage-data/${encodeURIComponent(runId)}/${fileType}`,
+      { method: "DELETE", token }
+    ),
+
+  downloadUrl: (token: string, runId: string, fileType: ManageDataFileType) =>
+    apiFetch<{ download_url: string }>(
+      `/api/v1/manage-data/${encodeURIComponent(runId)}/${fileType}/download`,
+      { token }
+    ),
+};
+
