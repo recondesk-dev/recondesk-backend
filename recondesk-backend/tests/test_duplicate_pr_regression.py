@@ -4,8 +4,8 @@ Scenario: 20 invoices (DUP00000–DUP00019) each appearing once in 2B and TWICE
 in PR (identical GSTIN/invoice/amount), mixed with 460 normal 1:1 matches.
 
 Expected:
-  - matched_count == 480 (460 normal + 20 from duplicate pairs)
-  - 20 duplicate-flagged PR rows
+  - matched_count == 460 (normal 1:1 pairs only)
+  - review_required_count == 20 (duplicate-PR trap pairs)
   - No 2B invoice is double-counted or left unmatched
   - sanity_passed == True
 """
@@ -64,14 +64,18 @@ def test_duplicate_pr_at_scale():
 
     stats = res["stats"]
 
-    # All 480 2B invoices (460 normal + 20 duplicate-pair) must be matched
-    assert stats["matched_count"] == 480, (
-        f"Expected 480 matched, got {stats['matched_count']}"
+    # 460 normal 1:1 matches stay matched; 20 duplicate-PR pairs go to review
+    assert stats["matched_count"] == 460, (
+        f"Expected 460 matched, got {stats['matched_count']}"
     )
 
-    # 20 PR rows should be flagged as duplicate data entries
-    assert stats["duplicate_pr_count"] == 20, (
-        f"Expected 20 duplicate PR rows, got {stats['duplicate_pr_count']}"
+    assert stats["review_required_count"] == 20, (
+        f"Expected 20 duplicate-claim reviews, got {stats['review_required_count']}"
+    )
+
+    # Duplicate bookings are surfaced for review, not silently consumed
+    assert stats["duplicate_pr_count"] == 0, (
+        f"Expected 0 silent duplicate PR rows, got {stats['duplicate_pr_count']}"
     )
 
     # No 2B invoice should be left as missed ITC
@@ -123,15 +127,20 @@ def test_duplicate_pr_single_pair():
 
     stats = res["stats"]
 
-    assert stats["matched_count"] == 1
-    assert stats["duplicate_pr_count"] == 1
+    assert stats["matched_count"] == 0
+    assert stats["review_required_count"] == 1
+    assert stats["duplicate_pr_count"] == 0
     assert stats["missed_itc_count"] == 0
     assert stats["wrongful_risk_count"] == 0
     assert stats["sanity_passed"] is True
 
-    # The 2B invoice should be consumed/matched exactly once
-    assert len(res["matched"]) == 1
-    assert res["matched"][0]["gstr_id"] == "g1"
+    # The duplicate group is routed to review instead of auto-matched
+    assert len(res["matched"]) == 0
+    assert len(res["review_required"]) >= 1
+    assert res["review_required"][0].get("review_reason") in (
+        "DUPLICATE_CLAIM",
+        "DUPLICATE_CLAIM_PR",
+    )
 
 
 def test_duplicate_pr_triple_booking():
@@ -151,8 +160,9 @@ def test_duplicate_pr_triple_booking():
 
     stats = res["stats"]
 
-    assert stats["matched_count"] == 1
-    assert stats["duplicate_pr_count"] == 2  # two extra PR rows
+    assert stats["matched_count"] == 0
+    assert stats["review_required_count"] == 1
+    assert stats["duplicate_pr_count"] == 0
     assert stats["missed_itc_count"] == 0
     assert stats["wrongful_risk_count"] == 0
     assert stats["sanity_passed"] is True

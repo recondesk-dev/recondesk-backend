@@ -56,6 +56,7 @@ STANDARD_TO_CANONICAL: dict[str, str] = {
     "payment_date": "payment_date",
     "amount_paid": "amount_paid_paise",
     "itc_eligibility": "itc_eligibility",
+    "hsn": "hsn",
 }
 
 COLUMN_ALIASES: dict[str, list[str]] = {
@@ -113,6 +114,9 @@ COLUMN_ALIASES: dict[str, list[str]] = {
         "itc status", "eligible",
         # Production PR template uses "ITC Claimed" with Yes/No values:
         "itc claimed", "itc claim", "itc availed", "itc availed yn",
+    ],
+    "hsn": [
+        "hsn", "hsn code", "hsn/sac", "sac", "sac code", "hsn code/sac code",
     ],
 }
 
@@ -207,6 +211,7 @@ _FIELD_MATCH_PRIORITY: dict[str, int] = {
     "payment_status": 50,
     "payment_date": 50,
     "amount_paid": 45,
+    "hsn": 45,
 }
 
 def _find_best_header_from_raw(raw_df: pd.DataFrame, max_rows: int = 20) -> tuple[pd.DataFrame | None, dict[str, str] | None, int]:
@@ -540,6 +545,8 @@ def normalize_dataframe_to_canonical_schema(
         elif canon == "amount_paid_paise":
             out_cols[canon] = ser.map(_amount_int_unsigned)
         elif canon == "itc_eligibility":
+            out_cols[canon] = ser.map(_safe_cell)
+        elif canon == "hsn":
             out_cols[canon] = ser.map(_safe_cell)
 
     if not out_cols:
@@ -931,6 +938,10 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 _itc = row.get("itc_eligibility")
                 if _itc is not None and not (isinstance(_itc, float) and pd.isna(_itc)):
                     out["itc_eligibility"] = str(_itc)
+            if "hsn" in column_mapping:
+                _hsn = row.get("hsn")
+                if _hsn is not None and not (isinstance(_hsn, float) and pd.isna(_hsn)):
+                    out["hsn"] = str(_hsn).strip()
 
             records.append(out)
 
