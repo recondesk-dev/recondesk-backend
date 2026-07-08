@@ -55,13 +55,29 @@ class TestDecisionForReviewRow:
         assert d.rule == "REVIEW_GENERIC"
         assert "50%" in d.what
 
+    def test_period_boundary_date_mismatch(self):
+        d = _decision_for_review_row({
+            **_make_review_row("PERIOD_BOUNDARY_DATE_MISMATCH"),
+            "gstr_invoice_date": "2026-03-31",
+            "pr_invoice_date": "2026-04-01",
+        })
+        assert d.rule == "REVIEW_PERIOD_BOUNDARY_DATE_MISMATCH"
+        assert "period" in d.what.lower()
+        assert "March 2026" in d.why
+        assert "April 2026" in d.why
+
     def test_all_reasons_produce_nonempty(self):
         for reason in (
             "AMOUNT_MISMATCH", "Amount/Date mismatch", "GSTIN_MISMATCH",
             "DUPLICATE_AMBIGUITY", "DUPLICATE_AMBIGUITY_PR", "DUPLICATE_CONFLICT",
-            "MULTIPLE_CANDIDATES", "POSSIBLE_MATCH", "UNKNOWN_REASON",
+            "MULTIPLE_CANDIDATES", "POSSIBLE_MATCH", "PERIOD_BOUNDARY_DATE_MISMATCH",
+            "UNKNOWN_REASON",
         ):
-            d = _decision_for_review_row(_make_review_row(reason))
+            row = _make_review_row(reason)
+            if reason == "PERIOD_BOUNDARY_DATE_MISMATCH":
+                row["gstr_invoice_date"] = "2026-03-31"
+                row["pr_invoice_date"] = "2026-04-01"
+            d = _decision_for_review_row(row)
             assert d.what and d.what != "—", f"Empty what for {reason}"
             assert d.why and d.why != "—", f"Empty why for {reason}"
             assert d.next and d.next != "—", f"Empty next for {reason}"

@@ -154,6 +154,35 @@ def test_l1_inside_tolerance_amount_99_paise_date_3_days():
     assert r.requires_human_review is False
 
 
+def test_period_boundary_one_day_crossing_month_routes_to_review():
+    g = _base_rec(invoice_date="2026-03-31", taxable_paise=5_000_000)
+    p = _base_rec(
+        supplier_gstin=g["supplier_gstin"],
+        invoice_number=g["invoice_number_normalized"],
+        invoice_date="2026-04-01",
+        taxable_paise=5_000_000,
+    )
+    r = match_gstr_to_pr(g, [p])
+    assert r.matched is True
+    assert r.requires_human_review is True
+    assert r.review_reason == "PERIOD_BOUNDARY_DATE_MISMATCH"
+
+
+def test_same_period_three_day_shift_stays_l1_clean_match():
+    g = _base_rec(invoice_date="2026-05-10", taxable_paise=5_000_000)
+    p = _base_rec(
+        supplier_gstin=g["supplier_gstin"],
+        invoice_number=g["invoice_number_normalized"],
+        invoice_date="2026-05-13",
+        taxable_paise=5_000_000,
+    )
+    r = match_gstr_to_pr(g, [p])
+    assert r.level == 1
+    assert r.matched is True
+    assert r.requires_human_review is False
+    assert r.review_reason is None
+
+
 def test_l1_outside_amount_101_paise_becomes_l2():
     g = _base_rec(invoice_date="2024-05-10", taxable_paise=8_888_888)
     p = _base_rec(

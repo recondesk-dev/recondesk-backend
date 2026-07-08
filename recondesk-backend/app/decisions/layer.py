@@ -284,9 +284,12 @@ _REVIEW_REASON_TO_TEMPLATE: dict[str, str] = {
     "GSTIN_MISMATCH": "REVIEW_GSTIN_MISMATCH",
     "DUPLICATE_AMBIGUITY": "REVIEW_DUPLICATE_AMBIGUITY",
     "DUPLICATE_AMBIGUITY_PR": "REVIEW_DUPLICATE_AMBIGUITY",
+    "DUPLICATE_CLAIM": "REVIEW_DUPLICATE_AMBIGUITY",
+    "DUPLICATE_CLAIM_PR": "REVIEW_DUPLICATE_AMBIGUITY",
     "DUPLICATE_CONFLICT": "REVIEW_DUPLICATE_AMBIGUITY",
     "MULTIPLE_CANDIDATES": "REVIEW_MULTIPLE_CANDIDATES",
     "POSSIBLE_MATCH": "REVIEW_POSSIBLE_MATCH",
+    "PERIOD_BOUNDARY_DATE_MISMATCH": "REVIEW_PERIOD_BOUNDARY_DATE_MISMATCH",
 }
 
 
@@ -310,6 +313,22 @@ def _decision_for_review_row(row: dict[str, Any]) -> DecisionOutput:
     amt_meta = _amount_fields_present(row)
     mf = list(dict.fromkeys(ident + amt_meta))
 
+    extra_kwargs: dict[str, object] = {}
+    if review_reason == "PERIOD_BOUNDARY_DATE_MISMATCH":
+        from app.services.matcher import (
+            _format_gst_return_period_label,
+            _format_invoice_date_label,
+        )
+
+        g_date = row.get("gstr_invoice_date")
+        p_date = row.get("pr_invoice_date")
+        extra_kwargs = {
+            "gstr_period": _format_gst_return_period_label(g_date),
+            "pr_period": _format_gst_return_period_label(p_date),
+            "gstr_date": _format_invoice_date_label(g_date),
+            "pr_date": _format_invoice_date_label(p_date),
+        }
+
     return generate_decision(
         template_key,
         confidence="LOW",
@@ -320,6 +339,7 @@ def _decision_for_review_row(row: dict[str, Any]) -> DecisionOutput:
         diff=diff_str,
         supplier_gstin=supplier_gstin,
         review_reason=review_reason,
+        **extra_kwargs,
     )
 
 

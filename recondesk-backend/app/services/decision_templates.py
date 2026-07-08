@@ -114,6 +114,20 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "Partial field overlap detected but confidence is below the auto-match threshold",
         "next": "Verify with physical invoice. If the same transaction, correct the mismatched fields in the purchase register.",
     },
+    "REVIEW_PERIOD_BOUNDARY_DATE_MISMATCH": {
+        "what": "Invoice date crosses GST return period boundary",
+        "why": (
+            "GSTR-2B date {gstr_date} falls in {gstr_period}; purchase register "
+            "date {pr_date} falls in {pr_period}. Dates are in different filing "
+            "periods — claiming ITC in the wrong period is a compliance risk, not "
+            "merely a data-entry variance."
+        ),
+        "next": (
+            "Confirm which return period this supply belongs to. Align the "
+            "purchase register date with the correct period before claiming ITC "
+            "in GSTR-3B."
+        ),
+    },
     "REVIEW_GENERIC": {
         "what": "Review required — {confidence_pct}% confidence",
         "why": "This record requires human verification ({review_reason})",

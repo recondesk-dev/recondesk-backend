@@ -102,6 +102,9 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         # validation. Matching code must not trust supplier_gstin equality for
         # these records; see execute_phase2_and_3's GSTIN_FORMAT_INVALID pass.
         "gstin_format_invalid": bool(rd.get("gstin_format_invalid", False)),
+        "filing_status": (
+            str(rd.get("filing_status") or "").strip().upper() or None
+        ),
     }
 
 
@@ -153,4 +156,6 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "igst_paise": igst,
         "cess_paise": cess,
         "total_tax_paise": total_tax,
+        "itc_eligibility": rd.get("itc_eligibility"),
+        "hsn": rd.get("hsn"),
     }

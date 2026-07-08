@@ -4,11 +4,27 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+INELIGIBLE_ITC_VALUES = frozenset({
+    "no",
+    "false",
+    "ineligible",
+    "blocked",
+    "n",
+    "f",
+    "0",
+    "not eligible",
+})
+
 BLOCKED_HSN_CODES = {
     "8703": {
         "category": "Motor vehicles (<13 seater) -- Section 17(5)(a)",
         "usage_dependent": True,
         "exempt_note": "Exempt if used for transport business, driving school, or further supply",
+    },
+    "2106": {
+        "category": "Food preparations -- Section 17(5)(b)",
+        "usage_dependent": True,
+        "exempt_note": "Verify business use before claiming ITC",
     },
     "9963": {
         "category": "Food/beverages/catering services -- Section 17(5)(b)",
@@ -99,7 +115,7 @@ def check_blocked_credits(invoices: list[dict]) -> list[dict]:
 
     for record in invoices:
         itc_eligibility = str(record.get("itc_eligibility") or "").strip().lower()
-        if itc_eligibility in ("no", "false", "ineligible", "n", "f", "0", "not eligible"):
+        if itc_eligibility in INELIGIBLE_ITC_VALUES:
             warnings.append(
                 {
                     "invoice_number": record.get("invoice_number")

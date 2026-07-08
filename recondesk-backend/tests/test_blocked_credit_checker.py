@@ -79,3 +79,31 @@ def test_hsn_from_itm_det_nested():
     )
     assert len(warnings) == 1
     assert "9963" in warnings[0]["reason"]
+
+
+def test_blocked_itc_eligibility_value_is_ineligible():
+    warnings = check_blocked_credits(
+        [
+            {
+                "invoice_number": "INV6",
+                "supplier_gstin": "27FFF",
+                "itc_eligibility": "Blocked",
+            }
+        ]
+    )
+    assert len(warnings) == 1
+    assert "ITC-ineligible" in warnings[0]["reason"]
+
+
+def test_hsn_2106_chapter_triggers_warning():
+    warnings = check_blocked_credits(
+        [
+            {
+                "invoice_number": "INV7",
+                "supplier_gstin": "27GGG",
+                "hsn": "2106",
+            }
+        ]
+    )
+    assert len(warnings) == 1
+    assert "2106" in warnings[0]["reason"]

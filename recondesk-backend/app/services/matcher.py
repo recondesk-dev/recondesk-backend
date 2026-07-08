@@ -431,6 +431,41 @@ def _date_diff_days_and_skip(
     return abs((dg - dp).days), False
 
 
+def _gst_return_period_key(d: date) -> tuple[int, int]:
+    """GST return period identity: calendar month + year of the invoice date."""
+    return (d.year, d.month)
+
+
+def _crosses_gst_return_period(dg: date | None, dp: date | None) -> bool:
+    """True when GSTR and PR invoice dates fall in different return periods."""
+    if dg is None or dp is None:
+        return False
+    return _gst_return_period_key(dg) != _gst_return_period_key(dp)
+
+
+def _format_gst_return_period_label(d: date | str | None) -> str:
+    if d is None or d == "":
+        return "unknown period"
+    if isinstance(d, str):
+        try:
+            d = date.fromisoformat(d[:10])
+        except (ValueError, TypeError):
+            return str(d)
+    return d.strftime("%B %Y")
+
+
+def _format_invoice_date_label(d: date | str | None) -> str:
+    if d is None or d == "":
+        return "—"
+    if isinstance(d, str):
+        try:
+            parsed = date.fromisoformat(d[:10])
+            return parsed.strftime("%d %b %Y")
+        except (ValueError, TypeError):
+            return str(d)
+    return d.strftime("%d %b %Y")
+
+
 def _invoice_key_for_match(inv: str | None) -> str:
     """Match key: same rules as GSTR-2B / PR adapter (alnum-only, case-fold)."""
     return normalize_invoice(inv)
@@ -604,6 +639,10 @@ def _match_gstr_to_pr_pair(
     date_within_l2 = skip_date or (date_diff_days <= DATE_TOLERANCE_L2_DAYS)
     date_within_l3 = skip_date or (date_diff_days <= DATE_TOLERANCE_L3_DAYS)
 
+    crosses_return_period = (
+        not skip_date and _crosses_gst_return_period(dg, dp)
+    )
+
     # Financial severity classification
     financial_status = "Exact"
     if not tax_structure_match:
@@ -634,6 +673,41 @@ def _match_gstr_to_pr_pair(
     if not _vendor_name_ok:
         discrepancies.append(
             f"vendor_name: GSTR={g_vendor!r}, PR={p_vendor!r}"
+        )
+
+    # Period-boundary date mismatch: same ±N-day tolerance does NOT apply when
+    # the invoice dates fall in different GST return periods (month+year).
+    if crosses_return_period and gstin_match and strong_invoice:
+        g_period = _format_gst_return_period_label(dg)
+        p_period = _format_gst_return_period_label(dp)
+        g_date_label = _format_invoice_date_label(dg)
+        p_date_label = _format_invoice_date_label(dp)
+        period_discrepancies = list(discrepancies) + [
+            f"return_period: GSTR={g_period} ({g_date_label}), "
+            f"PR={p_period} ({p_date_label}), diff={date_diff_days} days"
+        ]
+        return MatchResult(
+            level=2,
+            matched=True,
+            confidence=75,
+            requires_human_review=True,
+            decision_what=(
+                f"Invoice date crosses GST return period "
+                f"(GSTR: {g_period}, PR: {p_period})"
+            ),
+            decision_why=(
+                "GSTR-2B and purchase register dates fall in different filing "
+                "periods — wrong-period ITC claim risk"
+            ),
+            decision_next=(
+                f"Confirm correct return period: GSTR date {g_date_label} "
+                f"({g_period}) vs PR date {p_date_label} ({p_period}). "
+                "Claim ITC only in the period the supply belongs to."
+            ),
+            discrepancies=period_discrepancies,
+            identity_confidence="High",
+            financial_status=financial_status,
+            review_reason="PERIOD_BOUNDARY_DATE_MISMATCH",
         )
 
     # ── Zero-discrepancy invariant — single authoritative rule ───────────────

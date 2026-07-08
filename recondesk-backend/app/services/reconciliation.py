@@ -365,6 +365,10 @@ def _push_review_required(
         "taxable_diff_paise": taxable_diff,
         "note": note,
     }
+    if gstr_rec is not None:
+        match_dict["gstr_invoice_date"] = gstr_rec.get("invoice_date")
+    if pr_rec is not None:
+        match_dict["pr_invoice_date"] = pr_rec.get("invoice_date")
     if gstr_rec is not None and gstr_rec.get("gstin_format_invalid"):
         match_dict["gstin_format_invalid"] = True
     state.review_required.append(match_dict)
@@ -468,15 +472,20 @@ def prepass_duplicate_ambiguity(
             continue  # nothing ambiguous about a single GSTR / single PR pairing
 
         if len(g_ids) == 1 and len(p_ids) > 1:
-            # Pure PR-side data-entry duplication: one real invoice, booked more
-            # than once in the purchase register. Keep the best-matching PR row
-            # free for Phase 1 and flag the rest as duplicate bookings.
+            # PR-side duplicate booking: same GSTIN + invoice entered more than
+            # once. Route the whole group to Review Required instead of silently
+            # consuming the extra PR rows and auto-matching the GSTR invoice.
             gid = g_ids[0]
-            g = gstr_by_id[gid]
-            ranked = sorted(p_ids, key=lambda pid: _duplicate_pair_cost(g, pr_by_id[pid]))
-            for pid in ranked[1:]:
+            state.consumed_gstr_ids.add(gid)
+            for pid in p_ids:
                 state.consumed_pr_ids.add(pid)
-                state.duplicate_pr_ids.add(pid)
+            _push_review_required(
+                state, gid, "", 50, "DUPLICATE_CLAIM",
+            )
+            for pid in p_ids:
+                _push_review_required(
+                    state, "", pid, 50, "DUPLICATE_CLAIM_PR",
+                )
             continue
 
         if len(g_ids) > 1 and _is_deterministic_duplicate_group(g_ids, p_ids, gstr_by_id, pr_by_id):
@@ -889,6 +898,38 @@ def build_wrongful_itc_risk(
                 "invoice_date": pr_rec.get("invoice_date"),
                 "taxable_amount_paise": int(tap) if tap is not None else 0,
                 "total_tax_paise": int(ttp) if ttp is not None else 0,
+            }
+        )
+    return out
+
+
+RISKY_GSTR_FILING_STATUSES = frozenset({"Q"})
+
+
+def build_filing_status_itc_risk(gstr_records: list[dict]) -> list[dict]:
+    """GSTR invoices flagged as risky by supplier filing pattern (e.g. quarterly filer)."""
+    out: list[dict] = []
+    for g in gstr_records:
+        filing_status = str(g.get("filing_status") or "").strip().upper()
+        if filing_status not in RISKY_GSTR_FILING_STATUSES:
+            continue
+        gid = str(g.get("id") or "")
+        ttp = int(g.get("total_tax_paise") or 0)
+        tap = int(g.get("taxable_amount_paise") or 0)
+        out.append(
+            {
+                "gstr_id": gid,
+                "id": gid,
+                "supplier_gstin": str(g.get("supplier_gstin") or ""),
+                "invoice_number_normalized": str(
+                    g.get("invoice_number_normalized") or ""
+                ),
+                "invoice_date": g.get("invoice_date"),
+                "taxable_amount_paise": tap,
+                "total_tax_paise": ttp,
+                "risk_reason": "QUARTERLY_FILER",
+                "risk_category": "filing_status",
+                "filing_status": filing_status,
             }
         )
     return out
@@ -1549,8 +1590,25 @@ def _finalize_reconciliation_result(
         int(x.get("total_tax_paise") or 0) for x in state.missed_itc
     )
     
-    # ITC at risk = PR records not consumed
-    wrongful_itc_risk = [p for p in pr_records if str(p["id"]) not in state.consumed_pr_ids]
+    # ITC at risk = unconsumed PR ghosts + GSTR-side risky-filer flags
+    pr_wrongful_itc_risk = [
+        {
+            "id": str(p["id"]),
+            "supplier_gstin": str(p.get("supplier_gstin") or ""),
+            "invoice_number_normalized": str(
+                p.get("invoice_number_normalized") or ""
+            ),
+            "invoice_date": p.get("invoice_date"),
+            "taxable_amount_paise": int(p.get("taxable_amount_paise") or 0),
+            "total_tax_paise": int(p.get("total_tax_paise") or 0),
+            "risk_reason": "PR_ONLY",
+            "risk_category": "pr_ghost",
+        }
+        for p in pr_records
+        if str(p["id"]) not in state.consumed_pr_ids
+    ]
+    filing_status_risk = build_filing_status_itc_risk(gstr_records or [])
+    wrongful_itc_risk = pr_wrongful_itc_risk + filing_status_risk
     wrongful_risk_count = len(wrongful_itc_risk)
     wrongful_risk_amount_paise = sum(
         int(x.get("total_tax_paise") or 0) for x in wrongful_itc_risk

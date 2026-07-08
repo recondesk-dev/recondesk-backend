@@ -339,6 +339,7 @@ def _build_invoice_record(
     supprd: str,
     normalization_notes: dict,
     gstin_format_invalid: bool = False,
+    filing_status: str | None = None,
 ) -> dict:
     invoice_date_norm = (
         invoice_date.isoformat()
@@ -383,6 +384,7 @@ def _build_invoice_record(
         # trust ``supplier_gstin`` for these records — see
         # ``execute_phase2_and_3``'s GSTIN_FORMAT_INVALID fallback pass.
         "gstin_format_invalid": gstin_format_invalid,
+        "filing_status": filing_status,
     }
 
 
@@ -457,6 +459,13 @@ def _parse_b2b_invoice(
     items_list = _invoice_items_list(invoice)
     item_records, raw_txvals = _parse_items(items_list)
 
+    raw_filing_status = invoice.get("filing_status")
+    filing_status = (
+        str(raw_filing_status).strip().upper()
+        if raw_filing_status is not None and str(raw_filing_status).strip() != ""
+        else None
+    )
+
     return _build_invoice_record(
         doc_type="INVOICE",
         is_amendment=is_amendment,
@@ -481,6 +490,7 @@ def _parse_b2b_invoice(
         items=item_records,
         normalization_notes=normalization_notes,
         gstin_format_invalid=gstin_format_invalid,
+        filing_status=filing_status,
     )
 
 
