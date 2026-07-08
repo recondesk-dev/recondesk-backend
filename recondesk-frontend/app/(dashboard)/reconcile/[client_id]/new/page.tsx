@@ -662,14 +662,30 @@ export default function NewReconcileWizardPage() {
       };
       const status = e?.response?.status ?? e?.status;
 
+      // Revert optimistic "processing" UI — the server never advanced the run.
+      try {
+        const r = await refreshRun(runId, token);
+        setRun(r);
+      } catch {
+        setRun((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: "pr_uploaded",
+                progress_pct: 0,
+                status_message: null,
+              }
+            : prev
+        );
+      }
+      setPoll(null);
+
       if (status === 402) {
         setErr("No runs remaining on your current plan. Please upgrade to continue.");
-        setPoll(null);
         return;
       }
       if (status === 429) {
         setErr("Too many requests. Please wait a moment and try again.");
-        setPoll(null);
         return;
       }
 
@@ -686,7 +702,6 @@ export default function NewReconcileWizardPage() {
 
       if (status === 409) setStart409(message);
       else setErr(message);
-      setPoll(null);
     } finally {
       setStartBusy(false);
     }
@@ -750,6 +765,11 @@ export default function NewReconcileWizardPage() {
           await refreshRun(runId, token);
           return;
         }
+        if (s.status !== "pending" && s.status !== "processing") {
+          const r = await refreshRun(runId, token);
+          if (!cancelled) setRun(r);
+          return;
+        }
         if (Date.now() - t0 > 5 * 60 * 1000) setPollSlow(true);
         scheduleNext();
       } catch {
@@ -810,6 +830,19 @@ export default function NewReconcileWizardPage() {
           />
         </div>
         <p className="font-mono text-sm text-[var(--text-secondary)]">{pct}%</p>
+        {err ? (
+          <div className="space-y-3 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/5 p-4 text-sm text-[var(--text-primary)]">
+            <p>{err}</p>
+            {err.includes("upgrade") || err.includes("plan") ? (
+              <Link
+                href="/billing"
+                className="inline-flex rounded-full bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
+              >
+                Go to Billing
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
         {pollSlow ? (
           <p className="text-sm text-[var(--text-secondary)]">
             This is taking longer than expected. Please keep this page open — reconciliation is still running.
