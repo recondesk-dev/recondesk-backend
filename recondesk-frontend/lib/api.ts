@@ -20,7 +20,10 @@ export const STATUS_POLL_REQUEST_TIMEOUT_MS = 10_000;
 // ─── Re-export DB row types for convenience ───────────────────────────────────
 
 export type ClientGstin =
-  Database["public"]["Tables"]["client_gstins"]["Row"];
+  Database["public"]["Tables"]["client_gstins"]["Row"] & {
+    gstn_access_token?: string | null;
+    gstn_token_expiry?: string | null;
+  };
 export type ReconciliationRun =
   Database["public"]["Tables"]["reconciliation_runs"]["Row"];
 export type GstrRecord =
@@ -346,6 +349,39 @@ export const clientsApi = {
 
   delete: (token: string, id: string) =>
     apiFetch<void>(clientsApiPath(id), { method: "DELETE", token }),
+};
+
+// ─── GSTN taxpayer OTP (Sandbox GSP) ─────────────────────────────────────────
+// Backend routes: POST /api/clients/{client_gstin_id}/gstn/send-otp|verify-otp
+
+export const gstnApi = {
+  sendOtp: (
+    token: string,
+    client_gstin_id: string,
+    body: { gstin: string; username: string }
+  ) =>
+    apiFetch<{ message: string; txn?: string }>(
+      clientsApiPath(client_gstin_id, "gstn", "send-otp"),
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
+  verifyOtp: (
+    token: string,
+    client_gstin_id: string,
+    body: { gstin: string; username: string; otp: string }
+  ) =>
+    apiFetch<{ message: string }>(
+      clientsApiPath(client_gstin_id, "gstn", "verify-otp"),
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
 };
 
 

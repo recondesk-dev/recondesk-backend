@@ -2,8 +2,13 @@
 
 import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
-import useSWR from "swr";
+import useSWR, { mutate } from "swr";
 import { useParams } from "next/navigation";
+
+import {
+  ConnectGstnModal,
+  isGstnConnected,
+} from "@/components/clients/ConnectGstnModal";
 
 import { ItcTrendChart } from "@/components/dashboard/ItcTrendChart";
 import { StatusBadge } from "@/components/dashboard/StatusBadge";
@@ -95,6 +100,7 @@ export default function ClientDetailPage() {
     data: rawClient,
     error: clientError,
     isLoading: cLoad,
+    mutate: mutateClient,
   } = useSWR(clientKey, ([, , t, cid]) => clientsApi.get(t, cid), {
     revalidateOnFocus: false,
   });
@@ -148,6 +154,9 @@ export default function ClientDetailPage() {
 
   const [histPage, setHistPage] = useState(1);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [connectGstnOpen, setConnectGstnOpen] = useState(false);
+
+  const gstnConnected = isGstnConnected(rawClient as ClientGstin | undefined);
 
   const latest = sortedRuns[0] ?? null;
 
@@ -209,6 +218,15 @@ export default function ClientDetailPage() {
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-3 text-sm">
               <span className="font-mono text-[var(--text-primary)]">{client.gstin}</span>
+              {gstnConnected ? (
+                <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                  GSTN connected ✓
+                </span>
+              ) : (
+                <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-[var(--text-secondary)]">
+                  GSTN not connected
+                </span>
+              )}
               <span className="text-[var(--text-secondary)]">|</span>
               <span className="text-lg font-semibold text-[var(--text-primary)]">
                 {client.tradeName}
@@ -228,6 +246,15 @@ export default function ClientDetailPage() {
             </Link>
           </div>
           <div className="relative z-10 flex flex-col items-end gap-2">
+            {!gstnConnected && authToken && (
+              <button
+                type="button"
+                onClick={() => setConnectGstnOpen(true)}
+                className="inline-flex items-center justify-center rounded-full border border-brand bg-transparent px-4 py-2 text-sm font-semibold text-brand hover:bg-brand-dim transition-colors"
+              >
+                Connect GSTN
+              </button>
+            )}
             {startDisabled || !reconcileNewHref ? (
               <button
                 type="button"
@@ -248,6 +275,20 @@ export default function ClientDetailPage() {
             )}
           </div>
         </div>
+      )}
+
+      {authToken && client && (
+        <ConnectGstnModal
+          open={connectGstnOpen}
+          onClose={() => setConnectGstnOpen(false)}
+          clientGstinId={id}
+          defaultGstin={client.gstin}
+          authToken={authToken}
+          onSuccess={() => {
+            void mutateClient();
+            if (clientKey) void mutate(clientKey);
+          }}
+        />
       )}
 
       {latest?.status === "FAILED" && latest.errorMessage && (

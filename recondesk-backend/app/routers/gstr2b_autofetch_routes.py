@@ -14,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from app.auth import get_current_active_user
 from app.database import get_supabase
 from app.integrations.gstr2b_autofetch import (
+    SandboxGstnError,
+    extract_sandbox_txn,
     get_gstr2b,
     get_sandbox_token,
     send_otp,
@@ -139,7 +141,12 @@ async def gstn_send_otp(
 
     try:
         sandbox_token = await asyncio.to_thread(get_sandbox_token)
-        await asyncio.to_thread(send_otp, sandbox_token, body.gstin, body.username)
+        envelope = await asyncio.to_thread(send_otp, sandbox_token, body.gstin, body.username)
+    except SandboxGstnError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=exc.message,
+        ) from exc
     except httpx.HTTPStatusError as exc:
         _raise_sandbox_http_error(exc)
     except Exception as exc:
@@ -149,7 +156,11 @@ async def gstn_send_otp(
             detail="failed to send OTP via Sandbox API",
         ) from exc
 
-    return {"message": "OTP sent successfully"}
+    txn = extract_sandbox_txn(envelope)
+    response: dict[str, Any] = {"message": "OTP sent"}
+    if txn:
+        response["txn"] = txn
+    return response
 
 
 @router.post("/{client_id}/gstn/verify-otp")
@@ -167,6 +178,11 @@ async def gstn_verify_otp(
         data = await asyncio.to_thread(
             verify_otp, sandbox_token, body.gstin, body.username, body.otp
         )
+    except SandboxGstnError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=exc.message,
+        ) from exc
     except httpx.HTTPStatusError as exc:
         _raise_sandbox_http_error(exc)
     except Exception as exc:
