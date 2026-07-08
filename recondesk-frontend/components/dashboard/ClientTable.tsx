@@ -278,7 +278,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           {status === "COMPLETE" && (
             <button
               type="button"
-              className="rounded-full border border-brand bg-transparent px-4 py-1.5 text-xs font-semibold text-brand hover:bg-brand-dim transition-colors"
+              className="rounded-full border border-brand bg-transparent px-4 py-1.5 text-xs font-semibold text-brand hover:bg-brand-dim transition-colors focus:outline-none focus:ring-2 focus:ring-brand/30"
               onClick={() => navigateToResults()}
             >
               Review

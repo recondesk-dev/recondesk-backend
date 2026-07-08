@@ -391,7 +391,7 @@ export default function PortfolioDashboardPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {!portfolioLoading && signals.failedClientCount > 0 && (
         <div className="flex items-center justify-between rounded-2xl bg-red-50 px-5 py-4 text-sm text-red-900">
           <span>
@@ -422,57 +422,43 @@ export default function PortfolioDashboardPage() {
         </div>
       )}
 
-      <p className="text-sm text-gray-500">
-        Where should you act right now? Open the highest-priority client and start or continue their
-        reconciliation.
-      </p>
+      <section className="space-y-3">
+        <p className="text-sm text-[var(--text-secondary)]">
+          Where should you act right now? Open the highest-priority client and start or continue
+          their reconciliation.
+        </p>
 
-      <div className="grid grid-cols-2 gap-6">
-        <StatCard
-          label="Needs Attention"
-          value={
-            portfolioLoading ? (
-              <span className="inline-block h-8 w-16 animate-pulse rounded bg-gray-100" />
-            ) : stats ? (
-              String(stats.pendingThisMonth)
-            ) : (
-              "—"
-            )
-          }
-          icon={
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path
-                d="M12 8v4l3 3M12 22a10 10 0 110-20 10 10 0 010 20z"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-          }
-        />
-        <StatCard
-          label="Total ITC Protected"
-          value={
-            portfolioLoading ? (
-              <span className="inline-block h-8 w-28 animate-pulse rounded bg-gray-100" />
-            ) : stats ? (
-              formatInrCompact(stats.totalItcProtected)
-            ) : (
-              "—"
-            )
-          }
-          icon={
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path
-                d="M12 2v20M7 7h10M7 12h6M7 17h8"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-          }
-        />
-      </div>
+        <div className="grid grid-cols-2 gap-6">
+          <StatCard
+            label="Needs Attention"
+            hint="Clients with a pending or in-progress reconciliation this month"
+            value={
+              portfolioLoading ? (
+                <span className="inline-block h-8 w-16 animate-pulse rounded bg-gray-100" />
+              ) : stats ? (
+                String(stats.pendingThisMonth)
+              ) : (
+                "—"
+              )
+            }
+          />
+          <StatCard
+            label="Total ITC Protected"
+            hint="Matched ITC total from finalized reconciliations"
+            empty={!portfolioLoading && !!stats && stats.totalItcProtected === 0}
+            emptyCaption="No data yet for this period"
+            value={
+              portfolioLoading ? (
+                <span className="inline-block h-8 w-28 animate-pulse rounded bg-gray-100" />
+              ) : stats ? (
+                formatInrCompact(stats.totalItcProtected)
+              ) : (
+                "—"
+              )
+            }
+          />
+        </div>
+      </section>
 
       {loadError && (
         <div className="rounded-2xl bg-red-50 px-5 py-4 text-sm text-red-800">
@@ -488,7 +474,7 @@ export default function PortfolioDashboardPage() {
       )}
 
       {!isEmptyPortfolio && (
-        <>
+        <div className="space-y-5">
           {portfolioLoading ? (
             <div>
               <div className="mb-3 flex items-center gap-2 animate-pulse">
@@ -497,18 +483,18 @@ export default function PortfolioDashboardPage() {
                   Start here
                 </p>
               </div>
-              <div className="flex flex-col gap-4 rounded-2xl bg-white p-6 shadow-md sm:flex-row sm:items-center sm:justify-between animate-pulse">
+              <div className="flex flex-col gap-4 animate-pulse rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 flex-1 space-y-2">
-                  <div className="h-5 w-48 bg-gray-100 rounded" />
-                  <div className="h-4 w-36 bg-gray-100 rounded" />
+                  <div className="h-5 w-48 rounded bg-gray-100" />
+                  <div className="h-4 w-36 rounded bg-gray-100" />
                 </div>
                 <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <div className="h-4 w-28 bg-gray-100 rounded" />
-                  <div className="h-4 w-4 bg-gray-100 rounded-full" />
-                  <div className="h-6 w-20 bg-gray-100 rounded-full" />
+                  <div className="h-4 w-28 rounded bg-gray-100" />
+                  <div className="h-4 w-4 rounded-full bg-gray-100" />
+                  <div className="h-6 w-20 rounded-full bg-gray-100" />
                 </div>
                 <div className="flex shrink-0 justify-end sm:pl-4">
-                  <div className="h-10 w-28 bg-gray-100 rounded-full" />
+                  <div className="h-10 w-28 rounded-full bg-gray-100" />
                 </div>
               </div>
             </div>
@@ -526,7 +512,7 @@ export default function PortfolioDashboardPage() {
                   Start here
                 </p>
               </div>
-              <div className="flex flex-col gap-4 rounded-2xl bg-white p-6 shadow-md sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <p
                     className="truncate text-lg font-semibold text-gray-900"
@@ -555,8 +541,24 @@ export default function PortfolioDashboardPage() {
                           <span className="text-gray-300">•</span>
                         </>
                       )}
-                      <span>{complianceRiskWords(startHereRow.latestRun.complianceRisk)}</span>
-                      <span className="text-gray-300">•</span>
+                      {startHereRow.latestRun.complianceRisk != null && (
+                        <>
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                              startHereRow.latestRun.complianceRisk === "CRITICAL"
+                                ? "bg-red-50 text-[var(--danger)]"
+                                : startHereRow.latestRun.complianceRisk === "HIGH"
+                                  ? "bg-amber-50 text-[var(--warning)]"
+                                  : startHereRow.latestRun.complianceRisk === "MEDIUM"
+                                    ? "bg-amber-50 text-[#F59E0B]"
+                                    : "bg-emerald-50 text-[var(--success)]"
+                            }`}
+                          >
+                            {complianceRiskWords(startHereRow.latestRun.complianceRisk)}
+                          </span>
+                          <span className="text-gray-300">•</span>
+                        </>
+                      )}
                       <StatusBadge status={startHereRow.latestRun.status} />
                     </>
                   )}
@@ -653,7 +655,7 @@ export default function PortfolioDashboardPage() {
               onFinalizeConfirm={(row) => void onFinalizeConfirm(row)}
             />
           )}
-        </>
+        </div>
       )}
 
       {!isEmptyPortfolio && !directoryLoading && staff.length === 0 && (
