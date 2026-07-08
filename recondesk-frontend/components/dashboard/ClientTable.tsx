@@ -190,6 +190,11 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
   const status = latest?.status;
 
   const navigateDetail = () => router.push(`/clients/${row.client.id}`);
+  const navigateToResults = () => {
+    if (latest?.id) {
+      router.push(`/reconcile/runs/${latest.id}/results`);
+    }
+  };
 
   const isFailed = status === "FAILED";
   const isComplete = status === "COMPLETE";
@@ -274,7 +279,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
             <button
               type="button"
               className="rounded-full border border-brand bg-transparent px-4 py-1.5 text-xs font-semibold text-brand hover:bg-brand-dim transition-colors"
-              onClick={() => navigateDetail()}
+              onClick={() => navigateToResults()}
             >
               Review
             </button>
