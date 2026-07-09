@@ -7,11 +7,17 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
+import jwt as pyjwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from supabase_auth import User
-from jose import ExpiredSignatureError, JWTError, jwk, jwt
+from jose import ExpiredSignatureError, JWTError, jwt
 from jose.exceptions import JWEError, JWKError  # type: ignore[attr-defined]
+from jwt import PyJWK
+from jwt.exceptions import (
+    ExpiredSignatureError as PyJWTExpiredSignatureError,
+    InvalidTokenError as PyJWTInvalidTokenError,
+)
 
 from app.config import settings
 from app.database import get_user_profile, get_supabase, _is_invited_user
@@ -41,14 +47,32 @@ def _fetch_jwks_from_network() -> dict[str, Any]:
         with httpx.Client(timeout=10.0) as client:
             response = client.get(url)
             response.raise_for_status()
-            return response.json()
+            data = response.json()
     except httpx.HTTPError as exc:
         _log.warning("JWKS fetch failed from %s: %s", url, exc)
         raise JWTError("JWKS unavailable") from exc
+    except ValueError as exc:
+        _log.warning("JWKS response was not JSON from %s: %s", url, exc)
+        raise JWTError("JWKS unavailable") from exc
+    return _require_nonempty_jwks(data, source=url)
+
+
+def _require_nonempty_jwks(data: Any, *, source: str) -> dict[str, Any]:
+    keys = data.get("keys") if isinstance(data, dict) else None
+    if not isinstance(data, dict) or not isinstance(keys, list) or not keys:
+        _log.warning("JWKS empty/invalid from %s: %r", source, data)
+        raise JWTError("JWKS empty")
+    return data
 
 
 def _get_jwks_cached(*, force_refresh: bool = False) -> dict[str, Any]:
-    """Return Supabase JWKS; refresh after TTL or when ``force_refresh`` is True."""
+    """Return Supabase JWKS; refresh after TTL or when ``force_refresh`` is True.
+
+    ``force_refresh`` bypasses the normal TTL but still respects a short cooldown
+    so a thundering herd of kid-misses cannot stampede the JWKS endpoint.
+    Callers that already know verification failed should use
+    ``_invalidate_jwks_cache`` + a plain fetch instead of relying on cooldown.
+    """
     global _JWKS_CACHE, _JWKS_CACHE_MONO, _JWKS_LAST_FETCH_MONO
     now = time.monotonic()
     with _JWKS_LOCK:
@@ -62,7 +86,7 @@ def _get_jwks_cached(*, force_refresh: bool = False) -> dict[str, Any]:
         if can_use_cache:
             assert _JWKS_CACHE is not None  # type guard
             return _JWKS_CACHE
-    data = _fetch_jwks_from_network()
+    data = _require_nonempty_jwks(_fetch_jwks_from_network(), source="jwks-cache-store")
     with _JWKS_LOCK:
         _JWKS_CACHE = data
         _JWKS_CACHE_MONO = time.monotonic()
@@ -70,18 +94,39 @@ def _get_jwks_cached(*, force_refresh: bool = False) -> dict[str, Any]:
         return _JWKS_CACHE
 
 
-def _jwk_key_for_token(token: str, jwks: dict[str, Any]) -> Any:
+def _invalidate_jwks_cache() -> None:
+    """Drop the in-memory JWKS cache so the next fetch hits the network."""
+    global _JWKS_CACHE, _JWKS_CACHE_MONO, _JWKS_LAST_FETCH_MONO
+    with _JWKS_LOCK:
+        _JWKS_CACHE = None
+        _JWKS_CACHE_MONO = 0.0
+        # Keep last-fetch timestamp so cooldown still applies to stampede protection
+        # for kid-miss force_refresh; signature-failure path clears it below.
+        _JWKS_LAST_FETCH_MONO = 0.0
+
+
+def _jwk_dict_for_token(token: str, jwks: dict[str, Any]) -> dict[str, Any]:
     header = jwt.get_unverified_header(token) or {}
     kid = header.get("kid")
     if not kid:
         raise JWTError("token missing kid")
     for key_dict in jwks.get("keys") or []:
         if key_dict.get("kid") == kid:
-            return jwk.construct(key_dict)
-    raise JWTError("no matching JWK for token")
+            return key_dict
+    raise JWTError(f"no matching JWK for token kid={kid!r}")
 
 
 def _jwt_decode_options() -> dict[str, bool]:
+    v = settings.jwt_verify_aud_iss
+    return {
+        "verify_signature": True,
+        "require_exp": True,
+        "verify_aud": v,
+        "verify_iss": v,
+    }
+
+
+def _pyjwt_decode_options() -> dict[str, bool]:
     v = settings.jwt_verify_aud_iss
     return {
         "verify_signature": True,
@@ -102,20 +147,80 @@ def _decode_hs256(token: str) -> dict:
     )
 
 
+def _decode_es256_with_jwks(token: str, jwks_data: dict[str, Any]) -> dict:
+    """Verify an ES256 Supabase JWT using PyJWT + a JWKS key dict."""
+    key_dict = _jwk_dict_for_token(token, jwks_data)
+    try:
+        signing_key = PyJWK.from_dict(key_dict)
+    except Exception as exc:  # noqa: BLE001 — malformed/stale JWK material
+        raise JWTError(f"invalid JWK for token: {exc}") from exc
+    try:
+        return pyjwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["ES256"],
+            audience=settings.JWT_AUDIENCE if settings.jwt_verify_aud_iss else None,
+            issuer=settings.JWT_ISSUER if settings.jwt_verify_aud_iss else None,
+            options=_pyjwt_decode_options(),
+        )
+    except PyJWTExpiredSignatureError as exc:
+        raise ExpiredSignatureError(str(exc)) from exc
+    except PyJWTInvalidTokenError as exc:
+        raise JWTError(str(exc)) from exc
+
+
 def _decode_es256(token: str) -> dict:
+    """ES256 via JWKS. Refresh and retry once on kid-miss or signature failure."""
     jwks_data = _get_jwks_cached()
     try:
-        key = _jwk_key_for_token(token, jwks_data)
-    except JWTError:
+        return _decode_es256_with_jwks(token, jwks_data)
+    except JWTError as first_exc:
+        msg = str(first_exc).lower()
+        # Kid miss, bad cached JWK material, or signature failure → refresh JWKS once.
+        should_refresh = (
+            "no matching jwk" in msg
+            or "signature" in msg
+            or "invalid jwk" in msg
+        )
+        if not should_refresh:
+            raise
+        _log.warning(
+            "ES256 local verify failed (%s); invalidating JWKS cache and retrying",
+            first_exc,
+        )
+        _invalidate_jwks_cache()
         jwks_data = _get_jwks_cached(force_refresh=True)
-        key = _jwk_key_for_token(token, jwks_data)
-    return jwt.decode(
-        token,
-        key,
-        algorithms=["ES256"],
-        audience=settings.JWT_AUDIENCE if settings.jwt_verify_aud_iss else None,
-        issuer=settings.JWT_ISSUER if settings.jwt_verify_aud_iss else None,
-        options=_jwt_decode_options(),
+        try:
+            return _decode_es256_with_jwks(token, jwks_data)
+        except JWTError:
+            # Prefer the original failure context if retry also fails.
+            raise first_exc
+
+
+def _token_debug_bits(token: str) -> str:
+    """Safe, non-secret header bits for production logs."""
+    try:
+        header = jwt.get_unverified_header(token) or {}
+        return f"alg={header.get('alg')!r} kid={header.get('kid')!r}"
+    except Exception:  # noqa: BLE001
+        return "alg=? kid=?"
+
+
+def _user_from_supabase_auth(token: str) -> User:
+    """Last-resort validation via Supabase Auth /user (network)."""
+    try:
+        resp = get_supabase().auth.get_user(token)
+    except Exception as exc:  # noqa: BLE001
+        raise JWTError(f"supabase auth get_user failed: {exc}") from exc
+    user = getattr(resp, "user", None) if resp is not None else None
+    if user is None or not getattr(user, "id", None):
+        raise JWTError("supabase auth get_user returned no user")
+    return User.model_construct(
+        id=str(user.id),
+        email=getattr(user, "email", None) or "",
+        app_metadata=getattr(user, "app_metadata", None) or {},
+        user_metadata=getattr(user, "user_metadata", None) or {},
+        aud=str(getattr(user, "aud", "") or ""),
     )
 
 
@@ -157,21 +262,42 @@ async def get_current_user(
         raise http_401()
     try:
         claims = _decode_bearer_jwt(token)
+        return _user_from_claims(claims)
     except ExpiredSignatureError as exc:
-        _log.warning("JWT decode failed (suppressed for client): %s - %s", type(exc).__name__, str(exc))
+        _log.warning(
+            "JWT decode failed (suppressed for client): %s - %s (%s)",
+            type(exc).__name__,
+            str(exc),
+            _token_debug_bits(token),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
     except (JWTError, JWEError, JWKError, ValueError, TypeError) as exc:
-        _log.warning("JWT decode failed (suppressed for client): %s - %s", type(exc).__name__, str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
-    return _user_from_claims(claims)
+        _log.warning(
+            "JWT local decode failed (%s - %s; %s); trying Supabase Auth fallback",
+            type(exc).__name__,
+            str(exc),
+            _token_debug_bits(token),
+        )
+        try:
+            return _user_from_supabase_auth(token)
+        except Exception as fallback_exc:  # noqa: BLE001
+            _log.warning(
+                "JWT decode failed (suppressed for client): %s - %s; fallback=%s - %s (%s)",
+                type(exc).__name__,
+                str(exc),
+                type(fallback_exc).__name__,
+                str(fallback_exc),
+                _token_debug_bits(token),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from exc
 
 
 async def get_current_user_id(user: User = Depends(get_current_user)) -> str:
@@ -233,14 +359,24 @@ def decode_access_token(token: str) -> dict:
             algorithms=["HS256"],
         )
     except ExpiredSignatureError as exc:
-        _log.warning("JWT decode failed (suppressed for client): %s - %s", type(exc).__name__, str(exc))
+        _log.warning(
+            "JWT decode failed (suppressed for client): %s - %s (%s)",
+            type(exc).__name__,
+            str(exc),
+            _token_debug_bits(token),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
     except (JWTError, JWEError, JWKError) as exc:
-        _log.warning("JWT decode failed (suppressed for client): %s - %s", type(exc).__name__, str(exc))
+        _log.warning(
+            "JWT decode failed (suppressed for client): %s - %s (%s)",
+            type(exc).__name__,
+            str(exc),
+            _token_debug_bits(token),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
