@@ -7,8 +7,9 @@ const STATUS_OPTIONS: { value: PortfolioStatusFilter; label: string }[] = [
   { value: "ALL", label: "All" },
   { value: "PENDING", label: "Pending" },
   { value: "IN_PROGRESS", label: "In Progress" },
-  { value: "COMPLETE", label: "Complete" },
-  { value: "FINALIZED", label: "Finalized" },
+  // COMPLETE enum = engine finished; display as Ready for Review (not signed-off)
+  { value: "COMPLETE", label: "Ready for Review" },
+  { value: "FINALIZED", label: "Complete" },
   { value: "FAILED", label: "Failed" },
 ];
 
