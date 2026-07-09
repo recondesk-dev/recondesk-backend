@@ -26,6 +26,7 @@ from app.routers import (
     manage_data,
     notes,
     notifications,
+    pr_upload,
     reconciliation,
     reconciliation_api,
     reconciliation_import_wizard,
@@ -246,6 +247,7 @@ app.include_router(
 )
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"])
 app.include_router(import_router.router, prefix="/api/import", tags=["Import"])
+app.include_router(pr_upload.router, prefix="/api/pr-upload", tags=["PR Upload"])
 app.include_router(
     reconciliation_import_wizard.router,
     prefix="/api",

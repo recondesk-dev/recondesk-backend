@@ -16,6 +16,7 @@ export default function ClientWorkspaceLayout({
     { label: "Overview", href: `/clients/${id}` },
     { label: "Follow-up History", href: `/clients/${id}/follow-up` },
     { label: "Communication", href: `/clients/${id}/communication` },
+    { label: "Import Mapping", href: `/clients/${id}/import-mapping` },
   ] as const;
 
   function isActive(href: string): boolean {

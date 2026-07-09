@@ -323,7 +323,46 @@ async def upload_purchase_register(
     tmp_path = Path(tmpdir) / f"pr{ext}"
     try:
         tmp_path.write_bytes(content)
-        parse_result = parse_purchase_register(content, safe_name)
+        parse_body = content
+        parse_name = safe_name
+        from app.services import client_import_mapping as cim
+
+        saved = cim.get_mappings_or_none(sb, str(client_id).strip())
+        if saved:
+            try:
+                headers = cim.extract_headers_from_file(content, safe_name)
+            except Exception:  # noqa: BLE001
+                headers = []
+            if headers and cim.mapping_covers_headers(saved, headers):
+                parse_body, parse_name = cim.reshape_file_with_mapping(
+                    content, safe_name, saved
+                )
+            elif headers and not cim.columns_match_expected_schema(headers):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "message": "Column mapping required",
+                        "headers": headers,
+                        "saved_mapping": saved,
+                    },
+                )
+        else:
+            try:
+                headers = cim.extract_headers_from_file(content, safe_name)
+            except Exception:  # noqa: BLE001
+                headers = []
+            if headers and not cim.columns_match_expected_schema(headers):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "message": "Column mapping required",
+                        "headers": headers,
+                        "saved_mapping": None,
+                    },
+                )
+        parse_result = parse_purchase_register(parse_body, parse_name)
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         await log_action(
             uid,

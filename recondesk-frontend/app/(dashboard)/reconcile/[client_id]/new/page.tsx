@@ -5,8 +5,11 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   importWizardApi,
+  prUploadApi,
   type ApiError,
+  type ClientImportMappingItem,
   type ColumnMappingRow,
+  type ImportTargetField,
   type ImportWizardRun,
   type SanityCheckItem,
 } from "@/lib/api";
@@ -22,19 +25,48 @@ const REQUIRED_MAPPING_FIELDS = [
   "taxable_value",
 ] as const;
 
+const TAX_MAPPING_FIELDS = ["cgst", "sgst", "igst", "cess"] as const;
+
 const OPTIONAL_MAPPING_FIELDS = ["total_tax", "supplier_name"] as const;
+
+const IMPORT_TARGET_FIELDS: ImportTargetField[] = [
+  "gstin",
+  "invoice_number",
+  "invoice_date",
+  "taxable_value",
+  "cgst",
+  "sgst",
+  "igst",
+  "cess",
+];
 
 const MAPPING_FIELD_LABELS: Record<string, string> = {
   gstin: "GSTIN",
   invoice_number: "Invoice number",
   invoice_date: "Invoice date",
   taxable_value: "Taxable value",
+  cgst: "CGST",
+  sgst: "SGST",
+  igst: "IGST",
+  cess: "Cess",
   total_tax: "Total tax",
   supplier_name: "Supplier name",
 };
 
 function isOptionalMappingField(field: string): boolean {
   return (OPTIONAL_MAPPING_FIELDS as readonly string[]).includes(field);
+}
+
+function isTaxMapped(headerToTarget: Record<string, ImportTargetField | "">): boolean {
+  const targets = new Set(Object.values(headerToTarget).filter(Boolean));
+  return TAX_MAPPING_FIELDS.some((t) => targets.has(t));
+}
+
+function requiredTargetsMapped(
+  headerToTarget: Record<string, ImportTargetField | "">
+): boolean {
+  const targets = new Set(Object.values(headerToTarget).filter(Boolean));
+  return REQUIRED_MAPPING_FIELDS.every((f) => targets.has(f));
 }
 
 function formatBytes(n: number | null | undefined): string {
@@ -221,8 +253,17 @@ export default function NewReconcileWizardPage() {
   const [prProgress, setPrProgress] = useState(0);
   const [prUploadFailed, setPrUploadFailed] = useState(false);
   const [detectBusy, setDetectBusy] = useState(false);
+  const [preDetectBusy, setPreDetectBusy] = useState(false);
   const [allHeaders, setAllHeaders] = useState<string[]>([]);
   const [mappingLocal, setMappingLocal] = useState<ColumnMappingRow[] | null>(null);
+  /** header → target_field for the pre-upload mapping UI */
+  const [headerToTarget, setHeaderToTarget] = useState<
+    Record<string, ImportTargetField | "">
+  >({});
+  const [savedMappingCovers, setSavedMappingCovers] = useState(false);
+  const [schemaOk, setSchemaOk] = useState(false);
+  const [mappingSaveError, setMappingSaveError] = useState<string | null>(null);
+  const [confirmSavedMapping, setConfirmSavedMapping] = useState(false);
 
   const [startBusy, setStartBusy] = useState(false);
   const [start409, setStart409] = useState<string | null>(null);
@@ -452,9 +493,85 @@ export default function NewReconcileWizardPage() {
     }
   };
 
-  const onPrUpload = async () => {
-    if (typeof token !== "string" || !runId || !prFile) return;
+  const onPrFileSelected = async (file: File | null) => {
+    setPrFile(file);
+    setPrUploadFailed(false);
+    setMappingSaveError(null);
+    setConfirmSavedMapping(false);
+    setHeaderToTarget({});
+    setAllHeaders([]);
+    setSavedMappingCovers(false);
+    setSchemaOk(false);
+    if (!file || typeof token !== "string" || !clientId) return;
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!["csv", "xlsx", "xls"].includes(ext)) {
+      setErr("Use .csv, .xlsx, or .xls only.");
+      return;
+    }
+    if (file.size > MAX_UPLOAD) {
+      setErr("File must be under 20 MB.");
+      return;
+    }
+    setPreDetectBusy(true);
     setErr(null);
+    try {
+      const res = await prUploadApi.detectColumns(token, file, clientId);
+      setAllHeaders(res.headers);
+      setSchemaOk(!!res.schema_ok);
+      setSavedMappingCovers(!!res.saved_mapping_covers);
+      const next: Record<string, ImportTargetField | ""> = {};
+      for (const h of res.headers) next[h] = "";
+      if (res.saved_mapping_covers && res.saved_mapping?.length) {
+        for (const m of res.saved_mapping) {
+          if (res.headers.includes(m.source_column_name)) {
+            next[m.source_column_name] = m.target_field;
+          }
+        }
+        setConfirmSavedMapping(true);
+      } else if (res.saved_mapping?.length) {
+        for (const m of res.saved_mapping) {
+          if (res.headers.includes(m.source_column_name)) {
+            next[m.source_column_name] = m.target_field;
+          }
+        }
+      }
+      setHeaderToTarget(next);
+    } catch (e) {
+      const ae = e as ApiError;
+      setErr(ae.detail ?? "Could not read file columns.");
+    } finally {
+      setPreDetectBusy(false);
+    }
+  };
+
+  const buildMappingItems = (): ClientImportMappingItem[] | null => {
+    const items: ClientImportMappingItem[] = [];
+    const used = new Set<ImportTargetField>();
+    for (const [header, target] of Object.entries(headerToTarget)) {
+      if (!target) continue;
+      if (used.has(target)) {
+        setMappingSaveError(`Each field can only be mapped once (${MAPPING_FIELD_LABELS[target] ?? target}).`);
+        return null;
+      }
+      used.add(target);
+      items.push({ source_column_name: header, target_field: target });
+    }
+    if (!requiredTargetsMapped(headerToTarget)) {
+      setMappingSaveError("Map GSTIN, invoice number, invoice date, and taxable value.");
+      return null;
+    }
+    if (!isTaxMapped(headerToTarget)) {
+      setMappingSaveError("Map at least one tax field (CGST, SGST, IGST, or Cess).");
+      return null;
+    }
+    setMappingSaveError(null);
+    return items;
+  };
+
+  const onPrUpload = async () => {
+    if (typeof token !== "string" || !runId || !prFile || !clientId) return;
+    setErr(null);
+    setMappingSaveError(null);
     setPrUploadFailed(false);
     const ext = prFile.name.split(".").pop()?.toLowerCase() ?? "";
     if (!["csv", "xlsx", "xls"].includes(ext)) {
@@ -465,6 +582,33 @@ export default function NewReconcileWizardPage() {
       setErr("File must be under 20 MB.");
       return;
     }
+
+    const needsManualMapping = !schemaOk && !savedMappingCovers;
+    const usingSaved = savedMappingCovers && confirmSavedMapping;
+    if (needsManualMapping || (savedMappingCovers && !confirmSavedMapping && !schemaOk)) {
+      const items = buildMappingItems();
+      if (!items) return;
+      try {
+        await prUploadApi.saveMapping(token, clientId, items);
+      } catch (e) {
+        const ae = e as ApiError;
+        setMappingSaveError(ae.detail ?? "Could not save column mapping.");
+        return;
+      }
+    } else if (usingSaved) {
+      // Saved mapping already covers — keep it; no rewrite needed.
+    } else if (!schemaOk) {
+      const items = buildMappingItems();
+      if (!items) return;
+      try {
+        await prUploadApi.saveMapping(token, clientId, items);
+      } catch (e) {
+        const ae = e as ApiError;
+        setMappingSaveError(ae.detail ?? "Could not save column mapping.");
+        return;
+      }
+    }
+
     const hash = await sha256Hex(prFile);
     setBusy(true);
     setPrProgress(0);
@@ -505,6 +649,11 @@ export default function NewReconcileWizardPage() {
       const res = await withRetries(() => importWizardApi.detectColumns(token, runId), 3, 1500);
       setMappingLocal(res.columns);
       setAllHeaders(res.all_headers);
+      if (res.saved_mapping_covers) {
+        setSavedMappingCovers(true);
+        setConfirmSavedMapping(true);
+      }
+      if (typeof res.schema_ok === "boolean") setSchemaOk(res.schema_ok);
       const r = await refreshRun(runId, token);
       setRun(r);
     } catch (e) {
@@ -594,11 +743,29 @@ export default function NewReconcileWizardPage() {
       const row = mappingLocal.find((m) => m.standard_field === field);
       return !!row?.detected_column && row.confidence !== "not_found";
     });
+  const taxOk =
+    !!mappingLocal?.length &&
+    (
+      TAX_MAPPING_FIELDS.some((field) => {
+        const row = mappingLocal.find((m) => m.standard_field === field);
+        return !!row?.detected_column && row.confidence !== "not_found";
+      }) ||
+      (() => {
+        const row = mappingLocal.find((m) => m.standard_field === "total_tax");
+        return !!row?.detected_column && row.confidence !== "not_found";
+      })()
+    );
   const lowOk =
     !mappingLocal ||
     mappingLocal.every((m) => {
       if (isOptionalMappingField(m.standard_field)) {
         if (!m.detected_column || m.confidence === "not_found") return true;
+      }
+      if (
+        (TAX_MAPPING_FIELDS as readonly string[]).includes(m.standard_field) &&
+        (!m.detected_column || m.confidence === "not_found")
+      ) {
+        return true;
       }
       if (!m.detected_column) return false;
       if (m.confidence !== "low") return true;
@@ -606,7 +773,18 @@ export default function NewReconcileWizardPage() {
     });
 
   const canGoToStep3 = sanityErrors.length === 0 && warningsOk && !!checksDisplayed.length;
-  const canGoToStep4 = requiredOk && lowOk && !!mappingLocal?.length;
+  const canGoToStep4 = requiredOk && taxOk && lowOk && !!mappingLocal?.length;
+
+  const preUploadMappingComplete =
+    requiredTargetsMapped(headerToTarget) && isTaxMapped(headerToTarget);
+  const canConfirmAndUpload =
+    !!prFile &&
+    !busy &&
+    !preDetectBusy &&
+    allHeaders.length > 0 &&
+    (savedMappingCovers
+      ? confirmSavedMapping || preUploadMappingComplete
+      : schemaOk || preUploadMappingComplete);
 
   const onBack = async () => {
     if (uiStep <= 1) return;
@@ -1144,9 +1322,12 @@ export default function NewReconcileWizardPage() {
               <input
                 type="file"
                 accept=".csv,.xlsx,.xls"
-                onChange={(e) => setPrFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => void onPrFileSelected(e.target.files?.[0] ?? null)}
                 className="text-sm"
               />
+              {preDetectBusy ? (
+                <p className="text-sm text-[var(--text-secondary)]">Reading columns…</p>
+              ) : null}
               {prProgress > 0 && prProgress < 100 ? (
                 <div className="space-y-1">
                   <div className="h-2 w-full overflow-hidden rounded bg-[var(--border)]">
@@ -1155,16 +1336,129 @@ export default function NewReconcileWizardPage() {
                   <p className="font-mono text-xs text-[var(--text-secondary)]">{prProgress}%</p>
                 </div>
               ) : null}
-              <button
-                type="button"
-                disabled={!prFile || busy}
-                onClick={onPrUpload}
-                className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
-              >
-                Upload &amp; detect columns
-              </button>
+
+              {savedMappingCovers && allHeaders.length > 0 && !mappingLocal?.length ? (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                  Using saved mapping from last upload.
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      disabled={!canConfirmAndUpload}
+                      onClick={onPrUpload}
+                      className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover"
+                    >
+                      Confirm &amp; Upload
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmSavedMapping(false);
+                        setSavedMappingCovers(false);
+                      }}
+                      className="ml-2 text-sm text-brand hover:underline"
+                    >
+                      Edit mapping
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {!savedMappingCovers && allHeaders.length > 0 && !mappingLocal?.length ? (
+                <div className="space-y-3">
+                  {!schemaOk ? (
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      Map your file columns to ReconDesk fields. Required fields show a red asterisk;
+                      at least one tax field is required.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      Columns look standard. You can upload as-is, or adjust the mapping below.
+                    </p>
+                  )}
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[480px] border-collapse text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-[var(--border)] text-[var(--text-secondary)]">
+                          <th className="py-2 pr-3">Your file has:</th>
+                          <th className="py-2 pr-3">Maps to:</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allHeaders.map((header) => {
+                          const selected = headerToTarget[header] ?? "";
+                          const usedElsewhere = new Set(
+                            Object.entries(headerToTarget)
+                              .filter(([h, t]) => h !== header && t)
+                              .map(([, t]) => t)
+                          );
+                          return (
+                            <tr key={header} className="border-b border-[var(--border)]">
+                              <td className="py-2 pr-3 font-mono text-xs">{header}</td>
+                              <td className="py-2 pr-3">
+                                <select
+                                  value={selected}
+                                  onChange={(e) => {
+                                    const v = e.target.value as ImportTargetField | "";
+                                    setHeaderToTarget((prev) => ({ ...prev, [header]: v }));
+                                    setMappingSaveError(null);
+                                  }}
+                                  className="max-w-[220px] rounded border border-[var(--border)] bg-white px-2 py-1 text-xs"
+                                >
+                                  <option value="">— skip —</option>
+                                  {IMPORT_TARGET_FIELDS.map((tf) => (
+                                    <option
+                                      key={tf}
+                                      value={tf}
+                                      disabled={usedElsewhere.has(tf) && selected !== tf}
+                                    >
+                                      {MAPPING_FIELD_LABELS[tf] ?? tf}
+                                      {(REQUIRED_MAPPING_FIELDS as readonly string[]).includes(tf)
+                                        ? " *"
+                                        : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex flex-wrap gap-3 text-xs text-[var(--text-secondary)]">
+                    {REQUIRED_MAPPING_FIELDS.map((f) => {
+                      const mapped = Object.values(headerToTarget).includes(f);
+                      return (
+                        <span key={f} className={mapped ? "text-emerald-700" : "text-red-700"}>
+                          {MAPPING_FIELD_LABELS[f]}
+                          <span className="text-red-600">*</span>
+                          {mapped ? " ✓" : ""}
+                        </span>
+                      );
+                    })}
+                    <span className={isTaxMapped(headerToTarget) ? "text-emerald-700" : "text-red-700"}>
+                      Tax (CGST/SGST/IGST/Cess)*
+                      {isTaxMapped(headerToTarget) ? " ✓" : ""}
+                    </span>
+                  </div>
+                  {mappingSaveError ? (
+                    <div className="rounded-lg border border-[var(--danger)] bg-red-50 p-3 text-sm text-red-900">
+                      {mappingSaveError}
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={!canConfirmAndUpload}
+                    onClick={onPrUpload}
+                    className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
+                  >
+                    {schemaOk ? "Upload & continue" : "Save mapping & upload"}
+                  </button>
+                </div>
+              ) : null}
+
               {prUploadFailed ? (
-                <button type="button" onClick={onPrUpload} className="ml-2 rounded-full border px-4 py-2 text-sm">
+                <button type="button" onClick={onPrUpload} className="rounded-full border px-4 py-2 text-sm">
                   Retry upload
                 </button>
               ) : null}
@@ -1176,6 +1470,11 @@ export default function NewReconcileWizardPage() {
           {!requiredOk && mappingLocal?.length ? (
             <div className="rounded-lg border border-[var(--danger)] bg-red-50 p-3 text-sm text-red-900">
               Required columns could not be detected. Assign them manually.
+            </div>
+          ) : null}
+          {!taxOk && mappingLocal?.length && requiredOk ? (
+            <div className="rounded-lg border border-[var(--danger)] bg-red-50 p-3 text-sm text-red-900">
+              Map at least one tax field (CGST, SGST, IGST, Cess, or Total tax).
             </div>
           ) : null}
 
@@ -1280,7 +1579,39 @@ export default function NewReconcileWizardPage() {
           <button
             type="button"
             disabled={!canGoToStep4}
-            onClick={() => setUiStep(4)}
+            onClick={() => {
+              void (async () => {
+                if (typeof token === "string" && clientId && mappingLocal?.length) {
+                  const items: ClientImportMappingItem[] = [];
+                  const used = new Set<string>();
+                  for (const row of mappingLocal) {
+                    const tf = row.standard_field as ImportTargetField;
+                    if (!(IMPORT_TARGET_FIELDS as readonly string[]).includes(tf)) continue;
+                    if (!row.detected_column) continue;
+                    if (used.has(tf)) continue;
+                    used.add(tf);
+                    items.push({
+                      source_column_name: row.detected_column,
+                      target_field: tf,
+                    });
+                  }
+                  const hasRequired = REQUIRED_MAPPING_FIELDS.every((f) =>
+                    items.some((i) => i.target_field === f)
+                  );
+                  const hasTax = TAX_MAPPING_FIELDS.some((f) =>
+                    items.some((i) => i.target_field === f)
+                  );
+                  if (hasRequired && hasTax) {
+                    try {
+                      await prUploadApi.saveMapping(token, clientId, items);
+                    } catch {
+                      /* non-fatal — run mapping still on the wizard run */
+                    }
+                  }
+                }
+                setUiStep(4);
+              })();
+            }}
             className="rounded-full bg-[var(--text-primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             Continue to start
