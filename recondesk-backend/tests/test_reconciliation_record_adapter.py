@@ -133,3 +133,27 @@ def test_gstr_row_prefers_explicit_total_tax_paise():
     m = gstr_db_row_to_matcher_row(row)
     assert m["total_tax_paise"] == 250_000
 
+
+def test_gstr_row_uses_root_taxable_not_invoice_value_when_items_empty():
+    """Flat GSTR: taxable_value_paise at root; never treat val as taxable."""
+    row = {
+        "id": 6,
+        "record_data": {
+            "supplier_gstin_norm": "27AABCU9603R1ZX",
+            "invoice_number": "INV/2025/1000",
+            "invoice_date_norm": "2026-04-01",
+            "invoice_value_paise": 41_555_774,
+            "taxable_value_paise": 37_103_370,
+            "cgst_paise": 2_226_202,
+            "sgst_paise": 2_226_202,
+            "igst_paise": 0,
+            "total_tax_paise": 4_452_404,
+            "items": [],
+        },
+    }
+    m = gstr_db_row_to_matcher_row(row)
+    assert m["taxable_amount_paise"] == 37_103_370
+    assert m["total_tax_paise"] == 4_452_404
+    assert m["cgst_paise"] == 2_226_202
+    assert m["sgst_paise"] == 2_226_202
+

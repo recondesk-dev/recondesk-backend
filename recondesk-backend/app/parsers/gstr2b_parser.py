@@ -240,6 +240,35 @@ def _invoice_items_list(invoice: dict) -> list:
     return items_list or []
 
 
+def _invoice_level_amount_paise(invoice: dict) -> dict[str, int] | None:
+    """Read invoice-root tax fields when ``itms`` / ``items`` are absent.
+
+    Some GSTR-2B dumps (portal / synthetic) put ``txval``, ``cgst``, ``sgst``,
+    ``igst``, ``cess`` on the invoice itself instead of under line items. Without
+    promoting those into ``*_paise``, the matcher falls back to invoice ``val``
+    as taxable and tax=0, which falsely routes exact pairs to AMOUNT_MISMATCH.
+    """
+    if not any(k in invoice for k in ("txval", "cgst", "sgst", "igst", "cess")):
+        return None
+    return {
+        "taxable_value_paise": _amount_str_to_paise(
+            _parse_numeric_field(invoice.get("txval"), "txval"), "taxable_value"
+        ),
+        "cgst_paise": _amount_str_to_paise(
+            _parse_numeric_field(invoice.get("cgst"), "cgst"), "cgst"
+        ),
+        "sgst_paise": _amount_str_to_paise(
+            _parse_numeric_field(invoice.get("sgst"), "sgst"), "sgst"
+        ),
+        "igst_paise": _amount_str_to_paise(
+            _parse_numeric_field(invoice.get("igst"), "igst"), "igst"
+        ),
+        "cess_paise": _amount_str_to_paise(
+            _parse_numeric_field(invoice.get("cess"), "cess"), "cess"
+        ),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Item-level parsing
 # ---------------------------------------------------------------------------
@@ -340,6 +369,7 @@ def _build_invoice_record(
     normalization_notes: dict,
     gstin_format_invalid: bool = False,
     filing_status: str | None = None,
+    invoice_level_paise: dict[str, int] | None = None,
 ) -> dict:
     invoice_date_norm = (
         invoice_date.isoformat()
@@ -353,7 +383,7 @@ def _build_invoice_record(
     else:
         original_invoice_date_norm = str(original_invoice_date)
 
-    return {
+    record = {
         "doc_type": doc_type,
         "is_amendment": is_amendment,
         "section": section,
@@ -386,6 +416,15 @@ def _build_invoice_record(
         "gstin_format_invalid": gstin_format_invalid,
         "filing_status": filing_status,
     }
+    if invoice_level_paise:
+        record.update(invoice_level_paise)
+        record["total_tax_paise"] = (
+            int(invoice_level_paise.get("cgst_paise") or 0)
+            + int(invoice_level_paise.get("sgst_paise") or 0)
+            + int(invoice_level_paise.get("igst_paise") or 0)
+            + int(invoice_level_paise.get("cess_paise") or 0)
+        )
+    return record
 
 
 # ---------------------------------------------------------------------------
@@ -458,6 +497,9 @@ def _parse_b2b_invoice(
 
     items_list = _invoice_items_list(invoice)
     item_records, raw_txvals = _parse_items(items_list)
+    invoice_level_paise = (
+        None if item_records else _invoice_level_amount_paise(invoice)
+    )
 
     raw_filing_status = invoice.get("filing_status")
     filing_status = (
@@ -491,6 +533,7 @@ def _parse_b2b_invoice(
         normalization_notes=normalization_notes,
         gstin_format_invalid=gstin_format_invalid,
         filing_status=filing_status,
+        invoice_level_paise=invoice_level_paise,
     )
 
 
@@ -573,6 +616,9 @@ def _parse_cdnr_invoice(
 
     items_list = _invoice_items_list(invoice)
     item_records, raw_txvals = _parse_items(items_list)
+    invoice_level_paise = (
+        None if item_records else _invoice_level_amount_paise(invoice)
+    )
 
     return _build_invoice_record(
         doc_type=document_type,
@@ -598,6 +644,7 @@ def _parse_cdnr_invoice(
         items=item_records,
         normalization_notes=normalization_notes,
         gstin_format_invalid=gstin_format_invalid,
+        invoice_level_paise=invoice_level_paise,
     )
 
 
@@ -636,10 +683,14 @@ def _enrich_record(record: dict, buyer_gstin: str) -> None:
     # invoice_number_norm — uppercase, trimmed
     record["invoice_number_norm"] = str(record["invoice_number"]).strip().upper()
 
-    # taxable_value — sum of item taxable values in whole rupees (integer)
+    # taxable_value — sum of item taxable values in whole rupees (integer).
+    # Prefer invoice-root taxable_value_paise when line items are absent
+    # (flat GSTR dumps); never fall back to invoice val as taxable.
     items = record.get("items") or []
     if items:
         total_paise = sum(item.get("taxable_value_paise", 0) for item in items)
+    elif record.get("taxable_value_paise") is not None:
+        total_paise = int(record.get("taxable_value_paise") or 0)
     else:
         total_paise = record.get("invoice_value_paise", 0)
     record["taxable_value"] = round(total_paise / 100)
