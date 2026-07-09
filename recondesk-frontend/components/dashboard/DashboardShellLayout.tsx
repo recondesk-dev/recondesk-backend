@@ -364,7 +364,7 @@ export default function DashboardShellLayout({
             <Logo width={210} height={40} />
           </Link>
         </div>
-        <nav className="flex-1 space-y-0.5 px-3">
+        <nav className="flex-1 space-y-1 px-3">
           {nav.map(({ href, label, Icon }) => {
             const isActive =
               href === "/dashboard"
@@ -374,12 +374,18 @@ export default function DashboardShellLayout({
               <Link
                 key={href}
                 href={href}
-                className={`flex items-center gap-3 rounded-xl py-2.5 pl-3 pr-3 text-sm transition-all duration-150 ${
+                className={`relative flex items-center gap-3 rounded-lg py-2.5 pl-3 pr-3 text-sm transition-colors duration-150 ${
                   isActive
-                    ? "border-l-[3px] border-brand font-semibold text-brand"
-                    : "border-l-[3px] border-transparent font-medium text-gray-500 hover:text-gray-800"
+                    ? "bg-brand/[0.08] font-semibold text-brand"
+                    : "font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-800"
                 }`}
               >
+                {isActive ? (
+                  <span
+                    className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand"
+                    aria-hidden
+                  />
+                ) : null}
                 <Icon className={`shrink-0 ${isActive ? "text-brand" : "text-gray-400"}`} />
                 {label}
               </Link>

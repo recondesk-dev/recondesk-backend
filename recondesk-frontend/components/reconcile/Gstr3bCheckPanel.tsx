@@ -6,7 +6,13 @@ import useSWR from "swr";
 import type { Gstr3bReconciliationResult, Gstr3bHeadResult } from "@/lib/api";
 import { gstr3bApi, isApiError } from "@/lib/api";
 import { formatINR } from "@/lib/format";
-import { SectionHeader, sectionContainerClass, StatCard, statCardsGridClass } from "./ResultsUi";
+import {
+  CompactStatAmount,
+  SectionHeader,
+  sectionContainerClass,
+  StatCard,
+  statCardsGridClass,
+} from "./ResultsUi";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -298,20 +304,20 @@ function Gstr3bLoaded({
           label="GSTR-2B ITC Available"
           accent="neutral"
           value={
-            <span className="inline-flex tabular-nums text-xl font-semibold">
-              <span className="text-gray-400">₹</span>
-              <span className="text-gray-800">{result.total.gstr2b.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            </span>
+            <CompactStatAmount
+              amount={result.total.gstr2b}
+              className="text-gray-800"
+            />
           }
         />
         <StatCard
           label="GSTR-3B ITC Claimed"
           accent="neutral"
           value={
-            <span className="inline-flex tabular-nums text-xl font-semibold">
-              <span className="text-gray-400">₹</span>
-              <span className="text-gray-800">{result.total.gstr3b.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            </span>
+            <CompactStatAmount
+              amount={result.total.gstr3b}
+              className="text-gray-800"
+            />
           }
         />
         <StatCard
@@ -323,10 +329,21 @@ function Gstr3bLoaded({
               ? "risk"
               : "pending"
           }
+          emphasis={result.total.difference === 0 ? "default" : "attention"}
           value={
-            <span className={`inline-flex tabular-nums text-xl font-semibold ${diffColor(result.total.difference)}`}>
-              {result.total.difference > 0 ? "+" : result.total.difference < 0 ? "−" : ""}
-              {formatINR(Math.abs(result.total.difference))}
+            <span
+              className={`inline-flex items-baseline gap-0.5 ${diffColor(result.total.difference)}`}
+              title={formatINR(result.total.difference)}
+            >
+              {result.total.difference > 0 ? (
+                <span aria-hidden>+</span>
+              ) : result.total.difference < 0 ? (
+                <span aria-hidden>−</span>
+              ) : null}
+              <CompactStatAmount
+                amount={Math.abs(result.total.difference)}
+                className={diffColor(result.total.difference)}
+              />
             </span>
           }
         />

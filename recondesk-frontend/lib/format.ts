@@ -31,10 +31,17 @@ export function formatINR(amount: number): string {
 }
 
 export function formatInrCompact(amount: number): string {
-  if (amount >= 1e7) {
-    return `₹${(amount / 1e7).toFixed(2)}Cr`;
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return "—";
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(n);
+  if (abs >= 1e7) {
+    return `${sign}₹${(abs / 1e7).toFixed(2)}Cr`;
   }
-  return `₹${(amount / 1e5).toFixed(2)}L`;
+  if (abs >= 1e5) {
+    return `${sign}₹${(abs / 1e5).toFixed(2)}L`;
+  }
+  return formatINR(n);
 }
 
 export function formatInrFull(n: number): string {
