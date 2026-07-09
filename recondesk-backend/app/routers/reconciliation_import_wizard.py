@@ -438,6 +438,16 @@ async def detect_columns(
     if not pr_key:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Purchase register not uploaded")
     columns, all_headers, pr_rows = ws.detect_pr_columns_from_r2(pr_key, pr_name)
+
+    from app.services import client_import_mapping as cim
+
+    client_id = str(r["client_id"])
+    saved = cim.get_mappings_or_none(sb, client_id)
+    saved_covers = bool(saved and cim.mapping_covers_headers(saved, all_headers))
+    if saved_covers and saved:
+        # Prefer persisted client mapping over auto-detect for this upload.
+        columns = cim.mapping_rows_to_wizard_columns(saved, all_headers)
+
     sb.table(ws.T_RUNS).update(
         {
             "column_mapping": columns,
@@ -448,23 +458,39 @@ async def detect_columns(
         }
     ).eq("id", str(run_id)).execute()
     ws.audit(sb, str(run_id), user_id, "detect_columns", {"headers": len(all_headers)})
-    return {"columns": columns, "all_headers": all_headers}
+    return {
+        "columns": columns,
+        "all_headers": all_headers,
+        "saved_mapping": saved,
+        "saved_mapping_covers": saved_covers,
+        "schema_ok": cim.columns_match_expected_schema(all_headers),
+    }
 
 
 def _validate_start_mapping(mapping: list[dict[str, Any]]) -> None:
     by_field = {m.get("standard_field"): m for m in mapping}
-    for req in ("gstin", "invoice_number"):
+    for req in ("gstin", "invoice_number", "invoice_date", "taxable_value"):
         col = by_field.get(req)
         if not col or not col.get("detected_column"):
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
-                "column_mapping must include gstin and invoice_number",
+                f"column_mapping must include {req}",
             )
         if col.get("confidence") in ("low", "not_found") and not col.get("confirmed"):
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
                 f"Confirm or fix mapping for {req}",
             )
+    tax_ok = any(
+        (by_field.get(t) or {}).get("detected_column")
+        for t in ("cgst", "sgst", "igst", "cess", "total_tax")
+    )
+    if not tax_ok:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "column_mapping must include at least one tax field "
+            "(cgst, sgst, igst, cess, or total_tax)",
+        )
     for col in mapping:
         if not col.get("detected_column"):
             continue

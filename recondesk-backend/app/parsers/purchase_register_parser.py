@@ -47,6 +47,7 @@ STANDARD_TO_CANONICAL: dict[str, str] = {
     "igst": "igst_paise",
     "cgst": "cgst_paise",
     "sgst": "sgst_paise",
+    "cess": "cess_paise",
     "total_tax": "total_tax_paise",
     "total_amount": "total_amount_paise",
     "supplier_name": "supplier_name",
@@ -84,6 +85,7 @@ COLUMN_ALIASES: dict[str, list[str]] = {
     "sgst": [
         "sgst", "state tax", "sgst amount", "sgst tax", "utgst", "s.g.s.t", "u.t.g.s.t",
     ],
+    "cess": ["cess", "cess amount", "gst cess", "compensation cess"],
     "total_tax": ["total tax", "gst amount", "tax amount", "total gst"],
     "total_amount": [
         "total invoice value", "total value", "invoice value", "invoice amount",
@@ -206,6 +208,7 @@ _FIELD_MATCH_PRIORITY: dict[str, int] = {
     "igst": 50,
     "cgst": 50,
     "sgst": 50,
+    "cess": 50,
     "place_of_supply": 50,
     "reverse_charge": 50,
     "payment_status": 50,
@@ -530,6 +533,7 @@ def normalize_dataframe_to_canonical_schema(
             "igst_paise",
             "cgst_paise",
             "sgst_paise",
+            "cess_paise",
             "total_tax_paise",
             "total_amount_paise",
         ):
@@ -865,11 +869,20 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
             igst_paise = _df_cell_int(row.get("igst_paise"))
             cgst_paise = _df_cell_int(row.get("cgst_paise"))
             sgst_paise = _df_cell_int(row.get("sgst_paise"))
+            cess_paise = _df_cell_int(row.get("cess_paise"))
             total_tax_paise = _df_cell_int(row.get("total_tax_paise"))
             if total_tax_paise is None and (
-                igst_paise is not None or cgst_paise is not None or sgst_paise is not None
+                igst_paise is not None
+                or cgst_paise is not None
+                or sgst_paise is not None
+                or cess_paise is not None
             ):
-                total_tax_paise = (igst_paise or 0) + (cgst_paise or 0) + (sgst_paise or 0)
+                total_tax_paise = (
+                    (igst_paise or 0)
+                    + (cgst_paise or 0)
+                    + (sgst_paise or 0)
+                    + (cess_paise or 0)
+                )
             # normalize_dataframe_to_canonical_schema stores tax columns as abs()
             # (unsigned) to handle mixed-sign inputs. Re-apply sign for credit
             # notes here so that ITC-at-risk aggregation correctly subtracts them.
@@ -922,6 +935,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 "igst_paise": igst_paise,
                 "cgst_paise": cgst_paise,
                 "sgst_paise": sgst_paise,
+                "cess_paise": cess_paise,
                 "total_tax_paise": total_tax_paise,
                 "total_amount_paise": _df_cell_int(row.get("total_amount_paise")),
                 "place_of_supply": _safe_cell(row.get("place_of_supply")),

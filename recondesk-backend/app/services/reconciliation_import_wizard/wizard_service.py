@@ -38,6 +38,10 @@ STANDARD_FIELDS = [
     "invoice_number",
     "invoice_date",
     "taxable_value",
+    "cgst",
+    "sgst",
+    "igst",
+    "cess",
     "total_tax",
     "supplier_name",
 ]
@@ -48,6 +52,10 @@ _PARSER_TO_WIZARD_FIELD: dict[str, str] = {
     "invoice_number": "invoice_number",
     "invoice_date": "invoice_date",
     "taxable_amount": "taxable_value",
+    "cgst": "cgst",
+    "sgst": "sgst",
+    "igst": "igst",
+    "cess": "cess",
     "total_tax": "total_tax",
     "supplier_name": "supplier_name",
 }

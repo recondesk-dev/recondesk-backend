@@ -837,6 +837,40 @@ export interface SignedUploadResponse {
 export interface DetectColumnsResponse {
   columns: ColumnMappingRow[];
   all_headers: string[];
+  saved_mapping?: ClientImportMappingRow[] | null;
+  saved_mapping_covers?: boolean;
+  schema_ok?: boolean;
+}
+
+export type ImportTargetField =
+  | "gstin"
+  | "invoice_number"
+  | "invoice_date"
+  | "taxable_value"
+  | "cgst"
+  | "sgst"
+  | "igst"
+  | "cess";
+
+export interface ClientImportMappingRow {
+  id?: string;
+  client_gstin_id?: string;
+  source_column_name: string;
+  target_field: ImportTargetField;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ClientImportMappingItem {
+  source_column_name: string;
+  target_field: ImportTargetField;
+}
+
+export interface PrDetectColumnsResponse {
+  headers: string[];
+  schema_ok: boolean;
+  saved_mapping: ClientImportMappingRow[] | null;
+  saved_mapping_covers: boolean;
 }
 
 export interface RunPollStatus {
@@ -972,6 +1006,49 @@ export const importWizardApi = {
   retry: (token: string, runId: string) =>
     apiFetch<ImportWizardRun>(`/api/runs/${runId}/retry`, {
       method: "POST",
+      token,
+    }),
+};
+
+export const prUploadApi = {
+  detectColumns: async (
+    token: string,
+    file: File,
+    clientGstinId?: string
+  ): Promise<PrDetectColumnsResponse> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (clientGstinId) fd.append("client_gstin_id", clientGstinId);
+    return apiFetch<PrDetectColumnsResponse>("/api/pr-upload/detect-columns", {
+      method: "POST",
+      token,
+      body: fd,
+    });
+  },
+
+  getMapping: (token: string, clientGstinId: string) =>
+    apiFetch<{ mappings: ClientImportMappingRow[] | null }>(
+      `/api/pr-upload/mapping/${clientGstinId}`,
+      { token }
+    ),
+
+  saveMapping: (
+    token: string,
+    clientGstinId: string,
+    mappings: ClientImportMappingItem[]
+  ) =>
+    apiFetch<{ mappings: ClientImportMappingRow[] }>(
+      `/api/pr-upload/mapping/${clientGstinId}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ mappings }),
+        token,
+      }
+    ),
+
+  deleteMapping: (token: string, clientGstinId: string) =>
+    apiFetch<{ ok: boolean }>(`/api/pr-upload/mapping/${clientGstinId}`, {
+      method: "DELETE",
       token,
     }),
 };

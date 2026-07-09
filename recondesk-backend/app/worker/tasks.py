@@ -19,6 +19,7 @@ from supabase import Client, create_client
 from app.config import get_r2_s3_endpoint_url, get_settings
 from app.parsers.gstr2b_parser import parse_gstr2b
 from app.parsers.purchase_register_parser import parse_purchase_register
+from app.services import client_import_mapping as cim
 from app.services.sanity import SanityCheck, run_import_sanity
 from app.worker.celery_app import celery_app
 
@@ -262,7 +263,47 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
                     _update_run(client, run_id, {"period": period})
         elif file_type == "purchase_register":
             name = os.path.basename(r2_key) or "purchase.xlsx"
-            pr = parse_purchase_register(body, name)
+            parse_body = body
+            parse_name = name
+            # Apply saved client column mapping before normalization/parser.
+            try:
+                saved = cim.get_mappings_or_none(client, str(client_gstin_id))
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "Failed loading client_import_mappings for %s", client_gstin_id
+                )
+                saved = None
+            if saved:
+                try:
+                    headers = cim.extract_headers_from_file(body, name)
+                except Exception:  # noqa: BLE001
+                    headers = []
+                if headers and cim.mapping_covers_headers(saved, headers):
+                    parse_body, parse_name = cim.reshape_file_with_mapping(
+                        body, name, saved
+                    )
+                    _log.info(
+                        "Applied client_import_mappings for client_gstin_id=%s "
+                        "(%d fields)",
+                        client_gstin_id,
+                        len(saved),
+                    )
+                elif headers and not cim.columns_match_expected_schema(headers):
+                    raise ValueError(
+                        "Column mapping required: saved mapping does not cover "
+                        f"file headers {headers}"
+                    )
+            else:
+                try:
+                    headers = cim.extract_headers_from_file(body, name)
+                except Exception:  # noqa: BLE001
+                    headers = []
+                if headers and not cim.columns_match_expected_schema(headers):
+                    raise ValueError(
+                        "Column mapping required: columns do not match expected "
+                        f"schema. Detected headers: {headers}"
+                    )
+            pr = parse_purchase_register(parse_body, parse_name)
             if not pr.get("success"):
                 errs = "; ".join(pr.get("errors") or ["parse failed"])
                 raise ValueError(errs)
