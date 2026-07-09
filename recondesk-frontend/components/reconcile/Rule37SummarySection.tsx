@@ -4,9 +4,9 @@ import { Loader2 } from "lucide-react";
 import useSWR from "swr";
 
 import {
+  CompactStatAmount,
   InrAmount,
   StatCard,
-  statCardValueClass,
   tableCellClass,
   tableClass,
   tableHeadCellClass,
@@ -83,58 +83,46 @@ export function Rule37SummarySection({
   return (
     <div className="mb-6 space-y-6">
       <div className="grid w-full min-w-0 grid-cols-2 gap-3 md:[grid-template-columns:repeat(4,minmax(0,1fr))]">
-        <div className="min-w-0 overflow-hidden rounded-2xl">
-          <StatCard
-            label="Total ITC at Risk"
-            accent="neutral"
-            value={
-              <InrAmount
-                amount={summary.total_itc_at_risk}
-                sizeClass={statCardValueClass}
-                numberColorClass="text-gray-800"
-              />
-            }
-          />
-        </div>
-        <div className="min-w-0 overflow-hidden rounded-2xl">
-          <StatCard
-            label="ITC Saved"
-            accent="saved"
-            value={
-              <InrAmount
-                amount={summary.itc_saved}
-                sizeClass={statCardValueClass}
-                numberColorClass="text-green-700"
-              />
-            }
-          />
-        </div>
-        <div className="min-w-0 overflow-hidden rounded-2xl">
-          <StatCard
-            label="ITC Reversed"
-            accent="reversed"
-            value={
-              <InrAmount
-                amount={summary.itc_reversed}
-                sizeClass={statCardValueClass}
-                numberColorClass="text-red-600"
-              />
-            }
-          />
-        </div>
-        <div className="min-w-0 overflow-hidden rounded-2xl">
-          <StatCard
-            label="Pending Action"
-            accent="pending"
-            value={
-              <InrAmount
-                amount={summary.pending_action}
-                sizeClass={statCardValueClass}
-                numberColorClass="text-amber-700"
-              />
-            }
-          />
-        </div>
+        <StatCard
+          label="Total ITC at Risk"
+          accent="neutral"
+          value={
+            <CompactStatAmount
+              amount={summary.total_itc_at_risk}
+              className="text-gray-800"
+            />
+          }
+        />
+        <StatCard
+          label="ITC Saved"
+          accent="saved"
+          value={
+            <CompactStatAmount
+              amount={summary.itc_saved}
+              className="text-green-700"
+            />
+          }
+        />
+        <StatCard
+          label="ITC Reversed"
+          accent="reversed"
+          value={
+            <CompactStatAmount
+              amount={summary.itc_reversed}
+              className="text-red-600"
+            />
+          }
+        />
+        <StatCard
+          label="Pending Action"
+          accent="pending"
+          value={
+            <CompactStatAmount
+              amount={summary.pending_action}
+              className="text-amber-700"
+            />
+          }
+        />
       </div>
 
       <div>

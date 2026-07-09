@@ -25,6 +25,7 @@ import {
 import useSWR from "swr";
 import {
   AmountDisplay,
+  CompactStatAmount,
   csvDownloadBtnClass,
   DecisionTableColGroup,
   decisionTableClass,
@@ -32,12 +33,17 @@ import {
   decisionTd,
   decisionTh,
   DecisionStatusPill,
+  EmptyTableState,
   filterAmountInputClass,
   filterDateInputClass,
   filterDropdownClass,
   filterGstinInputClass,
   filterInputClass,
   filterRowClass,
+  filterToggleActiveClass,
+  filterToggleClass,
+  filterToggleIdleClass,
+  filterToolbarClass,
   InrAmount,
   ImpactBadge,
   matchedTableClass,
@@ -71,9 +77,8 @@ import {
   sectionContainerClass,
   SectionAmountBadge,
   SectionHeader,
+  resultsSummaryGridClass,
   StatCard,
-  statCardValueClass,
-  statCardsGridClass,
   tableCellClass,
   tableHeadCellClass,
   tableHeadClass,
@@ -187,9 +192,9 @@ type RunSummary = {
 
 /** Shared action button styles for results header / exports */
 const actionBtnBase =
-  "inline-flex h-9 items-center justify-center gap-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
-const exportToolbarBtn = `${actionBtnBase} rounded-xl border border-[#E5E7EB] bg-white px-3 text-gray-600 hover:bg-gray-50`;
-const deleteRunBtn = `${actionBtnBase} rounded-xl border border-[#E5E7EB] bg-white px-3.5 text-gray-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600`;
+  "inline-flex h-9 items-center justify-center gap-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+const exportToolbarBtn = `${actionBtnBase} rounded-lg border border-[#E8E8EC] bg-white px-3 text-gray-600 hover:bg-gray-50`;
+const deleteRunBtn = `${actionBtnBase} rounded-lg border border-[#E8E8EC] bg-white px-3.5 text-gray-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600`;
 
 type Paginated<T> = {
   data: T[];
@@ -1727,7 +1732,7 @@ export default function ReconcileResultsPage() {
     <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden bg-white pb-32">
       <div
         ref={summaryRef}
-        className="sticky top-0 z-40 box-border w-full min-w-0 overflow-x-hidden border-b border-[#F0F0F0] bg-white px-8 py-4"
+        className="sticky top-0 z-40 box-border w-full min-w-0 overflow-x-hidden border-b border-[#EFEFF2] bg-white/95 px-8 py-5 backdrop-blur-sm"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
@@ -1744,10 +1749,10 @@ export default function ReconcileResultsPage() {
         )}
         {summary && !summaryError && (
           <>
-            <div className="flex w-full flex-wrap items-center justify-between gap-2">
+            <div className="flex w-full flex-wrap items-center justify-between gap-3">
               <div className="min-w-0 shrink">
-                <p className="text-sm font-semibold text-gray-900">{summary.period}</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-[15px] font-semibold tracking-tight text-gray-900">{summary.period}</p>
+                <p className="mt-0.5 text-[12px] text-gray-500">
                   Assigned to:{" "}
                   {summary.assigned_to_name?.trim() ? (
                     summary.assigned_to_name
@@ -1758,7 +1763,7 @@ export default function ReconcileResultsPage() {
                 {isRunFinalized &&
                   summary.finalized_by_name &&
                   summary.finalized_at && (
-                    <span className="mt-2 inline-flex rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-600">
+                    <span className="mt-2 inline-flex rounded-md bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
                       Finalized by {summary.finalized_by_name} on{" "}
                       {formatDate(summary.finalized_at)}
                     </span>
@@ -1767,7 +1772,7 @@ export default function ReconcileResultsPage() {
 
               <div className="flex shrink-0 items-center gap-2">
                 <div
-                  className="inline-flex items-center rounded-xl border border-[#E5E7EB] bg-white p-1"
+                  className="inline-flex items-center rounded-lg border border-[#E8E8EC] bg-white p-0.5"
                   role="group"
                   aria-label="Export reports"
                 >
@@ -1799,77 +1804,62 @@ export default function ReconcileResultsPage() {
               </div>
             </div>
 
-            <div className={statCardsGridClass}>
-              <div className="min-w-0 overflow-hidden rounded-2xl">
-                <StatCard
-                  label="Total GSTR"
-                  value={summary.total_gstr_records.toLocaleString("en-IN")}
-                />
-              </div>
-              <div className="min-w-0 overflow-hidden rounded-2xl">
-                <StatCard
-                  label="Matched"
-                  accent="matched"
-                  value={(summary.clean_matched_count ?? summary.matched_count).toLocaleString("en-IN")}
-                  subtext="Clean matched records"
-                />
-              </div>
-              <div className="min-w-0 overflow-hidden rounded-2xl">
-                <StatCard
-                  label="Review Required"
-                  accent="review_required"
-                  value={(summary.review_required_count ?? 0).toLocaleString("en-IN")}
-                  subtext="Needs manual verification"
-                />
-              </div>
-              <div className="min-w-0 overflow-hidden rounded-2xl">
-                <StatCard
-                  label="Total Linked"
-                  accent="linked"
-                  value={((summary.clean_matched_count ?? summary.matched_count) + (summary.review_required_count ?? 0)).toLocaleString("en-IN")}
-                  subtext="Matched + Under Review"
-                  extraContent={
-                    <div className="mt-0.5 flex flex-col">
-                      <span className="text-xs font-medium text-gray-500">
-                        Unresolved: {(summary.total_gstr_records - ((summary.clean_matched_count ?? summary.matched_count) + (summary.review_required_count ?? 0))).toLocaleString("en-IN")}
-                      </span>
-                      <span className="text-[10px] text-gray-400">
-                        In Missed ITC tab
-                      </span>
-                    </div>
-                  }
-                />
-              </div>
-              <div className="min-w-0 overflow-hidden rounded-2xl">
-                <StatCard
-                  label={itcHasCdnRows ? "Net 2B Difference" : "Missed ITC"}
-                  accent="missed"
-                  value={
-                    isProcessing ? (
-                      <span className={`${statCardValueClass} text-gray-400`}>—</span>
-                    ) : (
-                      <span className={`${statCardValueClass} tabular-nums text-gray-900`}>
-                        {formatINR(summary.missed_itc_total_amount)}
-                      </span>
-                    )
-                  }
-                />
-              </div>
-              <div className="min-w-0 overflow-hidden rounded-2xl">
-                <StatCard
-                  label="ITC at Risk"
-                  accent="risk"
-                  value={
-                    isProcessing ? (
-                      <span className={`${statCardValueClass} text-gray-400`}>—</span>
-                    ) : (
-                      <span className={`${statCardValueClass} tabular-nums text-gray-900`}>
-                        {formatINR(summary.wrongful_risk_total_amount)}
-                      </span>
-                    )
-                  }
-                />
-              </div>
+            <div className={resultsSummaryGridClass}>
+              <StatCard
+                label="Total GSTR"
+                value={summary.total_gstr_records.toLocaleString("en-IN")}
+                emphasis="secondary"
+              />
+              <StatCard
+                label="Matched"
+                accent="matched"
+                value={(summary.clean_matched_count ?? summary.matched_count).toLocaleString("en-IN")}
+                subtext="Clean matched"
+                title={`Total linked (matched + review): ${((summary.clean_matched_count ?? summary.matched_count) + (summary.review_required_count ?? 0)).toLocaleString("en-IN")} · Unresolved: ${(summary.total_gstr_records - ((summary.clean_matched_count ?? summary.matched_count) + (summary.review_required_count ?? 0))).toLocaleString("en-IN")}`}
+              />
+              <StatCard
+                label="Review Required"
+                accent="review_required"
+                value={(summary.review_required_count ?? 0).toLocaleString("en-IN")}
+                subtext="Needs verification"
+                emphasis="attention"
+              />
+              <StatCard
+                label={itcHasCdnRows ? "Net 2B Difference" : "Missed ITC"}
+                accent="missed"
+                emphasis="danger"
+                value={
+                  isProcessing ? (
+                    <span className="text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums text-gray-300">
+                      —
+                    </span>
+                  ) : (
+                    <CompactStatAmount
+                      amount={summary.missed_itc_total_amount}
+                      emphasize
+                      className="text-red-700"
+                    />
+                  )
+                }
+              />
+              <StatCard
+                label="ITC at Risk"
+                accent="risk"
+                emphasis="danger"
+                value={
+                  isProcessing ? (
+                    <span className="text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums text-gray-300">
+                      —
+                    </span>
+                  ) : (
+                    <CompactStatAmount
+                      amount={summary.wrongful_risk_total_amount}
+                      emphasize
+                      className="text-amber-800"
+                    />
+                  )
+                }
+              />
             </div>
           </>
         )}
@@ -1881,13 +1871,13 @@ export default function ReconcileResultsPage() {
           const cleanPct = Math.round((cleanCount / total) * 1000) / 10;
           const linkedPct = Math.round((totalLinked / total) * 1000) / 10;
           return (
-            <div className="mt-3 space-y-2">
+            <div className="mt-4 space-y-2">
               {/* Clean match rate bar */}
               <div className="flex w-full items-center gap-3">
                 <div className="min-w-0 flex-1 overflow-hidden">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#D9D9E3]">
+                  <div className="h-1 w-full overflow-hidden rounded-full bg-[#ECECF0]">
                     <div
-                      className="h-1.5 max-w-full rounded-full bg-brand transition-all duration-150"
+                      className="h-1 max-w-full rounded-full bg-brand transition-all duration-150"
                       style={{ width: `${Math.min(100, Math.max(0, cleanPct))}%` }}
                     />
                   </div>
@@ -1899,9 +1889,9 @@ export default function ReconcileResultsPage() {
               {/* Total linked rate bar */}
               <div className="flex w-full items-center gap-3">
                 <div className="min-w-0 flex-1 overflow-hidden">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#D9D9E3]">
+                  <div className="h-1 w-full overflow-hidden rounded-full bg-[#ECECF0]">
                     <div
-                      className="h-1.5 max-w-full rounded-full bg-[#7B5CFA] transition-all duration-150"
+                      className="h-1 max-w-full rounded-full bg-[#7B5CFA] transition-all duration-150"
                       style={{ width: `${Math.min(100, Math.max(0, linkedPct))}%` }}
                     />
                   </div>
@@ -1912,11 +1902,11 @@ export default function ReconcileResultsPage() {
               </div>
               {/* Combined label */}
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 rounded-md bg-brand/10 px-2 py-0.5 text-[12px] font-medium text-brand">
+                <span className="inline-flex items-center gap-1 rounded-md bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-brand">
                   {cleanPct}% clean
                 </span>
-                <span className="text-[11px] text-gray-300">|</span>
-                <span className="inline-flex items-center gap-1 rounded-md bg-[#7B5CFA]/10 px-2 py-0.5 text-[12px] font-medium text-[#7B5CFA]">
+                <span className="text-[11px] text-gray-300">·</span>
+                <span className="inline-flex items-center gap-1 rounded-md bg-[#7B5CFA]/10 px-2 py-0.5 text-[11px] font-medium text-[#7B5CFA]">
                   {linkedPct}% linked
                 </span>
               </div>
@@ -1933,12 +1923,14 @@ export default function ReconcileResultsPage() {
             tabCounts={{
               matched: summary.clean_matched_count ?? summary.matched_count,
               review_required: summary.review_required_count ?? 0,
+              risk: summary.wrongful_risk_count ?? 0,
+              itc: summary.missed_itc_count ?? 0,
             }}
             rightContent={
               <button
                 type="button"
                 disabled={pdfDownloading || !summary}
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-4 text-[13px] font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[#E8E8EC] bg-white px-3.5 text-[13px] font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void downloadPdfReport()}
               >
                 {pdfDownloading ? (
@@ -2024,7 +2016,22 @@ export default function ReconcileResultsPage() {
               </div>
             )}
 
-            <div className={`${filterRowClass} mb-4 items-center`}>
+            <div className={`${filterToolbarClass}`}>
+              <div className={`${filterRowClass}`}>
+                <input
+                  type="text"
+                  className={filterGstinInputClass}
+                  placeholder="Filter by GSTIN..."
+                  value={itcFilters.supplier_gstin}
+                  onChange={(e) =>
+                    setItcFilters((f) => ({
+                      ...f,
+                      supplier_gstin: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className={`${filterRowClass}`}>
                 <input
                   type="text"
                   inputMode="decimal"
@@ -2046,18 +2053,6 @@ export default function ReconcileResultsPage() {
                   }
                 />
                 <input
-                  type="text"
-                  className={filterGstinInputClass}
-                  placeholder="Filter by GSTIN..."
-                  value={itcFilters.supplier_gstin}
-                  onChange={(e) =>
-                    setItcFilters((f) => ({
-                      ...f,
-                      supplier_gstin: e.target.value,
-                    }))
-                  }
-                />
-                <input
                   type="date"
                   className={filterDateInputClass}
                   value={itcFilters.date_from}
@@ -2073,10 +2068,20 @@ export default function ReconcileResultsPage() {
                     setItcFilters((f) => ({ ...f, date_to: e.target.value }))
                   }
                 />
+                <select
+                  className={filterDropdownClass}
+                  value={itcSort}
+                  onChange={(e) => setItcSort(e.target.value)}
+                >
+                  <option value="amount_desc">ITC Amount ↓</option>
+                  <option value="amount_asc">ITC Amount ↑</option>
+                  <option value="supplier_name">Supplier Name</option>
+                  <option value="invoice_date">Invoice Date</option>
+                </select>
                 {(hasActiveItcFilters(itcFilters) || !!docTypeFilterItc) && (
                   <button
                     type="button"
-                    className="text-[13px] font-medium text-brand hover:underline"
+                    className="h-9 text-[13px] font-medium text-brand hover:underline"
                     onClick={() => {
                       setDocTypeFilterItc("");
                       setItcFilters({
@@ -2091,16 +2096,7 @@ export default function ReconcileResultsPage() {
                     Clear filters
                   </button>
                 )}
-              <select
-                className={filterDropdownClass}
-                value={itcSort}
-                onChange={(e) => setItcSort(e.target.value)}
-              >
-                <option value="amount_desc">ITC Amount ↓</option>
-                <option value="amount_asc">ITC Amount ↑</option>
-                <option value="supplier_name">Supplier Name</option>
-                <option value="invoice_date">Invoice Date</option>
-              </select>
+              </div>
             </div>
 
             {itcError && (
@@ -2184,6 +2180,12 @@ export default function ReconcileResultsPage() {
                     </button>
                   </div>
                 )}
+                {itcPageData.data.length === 0 ? (
+                  <EmptyTableState
+                    title="No missed ITC rows for this filter"
+                    description="Adjust amount, GSTIN, or date filters to see recoverable invoices."
+                  />
+                ) : (
                 <div className={decisionTableWrapClass}>
                   <table className={decisionTableClass}>
                     <DecisionTableColGroup />
@@ -2309,6 +2311,8 @@ export default function ReconcileResultsPage() {
                     </tbody>
                   </table>
                 </div>
+                )}
+                {itcPageData.data.length > 0 && (
                 <ReconcilePaginationFooter
                   page={itcPageData.page}
                   totalPages={itcPageData.total_pages}
@@ -2324,6 +2328,7 @@ export default function ReconcileResultsPage() {
                     )
                   }
                 />
+                )}
               </>
             )}
           </div>
@@ -2450,7 +2455,22 @@ export default function ReconcileResultsPage() {
                 )}
             </div>
 
-            <div className={`${filterRowClass} mb-4 items-center`}>
+            <div className={`${filterToolbarClass}`}>
+              <div className={`${filterRowClass}`}>
+                <input
+                  type="text"
+                  className={filterGstinInputClass}
+                  placeholder="Filter by GSTIN..."
+                  value={riskFilters.supplier_gstin}
+                  onChange={(e) =>
+                    setRiskFilters((f) => ({
+                      ...f,
+                      supplier_gstin: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className={`${filterRowClass}`}>
                 <input
                   type="text"
                   inputMode="decimal"
@@ -2471,18 +2491,6 @@ export default function ReconcileResultsPage() {
                     setRiskFilters((f) => ({ ...f, amount_max: e.target.value }))
                   }
                 />
-                <input
-                  type="text"
-                  className={filterGstinInputClass}
-                  placeholder="Filter by GSTIN..."
-                  value={riskFilters.supplier_gstin}
-                  onChange={(e) =>
-                    setRiskFilters((f) => ({
-                      ...f,
-                      supplier_gstin: e.target.value,
-                    }))
-                  }
-                />
                 <select
                   className={filterDropdownClass}
                   value={riskFilters.risk_level}
@@ -2498,10 +2506,20 @@ export default function ReconcileResultsPage() {
                   <option value="medium">Medium</option>
                   <option value="low">Low</option>
                 </select>
+                <select
+                  className={filterDropdownClass}
+                  value={riskSort}
+                  onChange={(e) => setRiskSort(e.target.value)}
+                >
+                  <option value="amount_desc">ITC at Risk ↓</option>
+                  <option value="amount_asc">ITC at Risk ↑</option>
+                  <option value="supplier_name">Supplier Name</option>
+                  <option value="invoice_date">Invoice Date</option>
+                </select>
                 {(hasActiveRiskFilters(riskFilters) || !!docTypeFilterRisk) && (
                   <button
                     type="button"
-                    className="text-[13px] font-medium text-brand hover:underline"
+                    className="h-9 text-[13px] font-medium text-brand hover:underline"
                     onClick={() => {
                       setDocTypeFilterRisk("");
                       setRiskFilters({
@@ -2515,16 +2533,7 @@ export default function ReconcileResultsPage() {
                     Clear filters
                   </button>
                 )}
-              <select
-                className={filterDropdownClass}
-                value={riskSort}
-                onChange={(e) => setRiskSort(e.target.value)}
-              >
-                <option value="amount_desc">ITC at Risk ↓</option>
-                <option value="amount_asc">ITC at Risk ↑</option>
-                <option value="supplier_name">Supplier Name</option>
-                <option value="invoice_date">Invoice Date</option>
-              </select>
+              </div>
             </div>
 
             {riskError && (
@@ -2627,6 +2636,12 @@ export default function ReconcileResultsPage() {
                     </button>
                   </div>
                 )}
+                {riskPageData.data.length === 0 ? (
+                  <EmptyTableState
+                    title="No ITC-at-risk rows for this filter"
+                    description="Adjust amount, GSTIN, or risk level filters to see compliance risk invoices."
+                  />
+                ) : (
                 <div className={decisionTableWrapClass}>
                   <table className={decisionTableClass}>
                     <DecisionTableColGroup includeNotice />
@@ -2769,6 +2784,8 @@ export default function ReconcileResultsPage() {
                     </tbody>
                   </table>
                 </div>
+                )}
+                {riskPageData.data.length > 0 && (
                 <ReconcilePaginationFooter
                   page={riskPageData.page}
                   totalPages={riskPageData.total_pages}
@@ -2784,6 +2801,7 @@ export default function ReconcileResultsPage() {
                     )
                   }
                 />
+                )}
               </>
             )}
           </div>
@@ -2861,7 +2879,7 @@ export default function ReconcileResultsPage() {
         {/* Matched */}
         {resultsTab === "matched" && (
         <div className={sectionContainerClass}>
-          <h2 className="mb-1 text-lg font-semibold text-gray-900">
+          <h2 className="mb-1 text-[15px] font-semibold tracking-tight text-gray-900">
             Matched{" "}
             {summary != null && (
               <span className="font-normal text-gray-500">
@@ -2870,7 +2888,7 @@ export default function ReconcileResultsPage() {
             )}
           </h2>
           {/* Requirement 4: info line */}
-          <p className="mb-4 text-[12px] text-gray-400">
+          <p className="mb-5 text-[12px] leading-relaxed text-gray-500">
             Showing auto-matched records with no discrepancies. Records requiring review are in the{" "}
             <button
               type="button"
@@ -2882,7 +2900,7 @@ export default function ReconcileResultsPage() {
             .
           </p>
 
-          <div className="mb-4 space-y-2">
+          <div className={filterToolbarClass}>
             <input
               type="search"
               className={`w-full ${filterInputClass}`}
@@ -2890,9 +2908,9 @@ export default function ReconcileResultsPage() {
               value={matchedSearch}
               onChange={(e) => setMatchedSearch(e.target.value)}
             />
-            <div className="flex flex-wrap items-center gap-2">
+            <div className={filterRowClass}>
               <select
-                className={filterInputClass}
+                className={filterDropdownClass}
                 value={docTypeFilterMatched}
                 onChange={(e) => setDocTypeFilterMatched(e.target.value)}
               >
@@ -2902,7 +2920,7 @@ export default function ReconcileResultsPage() {
                 <option value="Debit Note">Debit Note</option>
               </select>
               <select
-                className={filterInputClass}
+                className={filterDropdownClass}
                 value={matchedFilters.match_level}
                 onChange={(e) =>
                   setMatchedFilters((f) => ({
@@ -2917,7 +2935,7 @@ export default function ReconcileResultsPage() {
                 <option value="MANUAL">MANUAL</option>
               </select>
               <input
-                className={`w-28 ${filterInputClass}`}
+                className={filterAmountInputClass}
                 placeholder="₹ Min"
                 value={matchedFilters.amount_min}
                 onChange={(e) =>
@@ -2928,7 +2946,7 @@ export default function ReconcileResultsPage() {
                 }
               />
               <input
-                className={`w-28 ${filterInputClass}`}
+                className={filterAmountInputClass}
                 placeholder="₹ Max"
                 value={matchedFilters.amount_max}
                 onBlur={() => setMatchedPage(1)}
@@ -2941,10 +2959,10 @@ export default function ReconcileResultsPage() {
               />
               <button
                 type="button"
-                className={`rounded-xl border px-3 py-2 text-[13px] font-medium transition-all duration-150 ${
+                className={`${filterToggleClass} ${
                   matchedFilters.has_notes
-                    ? "border-brand text-brand bg-white"
-                    : "border-[#E5E7EB] text-gray-600 bg-white hover:bg-gray-50"
+                    ? filterToggleActiveClass
+                    : filterToggleIdleClass
                 }`}
                 onClick={() =>
                   setMatchedFilters((f) => ({
@@ -2958,10 +2976,10 @@ export default function ReconcileResultsPage() {
 
               <button
                 type="button"
-                className={`rounded-xl border px-3 py-2 text-[13px] font-medium transition-all duration-150 ${
+                className={`${filterToggleClass} ${
                   matchedFilters.section_17_5
-                    ? "border-gray-800 text-gray-800 bg-white"
-                    : "border-[#E5E7EB] text-gray-600 bg-white hover:bg-gray-50"
+                    ? "border-gray-800 bg-gray-900/[0.04] text-gray-800"
+                    : filterToggleIdleClass
                 }`}
                 onClick={() =>
                   setMatchedFilters((f) => ({
@@ -2975,7 +2993,7 @@ export default function ReconcileResultsPage() {
               {(hasActiveMatchedFilters(debouncedMatchedSearch, matchedFilters) || !!docTypeFilterMatched) && (
                 <button
                   type="button"
-                  className="text-[13px] font-medium text-brand hover:underline"
+                  className="h-9 text-[13px] font-medium text-brand hover:underline"
                   onClick={() => {
                     setMatchedSearch("");
                     setDebouncedMatchedSearch("");
@@ -2996,20 +3014,20 @@ export default function ReconcileResultsPage() {
             </div>
             
             {summary && (
-              <div className="mt-4 mb-2 flex flex-wrap items-center gap-2 text-[13px] font-medium w-fit">
+              <div className="flex flex-wrap items-center gap-2 text-[13px] font-medium w-fit">
                 <button
                   type="button"
                   onClick={() => setMatchedFilters((f) => ({
                     ...f,
                     match_level: f.match_level === "EXACT" ? "" : "EXACT"
                   }))}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all ${
+                  className={`flex h-8 items-center gap-2 rounded-full border px-3 text-[12px] transition-colors ${
                     matchedFilters.match_level === "EXACT" 
                       ? "bg-[#22C55E]/10 border-[#22C55E]/30 text-[#22C55E]" 
-                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300"
+                      : "bg-white border-[#E8E8EC] text-gray-600 hover:bg-gray-50"
                   }`}
                 >
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${matchedFilters.match_level === "EXACT" ? "bg-[#22C55E]" : "bg-gray-300"}`} aria-hidden />
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${matchedFilters.match_level === "EXACT" ? "bg-[#22C55E]" : "bg-gray-300"}`} aria-hidden />
                   {(summary?.clean_matched_count ?? summary?.matched_count ?? 0).toLocaleString("en-IN")} Matched
                 </button>
                 <button
@@ -3018,13 +3036,13 @@ export default function ReconcileResultsPage() {
                     ...f,
                     match_level: f.match_level === "FUZZY" ? "" : "FUZZY"
                   }))}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all ${
+                  className={`flex h-8 items-center gap-2 rounded-full border px-3 text-[12px] transition-colors ${
                     matchedFilters.match_level === "FUZZY" 
                       ? "bg-[#F59E0B]/10 border-[#F59E0B]/30 text-[#F59E0B]" 
-                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300"
+                      : "bg-white border-[#E8E8EC] text-gray-600 hover:bg-gray-50"
                   }`}
                 >
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${matchedFilters.match_level === "FUZZY" ? "bg-[#F59E0B]" : "bg-gray-300"}`} aria-hidden />
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${matchedFilters.match_level === "FUZZY" ? "bg-[#F59E0B]" : "bg-gray-300"}`} aria-hidden />
                   {((summary?.clean_matched_count ?? summary?.matched_count ?? 0) - (summary?.exact_match_count ?? 0)).toLocaleString("en-IN")} Non-exact match
                 </button>
               </div>
@@ -3046,30 +3064,31 @@ export default function ReconcileResultsPage() {
           {matchedData &&
             !matchedError &&
             matchedData.data.length === 0 && (
-              <div className="rounded-2xl border border-[#F0F0F0] bg-[#FAFAFA] p-6 text-center">
-                <p className="text-[13px] text-gray-600">
-                  No clean matches found for this filter. Try adjusting the search or filters.
-                </p>
-                <button
-                  type="button"
-                  className="mt-3 rounded-xl border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50"
-                  onClick={() => {
-                    setMatchedSearch("");
-                    setDebouncedMatchedSearch("");
-                    setDocTypeFilterMatched("");
-                    setMatchedFilters({
-                      match_level: "",
-                      has_notes: false,
-                      section_17_5: false,
-                      amount_min: "",
-                      amount_max: "",
-                    });
-                    setMatchedPage(1);
-                  }}
-                >
-                  Clear filters
-                </button>
-              </div>
+              <EmptyTableState
+                title="No clean matches for this filter"
+                description="Try adjusting the search or filters to see matched records."
+                action={
+                  <button
+                    type="button"
+                    className="rounded-lg border border-[#E8E8EC] bg-white px-3.5 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50"
+                    onClick={() => {
+                      setMatchedSearch("");
+                      setDebouncedMatchedSearch("");
+                      setDocTypeFilterMatched("");
+                      setMatchedFilters({
+                        match_level: "",
+                        has_notes: false,
+                        section_17_5: false,
+                        amount_min: "",
+                        amount_max: "",
+                      });
+                      setMatchedPage(1);
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                }
+              />
             )}
           {matchedData && !matchedError && matchedData.data.length > 0 && (
             <>
@@ -3207,7 +3226,7 @@ export default function ReconcileResultsPage() {
         {/* Review Required */}
         {resultsTab === "review_required" && (
         <div className={sectionContainerClass}>
-          <h2 className="mb-1 text-lg font-semibold text-gray-900">
+          <h2 className="mb-1 text-[15px] font-semibold tracking-tight text-gray-900">
             Review Required{" "}
             {summary != null && (
               <span className="font-normal text-gray-500">
@@ -3215,11 +3234,11 @@ export default function ReconcileResultsPage() {
               </span>
             )}
           </h2>
-          <p className="mb-4 text-[12px] text-gray-400">
+          <p className="mb-5 text-[12px] leading-relaxed text-gray-500">
             These records were matched but have discrepancies or low confidence that need manual verification before finalizing.
           </p>
 
-          <div className="mb-4 space-y-2">
+          <div className={filterToolbarClass}>
             <input
               type="search"
               className={`w-full ${filterInputClass}`}
@@ -3227,9 +3246,9 @@ export default function ReconcileResultsPage() {
               value={reviewRequiredSearch}
               onChange={(e) => setReviewRequiredSearch(e.target.value)}
             />
-            <div className="flex flex-wrap items-center gap-2">
+            <div className={filterRowClass}>
               <select
-                className={filterInputClass}
+                className={filterDropdownClass}
                 value={docTypeFilterReviewRequired}
                 onChange={(e) => setDocTypeFilterReviewRequired(e.target.value)}
               >
@@ -3239,7 +3258,7 @@ export default function ReconcileResultsPage() {
                 <option value="Debit Note">Debit Note</option>
               </select>
               <select
-                className={filterInputClass}
+                className={filterDropdownClass}
                 value={reviewRequiredFilters.match_level}
                 onChange={(e) =>
                   setReviewRequiredFilters((f) => ({
@@ -3254,7 +3273,7 @@ export default function ReconcileResultsPage() {
                 <option value="MANUAL">MANUAL</option>
               </select>
               <input
-                className={`w-28 ${filterInputClass}`}
+                className={filterAmountInputClass}
                 placeholder="₹ Min"
                 value={reviewRequiredFilters.amount_min}
                 onChange={(e) =>
@@ -3265,7 +3284,7 @@ export default function ReconcileResultsPage() {
                 }
               />
               <input
-                className={`w-28 ${filterInputClass}`}
+                className={filterAmountInputClass}
                 placeholder="₹ Max"
                 value={reviewRequiredFilters.amount_max}
                 onBlur={() => setReviewRequiredPage(1)}
@@ -3278,10 +3297,10 @@ export default function ReconcileResultsPage() {
               />
               <button
                 type="button"
-                className={`rounded-xl border px-3 py-2 text-[13px] font-medium transition-all duration-150 ${
+                className={`${filterToggleClass} ${
                   reviewRequiredFilters.has_notes
-                    ? "border-brand text-brand bg-white"
-                    : "border-[#E5E7EB] text-gray-600 bg-white hover:bg-gray-50"
+                    ? filterToggleActiveClass
+                    : filterToggleIdleClass
                 }`}
                 onClick={() =>
                   setReviewRequiredFilters((f) => ({
@@ -3294,10 +3313,10 @@ export default function ReconcileResultsPage() {
               </button>
               <button
                 type="button"
-                className={`rounded-xl border px-3 py-2 text-[13px] font-medium transition-all duration-150 ${
+                className={`${filterToggleClass} ${
                   reviewRequiredFilters.section_17_5
-                    ? "border-gray-800 text-gray-800 bg-white"
-                    : "border-[#E5E7EB] text-gray-600 bg-white hover:bg-gray-50"
+                    ? "border-gray-800 bg-gray-900/[0.04] text-gray-800"
+                    : filterToggleIdleClass
                 }`}
                 onClick={() =>
                   setReviewRequiredFilters((f) => ({
@@ -3317,7 +3336,7 @@ export default function ReconcileResultsPage() {
                 !!docTypeFilterReviewRequired) && (
                 <button
                   type="button"
-                  className="text-[13px] font-medium text-brand hover:underline"
+                  className="h-9 text-[13px] font-medium text-brand hover:underline"
                   onClick={() => {
                     setReviewRequiredSearch("");
                     setDebouncedReviewRequiredSearch("");
@@ -3353,30 +3372,31 @@ export default function ReconcileResultsPage() {
           {reviewRequiredData &&
             !reviewRequiredError &&
             reviewRequiredData.data.length === 0 && (
-              <div className="rounded-2xl border border-[#F0F0F0] bg-[#FAFAFA] p-6 text-center">
-                <p className="text-[13px] text-gray-600">
-                  No records requiring review found for this filter. Try adjusting the search or filters.
-                </p>
-                <button
-                  type="button"
-                  className="mt-3 rounded-xl border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50"
-                  onClick={() => {
-                    setReviewRequiredSearch("");
-                    setDebouncedReviewRequiredSearch("");
-                    setDocTypeFilterReviewRequired("");
-                    setReviewRequiredFilters({
-                      match_level: "",
-                      has_notes: false,
-                      section_17_5: false,
-                      amount_min: "",
-                      amount_max: "",
-                    });
-                    setReviewRequiredPage(1);
-                  }}
-                >
-                  Clear filters
-                </button>
-              </div>
+              <EmptyTableState
+                title="No records requiring review"
+                description="Try adjusting the search or filters to find discrepancies that need verification."
+                action={
+                  <button
+                    type="button"
+                    className="rounded-lg border border-[#E8E8EC] bg-white px-3.5 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50"
+                    onClick={() => {
+                      setReviewRequiredSearch("");
+                      setDebouncedReviewRequiredSearch("");
+                      setDocTypeFilterReviewRequired("");
+                      setReviewRequiredFilters({
+                        match_level: "",
+                        has_notes: false,
+                        section_17_5: false,
+                        amount_min: "",
+                        amount_max: "",
+                      });
+                      setReviewRequiredPage(1);
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                }
+              />
             )}
           {reviewRequiredData && !reviewRequiredError && reviewRequiredData.data.length > 0 && (
             <>
@@ -4052,14 +4072,22 @@ export default function ReconcileResultsPage() {
 
       {/* Finalize bar */}
       {finalizeBarVisible && (
-        <div className="fixed bottom-0 left-[240px] right-0 z-40 h-20 border-t border-[#F0F0F0] bg-white py-4 px-4">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
-            <p className="text-[13px] text-gray-500">
-              Review all sections before finalizing
-            </p>
+        <div className="fixed bottom-0 left-[240px] right-0 z-40 border-t border-[#EFEFF2] bg-white/95 px-6 py-3.5 backdrop-blur-sm">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
+            <div className="flex min-w-0 items-start gap-2.5 rounded-lg border border-[#EFEFF2] bg-[#FAFAFB] px-3.5 py-2.5">
+              <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden />
+              <div className="min-w-0">
+                <p className="text-[12px] font-medium text-gray-700">
+                  Checklist before finalize
+                </p>
+                <p className="mt-0.5 text-[11px] leading-snug text-gray-500">
+                  Review Matched, Review Required, Missed ITC, and ITC at Risk before locking this run.
+                </p>
+              </div>
+            </div>
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-2xl bg-brand px-6 py-3 font-semibold text-white shadow-md shadow-brand/20 transition-all duration-150 hover:bg-brand-hover"
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-brand-hover"
               onClick={() => setFinalizeModalOpen(true)}
             >
               Finalize Reconciliation
@@ -4069,8 +4097,8 @@ export default function ReconcileResultsPage() {
       )}
 
       {staffFinalizeMessageVisible && (
-        <div className="fixed bottom-0 left-[240px] right-0 z-40 h-20 border-t border-[#F0F0F0] bg-white py-4 px-6 flex items-center justify-center">
-          <p className="text-center text-[13px] text-gray-600">
+        <div className="fixed bottom-0 left-[240px] right-0 z-40 border-t border-[#EFEFF2] bg-white/95 px-6 py-4 backdrop-blur-sm flex items-center justify-center">
+          <p className="text-center text-[13px] text-gray-500">
             Only your CA principal (admin) can finalize this reconciliation.
           </p>
         </div>
