@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -25,6 +26,7 @@ from app.services.reconciliation_import_wizard import wizard_service as ws
 from app.utils.audit import client_display_label, log_audit, resolve_firm_id
 
 router = APIRouter()
+_log = logging.getLogger(__name__)
 
 
 def _actor(user_id: str) -> dict:
@@ -571,10 +573,20 @@ async def start_reconciliation(
     # extended via --timeout-keep-alive 300 in the Procfile.
     try:
         await asyncio.to_thread(ws.run_processing_job_sync, str(run_id))
-    except Exception:  # noqa: BLE001
-        # run_processing_job_sync already persisted the error state; just
-        # return the run row so the frontend can show the error UI.
-        pass
+    except Exception:
+        _log.exception("run_processing_job_sync failed for run_id=%s", run_id)
+        try:
+            ws.transition_run(
+                sb,
+                str(run_id),
+                user_id,
+                "error",
+                extra_patch={"status_message": "Internal error during processing. Please retry or contact support."},
+                audit_event="run_error",
+                audit_detail={},
+            )
+        except Exception:
+            _log.exception("failed to mark run %s as errored after processing failure", run_id)
     invalidate_user_dashboard(user_id)
     return ws.fetch_run(sb, str(run_id))
 
