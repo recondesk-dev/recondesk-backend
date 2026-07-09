@@ -48,6 +48,8 @@ export function formatPeriodLabel(period: string): string {
 
 export function mapBackendRunStatus(raw: string): ReconciliationStatus {
   const u = (raw || "").trim().toUpperCase();
+  // COMPLETED/COMPLETE = processing finished (display as "Ready for Review").
+  // FINAL = user finalized (display as green "Complete"). Enum names are ambiguous; do not rename here.
   if (u === "COMPLETED") return "COMPLETE";
   if (u === "FINAL") return "FINALIZED";
   if (u === "FAILED") return "FAILED";

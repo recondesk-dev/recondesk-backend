@@ -1,5 +1,10 @@
 import type { ReconciliationStatus } from "@/lib/types";
 
+/**
+ * Display mapping only — do not rename ReconciliationStatus enum values.
+ * COMPLETE = engine finished matching (not user sign-off). FINALIZED = Finalize clicked.
+ * Showing "Complete" for COMPLETE was misleading; that green label is reserved for FINALIZED.
+ */
 const STYLES: Record<
   ReconciliationStatus,
   { wrap: string; dot: string; dotAnim?: string }
@@ -18,12 +23,12 @@ const STYLES: Record<
     dotAnim: "animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3B82F6] opacity-75",
   },
   COMPLETE: {
-    wrap: "bg-[#ECFDF5] text-[#10B981]",
-    dot: "bg-[#10B981]",
+    wrap: "bg-amber-50 text-amber-800",
+    dot: "bg-amber-500",
   },
   FINALIZED: {
-    wrap: "bg-brand-dim text-brand",
-    dot: "bg-brand",
+    wrap: "bg-[#ECFDF5] text-[#10B981]",
+    dot: "bg-[#10B981]",
   },
   FAILED: {
     wrap: "bg-[#FEF2F2] text-[#EF4444]",
@@ -35,8 +40,8 @@ const LABELS: Record<ReconciliationStatus, string> = {
   PENDING: "Pending",
   IMPORTING: "Importing",
   MATCHING: "Matching",
-  COMPLETE: "Complete",
-  FINALIZED: "Finalized",
+  COMPLETE: "Ready for Review",
+  FINALIZED: "Complete",
   FAILED: "Failed",
 };
 
@@ -59,11 +64,21 @@ export function StatusBadge({
         <span className={`h-1 w-1 rounded-full ${s.dot}`} />
       </span>
       {LABELS[status]}
-      {finalizedLock && (
+      {status === "FINALIZED" ? (
+        <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <path
+            d="M5 12.5l4.5 4.5L19 7.5"
+            stroke="currentColor"
+            strokeWidth="2.25"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ) : finalizedLock ? (
         <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
           <path d="M12 1a5 5 0 00-5 5v3H6a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V11a2 2 0 00-2-2h-1V6a5 5 0 00-5-5zm-3 8V6a3 3 0 116 0v3H9z" />
         </svg>
-      )}
+      ) : null}
     </span>
   );
 }

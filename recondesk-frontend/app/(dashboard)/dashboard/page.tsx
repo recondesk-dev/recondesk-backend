@@ -412,8 +412,13 @@ export default function PortfolioDashboardPage() {
       {!portfolioLoading &&
         signals.failedClientCount === 0 &&
         signals.completeReadyCount > 0 && (
-          <div className="rounded-2xl bg-amber-50 px-5 py-4 text-sm text-amber-950">
-            <strong>{signals.completeReadyCount}</strong> reconciliation(s) are ready for your review.
+          <div className="rounded-2xl border border-brand/10 bg-brand/[0.06] px-5 py-4 text-sm text-gray-800">
+            <strong className="font-semibold text-gray-900">
+              {signals.completeReadyCount}
+            </strong>{" "}
+            {signals.completeReadyCount === 1
+              ? "reconciliation is ready for your review."
+              : "reconciliations are ready for your review."}
           </div>
         )}
       {!portfolioLoading && signals.showAllFinalizedBanner && (
@@ -432,6 +437,11 @@ export default function PortfolioDashboardPage() {
           <StatCard
             label="Needs Attention"
             hint="Clients with a pending or in-progress reconciliation this month"
+            empty={
+              !portfolioLoading && !!stats && stats.pendingThisMonth === 0
+            }
+            emptyIcon="check"
+            emptyCaption="All caught up — nothing needs attention."
             value={
               portfolioLoading ? (
                 <span className="inline-block h-8 w-16 animate-pulse rounded bg-gray-100" />

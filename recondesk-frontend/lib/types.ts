@@ -1,4 +1,11 @@
-/** Status machine — these are the ONLY valid statuses */
+/**
+ * Status machine — these are the ONLY valid statuses.
+ * NOTE (display): COMPLETE means the matching engine finished (ready for review),
+ * not that the user finalized/signed off. FINALIZED is set only after
+ * "Finalize Reconciliation". UI labels map COMPLETE → "Ready for Review" and
+ * FINALIZED → green "Complete"; do not rename these enum values without a
+ * coordinated API/DB migration.
+ */
 export type ReconciliationStatus =
   | "PENDING"
   | "IMPORTING"

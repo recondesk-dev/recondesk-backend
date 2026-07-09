@@ -51,13 +51,14 @@ function complianceRiskWords(r: ComplianceRisk | null | undefined): string {
   return map[level];
 }
 
+/** Display labels only — COMPLETE means processed (ready for review), not signed-off. */
 function statusWord(status: ReconciliationStatus): string {
   const map: Record<ReconciliationStatus, string> = {
     PENDING: "Pending",
     IMPORTING: "Importing",
     MATCHING: "Matching",
-    COMPLETE: "Complete",
-    FINALIZED: "Finalized",
+    COMPLETE: "Ready for Review",
+    FINALIZED: "Complete",
     FAILED: "Failed",
   };
   return map[status];
@@ -69,7 +70,7 @@ function WhyItMattersCell({ row }: { row: ClientPortfolioRow }) {
     return <span className="text-xs text-[var(--text-secondary)]">No runs yet</span>;
   }
   if (latest.status === "FINALIZED") {
-    return <span className="text-xs text-[var(--text-secondary)]">Finalized</span>;
+    return <span className="text-xs text-[var(--text-secondary)]">Complete</span>;
   }
   if (latest.status === "FAILED") {
     return <span className="text-xs text-[var(--text-secondary)]">Failed — needs retry</span>;
