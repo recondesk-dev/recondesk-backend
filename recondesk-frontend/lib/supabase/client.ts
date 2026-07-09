@@ -57,11 +57,21 @@ const AUTH_TIMEOUT_MS = 5_000;
 
 export function subscribeAccessToken(onToken: (accessToken: string | false) => void): () => void {
   let cancelled = false;
-  let emitted = false;
+  let initialResolved = false;
+  let lastEmitted: string | false | undefined;
+  let safetyTimer: number | null = null;
 
   function emit(token: string | false) {
-    if (emitted || cancelled) return;
-    emitted = true;
+    if (cancelled) return;
+    // Skip duplicate emissions, but always allow the first resolution and
+    // later TOKEN_REFRESHED / SIGNED_IN updates (stale JWTs caused 401s).
+    if (initialResolved && token === lastEmitted) return;
+    initialResolved = true;
+    lastEmitted = token;
+    if (safetyTimer !== null) {
+      window.clearTimeout(safetyTimer);
+      safetyTimer = null;
+    }
     onToken(token);
   }
 
@@ -69,21 +79,20 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
 
   // Safety net: if the session resolution hangs (network error, Supabase
   // unreachable, environment misconfiguration), unblock the UI after timeout.
-  const safetyTimer =
-    typeof window !== "undefined"
-      ? window.setTimeout(() => {
-          if (!emitted) {
-            console.warn("[auth] token resolution timed out after", AUTH_TIMEOUT_MS, "ms — emitting false");
-            emit(false);
-          }
-        }, AUTH_TIMEOUT_MS)
-      : null;
+  if (typeof window !== "undefined") {
+    safetyTimer = window.setTimeout(() => {
+      if (!initialResolved) {
+        console.warn("[auth] token resolution timed out after", AUTH_TIMEOUT_MS, "ms — emitting false");
+        emit(false);
+      }
+    }, AUTH_TIMEOUT_MS);
+  }
 
   async function resolveToken(): Promise<void> {
-    if (cancelled || emitted) return;
+    if (cancelled) return;
     try {
       const { data: sessionData } = await supabase.auth.getSession();
-      if (cancelled || emitted) return;
+      if (cancelled) return;
       const token = sessionData.session?.access_token;
       if (token) {
         emit(token);
@@ -93,11 +102,11 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
       // Browser client threw (network error, bad config) — fall through to
       // the server-side route which reads HttpOnly session cookies.
       console.warn("[auth] getSession() failed, trying server route:", err);
-      if (cancelled || emitted) return;
+      if (cancelled) return;
     }
     try {
       const fromServer = await fetchAccessTokenFromServer();
-      if (cancelled || emitted) return;
+      if (cancelled) return;
       emit(typeof fromServer === "string" && fromServer.length > 0 ? fromServer : false);
     } catch (err) {
       console.warn("[auth] fetchAccessTokenFromServer() failed:", err);
@@ -117,7 +126,7 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
       emit(false);
       return;
     }
-    if (event === "SIGNED_IN") {
+    if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
       clearCachedAuthRole();
       void invalidateAuthProfileCache();
     }

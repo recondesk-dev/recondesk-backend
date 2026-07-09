@@ -197,13 +197,30 @@ def _decode_es256(token: str) -> dict:
             raise first_exc
 
 
+def _expected_issuer() -> str:
+    base = (settings.SUPABASE_URL or "").strip().rstrip("/")
+    return f"{base}/auth/v1" if base else ""
+
+
 def _token_debug_bits(token: str) -> str:
-    """Safe, non-secret header bits for production logs."""
+    """Safe, non-secret header/claim bits for production logs."""
+    expected = _expected_issuer()
     try:
         header = jwt.get_unverified_header(token) or {}
-        return f"alg={header.get('alg')!r} kid={header.get('kid')!r}"
+        claims = jwt.get_unverified_claims(token) or {}
+        iss = claims.get("iss")
+        sig = token.rsplit(".", 1)[-1] if token.count(".") >= 2 else ""
+        return (
+            f"alg={header.get('alg')!r} kid={header.get('kid')!r} "
+            f"iss={iss!r} expected_iss={expected!r} iss_match={iss == expected} "
+            f"token_len={len(token)} sig_len={len(sig)} "
+            f"supabase_host={(settings.SUPABASE_URL or '').strip()!r}"
+        )
     except Exception:  # noqa: BLE001
-        return "alg=? kid=?"
+        return (
+            f"alg=? kid=? expected_iss={expected!r} token_len={len(token)} "
+            f"supabase_host={(settings.SUPABASE_URL or '').strip()!r}"
+        )
 
 
 def _user_from_supabase_auth(token: str) -> User:
