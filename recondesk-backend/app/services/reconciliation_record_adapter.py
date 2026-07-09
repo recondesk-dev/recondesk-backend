@@ -30,7 +30,12 @@ def _gstr_taxable_paise_from_record(rd: dict[str, Any]) -> int:
     items = rd.get("items") or []
     if items:
         return sum(int(i.get("taxable_value_paise") or 0) for i in items)
-    return int(rd.get("invoice_value_paise") or 0)
+    # Flat GSTR invoices store taxable at root (txval → taxable_value_paise).
+    # Do not fall back to invoice_value_paise — that is total value (val), not
+    # taxable, and would fabricate AMOUNT_MISMATCH against a correct PR row.
+    if rd.get("taxable_value_paise") is not None:
+        return int(rd.get("taxable_value_paise") or 0)
+    return 0
 
 
 def _gstr_tax_paise_from_record(rd: dict[str, Any]) -> tuple[int, int, int, int, int]:

@@ -498,6 +498,30 @@ def test_missing_itms_produces_empty_items_record_still_parsed():
     assert result["records"][0]["items"] == []
 
 
+def test_flat_invoice_root_txval_and_tax_promoted_when_itms_missing():
+    """Portal/synthetic dumps put txval/cgst/sgst on the invoice, not under itms."""
+    inv = {
+        "inum": "INV/2025/1000",
+        "idt": "01-04-2026",
+        "val": 415557.74,
+        "txval": 371033.70,
+        "igst": 0,
+        "cgst": 22262.02,
+        "sgst": 22262.02,
+        "cfs": "N",
+    }
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
+    assert result["total_parsed"] == 1
+    rec = result["records"][0]
+    assert rec["items"] == []
+    assert rec["taxable_value_paise"] == 37_103_370
+    assert rec["cgst_paise"] == 2_226_202
+    assert rec["sgst_paise"] == 2_226_202
+    assert rec["igst_paise"] == 0
+    assert rec["total_tax_paise"] == 4_452_404
+    assert rec["taxable_value"] == 371_034  # whole rupees from taxable, not val
+
+
 def test_itms_non_list_goes_to_skipped():
     inv = {"inum": "INV001", "dt": "01-04-2024", "val": 1000, "pos": "27", "rev": "N", "itcavl": "Y", "itms": "invalid"}
     result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
