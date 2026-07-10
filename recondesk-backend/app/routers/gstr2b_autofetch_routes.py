@@ -85,6 +85,10 @@ def _assert_client_access(sb, current_user: dict, client_id: str) -> None:
 
 
 def _load_client_gstin(sb, client_id: str) -> dict[str, Any]:
+    """Load GSTN session fields from ``client_gstins`` by primary key ``id``.
+
+    The URL ``client_id`` is ``client_gstins.id`` (same id the clients list returns).
+    """
     res = (
         sb.table("client_gstins")
         .select("id, gstin, gstn_access_token, gstn_token_expiry")
@@ -98,14 +102,95 @@ def _load_client_gstin(sb, client_id: str) -> dict[str, Any]:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"client_gstins row not found for id={client_id}",
         )
-    return res.data[0]
+    row = res.data[0]
+    _log.info(
+        "GSTN client_gstins loaded id=%s gstin=%r has_token=%s expiry=%r keys=%s",
+        client_id,
+        row.get("gstin"),
+        bool(row.get("gstn_access_token")),
+        row.get("gstn_token_expiry"),
+        sorted(row.keys()),
+    )
+    return row
 
 
-def _gstr2b_payload_for_parser(raw_data: dict) -> dict:
-    """Wrap Sandbox document payload into the shape expected by parse_gstr2b()."""
-    if isinstance(raw_data, dict) and "data" in raw_data and isinstance(raw_data["data"], dict):
-        return raw_data
-    return {"data": raw_data}
+def _parse_stored_token_expiry(value: Any) -> datetime | None:
+    """Parse ``client_gstins.gstn_token_expiry`` (ISO timestamp from DB)."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        # Supabase may return "2026-07-10T11:27:33+00:00" or with space.
+        dt = datetime.fromisoformat(text.replace(" ", "T").replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _assert_gstn_token_fresh(client_row: dict[str, Any]) -> None:
+    expiry = _parse_stored_token_expiry(client_row.get("gstn_token_expiry"))
+    if expiry is None:
+        return
+    now = datetime.now(timezone.utc)
+    if expiry <= now:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="GSTN session expired; please reconnect via OTP",
+        )
+
+
+def _rtnprd_from_year_month(year: str, month: str) -> str:
+    """GSTN rtnprd is MMYYYY (e.g. June 2026 → 062026)."""
+    return f"{str(month).strip().zfill(2)}{str(year).strip()}"
+
+
+def _gstr2b_payload_for_parser(
+    raw_data: dict,
+    *,
+    fallback_gstin: str,
+    year: str,
+    month: str,
+) -> dict:
+    """Normalize Sandbox GSTR-2B envelope into ``parse_gstr2b`` shape.
+
+    Sandbox often returns nested ``{status_cd, data: {rtnprd, b2b, ...}}`` and
+    may omit buyer ``gstin``. Mirror ``SandboxGSTClient.get_gstr2b``: unwrap one
+    nested ``data`` layer and inject gstin / rtnprd from the known client + period.
+    """
+    if not isinstance(raw_data, dict):
+        raise ValueError("invalid_sandbox_gstr2b_payload")
+
+    # Prefer nested GSTN document when present (status_cd wrapper).
+    inner = raw_data.get("data") if isinstance(raw_data.get("data"), dict) else raw_data
+    if not isinstance(inner, dict):
+        raise ValueError("invalid_sandbox_gstr2b_payload")
+
+    # One more unwrap if Sandbox double-nests the document.
+    if (
+        "b2b" not in inner
+        and "cdnr" not in inner
+        and isinstance(inner.get("data"), dict)
+        and any(k in inner["data"] for k in ("b2b", "cdnr", "rtnprd", "fp", "gstin"))
+    ):
+        inner = inner["data"]
+
+    doc = dict(inner)
+    if not str(doc.get("gstin") or "").strip():
+        doc["gstin"] = fallback_gstin
+    if not str(doc.get("rtnprd") or doc.get("fp") or "").strip():
+        doc["rtnprd"] = _rtnprd_from_year_month(year, month)
+
+    _log.info(
+        "GSTR-2B payload for parser keys=%s gstin=%r rtnprd=%r",
+        sorted(doc.keys())[:30],
+        doc.get("gstin"),
+        doc.get("rtnprd") or doc.get("fp"),
+    )
+    return {"data": doc}
 
 
 def _token_expiry_from_ms(token_expiry_ms: Any) -> datetime | None:
@@ -257,6 +342,8 @@ async def gstn_fetch_gstr2b(
             detail="client has no GSTIN on file",
         )
 
+    _assert_gstn_token_fresh(client_row)
+
     _log.info(
         "GSTR-2B fetch starting client_id=%s gstin=%s period=%s-%s has_token=%s",
         cid,
@@ -294,11 +381,23 @@ async def gstn_fetch_gstr2b(
         ) from exc
 
     try:
-        parsed = parse_gstr2b(_gstr2b_payload_for_parser(raw_data))
+        payload = _gstr2b_payload_for_parser(
+            raw_data,
+            fallback_gstin=gstin,
+            year=body.year,
+            month=body.month,
+        )
+        parsed = parse_gstr2b(payload)
     except ValueError as exc:
+        msg = str(exc)
+        if msg == "missing_gstin":
+            msg = (
+                "Sandbox GSTR-2B payload missing buyer gstin after normalize; "
+                f"client gstin={gstin!r}"
+            )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
+            detail=msg,
         ) from exc
 
     return parsed
