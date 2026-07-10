@@ -1,10 +1,10 @@
 import Link from "next/link";
+import { ClipboardList, GitMerge, Upload } from "lucide-react";
 
-import { ExcelVsRecon } from "@/components/landing/ExcelVsRecon";
-import { InvoiceJourney } from "@/components/landing/InvoiceJourney";
-import { RiskCaseFile } from "@/components/landing/RiskCaseFile";
-import { StatusTicker } from "@/components/landing/StatusTicker";
 import { FaqAccordion } from "@/components/public/FaqAccordion";
+import { FeatureStatsStrip } from "@/components/public/FeatureStatsStrip";
+import { SecurityTrustStrip } from "@/components/public/SecurityTrustStrip";
+import { formatInrFull } from "@/lib/format";
 
 function Section({
   id,
@@ -16,164 +16,234 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className={`mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20 lg:px-8 ${className}`}>
+    <section id={id} className={`mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8 ${className}`}>
       {children}
     </section>
   );
 }
 
-function SectionEyebrow({ children }: { children: React.ReactNode }) {
+function InrAmount({
+  amount,
+  className = "",
+  amountClassName = "font-mono",
+}: {
+  amount: string;
+  className?: string;
+  amountClassName?: string;
+}) {
   return (
-    <p className="font-mono text-[11px] tracking-[0.2em] text-[#6B7C8F]">{children}</p>
+    <span className={className}>
+      <span className="font-sans">{"\u20B9"}</span>
+      <span className={amountClassName}>{amount}</span>
+    </span>
+  );
+}
+
+function InrFromFormat({
+  value,
+  className = "",
+  amountClassName = "font-mono",
+}: {
+  value: number;
+  className?: string;
+  amountClassName?: string;
+}) {
+  const formatted = formatInrFull(value);
+  return (
+    <span className={className}>
+      <span className="font-sans">{formatted.charAt(0)}</span>
+      <span className={amountClassName}>{formatted.slice(1)}</span>
+    </span>
   );
 }
 
 export default function LandingPage() {
   return (
     <>
-      {/* ── Section 1: Hero ── */}
-      <Section className="pb-10 pt-12 sm:pb-12 sm:pt-16 lg:pt-20">
-        <div className="max-w-3xl">
-          <p className="font-mono text-[11px] tracking-[0.22em] text-[#0D4F3C]">RECONDESK</p>
-          <h1 className="mt-5 font-display text-[2rem] font-semibold leading-[1.15] tracking-tight text-[#0B1D33] sm:text-5xl sm:leading-[1.12] lg:text-[3.25rem]">
-            Every invoice needs a judgment call. Excel can&apos;t make it.
+      {/* Hero */}
+      <Section className="pb-12 pt-10 sm:pb-16 sm:pt-14">
+        <div className="text-center">
+          <h1 className="mx-auto max-w-4xl text-[1.75rem] font-semibold leading-tight tracking-tight text-[#0A0A0A] sm:text-4xl sm:leading-tight lg:text-5xl">
+            Find the ITC Your Clients Are Missing Every Month
           </h1>
-          <p className="mt-5 max-w-xl text-base leading-relaxed text-[#3D4F63] sm:text-lg">
-            Decision intelligence for GSTR-2B — claim, hold, or dispute — with the statute and next
-            step attached.
+          <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-[#3A3A3A] sm:mt-5 sm:text-xl">
+            GSTR-2B reconciliation for CA firms. Upload 2 files. Result in minutes.
           </p>
-          <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
             <Link
               href="/auth/signup"
-              className="inline-flex min-h-[48px] items-center justify-center border border-[#0D4F3C] bg-[#0D4F3C] px-6 font-mono text-[13px] font-medium tracking-wide text-white transition hover:bg-[#0A3F30]"
+              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-brand px-6 text-sm font-semibold text-white shadow-lg shadow-brand/25 transition hover:bg-brand-hover sm:w-auto"
             >
-              Start Free — 2 Runs
+              Start Free — First 2 Runs Free
             </Link>
             <a
-              href="#invoice-journey"
-              className="inline-flex min-h-[48px] items-center justify-center border border-[#0B1D33]/25 bg-transparent px-6 font-mono text-[13px] tracking-wide text-[#0B1D33] transition hover:border-[#0B1D33] hover:bg-white"
+              href="#how-it-works"
+              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full border border-[#E5E5E5] bg-white px-6 text-sm font-semibold text-[#0A0A0A] transition hover:bg-[#F5F5F5] sm:w-auto"
             >
-              Follow one invoice →
+              See How It Works
             </a>
           </div>
-          <p className="mt-5 font-mono text-[11px] text-[#6B7C8F]">
-            From <span className="text-[#0B1D33]">₹499/mo</span> · No card to start · Tally, Busy &amp; Excel
+          <p className="mt-6 px-1 text-sm leading-relaxed text-[#6B6B6B]">
+            Plans from <InrAmount amount="499/month" amountClassName="" /> · No credit card to start
           </p>
-        </div>
-      </Section>
-
-      <StatusTicker />
-
-      {/* ── Section 2: Invoice Journey ── */}
-      <Section id="invoice-journey" className="scroll-mt-20 border-t border-[#D4D9E0]">
-        <div className="mb-12 max-w-2xl sm:mb-16">
-          <SectionEyebrow>THE INVOICE JOURNEY</SectionEyebrow>
-          <h2 className="mt-3 font-display text-2xl font-semibold text-[#0B1D33] sm:text-3xl">
-            One anonymized invoice. Raw row to stamped verdict.
-          </h2>
-          <p className="mt-3 text-sm leading-relaxed text-[#3D4F63] sm:text-base">
-            Scroll the pipeline a CA actually runs — not a three-icon explainer.
-          </p>
-        </div>
-        <InvoiceJourney />
-      </Section>
-
-      {/* ── Section 3: Excel vs ReconDesk ── */}
-      <Section className="border-t border-[#D4D9E0] bg-white">
-        <div className="mb-10 max-w-2xl sm:mb-12">
-          <SectionEyebrow>SIDE BY SIDE</SectionEyebrow>
-          <h2 className="mt-3 font-display text-2xl font-semibold text-[#0B1D33] sm:text-3xl">
-            Same six rows. Different instrument.
-          </h2>
-        </div>
-        <ExcelVsRecon />
-      </Section>
-
-      {/* ── Section 4: Risk case file ── */}
-      <Section className="border-t border-[#D4D9E0]">
-        <div className="mb-10 max-w-2xl sm:mb-12">
-          <SectionEyebrow>RISK REGISTER</SectionEyebrow>
-          <h2 className="mt-3 font-display text-2xl font-semibold text-[#0B1D33] sm:text-3xl">
-            What the firm actually loses.
-          </h2>
-        </div>
-        <RiskCaseFile />
-      </Section>
-
-      {/* FAQ — kept lean, restyled via landing-ledger scope */}
-      <Section className="border-t border-[#D4D9E0] bg-white pt-12 pb-10 sm:pt-16 sm:pb-12">
-        <h2 className="font-display text-2xl font-semibold text-[#0B1D33] sm:text-3xl">
-          Questions before you file the next return
-        </h2>
-        <div className="ledger-faq mt-8">
-          <FaqAccordion />
-        </div>
-      </Section>
-
-      {/* Pricing strip */}
-      <Section className="border-t border-[#D4D9E0] py-12 sm:py-16">
-        <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-md">
-            <SectionEyebrow>PRICING</SectionEyebrow>
-            <h2 className="mt-3 font-display text-2xl font-semibold text-[#0B1D33] sm:text-3xl">
-              Firm-grade. Transparent.
-            </h2>
-            <p className="mt-2 text-sm text-[#3D4F63]">Start free. Upgrade when the practice needs it.</p>
+          <div className="mx-auto mt-8 max-w-3xl rounded-xl border border-[#E5E5E5] bg-[#F5F5F5] px-4 py-4 text-sm text-[#3A3A3A] sm:px-6">
+            <p className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-6 sm:gap-y-2">
+              <span>✓ No credit card required</span>
+              <span className="hidden text-[#E5E5E5] sm:inline" aria-hidden>
+                ·
+              </span>
+              <span>✓ Works with Tally, Busy &amp; Excel</span>
+              <span className="hidden text-[#E5E5E5] sm:inline" aria-hidden>
+                ·
+              </span>
+              <span>✓ First 2 runs completely free</span>
+            </p>
           </div>
-          <div className="grid w-full gap-4 sm:grid-cols-2 lg:max-w-xl">
-            <div className="border border-[#0B1D33]/20 bg-white p-5">
-              <p className="font-mono text-[11px] tracking-wider text-[#6B7C8F]">SOLO CA</p>
-              <p className="mt-2 font-display text-3xl text-[#0B1D33]">
-                <span className="font-sans text-2xl">₹</span>
-                <span className="font-mono">499</span>
-                <span className="font-mono text-sm font-normal text-[#6B7C8F]">/mo</span>
-              </p>
-              <p className="mt-2 font-mono text-[11px] text-[#6B7C8F]">1 GSTIN · 2 free runs</p>
-              <Link
-                href="/signup"
-                className="mt-6 inline-flex min-h-[44px] w-full items-center justify-center border border-[#0B1D33]/25 font-mono text-[12px] tracking-wide text-[#0B1D33] transition hover:border-[#0B1D33] hover:bg-[#F2F3F5]"
-              >
-                Start Free
-              </Link>
+          <FeatureStatsStrip />
+        </div>
+      </Section>
+
+      <SecurityTrustStrip />
+
+      {/* Pain */}
+      <Section className="border-t border-[#E5E5E5] bg-white py-10 sm:py-12">
+        <h2 className="text-center text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">Sound familiar?</h2>
+        <div className="mt-10 grid gap-6 md:grid-cols-3">
+          {[
+            "3–8 hours per client, per month on manual VLOOKUP reconciliation",
+            "ITC mismatches discovered after filing deadline — penalties already hit",
+            "30–50 clients. One wrong cell. No audit trail.",
+          ].map((text) => (
+            <div
+              key={text}
+              className="landing-card rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-5 text-[#3A3A3A] sm:p-6"
+            >
+              <p className="text-sm leading-relaxed sm:text-base">{text}</p>
             </div>
-            <div className="border border-[#0D4F3C] bg-[#0B1D33] p-5">
-              <p className="font-mono text-[11px] tracking-wider text-[#1A6B52]">CA FIRM</p>
-              <p className="mt-2 font-display text-3xl text-white">
-                <span className="font-sans text-2xl">₹</span>
-                <span className="font-mono">8,699</span>
-                <span className="font-mono text-sm font-normal text-[#8A9AAB]">/mo</span>
-              </p>
-              <p className="mt-2 font-mono text-[11px] text-[#8A9AAB]">50 runs/mo · team access</p>
-              <Link
-                href="/pricing"
-                className="mt-6 inline-flex min-h-[44px] w-full items-center justify-center bg-[#0D4F3C] font-mono text-[12px] tracking-wide text-white transition hover:bg-[#0A3F30]"
-              >
-                View All Plans
-              </Link>
+          ))}
+        </div>
+      </Section>
+
+      {/* How it works */}
+      <Section id="how-it-works" className="scroll-mt-20 bg-white py-12 sm:scroll-mt-24 sm:py-20">
+        <h2 className="text-center text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">How ReconDesk Works</h2>
+        <ul className="mt-12 grid gap-8 md:grid-cols-3">
+          <li className="flex flex-col items-center text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand/15 text-brand">
+              <Upload className="h-7 w-7" aria-hidden />
             </div>
+            <h3 className="mt-4 text-base font-semibold text-[#0A0A0A]">1. Upload</h3>
+            <p className="mt-2 text-sm leading-relaxed text-[#3A3A3A]">
+              GSTR-2B JSON + Purchase Register (Tally, Busy, or any Excel — auto-detected)
+            </p>
+          </li>
+          <li className="flex flex-col items-center text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand/15 text-brand">
+              <GitMerge className="h-7 w-7" aria-hidden />
+            </div>
+            <h3 className="mt-4 text-base font-semibold text-[#0A0A0A]">2. Match</h3>
+            <p className="mt-2 text-sm leading-relaxed text-[#3A3A3A]">
+              ReconDesk matches 5,000+ invoices using 5-level matching.
+            </p>
+          </li>
+          <li className="flex flex-col items-center text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand/15 text-brand">
+              <ClipboardList className="h-7 w-7" aria-hidden />
+            </div>
+            <h3 className="mt-4 text-base font-semibold text-[#0A0A0A]">3. Decide</h3>
+            <p className="mt-2 text-sm leading-relaxed text-[#3A3A3A]">
+              Every mismatch explained: What is wrong, Why it happened, What to do next
+            </p>
+          </li>
+        </ul>
+
+        {/* Mock result card */}
+        <div className="landing-card mx-auto mt-10 max-w-lg rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-5 text-center sm:mt-14 sm:p-6">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#6B6B6B]">Sample run summary</p>
+          <div className="mt-4 grid grid-cols-3 gap-3 sm:flex sm:flex-wrap sm:items-start sm:justify-center sm:gap-12">
+            <div>
+              <p className="text-xs text-[#6B6B6B]">ITC at Risk</p>
+              <p className="mt-1 text-lg font-semibold text-amber-500">
+                <InrFromFormat value={124500} />
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-[#6B6B6B]">Matched</p>
+              <p className="mt-1 font-mono text-lg font-semibold text-emerald-600">847</p>
+              <p className="text-[10px] text-[#6B6B6B]">invoices</p>
+            </div>
+            <div>
+              <p className="text-xs text-[#6B6B6B]">Mismatches</p>
+              <p className="mt-1 font-mono text-lg font-semibold text-[#0A0A0A]">23</p>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* FAQ */}
+      <Section className="border-t border-[#E5E5E5] bg-white pt-8 pb-12 sm:pt-10 sm:pb-14">
+        <h2 className="px-2 text-center text-2xl font-semibold text-[#0A0A0A] sm:px-0 sm:text-3xl">
+          Questions CAs Ask Before Signing Up
+        </h2>
+        <FaqAccordion />
+      </Section>
+
+      {/* Pricing preview */}
+      <Section className="border-t border-[#E5E5E5] bg-white py-12 sm:py-16">
+        <div className="text-center">
+          <h2 className="text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">Simple, transparent pricing</h2>
+          <p className="mt-3 text-[#6B6B6B]">Start free. Upgrade when you&apos;re ready.</p>
+        </div>
+        <div className="mx-auto mt-10 grid max-w-3xl gap-6 md:grid-cols-2">
+          <div className="landing-card flex flex-col rounded-2xl border border-[#E5E5E5] bg-[#F5F5F5] p-5 sm:p-6">
+            <h3 className="text-lg font-semibold text-[#0A0A0A]">Solo CA</h3>
+            <p className="mt-2 text-3xl font-semibold text-[#0A0A0A]">
+              <InrAmount amount="499" amountClassName="font-mono" />
+              <span className="text-base font-normal text-[#6B6B6B]">/month</span>
+            </p>
+            <p className="mt-4 text-sm text-[#6B6B6B]">1 client GSTIN · 2 free runs to start</p>
+            <Link
+              href="/signup"
+              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full border border-[#E5E5E5] bg-white text-sm font-semibold text-[#0A0A0A] transition hover:bg-[#EBEBEB]"
+            >
+              Start Free
+            </Link>
+          </div>
+          <div className="landing-card relative flex flex-col rounded-2xl border-2 border-brand bg-[#F5F5F5] p-5 pt-7 sm:p-6 sm:pt-6">
+            <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand px-3 py-0.5 text-xs font-semibold text-white">
+              Most Popular
+            </span>
+            <h3 className="text-lg font-semibold text-[#0A0A0A]">CA Firm</h3>
+            <p className="mt-2 text-3xl font-semibold text-[#0A0A0A]">
+              <InrAmount amount="8,699" amountClassName="font-mono" />
+              <span className="text-base font-normal text-[#6B6B6B]">/month</span>
+            </p>
+            <p className="mt-4 text-sm text-[#6B6B6B]">50 runs/month · Team access included</p>
+            <Link
+              href="/pricing"
+              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand text-sm font-semibold text-white transition hover:bg-brand-hover"
+            >
+              View All Plans
+            </Link>
           </div>
         </div>
       </Section>
 
       {/* Final CTA */}
-      <section className="border-t border-[#0B1D33] bg-[#0B1D33]">
-        <div className="mx-auto flex max-w-6xl flex-col items-start gap-6 px-4 py-16 sm:px-6 sm:py-20 lg:flex-row lg:items-center lg:justify-between lg:px-8">
-          <div className="max-w-xl">
-            <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
-              Stop guessing in cells. Start stamping decisions.
-            </h2>
-            <p className="mt-3 font-mono text-[12px] leading-relaxed text-[#8A9AAB]">
-              First 2 reconciliations free. No credit card.
-            </p>
-          </div>
+      <Section className="border-t border-[#E5E5E5] bg-white py-16 sm:py-20">
+        <div className="landing-card mx-auto max-w-2xl rounded-3xl border border-[#E5E5E5] bg-[#F5F5F5] px-5 py-10 text-center sm:px-10 sm:py-12">
+          <h2 className="text-2xl font-semibold text-[#0A0A0A] sm:text-3xl">Stop Losing ITC. Start Recovering It.</h2>
+          <p className="mt-4 text-base leading-relaxed text-[#3A3A3A] sm:text-base">
+            First 2 reconciliations free. No credit card required.
+          </p>
           <Link
             href="/auth/signup"
-            className="inline-flex min-h-[48px] shrink-0 items-center justify-center border border-[#0D4F3C] bg-[#0D4F3C] px-8 font-mono text-[13px] font-medium tracking-wide text-white transition hover:bg-[#0A3F30]"
+            className="mt-8 inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-brand px-8 text-sm font-semibold text-white transition hover:bg-brand-hover sm:w-auto"
           >
             Get Started Free →
           </Link>
         </div>
-      </section>
+      </Section>
     </>
   );
 }

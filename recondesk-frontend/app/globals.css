@@ -112,117 +112,16 @@
     }
   }
 
-  .landing-page:not(.landing-ledger) {
+  .landing-page {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue",
       Arial, sans-serif;
   }
 
-  .landing-page:not(.landing-ledger) * {
+  .landing-page * {
     font-family: inherit;
   }
 
-  /* Ledger marketing surface — editorial / instrument, not SaaS template */
-  .landing-ledger {
-    font-family: var(--font-fraunces), Georgia, "Times New Roman", serif;
-    font-feature-settings: "ss01" on, "soft" on;
-  }
-
-  .landing-ledger .font-mono {
-    font-family: var(--font-jetbrains), ui-monospace, monospace !important;
-    font-feature-settings: "tnum" on, "zero" on;
-  }
-
-  .landing-ledger .font-display {
-    font-family: var(--font-fraunces), Georgia, "Times New Roman", serif !important;
-  }
-
-  .landing-ledger .font-sans {
-    font-family: var(--font-plus-jakarta), system-ui, sans-serif !important;
-  }
-
-  @keyframes ledger-ticker-scroll {
-    from {
-      transform: translateX(0);
-    }
-    to {
-      transform: translateX(-50%);
-    }
-  }
-
-  .ledger-ticker-track {
-    animation: ledger-ticker-scroll 42s linear infinite;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .ledger-ticker-track {
-      animation: none;
-    }
-  }
-
-  .ledger-stamp {
-    filter: drop-shadow(1px 2px 0 rgba(11, 29, 51, 0.06));
-  }
-
-  .ledger-stamp-inner {
-    background:
-      radial-gradient(ellipse at 30% 20%, rgba(26, 107, 82, 0.06), transparent 55%),
-      repeating-linear-gradient(
-        -12deg,
-        transparent,
-        transparent 2px,
-        rgba(26, 107, 82, 0.03) 2px,
-        rgba(26, 107, 82, 0.03) 3px
-      ),
-      #f7faf8;
-  }
-
-  .ledger-stamp-review {
-    background:
-      radial-gradient(ellipse at 40% 30%, rgba(217, 119, 6, 0.08), transparent 50%),
-      #fffbf5;
-    filter: drop-shadow(1px 2px 0 rgba(11, 29, 51, 0.05));
-  }
-
-  /* FAQ restyle inside ledger landing */
-  .ledger-faq .landing-card {
-    margin-top: 0;
-    max-width: 42rem;
-    margin-left: 0;
-    border-radius: 0;
-    border-color: #0b1d3320;
-    background: #fff;
-    box-shadow: none;
-  }
-
-  .ledger-faq .landing-card:hover {
-    transform: none;
-    box-shadow: none;
-  }
-
-  .ledger-faq button {
-    border-radius: 0 !important;
-  }
-
-  .ledger-faq button:hover {
-    background: #f7f8fa !important;
-  }
-
-  .ledger-faq button span:first-child {
-    font-family: var(--font-fraunces), Georgia, serif !important;
-    font-weight: 600;
-    color: #0b1d33;
-  }
-
-  .ledger-faq p {
-    color: #3d4f63 !important;
-  }
-
-  .ledger-faq [aria-hidden] {
-    border-radius: 0 !important;
-    border-color: #d4d9e0 !important;
-  }
-
-  .landing-page:not(.landing-ledger) .landing-card {
+  .landing-page .landing-card {
     box-shadow:
       0 4px 24px rgba(0, 0, 0, 0.07),
       0 1px 4px rgba(0, 0, 0, 0.04);
@@ -232,7 +131,7 @@
   }
 
   @media (hover: hover) {
-    .landing-page:not(.landing-ledger) .landing-card:hover {
+    .landing-page .landing-card:hover {
       box-shadow:
         0 8px 32px rgba(0, 0, 0, 0.1),
         0 2px 8px rgba(0, 0, 0, 0.06);
