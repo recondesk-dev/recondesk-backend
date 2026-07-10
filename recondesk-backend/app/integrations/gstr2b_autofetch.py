@@ -133,12 +133,29 @@ def refresh_token(access_token: str) -> dict:
 
 
 def get_gstr2b(access_token: str, gstin: str, year: str, month: str) -> dict:
-    r = httpx.get(f"{BASE_URL}/gst/compliance/tax-payer/gstr2b/document",
+    """Fetch GSTR-2B for the authenticated taxpayer session.
+
+    Sandbox docs: GET /gst/compliance/tax-payer/gstrs/gstr-2b/{year}/{month}
+    Auth is the GSTN taxpayer access token from verify-otp (not the platform JWT).
+    ``gstin`` is kept for logging/callers; the session token already scopes the taxpayer.
+    """
+    year_s = str(year).strip()
+    month_s = str(month).strip().zfill(2)
+    url = f"{BASE_URL}/gst/compliance/tax-payer/gstrs/gstr-2b/{year_s}/{month_s}"
+    _log.info("Sandbox GSTR-2B GET %s gstin=%s", url, gstin)
+    r = httpx.get(
+        url,
         headers={
             "authorization": access_token,
             "x-api-key": API_KEY,
             "x-api-version": "1.0.0",
         },
-        params={"gstin": gstin, "year": year, "month": month})
+    )
     r.raise_for_status()
-    return r.json()["data"]
+    envelope = r.json()
+    if not isinstance(envelope, dict):
+        raise SandboxGstnError("Unexpected Sandbox GSTR-2B response")
+    data = envelope.get("data")
+    if data is None:
+        raise SandboxGstnError("Sandbox GSTR-2B response missing data")
+    return data
