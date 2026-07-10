@@ -400,4 +400,6 @@ async def gstn_fetch_gstr2b(
             detail=msg,
         ) from exc
 
-    return parsed
+    # ``upload_payload`` is the GSTN-shaped JSON the wizard can PUT to R2 and
+    # run through the same sanity-check path as a manual portal export.
+    return {**parsed, "upload_payload": payload}
