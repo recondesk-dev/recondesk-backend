@@ -354,6 +354,20 @@ export const clientsApi = {
 // ─── GSTN taxpayer OTP (Sandbox GSP) ─────────────────────────────────────────
 // Backend routes: POST /api/clients/{client_gstin_id}/gstn/send-otp|verify-otp
 
+/** Parsed GSTR-2B from POST .../gstn/fetch, plus GSTN JSON for wizard upload. */
+export type GstnFetchGstr2bResult = {
+  schema_version?: string;
+  buyer_gstin?: string;
+  period?: string;
+  records?: unknown[];
+  skipped?: unknown[];
+  total_parsed: number;
+  total_skipped?: number;
+  /** GSTN-shaped ``{ data: { gstin, rtnprd, b2b, ... } }`` for R2 upload. */
+  upload_payload: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
 export const gstnApi = {
   sendOtp: (
     token: string,
@@ -376,6 +390,20 @@ export const gstnApi = {
   ) =>
     apiFetch<{ message: string }>(
       clientsApiPath(client_gstin_id, "gstn", "verify-otp"),
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
+  fetchGstr2b: (
+    token: string,
+    client_gstin_id: string,
+    body: { year: string; month: string }
+  ) =>
+    apiFetch<GstnFetchGstr2bResult>(
+      clientsApiPath(client_gstin_id, "gstn", "fetch"),
       {
         method: "POST",
         body: JSON.stringify(body),

@@ -4,15 +4,19 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  clientsApi,
+  gstnApi,
   importWizardApi,
   prUploadApi,
   type ApiError,
+  type ClientGstin,
   type ClientImportMappingItem,
   type ColumnMappingRow,
   type ImportTargetField,
   type ImportWizardRun,
   type SanityCheckItem,
 } from "@/lib/api";
+import { isGstnConnected } from "@/components/clients/ConnectGstnModal";
 import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 
 const MAX_UPLOAD = 20 * 1024 * 1024;
@@ -115,6 +119,14 @@ function periodLabel(iso: string): string {
   return new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" }).format(
     new Date(Number(y), Number(mo) - 1, 1)
   );
+}
+
+/** Extract Sandbox year/month from wizard period ``YYYY-MM-01``. */
+function yearMonthFromPeriod(iso: string | null | undefined): { year: string; month: string } | null {
+  if (!iso) return null;
+  const [y, mo] = iso.slice(0, 10).split("-");
+  if (!y || !mo) return null;
+  return { year: y, month: mo };
 }
 
 function initialUiStep(run: ImportWizardRun | null): number {
@@ -249,6 +261,14 @@ export default function NewReconcileWizardPage() {
   const [sanityChecks, setSanityChecks] = useState<SanityCheckItem[] | null>(null);
   const [sanityBusy, setSanityBusy] = useState(false);
 
+  /** GSTN auto-fetch (Step 2) — only when client has a live GSTN session. */
+  const [clientRow, setClientRow] = useState<ClientGstin | null>(null);
+  const [showManualGstrUpload, setShowManualGstrUpload] = useState(false);
+  const [gstnFetchBusy, setGstnFetchBusy] = useState(false);
+  const [gstnFetchError, setGstnFetchError] = useState<string | null>(null);
+  const [gstnFetchSummary, setGstnFetchSummary] = useState<string | null>(null);
+  const [gstnZeroData, setGstnZeroData] = useState(false);
+
   const [prFile, setPrFile] = useState<File | null>(null);
   const [prProgress, setPrProgress] = useState(0);
   const [prUploadFailed, setPrUploadFailed] = useState(false);
@@ -284,6 +304,26 @@ export default function NewReconcileWizardPage() {
   );
 
   useEffect(() => subscribeAccessToken(setToken), []);
+
+  useEffect(() => {
+    if (typeof token !== "string" || !clientId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const c = await clientsApi.get(token, clientId);
+        if (!cancelled) {
+          setClientRow(c);
+          // Default to auto-fetch UI when GSTN is connected; otherwise keep manual-only.
+          if (!isGstnConnected(c)) setShowManualGstrUpload(true);
+        }
+      } catch {
+        if (!cancelled) setClientRow(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, clientId]);
 
   useEffect(() => {
     if (typeof token !== "string" || !clientId) return;
@@ -441,55 +481,122 @@ export default function NewReconcileWizardPage() {
     }
   };
 
-  const onGstrUpload = async () => {
-    if (typeof token !== "string" || !runId || !gstrFile) return;
+  /** Shared R2 upload + sanity path used by both manual picker and GSTN auto-fetch. */
+  const uploadGstrFile = async (file: File): Promise<boolean> => {
+    if (typeof token !== "string" || !runId) return false;
     setErr(null);
     setGstrUploadFailed(false);
-    if (!gstrFile.name.toLowerCase().endsWith(".json")) {
+    if (!file.name.toLowerCase().endsWith(".json")) {
       setErr("File must be a .json export.");
-      return;
+      return false;
     }
-    if (gstrFile.size > MAX_UPLOAD) {
+    if (file.size > MAX_UPLOAD) {
       setErr("File must be under 20 MB.");
-      return;
+      return false;
     }
-    const text = await gstrFile.text();
+    const text = await file.text();
     try {
       JSON.parse(text);
     } catch {
       setErr("This file is not valid JSON. Export again from the GST portal.");
-      return;
+      return false;
     }
-    const file = new File([text], gstrFile.name, { type: "application/json" });
-    const hash = await sha256Hex(file);
+    const normalized = new File([text], file.name, { type: "application/json" });
+    const hash = await sha256Hex(normalized);
     setBusy(true);
     setGstrProgress(0);
     try {
       const su = await importWizardApi.signedUrl(token, {
         type: "gstr2b",
         run_id: runId,
-        file_name: file.name,
+        file_name: normalized.name,
         content_type: "application/json",
       });
       await withRetries(
         () =>
-          putWithProgress(su.upload_url, file, hash, su.headers["Content-Type"] ?? "application/json", setGstrProgress),
+          putWithProgress(
+            su.upload_url,
+            normalized,
+            hash,
+            su.headers["Content-Type"] ?? "application/json",
+            setGstrProgress
+          ),
         3,
         2000
       );
       const updated = await importWizardApi.gstr2bUploadComplete(token, runId, {
         r2_key: su.key,
-        file_name: file.name,
-        file_size: file.size,
+        file_name: normalized.name,
+        file_size: normalized.size,
         file_hash: hash,
       });
       setRun(updated);
       await runSanityWithRetry();
+      return true;
     } catch {
       setGstrUploadFailed(true);
       setErr("Upload failed. Check your connection and try again.");
+      return false;
     } finally {
       setBusy(false);
+    }
+  };
+
+  const onGstrUpload = async () => {
+    if (!gstrFile) return;
+    await uploadGstrFile(gstrFile);
+  };
+
+  const onGstnAutoFetch = async () => {
+    if (typeof token !== "string" || !runId) return;
+    const ym = yearMonthFromPeriod(run?.period ?? period);
+    if (!ym) {
+      setGstnFetchError("Select a period in Step 1 before fetching GSTR-2B.");
+      return;
+    }
+    setGstnFetchBusy(true);
+    setGstnFetchError(null);
+    setGstnFetchSummary(null);
+    setGstnZeroData(false);
+    setErr(null);
+    try {
+      const result = await gstnApi.fetchGstr2b(token, clientId, ym);
+      const payload = result.upload_payload;
+      if (!payload || typeof payload !== "object") {
+        throw {
+          detail: "Fetch succeeded but no uploadable GSTR-2B payload was returned.",
+          status: 502,
+        };
+      }
+      const total = Number(result.total_parsed ?? 0);
+      const fileName = `gstr2b_${ym.year}_${ym.month}_autofetch.json`;
+      const file = new File([JSON.stringify(payload)], fileName, {
+        type: "application/json",
+      });
+      setGstrFile(file);
+
+      const uploaded = await uploadGstrFile(file);
+      if (!uploaded) {
+        setShowManualGstrUpload(true);
+        return;
+      }
+      // Clear local file so the "Uploaded: …" summary shows (same as manual path).
+      setGstrFile(null);
+      if (total === 0) {
+        setGstnZeroData(true);
+        setGstnFetchSummary(null);
+      } else {
+        setGstnZeroData(false);
+        setGstnFetchSummary(
+          `Fetched ${total.toLocaleString("en-IN")} invoice${total === 1 ? "" : "s"} from GSTR-2B`
+        );
+      }
+    } catch (e) {
+      const ae = e as ApiError;
+      setGstnFetchError(ae.detail ?? "Couldn't fetch GSTR-2B automatically.");
+      setShowManualGstrUpload(true);
+    } finally {
+      setGstnFetchBusy(false);
     }
   };
 
@@ -774,6 +881,10 @@ export default function NewReconcileWizardPage() {
 
   const canGoToStep3 = sanityErrors.length === 0 && warningsOk && !!checksDisplayed.length;
   const canGoToStep4 = requiredOk && taxOk && lowOk && !!mappingLocal?.length;
+
+  const gstnConnected = isGstnConnected(clientRow);
+  const step2PeriodIso = (run?.period || period || "").slice(0, 10);
+  const step2PeriodLabel = step2PeriodIso ? periodLabel(step2PeriodIso) : "selected period";
 
   const preUploadMappingComplete =
     requiredTargetsMapped(headerToTarget) && isTaxMapped(headerToTarget);
@@ -1132,51 +1243,164 @@ export default function NewReconcileWizardPage() {
       {uiStep === 2 && runId ? (
         <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-[var(--text-primary)]">Upload GSTR-2B JSON</h2>
+            <h2 className="font-semibold text-[var(--text-primary)]">
+              {gstnConnected && !showManualGstrUpload && !run?.gstr2b_file_name
+                ? "GSTR-2B"
+                : "Upload GSTR-2B JSON"}
+            </h2>
             <button type="button" onClick={onBack} className="text-sm text-brand hover:underline">
               Back
             </button>
           </div>
-          {run?.gstr2b_file_name && !gstrFile ? (
-            <p className="text-sm text-[var(--text-secondary)]">
-              Uploaded: <strong>{run.gstr2b_file_name}</strong> ({formatBytes(run.gstr2b_file_size)})
-            </p>
-          ) : (
-            <>
-              <input
-                type="file"
-                accept=".json,application/json"
-                onChange={(e) => setGstrFile(e.target.files?.[0] ?? null)}
-                className="text-sm"
-              />
-              {gstrProgress > 0 && gstrProgress < 100 ? (
-                <div className="space-y-1">
-                  <div className="h-2 w-full overflow-hidden rounded bg-[var(--border)]">
-                    <div
-                      className="h-full bg-brand"
-                      style={{ width: `${gstrProgress}%` }}
-                    />
-                  </div>
-                  <p className="font-mono text-xs text-[var(--text-secondary)]">{gstrProgress}%</p>
-                </div>
-              ) : null}
+
+          {gstnConnected && !showManualGstrUpload && !run?.gstr2b_file_name ? (
+            <div className="space-y-3">
+              <p className="text-sm text-[var(--text-secondary)]">
+                GSTN is connected for this client. Fetch GSTR-2B for{" "}
+                <strong className="text-[var(--text-primary)]">{step2PeriodLabel}</strong>{" "}
+                directly from the portal.
+              </p>
               <button
                 type="button"
-                disabled={!gstrFile || busy}
-                onClick={onGstrUpload}
+                disabled={gstnFetchBusy || busy || !step2PeriodIso}
+                onClick={onGstnAutoFetch}
                 className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
               >
-                Upload &amp; verify
+                {gstnFetchBusy
+                  ? "Fetching GSTR-2B…"
+                  : `Fetch GSTR-2B for ${step2PeriodLabel}`}
               </button>
-              {gstrUploadFailed ? (
+              <div>
                 <button
                   type="button"
-                  onClick={onGstrUpload}
-                  className="ml-2 rounded-full border px-4 py-2 text-sm"
+                  onClick={() => setShowManualGstrUpload(true)}
+                  className="text-sm text-[var(--text-secondary)] underline-offset-2 hover:text-brand hover:underline"
                 >
-                  Retry upload
+                  Upload manually instead
                 </button>
-              ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {gstnFetchSummary ? (
+            <div className="rounded-lg border border-[var(--success)] bg-emerald-50 p-3 text-sm text-emerald-950">
+              {gstnFetchSummary}
+            </div>
+          ) : null}
+
+          {gstnZeroData ? (
+            <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+              <p>
+                No GSTR-2B data found for this period. This could mean no purchases were filed, or
+                the data isn&apos;t published yet.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setUiStep(1)}
+                  className="rounded-full border border-amber-400 bg-white px-3 py-1.5 text-sm font-medium"
+                >
+                  Try a different period
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUiStep(3)}
+                  className="rounded-full bg-[var(--text-primary)] px-3 py-1.5 text-sm font-medium text-white"
+                >
+                  Continue anyway
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {gstnFetchError ? (
+            <div className="space-y-3 rounded-lg border border-[var(--danger)] bg-red-50 p-4 text-sm text-red-900">
+              <p>
+                Couldn&apos;t fetch GSTR-2B automatically.{" "}
+                <span className="font-medium">{gstnFetchError}</span>
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <Link
+                  href={`/clients/${clientId}`}
+                  className="rounded-full border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-900 hover:bg-red-100"
+                >
+                  Reconnect GSTN
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowManualGstrUpload(true);
+                    setGstnFetchError(null);
+                  }}
+                  className="text-sm font-medium text-brand underline-offset-2 hover:underline"
+                >
+                  Upload manually instead
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {(!gstnConnected || showManualGstrUpload || !!run?.gstr2b_file_name) && (
+            <>
+              {run?.gstr2b_file_name && !gstrFile ? (
+                <p className="text-sm text-[var(--text-secondary)]">
+                  Uploaded: <strong>{run.gstr2b_file_name}</strong> ({formatBytes(run.gstr2b_file_size)})
+                </p>
+              ) : (
+                <>
+                  {gstnConnected && showManualGstrUpload ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-medium text-[var(--text-primary)]">
+                        Upload GSTR-2B JSON
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowManualGstrUpload(false);
+                          setGstnFetchError(null);
+                        }}
+                        className="text-sm text-brand hover:underline"
+                      >
+                        Back to auto-fetch
+                      </button>
+                    </div>
+                  ) : null}
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={(e) => setGstrFile(e.target.files?.[0] ?? null)}
+                    className="text-sm"
+                  />
+                  {gstrProgress > 0 && gstrProgress < 100 ? (
+                    <div className="space-y-1">
+                      <div className="h-2 w-full overflow-hidden rounded bg-[var(--border)]">
+                        <div
+                          className="h-full bg-brand"
+                          style={{ width: `${gstrProgress}%` }}
+                        />
+                      </div>
+                      <p className="font-mono text-xs text-[var(--text-secondary)]">{gstrProgress}%</p>
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={!gstrFile || busy || gstnFetchBusy}
+                    onClick={onGstrUpload}
+                    className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
+                  >
+                    Upload &amp; verify
+                  </button>
+                  {gstrUploadFailed ? (
+                    <button
+                      type="button"
+                      onClick={onGstrUpload}
+                      className="ml-2 rounded-full border px-4 py-2 text-sm"
+                    >
+                      Retry upload
+                    </button>
+                  ) : null}
+                </>
+              )}
             </>
           )}
 
@@ -1280,6 +1504,9 @@ export default function NewReconcileWizardPage() {
                   onClick={() => {
                     setGstrFile(null);
                     setSanityChecks(null);
+                    setGstnFetchSummary(null);
+                    setGstnZeroData(false);
+                    if (gstnConnected) setShowManualGstrUpload(false);
                   }}
                   className="text-sm font-medium text-brand"
                 >
