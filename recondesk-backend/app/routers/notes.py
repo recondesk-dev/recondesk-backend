@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.auth import get_current_active_user
 from app.database import get_supabase
-from app.routers.reconciliation_api import _parse_uuid
+from app.routers.reconciliation_api import _db_record_id, _parse_uuid
 from app.services.firm_access import assert_run_accessible
 from app.utils.audit import client_display_label, log_audit
 
@@ -126,6 +126,8 @@ async def add_note(
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(body.run_id, "run_id")
+    # API row ids are tagged (``pm:<uuid>``, ``wr:<uuid>``, …); DB column is UUID.
+    db_record_id = _db_record_id(record_id)
     sb = get_supabase()
     assert_run_accessible(sb, rid, current_user)
     uid = str(current_user.get("id", ""))
@@ -137,7 +139,7 @@ async def add_note(
     db_type = _normalize_record_type_to_db(body.record_type)
     now = datetime.now(timezone.utc).isoformat()
     ins = {
-        "record_id": record_id,
+        "record_id": db_record_id,
         "run_id": rid,
         "user_id": uid,
         "note": body.note,
@@ -170,7 +172,7 @@ async def add_note(
         "reconciliation",
         rid,
         entity_label,
-        {"record_id": record_id, "note_id": row0.get("id")},
+        {"record_id": db_record_id, "note_id": row0.get("id")},
     )
     return _new_note_row_response(sb, row0)
 
@@ -180,11 +182,13 @@ async def list_notes(
     record_id: str,
     _user: dict = Depends(get_current_active_user),
 ):
+    # Strip ``pm:`` / ``wr:`` / … tags — PostgREST rejects prefixed values on UUID cols.
+    db_record_id = _db_record_id(record_id)
     sb = get_supabase()
     res = (
         sb.table("mismatch_notes")
         .select("id, record_id, record_type, run_id, user_id, note, created_at")
-        .eq("record_id", record_id)
+        .eq("record_id", db_record_id)
         .order("created_at", desc=True)
         .execute()
     )

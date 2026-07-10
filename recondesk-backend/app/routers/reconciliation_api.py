@@ -1013,6 +1013,19 @@ def _notes_count_for_run(sb, run_id: str) -> Counter[str]:
     return c
 
 
+# API outcome-row ids are tagged as ``<kind>:<uuid>`` (e.g. ``pm:…``, ``wr:…``).
+# ``mismatch_notes.record_id`` is a UUID column — strip the tag before PostgREST.
+_RECORD_ID_PREFIXES: tuple[str, ...] = (
+    "s175-db:",
+    "s175:",
+    "r37:",
+    "pm:",
+    "mi:",
+    "wr:",
+    "rr:",
+)
+
+
 def _normalize_record_id(record_id: str) -> str:
     """URL-decode a path ``record_id`` (handles single and double encoding)."""
     decoded = str(record_id or "").strip()
@@ -1024,12 +1037,23 @@ def _normalize_record_id(record_id: str) -> str:
     return decoded
 
 
-def _rule37_db_record_key(record_id: str) -> str:
-    """``mismatch_notes.record_id`` is a UUID column — strip the ``r37:`` API prefix."""
+def _db_record_id(record_id: str) -> str:
+    """Strip API record-type prefixes; leave already-bare ids unchanged.
+
+    Frontend/API row ids look like ``pm:<uuid>``, ``wr:<uuid>``, ``r37:<uuid>``,
+    etc.  DB UUID columns and PostgREST ``.eq("record_id", …)`` filters need the
+    bare UUID only.
+    """
     rid = _normalize_record_id(record_id)
-    if rid.startswith("r37:"):
-        return rid[4:]
+    for prefix in _RECORD_ID_PREFIXES:
+        if rid.startswith(prefix):
+            return rid[len(prefix) :]
     return rid
+
+
+def _rule37_db_record_key(record_id: str) -> str:
+    """``mismatch_notes.record_id`` is a UUID column — strip API prefixes."""
+    return _db_record_id(record_id)
 
 
 def _rule37_api_record_id(db_record_id: str) -> str:
@@ -1043,14 +1067,24 @@ def _rule37_api_record_id(db_record_id: str) -> str:
 
 
 def _rule37_db_record_lookup_keys(record_id: str) -> list[str]:
-    """Candidate keys for lookup (stripped UUID plus legacy full ``r37:`` value)."""
+    """Candidate keys for lookup (stripped UUID plus legacy full prefixed value)."""
     full = _normalize_record_id(record_id)
-    bare = _rule37_db_record_key(full)
+    bare = _db_record_id(full)
     keys: list[str] = []
     for key in (bare, full):
         if key and key not in keys:
             keys.append(key)
     return keys
+
+
+def _lookup_by_record_id(mapping: dict[str, Any], record_id: str, default: Any = None) -> Any:
+    """Resolve a value keyed by either the API id or the bare DB UUID."""
+    if record_id in mapping:
+        return mapping[record_id]
+    bare = _db_record_id(record_id)
+    if bare != record_id and bare in mapping:
+        return mapping[bare]
+    return default
 
 
 def _is_schema_compat_error(exc: BaseException) -> bool:
@@ -1539,24 +1573,28 @@ def _upsert_decision_status(
     Uses delete-then-insert (same pattern as ``_upsert_rule37_action``) to
     avoid PostgREST coercing a TEXT record_id through UUID type-checking and
     to eliminate the unprotected SELECT that previously caused unhandled 500s.
+
+    API ids may carry a type tag (``pm:``, ``wr:``, …); strip it so the UUID
+    column accepts the value.
     """
     now = datetime.now(timezone.utc).isoformat()
+    db_rid = _db_record_id(record_id)
 
     # ── Step 1: remove any prior status row for this (run, record) pair ──
     try:
         sb.table("mismatch_notes").delete().eq("run_id", run_id).eq(
-            "record_id", record_id
+            "record_id", db_rid
         ).execute()
     except Exception:
         _log.warning(
             "decision_status delete failed (non-fatal) run_id=%s record_id=%s",
             run_id,
-            record_id,
+            db_rid,
         )
 
     # ── Step 2: insert the fresh status row ───────────────────────────────
     ins: dict[str, Any] = {
-        "record_id": record_id,
+        "record_id": db_rid,
         "run_id": run_id,
         "user_id": user_id,
         "firm_owner_id": user_id,
@@ -1941,7 +1979,9 @@ def _build_missed_itc_records(
             if v:
                 trade_name = str(v).strip()[:200]
                 break
-        decision_status = decision_statuses.get(row_id, "pending")
+        decision_status = _lookup_by_record_id(
+            decision_statuses, row_id, "pending"
+        )
         out.append(
             {
                 "id": row_id,
@@ -1967,7 +2007,7 @@ def _build_missed_itc_records(
                 "decision_normalized_pairs": [list(p) for p in dout.normalized_pairs],
                 "decision_status": decision_status,
                 "decision_type": None,
-                "notes_count": int(note_counts.get(row_id, 0)),
+                "notes_count": int(_lookup_by_record_id(note_counts, row_id, 0)),
                 "gstr2b_data": gd2,
                 "purchase_register_data": {},
             }
@@ -2026,7 +2066,9 @@ def _build_wrongful_risk_records(
             if v:
                 trade_name = str(v).strip()[:200]
                 break
-        decision_status = decision_statuses.get(row_id, "pending")
+        decision_status = _lookup_by_record_id(
+            decision_statuses, row_id, "pending"
+        )
         out.append(
             {
                 "id": row_id,
@@ -2050,7 +2092,7 @@ def _build_wrongful_risk_records(
                 "decision_normalized_pairs": [list(p) for p in dout.normalized_pairs],
                 "decision_status": decision_status,
                 "decision_type": None,
-                "notes_count": int(note_counts.get(row_id, 0)),
+                "notes_count": int(_lookup_by_record_id(note_counts, row_id, 0)),
                 "gstr2b_data": {},
                 "purchase_register_data": gd2,
             }
@@ -2317,7 +2359,7 @@ def _build_matched_pair_records(
                 else (str(getattr(orow, "decision_next", "")) if orow else None),
                 "decision_status": "pending",
                 "decision_type": None,
-                "notes_count": int(note_counts.get(rid_str, 0)),
+                "notes_count": int(_lookup_by_record_id(note_counts, rid_str, 0)),
                 "gstr2b_data": gd2,
                 "purchase_register_data": pd2,
             }
@@ -2825,7 +2867,7 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
                 "decision_next": ru.get("decision_next"),
                 "decision_status": "pending",
                 "decision_type": None,
-                "notes_count": int(note_counts.get(row_id, 0)),
+                "notes_count": int(_lookup_by_record_id(note_counts, row_id, 0)),
                 "gstr2b_data": {},
                 "purchase_register_data": {},
                 "rule37_urgency": ur,
@@ -2951,7 +2993,7 @@ def _build_section175_rows(sb, rid: str, payload: dict[str, Any], note_counts: C
                 "decision_next": bn.get("decision_next"),
                 "decision_status": "pending",
                 "decision_type": None,
-                "notes_count": int(note_counts.get(row_id, 0)),
+                "notes_count": int(_lookup_by_record_id(note_counts, row_id, 0)),
                 "gstr2b_data": {},
                 "purchase_register_data": {},
                 "section_17_5_category": str(cat) if cat else None,
