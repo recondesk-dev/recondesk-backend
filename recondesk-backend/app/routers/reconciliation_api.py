@@ -2519,6 +2519,37 @@ def _filter_risk_by_level(
     ]
 
 
+_DEFAULT_SOURCE_SOFTWARE = "your accounting software"
+
+
+def _source_software_for_run(sb, run_id: str) -> str:
+    """Return detected PR source software (Tally/Busy/Excel) for a run.
+
+    Reads ``pr_records.source_software`` when populated; otherwise falls back to
+    the same default used by ITC bucket endpoints.
+    """
+    try:
+        r = (
+            sb.table("pr_records")
+            .select("source_software")
+            .eq("run_id", run_id)
+            .limit(20)
+            .execute()
+        )
+    except Exception:
+        _log.warning(
+            "source_software lookup failed reconciliation_run=%s",
+            run_id,
+            exc_info=True,
+        )
+        return _DEFAULT_SOURCE_SOFTWARE
+    for row in r.data or []:
+        val = str(row.get("source_software") or "").strip()
+        if val:
+            return val
+    return _DEFAULT_SOURCE_SOFTWARE
+
+
 def _assert_record_ids_in_run(sb, rid: str, record_ids: list[str]) -> None:
     wanted = {str(x).strip() for x in record_ids if str(x).strip()}
     if not wanted:
