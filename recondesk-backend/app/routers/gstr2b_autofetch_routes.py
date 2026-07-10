@@ -77,6 +77,7 @@ class FetchGstr2bRequest(BaseModel):
 def _assert_client_access(sb, current_user: dict, client_id: str) -> None:
     allowed = list_accessible_client_gstin_ids(sb, current_user)
     if client_id not in allowed:
+        _log.warning("GSTN access denied: client_id=%s not in accessible set", client_id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="not allowed for this client",
@@ -92,9 +93,10 @@ def _load_client_gstin(sb, client_id: str) -> dict[str, Any]:
         .execute()
     )
     if not res.data:
+        _log.warning("GSTN client_gstins row missing for id=%s", client_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="client not found",
+            detail=f"client_gstins row not found for id={client_id}",
         )
     return res.data[0]
 
@@ -115,18 +117,39 @@ def _token_expiry_from_ms(token_expiry_ms: Any) -> datetime | None:
         return None
 
 
-def _raise_sandbox_http_error(exc: httpx.HTTPStatusError) -> None:
-    detail = "Sandbox GST API request failed"
+def _raise_sandbox_http_error(
+    exc: httpx.HTTPStatusError,
+    *,
+    context: str = "Sandbox GST API request failed",
+) -> None:
+    sandbox_msg = None
     try:
         body = exc.response.json()
         if isinstance(body, dict):
-            detail = str(body.get("message") or body.get("error") or detail)
+            err = body.get("error")
+            if isinstance(err, dict) and err.get("message"):
+                sandbox_msg = str(err["message"])
+            else:
+                sandbox_msg = str(body.get("message") or body.get("error") or "") or None
     except Exception:
-        pass
-    raise HTTPException(
-        status_code=exc.response.status_code,
-        detail=detail,
-    ) from exc
+        sandbox_msg = None
+
+    code = exc.response.status_code
+    # Never pass through bare Sandbox/FastAPI-style "Not Found" — callers confuse
+    # it with a missing ReconDesk route or client row.
+    if code == 404:
+        detail = (
+            f"{context}: Sandbox returned 404"
+            + (f" ({sandbox_msg})" if sandbox_msg else "")
+            + ". Check GSTN session and return period."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=detail,
+        ) from exc
+
+    detail = f"{context}: {sandbox_msg}" if sandbox_msg else context
+    raise HTTPException(status_code=code, detail=detail) from exc
 
 
 @router.post("/{client_id}/gstn/send-otp")
@@ -223,8 +246,8 @@ async def gstn_fetch_gstr2b(
     access_token = client_row.get("gstn_access_token")
     if not access_token:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="no GSTN access token stored for this client; verify OTP first",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="GSTN not connected for this client; complete OTP verification first",
         )
 
     gstin = str(client_row.get("gstin") or "").strip()
@@ -234,12 +257,35 @@ async def gstn_fetch_gstr2b(
             detail="client has no GSTIN on file",
         )
 
+    _log.info(
+        "GSTR-2B fetch starting client_id=%s gstin=%s period=%s-%s has_token=%s",
+        cid,
+        gstin,
+        body.year,
+        body.month,
+        bool(access_token),
+    )
+
     try:
         raw_data = await asyncio.to_thread(
             get_gstr2b, access_token, gstin, body.year, body.month
         )
+    except SandboxGstnError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=exc.message,
+        ) from exc
     except httpx.HTTPStatusError as exc:
-        _raise_sandbox_http_error(exc)
+        _log.warning(
+            "GSTR-2B Sandbox HTTP error client_id=%s status=%s body=%s",
+            cid,
+            exc.response.status_code,
+            (exc.response.text or "")[:300],
+        )
+        _raise_sandbox_http_error(
+            exc,
+            context=f"GSTR-2B fetch failed for {gstin} period {body.year}-{body.month}",
+        )
     except Exception as exc:
         _log.exception("GSTR-2B fetch failed for client %s", cid)
         raise HTTPException(
