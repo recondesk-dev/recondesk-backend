@@ -294,6 +294,23 @@ async def get_reconciliation_summary(
     meta = (rres.data or [{}])[0]
     p = ro.load_payload(sb, rid)
     if not p:
+        alt = _summary_without_payload(sb, row, rid=rid)
+        if alt is not None:
+            # Legacy /summary/{run_id} shape (paise KPI fields).
+            return {
+                "run_id": rid,
+                "client_gstin": "",
+                "period": meta.get("period") or alt.get("period"),
+                "status": alt["status"],
+                "status_message": alt.get("status_message"),
+                "total_itc_in_gstr_paise": 0,
+                "matched_itc_paise": 0,
+                "missed_itc_paise": 0,
+                "wrongful_risk_paise": 0,
+                "net_claimable_itc_paise": 0,
+                "match_rate_percent": 0,
+                "created_at": meta.get("created_at"),
+            }
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="no reconciliation payload for this run",
@@ -3406,9 +3423,22 @@ async def reconcile_run_summary(
         run_row = assert_run_accessible(sb, rid, current_user)
         p = ro.load_payload(sb, rid)
         if not p:
-            # Let's check what the raw DB row looks like
-            raw_res = sb.table("reconciliation_results").select("record_data, payload").eq("run_id", rid).limit(1).execute()
-            _log.error(f"RAW DB PAYLOAD CHECK for run {rid}: has_row={bool(raw_res.data)} type(payload)={type(raw_res.data[0].get('payload')) if raw_res.data else 'N/A'}")
+            alt = _summary_without_payload(sb, run_row, rid=rid)
+            if alt is not None:
+                return alt
+            raw_res = (
+                sb.table("reconciliation_results")
+                .select("record_data, payload")
+                .eq("run_id", rid)
+                .limit(1)
+                .execute()
+            )
+            _log.error(
+                "RAW DB PAYLOAD CHECK for run %s: has_row=%s type(payload)=%s",
+                rid,
+                bool(raw_res.data),
+                type(raw_res.data[0].get("payload")) if raw_res.data else "N/A",
+            )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="no reconciliation payload for this run",
@@ -3432,6 +3462,94 @@ def _payload_or_404(sb, rid: str) -> dict[str, Any]:
             detail="no reconciliation payload for this run",
         )
     return p
+
+
+_IN_PROGRESS_RUN_STATUSES = frozenset(
+    {
+        "MATCHING",
+        "PROCESSING",
+        "PENDING",
+        "RUNNING",
+        "IMPORTING",
+        "UPLOADING",
+        "READY",
+        "GSTR_IMPORT_COMPLETE",
+        "PURCHASE_IMPORT_COMPLETE",
+    }
+)
+
+
+def _status_message_for_run(sb, rid: str, run_row: dict[str, Any]) -> str:
+    msg = run_row.get("status_message")
+    if msg is not None and str(msg).strip():
+        return str(msg).strip()
+    res = (
+        sb.table("reconciliation_run")
+        .select("status_message")
+        .eq("id", rid)
+        .limit(1)
+        .execute()
+    )
+    if res.data:
+        return str(res.data[0].get("status_message") or "").strip()
+    return ""
+
+
+def _summary_without_payload(
+    sb, run_row: dict[str, Any], *, rid: str
+) -> Optional[dict[str, Any]]:
+    """When results payload is missing, surface FAILED / in-progress instead of 404.
+
+    Returns a summary-shaped dict the frontend can render, or None to keep the
+    existing 404 for truly unknown / empty completed runs.
+    """
+    st = str(run_row.get("status") or "").strip().upper()
+    msg = _status_message_for_run(sb, rid, run_row)
+    period = str(run_row.get("period") or "")
+
+    def _shell(*, status: str, status_message: str) -> dict[str, Any]:
+        return {
+            "run_id": rid,
+            "client_name": "",
+            "client_gstin": "",
+            "period": period,
+            "assigned_to_name": "",
+            "status": status,
+            "status_message": status_message,
+            "finalized_by_name": None,
+            "finalized_at": None,
+            "total_gstr_records": 0,
+            "clean_matched_count": 0,
+            "review_required_count": 0,
+            "total_linked_count": 0,
+            "matched_count": 0,
+            "mismatched_count": 0,
+            "exact_match_count": 0,
+            "missed_itc_count": 0,
+            "missed_itc_total_amount": 0.0,
+            "wrongful_risk_count": 0,
+            "wrongful_risk_total_amount": 0.0,
+            "wrongful_risk_purchase_total_amount": 0.0,
+            "missed_itc_amount_paise": 0,
+            "wrongful_risk_amount_paise": 0,
+            "purchase_value_at_risk_paise": 0,
+            "late_match_count": 0,
+            "match_rate_percent": 0.0,
+            "match_rate_pct": 0.0,
+            "user_role": "staff",
+        }
+
+    if st == "FAILED":
+        return _shell(
+            status="FAILED",
+            status_message=msg or "Reconciliation failed",
+        )
+    if st in _IN_PROGRESS_RUN_STATUSES:
+        return _shell(
+            status=st,
+            status_message=msg or "Processing…",
+        )
+    return None
 
 
 @reconcile_runs_router.patch(

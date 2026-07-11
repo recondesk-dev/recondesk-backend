@@ -505,18 +505,35 @@ def run_wizard_job(run_id: str) -> None:
     # ── failure helper ────────────────────────────────────────────────────────
     def _fail(detail: str) -> None:
         now = _now_iso()
-        for tbl in ("wizard_runs", "reconciliation_run"):
-            try:
-                sb.table(tbl).update(
-                    {
-                        "status": "error" if tbl == "wizard_runs" else "FAILED",
-                        "error_detail": detail[:2000],
-                        "status_message": "Processing failed",
-                        "updated_at": now,
-                    }
-                ).eq("id", run_id).execute()
-            except Exception:
-                pass
+        msg = (detail or "Processing failed")[:2000]
+        # wizard_runs has error_detail; reconciliation_run does not — write
+        # the real exception into status_message (same as execute_reconciliation).
+        try:
+            sb.table("wizard_runs").update(
+                {
+                    "status": "error",
+                    "error_detail": msg,
+                    "status_message": "Processing failed",
+                    "updated_at": now,
+                }
+            ).eq("id", run_id).execute()
+        except Exception:
+            _log.exception(
+                "run_wizard_job: failed to mark wizard_runs error run_id=%s", run_id
+            )
+        try:
+            sb.table("reconciliation_run").update(
+                {
+                    "status": "FAILED",
+                    "status_message": msg,
+                    "updated_at": now,
+                }
+            ).eq("id", run_id).execute()
+        except Exception:
+            _log.exception(
+                "run_wizard_job: failed to mark reconciliation_run FAILED run_id=%s",
+                run_id,
+            )
 
     # ── fetch wizard run ──────────────────────────────────────────────────────
     try:

@@ -610,6 +610,7 @@ export interface ReconcileRunSummaryDto {
   wrongful_risk_total_amount?: number;
   wrongful_risk_purchase_total_amount?: number;
   status?: string;
+  status_message?: string | null;
 }
 
 // ─── Records ──────────────────────────────────────────────────────────────────

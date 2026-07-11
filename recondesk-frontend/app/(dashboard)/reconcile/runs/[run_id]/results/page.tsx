@@ -167,6 +167,8 @@ type RunSummary = {
   period: string;
   assigned_to_name: string;
   status: string;
+  /** Present when the run failed before writing a results payload. */
+  status_message?: string | null;
   finalized_by_name: string | null;
   finalized_at: string | null;
   total_gstr_records: number;
@@ -1715,15 +1717,44 @@ export default function ReconcileResultsPage() {
     return <div className="p-8 text-gray-600">Invalid run.</div>;
   }
 
-  const isProcessing = summary?.status?.toUpperCase() === "PROCESSING" || summary?.status?.toUpperCase() === "PENDING" || summary?.status?.toUpperCase() === "RUNNING";
+  const runStatus = (summary?.status ?? "").toUpperCase();
+  const isProcessing = [
+    "PROCESSING",
+    "PENDING",
+    "RUNNING",
+    "MATCHING",
+    "IMPORTING",
+    "UPLOADING",
+    "READY",
+    "GSTR_IMPORT_COMPLETE",
+    "PURCHASE_IMPORT_COMPLETE",
+  ].includes(runStatus);
+  const isRunFailed = runStatus === "FAILED";
+  const runFailMsg = summary?.status_message?.trim()
+    ? `This run failed: ${summary.status_message.trim()}`
+    : "This run failed.";
+  const sectionLoadError = (fallback: string) =>
+    isRunFailed ? runFailMsg : fallback;
 
   if (isProcessing) {
     return (
       <div className="box-border -mx-8 -mt-8 flex min-h-[60vh] flex-col items-center justify-center bg-white px-8">
         <Loader2 className="mb-4 h-10 w-10 animate-spin text-[#7B5CFA]" />
         <p className="text-base font-medium text-gray-900">
-          Running reconciliation... This usually takes 20–40 seconds.
+          {summary?.status_message?.trim() ||
+            "Running reconciliation... This usually takes 20–40 seconds."}
         </p>
+      </div>
+    );
+  }
+
+  if (isRunFailed && summary && !summaryError) {
+    return (
+      <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden bg-white px-8 py-10">
+        <SectionError
+          message={runFailMsg}
+          onRetry={() => void mutateSummary()}
+        />
       </div>
     );
   }
@@ -1738,7 +1769,11 @@ export default function ReconcileResultsPage() {
         {(authLoading || summaryLoading) && <SummarySkeleton />}
         {!authLoading && !summaryLoading && summaryError && (
           <SectionError
-            message="Failed to load summary."
+            message={
+              isRunFailed
+                ? runFailMsg
+                : "Failed to load summary."
+            }
             onRetry={() => void mutateSummary()}
           />
         )}
@@ -2101,7 +2136,7 @@ export default function ReconcileResultsPage() {
 
             {itcError && (
               <SectionError
-                message="Failed to load."
+                message={sectionLoadError("Failed to load.")}
                 onRetry={() => void mutateItc()}
               />
             )}
@@ -2538,7 +2573,7 @@ export default function ReconcileResultsPage() {
 
             {riskError && (
               <SectionError
-                message="Failed to load."
+                message={sectionLoadError("Failed to load.")}
                 onRetry={() => void mutateRisk()}
               />
             )}
@@ -3051,7 +3086,7 @@ export default function ReconcileResultsPage() {
 
           {matchedError && (
             <SectionError
-              message="Failed to load."
+              message={sectionLoadError("Failed to load.")}
               onRetry={() => void mutateMatched()}
             />
           )}
@@ -3359,7 +3394,7 @@ export default function ReconcileResultsPage() {
 
           {reviewRequiredError && (
             <SectionError
-              message="Failed to load."
+              message={sectionLoadError("Failed to load.")}
               onRetry={() => void mutateReviewRequired()}
             />
           )}
@@ -3616,7 +3651,7 @@ export default function ReconcileResultsPage() {
               )}
               {rule37Error && (
                 <SectionError
-                  message="Failed to load."
+                  message={sectionLoadError("Failed to load.")}
                   onRetry={() => void mutateRule37()}
                 />
               )}
@@ -3796,7 +3831,7 @@ export default function ReconcileResultsPage() {
             <div className="mt-5 border-t border-[#F0F0F0] pt-5">
               {section17Error && (
                 <SectionError
-                  message="Failed to load."
+                  message={sectionLoadError("Failed to load.")}
                   onRetry={() => void mutateSection17()}
                 />
               )}

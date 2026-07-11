@@ -18,6 +18,8 @@ type ReconcileRow = {
 
 type RunSummary = {
   period: string;
+  status?: string;
+  status_message?: string | null;
   wrongful_risk_count: number;
   wrongful_risk_total_amount: number;
 };
@@ -188,6 +190,10 @@ export default function VendorIntelligencePage() {
 
   const loading = summaryLoading || (riskAllKey != null && riskLoading && !riskRows);
   const error = summaryError || riskError;
+  const isRunFailed = (summary?.status ?? "").toUpperCase() === "FAILED";
+  const runFailMsg = summary?.status_message?.trim()
+    ? `This run failed: ${summary.status_message.trim()}`
+    : "This run failed.";
 
   return (
     <div className="mx-auto max-w-7xl space-y-4">
@@ -217,11 +223,19 @@ export default function VendorIntelligencePage() {
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Failed to load vendor intelligence.
+          {isRunFailed
+            ? runFailMsg
+            : "Failed to load vendor intelligence."}
         </div>
       )}
 
-      {!loading && !error && summary && summary.wrongful_risk_count <= 0 && (
+      {isRunFailed && !error && summary && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {runFailMsg}
+        </div>
+      )}
+
+      {!loading && !error && !isRunFailed && summary && summary.wrongful_risk_count <= 0 && (
         <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600">
           No ITC at risk for this run.
         </div>
