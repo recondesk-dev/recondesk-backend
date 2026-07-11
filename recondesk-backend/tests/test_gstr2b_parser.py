@@ -222,6 +222,32 @@ def test_cdnr_ntty_d_is_debit_note():
     assert result["records"][0]["doc_type"] == "DEBIT_NOTE"
 
 
+def test_cdnr_portal_ntyp_alias_is_credit_note():
+    """Portal GSTR-2B JSON uses ``ntyp`` (not legacy ``ntty``)."""
+    inv = _cdnr_invoice(ntnum="CN-PORTAL-1")
+    del inv["ntty"]
+    inv["ntyp"] = "C"
+    inv["nt_num"] = inv.pop("ntnum")
+    inv["nt_dt"] = inv.pop("dt")
+    result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, [inv])]))
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 0
+    assert result["records"][0]["doc_type"] == "CREDIT_NOTE"
+
+
+def test_cdnr_nttyp_and_typ_aliases():
+    for key, val, expected in (
+        ("nttyp", "D", "DEBIT_NOTE"),
+        ("typ", "C", "CREDIT_NOTE"),
+    ):
+        inv = _cdnr_invoice(ntnum=f"N-{key}")
+        del inv["ntty"]
+        inv[key] = val
+        result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, [inv])]))
+        assert result["total_skipped"] == 0, key
+        assert result["records"][0]["doc_type"] == expected, key
+
+
 def test_b2ba_is_amendment_true_with_originals():
     inv = {
         "inum": "INV002", "dt": "15-04-2024", "val": 2000,
