@@ -45,8 +45,6 @@ def test_matcher_l5_fuzzy_format_variant():
     
     assert match_result is not None
     assert match_result.matched is True
-    # Bug 1 fix: zero-discrepancy format variants (same GSTIN, same amount, same
-    # date — short numeric "1" is recognised as a format variant of
-    # "INV-00001-26") are promoted to a clean L1 match, not left at L2 review.
-    assert match_result.level == 1
+    # Zero-discrepancy format variants stay on Matched as L2 (non-exact), not L1.
+    assert match_result.level == 2
     assert match_result.requires_human_review is False

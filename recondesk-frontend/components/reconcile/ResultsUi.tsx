@@ -599,6 +599,7 @@ export function rule37BorderClass(
 export type ResultsBucketTabId =
   | "matched"
   | "review_required"
+  | "duplicate_entry"
   | "risk"
   | "itc"
   | "rule37"
@@ -608,6 +609,7 @@ export type ResultsBucketTabId =
 const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "matched", label: "Matched" },
   { id: "review_required", label: "Review Required" },
+  { id: "duplicate_entry", label: "Duplicate Entries" },
   { id: "risk", label: "ITC at Risk" },
   { id: "itc", label: "Missed ITC" },
   { id: "rule37", label: "Rule 37" },

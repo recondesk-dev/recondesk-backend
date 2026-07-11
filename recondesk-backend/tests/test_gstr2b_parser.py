@@ -235,6 +235,67 @@ def test_cdnr_portal_ntyp_alias_is_credit_note():
     assert result["records"][0]["doc_type"] == "CREDIT_NOTE"
 
 
+def test_portal_docdata_cdnr_nt_ntyp_parsed_in_upload_validation():
+    """Regression for the real messy-file symptom: portal CDNR under
+    ``data.docdata.cdnr`` with ``nt`` arrays and ``ntyp`` (no legacy ``ntty``)
+    must parse cleanly through upload validation — not
+    ``N skipped: Unsupported schema``.
+    """
+    from app.services.reconciliation_import_wizard.wizard_service import (
+        run_sanity_gstr2b_json,
+    )
+
+    note = {
+        "ntyp": "C",
+        "nt_num": "CN-24-25/1019",
+        "nt_dt": "21-03-2025",
+        "val": 103563.0,
+        "pos": "27",
+        "rchrg": "N",
+        "itms": [
+            {
+                "num": 1,
+                "itm_det": {
+                    "txval": 87765.26,
+                    "rt": 18.0,
+                    "camt": 7898.87,
+                    "samt": 7898.87,
+                    "iamt": 0.0,
+                },
+            }
+        ],
+    }
+    payload = _enc(
+        {
+            "data": {
+                "gstin": BUYER_GSTIN,
+                "fp": "062025",
+                "docdata": {
+                    "b2b": [],
+                    "cdnr": [
+                        {"ctin": SUPPLIER_1, "trdnm": "Vendor", "nt": [note]},
+                    ],
+                },
+            },
+        }
+    )
+
+    parsed = parse_gstr2b(payload)
+    assert parsed["total_parsed"] == 1
+    assert parsed["total_skipped"] == 0
+    assert parsed["records"][0]["section"] == "cdnr"
+    assert parsed["records"][0]["doc_type"] == "CREDIT_NOTE"
+    assert not any(
+        s.get("category") == "unsupported_schema" for s in parsed["skipped"]
+    )
+
+    checks, count = run_sanity_gstr2b_json(payload)
+    assert count == 1
+    detail = next(c["detail"] for c in checks if c["id"] == "records")
+    assert "Unsupported schema" not in detail
+    assert "1 invoice(s) parsed" in detail
+
+
 def test_cdnr_nttyp_and_typ_aliases():
     for key, val, expected in (
         ("nttyp", "D", "DEBIT_NOTE"),

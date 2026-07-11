@@ -420,7 +420,11 @@ def _amount_diff_and_skip(
 ) -> tuple[int, bool]:
     if g is None or p is None:
         return 0, True
-    return abs(g - p), False
+    # Compare magnitudes: PR credit notes / Purchase Returns store negative
+    # taxable and tax, while GSTR-2B CDNR amounts are positive. Using signed
+    # values made equal abs amounts look like a 2× mismatch and pushed real
+    # CN↔CDNR pairs into Review / ITC at Risk.
+    return abs(abs(int(g)) - abs(int(p))), False
 
 
 def _date_diff_days_and_skip(
@@ -594,7 +598,7 @@ def _match_gstr_to_pr_pair(
     gstin_match = _gstin_match_spec(gstr_rec, pr_rec)
     gstr_total = _invoice_total_paise(gstr_rec)
     pr_total = _invoice_total_paise(pr_rec)
-    total_diff = abs(gstr_total - pr_total)
+    total_diff = abs(abs(gstr_total) - abs(pr_total))
     gstr_is_igst = _safe_paise_field(gstr_rec, "igst_paise") > 0
     pr_is_igst = _safe_paise_field(pr_rec, "igst_paise") > 0
     # Only treat a structure disagreement as real when BOTH sides actually
@@ -723,7 +727,7 @@ def _match_gstr_to_pr_pair(
     # a real compliance risk even when the totals coincidentally agree.
     g_total_tax_paise = _safe_paise_field(gstr_rec, "total_tax_paise")
     p_total_tax_paise = _safe_paise_field(pr_rec, "total_tax_paise")
-    tax_only_diff = abs(g_total_tax_paise - p_total_tax_paise)
+    tax_only_diff = abs(abs(g_total_tax_paise) - abs(p_total_tax_paise))
     zero_discrepancy = (
         not skip_amount
         and amount_diff <= AMOUNT_TOLERANCE_L1_PAISE
@@ -737,11 +741,28 @@ def _match_gstr_to_pr_pair(
         and date_within_l1
         and tax_structure_match
     ):
+        # L1 only when raw invoice strings are identical. Normalized / format-
+        # variant identity with zero financial diff stays on Matched as L2
+        # (requires_human_review=False) so the Non-exact chip and FUZZY filter
+        # can surface formatting-only matches. Do not promote those to L1.
+        if raw_inv_ok:
+            return MatchResult(
+                level=1, matched=True, confidence=100, requires_human_review=False,
+                decision_what="Exact match found",
+                decision_why="Invoice number, amount, and date align",
+                decision_next="No action required",
+                discrepancies=discrepancies,
+                identity_confidence="High", financial_status="Exact",
+                review_reason=None,
+            )
         return MatchResult(
-            level=1, matched=True, confidence=100, requires_human_review=False,
-            decision_what="Exact match found",
-            decision_why="Invoice number, amount, and date align",
-            decision_next="No action required",
+            level=2, matched=True, confidence=95, requires_human_review=False,
+            decision_what="Normalized invoice match",
+            decision_why=(
+                "Invoice numbers match after normalization or format variant; "
+                "amounts and dates align"
+            ),
+            decision_next="No action required — formatting differs, amounts align",
             discrepancies=discrepancies,
             identity_confidence="High", financial_status="Exact",
             review_reason=None,

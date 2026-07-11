@@ -59,17 +59,32 @@ recondesk-frontend/
 supabase/.temp/
 
 # Local investigation scratch (not load-bearing tests)
-verification_13_pairs.csv
-verify_theft_pairs.py
-scratch*.py
-debug_*.py
-e2e_*.txt
-independent_*.json
+/verification_13_pairs.csv
+/verify_theft_pairs.py
+/scratch*.py
+/debug_*.py
+/e2e_*.txt
+/independent_*.json
 # Closely related one-off harness / dump artifacts
-independent_*.py
-e2e_*.py
-user_recon_*.json
+/independent_*.py
+/e2e_*.py
+/user_recon_*.json
 *.py.save
-missed_itc_dump.txt
-output_pairs.txt
-ISSUES_1_5_REVIEW.diff
+/missed_itc_dump.txt
+/output_pairs.txt
+/ISSUES_1_5_REVIEW.diff
+/analyze_52.py
+/query_db.py
+/run_user_recon.py
+/test_match.py
+/debug_matches.py
+/get_failures.py
+/inspect_run.py
+/verify_checklist.py
+/test_repro.py
+/test_parser.py
+/test_gstr2b_parser.py
+/recon_output.txt
+/pytest_failures.txt
+/app/scripts/test_live_sandbox.py
+/app/scripts/test_live_sandbox.py.save

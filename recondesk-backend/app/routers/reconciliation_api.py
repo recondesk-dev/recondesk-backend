@@ -213,6 +213,7 @@ async def get_reconciliation_results(
             "credit_notes": ccounts.get("credit_notes", 0),
             "gstin_mismatch": ccounts.get("gstin_mismatch", 0),
             "review_required": ccounts.get("review_required", 0),
+            "duplicate_entry": ccounts.get("duplicate_entry", 0),
         },
         "blocked_credit_warnings": blocked_credit_warnings,
     }
@@ -230,6 +231,7 @@ async def get_reconciliation_invoices(
         "credit_notes",
         "gstin_mismatch",
         "review_required",
+        "duplicate_entry",
     ] = Query(..., description="Invoice bucket"),
     supplier_gstin: Optional[str] = None,
     invoice_search: Optional[str] = None,
@@ -1728,22 +1730,25 @@ def _matched_ui_match_level(
     """Return the match_level string for UI display.
 
     For the Matched tab (for_matched_tab=True) the frontend MatchLevelBadge only
-    accepts EXACT | FUZZY | MANUAL | UNMATCHED.  All non-exact engine levels
-    (L2 normalised, L3 amount, L4 vendor fuzzy, L5 typo) collapse to "FUZZY".
+    accepts EXACT | FUZZY | MANUAL | UNMATCHED.  Trust engine ``match_level``:
+    L1 → EXACT, L2+ → FUZZY.  Do NOT map financial match_status==MATCHED to
+    EXACT — that status means amounts align, not that the invoice string was
+    an exact raw match (normalized/format-variant pairs are also MATCHED).
 
     For the Review Required tab (for_matched_tab=False) the granular label is
     returned as-is because that tab renders it as raw text with no badge map.
     """
-    st = str(match_status_display or "").strip().upper()
     if engine_row.get("is_late_filing"):
         return "MANUAL"
-    if st == "MATCHED":
-        return "EXACT"
     lvl = engine_row.get("match_level")
     if for_matched_tab:
-        # Collapse all non-exact levels to FUZZY — the only non-EXACT value the
-        # frontend badge map accepts.  L1 exact matches have st=="MATCHED" above.
         if isinstance(lvl, int) and lvl == 1:
+            return "EXACT"
+        if isinstance(lvl, int) and lvl >= 2:
+            return "FUZZY"
+        # Legacy payloads missing match_level: confidence 100 was only emitted
+        # by L1 (and historically by promoted normalized pairs). Keep fallback.
+        if lvl is None and engine_row.get("confidence_score") == 100:
             return "EXACT"
         return "FUZZY"
     # Review Required tab: return granular label so the table cell shows the
@@ -1966,6 +1971,9 @@ def _build_reconcile_summary(
         "user_role": role_out,
         "pr_skipped_count": skipped_count,
         "pr_skipped_detail": pr_skipped_detail,
+        "duplicate_entry_count": sum(
+            1 for r in outcome_rows if r.category == "duplicate_entry"
+        ),
     }
 
 

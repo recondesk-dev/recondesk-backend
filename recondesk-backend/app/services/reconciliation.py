@@ -290,7 +290,10 @@ class ReconState:
     clean_matched: list[dict] = field(default_factory=list)
     review_required: list[dict] = field(default_factory=list)
     missed_itc: list[dict] = field(default_factory=list)
-    
+    # Extra PR bookings of an already-matched invoice (identical full-value
+    # duplicates). Separate from review_required and wrongful_itc_risk.
+    duplicate_entries: list[dict] = field(default_factory=list)
+
     consumed_pr_ids: set[str] = field(default_factory=set)
     consumed_gstr_ids: set[str] = field(default_factory=set)
     # PR rows consumed as pure data-entry duplicates of an already-matched invoice
@@ -458,17 +461,107 @@ def _is_multiline_pr_split(
     return True
 
 
+def _is_true_duplicate_pr_group(
+    g: dict,
+    p_ids: list[str],
+    pr_by_id: dict[str, dict],
+    *,
+    tolerance_paise: int = TOTAL_TOLERANCE_PAISE,
+) -> bool:
+    """True when every PR row is a full-value copy of the GSTR invoice.
+
+    Distinguishes true data-entry duplicates from mixed groups (e.g. one full
+    booking plus an unrelated partial row sharing the same invoice number).
+    Uses magnitude compare so credit-note / CDNR sign differences still count.
+    """
+    if len(p_ids) < 2:
+        return False
+    g_taxable = abs(int(g.get("taxable_amount_paise") or 0))
+    g_tax = abs(int(g.get("total_tax_paise") or 0))
+    for pid in p_ids:
+        p = pr_by_id[pid]
+        p_taxable = abs(int(p.get("taxable_amount_paise") or 0))
+        p_tax = abs(int(p.get("total_tax_paise") or 0))
+        if abs(p_taxable - g_taxable) > tolerance_paise:
+            return False
+        if abs(p_tax - g_tax) > tolerance_paise:
+            return False
+    return True
+
+
+def _push_duplicate_entry(
+    state: ReconState,
+    *,
+    extra_pr_id: str,
+    matched_pr_id: str,
+    gstr_id: str,
+    pr_rec: dict,
+) -> None:
+    """Flag an extra identical PR booking as Duplicate Entry (not ITC at Risk)."""
+    state.consumed_pr_ids.add(str(extra_pr_id))
+    state.duplicate_pr_ids.add(str(extra_pr_id))
+    state.duplicate_entries.append(
+        {
+            "id": str(extra_pr_id),
+            "side": "PR",
+            "reason": "DUPLICATE_ENTRY",
+            "classification": "Duplicate Entry",
+            "matched_pr_id": str(matched_pr_id),
+            "gstr_id": str(gstr_id),
+            "supplier_gstin": str(pr_rec.get("supplier_gstin") or ""),
+            "invoice_number_normalized": str(
+                pr_rec.get("invoice_number_normalized") or ""
+            ),
+            "invoice_date": pr_rec.get("invoice_date"),
+            "taxable_amount_paise": int(pr_rec.get("taxable_amount_paise") or 0),
+            "total_tax_paise": int(pr_rec.get("total_tax_paise") or 0),
+        }
+    )
+
+
+def _select_canonical_pr_id(
+    g: dict,
+    p_ids: list[str],
+    pr_by_id: dict[str, dict],
+) -> str:
+    """Deterministically pick the canonical PR for a true-duplicate group.
+
+    Primary key: lowest ``_duplicate_pair_cost`` (amount then date closeness).
+    Tie-break: lexicographically lowest ``pr_id`` so the choice is stable
+    regardless of input order.
+    """
+    ranked = sorted(
+        p_ids,
+        key=lambda pid: (_duplicate_pair_cost(g, pr_by_id[pid]), str(pid)),
+    )
+    return ranked[0]
+
+
 def _push_multiline_clean_match(
     state: ReconState,
     gid: str,
     p_ids: list[str],
+    gstr_by_id: dict[str, dict],
+    pr_by_id: dict[str, dict],
 ) -> None:
-    """Record one clean match for a multi-line PR split and consume every PR row."""
-    primary_pr_id = p_ids[0]
+    """Record one clean match for a multi-line PR split and consume every PR row.
+
+    Primary PR is chosen with the same deterministic canonical rule as true
+    duplicates. ``match_level`` follows Issue 3 (L1 only when raw invoice
+    strings match the GSTR row; otherwise L2) without calling the full matcher
+    on a single partial PR line — amounts only reconcile at the group level.
+    """
+    g = gstr_by_id[gid]
+    primary_pr_id = _select_canonical_pr_id(g, p_ids, pr_by_id)
+    pr_primary = pr_by_id[primary_pr_id]
+    g_raw = str(g.get("invoice_number") or "").strip()
+    p_raw = str(pr_primary.get("invoice_number") or "").strip()
+    raw_identical = bool(g_raw and p_raw and g_raw == p_raw)
+    level = 1 if raw_identical else 2
     ml_result = MatchResult(
-        level=1,
+        level=level,
         matched=True,
-        confidence=100,
+        confidence=100 if raw_identical else 95,
         requires_human_review=False,
         decision_what="Matched",
         decision_why="Multi-line purchase register booking sums to GSTR-2B invoice",
@@ -476,15 +569,21 @@ def _push_multiline_clean_match(
         identity_confidence="High",
         financial_status="Exact",
     )
-    _push_clean_matched(state, gid, primary_pr_id, 100, ml_result)
-    for pid in p_ids[1:]:
-        state.consumed_pr_ids.add(pid)
+    score = compute_match_score(ml_result)
+    _push_clean_matched(state, gid, primary_pr_id, score, ml_result)
+    for pid in p_ids:
+        if pid != primary_pr_id:
+            state.consumed_pr_ids.add(pid)
     match_dict = state.clean_matched[-1]
     match_dict["pr_ids"] = list(p_ids)
     match_dict["multiline_pr_split"] = True
     match_dict["match_reasons"] = [
         "Multi-line purchase register rows sum to GSTR-2B invoice"
     ]
+    if not raw_identical:
+        match_dict["match_reasons"].append(
+            "Invoice numbers match after normalization or format variant"
+        )
 
 
 def prepass_duplicate_ambiguity(
@@ -509,8 +608,11 @@ def prepass_duplicate_ambiguity(
         single clean pair. Counting each PR row separately was the source of
         Matched+Review+Missed exceeding Total GSTR on multi-item invoices.
       * Pure data-entry duplicates (one real GSTR invoice booked twice in the
-        Purchase Register with identical full-invoice values) are routed to
-        Review Required as DUPLICATE_CLAIM so a CA can confirm the extra booking.
+        Purchase Register with identical full-invoice values) leave the
+        deterministically chosen canonical PR free for Phase 1 to match, and
+        flag every extra PR row as Duplicate Entry (not Review Required, not
+        ITC at Risk). Each duplicate_entry records matched_pr_id so a CA can
+        see which row was treated as the real booking.
 
     This must run before ``process_gstr_records_chunk`` (Phase 1); running it
     afterwards (as a Phase 2 step) is too late because Phase 1 will already have
@@ -545,21 +647,25 @@ def prepass_duplicate_ambiguity(
             g = gstr_by_id[gid]
             # Tax-rate / HSN line split: PR rows partition one invoice → 1 match.
             if _is_multiline_pr_split(g, p_ids, pr_by_id):
-                _push_multiline_clean_match(state, gid, p_ids)
+                _push_multiline_clean_match(state, gid, p_ids, gstr_by_id, pr_by_id)
                 continue
-            # True duplicate booking: same GSTIN + invoice entered more than
-            # once at (near) full invoice value. Route the whole group to Review
-            # Required instead of silently consuming the extra PR rows.
-            state.consumed_gstr_ids.add(gid)
-            for pid in p_ids:
-                state.consumed_pr_ids.add(pid)
-            _push_review_required(
-                state, gid, "", 50, "DUPLICATE_CLAIM",
-            )
-            for pid in p_ids:
-                _push_review_required(
-                    state, "", pid, 50, "DUPLICATE_CLAIM_PR",
-                )
+            # True duplicate booking: every PR is a full-value copy of the GSTR
+            # invoice. Pick a deterministic canonical PR for Phase 1; flag every
+            # other PR as Duplicate Entry. Mixed groups (full + partial) are
+            # left for Phase 1 — do not mislabel partials as duplicates.
+            if _is_true_duplicate_pr_group(g, p_ids, pr_by_id):
+                canonical_pr_id = _select_canonical_pr_id(g, p_ids, pr_by_id)
+                for pid in p_ids:
+                    if pid == canonical_pr_id:
+                        continue
+                    _push_duplicate_entry(
+                        state,
+                        extra_pr_id=pid,
+                        matched_pr_id=canonical_pr_id,
+                        gstr_id=gid,
+                        pr_rec=pr_by_id[pid],
+                    )
+                continue
             continue
 
         if len(g_ids) > 1 and _is_deterministic_duplicate_group(g_ids, p_ids, gstr_by_id, pr_by_id):
@@ -1761,6 +1867,7 @@ def _finalize_reconciliation_result(
         "review_required": state.review_required,
         "missed_itc": state.missed_itc,
         "wrongful_itc_risk": wrongful_itc_risk,
+        "duplicate_entries": list(state.duplicate_entries),
         "gstin_mismatch": [], # deprecated
         "duplicates": [], # deprecated
         "stats": {
@@ -1777,6 +1884,7 @@ def _finalize_reconciliation_result(
             "itc_at_risk_count": wrongful_risk_count,
             "itc_at_risk_total": wrongful_risk_amount_paise,
             "purchase_value_at_risk_paise": 0, # Placeholder, depends on line item calculation
+            "duplicate_entry_count": len(state.duplicate_entries),
             
             # Legacy stats (optional, but keep for now if UI needs it)
             "gstin_mismatch_count": gstin_mismatch_count,

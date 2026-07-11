@@ -758,6 +758,9 @@ export default function NewReconcileWizardPage() {
       setMappingLocal(res.columns);
       setAllHeaders(res.all_headers);
       setPrParseWarning(res.pr_parse_warning?.trim() || null);
+      if (res.sanity_check_results?.length) {
+        setSanityChecks(res.sanity_check_results);
+      }
       if (res.saved_mapping_covers) {
         setSavedMappingCovers(true);
         setConfirmSavedMapping(true);
@@ -765,6 +768,7 @@ export default function NewReconcileWizardPage() {
       if (typeof res.schema_ok === "boolean") setSchemaOk(res.schema_ok);
       const r = await refreshRun(runId, token);
       setRun(r);
+      if (r.sanity_check_results) setSanityChecks(r.sanity_check_results);
     } catch (e) {
       const ae = e as ApiError;
       setErr(ae.detail ?? "Column detection failed.");
@@ -842,9 +846,14 @@ export default function NewReconcileWizardPage() {
   const sanityWarnings = checksDisplayed.filter(
     (c) => String(c.status).toLowerCase() === "warning"
   );
-  // Warnings are informational — they never block progression.
-  // Only errors (severity="error") prevent moving to the next step.
-  const warningsOk = true;
+  // High-risk warnings declare requires_acknowledgment on the check itself
+  // (multi_sheet_combine, missing_invoice_number, GSTR 0-parsed, …).
+  const blockingAckWarnings = checksDisplayed.filter(
+    (c) =>
+      !!c.requires_acknowledgment &&
+      String(c.status).toLowerCase() === "warning"
+  );
+  const highRiskWarningsOk = !blockingAckWarnings.some((c) => !c.acknowledged);
 
   const requiredOk =
     !!mappingLocal?.length &&
@@ -881,8 +890,14 @@ export default function NewReconcileWizardPage() {
       return m.confirmed;
     });
 
-  const canGoToStep3 = sanityErrors.length === 0 && warningsOk && !!checksDisplayed.length;
-  const canGoToStep4 = requiredOk && taxOk && lowOk && !!mappingLocal?.length;
+  const canGoToStep3 =
+    sanityErrors.length === 0 && highRiskWarningsOk && !!checksDisplayed.length;
+  const canGoToStep4 =
+    requiredOk && taxOk && lowOk && !!mappingLocal?.length && highRiskWarningsOk;
+
+  const step3BlockingWarnings = blockingAckWarnings.filter((c) =>
+    ["multi_sheet_combine", "missing_invoice_number"].includes(String(c.id))
+  );
 
   const gstnConnected = isGstnConnected(clientRow);
   const step2PeriodIso = (run?.period || period || "").slice(0, 10);
@@ -1417,7 +1432,13 @@ export default function NewReconcileWizardPage() {
                   Cannot proceed. Fix the issues below and re-upload.
                 </div>
               ) : null}
-              {sanityErrors.length === 0 && sanityWarnings.some((w) => !w.acknowledged) ? (
+              {sanityErrors.length === 0 &&
+              blockingAckWarnings.some((w) => !w.acknowledged) ? (
+                <div className="rounded-lg border border-[var(--warning)] bg-amber-50 p-3 text-sm text-amber-950">
+                  Acknowledge high-risk warnings before continuing.
+                </div>
+              ) : sanityErrors.length === 0 &&
+                sanityWarnings.some((w) => !w.acknowledged) ? (
                 <div className="rounded-lg border border-[var(--warning)] bg-amber-50 p-3 text-sm text-amber-950">
                   Review warnings before continuing.
                 </div>
@@ -1492,7 +1513,13 @@ export default function NewReconcileWizardPage() {
                             onClick={() => onDismissWarning(c)}
                             className="mt-2 rounded border px-2 py-1 text-xs font-medium disabled:opacity-50"
                           >
-                            {c.acknowledged ? "Dismissed" : "Dismiss"}
+                            {c.acknowledged
+                              ? c.requires_acknowledgment
+                                ? "Acknowledged"
+                                : "Dismissed"
+                              : c.requires_acknowledgment
+                                ? "I understand — continue"
+                                : "Dismiss"}
                           </button>
                         ) : null}
                       </div>
@@ -1696,10 +1723,35 @@ export default function NewReconcileWizardPage() {
 
           {detectBusy ? <p className="text-sm text-[var(--text-secondary)]">Detecting columns…</p> : null}
 
-          {prParseWarning ? (
+          {step3BlockingWarnings.map((w) => (
+            <div
+              key={w.id}
+              className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"
+            >
+              <div className="font-medium">{w.label}</div>
+              <p>{w.detail}</p>
+              <button
+                type="button"
+                disabled={!!w.acknowledged}
+                onClick={() => onDismissWarning(w)}
+                className="rounded border border-amber-400 bg-white px-2 py-1 text-xs font-medium disabled:opacity-50"
+              >
+                {w.acknowledged ? "Acknowledged" : "I understand — continue"}
+              </button>
+            </div>
+          ))}
+
+          {prParseWarning &&
+          !step3BlockingWarnings.some((w) => w.id === "missing_invoice_number") ? (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
               {prParseWarning}
             </div>
+          ) : null}
+
+          {!highRiskWarningsOk && step3BlockingWarnings.some((w) => !w.acknowledged) ? (
+            <p className="text-sm text-amber-900">
+              Acknowledge high-risk warnings before continuing.
+            </p>
           ) : null}
 
           {!requiredOk && mappingLocal?.length ? (
@@ -1905,7 +1957,7 @@ export default function NewReconcileWizardPage() {
 
           <button
             type="button"
-            disabled={startBusy || run?.status === "error"}
+            disabled={startBusy || run?.status === "error" || !highRiskWarningsOk}
             onClick={onStart}
             className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
           >

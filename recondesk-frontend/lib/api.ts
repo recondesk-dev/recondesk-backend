@@ -846,6 +846,8 @@ export interface SanityCheckItem {
   detail: string;
   affected_records: { gstin: string; invoice_number: string }[];
   acknowledged?: boolean;
+  /** When true, Continue/Start stay disabled until the user acknowledges. */
+  requires_acknowledgment?: boolean;
 }
 
 export interface ColumnMappingRow {
@@ -873,6 +875,11 @@ export interface DetectColumnsResponse {
   /** Visible when PR rows lack invoice_number after per-sheet mapping. */
   pr_parse_warning?: string | null;
   missing_invoice_number_count?: number;
+  /** Present when 2+ Excel sheets were auto-combined (must be acknowledged). */
+  multi_sheet_combine?: SanityCheckItem | null;
+  /** Present when PR rows lack invoice_number (must be acknowledged). */
+  missing_invoice_number?: SanityCheckItem | null;
+  sanity_check_results?: SanityCheckItem[] | null;
 }
 
 export type ImportTargetField =

@@ -300,8 +300,11 @@ def test_real_theft_pairs_unchanged_by_this_fix():
 
     for tid in thief_ids:
         assert tid in matched, "Thief must still win its PR as a clean Phase 1 match"
-        assert matched[tid]["match_level"] == 1
-        assert matched[tid]["confidence_score"] == 100
+        # Thief vs PR invoice strings differ by formatting only → L2 Matched
+        # (not L1 raw-identical). Still a clean Phase 1 win over the victim.
+        assert matched[tid]["match_level"] == 2
+        assert matched[tid].get("review_reason") is None
+        assert matched[tid].get("match_status") == "matched"
 
     for vid in victim_ids:
         assert vid in missed, (

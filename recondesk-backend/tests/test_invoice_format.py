@@ -76,35 +76,28 @@ class TestNormalizeInvoice:
 class TestSeparatorDifferences:
     def test_hyphen_vs_no_hyphen_is_L2(self):
         # raw_inv_ok=False (hyphens differ), inv_ok=True (both normalize to INV1).
-        # Bug 1 fix: amount/date are zero-discrepancy, so this format-only
-        # difference is promoted to a clean L1 match (Matched bucket), not a
-        # human-review L2 — the raw-string difference is purely a formatting
-        # artefact with nothing left to review.
+        # Zero financial discrepancy → clean Matched at L2 (non-exact), not L1.
         g = make_gstr(invoice="INV-001")
         p = make_pr(invoice="INV001")
         result = match_gstr_to_pr(g, [p])
-        assert result is not None and result.level == 1 and result.requires_human_review is False, (
-            f"Hyphen vs no-hyphen with zero discrepancy must be a clean L1 match. Got L{getattr(result,'level',None)}."
+        assert result is not None and result.level == 2 and result.requires_human_review is False, (
+            f"Hyphen vs no-hyphen with zero discrepancy must be clean L2. Got L{getattr(result,'level',None)}."
         )
 
     def test_slash_vs_no_slash_is_L2(self):
-        # raw_inv_ok=False (slash differs), inv_ok=True (both normalize to INV1).
-        # Zero discrepancy → promoted to clean L1 (see test_hyphen_vs_no_hyphen_is_L2).
         g = make_gstr(invoice="INV/001")
         p = make_pr(invoice="INV001")
         result = match_gstr_to_pr(g, [p])
-        assert result is not None and result.level == 1 and result.requires_human_review is False, (
-            f"Slash vs no-slash with zero discrepancy must be a clean L1 match. Got L{getattr(result,'level',None)}."
+        assert result is not None and result.level == 2 and result.requires_human_review is False, (
+            f"Slash vs no-slash with zero discrepancy must be clean L2. Got L{getattr(result,'level',None)}."
         )
 
     def test_mixed_separators_vs_clean_is_L2(self):
-        # raw_inv_ok=False (separators differ), inv_ok=True (both normalize to INV2024001).
-        # Zero discrepancy → promoted to clean L1 (see test_hyphen_vs_no_hyphen_is_L2).
         g = make_gstr(invoice="INV-2024/001")
         p = make_pr(invoice="INV2024001")
         result = match_gstr_to_pr(g, [p])
-        assert result is not None and result.level == 1 and result.requires_human_review is False, (
-            f"Mixed separators with zero discrepancy must be a clean L1 match. Got L{getattr(result,'level',None)}."
+        assert result is not None and result.level == 2 and result.requires_human_review is False, (
+            f"Mixed separators with zero discrepancy must be clean L2. Got L{getattr(result,'level',None)}."
         )
 
 class TestYearFormatDifferences:
@@ -139,12 +132,12 @@ class TestLeadingZeroCollision:
 
     def test_two_invoices_differing_only_in_leading_zeros_match_L2(self):
         # INV001 (raw) vs INV1 (raw): raw_inv_ok=False, but both normalize to INV1.
-        # Zero discrepancy → promoted to clean L1 (see TestSeparatorDifferences).
+        # Zero discrepancy → clean Matched at L2 (non-exact).
         g = make_gstr(invoice="INV001")
         p = make_pr(invoice="INV1")
         result = match_gstr_to_pr(g, [p])
-        assert result is not None and result.level == 1 and result.requires_human_review is False, (
-            f"INV001 vs INV1 with zero discrepancy must be a clean L1 match. Got L{getattr(result,'level',None)}."
+        assert result is not None and result.level == 2 and result.requires_human_review is False, (
+            f"INV001 vs INV1 with zero discrepancy must be clean L2. Got L{getattr(result,'level',None)}."
         )
 
 class TestEmptyAndMissingInvoice:

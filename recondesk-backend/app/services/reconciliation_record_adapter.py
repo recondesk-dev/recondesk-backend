@@ -110,6 +110,11 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "filing_status": (
             str(rd.get("filing_status") or "").strip().upper() or None
         ),
+        "doc_type": (
+            str(rd.get("doc_type") or rd.get("document_type") or "").strip().upper()
+            or None
+        ),
+        "section": str(rd.get("section") or "").strip().lower() or None,
     }
 
 
@@ -163,4 +168,10 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "total_tax_paise": total_tax,
         "itc_eligibility": rd.get("itc_eligibility"),
         "hsn": rd.get("hsn"),
+        "doc_type": (
+            str(rd.get("invoice_type") or rd.get("document_type") or "")
+            .strip()
+            .upper()
+            or None
+        ),
     }

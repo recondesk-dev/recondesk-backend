@@ -93,4 +93,5 @@ def test_run_summary_metrics_has_no_nested_decisions():
     assert summary["matched_count"] == 3417
     assert "decisions" not in summary
     assert "compliance" not in summary
-    assert len(json.dumps(summary)) < 500
+    assert summary.get("duplicate_entry_count") == 0
+    assert len(json.dumps(summary)) < 600
