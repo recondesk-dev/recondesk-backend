@@ -54,3 +54,10 @@ tmp/
 .DS_Store
 ../.DS_Store
 recondesk-frontend/
+
+# Supabase CLI local cache (project-ref, pooler URL, version pins)
+supabase/.temp/
+
+# Local investigation scratch (not load-bearing tests)
+verification_13_pairs.csv
+verify_theft_pairs.py

@@ -1,0 +1,6 @@
+# Supabase CLI local link/cache at repo root only.
+# Migrations live under recondesk-backend/supabase/migrations/ — do not ignore those.
+/supabase/
+
+# macOS
+.DS_Store
