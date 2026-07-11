@@ -610,23 +610,258 @@ def _invoice_type_consistency_errors(
 # Main parser
 # ---------------------------------------------------------------------------
 
+def list_mappable_pr_sheets(file_content: bytes, filename: str) -> list[str]:
+    """Return Excel sheet names that have a valid auto-detected column mapping.
+
+    Sheets whose names match ``_SKIP_SHEET_WORDS`` (summary/total/…) are excluded.
+    CSV / non-Excel inputs return an empty list.
+    """
+    ext = ""
+    dot_idx = filename.rfind(".")
+    if dot_idx != -1:
+        ext = filename[dot_idx:].lower()
+    if ext not in (".xlsx", ".xls"):
+        return []
+    try:
+        xl = pd.ExcelFile(io.BytesIO(file_content))
+    except Exception:
+        return []
+    names: list[str] = []
+    for sheet_name in xl.sheet_names:
+        norm_sheet = normalize_header(str(sheet_name))
+        if any(w in norm_sheet for w in _SKIP_SHEET_WORDS):
+            continue
+        try:
+            raw_df = pd.read_excel(
+                io.BytesIO(file_content),
+                sheet_name=sheet_name,
+                header=None,
+                dtype=str,
+            )
+        except Exception:
+            continue
+        best_df, best_mapping, _ = _find_best_header_from_raw(raw_df)
+        if best_df is not None and best_mapping:
+            names.append(str(sheet_name))
+    return names
+
+
+def _process_pr_sheet_rows(
+    *,
+    df: pd.DataFrame,
+    column_mapping: dict[str, str],
+    selected_header_row: int,
+    filename: str,
+    sheet_name: str | None,
+) -> dict[str, Any]:
+    """Parse one mapped DataFrame into PR records (no cross-sheet dedupe)."""
+    records: list[dict] = []
+    warnings: list[str] = []
+    errors: list[str] = []
+    total_rows = 0
+    skipped_rows = 0
+    skip_reasons: dict[str, int] = {}
+    sheet_prefix = f"[{sheet_name}] " if sheet_name else ""
+
+    def _bump_skip(reason: str) -> None:
+        skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+
+    def _is_blank_cell(s: str) -> bool:
+        stripped = s.strip().lower()
+        return not stripped or stripped in ("nan", "none", "nat")
+
+    df_canon = normalize_dataframe_to_canonical_schema(df, column_mapping)
+
+    for df_idx, row in df_canon.iterrows():
+        total_rows += 1
+        row_number: int = selected_header_row + int(df_idx) + 2
+        orig_row = df.loc[df_idx]
+
+        row_values = [str(v) if v is not None else "" for v in orig_row]
+        if is_total_row(row_values):
+            skipped_rows += 1
+            _bump_skip("total_or_summary_row")
+            continue
+
+        if all(_is_blank_cell(cell) for cell in row_values):
+            errors.append(f"{sheet_prefix}Row {row_number}: empty row")
+            skipped_rows += 1
+            _bump_skip("empty_row")
+            continue
+
+        row_errors: list[str] = []
+
+        gstin_value: str | None = None
+        gstin_valid = False
+        if "gstin" in column_mapping:
+            raw_gstin = row.get("gstin")
+            if raw_gstin is None:
+                row_errors.append("missing GSTIN")
+            else:
+                try:
+                    gstin_value = normalize_gstin(str(raw_gstin).strip())
+                    gstin_valid = True
+                except NormalizationError:
+                    gstin_value = str(raw_gstin).strip().upper() or None
+                    gstin_valid = False
+
+        inv_raw: str | None = None
+        if "invoice_number" in column_mapping:
+            cell = row.get("invoice_number_normalized")
+            if cell is None or (isinstance(cell, float) and pd.isna(cell)):
+                inv_raw = None
+            else:
+                inv_raw = str(cell).strip().upper() if str(cell).strip() else None
+            if inv_raw is None:
+                row_errors.append("missing invoice number")
+
+        date_value: str | None = None
+        if "invoice_date" in column_mapping:
+            raw_date = _safe_cell(orig_row.get(column_mapping["invoice_date"]))
+            if raw_date is not None:
+                try:
+                    norm_date = normalize_date(raw_date)
+                    date_value = norm_date.value.isoformat()
+                except NormalizationError:
+                    row_errors.append("invalid date")
+
+        original_taxable: int | None = None
+        taxable_amount_paise: int | None = None
+        if "taxable_amount" in column_mapping:
+            raw_tax = _safe_cell(orig_row.get(column_mapping["taxable_amount"]))
+            taxable_amount_paise = _df_cell_int(row.get("taxable_amount_paise"))
+            if raw_tax is not None:
+                if taxable_amount_paise is None:
+                    row_errors.append("invalid value")
+                else:
+                    original_taxable = taxable_amount_paise
+
+        invoice_type = _classify_invoice_type(inv_raw, original_taxable)
+        row_errors.extend(
+            _invoice_type_consistency_errors(invoice_type, original_taxable)
+        )
+
+        if row_errors:
+            if "missing GSTIN" in row_errors and "missing invoice number" in row_errors:
+                skipped_rows += 1
+                _bump_skip("truly_unparseable_row")
+            else:
+                errors.append(
+                    f"{sheet_prefix}Row {row_number}: {', '.join(row_errors)}"
+                )
+                skipped_rows += 1
+                _bump_skip("invalid_row")
+                continue
+
+        igst_paise = _df_cell_int(row.get("igst_paise"))
+        cgst_paise = _df_cell_int(row.get("cgst_paise"))
+        sgst_paise = _df_cell_int(row.get("sgst_paise"))
+        cess_paise = _df_cell_int(row.get("cess_paise"))
+        total_tax_paise = _df_cell_int(row.get("total_tax_paise"))
+        if total_tax_paise is None and (
+            igst_paise is not None
+            or cgst_paise is not None
+            or sgst_paise is not None
+            or cess_paise is not None
+        ):
+            total_tax_paise = (
+                (igst_paise or 0)
+                + (cgst_paise or 0)
+                + (sgst_paise or 0)
+                + (cess_paise or 0)
+            )
+        if invoice_type == "CREDIT_NOTE" and total_tax_paise is not None and total_tax_paise > 0:
+            total_tax_paise = -total_tax_paise
+
+        _rcell = row.get("reverse_charge")
+        if _rcell is None or (isinstance(_rcell, float) and pd.isna(_rcell)):
+            reverse_out: bool | None = None
+        else:
+            reverse_out = _rcell  # type: ignore[assignment]
+
+        payment_status: str | None = None
+        if "payment_status" in column_mapping:
+            _ps = row.get("payment_status")
+            if _ps is None or (isinstance(_ps, float) and pd.isna(_ps)):
+                payment_status = None
+            else:
+                payment_status = str(_ps)
+
+        payment_date: str | None = None
+        if "payment_date" in column_mapping:
+            raw_pay_date = _safe_cell(
+                orig_row.get(column_mapping["payment_date"])
+            )
+            if raw_pay_date is not None:
+                try:
+                    payment_date = normalize_date(raw_pay_date).value.isoformat()
+                except NormalizationError:
+                    errors.append(
+                        f"{sheet_prefix}Row {row_number}: invalid payment date "
+                        f"(ignored for Rule 37)"
+                    )
+
+        amount_paid_paise: int | None = None
+        if "amount_paid" in column_mapping:
+            amount_paid_paise = _df_cell_int(row.get("amount_paid_paise"))
+
+        out: dict[str, Any] = {
+            "row_number": row_number,
+            "invoice_number_normalized": inv_raw,
+            "invoice_number": inv_raw,
+            "document_type": invoice_type,
+            "invoice_type": invoice_type,
+            "invoice_date": date_value,
+            "gstin": gstin_value,
+            "gstin_valid": gstin_valid,
+            "supplier_name": _safe_cell(row.get("supplier_name")),
+            "taxable_amount_paise": taxable_amount_paise,
+            "igst_paise": igst_paise,
+            "cgst_paise": cgst_paise,
+            "sgst_paise": sgst_paise,
+            "cess_paise": cess_paise,
+            "total_tax_paise": total_tax_paise,
+            "total_amount_paise": _df_cell_int(row.get("total_amount_paise")),
+            "place_of_supply": _safe_cell(row.get("place_of_supply")),
+            "reverse_charge": reverse_out,
+            "source_file": filename,
+        }
+        if sheet_name:
+            out["source_sheet"] = sheet_name
+        if payment_status is not None:
+            out["payment_status"] = payment_status
+        if payment_date is not None:
+            out["payment_date"] = payment_date
+        if amount_paid_paise is not None:
+            out["amount_paid_paise"] = amount_paid_paise
+        if "itc_eligibility" in column_mapping:
+            _itc = row.get("itc_eligibility")
+            if _itc is not None and not (isinstance(_itc, float) and pd.isna(_itc)):
+                out["itc_eligibility"] = str(_itc)
+        if "hsn" in column_mapping:
+            _hsn = row.get("hsn")
+            if _hsn is not None and not (isinstance(_hsn, float) and pd.isna(_hsn)):
+                out["hsn"] = str(_hsn).strip()
+
+        records.append(out)
+
+    return {
+        "records": records,
+        "errors": errors,
+        "warnings": warnings,
+        "total_rows": total_rows,
+        "skipped_rows": skipped_rows,
+        "skip_reasons": skip_reasons,
+        "df_canon": df_canon,
+    }
+
+
 def parse_purchase_register(file_content: bytes, filename: str) -> dict:
     """Parse a purchase-register file and return a structured result dict.
 
-    Parameters
-    ----------
-    file_content:
-        Raw bytes of the uploaded file.
-    filename:
-        Original filename (used to determine the parser and returned in records).
-
-    Returns
-    -------
-    dict
-        Always includes ``success``, ``total_rows``, ``valid_rows``, ``records``,
-        and ``errors``. On a full parse, also includes ``source_software``,
-        ``skipped_rows``, ``skip_reasons``, ``detected_columns``, ``unmapped_columns``,
-        and ``warnings``.
+    Multi-sheet Excel workbooks: every non-skipped sheet with a valid column
+    mapping is parsed and combined. Sheets used vs skipped are returned in
+    ``sheets_used`` / ``sheets_skipped`` and mirrored in ``warnings``.
     """
     result: dict[str, Any] = {
         "success": False,
@@ -634,6 +869,8 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
         "valid_rows": 0,
         "records": [],
         "errors": [],
+        "sheets_used": [],
+        "sheets_skipped": [],
     }
     if not file_content or not file_content.strip():
         result["errors"].append("Empty file")
@@ -644,14 +881,10 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
     if dot_idx != -1:
         ext = filename[dot_idx:].lower()
 
-    df: pd.DataFrame | None = None
-    column_mapping: dict[str, str] | None = None
-    selected_header_row: int = 0
-    source_cols: list = []
+    # Each job: (sheet_name|None, df, column_mapping, header_row, source_cols)
+    sheet_jobs: list[tuple[str | None, pd.DataFrame, dict[str, str], int, list]] = []
+    sheets_skipped: list[dict[str, Any]] = []
 
-    # ------------------------------------------------------------------
-    # STEP 1 — READ FILE
-    # ------------------------------------------------------------------
     try:
         if ext in (".xlsx", ".xls"):
             try:
@@ -660,11 +893,19 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
             except Exception as exc:
                 raise ParseError(f"Cannot open Excel file: {exc}") from exc
 
-            found = False
             for sheet_name in sheet_names:
                 norm_sheet = normalize_header(str(sheet_name))
                 if any(w in norm_sheet for w in _SKIP_SHEET_WORDS):
-                    logger.debug("Skipping sheet '%s' (matched skip-word).", sheet_name)
+                    logger.info(
+                        "Skipping sheet '%s' (matched skip-word).", sheet_name
+                    )
+                    sheets_skipped.append(
+                        {
+                            "sheet": str(sheet_name),
+                            "reason": "skip_word",
+                            "detail": "name matched summary/total/instruction/readme",
+                        }
+                    )
                     continue
 
                 try:
@@ -674,19 +915,45 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                         header=None,
                         dtype=str,
                     )
-                except Exception:
+                except Exception as exc:
+                    sheets_skipped.append(
+                        {
+                            "sheet": str(sheet_name),
+                            "reason": "read_error",
+                            "detail": str(exc),
+                        }
+                    )
                     continue
 
-                best_df, best_mapping, best_header_row = _find_best_header_from_raw(raw_df)
-                if best_df is not None:
-                    df = best_df
-                    column_mapping = best_mapping
-                    selected_header_row = best_header_row
-                    source_cols = list(best_df.columns)
-                    found = True
-                    break
+                best_df, best_mapping, best_header_row = _find_best_header_from_raw(
+                    raw_df
+                )
+                if best_df is not None and best_mapping:
+                    sheet_jobs.append(
+                        (
+                            str(sheet_name),
+                            best_df,
+                            best_mapping,
+                            best_header_row,
+                            list(best_df.columns),
+                        )
+                    )
+                    logger.info(
+                        "PR sheet '%s' accepted (header_row=%s, mapped=%s)",
+                        sheet_name,
+                        best_header_row,
+                        sorted(best_mapping.keys()),
+                    )
+                else:
+                    sheets_skipped.append(
+                        {
+                            "sheet": str(sheet_name),
+                            "reason": "no_column_mapping",
+                            "detail": "could not detect required purchase-register columns",
+                        }
+                    )
 
-            if not found:
+            if not sheet_jobs:
                 raise ParseError(
                     "Could not find a valid column mapping in any sheet or header row"
                 )
@@ -700,7 +967,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     raw_text = file_content.decode(encoding, errors="replace")
                 except Exception:
                     continue
-                
+
                 try:
                     raw_df = pd.read_csv(
                         io.StringIO(raw_text),
@@ -709,13 +976,20 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     )
                 except Exception:
                     continue
-                    
-                best_df, best_mapping, best_header_row = _find_best_header_from_raw(raw_df)
-                if best_df is not None:
-                    df = best_df
-                    column_mapping = best_mapping
-                    selected_header_row = best_header_row
-                    source_cols = list(best_df.columns)
+
+                best_df, best_mapping, best_header_row = _find_best_header_from_raw(
+                    raw_df
+                )
+                if best_df is not None and best_mapping:
+                    sheet_jobs.append(
+                        (
+                            None,
+                            best_df,
+                            best_mapping,
+                            best_header_row,
+                            list(best_df.columns),
+                        )
+                    )
                     found = True
                     break
 
@@ -729,277 +1003,121 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
 
     except ParseError as exc:
         result["errors"].append(str(exc))
+        result["sheets_skipped"] = sheets_skipped
         return result
     except Exception as exc:
         result["errors"].append(f"read_file: {exc}")
+        result["sheets_skipped"] = sheets_skipped
         return result
 
-    # ------------------------------------------------------------------
-    # STEP 2 — COLUMN MAPPING
-    # ------------------------------------------------------------------
-    try:
-        source_software = detect_source_software(source_cols)
-        mapped_originals: set[str] = set(column_mapping.values())
-        unmapped_columns: list[str] = [
-            c for c in source_cols if c not in mapped_originals
-        ]
-    except Exception as exc:
-        result["errors"].append(f"column_mapping: {exc}")
-        return result
-
-    header_detected = True
-
-    # Canonical schema (renamed columns, GSTIN uppercased, amounts as paise ints).
-    df_canon = normalize_dataframe_to_canonical_schema(df, column_mapping)
-
-    # ------------------------------------------------------------------
-    # STEP 3 — ROW PROCESSING
-    # ------------------------------------------------------------------
     records: list[dict] = []
     warnings: list[str] = []
     errors: list[str] = []
-    total_rows: int = 0
-    skipped_rows: int = 0
+    total_rows = 0
+    skipped_rows = 0
     skip_reasons: dict[str, int] = {}
-
-    def _bump_skip(reason: str) -> None:
-        skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
-
-    def _is_blank_cell(s: str) -> bool:
-        """Return True for cells that carry no meaningful value."""
-        stripped = s.strip().lower()
-        return not stripped or stripped in ("nan", "none", "nat")
+    sheets_used: list[dict[str, Any]] = []
+    source_software = "Excel/Unknown"
+    column_mapping: dict[str, str] = {}
+    unmapped_columns: list[str] = []
+    df_canon_parts: list[pd.DataFrame] = []
+    header_detected = True
 
     try:
-        for df_idx, row in df_canon.iterrows():
-            total_rows += 1
-            # 1-indexed position in the source file (header row accounts for 1 row).
-            row_number: int = selected_header_row + int(df_idx) + 2
-            orig_row = df.loc[df_idx]
-
-            # Skip totals / summary rows (use raw row for detection).
-            row_values = [str(v) if v is not None else "" for v in orig_row]
-            if is_total_row(row_values):
-                skipped_rows += 1
-                _bump_skip("total_or_summary_row")
+        for sheet_name, df, mapping, header_row, source_cols in sheet_jobs:
+            try:
+                source_software = detect_source_software(source_cols) or source_software
+                mapped_originals: set[str] = set(mapping.values())
+                sheet_unmapped = [c for c in source_cols if c not in mapped_originals]
+            except Exception as exc:
+                errors.append(f"column_mapping ({sheet_name or 'csv'}): {exc}")
                 continue
 
-            # Empty row — every cell is blank / whitespace / NaN equivalent.
-            if all(_is_blank_cell(cell) for cell in row_values):
-                errors.append(f"Row {row_number}: empty row")
-                skipped_rows += 1
-                _bump_skip("empty_row")
-                continue
+            # Prefer the richest mapping for top-level detected_columns.
+            if len(mapping) >= len(column_mapping):
+                column_mapping = mapping
+                unmapped_columns = sheet_unmapped
 
-            # ---- Collect ALL field-level errors before deciding row fate ----
-            row_errors: list[str] = []
-
-            # GSTIN (canonical column is uppercased; validate with normaliser)
-            gstin_value: str | None = None
-            gstin_valid = False
-            if "gstin" in column_mapping:
-                raw_gstin = row.get("gstin")
-                if raw_gstin is None:
-                    # Completely blank supplier GSTIN — row is meaningless, skip it.
-                    row_errors.append("missing GSTIN")
-                else:
-                    try:
-                        gstin_value = normalize_gstin(str(raw_gstin).strip())
-                        gstin_valid = True
-                    except NormalizationError:
-                        # Invalid format but non-blank: keep the row.
-                        # The row will be included in reconciliation and will
-                        # produce an "unmatched in 2B" outcome. Do NOT add to
-                        # row_errors — that would silently drop the row.
-                        gstin_value = str(raw_gstin).strip().upper() or None
-                        gstin_valid = False
-
-
-            # invoice_number_normalized
-            inv_raw: str | None = None
-            if "invoice_number" in column_mapping:
-                cell = row.get("invoice_number_normalized")
-                if cell is None or (isinstance(cell, float) and pd.isna(cell)):
-                    inv_raw = None
-                else:
-                    inv_raw = str(cell).strip().upper() if str(cell).strip() else None
-                if inv_raw is None:
-                    row_errors.append("missing invoice number")
-
-            # invoice_date
-            date_value: str | None = None
-            if "invoice_date" in column_mapping:
-                raw_date = _safe_cell(orig_row.get(column_mapping["invoice_date"]))
-                if raw_date is not None:
-                    try:
-                        norm_date = normalize_date(raw_date)
-                        date_value = norm_date.value.isoformat()
-                    except NormalizationError:
-                        row_errors.append("invalid date")
-
-            # taxable_amount_paise — sign preserved for CN classification.
-            original_taxable: int | None = None
-            taxable_amount_paise: int | None = None
-            if "taxable_amount" in column_mapping:
-                raw_tax = _safe_cell(orig_row.get(column_mapping["taxable_amount"]))
-                taxable_amount_paise = _df_cell_int(row.get("taxable_amount_paise"))
-                if raw_tax is not None:
-                    if taxable_amount_paise is None:
-                        row_errors.append("invalid value")
-                    else:
-                        original_taxable = taxable_amount_paise
-
-            invoice_type = _classify_invoice_type(inv_raw, original_taxable)
-            row_errors.extend(
-                _invoice_type_consistency_errors(invoice_type, original_taxable)
+            part = _process_pr_sheet_rows(
+                df=df,
+                column_mapping=mapping,
+                selected_header_row=header_row,
+                filename=filename,
+                sheet_name=sheet_name,
             )
+            sheet_rec_count = len(part["records"])
+            sheets_used.append(
+                {
+                    "sheet": sheet_name or "(csv)",
+                    "records": sheet_rec_count,
+                    "total_rows": part["total_rows"],
+                    "mapped_fields": sorted(mapping.keys()),
+                }
+            )
+            records.extend(part["records"])
+            errors.extend(part["errors"])
+            warnings.extend(part["warnings"])
+            total_rows += part["total_rows"]
+            skipped_rows += part["skipped_rows"]
+            for reason, n in part["skip_reasons"].items():
+                skip_reasons[reason] = skip_reasons.get(reason, 0) + n
+            if part.get("df_canon") is not None and not part["df_canon"].empty:
+                df_canon_parts.append(part["df_canon"])
 
-            # ---- Row decision: any error → reject the whole row ----
-            if row_errors:
-                if "missing GSTIN" in row_errors and "missing invoice number" in row_errors:
-                    skipped_rows += 1
-                    _bump_skip("truly_unparseable_row")
-                    # Don't silently discard! It will be passed to matcher and skipped there.
-                else:
-                    errors.append(f"Row {row_number}: {', '.join(row_errors)}")
-                    skipped_rows += 1
-                    _bump_skip("invalid_row")
-                    continue
+        if len(sheets_used) > 1:
+            used_names = ", ".join(
+                f"{s['sheet']} ({s['records']})" for s in sheets_used
+            )
+            warnings.append(
+                f"Combined {len(sheets_used)} sheets into one purchase register: "
+                f"{used_names}. If sheets overlap, invoices may be double-counted."
+            )
+            logger.warning("PR multi-sheet combine: %s", used_names)
+        if sheets_skipped:
+            skipped_names = ", ".join(
+                f"{s['sheet']} ({s['reason']})" for s in sheets_skipped
+            )
+            warnings.append(f"Sheets skipped: {skipped_names}.")
 
-            igst_paise = _df_cell_int(row.get("igst_paise"))
-            cgst_paise = _df_cell_int(row.get("cgst_paise"))
-            sgst_paise = _df_cell_int(row.get("sgst_paise"))
-            cess_paise = _df_cell_int(row.get("cess_paise"))
-            total_tax_paise = _df_cell_int(row.get("total_tax_paise"))
-            if total_tax_paise is None and (
-                igst_paise is not None
-                or cgst_paise is not None
-                or sgst_paise is not None
-                or cess_paise is not None
-            ):
-                total_tax_paise = (
-                    (igst_paise or 0)
-                    + (cgst_paise or 0)
-                    + (sgst_paise or 0)
-                    + (cess_paise or 0)
-                )
-            # normalize_dataframe_to_canonical_schema stores tax columns as abs()
-            # (unsigned) to handle mixed-sign inputs. Re-apply sign for credit
-            # notes here so that ITC-at-risk aggregation correctly subtracts them.
-            if invoice_type == "CREDIT_NOTE" and total_tax_paise is not None and total_tax_paise > 0:
-                total_tax_paise = -total_tax_paise
-
-            _rcell = row.get("reverse_charge")
-            if _rcell is None or (isinstance(_rcell, float) and pd.isna(_rcell)):
-                reverse_out: bool | None = None
-            else:
-                reverse_out = _rcell  # type: ignore[assignment]
-
-            payment_status: str | None = None
-            if "payment_status" in column_mapping:
-                _ps = row.get("payment_status")
-                if _ps is None or (isinstance(_ps, float) and pd.isna(_ps)):
-                    payment_status = None
-                else:
-                    payment_status = str(_ps)
-
-            payment_date: str | None = None
-            if "payment_date" in column_mapping:
-                raw_pay_date = _safe_cell(
-                    orig_row.get(column_mapping["payment_date"])
-                )
-                if raw_pay_date is not None:
-                    try:
-                        payment_date = normalize_date(raw_pay_date).value.isoformat()
-                    except NormalizationError:
-                        errors.append(
-                            f"Row {row_number}: invalid payment date (ignored for Rule 37)"
-                        )
-
-            amount_paid_paise: int | None = None
-            if "amount_paid" in column_mapping:
-                amount_paid_paise = _df_cell_int(row.get("amount_paid_paise"))
-
-            # ---- Build output record (only reached when row is fully valid) ----
-            out: dict[str, Any] = {
-                "row_number": row_number,
-                "invoice_number_normalized": inv_raw,
-                "invoice_number": inv_raw,
-                "document_type": invoice_type,
-                "invoice_type": invoice_type,
-                "invoice_date": date_value,
-                "gstin": gstin_value,
-                "gstin_valid": gstin_valid,
-                "supplier_name": _safe_cell(row.get("supplier_name")),
-                "taxable_amount_paise": taxable_amount_paise,
-                "igst_paise": igst_paise,
-                "cgst_paise": cgst_paise,
-                "sgst_paise": sgst_paise,
-                "cess_paise": cess_paise,
-                "total_tax_paise": total_tax_paise,
-                "total_amount_paise": _df_cell_int(row.get("total_amount_paise")),
-                "place_of_supply": _safe_cell(row.get("place_of_supply")),
-                "reverse_charge": reverse_out,
-                "source_file": filename,
-            }
-            if payment_status is not None:
-                out["payment_status"] = payment_status
-            if payment_date is not None:
-                out["payment_date"] = payment_date
-            if amount_paid_paise is not None:
-                out["amount_paid_paise"] = amount_paid_paise
-            if "itc_eligibility" in column_mapping:
-                _itc = row.get("itc_eligibility")
-                if _itc is not None and not (isinstance(_itc, float) and pd.isna(_itc)):
-                    out["itc_eligibility"] = str(_itc)
-            if "hsn" in column_mapping:
-                _hsn = row.get("hsn")
-                if _hsn is not None and not (isinstance(_hsn, float) and pd.isna(_hsn)):
-                    out["hsn"] = str(_hsn).strip()
-
-            records.append(out)
-
-        # ------------------------------------------------------------------
-        # STEP 3b — DUPLICATE DETECTION
-        # Flag duplicate (gstin, invoice_number) keys but keep every row so
-        # reconciliation can pair by amount/date when suppliers reuse numbers.
-        # ------------------------------------------------------------------
-        seen_keys: dict[tuple, dict] = {}  # key → first record seen
+        # Cross-sheet duplicate detection (keep all rows; flag for review).
+        seen_keys: dict[tuple, dict] = {}
         clean: list[dict] = []
-
         for rec in records:
             key = (rec.get("gstin"), rec.get("invoice_number_normalized"))
             if key[0] is None or key[1] is None:
-                clean.append(rec)          # cannot deduplicate without both fields
+                clean.append(rec)
                 continue
             if key not in seen_keys:
-                seen_keys[key] = rec       # first occurrence → keep
+                seen_keys[key] = rec
                 clean.append(rec)
             else:
                 first = seen_keys[key]
+                sheet_bit = (
+                    f" sheet '{rec.get('source_sheet')}'"
+                    if rec.get("source_sheet")
+                    else ""
+                )
                 if rec.get("taxable_amount_paise") != first.get("taxable_amount_paise"):
                     errors.append(
-                        f"Row {rec['row_number']}: conflicting duplicate invoice "
+                        f"Row {rec['row_number']}{sheet_bit}: conflicting duplicate invoice "
                         f"'{rec['invoice_number_normalized']}' for GSTIN '{rec['gstin']}' "
                         f"(first seen at row {first['row_number']}; kept for reconciliation)"
                     )
                 else:
                     errors.append(
-                        f"Row {rec['row_number']}: duplicate invoice "
+                        f"Row {rec['row_number']}{sheet_bit}: duplicate invoice "
                         f"'{rec['invoice_number_normalized']}' for GSTIN '{rec['gstin']}' "
                         f"(first seen at row {first['row_number']}; kept for reconciliation)"
                     )
                 clean.append(rec)
-
         records = clean
 
     except Exception as exc:
         result["errors"].append(f"row_processing: {exc}")
+        result["sheets_used"] = sheets_used
+        result["sheets_skipped"] = sheets_skipped
         return result
 
-    # ------------------------------------------------------------------
-    # STEP 4 — RETURN
-    # ------------------------------------------------------------------
     result["total_rows"] = total_rows
     result["valid_rows"] = len(records)
     result["records"] = records
@@ -1015,8 +1133,19 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
     result["detected_columns"] = column_mapping
     result["unmapped_columns"] = unmapped_columns
     result["warnings"] = warnings
-    result["normalized_columns"] = list(df_canon.columns)
-    result["normalized_dataframe"] = df_canon
+    result["sheets_used"] = sheets_used
+    result["sheets_skipped"] = sheets_skipped
+    if df_canon_parts:
+        result["normalized_columns"] = list(df_canon_parts[0].columns)
+        try:
+            result["normalized_dataframe"] = pd.concat(
+                df_canon_parts, ignore_index=True
+            )
+        except Exception:
+            result["normalized_dataframe"] = df_canon_parts[0]
+    else:
+        result["normalized_columns"] = []
+        result["normalized_dataframe"] = pd.DataFrame()
     return result
 
 

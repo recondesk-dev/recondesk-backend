@@ -1155,7 +1155,10 @@ def execute_reconciliation(run_id: str) -> None:
         matched_count = len(state.clean_matched)
         missed_itc_count = len(state.missed_itc)
         wrongful_count = len(wrongful_itc)
-        review_gstr_count = len(state.review_required)
+        # Count only GSTR-anchored review rows. Duplicate/ambiguity handling also
+        # emits PR-only marker rows (gstr_id="") that must not inflate this bucket
+        # — same filter as reconciliation.py's summary invariant.
+        review_gstr_count = sum(1 for r in state.review_required if r.get("gstr_id"))
         review_pr_count = len(state.consumed_pr_ids) - matched_count
         skipped_count = sum(1 for r in pr_current if r.get("match_status") == "skipped")
 
