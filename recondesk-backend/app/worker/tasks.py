@@ -248,6 +248,8 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
         obj = s3.get_object(Bucket=bucket, Key=r2_key)
         body = obj["Body"].read()
 
+        pr_sheet_meta: dict[str, Any] | None = None
+
         if file_type == "gstr2b":
             gstr_payload = _load_and_normalize_gstr2b_body_for_parse(body)
             parsed = parse_gstr2b(gstr_payload)
@@ -265,50 +267,76 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             name = os.path.basename(r2_key) or "purchase.xlsx"
             parse_body = body
             parse_name = name
-            # Apply saved client column mapping before normalization/parser.
-            try:
-                saved = cim.get_mappings_or_none(client, str(client_gstin_id))
-            except Exception:  # noqa: BLE001
-                _log.exception(
-                    "Failed loading client_import_mappings for %s", client_gstin_id
+            from app.parsers.purchase_register_parser import list_mappable_pr_sheets
+
+            mappable_sheets = list_mappable_pr_sheets(body, name)
+            multi_sheet = len(mappable_sheets) > 1
+            if multi_sheet:
+                # Keep the original workbook so parse_purchase_register can
+                # auto-detect and combine every mappable sheet. Reshaping to a
+                # single-sheet CSV would silently drop the rest.
+                _log.info(
+                    "PR multi-sheet workbook (%d mappable): %s — skipping "
+                    "client_import_mappings reshape",
+                    len(mappable_sheets),
+                    mappable_sheets,
                 )
-                saved = None
-            if saved:
-                try:
-                    headers = cim.extract_headers_from_file(body, name)
-                except Exception:  # noqa: BLE001
-                    headers = []
-                if headers and cim.mapping_covers_headers(saved, headers):
-                    parse_body, parse_name = cim.reshape_file_with_mapping(
-                        body, name, saved
-                    )
-                    _log.info(
-                        "Applied client_import_mappings for client_gstin_id=%s "
-                        "(%d fields)",
-                        client_gstin_id,
-                        len(saved),
-                    )
-                elif headers and not cim.columns_match_expected_schema(headers):
-                    raise ValueError(
-                        "Column mapping required: saved mapping does not cover "
-                        f"file headers {headers}"
-                    )
             else:
+                # Apply saved client column mapping before normalization/parser.
                 try:
-                    headers = cim.extract_headers_from_file(body, name)
+                    saved = cim.get_mappings_or_none(client, str(client_gstin_id))
                 except Exception:  # noqa: BLE001
-                    headers = []
-                if headers and not cim.columns_match_expected_schema(headers):
-                    raise ValueError(
-                        "Column mapping required: columns do not match expected "
-                        f"schema. Detected headers: {headers}"
+                    _log.exception(
+                        "Failed loading client_import_mappings for %s", client_gstin_id
                     )
+                    saved = None
+                if saved:
+                    try:
+                        headers = cim.extract_headers_from_file(body, name)
+                    except Exception:  # noqa: BLE001
+                        headers = []
+                    if headers and cim.mapping_covers_headers(saved, headers):
+                        parse_body, parse_name = cim.reshape_file_with_mapping(
+                            body, name, saved
+                        )
+                        _log.info(
+                            "Applied client_import_mappings for client_gstin_id=%s "
+                            "(%d fields)",
+                            client_gstin_id,
+                            len(saved),
+                        )
+                    elif headers and not cim.columns_match_expected_schema(headers):
+                        raise ValueError(
+                            "Column mapping required: saved mapping does not cover "
+                            f"file headers {headers}"
+                        )
+                else:
+                    try:
+                        headers = cim.extract_headers_from_file(body, name)
+                    except Exception:  # noqa: BLE001
+                        headers = []
+                    if headers and not cim.columns_match_expected_schema(headers):
+                        raise ValueError(
+                            "Column mapping required: columns do not match expected "
+                            f"schema. Detected headers: {headers}"
+                        )
             pr = parse_purchase_register(parse_body, parse_name)
             if not pr.get("success"):
                 errs = "; ".join(pr.get("errors") or ["parse failed"])
                 raise ValueError(errs)
             records = list(pr.get("records") or [])
             for_sanity = records
+            pr_sheet_meta = {
+                "sheets_used": list(pr.get("sheets_used") or []),
+                "sheets_skipped": list(pr.get("sheets_skipped") or []),
+                "warnings": list(pr.get("warnings") or []),
+            }
+            if pr_sheet_meta["warnings"]:
+                _log.warning(
+                    "PR parse sheet notes run_id=%s: %s",
+                    run_id,
+                    " | ".join(pr_sheet_meta["warnings"]),
+                )
         else:
             raise ValueError(f"unknown file_type: {file_type}")
 
@@ -329,6 +357,39 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             source_type=file_type,
         )
         sanity_json = _sanity_checks_to_json(checks)
+        if file_type == "purchase_register" and pr_sheet_meta is not None:
+            sheets_used = pr_sheet_meta["sheets_used"]
+            sheets_skipped = pr_sheet_meta["sheets_skipped"]
+            if sheets_used or sheets_skipped:
+                used_txt = ", ".join(
+                    f"{s.get('sheet')} ({int(s.get('records') or 0)})"
+                    for s in sheets_used
+                ) or "none"
+                skipped_txt = ", ".join(
+                    f"{s.get('sheet')} ({s.get('reason')})"
+                    for s in sheets_skipped
+                )
+                detail = f"Sheets used: {used_txt}."
+                if skipped_txt:
+                    detail += f" Sheets skipped: {skipped_txt}."
+                if len(sheets_used) > 1:
+                    detail += (
+                        " Multiple sheets were combined; overlapping invoices "
+                        "may be double-counted."
+                    )
+                sanity_json.append(
+                    {
+                        "name": "Excel sheets",
+                        "passed": True,
+                        "detail": detail,
+                        "severity": (
+                            "warning"
+                            if len(sheets_used) > 1 or sheets_skipped
+                            else "info"
+                        ),
+                        "affected_records": [],
+                    }
+                )
         blocking = any(
             c.severity == "error" and not c.passed for c in checks
         )

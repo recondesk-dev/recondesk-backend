@@ -407,7 +407,25 @@ def detect_pr_columns_from_r2(key: str, filename: str) -> tuple[list[dict], list
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File too large")
     df_full = _read_pr_dataframe(raw, filename)
-    row_count = int(len(df_full))
+    # Prefer full multi-sheet parse count when the workbook has several mappable
+    # sheets — _read_pr_dataframe only returns the first sheet's rows.
+    from app.parsers.purchase_register_parser import (
+        list_mappable_pr_sheets,
+        parse_purchase_register,
+    )
+
+    mappable = list_mappable_pr_sheets(raw, filename)
+    if len(mappable) > 1:
+        parsed = parse_purchase_register(raw, filename)
+        row_count = int(parsed.get("valid_rows") or 0)
+        _log.info(
+            "[detect-columns] multi-sheet PR: used=%s skipped=%s valid_rows=%s",
+            parsed.get("sheets_used"),
+            parsed.get("sheets_skipped"),
+            row_count,
+        )
+    else:
+        row_count = int(len(df_full))
     df = df_full.head(50)
     headers = [str(h).strip() for h in df.columns.tolist()]
     columns_out = _wizard_columns_from_dataframe(df)
