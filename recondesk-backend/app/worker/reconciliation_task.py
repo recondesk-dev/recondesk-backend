@@ -208,10 +208,6 @@ def _load_pr_matcher_and_raw_page(
         rd = row.get("record_data")
         if _pr_record_data_missing_invoice_number(rd):
             skipped_ids.add(rid)
-            _log.warning(
-                "skip pr matcher load: record_data missing invoice_number for pr id=%s",
-                rid,
-            )
             if isinstance(rd, dict):
                 raw_by_id[rid] = rd
             continue
@@ -223,24 +219,35 @@ def _load_pr_matcher_and_raw_page(
 
 def _build_pr_index_for_matching(
     client: Client, run_id: str
-) -> tuple[dict[str, list[dict[str, Any]]], int]:
-    """Load every PR matcher row for this run (paginate until DB returns no rows)."""
+) -> tuple[dict[str, list[dict[str, Any]]], int, int]:
+    """Load every PR matcher row for this run (paginate until DB returns no rows).
+
+    Returns ``(pr_index, loaded_matcher_rows, skipped_missing_invoice_count)``.
+    """
     pr_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
     offset = 0
     loaded = 0
+    skipped_total = 0
     while True:
-        pr_chunk, _, _skipped, fetched = _load_pr_matcher_and_raw_page(
+        pr_chunk, _, skipped, fetched = _load_pr_matcher_and_raw_page(
             client, run_id, offset, CHUNK_SIZE
         )
         if fetched == 0:
             break
+        skipped_total += len(skipped)
         for pr_rec in pr_chunk:
             pr_index[str(pr_rec.get("supplier_gstin") or "")].append(pr_rec)
             loaded += 1
         offset += fetched
         if fetched < CHUNK_SIZE:
             break
-    return (dict(pr_index), loaded)
+    if skipped_total:
+        _log.warning(
+            "skip pr matcher load: %d PR row(s) missing invoice_number (run_id=%s)",
+            skipped_total,
+            run_id,
+        )
+    return (dict(pr_index), loaded, skipped_total)
 
 
 def _write_pr_match_status_chunk(
@@ -761,8 +768,8 @@ def execute_reconciliation(run_id: str) -> None:
         gstr_by_invoice = build_gstr_by_invoice(gstr_matcher)
         gstr_by_id: dict[str, dict] = {str(x.get("id")): x for x in gstr_matcher}
 
-        pr_index_current, pr_index_loaded = _build_pr_index_for_matching(
-            client, run_id
+        pr_index_current, pr_index_loaded, _pr_skipped_at_index = (
+            _build_pr_index_for_matching(client, run_id)
         )
         if n_pr and pr_index_loaded < n_pr:
             _log.warning(
@@ -845,20 +852,48 @@ def execute_reconciliation(run_id: str) -> None:
         pr_rows_for_tracking: list[dict[str, Any]] = []
         pr_write_offset = 0
         chunk_idx = 0
+        chunk_skipped_missing_inv = 0
+        _update_run(
+            client,
+            run_id,
+            {
+                "progress_percent": 50,
+                "status_message": f"Writing PR match status (0/{pr_total_chunks} chunks)…",
+                "updated_at": _now_iso(),
+            },
+        )
         while True:
             chunk_started = time.perf_counter()
+            # Heartbeat before DB work so the UI does not sit silently at 50%
+            # while the first (often largest) upsert is in flight.
+            _update_run(
+                client,
+                run_id,
+                {
+                    "progress_percent": min(
+                        69, 50 + int(20 * chunk_idx / pr_total_chunks)
+                    ),
+                    "status_message": (
+                        f"Writing PR match status "
+                        f"({chunk_idx + 1}/{pr_total_chunks})…"
+                    ),
+                    "updated_at": _now_iso(),
+                },
+            )
             pr_chunk, pr_raw_chunk, skipped, fetched = _load_pr_matcher_and_raw_page(
                 client, run_id, pr_write_offset, CHUNK_SIZE
             )
             if fetched == 0:
                 break
 
+            chunk_skipped_missing_inv += len(skipped)
             _log.info(
-                "processing chunk %d offset=%d pr_chunk_size=%d fetched=%d",
+                "processing chunk %d offset=%d pr_chunk_size=%d fetched=%d skipped_missing_inv=%d",
                 chunk_idx,
                 pr_write_offset,
                 len(pr_chunk),
                 fetched,
+                len(skipped),
             )
 
             tracking_rows, chunk_matched, chunk_written = _write_pr_match_status_chunk(
@@ -899,6 +934,13 @@ def execute_reconciliation(run_id: str) -> None:
             chunk_idx += 1
             if fetched < CHUNK_SIZE:
                 break
+
+        if chunk_skipped_missing_inv:
+            _log.warning(
+                "PR matching skipped %d row(s) missing invoice_number (run_id=%s)",
+                chunk_skipped_missing_inv,
+                run_id,
+            )
 
         _phase("matching")
         pr_current, pr_raw_by_id = _load_pr_matcher_and_raw(client, run_id)
@@ -1254,6 +1296,11 @@ def execute_reconciliation(run_id: str) -> None:
             created_at=_now_iso(),
         )
 
+        completion_msg = "Completed"
+        if skipped_count > 0:
+            completion_msg = (
+                f"Completed — {skipped_count} skipped: missing invoice number"
+            )
         _update_run(
             client,
             run_id,
@@ -1261,7 +1308,7 @@ def execute_reconciliation(run_id: str) -> None:
                 "status": RunStatus.COMPLETED,
                 "progress_percent": 100.0,
                 "completed_at": _now_iso(),
-                "status_message": "Completed",
+                "status_message": completion_msg,
                 "run_summary": run_summary,
                 "matching_version": MATCHING_VERSION,
                 "rules_version": RULES_VERSION,

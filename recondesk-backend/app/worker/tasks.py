@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -208,7 +209,12 @@ def _bulk_insert(
             ) from exc
 
 
-@celery_app.task(name="worker.run_import_job", max_retries=0)
+@celery_app.task(
+    name="worker.run_import_job",
+    max_retries=0,
+    soft_time_limit=300,
+    time_limit=360,
+)
 def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
     print(f"[WORKER] START run_id={run_id}")
 
@@ -267,19 +273,21 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             name = os.path.basename(r2_key) or "purchase.xlsx"
             parse_body = body
             parse_name = name
-            from app.parsers.purchase_register_parser import list_mappable_pr_sheets
+            from app.parsers.purchase_register_parser import list_candidate_pr_sheet_names
 
-            mappable_sheets = list_mappable_pr_sheets(body, name)
-            multi_sheet = len(mappable_sheets) > 1
+            # Cheap sheet-name peek (no header scan / full re-parse). Full mapping
+            # happens inside parse_purchase_register once.
+            candidate_sheets = list_candidate_pr_sheet_names(body, name)
+            multi_sheet = len(candidate_sheets) > 1
             if multi_sheet:
                 # Keep the original workbook so parse_purchase_register can
                 # auto-detect and combine every mappable sheet. Reshaping to a
                 # single-sheet CSV would silently drop the rest.
                 _log.info(
-                    "PR multi-sheet workbook (%d mappable): %s — skipping "
+                    "PR multi-sheet workbook (%d candidate sheets): %s — skipping "
                     "client_import_mappings reshape",
-                    len(mappable_sheets),
-                    mappable_sheets,
+                    len(candidate_sheets),
+                    candidate_sheets,
                 )
             else:
                 # Apply saved client column mapping before normalization/parser.
@@ -320,7 +328,17 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
                             "Column mapping required: columns do not match expected "
                             f"schema. Detected headers: {headers}"
                         )
+            pr_t0 = time.perf_counter()
             pr = parse_purchase_register(parse_body, parse_name)
+            _log.info(
+                "PR parse finished run_id=%s elapsed=%.2fs records=%d "
+                "missing_invoice=%s sheets_used=%s",
+                run_id,
+                time.perf_counter() - pr_t0,
+                len(pr.get("records") or []),
+                pr.get("missing_invoice_number_count"),
+                [s.get("sheet") for s in (pr.get("sheets_used") or [])],
+            )
             if not pr.get("success"):
                 errs = "; ".join(pr.get("errors") or ["parse failed"])
                 raise ValueError(errs)
@@ -330,6 +348,9 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
                 "sheets_used": list(pr.get("sheets_used") or []),
                 "sheets_skipped": list(pr.get("sheets_skipped") or []),
                 "warnings": list(pr.get("warnings") or []),
+                "missing_invoice_number_count": int(
+                    pr.get("missing_invoice_number_count") or 0
+                ),
             }
             if pr_sheet_meta["warnings"]:
                 _log.warning(
@@ -390,6 +411,44 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
                         "affected_records": [],
                     }
                 )
+            missing_inv = int(pr_sheet_meta.get("missing_invoice_number_count") or 0)
+            if missing_inv > 0:
+                warn_detail = (
+                    f"{missing_inv} skipped: missing invoice number. "
+                    "These purchase register rows cannot be matched to GSTR-2B."
+                )
+                sheet_warns = [
+                    w
+                    for w in (pr_sheet_meta.get("warnings") or [])
+                    if "invoice number" in (w or "").lower()
+                ]
+                if sheet_warns:
+                    warn_detail += " " + " | ".join(sheet_warns[:3])
+                sanity_json.append(
+                    {
+                        "name": "PR invoice number",
+                        "passed": False,
+                        "detail": warn_detail,
+                        "severity": "warning",
+                        "affected_records": [],
+                    }
+                )
+            elif pr_sheet_meta.get("warnings"):
+                # Surface non-fatal parse notes (e.g. multi-sheet combine) even when
+                # invoice numbers mapped successfully.
+                note = " | ".join(pr_sheet_meta["warnings"][:3])
+                if "Combined" in note or "Sheets skipped" in note:
+                    pass  # already covered by Excel sheets check above
+                else:
+                    sanity_json.append(
+                        {
+                            "name": "Purchase register parse",
+                            "passed": True,
+                            "detail": note,
+                            "severity": "info",
+                            "affected_records": [],
+                        }
+                    )
         blocking = any(
             c.severity == "error" and not c.passed for c in checks
         )

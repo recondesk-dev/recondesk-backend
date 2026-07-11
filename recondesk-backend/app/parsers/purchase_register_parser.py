@@ -10,7 +10,9 @@ Relies on app.services.normalizer for GSTIN, date, and amount normalisation.
 
 import io
 import logging
+import os
 import re
+import time
 from typing import Any
 
 import pandas as pd
@@ -24,6 +26,11 @@ from app.services.normalizer import (
 from app.services.matcher import normalize_invoice
 
 logger = logging.getLogger(__name__)
+
+# Soft ceiling for multi-sheet PR parse wall-clock. Exceeding raises ParseError
+# so the worker fails the import with a clear message instead of hanging forever.
+# Override with env PR_PARSE_SOFT_TIMEOUT_SEC (0 disables).
+_PR_PARSE_SOFT_TIMEOUT_SEC = float(os.environ.get("PR_PARSE_SOFT_TIMEOUT_SEC", "120"))
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +74,8 @@ COLUMN_ALIASES: dict[str, list[str]] = {
     ],
     "invoice_number": [
         "invoice no", "invoice number", "inv no", "bill no",
-        "bill number", "voucher no", "invoice #", "tax invoice no",
+        "bill number", "voucher no", "voucher number", "vch no",
+        "vch number", "vch no.", "invoice #", "tax invoice no",
         "ref no", "doc no",
     ],
     "invoice_date": [
@@ -217,60 +225,82 @@ _FIELD_MATCH_PRIORITY: dict[str, int] = {
     "hsn": 45,
 }
 
-def _find_best_header_from_raw(raw_df: pd.DataFrame, max_rows: int = 20) -> tuple[pd.DataFrame | None, dict[str, str] | None, int]:
+def _uniqueify_header_labels(headers: list[Any]) -> list[str]:
+    """Make column labels unique the same way pandas does for duplicate headers."""
+    seen: dict[str, int] = {}
+    unique_headers: list[str] = []
+    for h in headers:
+        if h is None or (isinstance(h, float) and pd.isna(h)):
+            label = ""
+        else:
+            label = str(h)
+        if label in seen:
+            seen[label] += 1
+            unique_headers.append(f"{label}.{seen[label]}")
+        else:
+            seen[label] = 0
+            unique_headers.append(label)
+    return unique_headers
+
+
+def _find_best_header_from_raw(
+    raw_df: pd.DataFrame, max_rows: int = 20
+) -> tuple[pd.DataFrame | None, dict[str, str] | None, int]:
     """
     Given a DataFrame parsed without headers (header=None), scan the first
     `max_rows` to find the row that matches the most standard fields.
+
+    Mapping detection uses header labels only (O(max_rows × cols × aliases)).
+    The full body is sliced/copied once for the winning header row — never
+    once per candidate — so cost stays linear in sheet size.
     """
-    best_df: pd.DataFrame | None = None
     best_mapping: dict[str, str] | None = None
+    best_headers: list[str] | None = None
     best_header_row = -1
     max_score = -1
 
-    fallback_df: pd.DataFrame | None = None
     fallback_mapping: dict[str, str] | None = None
+    fallback_headers: list[str] | None = None
 
     max_check = min(max_rows, len(raw_df))
     for header_row in range(max_check):
-        headers = list(raw_df.iloc[header_row].fillna("").astype(str))
-        
-        seen: dict[str, int] = {}
-        unique_headers: list[str] = []
-        for h in headers:
-            if h in seen:
-                seen[h] += 1
-                unique_headers.append(f"{h}.{seen[h]}")
-            else:
-                seen[h] = 0
-                unique_headers.append(h)
-                
-        candidate = raw_df.iloc[header_row + 1:].copy()
-        candidate.columns = unique_headers
-        candidate = candidate.reset_index(drop=True)
-        
+        unique_headers = _uniqueify_header_labels(
+            list(raw_df.iloc[header_row].tolist())
+        )
+        # detect_column_mapping only inspects column names — do not copy the body.
+        stub = pd.DataFrame(columns=unique_headers)
         try:
-            mapping = detect_column_mapping(candidate)
+            mapping = detect_column_mapping(stub)
             score = len(mapping)
             if score > max_score:
                 max_score = score
-                best_df = candidate
                 best_mapping = mapping
+                best_headers = unique_headers
                 best_header_row = header_row
         except ParseError:
             pass
-            
+
         if header_row == 0:
-            fallback_df = candidate
+            fallback_headers = unique_headers
             try:
-                fallback_mapping = detect_column_mapping(candidate)
+                fallback_mapping = detect_column_mapping(stub)
             except ParseError:
                 fallback_mapping = None
-                
-    if max_score >= 3:
-        return best_df, best_mapping, best_header_row
-    elif fallback_mapping is not None:
-        return fallback_df, fallback_mapping, 0
-        
+
+    def _slice_body(header_row: int, headers: list[str]) -> pd.DataFrame:
+        candidate = raw_df.iloc[header_row + 1:].copy()
+        candidate.columns = headers
+        return candidate.reset_index(drop=True)
+
+    if max_score >= 3 and best_mapping is not None and best_headers is not None:
+        return (
+            _slice_body(best_header_row, best_headers),
+            best_mapping,
+            best_header_row,
+        )
+    if fallback_mapping is not None and fallback_headers is not None:
+        return _slice_body(0, fallback_headers), fallback_mapping, 0
+
     return None, None, -1
 
 
@@ -610,6 +640,31 @@ def _invoice_type_consistency_errors(
 # Main parser
 # ---------------------------------------------------------------------------
 
+def list_candidate_pr_sheet_names(file_content: bytes, filename: str) -> list[str]:
+    """Return Excel sheet names excluding skip-word sheets (no header detection).
+
+    Cheap O(sheets) peek used to decide whether to skip single-sheet reshape
+    before the full ``parse_purchase_register`` pass.
+    """
+    ext = ""
+    dot_idx = filename.rfind(".")
+    if dot_idx != -1:
+        ext = filename[dot_idx:].lower()
+    if ext not in (".xlsx", ".xls"):
+        return []
+    try:
+        xl = pd.ExcelFile(io.BytesIO(file_content))
+    except Exception:
+        return []
+    names: list[str] = []
+    for sheet_name in xl.sheet_names:
+        norm_sheet = normalize_header(str(sheet_name))
+        if any(w in norm_sheet for w in _SKIP_SHEET_WORDS):
+            continue
+        names.append(str(sheet_name))
+    return names
+
+
 def list_mappable_pr_sheets(file_content: bytes, filename: str) -> list[str]:
     """Return Excel sheet names that have a valid auto-detected column mapping.
 
@@ -632,11 +687,12 @@ def list_mappable_pr_sheets(file_content: bytes, filename: str) -> list[str]:
         if any(w in norm_sheet for w in _SKIP_SHEET_WORDS):
             continue
         try:
+            # Reuse the open workbook — do not re-parse bytes per sheet.
             raw_df = pd.read_excel(
-                io.BytesIO(file_content),
+                xl,
                 sheet_name=sheet_name,
                 header=None,
-                dtype=str,
+                dtype=object,
             )
         except Exception:
             continue
@@ -871,6 +927,8 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
         "errors": [],
         "sheets_used": [],
         "sheets_skipped": [],
+        "missing_invoice_number_count": 0,
+        "warnings": [],
     }
     if not file_content or not file_content.strip():
         result["errors"].append("Empty file")
@@ -893,7 +951,19 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
             except Exception as exc:
                 raise ParseError(f"Cannot open Excel file: {exc}") from exc
 
+            parse_started = time.perf_counter()
             for sheet_name in sheet_names:
+                if (
+                    _PR_PARSE_SOFT_TIMEOUT_SEC > 0
+                    and (time.perf_counter() - parse_started)
+                    > _PR_PARSE_SOFT_TIMEOUT_SEC
+                ):
+                    raise ParseError(
+                        f"Purchase register parse exceeded soft timeout "
+                        f"({_PR_PARSE_SOFT_TIMEOUT_SEC:.0f}s) after "
+                        f"{len(sheet_jobs)} sheet(s). Re-upload a smaller file "
+                        f"or raise PR_PARSE_SOFT_TIMEOUT_SEC."
+                    )
                 norm_sheet = normalize_header(str(sheet_name))
                 if any(w in norm_sheet for w in _SKIP_SHEET_WORDS):
                     logger.info(
@@ -908,12 +978,15 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     )
                     continue
 
+                sheet_t0 = time.perf_counter()
                 try:
+                    # Reuse open workbook handle — re-parsing BytesIO per sheet
+                    # re-reads the entire xlsx for every sheet.
                     raw_df = pd.read_excel(
-                        io.BytesIO(file_content),
+                        xl,
                         sheet_name=sheet_name,
                         header=None,
-                        dtype=str,
+                        dtype=object,
                     )
                 except Exception as exc:
                     sheets_skipped.append(
@@ -928,6 +1001,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 best_df, best_mapping, best_header_row = _find_best_header_from_raw(
                     raw_df
                 )
+                sheet_elapsed = time.perf_counter() - sheet_t0
                 if best_df is not None and best_mapping:
                     sheet_jobs.append(
                         (
@@ -939,10 +1013,13 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                         )
                     )
                     logger.info(
-                        "PR sheet '%s' accepted (header_row=%s, mapped=%s)",
+                        "PR sheet '%s' accepted (header_row=%s, mapped=%s, "
+                        "rows=%d, elapsed=%.2fs)",
                         sheet_name,
                         best_header_row,
                         sorted(best_mapping.keys()),
+                        len(best_df),
+                        sheet_elapsed,
                     )
                 else:
                     sheets_skipped.append(
@@ -951,6 +1028,11 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                             "reason": "no_column_mapping",
                             "detail": "could not detect required purchase-register columns",
                         }
+                    )
+                    logger.info(
+                        "PR sheet '%s' skipped (no mapping, elapsed=%.2fs)",
+                        sheet_name,
+                        sheet_elapsed,
                     )
 
             if not sheet_jobs:
@@ -1022,9 +1104,22 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
     unmapped_columns: list[str] = []
     df_canon_parts: list[pd.DataFrame] = []
     header_detected = True
+    missing_invoice_number_count = 0
 
     try:
+        row_phase_started = time.perf_counter()
         for sheet_name, df, mapping, header_row, source_cols in sheet_jobs:
+            if (
+                _PR_PARSE_SOFT_TIMEOUT_SEC > 0
+                and (time.perf_counter() - row_phase_started)
+                > _PR_PARSE_SOFT_TIMEOUT_SEC
+            ):
+                raise ParseError(
+                    f"Purchase register row processing exceeded soft timeout "
+                    f"({_PR_PARSE_SOFT_TIMEOUT_SEC:.0f}s) after "
+                    f"{len(records)} record(s). Re-upload a smaller file "
+                    f"or raise PR_PARSE_SOFT_TIMEOUT_SEC."
+                )
             try:
                 source_software = detect_source_software(source_cols) or source_software
                 mapped_originals: set[str] = set(mapping.values())
@@ -1037,6 +1132,14 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
             if len(mapping) >= len(column_mapping):
                 column_mapping = mapping
                 unmapped_columns = sheet_unmapped
+
+            if "invoice_number" not in mapping:
+                sheet_label = sheet_name or "(csv)"
+                warnings.append(
+                    f"[{sheet_label}] No invoice number column detected "
+                    f"(expected headers like Invoice Number / Bill No / Vch No.). "
+                    f"Rows from this sheet will be skipped during matching."
+                )
 
             part = _process_pr_sheet_rows(
                 df=df,
@@ -1052,6 +1155,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     "records": sheet_rec_count,
                     "total_rows": part["total_rows"],
                     "mapped_fields": sorted(mapping.keys()),
+                    "has_invoice_number": "invoice_number" in mapping,
                 }
             )
             records.extend(part["records"])
@@ -1112,10 +1216,40 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 clean.append(rec)
         records = clean
 
+        missing_invoice = [
+            rec
+            for rec in records
+            if not (
+                rec.get("invoice_number")
+                or rec.get("invoice_number_normalized")
+            )
+        ]
+        missing_invoice_number_count = len(missing_invoice)
+        if missing_invoice_number_count:
+            by_sheet: dict[str, int] = {}
+            for rec in missing_invoice:
+                sheet = str(rec.get("source_sheet") or "(csv)")
+                by_sheet[sheet] = by_sheet.get(sheet, 0) + 1
+            sheet_bits = ", ".join(
+                f"{name} ({n})" for name, n in sorted(by_sheet.items())
+            )
+            warnings.append(
+                f"{missing_invoice_number_count} purchase register row(s) "
+                f"missing invoice number after parsing — will be skipped "
+                f"during matching. By sheet: {sheet_bits}."
+            )
+            logger.warning(
+                "PR missing invoice_number: count=%d by_sheet=%s file=%s",
+                missing_invoice_number_count,
+                by_sheet,
+                filename,
+            )
+
     except Exception as exc:
         result["errors"].append(f"row_processing: {exc}")
         result["sheets_used"] = sheets_used
         result["sheets_skipped"] = sheets_skipped
+        result["missing_invoice_number_count"] = missing_invoice_number_count
         return result
 
     result["total_rows"] = total_rows
@@ -1135,6 +1269,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
     result["warnings"] = warnings
     result["sheets_used"] = sheets_used
     result["sheets_skipped"] = sheets_skipped
+    result["missing_invoice_number_count"] = missing_invoice_number_count
     if df_canon_parts:
         result["normalized_columns"] = list(df_canon_parts[0].columns)
         try:
