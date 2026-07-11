@@ -1057,8 +1057,9 @@ export default function ReconcileResultsPage() {
   const duplicateEntryListKey = useMemo(() => {
     if (!authReady || !runId || !summary || (summary.duplicate_entry_count ?? 0) <= 0)
       return null;
+    // Backend mounts this on /api/reconciliation (not /api/reconcile).
     return [
-      `/api/reconcile/results/${runId}/invoices?category=duplicate_entry&page=1&page_size=100`,
+      `/api/reconciliation/results/${runId}/invoices?category=duplicate_entry&page=1&page_size=200`,
       authToken,
     ] as const;
   }, [authReady, runId, summary, authToken]);
@@ -3323,7 +3324,13 @@ export default function ReconcileResultsPage() {
             ) : duplicateEntryLoading ? (
               <p className="text-sm text-gray-500">Loading…</p>
             ) : duplicateEntryError ? (
-              <p className="text-sm text-red-600">Failed to load duplicate entries.</p>
+              <p className="text-sm text-red-600">
+                Failed to load duplicate entries
+                {typeof (duplicateEntryError as { detail?: unknown }).detail ===
+                "string"
+                  ? `: ${(duplicateEntryError as { detail: string }).detail}`
+                  : "."}
+              </p>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-[#E8E8EC]">
                 <table className="min-w-full text-left text-[13px]">
