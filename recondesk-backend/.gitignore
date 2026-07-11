@@ -61,3 +61,14 @@ supabase/.temp/
 # Local investigation scratch (not load-bearing tests)
 verification_13_pairs.csv
 verify_theft_pairs.py
+scratch*.py
+debug_*.py
+e2e_*.txt
+independent_*.json
+# Closely related one-off harness / dump artifacts
+independent_*.py
+e2e_*.py
+user_recon_*.json
+*.py.save
+missed_itc_dump.txt
+output_pairs.txt
