@@ -2196,6 +2196,10 @@ def _pair_tax_diff_paise(
     which component it lives in, while still correctly collapsing to ₹0 whenever
     both components genuinely match (byte-identical pairs, GSTIN-only or
     date-only mismatches).
+
+    Callers on the Matched tab must pass a ``pm`` that already reflects any
+    multi-line PR split (see ``_matched_pr_matcher_for_diff``). This helper
+    itself stays level-agnostic and never special-cases multiline logic.
     """
     if gm and pm:
         gstr_taxable = int(gm.get("taxable_amount_paise") or 0)
@@ -2224,6 +2228,108 @@ def _pair_tax_diff_paise(
         except (TypeError, ValueError):
             pass
     return 0
+
+
+def _build_pr_ids_by_dup_key(
+    pr_db: dict[str, Any],
+) -> dict[tuple[str, str], list[str]]:
+    """Index PR matcher rows by (GSTIN, normalized invoice) for multiline rediscovery."""
+    from app.services.reconciliation import _dup_group_key
+
+    out: dict[tuple[str, str], list[str]] = {}
+    for pid, cell in pr_db.items():
+        matcher = (cell or {}).get("matcher") or {}
+        key = _dup_group_key(
+            matcher.get("supplier_gstin"),
+            matcher.get("invoice_number_normalized"),
+        )
+        if key:
+            out.setdefault(key, []).append(str(pid))
+    return out
+
+
+def _matched_pr_matcher_for_diff(
+    gm: dict[str, Any],
+    pm: dict[str, Any],
+    en_row: dict[str, Any],
+    pr_db: dict[str, Any],
+    *,
+    pr_ids_by_dup_key: dict[tuple[str, str], list[str]] | None = None,
+) -> dict[str, Any]:
+    """Return the PR-side amounts to use for Matched-tab discrepancy.
+
+    Clean 1:1 matches are unchanged (``pm`` as-is).
+
+    Multi-line PR splits (one GSTR invoice booked as N tax-rate / HSN rows) are
+    clean matches at the *group* level, but the persisted matched row only stores
+    the primary ``pr_id``. Diffing GSTR against that one line fabricates a fake
+    discrepancy equal to the sibling line(s). When — and only when —
+    ``_is_multiline_pr_split`` confirms the candidate PR rows partition this
+    GSTR invoice, return a synthetic matcher whose taxable/tax are the sum of
+    those lines (→ ₹0).
+
+    Safety gates (do not remove):
+      * Review Required must NOT call this — a real amount mismatch must stay
+        visible even if other PR rows share the invoice number.
+      * True data-entry duplicates (every PR is a full-value copy) fail
+        ``_is_multiline_pr_split`` (a single PR already equals GSTR), so we
+        keep the primary row and correctly show ₹0 — we never sum 2× GSTR.
+      * Arbitrary same-invoice siblings that do not sum to GSTR also fail the
+        gate; the primary-only diff is preserved (no silent zeroing).
+    """
+    if not gm or not pm:
+        return pm
+
+    from app.services.reconciliation import _dup_group_key, _is_multiline_pr_split
+
+    candidate_ids: list[str] = []
+    raw_ids = en_row.get("pr_ids") if isinstance(en_row, dict) else None
+    if isinstance(raw_ids, list):
+        candidate_ids = [str(x) for x in raw_ids if x]
+
+    if len(candidate_ids) < 2:
+        key = _dup_group_key(
+            gm.get("supplier_gstin"),
+            gm.get("invoice_number_normalized"),
+        )
+        if key:
+            if pr_ids_by_dup_key is not None:
+                candidate_ids = list(pr_ids_by_dup_key.get(key) or [])
+            else:
+                candidate_ids = [
+                    pid
+                    for pid, cell in pr_db.items()
+                    if _dup_group_key(
+                        ((cell or {}).get("matcher") or {}).get("supplier_gstin"),
+                        ((cell or {}).get("matcher") or {}).get(
+                            "invoice_number_normalized"
+                        ),
+                    )
+                    == key
+                ]
+
+    if len(candidate_ids) < 2:
+        return pm
+
+    pr_by_id: dict[str, dict[str, Any]] = {}
+    for pid in candidate_ids:
+        matcher = ((pr_db.get(pid) or {}).get("matcher")) or {}
+        if matcher:
+            pr_by_id[pid] = matcher
+    if len(pr_by_id) < 2:
+        return pm
+
+    if not _is_multiline_pr_split(gm, list(pr_by_id.keys()), pr_by_id):
+        return pm
+
+    out = dict(pm)
+    out["taxable_amount_paise"] = sum(
+        int(m.get("taxable_amount_paise") or 0) for m in pr_by_id.values()
+    )
+    out["total_tax_paise"] = sum(
+        int(m.get("total_tax_paise") or 0) for m in pr_by_id.values()
+    )
+    return out
 
 
 def _build_matched_pair_records(
@@ -2280,6 +2386,12 @@ def _build_matched_pair_records(
     }
 
     out_pairs: list[tuple[dict[str, Any], Any]] = []
+
+    # Matched tab only: index PR rows by (GSTIN, invoice) so multi-line splits
+    # can be rediscovered on already-persisted runs that stripped pr_ids.
+    pr_ids_by_dup_key: dict[tuple[str, str], list[str]] | None = None
+    if not fetch_review_required:
+        pr_ids_by_dup_key = _build_pr_ids_by_dup_key(pr_db)
 
     for idx, en_row in enumerate(engine_matched):
         try:
@@ -2350,13 +2462,22 @@ def _build_matched_pair_records(
             else:
                 amt = _paise_to_rupees(int(gm.get("total_tax_paise") or 0))
 
-            # Both tabs compute the Discrepancy column identically: the real
-            # abs(gstr_taxable - pr_taxable) when both sides are present, ₹0
-            # otherwise. For a clean Matched-tab row (identical taxable on both
-            # sides) this is always 0; it no longer derives from
-            # orow.total_tax_diff_paise, which surfaced the full invoice tax as a
-            # fake discrepancy whenever the PR side's total_tax_paise projected 0.
-            tax_diff_paise: Optional[int] = _pair_tax_diff_paise(gm, pm, en_row)
+            # Both tabs compute the Discrepancy column via _pair_tax_diff_paise.
+            # Matched tab: for multi-line PR splits, pass a pm whose amounts are
+            # the sum of every split line (gated by _is_multiline_pr_split) so
+            # clean group-level matches show ₹0 instead of a fake sibling-sized
+            # gap. Review Required never aggregates siblings — real mismatches
+            # must stay visible.
+            pm_for_diff = pm
+            if not fetch_review_required:
+                pm_for_diff = _matched_pr_matcher_for_diff(
+                    gm,
+                    pm,
+                    en_row if isinstance(en_row, dict) else {},
+                    pr_db,
+                    pr_ids_by_dup_key=pr_ids_by_dup_key,
+                )
+            tax_diff_paise: Optional[int] = _pair_tax_diff_paise(gm, pm_for_diff, en_row)
 
 
             # Decision data: for matched rows, look up from the decisions_by_gid
