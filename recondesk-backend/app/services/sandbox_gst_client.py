@@ -2,6 +2,9 @@
 
 Authenticated client for fetching:
 - IMS (Invoice Management System) invoice status via GET /gst/compliance/tax-payer/invoices
+- IMS invoice counts via GET /gst/compliance/tax-payer/invoices/count
+- IMS save invoice status via POST /gst/compliance/tax-payer/invoices/status/save
+- IMS check status via GET /gst/compliance/tax-payer/invoices/status
 - GSTR-2B document via GET /gst/compliance/tax-payer/gstrs/gstr-2b/:year/:month
 
 Design goals
@@ -19,7 +22,7 @@ Design goals
   "GSTR-2B not available" gracefully.
 
 Environment variables
----------------------
+---------------
 SANDBOX_API_KEY   — required, never hardcode.
 SANDBOX_BASE_URL  — optional override; defaults to https://api.sandbox.co.in
 SANDBOX_API_VERSION — optional override; defaults to 1.0.0
@@ -52,6 +55,15 @@ IMS_SECTIONS = frozenset({"B2B", "B2BA", "CN", "CNA", "DN", "DNA", "ECOM", "ECOM
 
 # Valid status filter values.
 IMS_STATUSES = frozenset({"accepted", "rejected", "pending", "no_action_taken"})
+
+# Valid action values for the save-invoice-status endpoint.
+# These map to GSTN action codes: A = accept, R = reject, P = pending.
+IMS_ACTIONS = frozenset({"accept", "reject", "pending"})
+_ACTION_CODE_MAP: dict[str, str] = {
+    "accept": "A",
+    "reject": "R",
+    "pending": "P",
+}
 
 # Mapping from Sandbox "action" field → canonical IMS status string.
 # Sandbox IMS API uses these action codes to convey the taxpayer's IMS decision.
@@ -200,6 +212,107 @@ class IMSResponse:
             inv.invoice_number.strip().upper(): inv.ims_status
             for inv in self.invoices
         }
+
+
+# ---------------------------------------------------------------------------
+# IMS invoice count response model
+# ---------------------------------------------------------------------------
+
+@dataclass
+class IMSInvoiceCountResponse:
+    """Container for invoice counts by section and status.
+
+    ``counts`` is a dict of section → {status → count}, e.g.::
+
+        {
+            "b2b": {"accept": 5, "pending": 3, "reject": 1, "noaction": 12},
+            "b2ba": {"accept": 0, "pending": 0, "reject": 0, "noaction": 0},
+            ...
+        }
+    """
+
+    counts: dict[str, dict[str, int]]
+    raw_payload: dict = field(default_factory=dict, repr=False)
+
+    def total_by_status(self) -> dict[str, int]:
+        """Aggregate counts across all sections, grouped by status."""
+        totals: dict[str, int] = {}
+        for section_counts in self.counts.values():
+            for status, count in section_counts.items():
+                totals[status] = totals.get(status, 0) + count
+        return totals
+
+    def total(self) -> int:
+        """Return the grand total invoice count across all sections and statuses."""
+        return sum(
+            count
+            for section_counts in self.counts.values()
+            for count in section_counts.values()
+        )
+
+
+# ---------------------------------------------------------------------------
+# IMS save-status response model
+# ---------------------------------------------------------------------------
+
+@dataclass
+class IMSSaveStatusResponse:
+    """Response from the save-invoice-status endpoint.
+
+    The save operation is asynchronous — ``reference_id`` must be polled
+    via ``check_invoice_status()`` to determine the final outcome.
+    """
+
+    reference_id: str
+    transaction_id: str
+    raw_payload: dict = field(default_factory=dict, repr=False)
+
+
+# ---------------------------------------------------------------------------
+# IMS check-status response model
+# ---------------------------------------------------------------------------
+
+@dataclass
+class IMSCheckStatusResponse:
+    """Result of polling an async save/reset invoice-status action.
+
+    Attributes
+    ----------
+    status_cd:
+        Processing status code — "P" (processed), "PE" (processed with errors),
+        "ER" (error / schema validation failure), "IP" (in progress).
+    trans_type_cd:
+        Transaction type — "SAV" for save, "RST" for reset.
+    processed_count:
+        Number of invoices successfully processed.
+    error_count:
+        Number of invoices that failed.
+    error_report:
+        Per-section error details (if any).
+    error_code:
+        Top-level error code from GSTN (empty string if none).
+    error_message:
+        Top-level error message from GSTN (empty string if none).
+    """
+
+    status_cd: str
+    trans_type_cd: str
+    processed_count: int
+    error_count: int
+    error_report: dict = field(default_factory=dict)
+    error_code: str = ""
+    error_message: str = ""
+    raw_payload: dict = field(default_factory=dict, repr=False)
+
+    @property
+    def is_complete(self) -> bool:
+        """Return True if the operation has finished (success or failure)."""
+        return self.status_cd in ("P", "PE", "ER")
+
+    @property
+    def has_errors(self) -> bool:
+        """Return True if errors were reported."""
+        return self.status_cd in ("PE", "ER") or self.error_count > 0
 
 
 # ---------------------------------------------------------------------------
@@ -439,7 +552,112 @@ class SandboxGSTClient:
         except Exception as exc:
             raise SandboxApiError(resp.status_code, f"Invalid JSON: {exc}") from exc
 
+    def _post(self, path: str, json_body: dict) -> dict:
+        """Execute POST request and return parsed JSON body.
+
+        Translates HTTP errors into typed exceptions.  Logs the full
+        request and response for audit purposes (write operations).
+        """
+        url = f"{self._base_url}{path}"
+        headers = _build_required_headers(
+            self._api_key, self._access_token, self._api_version
+        )
+        headers["Content-Type"] = "application/json"
+
+        logger.info("SandboxGST POST %s body=%r", url, json_body)
+
+        try:
+            resp = self._http.post(url, headers=headers, json=json_body)
+        except httpx.TimeoutException as exc:
+            raise SandboxClientError(
+                f"Request timed out after {self._timeout}s: {exc}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise SandboxClientError(f"Network error: {exc}") from exc
+
+        logger.info(
+            "SandboxGST POST response: status=%s url=%s body=%s",
+            resp.status_code,
+            url,
+            resp.text[:2000],
+        )
+
+        if resp.status_code in (401, 403):
+            raise SandboxAuthError(resp.status_code, resp.text[:200])
+        if resp.status_code == 429:
+            raise SandboxRateLimitError(resp.headers.get("Retry-After"))
+        if resp.status_code != 200:
+            raise SandboxApiError(resp.status_code, resp.text[:500])
+
+        try:
+            return resp.json()
+        except Exception as exc:
+            raise SandboxApiError(resp.status_code, f"Invalid JSON: {exc}") from exc
+
     # ---- public methods --------------------------------------------------
+
+    def get_invoice_count(
+        self,
+        gstin: str,
+        year: int,
+        month: int,
+    ) -> IMSInvoiceCountResponse:
+        """Fetch IMS invoice counts by section and status.
+
+        Calls ``GET /gst/compliance/tax-payer/invoices/count``.
+
+        Parameters
+        ----------
+        gstin:
+            The buyer's GSTIN.
+        year:
+            4-digit return year (e.g. 2024).
+        month:
+            1–12 return month.
+
+        Returns
+        -------
+        IMSInvoiceCountResponse
+            Counts grouped by section (b2b, b2ba, …) and status
+            (accept, pending, reject, noaction).
+
+        Raises
+        ------
+        SandboxAuthError, SandboxRateLimitError, SandboxApiError
+        """
+        params: dict = {
+            "gstin": gstin,
+            "ret_period": f"{month:02d}{year}",
+        }
+
+        logger.info(
+            "SandboxGST: fetching IMS invoice count gstin=%s year=%d month=%02d",
+            gstin,
+            year,
+            month,
+        )
+
+        raw = self._get("/gst/compliance/tax-payer/invoices/count", params=params)
+        inner = _unwrap_sandbox_envelope(raw)
+
+        # inner structure: {"data": {"b2b": {"accept": N, ...}, ...}, "status_cd": "1"}
+        count_data = inner.get("data") if isinstance(inner, dict) and "data" in inner else inner
+
+        counts: dict[str, dict[str, int]] = {}
+        if isinstance(count_data, dict):
+            for section_key, status_map in count_data.items():
+                if isinstance(status_map, dict):
+                    counts[section_key] = {
+                        k: int(v) for k, v in status_map.items()
+                        if isinstance(v, (int, float, str))
+                    }
+
+        logger.info(
+            "SandboxGST: IMS invoice count fetched gstin=%s sections=%s",
+            gstin,
+            list(counts.keys()),
+        )
+        return IMSInvoiceCountResponse(counts=counts, raw_payload=raw)
 
     def get_invoices(
         self,
@@ -524,6 +742,187 @@ class SandboxGSTClient:
             section_upper,
         )
         return IMSResponse(invoices=invoices, raw_payload=raw)
+
+    def save_invoice_status(
+        self,
+        gstin: str,
+        invoice_data: dict[str, list[dict]],
+        action: str,
+        remarks: Optional[str] = None,
+    ) -> IMSSaveStatusResponse:
+        """Save (accept/reject/pending) status for one or more invoices.
+
+        Calls ``POST /gst/compliance/tax-payer/invoices/status/save``.
+
+        This is a **write operation** — the full request and response are logged
+        at INFO level for audit purposes.  The operation is asynchronous;
+        use the returned ``reference_id`` with ``check_invoice_status()``
+        to poll for completion.
+
+        Parameters
+        ----------
+        gstin:
+            The buyer/recipient GSTIN (rtin field in the request).
+        invoice_data:
+            Invoice payload organized by section, e.g.::
+
+                {
+                    "b2b": [
+                        {
+                            "stin": "24MAYAS0100J1JD",
+                            "inum": "INV-001",
+                            "inv_typ": "R",
+                            "srcform": "R1",
+                            "rtnprd": "112024",
+                            "idt": "05-11-2024",
+                            "val": 1000,
+                            "pos": "24",
+                            "txval": 100,
+                            "iamt": 0,
+                            "camt": 9,
+                            "samt": 9,
+                            "cess": 0,
+                            "prev_status": "N",
+                        }
+                    ]
+                }
+
+            The ``action`` and optional ``remarks`` will be injected into
+            each invoice entry automatically.
+        action:
+            One of: ``"accept"``, ``"reject"``, ``"pending"``.
+        remarks:
+            Optional remark string, visible on the supplier's dashboard
+            for reject/pending actions.
+
+        Returns
+        -------
+        IMSSaveStatusResponse
+            Contains ``reference_id`` for polling via ``check_invoice_status()``.
+
+        Raises
+        ------
+        ValueError
+            If ``action`` is not one of the valid IMS actions.
+        SandboxAuthError, SandboxRateLimitError, SandboxApiError
+        """
+        action_lower = action.lower()
+        if action_lower not in IMS_ACTIONS:
+            raise ValueError(
+                f"Invalid action '{action}'. Must be one of: {sorted(IMS_ACTIONS)}"
+            )
+
+        action_code = _ACTION_CODE_MAP[action_lower]
+
+        # Inject the action code (and optional remarks) into every invoice entry.
+        enriched_data: dict[str, list[dict]] = {}
+        for section_key, entries in invoice_data.items():
+            enriched_entries = []
+            for entry in entries:
+                enriched_entry = {**entry, "action": action_code}
+                if remarks is not None:
+                    enriched_entry["remarks"] = remarks
+                enriched_entries.append(enriched_entry)
+            enriched_data[section_key] = enriched_entries
+
+        body: dict = {
+            "rtin": gstin,
+            "reqtyp": "SAVE",
+            "invdata": enriched_data,
+        }
+
+        logger.info(
+            "SandboxGST: saving IMS invoice status gstin=%s action=%s sections=%s",
+            gstin,
+            action_lower,
+            list(enriched_data.keys()),
+        )
+
+        raw = self._post("/gst/compliance/tax-payer/invoices/status/save", json_body=body)
+        inner = _unwrap_sandbox_envelope(raw)
+
+        # inner: {"data": {"reference_id": "..."}, "status_cd": "1"}
+        data = inner.get("data", inner) if isinstance(inner, dict) else inner
+        reference_id = ""
+        if isinstance(data, dict):
+            reference_id = str(data.get("reference_id", ""))
+
+        if not reference_id:
+            raise SandboxApiError(
+                200,
+                f"Save-status response missing 'reference_id': {raw!r}",
+            )
+
+        transaction_id = str(raw.get("transaction_id", ""))
+
+        logger.info(
+            "SandboxGST: IMS save-status initiated gstin=%s reference_id=%s",
+            gstin,
+            reference_id,
+        )
+        return IMSSaveStatusResponse(
+            reference_id=reference_id,
+            transaction_id=transaction_id,
+            raw_payload=raw,
+        )
+
+    def check_invoice_status(
+        self,
+        reference_id: str,
+    ) -> IMSCheckStatusResponse:
+        """Poll the async result of a save/reset invoice-status action.
+
+        Calls ``GET /gst/compliance/tax-payer/invoices/status``.
+
+        Parameters
+        ----------
+        reference_id:
+            The ``reference_id`` returned by ``save_invoice_status()``.
+
+        Returns
+        -------
+        IMSCheckStatusResponse
+            Contains processing status, counts, and any per-invoice errors.
+            Check ``.is_complete`` to know whether polling should continue.
+
+        Raises
+        ------
+        SandboxAuthError, SandboxRateLimitError, SandboxApiError
+        """
+        params: dict = {"reference_id": reference_id}
+
+        logger.info(
+            "SandboxGST: checking IMS invoice status reference_id=%s",
+            reference_id,
+        )
+
+        raw = self._get("/gst/compliance/tax-payer/invoices/status", params=params)
+        inner = _unwrap_sandbox_envelope(raw)
+
+        # inner: {"data": {"status_cd": "P", "proc_cnt": "8", ...}, "status_cd": "1"}
+        data = inner.get("data", inner) if isinstance(inner, dict) else inner
+        if not isinstance(data, dict):
+            data = {}
+
+        result = IMSCheckStatusResponse(
+            status_cd=str(data.get("status_cd", "")),
+            trans_type_cd=str(data.get("transTypCd", "")),
+            processed_count=int(data.get("proc_cnt", 0)),
+            error_count=int(data.get("err_cnt", 0)),
+            error_report=data.get("error_report", {}),
+            error_code=str(data.get("err_cd", "")),
+            error_message=str(data.get("err_msg", "")),
+            raw_payload=raw,
+        )
+
+        logger.info(
+            "SandboxGST: IMS status check reference_id=%s status=%s processed=%d errors=%d",
+            reference_id,
+            result.status_cd,
+            result.processed_count,
+            result.error_count,
+        )
+        return result
 
     def get_gstr2b(
         self,
