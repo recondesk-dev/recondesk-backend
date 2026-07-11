@@ -24,6 +24,11 @@ _MATCHED_KEYS = (
     # These are small scalars and do not materially increase payload size.
     "match_level",
     "financial_status",
+    # Multi-line PR splits (one GSTR invoice booked as N tax-rate / HSN rows).
+    # Without these the Matched-tab Discrepancy column only sees the primary
+    # pr_id and fabricates a fake gap equal to the sibling line(s).
+    "pr_ids",
+    "multiline_pr_split",
 )
 
 _MISSED_ITC_KEYS = (

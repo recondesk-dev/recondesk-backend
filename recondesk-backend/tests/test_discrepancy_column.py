@@ -342,3 +342,276 @@ def test_matched_tab_pr_missing_total_tax_field_still_zero_discrepancy():
 
     # And the Discrepancy column figure is ₹0.
     assert _pair_tax_diff_paise(gstr_matcher, pr_matcher, {}) == 0
+
+
+# ── Matched tab: multi-line PR split must not fabricate a sibling-sized gap ─
+
+
+def test_matched_pr_matcher_for_diff_sums_multiline_siblings():
+    """Production bug (4483A): GSTR has two line items; PR books them as two
+    rows. Engine correctly clean-matches the group, but the Matched row only
+    stores the primary pr_id. Diffing GSTR vs that one line must NOT report the
+    sibling's full value as a 'tax difference'."""
+    from app.routers.reconciliation_api import _matched_pr_matcher_for_diff
+
+    gstin = "23HQCYW1875Y6Z5"
+    inv = "4483A"
+    gm = {
+        "supplier_gstin": gstin,
+        "invoice_number_normalized": inv,
+        "taxable_amount_paise": 82611808,
+        "total_tax_paise": 14870125,
+    }
+    pm_primary = {
+        "supplier_gstin": gstin,
+        "invoice_number_normalized": inv,
+        "taxable_amount_paise": 49567085,
+        "total_tax_paise": 8922075,
+    }
+    pm_sibling = {
+        "supplier_gstin": gstin,
+        "invoice_number_normalized": inv,
+        "taxable_amount_paise": 33044723,
+        "total_tax_paise": 5948050,
+    }
+    pr_db = {
+        "p1": {"matcher": pm_primary, "record_data": {}},
+        "p2": {"matcher": pm_sibling, "record_data": {}},
+    }
+
+    # Primary-only (the old bug): fake ₹3,89,927.73 gap.
+    assert _pair_tax_diff_paise(gm, pm_primary, {}) == 38992773
+
+    # With sibling aggregation (no persisted pr_ids — rediscovery path):
+    pm_eff = _matched_pr_matcher_for_diff(gm, pm_primary, {"pr_id": "p1"}, pr_db)
+    assert _pair_tax_diff_paise(gm, pm_eff, {}) == 0
+
+    # Persisted pr_ids path (new runs):
+    pm_eff2 = _matched_pr_matcher_for_diff(
+        gm, pm_primary, {"pr_id": "p1", "pr_ids": ["p1", "p2"], "multiline_pr_split": True}, pr_db
+    )
+    assert _pair_tax_diff_paise(gm, pm_eff2, {}) == 0
+
+
+def test_matched_pr_matcher_for_diff_does_not_sum_true_duplicates():
+    """Two full-value PR copies of one GSTR invoice are duplicates, not a
+    multi-line split. Summing them would invent a 1×-invoice fake gap. The
+    multiline gate must refuse and leave the primary (exact) amounts alone."""
+    from app.routers.reconciliation_api import _matched_pr_matcher_for_diff
+
+    gstin = "27AAAAA0000A1Z5"
+    inv = "DUP-1"
+    gm = {
+        "supplier_gstin": gstin,
+        "invoice_number_normalized": inv,
+        "taxable_amount_paise": 100_000,
+        "total_tax_paise": 18_000,
+    }
+    pm_full = {
+        "supplier_gstin": gstin,
+        "invoice_number_normalized": inv,
+        "taxable_amount_paise": 100_000,
+        "total_tax_paise": 18_000,
+    }
+    pr_db = {
+        "p-canon": {"matcher": pm_full, "record_data": {}},
+        "p-extra": {"matcher": dict(pm_full), "record_data": {}},
+    }
+    pm_eff = _matched_pr_matcher_for_diff(
+        gm, pm_full, {"pr_id": "p-canon", "pr_ids": ["p-canon", "p-extra"]}, pr_db
+    )
+    # Must stay primary-only (exact), not sum to 2×.
+    assert pm_eff["taxable_amount_paise"] == 100_000
+    assert pm_eff["total_tax_paise"] == 18_000
+    assert _pair_tax_diff_paise(gm, pm_eff, {}) == 0
+
+
+def test_matched_pr_matcher_for_diff_does_not_zero_non_partition_siblings():
+    """Same invoice number on two PR rows that do NOT sum to GSTR must not be
+    silently zeroed — preserve the real primary-vs-GSTR gap."""
+    from app.routers.reconciliation_api import _matched_pr_matcher_for_diff
+
+    gstin = "27AAAAA0000A1Z5"
+    inv = "MIX-1"
+    gm = {
+        "supplier_gstin": gstin,
+        "invoice_number_normalized": inv,
+        "taxable_amount_paise": 100_000,
+        "total_tax_paise": 18_000,
+    }
+    pm_partial = {
+        "supplier_gstin": gstin,
+        "invoice_number_normalized": inv,
+        "taxable_amount_paise": 40_000,
+        "total_tax_paise": 7_200,
+    }
+    pm_other = {
+        "supplier_gstin": gstin,
+        "invoice_number_normalized": inv,
+        "taxable_amount_paise": 30_000,  # 40k+30k != 100k
+        "total_tax_paise": 5_400,
+    }
+    pr_db = {
+        "p1": {"matcher": pm_partial, "record_data": {}},
+        "p2": {"matcher": pm_other, "record_data": {}},
+    }
+    pm_eff = _matched_pr_matcher_for_diff(gm, pm_partial, {"pr_id": "p1"}, pr_db)
+    assert pm_eff is pm_partial or (
+        pm_eff["taxable_amount_paise"] == 40_000 and pm_eff["total_tax_paise"] == 7_200
+    )
+    expected = abs((100_000 + 18_000) - (40_000 + 7_200))
+    assert _pair_tax_diff_paise(gm, pm_eff, {}) == expected
+
+
+def test_matched_tab_api_multiline_reports_zero_discrepancy():
+    """End-to-end Matched API path: multi-line PR split → tax_difference_paise=0."""
+    from app.routers import reconciliation_api as api
+
+    gstin = "23HQCYW1875Y6Z5"
+    inv = "4483A"
+    gstr_db = {
+        "g1": {
+            "matcher": {
+                "supplier_gstin": gstin,
+                "invoice_number_normalized": inv,
+                "invoice_date": "2024-12-26",
+                "taxable_amount_paise": 82611808,
+                "total_tax_paise": 14870125,
+            },
+            "record_data": {},
+        }
+    }
+    pr_db = {
+        "p1": {
+            "matcher": {
+                "supplier_gstin": gstin,
+                "invoice_number_normalized": inv,
+                "invoice_date": "2024-12-26",
+                "taxable_amount_paise": 49567085,
+                "total_tax_paise": 8922075,
+            },
+            "record_data": {},
+        },
+        "p2": {
+            "matcher": {
+                "supplier_gstin": gstin,
+                "invoice_number_normalized": inv,
+                "invoice_date": "2024-12-26",
+                "taxable_amount_paise": 33044723,
+                "total_tax_paise": 5948050,
+            },
+            "record_data": {},
+        },
+    }
+    # Persisted shape of an already-completed run (pr_ids stripped).
+    en_row = {
+        "gstr_id": "g1",
+        "pr_id": "p1",
+        "confidence_score": 80,
+        "match_level": 2,
+        "financial_status": "Exact",
+    }
+    payload = {"engine": {"matched": [en_row]}, "decisions": {"rows": []}}
+
+    with patch.object(api.ro, "load_gstr_map", return_value=gstr_db), \
+         patch.object(api.ro, "load_pr_map", return_value=pr_db):
+        pairs = _build_matched_pair_records(
+            None, rid="r1", payload=payload, note_counts={},
+            fetch_review_required=False, precomputed_outcome_rows=[],
+        )
+
+    assert len(pairs) == 1
+    row, _orow = pairs[0]
+    assert row["tax_difference_paise"] == 0, (
+        f"Multi-line clean match must show ₹0 on Matched, got "
+        f"{row['tax_difference_paise']} (Rs {row['tax_difference_paise']/100:,.2f})"
+    )
+
+
+def test_review_required_api_does_not_aggregate_multiline_siblings():
+    """Review Required must keep the real primary-vs-GSTR gap even when another
+    PR row shares the invoice number — sibling aggregation is Matched-only."""
+    from app.routers import reconciliation_api as api
+
+    gstin = "27AAAAA0000A1Z5"
+    inv = "REV-1"
+    gstr_db = {
+        "g1": {
+            "matcher": {
+                "supplier_gstin": gstin,
+                "invoice_number_normalized": inv,
+                "invoice_date": "2026-05-01",
+                "taxable_amount_paise": 100_000,
+                "total_tax_paise": 18_000,
+            },
+            "record_data": {},
+        }
+    }
+    pr_db = {
+        "p1": {
+            "matcher": {
+                "supplier_gstin": gstin,
+                "invoice_number_normalized": inv,
+                "invoice_date": "2026-05-01",
+                "taxable_amount_paise": 40_000,
+                "total_tax_paise": 7_200,
+            },
+            "record_data": {},
+        },
+        "p2": {
+            "matcher": {
+                "supplier_gstin": gstin,
+                "invoice_number_normalized": inv,
+                "invoice_date": "2026-05-01",
+                "taxable_amount_paise": 60_000,
+                "total_tax_paise": 10_800,
+            },
+            "record_data": {},
+        },
+    }
+    # Note: p1+p2 DO sum to GSTR — if Review wrongly aggregated, diff would be 0.
+    en_row = {
+        "gstr_id": "g1",
+        "pr_id": "p1",
+        "id": "p1",
+        "confidence_score": 60,
+        "match_status": "review_required",
+        "reason": "AMOUNT_MISMATCH",
+        "match_level": 3,
+        "taxable_diff_paise": abs((100_000 + 18_000) - (40_000 + 7_200)),
+    }
+    payload = {"engine": {"duplicates": [en_row], "review_required_typo": []}, "decisions": {"rows": []}}
+
+    with patch.object(api.ro, "load_gstr_map", return_value=gstr_db), \
+         patch.object(api.ro, "load_pr_map", return_value=pr_db):
+        pairs = _build_matched_pair_records(
+            None, rid="r1", payload=payload, note_counts={},
+            fetch_review_required=True, precomputed_outcome_rows=[],
+        )
+
+    assert len(pairs) == 1
+    row, _orow = pairs[0]
+    assert row["tax_difference_paise"] == abs((100_000 + 18_000) - (40_000 + 7_200))
+    assert row["tax_difference_paise"] != 0
+
+
+def test_slim_engine_matched_preserves_multiline_pr_ids():
+    from app.services.reconciliation_payload_store import slim_engine_matched
+
+    slim = slim_engine_matched(
+        [
+            {
+                "gstr_id": "g1",
+                "pr_id": "p1",
+                "confidence_score": 80,
+                "match_level": 2,
+                "financial_status": "Exact",
+                "pr_ids": ["p1", "p2"],
+                "multiline_pr_split": True,
+                "match_reasons": ["should be dropped"],
+            }
+        ]
+    )
+    assert slim[0]["pr_ids"] == ["p1", "p2"]
+    assert slim[0]["multiline_pr_split"] is True
+    assert "match_reasons" not in slim[0]
