@@ -346,6 +346,9 @@ async def sanity_check_gstr2b(
     obj = c.get_object(Bucket=settings.R2_BUCKET_NAME, Key=key)
     raw = obj["Body"].read()
     checks, record_count = ws.run_sanity_gstr2b_json(raw)
+    checks = ws.preserve_check_acknowledgments(
+        r.get("sanity_check_results"), checks
+    )
 
     sb.table(ws.T_RUNS).update(
         {
@@ -433,13 +436,23 @@ async def detect_columns(
                 status.HTTP_409_CONFLICT,
                 "Resolve GSTR-2B sanity errors before column detection",
             )
+    if ws.blocking_acknowledgments_pending(checks):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Acknowledge high-risk warnings before continuing.",
+        )
     pr_key = r.get("pr_r2_key")
     pr_name = r.get("pr_file_name") or "file.csv"
     if not pr_key:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Purchase register not uploaded")
-    columns, all_headers, pr_rows, parse_warnings, missing_invoice_count = (
-        ws.detect_pr_columns_from_r2(pr_key, pr_name)
-    )
+    (
+        columns,
+        all_headers,
+        pr_rows,
+        parse_warnings,
+        missing_invoice_count,
+        sheets_used,
+    ) = ws.detect_pr_columns_from_r2(pr_key, pr_name)
 
     from app.services import client_import_mapping as cim
 
@@ -450,27 +463,46 @@ async def detect_columns(
         # Prefer persisted client mapping over auto-detect for this upload.
         columns = cim.mapping_rows_to_wizard_columns(saved, all_headers)
 
-    pr_parse_warning = None
-    if missing_invoice_count > 0:
-        pr_parse_warning = (
-            f"{missing_invoice_count} skipped: missing invoice number"
-        )
-        inv_notes = [
-            w for w in parse_warnings if "invoice number" in (w or "").lower()
-        ]
-        if inv_notes:
-            pr_parse_warning += ". " + inv_notes[0]
+    missing_check = ws.build_missing_invoice_number_check(
+        missing_invoice_count, parse_warnings
+    )
+    pr_parse_warning = missing_check["detail"] if missing_check else None
+
+    multi_check = ws.build_multi_sheet_combine_check(sheets_used)
+    sanity_results = list(r.get("sanity_check_results") or [])
+    sanity_results = ws.upsert_sanity_check(
+        sanity_results,
+        multi_check,
+        check_id=ws.MULTI_SHEET_COMBINE_CHECK_ID,
+    )
+    sanity_results = ws.upsert_sanity_check(
+        sanity_results,
+        missing_check,
+        check_id=ws.MISSING_INVOICE_CHECK_ID,
+    )
 
     sb.table(ws.T_RUNS).update(
         {
             "column_mapping": columns,
             "pr_column_headers": all_headers,
             "pr_record_count": pr_rows,
+            "sanity_check_results": sanity_results,
             "current_step": 3,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
     ).eq("id", str(run_id)).execute()
-    ws.audit(sb, str(run_id), user_id, "detect_columns", {"headers": len(all_headers)})
+    ws.audit(
+        sb,
+        str(run_id),
+        user_id,
+        "detect_columns",
+        {
+            "headers": len(all_headers),
+            "sheets_used": len(sheets_used or []),
+            "multi_sheet_combine": bool(multi_check),
+            "missing_invoice_number": int(missing_invoice_count or 0),
+        },
+    )
     return {
         "columns": columns,
         "all_headers": all_headers,
@@ -480,6 +512,9 @@ async def detect_columns(
         "pr_record_count": pr_rows,
         "pr_parse_warning": pr_parse_warning,
         "missing_invoice_number_count": missing_invoice_count,
+        "multi_sheet_combine": multi_check,
+        "missing_invoice_number": missing_check,
+        "sanity_check_results": sanity_results,
     }
 
 
@@ -531,6 +566,11 @@ async def start_reconciliation(
     if not mapping or not isinstance(mapping, list):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "column_mapping required")
     _validate_start_mapping(mapping)
+    if ws.blocking_acknowledgments_pending(r.get("sanity_check_results")):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Acknowledge high-risk warnings before starting reconciliation.",
+        )
     if ws.another_processing_run(sb, r["client_id"], r["period"], str(run_id)):
         raise HTTPException(
             status.HTTP_409_CONFLICT,

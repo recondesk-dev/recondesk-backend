@@ -104,6 +104,11 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "The same invoice appears more than once; the system cannot determine which is the original",
         "next": "Identify the correct entry and remove or mark the duplicate(s). Do not claim ITC on duplicate bookings.",
     },
+    "DUPLICATE_ENTRY": {
+        "what": "Duplicate Entry — same invoice booked twice in books",
+        "why": "Identical GSTIN + invoice appears more than once in the purchase register",
+        "next": "Remove or mark the extra purchase-register row. Do not treat this as missing from GSTR-2B.",
+    },
     "REVIEW_MULTIPLE_CANDIDATES": {
         "what": "Multiple matching candidates — manual selection required",
         "why": "More than one purchase register entry could match this GSTR-2B invoice",

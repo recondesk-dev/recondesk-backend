@@ -126,25 +126,24 @@ def test_b_deterministic_duplicate_pair_resolves_as_clean():
 # ── Test C: 1 GSTR → 2 PRs (ambiguous) ──────────────────────────────────────
 
 def test_c_one_gstr_two_pr_duplicate_pr_flagged():
-    """1 GSTR + 2 identical PRs → DUPLICATE_CLAIM review (not silent match).
+    """1 GSTR + 2 identical PRs → 1 clean match + 1 Duplicate Entry.
 
-    Neither row lands in missed_itc or wrongful_itc_risk. GSTR-side review
-    count stays at 1 so Matched + Review + Missed == Total GSTR.
+    Neither extra row lands in missed_itc, wrongful_itc_risk, or review_required.
     """
     gstr = [_g("g1", tax=100)]
     pr = [_p("p1", tax=100), _p("p2", tax=100)]
     res = _run(gstr, pr)
     stats = res["stats"]
-    assert stats["clean_matched_count"] == 0
-    assert stats["review_required_count"] == 1
-    assert stats["duplicate_pr_count"] == 0
+    assert stats["clean_matched_count"] == 1
+    assert stats["duplicate_entry_count"] == 1
+    assert stats["duplicate_pr_count"] == 1
+    assert stats["review_required_count"] == 0
     assert stats["duplicate_conflict_count"] == 0
     assert stats["missed_itc_count"] == 0
     assert stats["wrongful_risk_count"] == 0
     assert stats["sanity_passed"] is True
-    assert any(
-        r.get("review_reason") == "DUPLICATE_CLAIM" for r in res["review_required"]
-    )
+    assert res["duplicate_entries"][0]["reason"] == "DUPLICATE_ENTRY"
+    assert res["duplicate_entries"][0]["matched_pr_id"] == res["matched"][0]["pr_id"]
 
 
 # ── Test D: 2 GSTRs → 1 PR (ambiguous) ──────────────────────────────────────

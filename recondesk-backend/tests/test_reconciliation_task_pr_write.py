@@ -15,6 +15,7 @@ def _gstr(**kwargs):
     base = {
         "id": "1",
         "supplier_gstin": "27ABCDE1234F1Z0",
+        "invoice_number": "INV001",
         "invoice_number_normalized": "INV001",
         "invoice_date": "2024-01-15",
         "taxable_amount_paise": 100000,
@@ -31,6 +32,7 @@ def _pr(**kwargs):
     base = {
         "id": "10",
         "supplier_gstin": "27ABCDE1234F1Z0",
+        "invoice_number": "INV001",
         "invoice_number_normalized": "INV001",
         "invoice_date": "2024-01-15",
         "taxable_amount_paise": 100000,

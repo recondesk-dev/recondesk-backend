@@ -1230,6 +1230,7 @@ def execute_reconciliation(run_id: str) -> None:
             rule37_pending_verification_paise=rule37_pending_paise,
             skipped_count=skipped_count,
             review_required_count=review_gstr_count,
+            duplicate_entry_count=len(state.duplicate_entries),
         )
 
         valid_review_required = []
@@ -1276,6 +1277,7 @@ def execute_reconciliation(run_id: str) -> None:
                 decision_version=DECISION_VERSION,
                 gstin_mismatch=[],
                 duplicates=valid_review_required,
+                duplicate_entries=list(state.duplicate_entries),
                 rule37_pending_verification=rule37_pending_verification,
                 review_required_typo=[],
             )

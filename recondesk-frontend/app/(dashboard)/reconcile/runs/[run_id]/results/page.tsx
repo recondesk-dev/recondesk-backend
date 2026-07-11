@@ -185,6 +185,7 @@ type RunSummary = {
   wrongful_risk_total_amount: number;
   wrongful_risk_amount_paise?: number;
   wrongful_risk_purchase_total_amount?: number;
+  duplicate_entry_count?: number;
   purchase_value_at_risk_paise?: number;
   late_match_count?: number | null;
   match_rate_percent: number;
@@ -1052,6 +1053,34 @@ export default function ReconcileResultsPage() {
   } = useSWR<Paginated<ReconcileRow>>(riskListKey, authJsonFetcher, {
     revalidateOnFocus: false,
   });
+
+  const duplicateEntryListKey = useMemo(() => {
+    if (!authReady || !runId || !summary || (summary.duplicate_entry_count ?? 0) <= 0)
+      return null;
+    return [
+      `/api/reconcile/results/${runId}/invoices?category=duplicate_entry&page=1&page_size=100`,
+      authToken,
+    ] as const;
+  }, [authReady, runId, summary, authToken]);
+
+  const {
+    data: duplicateEntryData,
+    error: duplicateEntryError,
+    isLoading: duplicateEntryLoading,
+  } = useSWR<{
+    invoices: Array<{
+      id: string;
+      supplier_gstin: string;
+      invoice_number: string;
+      invoice_date: string | null;
+      amount: number | null;
+      decision_what: string;
+      decision_why: string;
+      decision_next: string;
+      matched_pr_id?: string | null;
+    }>;
+    total: number;
+  }>(duplicateEntryListKey, authJsonFetcher, { revalidateOnFocus: false });
 
   const lateMatchesKey = useMemo(
     () =>
@@ -1972,6 +2001,7 @@ export default function ReconcileResultsPage() {
             tabCounts={{
               matched: summary.clean_matched_count ?? summary.matched_count,
               review_required: summary.review_required_count ?? 0,
+              duplicate_entry: summary.duplicate_entry_count ?? 0,
               risk: summary.wrongful_risk_count ?? 0,
               itc: summary.missed_itc_count ?? 0,
             }}
@@ -3270,6 +3300,72 @@ export default function ReconcileResultsPage() {
 
         {resultsTab === "followup" && authToken && (
           <SupplierFollowupAuditLogPanel runId={runId} authToken={authToken} />
+        )}
+
+        {/* Duplicate Entries */}
+        {resultsTab === "duplicate_entry" && (
+          <div className={sectionContainerClass}>
+            <h2 className="mb-1 text-[15px] font-semibold tracking-tight text-gray-900">
+              Duplicate Entries{" "}
+              {summary != null && (
+                <span className="font-normal text-gray-500">
+                  ({(summary.duplicate_entry_count ?? 0).toLocaleString("en-IN")})
+                </span>
+              )}
+            </h2>
+            <p className="mb-5 text-[12px] leading-relaxed text-gray-500">
+              Extra purchase-register bookings of an invoice that already matched
+              GSTR-2B. These are data-entry duplicates in your books — not missing
+              from GSTR-2B, and not included in ITC at Risk.
+            </p>
+            {(summary?.duplicate_entry_count ?? 0) <= 0 ? (
+              <p className="text-sm text-gray-500">No duplicate entries in this run.</p>
+            ) : duplicateEntryLoading ? (
+              <p className="text-sm text-gray-500">Loading…</p>
+            ) : duplicateEntryError ? (
+              <p className="text-sm text-red-600">Failed to load duplicate entries.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-[#E8E8EC]">
+                <table className="min-w-full text-left text-[13px]">
+                  <thead className="bg-[#FAFAFB] text-[11px] uppercase tracking-wide text-gray-500">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Supplier GSTIN</th>
+                      <th className="px-3 py-2 font-medium">Invoice</th>
+                      <th className="px-3 py-2 font-medium">Date</th>
+                      <th className="px-3 py-2 font-medium text-right">Tax (₹)</th>
+                      <th className="px-3 py-2 font-medium">Canonical PR</th>
+                      <th className="px-3 py-2 font-medium">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(duplicateEntryData?.invoices ?? []).map((row) => (
+                      <tr key={row.id} className="border-t border-[#EFEFF2]">
+                        <td className="px-3 py-2 font-mono text-[12px]">
+                          {row.supplier_gstin || "—"}
+                        </td>
+                        <td className="px-3 py-2">{row.invoice_number || "—"}</td>
+                        <td className="px-3 py-2">{row.invoice_date || "—"}</td>
+                        <td className="px-3 py-2 text-right">
+                          {row.amount != null
+                            ? (Math.abs(row.amount) / 100).toLocaleString("en-IN", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })
+                            : "—"}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[11px] text-gray-600">
+                          {row.matched_pr_id || "—"}
+                        </td>
+                        <td className="px-3 py-2 text-gray-600">
+                          {row.decision_next || "Remove or mark the extra booking."}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Review Required */}

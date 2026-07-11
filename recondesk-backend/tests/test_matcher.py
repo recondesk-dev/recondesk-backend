@@ -98,10 +98,11 @@ def test_l1_hash_index_fast_path_skips_full_loop():
     assert r.matched is True
 
 
-def test_l1_match_differing_only_by_invoice_punctuation():
+def test_l2_match_differing_only_by_invoice_punctuation():
     # INV-2025-001 (raw) and INV2025001 (raw) are the same identity after normalization.
     # raw_inv_ok=False (hyphens differ), inv_ok=True (both normalize to INV20251).
-    # Amounts and dates identical → zero-discrepancy → promoted to level=1.
+    # Amounts and dates identical → zero-discrepancy clean Matched at L2 (not L1),
+    # so Non-exact / FUZZY can surface formatting-only matches.
     g = _base_rec(invoice_number="INV-2025-001")
     p = _base_rec(
         supplier_gstin=g["supplier_gstin"],
@@ -112,9 +113,10 @@ def test_l1_match_differing_only_by_invoice_punctuation():
     r = match_gstr_to_pr(g, [p])
     assert r is not None
     assert r.matched is True
-    assert r.level == 1, (
-        f"Separator-only diff with identical amounts/dates must be promoted to L1. Got L{r.level}."
+    assert r.level == 2, (
+        f"Separator-only diff with identical amounts/dates must be L2 Matched. Got L{r.level}."
     )
+    assert r.confidence == 95
     assert r.requires_human_review is False
 
 
@@ -395,13 +397,17 @@ def test_l1_exact_match_pr_missing_tax_component_breakdown():
     columns (only an aggregate total_tax_paise), while GSTR reports a real IGST
     figure. Taxable amount and total tax agree exactly on both sides, so this
     MUST be L1_EXACT / Matched -- the missing breakdown must not be read as a
-    fabricated CGST+SGST tax-structure conflict."""
+    fabricated CGST+SGST tax-structure conflict.
+
+    Invoice strings are identical so this isolates the tax-breakdown bug from
+    the L1/L2 raw-vs-normalized invoice split.
+    """
     g = _base_rec(invoice_number="INV-1042", taxable_paise=49_760_567)
     g["igst_paise"] = 13_932_959
     g["total_tax_paise"] = 13_932_959
     p = _base_rec(
         supplier_gstin=g["supplier_gstin"],
-        invoice_number="INV1042",
+        invoice_number="INV-1042",
         invoice_date=g["invoice_date"],
         taxable_paise=49_760_567,
     )

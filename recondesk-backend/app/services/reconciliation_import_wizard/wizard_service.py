@@ -297,6 +297,11 @@ def run_sanity_gstr2b_json(raw: bytes) -> tuple[list[dict[str, Any]], int]:
                 "status": "warning",
                 "detail": detail,
                 "affected_records": affected,
+                # Empty/incomplete GSTR-2B is high-risk — must acknowledge
+                # before continuing (covers the historic "all CDNR skipped"
+                # Unsupported-schema case).
+                "requires_acknowledgment": True,
+                "acknowledged": False,
             }
         )
     else:
@@ -340,6 +345,165 @@ def _skip_breakdown_affected_records(
         for item in breakdown_labeled
         if int(item.get("count", 0)) > 0
     ]
+
+
+# ---------------------------------------------------------------------------
+# High-risk wizard acknowledgments
+# ---------------------------------------------------------------------------
+# Checks with ``requires_acknowledgment: true`` block Continue / detect-columns
+# / start until the user acknowledges them. Promote new risks by setting the
+# flag on the check — do not hardcode check IDs in the gate.
+
+MULTI_SHEET_COMBINE_CHECK_ID = "multi_sheet_combine"
+MISSING_INVOICE_CHECK_ID = "missing_invoice_number"
+
+
+def build_multi_sheet_combine_check(
+    sheets_used: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """Build the blocking warning check when 2+ sheets were combined, else None."""
+    used = [s for s in (sheets_used or []) if isinstance(s, dict) and s.get("sheet")]
+    if len(used) < 2:
+        return None
+    used_names = ", ".join(
+        f"{s.get('sheet')} ({int(s.get('records') or 0)})" for s in used
+    )
+    return {
+        "id": MULTI_SHEET_COMBINE_CHECK_ID,
+        "label": "Multiple Excel sheets combined",
+        "status": "warning",
+        "detail": (
+            f"Combined {len(used)} sheets into one purchase register: {used_names}. "
+            "If sheets overlap, invoices may be double-counted."
+        ),
+        "affected_records": [
+            {
+                "gstin": "",
+                "invoice_number": str(s.get("sheet") or ""),
+            }
+            for s in used
+        ],
+        "requires_acknowledgment": True,
+        "acknowledged": False,
+    }
+
+
+def build_missing_invoice_number_check(
+    missing_count: int,
+    parse_warnings: list[str] | None = None,
+) -> dict[str, Any] | None:
+    """Blocking warning when PR rows lack invoice numbers after mapping."""
+    n = int(missing_count or 0)
+    if n <= 0:
+        return None
+    detail = f"{n} skipped: missing invoice number"
+    inv_notes = [
+        w
+        for w in (parse_warnings or [])
+        if "invoice number" in (w or "").lower()
+    ]
+    if inv_notes:
+        detail += ". " + inv_notes[0]
+    else:
+        detail += (
+            ". These purchase register rows cannot be matched to GSTR-2B "
+            "and may skew Missed ITC / ITC at Risk."
+        )
+    return {
+        "id": MISSING_INVOICE_CHECK_ID,
+        "label": "Missing invoice numbers",
+        "status": "warning",
+        "detail": detail,
+        "affected_records": [],
+        "requires_acknowledgment": True,
+        "acknowledged": False,
+    }
+
+
+def upsert_sanity_check(
+    existing: list[dict[str, Any]] | None,
+    check: dict[str, Any] | None,
+    *,
+    check_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Replace or remove a check by id; preserve prior ``acknowledged``."""
+    cid = check_id or (str(check.get("id")) if check else None)
+    if not cid:
+        return [dict(item) for item in (existing or []) if isinstance(item, dict)]
+    out = [
+        dict(item)
+        for item in (existing or [])
+        if isinstance(item, dict) and str(item.get("id")) != cid
+    ]
+    if check is None:
+        return out
+    prior = next(
+        (
+            item
+            for item in (existing or [])
+            if isinstance(item, dict) and str(item.get("id")) == cid
+        ),
+        None,
+    )
+    merged = dict(check)
+    if prior and prior.get("acknowledged"):
+        merged["acknowledged"] = True
+    out.append(merged)
+    return out
+
+
+def preserve_check_acknowledgments(
+    prior: list[dict[str, Any]] | None,
+    fresh: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Copy ``acknowledged=True`` from prior checks onto matching fresh ids."""
+    prior_ack = {
+        str(item.get("id")): bool(item.get("acknowledged"))
+        for item in (prior or [])
+        if isinstance(item, dict) and item.get("id") is not None
+    }
+    out: list[dict[str, Any]] = []
+    for item in fresh or []:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        cid = str(row.get("id") or "")
+        if cid and prior_ack.get(cid):
+            row["acknowledged"] = True
+        out.append(row)
+    return out
+
+
+def unacknowledged_blocking_checks(
+    sanity_check_results: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Warnings that declare ``requires_acknowledgment`` and are not yet acked."""
+    out: list[dict[str, Any]] = []
+    for item in sanity_check_results or []:
+        if not isinstance(item, dict):
+            continue
+        if not item.get("requires_acknowledgment"):
+            continue
+        if str(item.get("status") or "").lower() != "warning":
+            continue
+        if item.get("acknowledged"):
+            continue
+        out.append(item)
+    return out
+
+
+def blocking_acknowledgments_pending(
+    sanity_check_results: list[dict[str, Any]] | None,
+) -> bool:
+    """True when any high-risk warning still needs acknowledgment."""
+    return bool(unacknowledged_blocking_checks(sanity_check_results))
+
+
+# Back-compat alias used by earlier Issue 5 wiring.
+def multi_sheet_combine_blocks_start(
+    sanity_check_results: list[dict[str, Any]] | None,
+) -> bool:
+    return blocking_acknowledgments_pending(sanity_check_results)
 
 
 def _read_pr_dataframe(raw: bytes, filename: str) -> pd.DataFrame:
@@ -402,8 +566,10 @@ def _read_pr_dataframe(raw: bytes, filename: str) -> pd.DataFrame:
 
 def detect_pr_columns_from_r2(
     key: str, filename: str
-) -> tuple[list[dict], list[str], int, list[str], int]:
-    """Return wizard columns, headers, row count, parse warnings, missing-invoice count."""
+) -> tuple[list[dict], list[str], int, list[str], int, list[dict]]:
+    """Return wizard columns, headers, row count, parse warnings, missing-invoice
+    count, and ``sheets_used`` from the purchase-register parse.
+    """
     c = _r2()
     o = c.get_object(Bucket=settings.R2_BUCKET_NAME, Key=key)
     raw = o["Body"].read()
@@ -420,15 +586,17 @@ def detect_pr_columns_from_r2(
     candidates = list_candidate_pr_sheet_names(raw, filename)
     parse_warnings: list[str] = []
     missing_invoice_count = 0
+    sheets_used: list[dict] = []
     if len(candidates) > 1:
         parsed = parse_purchase_register(raw, filename)
         row_count = int(parsed.get("valid_rows") or 0)
         parse_warnings = list(parsed.get("warnings") or [])
         missing_invoice_count = int(parsed.get("missing_invoice_number_count") or 0)
+        sheets_used = list(parsed.get("sheets_used") or [])
         _log.info(
             "[detect-columns] multi-sheet PR: used=%s skipped=%s valid_rows=%s "
             "missing_invoice=%s",
-            parsed.get("sheets_used"),
+            sheets_used,
             parsed.get("sheets_skipped"),
             row_count,
             missing_invoice_count,
@@ -442,6 +610,7 @@ def detect_pr_columns_from_r2(
             missing_invoice_count = int(
                 parsed.get("missing_invoice_number_count") or 0
             )
+            sheets_used = list(parsed.get("sheets_used") or [])
             if parsed.get("valid_rows"):
                 row_count = int(parsed["valid_rows"])
         except Exception:  # noqa: BLE001
@@ -449,7 +618,14 @@ def detect_pr_columns_from_r2(
     df = df_full.head(50)
     headers = [str(h).strip() for h in df.columns.tolist()]
     columns_out = _wizard_columns_from_dataframe(df)
-    return columns_out, headers, row_count, parse_warnings, missing_invoice_count
+    return (
+        columns_out,
+        headers,
+        row_count,
+        parse_warnings,
+        missing_invoice_count,
+        sheets_used,
+    )
 
 
 def _set_wizard_progress(sb: Client, run_id: str, pct: int, msg: str) -> None:

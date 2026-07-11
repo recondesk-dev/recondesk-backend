@@ -94,10 +94,10 @@ def test_format_variant_is_fuzzy_normalized_match():
     p = _rec("p1", GSTIN, "DS/26/78", 8_500_000)
     r = match_gstr_to_pr(g, [p])
     assert r is not None and r.matched is True
-    # Bug 1 fix: zero-discrepancy format variants (same GSTIN, same amount, same
-    # date — only the invoice-number formatting differs) are promoted to a clean
-    # L1 match, not left as an L2 review item.
-    assert r.level == 1
+    # Zero-discrepancy format variants stay on Matched as L2 (not review, not L1)
+    # so Non-exact / FUZZY can surface formatting-only matches.
+    assert r.level == 2
+    assert r.confidence == 95
     assert r.requires_human_review is False
     assert r.review_reason is None
 
@@ -173,18 +173,18 @@ def test_duplicate_pr_invoice_does_not_double_count():
         ],
         gstr_period=date(2026, 5, 1),
     )
-    # True duplicates → Review Required (DUPLICATE_CLAIM); not double-counted
-    # as matched + ITC-at-risk, and GSTR-side review count stays at 1.
-    assert res["stats"]["matched_count"] == 0
-    assert res["stats"]["review_required_count"] == 1
+    # Canonical PR matches; extra is Duplicate Entry — not risk / review.
+    assert res["stats"]["matched_count"] == 1
+    assert res["stats"]["duplicate_entry_count"] == 1
+    assert res["stats"]["review_required_count"] == 0
     assert res["stats"]["wrongful_risk_count"] == 0
     assert res["stats"]["missed_itc_count"] == 0
-    assert res["stats"]["duplicate_pr_count"] == 0
+    assert res["stats"]["duplicate_pr_count"] == 1
     assert res["stats"]["duplicate_conflict_count"] == 0
     assert res["stats"]["sanity_passed"] is True
-    assert any(
-        r.get("review_reason") == "DUPLICATE_CLAIM" for r in res["review_required"]
-    )
+    assert res["matched"][0]["pr_id"] == "p1"
+    assert res["duplicate_entries"][0]["id"] == "p2"
+    assert res["duplicate_entries"][0]["matched_pr_id"] == "p1"
 
 
 def test_duplicate_gstr_invoice_not_counted_as_missed_itc():

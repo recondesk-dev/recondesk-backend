@@ -166,6 +166,7 @@ class OutcomeRow:
     late_filing_flag: bool
     is_credit_note: bool
     amount: Optional[int]
+    matched_pr_id: Optional[str] = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -191,6 +192,7 @@ class OutcomeRow:
             "late_filing_flag": self.late_filing_flag,
             "is_credit_note": self.is_credit_note,
             "amount": self.amount,
+            "matched_pr_id": self.matched_pr_id,
         }
 
 
@@ -581,6 +583,58 @@ def build_outcome_rows(
             )
         )
 
+    for de in list(engine.get("duplicate_entries") or []):
+        pid = str(de.get("id") or "")
+        pcell = pr_m.get(pid) or {}
+        m_rec = pcell.get("matcher") or {}
+        invn = str(
+            de.get("invoice_number_normalized")
+            or m_rec.get("invoice_number_normalized")
+            or ""
+        )
+        invd = de.get("invoice_date") or m_rec.get("invoice_date")
+        matched_pr_id = str(de.get("matched_pr_id") or "").strip() or None
+        rows.append(
+            OutcomeRow(
+                id=f"de:{pid}",
+                category="duplicate_entry",
+                supplier_gstin=str(
+                    de.get("supplier_gstin") or m_rec.get("supplier_gstin") or ""
+                ),
+                supplier_name=None,
+                invoice_number=invn,
+                invoice_date=str(invd) if invd else None,
+                match_status="DUPLICATE_ENTRY",
+                taxable_value_diff=0,
+                igst_diff=0,
+                cgst_diff=0,
+                sgst_diff=0,
+                total_tax_diff_paise=0,
+                decision_what="Duplicate Entry — same invoice booked twice in books",
+                decision_why=(
+                    "Identical GSTIN + invoice appears more than once in the "
+                    "purchase register"
+                    + (
+                        f"; canonical match is PR {matched_pr_id}"
+                        if matched_pr_id
+                        else ""
+                    )
+                ),
+                decision_next=(
+                    "Remove or mark the extra purchase-register row. Do not treat "
+                    "this as missing from GSTR-2B or reverse ITC for it."
+                ),
+                rule37_flag=False,
+                blocked_credit_flag=False,
+                late_filing_flag=False,
+                is_credit_note=False,
+                amount=_opt_int(de.get("total_tax_paise"))
+                if _opt_int(de.get("total_tax_paise")) is not None
+                else _opt_int(m_rec.get("total_tax_paise")),
+                matched_pr_id=matched_pr_id,
+            )
+        )
+
     for typo in list(engine.get("review_required_typo") or []):
         rid = str(typo.get("pr_id", ""))
         gstr_id = str(typo.get("gstr_id", ""))
@@ -710,6 +764,7 @@ def build_outcome_rows(
         "credit_notes",
         "gstin_mismatch",
         "review_required",
+        "duplicate_entry",
     ]}
     for r in rows:
         ccounts[r.category] = ccounts.get(r.category, 0) + 1

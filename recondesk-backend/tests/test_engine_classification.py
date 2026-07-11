@@ -103,8 +103,8 @@ def _stats(res):   return res["stats"]
 #    PR:   "FY202600001"   → norm "FY202600001"  (already stripped by parser)
 #    Amounts, dates, tax structure identical.
 #    Expected:
-#      - Matched bucket (not Review Required)  ← Bug 1 fix
-#      - match_level == 1, confidence == 100   ← Bug 4 fix (Non-exact chip)
+#      - Matched bucket (not Review Required)
+#      - match_level == 2 (normalized / format-variant, not raw-exact L1)
 # ─────────────────────────────────────────────────────────────────────────────
 def test_exact_match_raw_string_differs_goes_to_matched():
     g = _gstr(gstin=GSTIN_A, inv="FY/2026/00001", inv_norm="FY202600001")
@@ -115,12 +115,11 @@ def test_exact_match_raw_string_differs_goes_to_matched():
     )
     assert _stats(res)["matched_count"] == 1
     assert _stats(res)["review_required_count"] == 0
-    # match_level=1 / confidence=100 so exact_match_count chip is correct
     matched_row = next(m for m in res["matched"] if m["gstr_id"] == g["id"])
-    assert matched_row.get("match_level") == 1, (
-        "Zero-diff L2 must be promoted to level=1 so Non-exact chip shows 0, not total matched"
+    assert matched_row.get("match_level") == 2, (
+        "Raw strings differ → L2 normalized clean match, not L1; "
+        f"got match_level={matched_row.get('match_level')}"
     )
-    assert matched_row.get("confidence_score") == 100
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -306,8 +305,9 @@ def test_mixed_batch_routes_correctly():
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 14. exact_match_count chip formula:
-#     4 L1 raw-exact + 2 L2 zero-diff-exact → all 6 should report match_level=1
-#     → non_exact_count = total_matched - exact_match_count = 6 - 6 = 0
+#     4 L1 raw-exact → match_level=1
+#     2 format-variant zero-diff → match_level=2 (Matched, Non-exact)
+#     → exact_count=4, non_exact=2
 #     3 L2 with real diff → in review, not matched at all
 # ─────────────────────────────────────────────────────────────────────────────
 def test_exact_match_count_chip_formula():
@@ -320,7 +320,7 @@ def test_exact_match_count_chip_formula():
         for i in range(4)
     ]
 
-    # 2 zero-diff L2 (raw differs, norm same, amounts exact → promoted to level=1)
+    # 2 zero-diff format variants (raw differs, norm same → L2 clean matched)
     l2_exact_pairs = [
         (_gstr(gstin=G, inv=f"FY/2026/{i:05d}", inv_norm=f"FY2026{i:05d}"),
          _pr(  gstin=G, inv=f"FY2026{i:05d}",   inv_norm=f"FY2026{i:05d}"))
@@ -353,9 +353,9 @@ def test_exact_match_count_chip_formula():
     )
     non_exact_count = len(matched_rows) - exact_count
 
-    assert exact_count == 6, (
-        f"exact_match_count must be 6 (4 L1 + 2 zero-diff L2 promoted); got {exact_count}"
+    assert exact_count == 4, (
+        f"exact_match_count must be 4 (raw-identical only); got {exact_count}"
     )
-    assert non_exact_count == 0, (
-        f"Non-exact chip must be 0 when all matched rows are level=1; got {non_exact_count}"
+    assert non_exact_count == 2, (
+        f"Non-exact chip must be 2 for format-variant zero-diff matches; got {non_exact_count}"
     )

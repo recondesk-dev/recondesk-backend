@@ -67,6 +67,10 @@ _DUPLICATE_KEYS = (
     "total_tax_paise",
     "side",
     "reason",
+    # Canonical PR that was auto-matched for true-duplicate groups — shown so a
+    # CA reviewing a Duplicate Entry knows which row is treated as the real one.
+    "matched_pr_id",
+    "classification",
     # Review-required rows are stored via duplicates; these three fields
     # must be preserved so the API can show real match_level, confidence,
     # and review reason instead of defaulting to FUZZY / 0%.
@@ -189,6 +193,7 @@ def build_run_summary_metrics(
     rule37_pending_verification_paise: int = 0,
     skipped_count: int = 0,
     review_required_count: int = 0,
+    duplicate_entry_count: int = 0,
 ) -> dict[str, Any]:
     """Scalar run_summary only — no decisions/compliance blobs (kept in results payload)."""
     skip_detail = None
@@ -216,6 +221,7 @@ def build_run_summary_metrics(
         "skipped_count": skipped_count,
         "pr_skipped_missing_invoice_count": skipped_count,
         "pr_skipped_detail": skip_detail,
+        "duplicate_entry_count": duplicate_entry_count,
     }
 
 
@@ -234,6 +240,7 @@ def build_stored_results_payload(
     late_filing: list[dict[str, Any]] | None = None,
     gstin_mismatch: list[dict[str, Any]] | None = None,
     duplicates: list[dict[str, Any]] | None = None,
+    duplicate_entries: list[dict[str, Any]] | None = None,
     rule37_pending_verification: list[dict[str, Any]] | None = None,
     review_required_typo: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -245,6 +252,7 @@ def build_stored_results_payload(
             "wrongful_itc_risk": slim_wrongful_itc(wrongful_itc_risk),
             "gstin_mismatch": slim_gstin_mismatch(gstin_mismatch or []),
             "duplicates": slim_duplicates(duplicates or []),
+            "duplicate_entries": slim_duplicates(duplicate_entries or []),
             "review_required_typo": review_required_typo or [],
         },
         "compliance": {
