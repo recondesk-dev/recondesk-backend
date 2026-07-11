@@ -628,11 +628,14 @@ class TestFalsePositiveGuards:
         gstr = [_gstr("g_fp2", GSTIN_A, "ALPHA-9999", 300_000)]
         pr   = [_pr  ("p_fp2", GSTIN_A, "ZYXWV-1234", 300_000)]
         res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
-        # VENDOR_FUZZY would match on exact amount — this is acceptable (same GSTIN + same amount)
-        # but it must never produce a clean L1 matched
+        # Amount-only pairing is intentionally disabled — same GSTIN + same tax
+        # with unrelated invoice numbers must not create Review Required.
         assert res["stats"]["matched_count"] == 0, (
             "Completely different invoices must not produce a clean match"
         )
+        assert res["stats"]["missed_itc_count"] == 1
+        assert res["stats"]["review_required_count"] == 0
+        assert res["stats"]["wrongful_risk_count"] == 1
 
     def test_gstin_typo_generic_invoice_number_not_auto_matched(self):
         """
