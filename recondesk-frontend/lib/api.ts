@@ -869,6 +869,10 @@ export interface DetectColumnsResponse {
   saved_mapping?: ClientImportMappingRow[] | null;
   saved_mapping_covers?: boolean;
   schema_ok?: boolean;
+  pr_record_count?: number;
+  /** Visible when PR rows lack invoice_number after per-sheet mapping. */
+  pr_parse_warning?: string | null;
+  missing_invoice_number_count?: number;
 }
 
 export type ImportTargetField =

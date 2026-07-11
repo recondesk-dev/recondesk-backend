@@ -400,7 +400,10 @@ def _read_pr_dataframe(raw: bytes, filename: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def detect_pr_columns_from_r2(key: str, filename: str) -> tuple[list[dict], list[str], int]:
+def detect_pr_columns_from_r2(
+    key: str, filename: str
+) -> tuple[list[dict], list[str], int, list[str], int]:
+    """Return wizard columns, headers, row count, parse warnings, missing-invoice count."""
     c = _r2()
     o = c.get_object(Bucket=settings.R2_BUCKET_NAME, Key=key)
     raw = o["Body"].read()
@@ -410,26 +413,43 @@ def detect_pr_columns_from_r2(key: str, filename: str) -> tuple[list[dict], list
     # Prefer full multi-sheet parse count when the workbook has several mappable
     # sheets — _read_pr_dataframe only returns the first sheet's rows.
     from app.parsers.purchase_register_parser import (
-        list_mappable_pr_sheets,
+        list_candidate_pr_sheet_names,
         parse_purchase_register,
     )
 
-    mappable = list_mappable_pr_sheets(raw, filename)
-    if len(mappable) > 1:
+    candidates = list_candidate_pr_sheet_names(raw, filename)
+    parse_warnings: list[str] = []
+    missing_invoice_count = 0
+    if len(candidates) > 1:
         parsed = parse_purchase_register(raw, filename)
         row_count = int(parsed.get("valid_rows") or 0)
+        parse_warnings = list(parsed.get("warnings") or [])
+        missing_invoice_count = int(parsed.get("missing_invoice_number_count") or 0)
         _log.info(
-            "[detect-columns] multi-sheet PR: used=%s skipped=%s valid_rows=%s",
+            "[detect-columns] multi-sheet PR: used=%s skipped=%s valid_rows=%s "
+            "missing_invoice=%s",
             parsed.get("sheets_used"),
             parsed.get("sheets_skipped"),
             row_count,
+            missing_invoice_count,
         )
     else:
         row_count = int(len(df_full))
+        # Single-sheet: still parse once so missing-invoice mapping gaps surface early.
+        try:
+            parsed = parse_purchase_register(raw, filename)
+            parse_warnings = list(parsed.get("warnings") or [])
+            missing_invoice_count = int(
+                parsed.get("missing_invoice_number_count") or 0
+            )
+            if parsed.get("valid_rows"):
+                row_count = int(parsed["valid_rows"])
+        except Exception:  # noqa: BLE001
+            pass
     df = df_full.head(50)
     headers = [str(h).strip() for h in df.columns.tolist()]
     columns_out = _wizard_columns_from_dataframe(df)
-    return columns_out, headers, row_count
+    return columns_out, headers, row_count, parse_warnings, missing_invoice_count
 
 
 def _set_wizard_progress(sb: Client, run_id: str, pct: int, msg: str) -> None:

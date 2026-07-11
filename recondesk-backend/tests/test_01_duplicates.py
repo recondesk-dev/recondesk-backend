@@ -48,6 +48,7 @@ def test_b_gstin_mismatch():
 
 def test_c_1_gstr_2_pr():
     # Test C: GSTR has one supplier A / INV001. PR has two supplier A / INV001 rows
+    # (identical full-invoice amounts = true data-entry duplicate, not a tax-rate split).
     gstr = [_gstr("g1", "27AAAAA0000A1Z5", "INV001", 100)]
     pr = [
         _pr("p1", "27AAAAA0000A1Z5", "INV001", 100),
@@ -55,10 +56,17 @@ def test_c_1_gstr_2_pr():
     ]
     res = run_bidirectional_reconciliation(gstr, pr, gstr_period=date(2026, 5, 1))
     stats = res["stats"]
-    # Correct behavior: first PR matches normally, second is a duplicate data-entry flag
-    assert stats["clean_matched_count"] == 1
-    assert stats["duplicate_pr_count"] == 1
+    # True duplicates are routed to Review Required (DUPLICATE_CLAIM), not
+    # silently auto-matched. GSTR-side review count remains 1 so the KPI
+    # invariant Matched + Review + Missed == Total GSTR holds.
+    assert stats["clean_matched_count"] == 0
+    assert stats["review_required_count"] == 1
     assert stats["duplicate_conflict_count"] == 0
+    assert stats["missed_itc_count"] == 0
+    assert stats["sanity_passed"] is True
+    assert any(
+        r.get("review_reason") == "DUPLICATE_CLAIM" for r in res["review_required"]
+    )
 
 def test_d_2_gstr_1_pr():
     # Test D: GSTR has two supplier A / INV001 rows. PR has one supplier A / INV001 row

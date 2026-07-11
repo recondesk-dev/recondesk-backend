@@ -420,6 +420,73 @@ def _is_deterministic_duplicate_group(g_ids: list[str], p_ids: list[str], gstr_b
     return len(set(best_for_g.values())) == len(best_for_g)
 
 
+def _is_multiline_pr_split(
+    g: dict,
+    p_ids: list[str],
+    pr_by_id: dict[str, dict],
+    *,
+    tolerance_paise: int = TOTAL_TOLERANCE_PAISE,
+) -> bool:
+    """True when multiple PR rows are a tax-rate / HSN line split of one GSTR invoice.
+
+    Purchase registers often book one invoice as several spreadsheet rows (one per
+    tax rate). GSTR-2B keeps a single ``inum`` with summed ``itms``. When the PR
+    rows' taxable + tax amounts sum to the GSTR invoice totals (within rounding)
+    and no single PR row already equals the full GSTR invoice, treat the group as
+    one multi-line booking — not a duplicate data-entry conflict.
+    """
+    if len(p_ids) < 2:
+        return False
+    g_taxable = int(g.get("taxable_amount_paise") or 0)
+    g_tax = int(g.get("total_tax_paise") or 0)
+    prs = [pr_by_id[pid] for pid in p_ids]
+    sum_taxable = sum(int(p.get("taxable_amount_paise") or 0) for p in prs)
+    sum_tax = sum(int(p.get("total_tax_paise") or 0) for p in prs)
+    if abs(sum_taxable - g_taxable) > tolerance_paise:
+        return False
+    if abs(sum_tax - g_tax) > tolerance_paise:
+        return False
+    # Pure duplicates: at least one PR row already equals the full invoice.
+    for p in prs:
+        p_taxable = int(p.get("taxable_amount_paise") or 0)
+        p_tax = int(p.get("total_tax_paise") or 0)
+        if (
+            abs(p_taxable - g_taxable) <= tolerance_paise
+            and abs(p_tax - g_tax) <= tolerance_paise
+        ):
+            return False
+    return True
+
+
+def _push_multiline_clean_match(
+    state: ReconState,
+    gid: str,
+    p_ids: list[str],
+) -> None:
+    """Record one clean match for a multi-line PR split and consume every PR row."""
+    primary_pr_id = p_ids[0]
+    ml_result = MatchResult(
+        level=1,
+        matched=True,
+        confidence=100,
+        requires_human_review=False,
+        decision_what="Matched",
+        decision_why="Multi-line purchase register booking sums to GSTR-2B invoice",
+        decision_next="",
+        identity_confidence="High",
+        financial_status="Exact",
+    )
+    _push_clean_matched(state, gid, primary_pr_id, 100, ml_result)
+    for pid in p_ids[1:]:
+        state.consumed_pr_ids.add(pid)
+    match_dict = state.clean_matched[-1]
+    match_dict["pr_ids"] = list(p_ids)
+    match_dict["multiline_pr_split"] = True
+    match_dict["match_reasons"] = [
+        "Multi-line purchase register rows sum to GSTR-2B invoice"
+    ]
+
+
 def prepass_duplicate_ambiguity(
     gstr_records: list[dict],
     pr_records: list[dict],
@@ -437,11 +504,13 @@ def prepass_duplicate_ambiguity(
         happen to reuse the same invoice number) are left untouched so Phase 1's
         per-record matching — which already ranks candidates by amount/date
         closeness — resolves them correctly.
+      * Multi-line PR bookings (one GSTR invoice, N PR rows whose amounts sum to
+        the GSTR totals — typical tax-rate / HSN splits) are auto-matched as a
+        single clean pair. Counting each PR row separately was the source of
+        Matched+Review+Missed exceeding Total GSTR on multi-item invoices.
       * Pure data-entry duplicates (one real GSTR invoice booked twice in the
-        Purchase Register with identical values) are resolved by keeping exactly
-        one PR row available for Phase 1 to match, and flagging the rest as
-        duplicate bookings — consumed, but never counted as ITC-at-risk nor as a
-        human-review item.
+        Purchase Register with identical full-invoice values) are routed to
+        Review Required as DUPLICATE_CLAIM so a CA can confirm the extra booking.
 
     This must run before ``process_gstr_records_chunk`` (Phase 1); running it
     afterwards (as a Phase 2 step) is too late because Phase 1 will already have
@@ -472,10 +541,15 @@ def prepass_duplicate_ambiguity(
             continue  # nothing ambiguous about a single GSTR / single PR pairing
 
         if len(g_ids) == 1 and len(p_ids) > 1:
-            # PR-side duplicate booking: same GSTIN + invoice entered more than
-            # once. Route the whole group to Review Required instead of silently
-            # consuming the extra PR rows and auto-matching the GSTR invoice.
             gid = g_ids[0]
+            g = gstr_by_id[gid]
+            # Tax-rate / HSN line split: PR rows partition one invoice → 1 match.
+            if _is_multiline_pr_split(g, p_ids, pr_by_id):
+                _push_multiline_clean_match(state, gid, p_ids)
+                continue
+            # True duplicate booking: same GSTIN + invoice entered more than
+            # once at (near) full invoice value. Route the whole group to Review
+            # Required instead of silently consuming the extra PR rows.
             state.consumed_gstr_ids.add(gid)
             for pid in p_ids:
                 state.consumed_pr_ids.add(pid)

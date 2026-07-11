@@ -1800,7 +1800,15 @@ def _build_reconcile_summary(
         else ro.build_outcome_rows(sb, rid, payload)[0]
     )
     matched_count = sum(1 for r in outcome_rows if r.category == "matched")
-    review_required_count = sum(1 for r in outcome_rows if r.category == "review_required")
+    # GSTR-side KPI only: PR-anchored marker rows (id prefix "dp:") are emitted
+    # for duplicate-claim groups so each conflicting PR booking is visible in
+    # the Review tab, but they must NOT inflate Review Required past Total GSTR.
+    # Matched + Review + Missed ITC must equal total_gstr_records.
+    review_required_count = sum(
+        1
+        for r in outcome_rows
+        if r.category == "review_required" and not str(r.id).startswith("dp:")
+    )
     total_linked_count = matched_count + review_required_count
 
     # exact_match_count: count of matched pairs where the match method was L1
@@ -1910,6 +1918,18 @@ def _build_reconcile_summary(
     wrongful_risk_amount_paise = int(round(wrongful_total_rupees * 100))
     purchase_value_at_risk_paise = int(round(wrongful_purchase_total_rupees * 100))
 
+    rs = run_row.get("run_summary") if isinstance(run_row.get("run_summary"), dict) else {}
+    skipped_count = int(rs.get("skipped_count") or rs.get("pr_skipped_missing_invoice_count") or 0)
+    pr_skipped_detail = rs.get("pr_skipped_detail")
+    if skipped_count and not pr_skipped_detail:
+        pr_skipped_detail = f"{skipped_count} skipped: missing invoice number"
+    status_message = run_row.get("status_message")
+    if skipped_count and (
+        not status_message
+        or str(status_message).strip() in ("Completed", "completed", "")
+    ):
+        status_message = f"Completed — {pr_skipped_detail}"
+
     return {
         "run_id": rid,
         "client_name": client_display,
@@ -1917,6 +1937,7 @@ def _build_reconcile_summary(
         "period": period,
         "assigned_to_name": assigned_to_name,
         "status": _display_status(run_row.get("status")),
+        "status_message": status_message,
         "finalized_by_name": finalized_name,
         "finalized_at": run_row.get("finalized_at"),
         "total_gstr_records": n_g,
@@ -1943,6 +1964,8 @@ def _build_reconcile_summary(
         "match_rate_percent": match_pct,
         "match_rate_pct": match_pct,
         "user_role": role_out,
+        "pr_skipped_count": skipped_count,
+        "pr_skipped_detail": pr_skipped_detail,
     }
 
 

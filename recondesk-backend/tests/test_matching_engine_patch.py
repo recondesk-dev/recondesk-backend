@@ -173,13 +173,18 @@ def test_duplicate_pr_invoice_does_not_double_count():
         ],
         gstr_period=date(2026, 5, 1),
     )
-    # Correct behavior: first PR matches normally, second is a duplicate data-entry flag
-    assert res["stats"]["matched_count"] == 1
+    # True duplicates → Review Required (DUPLICATE_CLAIM); not double-counted
+    # as matched + ITC-at-risk, and GSTR-side review count stays at 1.
+    assert res["stats"]["matched_count"] == 0
+    assert res["stats"]["review_required_count"] == 1
     assert res["stats"]["wrongful_risk_count"] == 0
     assert res["stats"]["missed_itc_count"] == 0
-    assert res["stats"]["duplicate_pr_count"] == 1
+    assert res["stats"]["duplicate_pr_count"] == 0
     assert res["stats"]["duplicate_conflict_count"] == 0
     assert res["stats"]["sanity_passed"] is True
+    assert any(
+        r.get("review_reason") == "DUPLICATE_CLAIM" for r in res["review_required"]
+    )
 
 
 def test_duplicate_gstr_invoice_not_counted_as_missed_itc():

@@ -191,6 +191,11 @@ def build_run_summary_metrics(
     review_required_count: int = 0,
 ) -> dict[str, Any]:
     """Scalar run_summary only — no decisions/compliance blobs (kept in results payload)."""
+    skip_detail = None
+    if skipped_count > 0:
+        skip_detail = (
+            f"{skipped_count} skipped: missing invoice number"
+        )
     return {
         "total_records": n_gstr + n_pr,
         "matched_count": matched_count + review_required_count, # total linked
@@ -209,6 +214,8 @@ def build_run_summary_metrics(
         "rule37_pending_verification_count": rule37_pending_verification_count,
         "rule37_pending_verification_paise": rule37_pending_verification_paise,
         "skipped_count": skipped_count,
+        "pr_skipped_missing_invoice_count": skipped_count,
+        "pr_skipped_detail": skip_detail,
     }
 
 

@@ -260,6 +260,7 @@ export default function NewReconcileWizardPage() {
   const [gstrUploadFailed, setGstrUploadFailed] = useState(false);
   const [sanityChecks, setSanityChecks] = useState<SanityCheckItem[] | null>(null);
   const [sanityBusy, setSanityBusy] = useState(false);
+  const [prParseWarning, setPrParseWarning] = useState<string | null>(null);
 
   /** GSTN auto-fetch (Step 2) — only when client has a live GSTN session. */
   const [clientRow, setClientRow] = useState<ClientGstin | null>(null);
@@ -756,6 +757,7 @@ export default function NewReconcileWizardPage() {
       const res = await withRetries(() => importWizardApi.detectColumns(token, runId), 3, 1500);
       setMappingLocal(res.columns);
       setAllHeaders(res.all_headers);
+      setPrParseWarning(res.pr_parse_warning?.trim() || null);
       if (res.saved_mapping_covers) {
         setSavedMappingCovers(true);
         setConfirmSavedMapping(true);
@@ -1693,6 +1695,12 @@ export default function NewReconcileWizardPage() {
           )}
 
           {detectBusy ? <p className="text-sm text-[var(--text-secondary)]">Detecting columns…</p> : null}
+
+          {prParseWarning ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+              {prParseWarning}
+            </div>
+          ) : null}
 
           {!requiredOk && mappingLocal?.length ? (
             <div className="rounded-lg border border-[var(--danger)] bg-red-50 p-3 text-sm text-red-900">

@@ -437,7 +437,9 @@ async def detect_columns(
     pr_name = r.get("pr_file_name") or "file.csv"
     if not pr_key:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Purchase register not uploaded")
-    columns, all_headers, pr_rows = ws.detect_pr_columns_from_r2(pr_key, pr_name)
+    columns, all_headers, pr_rows, parse_warnings, missing_invoice_count = (
+        ws.detect_pr_columns_from_r2(pr_key, pr_name)
+    )
 
     from app.services import client_import_mapping as cim
 
@@ -447,6 +449,17 @@ async def detect_columns(
     if saved_covers and saved:
         # Prefer persisted client mapping over auto-detect for this upload.
         columns = cim.mapping_rows_to_wizard_columns(saved, all_headers)
+
+    pr_parse_warning = None
+    if missing_invoice_count > 0:
+        pr_parse_warning = (
+            f"{missing_invoice_count} skipped: missing invoice number"
+        )
+        inv_notes = [
+            w for w in parse_warnings if "invoice number" in (w or "").lower()
+        ]
+        if inv_notes:
+            pr_parse_warning += ". " + inv_notes[0]
 
     sb.table(ws.T_RUNS).update(
         {
@@ -464,6 +477,9 @@ async def detect_columns(
         "saved_mapping": saved,
         "saved_mapping_covers": saved_covers,
         "schema_ok": cim.columns_match_expected_schema(all_headers),
+        "pr_record_count": pr_rows,
+        "pr_parse_warning": pr_parse_warning,
+        "missing_invoice_number_count": missing_invoice_count,
     }
 
 
