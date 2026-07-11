@@ -38,14 +38,20 @@ _RE_TRAILING_DIGITS = re.compile(r"\d+$")
 
 
 def normalize_invoice(inv: str | None) -> str:
-    """Normalize invoice number by stripping leading zeros per numeric segment and removing non-alphanumerics."""
+    """Normalize invoice number by stripping leading zeros per numeric segment and removing non-alphanumerics.
+
+    Also strips a leading ``0`` that sits alone before letters (e.g. portal
+    artifacts ``0SI-1798`` / ``0INV/24-25/5024`` → ``SI1798`` / ``INV24255024``),
+    matching aggressive ground-truth keying. A lone ``\"0\"`` is preserved.
+    """
     if not inv:
         return ""
     s = str(inv).strip().upper()
     s = _RE_NON_ALNUM.sub("", s)
     parts = re.findall(r'\d+|\D+', s)
     parts = [p.lstrip('0') or '0' if p.isdigit() else p for p in parts]
-    return ''.join(parts)
+    joined = "".join(parts)
+    return joined.lstrip("0") or joined
 
 
 def normalize_invoice_number(value: str | None) -> str:
@@ -936,8 +942,8 @@ def match_gstr_to_pr(
                     == invoice_match_key_for_record(pr)
                     and gstr.get("supplier_gstin") == pr.get("supplier_gstin")
                     and abs(
-                        int(gstr.get("taxable_amount_paise") or 0)
-                        - int(pr.get("taxable_amount_paise") or 0)
+                        abs(int(gstr.get("taxable_amount_paise") or 0))
+                        - abs(int(pr.get("taxable_amount_paise") or 0))
                     )
                     <= 100
                 ):
@@ -987,8 +993,8 @@ def match_gstr_to_pr(
             == invoice_match_key_for_record(gstr)
             and c["pr"].get("supplier_gstin") == gstr.get("supplier_gstin")
             and abs(
-                int(c["pr"].get("taxable_amount_paise") or 0)
-                - int(gstr.get("taxable_amount_paise") or 0)
+                abs(int(c["pr"].get("taxable_amount_paise") or 0))
+                - abs(int(gstr.get("taxable_amount_paise") or 0))
             )
             <= 100
         )
@@ -1068,7 +1074,10 @@ def match_gstr_to_pr(
     pr_sel = best_candidate["pr"]
     gstr_total = _invoice_total_paise(gstr_rec)
     pr_total = _invoice_total_paise(pr_sel)
-    total_diff_sel = abs(gstr_total - pr_total)
+    # Magnitude compare — same rule as _amount_diff_and_skip. Signed totals make
+    # equal-abs CDNR↔credit-note pairs look like a 2× mismatch and incorrectly
+    # demote clean L2 matches into L3 AMOUNT_MISMATCH review.
+    total_diff_sel = abs(abs(gstr_total) - abs(pr_total))
     gstin_match_sel = _gstin_match_spec(gstr_rec, pr_sel)
     enforce = bool(
         final.level >= 2  # skip enforcement for L1: pair gate already validated
@@ -1082,5 +1091,5 @@ def match_gstr_to_pr(
         gstin_match=gstin_match_sel,
         total_diff=total_diff_sel,
         enforce_total_tolerance=enforce,
-        total_base_paise=max(gstr_total, pr_total),
+        total_base_paise=max(abs(gstr_total), abs(pr_total)),
     )

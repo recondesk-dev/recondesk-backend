@@ -1417,36 +1417,12 @@ def execute_phase2_and_3(
                 )
             continue
 
-        # 4. MULTIPLE_CANDIDATES / VENDOR_FUZZY
-        # same GSTIN + exact amount.
-        candidates_vendor = []
-        for prs_in_bucket in candidate_indices.by_taxable.get(gst, {}).values():
-            for p in prs_in_bucket:
-                pid = str(p["id"])
-                if pid in state.consumed_pr_ids: continue
-                p_amt = p.get("total_tax_paise") or 0
-                if abs(g_amt - p_amt) <= TOTAL_TOLERANCE_PAISE:
-                    candidates_vendor.append(p)
-                    
-        if candidates_vendor:
-            if len(candidates_vendor) > 1:
-                _push_review_required(
-                    state, gid, candidates_vendor[0]["id"], 50, "MULTIPLE_CANDIDATES",
-                    gstr_rec=g, pr_rec=candidates_vendor[0],
-                )
-            else:
-                _push_review_required(
-                    state, gid, candidates_vendor[0]["id"], 50, "VENDOR_FUZZY",
-                    gstr_rec=g, pr_rec=candidates_vendor[0],
-                )
-            continue
-
         # ── INVOICE_MATCH_AMOUNT_REVIEW ──────────────────────────────────────────
         # Catches: same GSTIN + same (or format-variant) invoice + amount diff too
         # large for L2/L3 or the TYPO/VENDOR threshold.  Invoice identity is certain
         # so this must NEVER go to missed_itc — always Review Required.
-        # Triggered ONLY when all earlier Phase 2 checks (including TYPO_MISMATCH and
-        # VENDOR_FUZZY) have produced no candidate, meaning the amount gap is the
+        # Triggered ONLY when all earlier Phase 2 checks (including TYPO_MISMATCH)
+        # have produced no candidate, meaning the amount gap is the
         # sole remaining issue.
         g_inv_norm = str(g.get("invoice_number_normalized") or "")
         candidates_inv_match: list[dict] = []
@@ -1565,7 +1541,10 @@ def execute_phase2_and_3(
 
     # identity_tier: lower = stronger evidence the two records are the same invoice.
     #   0 = normalized invoice number matches exactly (criteria 2/3)
-    #   1 = same GSTIN + amount/date proximity only, no invoice-number check (criteria 1)
+    #   1 = (retired) amount/date proximity with NO invoice-number check — removed
+    #       because at multi-thousand invoice scale, same-GSTIN + similar tax is a
+    #       coincidental collision, not identity evidence. Those GSTR rows must
+    #       fall through to Missed ITC.
     #   2 = invoice number is a recognised format variant (criteria 4)
     candidates_by_gid: dict[str, list[tuple]] = defaultdict(list)
     all_candidate_pairs: list[tuple] = []
@@ -1587,7 +1566,7 @@ def execute_phase2_and_3(
 
             if g_amt == 0 and p_amt == 0: diff_pct = 0.0
             elif p_amt == 0: diff_pct = 1.0
-            else: diff_pct = abs(g_amt - p_amt) / float(p_amt)
+            else: diff_pct = abs(abs(g_amt) - abs(p_amt)) / float(abs(p_amt))
 
             date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
 
@@ -1596,10 +1575,6 @@ def execute_phase2_and_3(
             # criteria 2: same normalized invoice + amount within 2% + date within 30 days
             if g_inv_norm and g_inv_norm == p_inv_norm and diff_pct <= 0.02 and (not g_date or not p_date or date_diff <= 30):
                 found = (0, "POSSIBLE_MATCH")
-
-            # criteria 1: same GSTIN + amount within 5% + date within 45 days
-            elif gst and gst == p_gst and diff_pct <= 0.05 and (not g_date or not p_date or date_diff <= 45):
-                found = (1, "POSSIBLE_MATCH")
 
             # criteria 3: same GSTIN + same normalized invoice → date/amount are secondary
             # (late_date_shift: date diff > 45 days but invoice identity is unambiguous).
