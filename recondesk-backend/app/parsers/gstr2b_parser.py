@@ -215,6 +215,18 @@ def _invoice_date_value(invoice: dict, *, is_cdnr: bool) -> Any:
     return _first_present(invoice, "dt", "idt")
 
 
+def _note_type_value(invoice: dict) -> str:
+    """Credit/debit note type from portal or legacy field names.
+
+    Portal JSON uses ``ntyp``; some API dumps use ``nttyp`` / ``typ``;
+    older fixtures use ``ntty``. Values are ``C`` (credit) or ``D`` (debit).
+    """
+    raw = _first_present(invoice, "ntyp", "nttyp", "ntty", "typ")
+    if raw is None:
+        return ""
+    return str(raw).strip().upper()
+
+
 def _reverse_charge_value(invoice: dict) -> bool:
     raw = _first_present(invoice, "rev", "rchrg") or "N"
     return str(raw).strip().upper() == "Y"
@@ -552,7 +564,7 @@ def _parse_cdnr_invoice(
 ) -> dict:
     normalization_notes: dict = {}
 
-    ntty = invoice.get("ntty", "")
+    ntty = _note_type_value(invoice)
     if ntty == "C":
         document_type = "CREDIT_NOTE"
     elif ntty == "D":
