@@ -523,6 +523,147 @@ class TestFuzzyWhatIsWrongAmountDiff:
         )
         assert "₹0.00" not in what_cell
 
+    def test_fuzzy_zero_diff_export_says_normalized_not_amount_differs_zero(self):
+        """Zero-discrepancy L2 (format-variant) must not export 'amount differs by ₹0.00'."""
+        from openpyxl import load_workbook
+        from app.decisions.layer import populate_decisions
+        from app.services.reconcile_export_workbook import build_excel_workbook_bytes
+
+        engine_row = {
+            "gstr_id": "g-fuzzy-0",
+            "pr_id": "p-fuzzy-0",
+            "match_level": 2,
+            "taxable_diff_paise": 0,
+            "gstr_taxable_amount_paise": 100_000_00,
+            "pr_taxable_amount_paise": 100_000_00,
+            "source_software": "Tally",
+            "supplier_gstin": "23CMMPW9621S6ZO",
+            "confidence_score": 95,
+            "gstr_invoice_number": "INV/001",
+            "pr_invoice_number": "INV001",
+        }
+        decided = populate_decisions([engine_row])["rows"][0]
+        assert decided["decision_rule"] == "L2_NORMALIZED" or "Normalized" in decided["decision_what"]
+        assert "amount differs" not in decided["decision_what"].lower()
+        assert "₹0.00" not in decided["decision_what"]
+
+        pairs = [
+            (
+                {
+                    "supplier_gstin": "23CMMPW9621S6ZO",
+                    "invoice_number": "INV/001",
+                    "invoice_date": date(2025, 2, 23),
+                    "amount": 100000.00,
+                    "match_level": "FUZZY",
+                    "confidence_score": 95,
+                    "decision_what": decided["decision_what"],
+                    "decision_why": decided["decision_why"],
+                    "decision_next": decided["decision_next"],
+                    "gstr2b_data": {"taxable_amount_paise": 100_000_00},
+                },
+                {"taxable_amount_paise": 100_000_00},
+            )
+        ]
+        xlsx_bytes, _ = build_excel_workbook_bytes(
+            run_id=RUN_ID,
+            firm_name=FIRM_NAME,
+            client_trade_name=CLIENT_NAME,
+            period_raw=PERIOD_RAW,
+            summary=SUMMARY,
+            matched_pairs=pairs,
+            missed_rows=[],
+            risk_rows=[],
+            rule37_rows=[],
+            section17_rows=[],
+            review_required_rows=[],
+            generated_at=GENERATED_AT,
+            generated_by_name="Omkar Kadam",
+        )
+        wb = load_workbook(BytesIO(xlsx_bytes))
+        ws = wb["Matched Records"]
+        headers = [c.value for c in ws[1]]
+        what_col = headers.index("WHAT IS WRONG") + 1
+        what_cell = str(ws.cell(row=2, column=what_col).value or "")
+        assert "Normalized invoice match" in what_cell
+        assert "amount differs" not in what_cell.lower()
+        assert "₹0.00" not in what_cell
+
+
+class TestExcelExportNoRowCap:
+    """Excel detail sheets must export every row — Summary counts must match sheet depth."""
+
+    def test_matched_records_sheet_exports_all_rows_beyond_former_1000_cap(self):
+        from openpyxl import load_workbook
+        from app.services.reconcile_export_workbook import build_excel_workbook_bytes
+
+        n = 1005
+        pairs = [
+            (
+                {
+                    "supplier_gstin": f"27ABCDE{i:04d}F1Z0",
+                    "invoice_number": f"INV{i:04d}",
+                    "invoice_date": date(2024, 4, 1),
+                    "amount": 1000.0 + i,
+                    "match_level": "EXACT" if i % 2 == 0 else "FUZZY",
+                    "confidence_score": 100 if i % 2 == 0 else 95,
+                    "decision_what": (
+                        "Exact match found"
+                        if i % 2 == 0
+                        else "Normalized invoice match"
+                    ),
+                    "decision_why": "ok",
+                    "decision_next": "No action required",
+                    "gstr2b_data": {"taxable_amount_paise": 100_000},
+                },
+                {"taxable_amount_paise": 100_000},
+            )
+            for i in range(n)
+        ]
+        summary = {
+            **SUMMARY,
+            "matched_count": n,
+            "total_gstr_records": n,
+            "match_rate_percent": 100.0,
+        }
+        xlsx_bytes, _ = build_excel_workbook_bytes(
+            run_id=RUN_ID,
+            firm_name=FIRM_NAME,
+            client_trade_name=CLIENT_NAME,
+            period_raw=PERIOD_RAW,
+            summary=summary,
+            matched_pairs=pairs,
+            missed_rows=[],
+            risk_rows=[],
+            rule37_rows=[],
+            section17_rows=[],
+            review_required_rows=[],
+            generated_at=GENERATED_AT,
+            generated_by_name="Omkar Kadam",
+        )
+        wb = load_workbook(BytesIO(xlsx_bytes))
+        ws = wb["Matched Records"]
+        # header + n data rows; no truncation footer
+        data_rows = [
+            r
+            for r in ws.iter_rows(min_row=2, values_only=True)
+            if r[0] is not None and not str(r[0]).startswith("[Note:")
+        ]
+        assert len(data_rows) == n, (
+            f"Matched Records must export all {n} rows, got {len(data_rows)}"
+        )
+        notes = wb["Export Notes"]
+        note_text = " ".join(
+            str(c or "") for row in notes.iter_rows(values_only=True) for c in row
+        )
+        assert "Capped at" not in note_text
+        # Export Notes row count must report full n
+        found = False
+        for row in notes.iter_rows(values_only=True):
+            if row and row[0] == "Matched Records":
+                assert str(row[1]) == str(n)
+                found = True
+        assert found
+
 
 class TestSection175ExportSheet:
     """Rule 37 & Section 17-5 sheet must not emit ? placeholders or blank shells."""

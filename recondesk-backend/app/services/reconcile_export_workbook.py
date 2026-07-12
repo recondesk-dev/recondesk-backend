@@ -14,7 +14,6 @@ from openpyxl.utils import get_column_letter
 
 _log = logging.getLogger(__name__)
 
-_EXCEL_CAP = 1000
 _HEADER_BLUE = "1F4E79"
 _HEADER_GREEN = "375623"
 _HEADER_RED = "C00000"
@@ -160,19 +159,17 @@ def _autosize_columns(ws: Any, max_width: float = 60.0, min_width: float = 8.0) 
 
 
 class _SheetTrack:
-    __slots__ = ("name", "row_count", "status", "capped")
+    __slots__ = ("name", "row_count", "status")
 
     def __init__(
         self,
         name: str,
         row_count: int = 0,
         status: str = "OK",
-        capped: bool = False,
     ) -> None:
         self.name = name
         self.row_count = row_count
         self.status = status
-        self.capped = capped
 
 
 def build_excel_workbook_bytes(
@@ -193,7 +190,6 @@ def build_excel_workbook_bytes(
 ) -> tuple[bytes, str]:
     """Return (xlsx bytes, filename)."""
     tracks: list[_SheetTrack] = []
-    cap_note_lines: list[str] = []
 
     wb = Workbook()
     # Remove default sheet; we'll add named sheets
@@ -278,15 +274,12 @@ def build_excel_workbook_bytes(
             c.font = hdr_font
             c.fill = hdr_fill
         ws2.freeze_panes = "A2"
-        full_count = len(matched_pairs)
-        capped = full_count > _EXCEL_CAP
-        slice_pairs = matched_pairs[:_EXCEL_CAP]
         fill_exact = PatternFill("solid", fgColor="FFFFFF")
         fill_fuzzy = PatternFill("solid", fgColor=_FILL_FUZZY)
         fill_manual = PatternFill("solid", fgColor=_FILL_MANUAL)
         fill_other = PatternFill("solid", fgColor=_FILL_OTHER)
         r = 2
-        for api_row, _orow in slice_pairs:
+        for api_row, _orow in matched_pairs:
             lvl = str(api_row.get("match_level") or "").upper()
             if lvl == "EXACT":
                 row_fill = fill_exact
@@ -324,23 +317,12 @@ def build_excel_workbook_bytes(
                 c = ws2.cell(row=r, column=col, value=v)
                 c.fill = row_fill
             r += 1
-        if capped:
-            ws2.cell(
-                row=r,
-                column=1,
-                value="[Note: Showing first 1,000 records. Use section CSV export for full data.]",
-            )
-            r += 1
-            cap_note_lines.append(
-                "[Matched Records]: Capped at 1,000 rows. Use CSV export for complete data."
-            )
         _autosize_columns(ws2)
         tracks.append(
             _SheetTrack(
                 "Matched Records",
-                row_count=full_count,
+                row_count=len(matched_pairs),
                 status="OK",
-                capped=capped,
             )
         )
     except Exception as e:
@@ -368,12 +350,9 @@ def build_excel_workbook_bytes(
             c.font = hdr_font
             c.fill = hdr_fill
         ws3.freeze_panes = "A2"
-        full_count = len(missed_rows)
-        capped = full_count > _EXCEL_CAP
-        rows_slice = missed_rows[:_EXCEL_CAP]
         r = 2
         sum_itc = 0.0
-        for row in rows_slice:
+        for row in missed_rows:
             tax_amt = _taxable_from_missed_row(row)
             itc_am = float(row.get("amount") or 0)
             sum_itc += itc_am
@@ -396,16 +375,6 @@ def build_excel_workbook_bytes(
             for col, v in enumerate(vals, 1):
                 ws3.cell(row=r, column=col, value=v)
             r += 1
-        if capped:
-            ws3.cell(
-                row=r,
-                column=1,
-                value="[Note: Showing first 1,000 records. Use section CSV export for full data.]",
-            )
-            r += 1
-            cap_note_lines.append(
-                "[Missed ITC]: Capped at 1,000 rows. Use CSV export for complete data."
-            )
         total_fill = PatternFill("solid", fgColor=_FILL_TOTAL_GREEN)
         bold = Font(bold=True)
         ws3.cell(row=r, column=1, value="TOTAL")
@@ -417,7 +386,7 @@ def build_excel_workbook_bytes(
         r += 1
         _autosize_columns(ws3)
         tracks.append(
-            _SheetTrack("Missed ITC", row_count=full_count, status="OK", capped=capped)
+            _SheetTrack("Missed ITC", row_count=len(missed_rows), status="OK")
         )
     except Exception as e:
         _log.exception("excel missed itc sheet failed run=%s", run_id)
@@ -443,12 +412,9 @@ def build_excel_workbook_bytes(
             c.font = hdr_font
             c.fill = hdr_fill
         ws4.freeze_panes = "A2"
-        full_count = len(risk_rows)
-        capped = full_count > _EXCEL_CAP
-        rows_slice = risk_rows[:_EXCEL_CAP]
         r = 2
         sum_risk = 0.0
-        for row in rows_slice:
+        for row in risk_rows:
             am = float(row.get("amount") or 0)
             sum_risk += am
             vals = (
@@ -464,16 +430,6 @@ def build_excel_workbook_bytes(
             for col, v in enumerate(vals, 1):
                 ws4.cell(row=r, column=col, value=v)
             r += 1
-        if capped:
-            ws4.cell(
-                row=r,
-                column=1,
-                value="[Note: Showing first 1,000 records. Use section CSV export for full data.]",
-            )
-            r += 1
-            cap_note_lines.append(
-                "[Compliance Risk]: Capped at 1,000 rows. Use CSV export for complete data."
-            )
         total_fill = PatternFill("solid", fgColor=_FILL_TOTAL_RED)
         bold = Font(bold=True)
         ws4.cell(row=r, column=1, value="TOTAL")
@@ -486,7 +442,7 @@ def build_excel_workbook_bytes(
         _autosize_columns(ws4)
         tracks.append(
             _SheetTrack(
-                "Compliance Risk", row_count=full_count, status="OK", capped=capped
+                "Compliance Risk", row_count=len(risk_rows), status="OK"
             )
         )
     except Exception as e:
@@ -537,9 +493,6 @@ def build_excel_workbook_bytes(
             if "blocked credit: ?" in what or "HSN ?" in why:
                 continue
             combined.append(("Section 17(5)", r))
-        full_count = len(combined)
-        capped = full_count > _EXCEL_CAP
-        combined = combined[:_EXCEL_CAP]
         r = 2
         if not combined:
             ws5["A2"] = "No Rule 37 or Section 17(5) flags found."
@@ -579,23 +532,12 @@ def build_excel_workbook_bytes(
                     c = ws5.cell(row=r, column=col, value=v)
                     c.fill = rf
                 r += 1
-        if capped:
-            ws5.cell(
-                row=r,
-                column=1,
-                value="[Note: Showing first 1,000 records. Use section CSV export for full data.]",
-            )
-            r += 1
-            cap_note_lines.append(
-                "[Rule 37 & S17]: Capped at 1,000 rows. Use CSV export for complete data."
-            )
         _autosize_columns(ws5)
         tracks.append(
             _SheetTrack(
                 "Rule 37 & 17(5)",
-                row_count=full_count,
+                row_count=len(combined),
                 status="OK",
-                capped=capped,
             )
         )
     except Exception as e:
@@ -640,7 +582,6 @@ def build_excel_workbook_bytes(
                 "Review Required",
                 row_count=len(review_required_rows),
                 status="OK",
-                capped=False,
             )
         )
     except Exception as e:
@@ -680,10 +621,6 @@ def build_excel_workbook_bytes(
         ws6.cell(row=r, column=1, value=disp)
         ws6.cell(row=r, column=2, value=rc)
         ws6.cell(row=r, column=3, value=tr.status)
-        r += 1
-    r += 1
-    for line in cap_note_lines:
-        ws6.cell(row=r, column=1, value=line)
         r += 1
     ws6.column_dimensions["A"].width = 40
     ws6.column_dimensions["B"].width = 16

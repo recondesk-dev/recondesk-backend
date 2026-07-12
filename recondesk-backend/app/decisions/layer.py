@@ -145,13 +145,24 @@ def _decision_for_row(row: dict[str, Any]) -> DecisionOutput:
         )
 
     if level == 2:
-        df = ["taxable_amount"] if adiff not in (None, 0) else []
         mf = list(dict.fromkeys(ident + amt_meta))
+        # Clean-matched L2 is usually a format-variant / normalized-invoice hit
+        # with zero financial delta (matcher zero-discrepancy invariant). Claiming
+        # "amount differs by ₹0.00" for those rows is a distinct bug from the
+        # missing-key → ₹0.00 Path A fix — use the normalized template instead.
+        if adiff in (None, 0):
+            return generate_decision(
+                "L2_NORMALIZED",
+                confidence="HIGH",
+                matched_fields=mf,
+                differed_fields=[],
+                normalized_pairs=pair_np or [],
+            )
         return generate_decision(
             "L2_AMOUNT_DIFF",
             confidence="MEDIUM",
             matched_fields=mf,
-            differed_fields=df,
+            differed_fields=["taxable_amount"],
             normalized_pairs=[],
             diff=_format_amount_diff_rupees(row),
             source_software=source_software,
