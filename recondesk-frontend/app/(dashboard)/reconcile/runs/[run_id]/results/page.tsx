@@ -352,6 +352,89 @@ type RunSummary = {
   pr_skipped_detail?: string | null;
 };
 
+type ConfidenceSummary = {
+  run_id: string;
+  total_invoices: number;
+  high_confidence: number;
+  medium_confidence: number;
+  low_confidence: number;
+  unmatched: number;
+};
+
+function ConfidenceSummaryCard({ data }: { data: ConfidenceSummary }) {
+  const { high_confidence, medium_confidence, low_confidence, unmatched, total_invoices } =
+    data;
+  const total = Math.max(total_invoices, 1);
+  const segments = [
+    {
+      key: "high",
+      count: high_confidence,
+      label: "High confidence",
+      barClass: "bg-emerald-500",
+      textClass: "text-emerald-700",
+      chipClass: "bg-emerald-50 text-emerald-700",
+    },
+    {
+      key: "medium",
+      count: medium_confidence,
+      label: "Medium confidence",
+      barClass: "bg-amber-500",
+      textClass: "text-amber-700",
+      chipClass: "bg-amber-50 text-amber-700",
+    },
+    {
+      key: "low",
+      count: low_confidence,
+      label: "Low confidence",
+      barClass: "bg-red-500",
+      textClass: "text-red-700",
+      chipClass: "bg-red-50 text-red-700",
+    },
+    {
+      key: "unmatched",
+      count: unmatched,
+      label: "Unmatched",
+      barClass: "bg-gray-400",
+      textClass: "text-gray-500",
+      chipClass: "bg-gray-100 text-gray-600",
+    },
+  ] as const;
+
+  return (
+    <div className="mt-4 rounded-xl border border-[#E8E8EC] bg-white px-4 py-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-[12px] font-semibold text-gray-800">Match confidence</p>
+        <p className="text-[11px] tabular-nums text-gray-400">
+          {total_invoices.toLocaleString("en-IN")} invoices
+        </p>
+      </div>
+      <div className="flex h-2 w-full overflow-hidden rounded-full bg-[#ECECF0]">
+        {segments.map((seg) =>
+          seg.count > 0 ? (
+            <div
+              key={seg.key}
+              className={`h-full ${seg.barClass}`}
+              style={{ width: `${(seg.count / total) * 100}%` }}
+              title={`${seg.count.toLocaleString("en-IN")} ${seg.label}`}
+            />
+          ) : null
+        )}
+      </div>
+      <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1.5">
+        {segments.map((seg) => (
+          <span
+            key={seg.key}
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium tabular-nums ${seg.chipClass}`}
+          >
+            <span className="font-semibold">{seg.count.toLocaleString("en-IN")}</span>
+            {seg.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Shared action button styles for results header / exports */
 const actionBtnBase =
   "inline-flex h-9 items-center justify-center gap-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
@@ -1137,6 +1220,23 @@ export default function ReconcileResultsPage() {
   } = useSWR<RunSummary>(summaryKey, authJsonFetcher, {
     revalidateOnFocus: false,
   });
+
+  const confidenceSummaryKey = useMemo(
+    () =>
+      authReady && runId && summary && !summaryError
+        ? ([
+            `/api/reconcile/runs/${runId}/confidence-summary`,
+            authToken,
+          ] as const)
+        : null,
+    [authReady, runId, authToken, summary, summaryError]
+  );
+
+  const { data: confidenceSummary } = useSWR<ConfidenceSummary>(
+    confidenceSummaryKey,
+    authJsonFetcher,
+    { revalidateOnFocus: false }
+  );
 
   const isRunFinalized = Boolean(
     summary &&
@@ -2160,6 +2260,9 @@ export default function ReconcileResultsPage() {
                   {linkedPct}% linked
                 </span>
               </div>
+              {confidenceSummary ? (
+                <ConfidenceSummaryCard data={confidenceSummary} />
+              ) : null}
             </div>
           );
         })}
