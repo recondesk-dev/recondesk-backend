@@ -585,6 +585,7 @@ class TestFuzzyWhatIsWrongAmountDiff:
         what_col = headers.index("WHAT IS WRONG") + 1
         what_cell = str(ws.cell(row=2, column=what_col).value or "")
         assert "Normalized invoice match" in what_cell
+        assert "INV/001" in what_cell and "INV001" in what_cell
         assert "amount differs" not in what_cell.lower()
         assert "₹0.00" not in what_cell
 

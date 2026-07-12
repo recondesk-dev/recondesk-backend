@@ -151,12 +151,24 @@ def _decision_for_row(row: dict[str, Any]) -> DecisionOutput:
         # "amount differs by ₹0.00" for those rows is a distinct bug from the
         # missing-key → ₹0.00 Path A fix — use the normalized template instead.
         if adiff in (None, 0):
+            g_inv, p_inv = "?", "?"
+            if pair_np:
+                g_inv, p_inv = pair_np[0]
+            else:
+                g_cand = row.get("gstr_invoice_number") or row.get("invoice_number")
+                p_cand = row.get("pr_invoice_number")
+                if g_cand not in (None, ""):
+                    g_inv = str(g_cand).strip()
+                if p_cand not in (None, ""):
+                    p_inv = str(p_cand).strip()
             return generate_decision(
                 "L2_NORMALIZED",
                 confidence="HIGH",
                 matched_fields=mf,
-                differed_fields=[],
-                normalized_pairs=pair_np or [],
+                differed_fields=["invoice_number"] if g_inv != p_inv else [],
+                normalized_pairs=pair_np or ([(g_inv, p_inv)] if g_inv != "?" and p_inv != "?" else []),
+                gstr_invoice=g_inv,
+                pr_invoice=p_inv,
             )
         return generate_decision(
             "L2_AMOUNT_DIFF",

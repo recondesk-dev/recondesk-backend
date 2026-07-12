@@ -24,10 +24,10 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "next": "No action required. ITC can be claimed as filed.",
     },
     "L2_NORMALIZED": {
-        "what": "Normalized invoice match",
+        "what": "Normalized invoice match: {gstr_invoice} ↔ {pr_invoice}",
         "why": (
-            "Invoice numbers match after normalization or format variant; "
-            "amounts and dates align"
+            "Invoice numbers match after normalization or format variant "
+            "({gstr_invoice} vs {pr_invoice}); amounts and dates align"
         ),
         "next": "No action required — formatting differs, amounts align",
     },

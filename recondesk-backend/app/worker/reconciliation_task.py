@@ -1118,6 +1118,14 @@ def execute_reconciliation(run_id: str) -> None:
             m["amount_difference_paise"] = diff
             m["gstr_taxable_amount_paise"] = int(g_taxable or 0)
             m["pr_taxable_amount_paise"] = int(p_taxable or 0)
+            # Raw invoice strings for L2_NORMALIZED decision text (GSTR ↔ PR).
+            g_inv = str(ggr.get("invoice_number") or "").strip()
+            p_inv = str(pr.get("invoice_number") or "").strip()
+            if g_inv:
+                m["gstr_invoice_number"] = g_inv
+                m.setdefault("invoice_number", g_inv)
+            if p_inv:
+                m["pr_invoice_number"] = p_inv
             amount_diff_upsert_rows.append(
                 {
                     "id": gid_int,
