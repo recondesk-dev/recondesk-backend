@@ -446,3 +446,79 @@ class TestExcelConfidenceColumns:
         assert headers[-2:] == ["Match Confidence", "Match Rationale"]
         assert ws.cell(row=2, column=6).value == "82%"
         assert "Invoice#: fuzzy 82%" in str(ws.cell(row=2, column=7).value)
+
+
+class TestFuzzyWhatIsWrongAmountDiff:
+    """Matched Records FUZZY rows must show the real taxable delta in WHAT IS WRONG."""
+
+    def test_fuzzy_export_what_is_wrong_reflects_nonzero_taxable_delta(self):
+        from openpyxl import load_workbook
+        from app.decisions.layer import populate_decisions
+        from app.services.reconcile_export_workbook import build_excel_workbook_bytes
+
+        gstr_taxable_paise = 348_922_77  # ₹3,48,922.77
+        pr_taxable_paise = 344_916_02  # ₹3,44,916.02
+        expected_diff_paise = abs(gstr_taxable_paise - pr_taxable_paise)
+        expected_rupees = f"₹{expected_diff_paise / 100:,.2f}"
+
+        # Simulate engine clean-matched L2 row after the taxable_diff_paise fix.
+        engine_row = {
+            "gstr_id": "g-fuzzy-1",
+            "pr_id": "p-fuzzy-1",
+            "match_level": 2,
+            "taxable_diff_paise": expected_diff_paise,
+            "gstr_taxable_amount_paise": gstr_taxable_paise,
+            "pr_taxable_amount_paise": pr_taxable_paise,
+            "source_software": "Tally",
+            "supplier_gstin": "23CMMPW9621S6ZO",
+            "confidence_score": 90,
+        }
+        decided = populate_decisions([engine_row])["rows"][0]
+        assert expected_rupees in decided["decision_what"], (
+            f"decision layer must embed {expected_rupees}, got {decided['decision_what']!r}"
+        )
+        assert "₹0.00" not in decided["decision_what"]
+
+        pairs = [
+            (
+                {
+                    "supplier_gstin": "23CMMPW9621S6ZO",
+                    "invoice_number": "09754",
+                    "invoice_date": date(2025, 2, 23),
+                    "amount": 348922.77,
+                    "match_level": "FUZZY",
+                    "confidence_score": 90,
+                    "decision_what": decided["decision_what"],
+                    "decision_why": decided["decision_why"],
+                    "decision_next": decided["decision_next"],
+                    "gstr2b_data": {"taxable_amount_paise": gstr_taxable_paise},
+                },
+                {"taxable_amount_paise": pr_taxable_paise},
+            )
+        ]
+        xlsx_bytes, _ = build_excel_workbook_bytes(
+            run_id=RUN_ID,
+            firm_name=FIRM_NAME,
+            client_trade_name=CLIENT_NAME,
+            period_raw=PERIOD_RAW,
+            summary=SUMMARY,
+            matched_pairs=pairs,
+            missed_rows=[],
+            risk_rows=[],
+            rule37_rows=[],
+            section17_rows=[],
+            review_required_rows=[],
+            generated_at=GENERATED_AT,
+            generated_by_name="Omkar Kadam",
+        )
+        wb = load_workbook(BytesIO(xlsx_bytes))
+        ws = wb["Matched Records"]
+        headers = [c.value for c in ws[1]]
+        what_col = headers.index("WHAT IS WRONG") + 1
+        level_col = headers.index("Match Level") + 1
+        assert ws.cell(row=2, column=level_col).value == "FUZZY"
+        what_cell = str(ws.cell(row=2, column=what_col).value or "")
+        assert expected_rupees in what_cell, (
+            f"FUZZY WHAT IS WRONG must contain {expected_rupees}, got {what_cell!r}"
+        )
+        assert "₹0.00" not in what_cell

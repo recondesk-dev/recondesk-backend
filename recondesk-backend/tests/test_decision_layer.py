@@ -99,3 +99,37 @@ def test_populate_decisions_attaches_fields():
         assert "decision_next" in row
         assert row["decision_what"] != ""
         assert row["decision_next"] != ""
+
+
+def test_l2_fuzzy_decision_what_uses_taxable_diff_paise_not_hardcoded_zero():
+    """FUZZY (match_level=2) WHAT IS WRONG must interpolate the real taxable
+    delta. Reading only ``amount_difference_paise`` (often absent on clean
+    matched rows) previously hard-defaulted to ₹0.00 for every FUZZY export.
+    """
+    from app.decisions.layer import _decision_for_row
+
+    # Engine stores taxable_diff_paise; amount_difference_paise intentionally omitted.
+    row = {
+        "match_level": 2,
+        "taxable_diff_paise": 12_345_00,  # ₹12,345.00
+        "source_software": "Tally",
+        "supplier_gstin": "27AABCU9603R1ZX",
+    }
+    d = _decision_for_row(row)
+    assert d.rule == "L2_AMOUNT_DIFF"
+    assert "₹12,345.00" in d.what, f"expected real delta in decision_what, got {d.what!r}"
+    assert "₹0.00" not in d.what
+
+
+def test_l2_fuzzy_decision_what_from_live_taxable_pair():
+    """When only gstr/pr taxable paise are present, compute abs(g − p)."""
+    from app.decisions.layer import _decision_for_row
+
+    row = {
+        "match_level": 2,
+        "gstr_taxable_amount_paise": 100_000_00,  # ₹1,00,000.00
+        "pr_taxable_amount_paise": 97_500_00,  # ₹97,500.00 → delta ₹2,500.00
+        "source_software": "Tally",
+    }
+    d = _decision_for_row(row)
+    assert "₹2,500.00" in d.what, f"expected ₹2,500.00 in decision_what, got {d.what!r}"

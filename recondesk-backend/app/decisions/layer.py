@@ -25,13 +25,43 @@ def _row_identity_fields(row: dict[str, Any]) -> list[str]:
 
 
 def _row_amount_diff_paise(row: dict[str, Any]) -> int | None:
-    v = row.get("amount_difference_paise")
-    if v is None:
-        return None
-    try:
-        return abs(int(v))
-    except (TypeError, ValueError):
-        return None
+    """Absolute taxable/amount delta in paise for decision templates.
+
+    Clean-matched rows store ``taxable_diff_paise`` (engine) while the worker
+    may also attach ``amount_difference_paise``. Prefer either; fall back to
+    live abs(GSTR taxable − PR taxable) when both sides are present on the row.
+    Never treat a missing key as 0 — that produced the FUZZY export bug
+    \"amount differs by ₹0.00\" for every L2 row.
+    """
+    for key in ("taxable_diff_paise", "amount_difference_paise", "tax_difference_paise"):
+        v = row.get(key)
+        if v is None:
+            continue
+        try:
+            return abs(int(v))
+        except (TypeError, ValueError):
+            continue
+
+    g_tax = row.get("gstr_taxable_amount_paise")
+    p_tax = row.get("pr_taxable_amount_paise")
+    if g_tax is None:
+        g_tax = row.get("gstr_taxable_paise")
+    if p_tax is None:
+        p_tax = row.get("pr_taxable_paise")
+    if g_tax is not None and p_tax is not None:
+        try:
+            return abs(int(g_tax) - int(p_tax))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _format_amount_diff_rupees(row: dict[str, Any]) -> str:
+    """₹-formatted absolute amount delta for L2/L3 ``{diff}`` placeholders."""
+    adiff = _row_amount_diff_paise(row)
+    if adiff is None:
+        return "₹0.00"
+    return f"₹{adiff / 100:,.2f}"
 
 
 def _row_invoice_normalized_pairs(row: dict[str, Any]) -> list[tuple[str, str]]:
@@ -123,21 +153,34 @@ def _decision_for_row(row: dict[str, Any]) -> DecisionOutput:
             matched_fields=mf,
             differed_fields=df,
             normalized_pairs=[],
-            diff=f"₹{abs(row.get('amount_difference_paise', 0)) / 100:,.2f}",
+            diff=_format_amount_diff_rupees(row),
             source_software=source_software,
         )
 
     if level == 3:
         df = ["taxable_amount"] if adiff not in (None, 0) else []
         mf = list(dict.fromkeys(ident + amt_meta))
+        pct = row.get("amount_difference_pct", "?")
+        if pct == "?" and adiff not in (None, 0):
+            # Best-effort pct when only the absolute delta is known.
+            base = None
+            for k in ("gstr_taxable_amount_paise", "taxable_amount_paise"):
+                if row.get(k) is not None:
+                    try:
+                        base = abs(int(row[k]))
+                        break
+                    except (TypeError, ValueError):
+                        pass
+            if base:
+                pct = f"{(adiff / base) * 100:.1f}"
         return generate_decision(
             "L3_AMOUNT_DIFF",
             confidence="MEDIUM",
             matched_fields=mf,
             differed_fields=df,
             normalized_pairs=[],
-            diff=f"₹{abs(row.get('amount_difference_paise', 0)) / 100:,.2f}",
-            pct=row.get("amount_difference_pct", "?"),
+            diff=_format_amount_diff_rupees(row),
+            pct=pct,
             source_software=source_software,
             supplier_gstin=supplier_gstin,
         )

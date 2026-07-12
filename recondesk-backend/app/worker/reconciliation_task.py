@@ -1088,9 +1088,23 @@ def execute_reconciliation(run_id: str) -> None:
             except (TypeError, ValueError):
                 _log.warning("skip amount_difference_paise: invalid gstr_id=%s", gid)
                 continue
-            diff = int(ggr.get("total_tax_paise") or 0) - int(
-                pr.get("total_tax_paise") or 0
-            )
+            # Prefer taxable-value delta for decision templates / export WHAT IS WRONG.
+            # Fall back to total_tax delta only when taxable is unavailable on either side.
+            g_taxable = ggr.get("taxable_amount_paise")
+            p_taxable = pr.get("taxable_amount_paise")
+            if g_taxable is not None and p_taxable is not None:
+                diff = abs(int(g_taxable) - int(p_taxable))
+            else:
+                diff = abs(
+                    int(ggr.get("total_tax_paise") or 0)
+                    - int(pr.get("total_tax_paise") or 0)
+                )
+            # Attach onto the matched row BEFORE populate_decisions so L2/L3
+            # templates receive the real delta (not a missing-key default of 0).
+            m["taxable_diff_paise"] = diff
+            m["amount_difference_paise"] = diff
+            m["gstr_taxable_amount_paise"] = int(g_taxable or 0)
+            m["pr_taxable_amount_paise"] = int(p_taxable or 0)
             amount_diff_upsert_rows.append(
                 {
                     "id": gid_int,
