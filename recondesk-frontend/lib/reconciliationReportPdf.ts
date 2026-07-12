@@ -593,6 +593,33 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
     doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
   }
 
+  const conf = data.confidenceSummary;
+  if (conf && conf.total_invoices > 0) {
+    y += 6;
+    y = drawSectionTitle(doc, y, "Match Confidence Summary");
+    const confMetrics: [string, string][] = [
+      ["High confidence", conf.high_confidence.toLocaleString("en-IN")],
+      ["Medium confidence", conf.medium_confidence.toLocaleString("en-IN")],
+      ["Low confidence", conf.low_confidence.toLocaleString("en-IN")],
+      ["Unmatched", conf.unmatched.toLocaleString("en-IN")],
+      ["Total invoices", conf.total_invoices.toLocaleString("en-IN")],
+    ];
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    for (const [label, value] of confMetrics) {
+      setGrey(doc);
+      doc.text(label, MARGIN, y);
+      doc.setFont("helvetica", "bold");
+      setCharcoal(doc);
+      doc.text(value, PAGE_W - MARGIN, y, { align: "right" });
+      doc.setFont("helvetica", "normal");
+      y += 6;
+      doc.setDrawColor(...BORDER);
+      doc.setLineWidth(0.15);
+      doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
+    }
+  }
+
   return y;
 }
 

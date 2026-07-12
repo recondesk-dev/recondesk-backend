@@ -44,6 +44,15 @@ export type ReportSummary = {
   match_rate_percent: number;
 };
 
+export type ReportConfidenceSummary = {
+  run_id: string;
+  total_invoices: number;
+  high_confidence: number;
+  medium_confidence: number;
+  low_confidence: number;
+  unmatched: number;
+};
+
 export type ReportPdfDataset = {
   summary: ReportSummary;
   generatedByName: string;
@@ -53,6 +62,7 @@ export type ReportPdfDataset = {
   rule37Summary: Rule37SummaryResponse;
   followupRows: Awaited<ReturnType<typeof followupAuditApi.listForRun>>;
   gstr3bResult: Gstr3bReconciliationResult | null;
+  confidenceSummary: ReportConfidenceSummary | null;
 };
 
 async function fetchAllBucketRows(
@@ -102,7 +112,7 @@ export async function fetchReconciliationReportData(
   runId: string,
   summary: ReportSummary
 ): Promise<ReportPdfDataset> {
-  const [me, riskRows, itcRows, rule37Rows, rule37Summary, followupRows, gstr3bResult] =
+  const [me, riskRows, itcRows, rule37Rows, rule37Summary, followupRows, gstr3bResult, confidenceSummary] =
     await Promise.all([
       authApi.me(token).catch(() => null),
       summary.wrongful_risk_count > 0
@@ -118,6 +128,10 @@ export async function fetchReconciliationReportData(
       ),
       followupAuditApi.listForRun(token, runId),
       gstr3bApi.get(token, runId).catch(() => null),
+      apiFetch<ReportConfidenceSummary>(
+        `/api/reconcile/runs/${encodeURIComponent(runId)}/confidence-summary`,
+        { token }
+      ).catch(() => null),
     ]);
 
   const generatedByName =
@@ -132,5 +146,6 @@ export async function fetchReconciliationReportData(
     rule37Summary,
     followupRows,
     gstr3bResult,
+    confidenceSummary,
   };
 }

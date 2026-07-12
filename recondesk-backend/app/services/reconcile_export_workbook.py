@@ -38,6 +38,57 @@ def _decision_cell(v: Any) -> str:
     return "—" if not s else s
 
 
+def _format_match_confidence(raw: Any) -> str:
+    """Format fuzzy ``match_confidence`` as ``85%``; blank dash for L1–L4 / missing."""
+    if raw is None:
+        return "—"
+    try:
+        score = float(raw)
+    except (TypeError, ValueError):
+        return "—"
+    # Tolerate accidental 0–100 storage without changing engine writes.
+    if score > 1.0:
+        score = score / 100.0
+    if score < 0:
+        return "—"
+    return f"{int(round(score * 100))}%"
+
+
+_FIELD_LABELS = {
+    "gstin": "GSTIN",
+    "invoice_number": "Invoice#",
+    "taxable_amount": "Amount",
+    "date": "Date",
+    "vendor_name": "Vendor",
+}
+
+
+def _format_match_rationale(compared_fields: Any) -> str:
+    """Flatten ``compared_fields`` into a single audit-friendly cell string."""
+    if not isinstance(compared_fields, list) or not compared_fields:
+        return "—"
+    parts: list[str] = []
+    for entry in compared_fields:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("field_name") or "").strip()
+        if not name:
+            continue
+        label = _FIELD_LABELS.get(name, name.replace("_", " ").title())
+        match_type = str(entry.get("match_type") or "not_matched").strip().replace(
+            "_", " "
+        )
+        score = entry.get("field_score")
+        if match_type == "fuzzy" and score is not None:
+            try:
+                parts.append(f"{label}: fuzzy {int(score)}%")
+            except (TypeError, ValueError):
+                parts.append(f"{label}: fuzzy")
+        else:
+            parts.append(f"{label}: {match_type}")
+    return " | ".join(parts) if parts else "—"
+
+
 def _rs_int(n: float) -> str:
     return f"Rs {int(round(float(n))):,}"
 
@@ -217,6 +268,8 @@ def build_excel_workbook_bytes(
             "WHAT IS WRONG",
             "WHY",
             "WHAT TO DO NEXT",
+            "Match Confidence",
+            "Match Rationale",
         )
         hdr_fill = PatternFill("solid", fgColor=_HEADER_BLUE)
         hdr_font = Font(bold=True, color="FFFFFF")
@@ -264,6 +317,8 @@ def build_excel_workbook_bytes(
                 _decision_cell(api_row.get("decision_what")),
                 _decision_cell(api_row.get("decision_why")),
                 _decision_cell(api_row.get("decision_next")),
+                _format_match_confidence(api_row.get("match_confidence")),
+                _format_match_rationale(api_row.get("compared_fields")),
             )
             for col, v in enumerate(vals, 1):
                 c = ws2.cell(row=r, column=col, value=v)
@@ -537,10 +592,12 @@ def build_excel_workbook_bytes(
                 "Invoice Date",
                 "Reason",
                 "Amount",
+                "Match Confidence",
+                "Match Rationale",
             ]
         )
         hdr_fill = PatternFill("solid", fgColor=_HEADER_ORANGE)
-        for c in range(1, 6):
+        for c in range(1, 8):
             ws_rev.cell(row=1, column=c).font = Font(bold=True, color="FFFFFF")
             ws_rev.cell(row=1, column=c).fill = hdr_fill
         r = 2
@@ -552,6 +609,8 @@ def build_excel_workbook_bytes(
                     row.get("invoice_date") or "—",
                     row.get("decision_why") or "—",
                     _rs_int(row.get("amount") or 0),
+                    _format_match_confidence(row.get("match_confidence")),
+                    _format_match_rationale(row.get("compared_fields")),
                 ]
             )
             r += 1
