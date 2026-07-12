@@ -85,3 +85,18 @@ def invalidate_user_dashboard(user_id: str) -> None:
     if uid:
         cache_delete_pattern(f"cache:runs:{uid}:*")
         cache_delete(f"cache:billing_status:{uid}")
+
+
+# Bucket row lists rebuilt from payload + GSTR/PR maps (results tabs / export).
+BUCKET_CACHE_TTL_SECONDS = 120
+
+
+def bucket_cache_key(run_id: str, bucket: str) -> str:
+    return f"cache:bucket:{str(run_id).strip()}:{bucket}"
+
+
+def invalidate_run_bucket_cache(run_id: str) -> None:
+    """Drop cached ITC/risk/matched/rule37 row lists after mutations."""
+    rid = str(run_id).strip()
+    if rid:
+        cache_delete_pattern(f"cache:bucket:{rid}:*")

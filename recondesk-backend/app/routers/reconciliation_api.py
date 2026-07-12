@@ -22,7 +22,14 @@ from pydantic import BaseModel, Field
 from uuid import UUID
 
 from app.auth import get_current_active_user, get_user_role
-from app.utils.redis_cache import cache_get, cache_set, invalidate_user_dashboard
+from app.utils.redis_cache import (
+    BUCKET_CACHE_TTL_SECONDS,
+    bucket_cache_key,
+    cache_get,
+    cache_set,
+    invalidate_run_bucket_cache,
+    invalidate_user_dashboard,
+)
 from app.constants import RunStatus
 from app.database import get_supabase, get_user_profile
 from app.services.decision_templates import generate_decision
@@ -1637,6 +1644,7 @@ def _upsert_decision_status(
     while True:
         try:
             sb.table("mismatch_notes").insert(ins).execute()
+            invalidate_run_bucket_cache(run_id)
             return
         except Exception as exc:
             msg = str(exc)
@@ -2593,12 +2601,21 @@ def _filter_matched(
         if require_notes and int(api_row.get("notes_count") or 0) < 1:
             continue
 
-        if review_required and orow is not None:
-            if getattr(orow, "match_status", "").upper() == "MATCHED":
+        if review_required:
+            ms = (
+                getattr(orow, "match_status", "")
+                if orow is not None
+                else str(api_row.get("_ms") or "")
+            )
+            if str(ms).upper() == "MATCHED":
                 continue
 
         if section174:
-            blk = bool(getattr(orow, "blocked_credit_flag", False)) if orow else False
+            blk = (
+                bool(getattr(orow, "blocked_credit_flag", False))
+                if orow is not None
+                else bool(api_row.get("_bc"))
+            )
             if not blk:
                 continue
 
@@ -2883,6 +2900,10 @@ def _pagination_chunk(seq: list[TSeq], page: int, limit: int) -> list[TSeq]:
 def _paginated_body(rows: list[dict[str, Any]], page: int, limit: int) -> dict[str, Any]:
     total = len(rows)
     page_items = _pagination_chunk(rows, page, limit)
+    for item in page_items:
+        if isinstance(item, dict):
+            item.pop("_ms", None)
+            item.pop("_bc", None)
     return {
         "data": page_items,
         "total": total,
@@ -2890,6 +2911,53 @@ def _paginated_body(rows: list[dict[str, Any]], page: int, limit: int) -> dict[s
         "limit": limit,
         "total_pages": _total_pages(total, limit),
     }
+
+
+def _cached_bucket_dict_rows(
+    rid: str,
+    bucket: str,
+    builder,
+) -> list[dict[str, Any]]:
+    """Redis-memoize full unfiltered bucket lists (TTL); rebuild on miss."""
+    key = bucket_cache_key(rid, bucket)
+    cached = cache_get(key)
+    if isinstance(cached, list):
+        return cached
+    rows = builder()
+    if isinstance(rows, list):
+        cache_set(key, rows, ttl_seconds=BUCKET_CACHE_TTL_SECONDS)
+    return rows
+
+
+def _cached_matched_pairs(
+    sb,
+    *,
+    rid: str,
+    payload: dict[str, Any],
+    note_counts: Counter[str],
+    fetch_review_required: bool,
+) -> list[tuple[dict[str, Any], Any]]:
+    bucket = "review_required" if fetch_review_required else "matched"
+
+    def _build() -> list[dict[str, Any]]:
+        pairs = _build_matched_pair_records(
+            sb,
+            rid=rid,
+            payload=payload,
+            note_counts=note_counts,
+            fetch_review_required=fetch_review_required,
+        )
+        rows: list[dict[str, Any]] = []
+        for api_row, orow in pairs:
+            row = dict(api_row)
+            if orow is not None:
+                row["_ms"] = getattr(orow, "match_status", None)
+                row["_bc"] = bool(getattr(orow, "blocked_credit_flag", False))
+            rows.append(row)
+        return rows
+
+    rows = _cached_bucket_dict_rows(rid, bucket, _build)
+    return [(r, None) for r in rows]
 
 
 async def _reconcile_finalize_core(
@@ -3591,6 +3659,7 @@ async def retry_failed_reconcile_run(
             detail="Reconciliation task queue is unavailable. Try again later.",
         ) from exc
     invalidate_user_dashboard(current_user.get("id"))
+    invalidate_run_bucket_cache(rid)
     return {"run_id": rid, "status": "MATCHING"}
 
 
@@ -3885,12 +3954,16 @@ async def reconcile_run_itc_bucket(
     run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     notes = _notes_count_for_run(sb, rid)
-    rows = _build_missed_itc_records(
-        sb,
-        rid=rid,
-        payload=p,
-        note_counts=notes,
-        source_software="your accounting software",
+    rows = _cached_bucket_dict_rows(
+        rid,
+        "itc",
+        lambda: _build_missed_itc_records(
+            sb,
+            rid=rid,
+            payload=p,
+            note_counts=notes,
+            source_software="your accounting software",
+        ),
     )
     amin = _parse_money_query(amount_min)
     amax = _parse_money_query(amount_max)
@@ -3924,7 +3997,13 @@ async def reconcile_run_risk_bucket(
     run_row = assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     notes = _notes_count_for_run(sb, rid)
-    rows = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
+    rows = _cached_bucket_dict_rows(
+        rid,
+        "risk",
+        lambda: _build_wrongful_risk_records(
+            sb, rid=rid, payload=p, note_counts=notes
+        ),
+    )
     amin = _parse_money_query(amount_min)
     amax = _parse_money_query(amount_max)
     rows = _filter_bucket_amount_gstin(
@@ -4294,7 +4373,13 @@ async def reconcile_run_matched_bucket(
             return None
 
     rr_req = bool(review_required and review_required.strip().lower() in ("true", "1", "yes", "review_required"))
-    pairs = _build_matched_pair_records(sb, rid=rid, payload=p, note_counts=notes, fetch_review_required=rr_req)
+    pairs = _cached_matched_pairs(
+        sb,
+        rid=rid,
+        payload=p,
+        note_counts=notes,
+        fetch_review_required=rr_req,
+    )
     hn = bool(has_notes and has_notes.strip().lower() in ("true", "1", "yes"))
     s174 = bool(section_17_5 and section_17_5.strip().lower() in ("true", "1", "yes"))
     filtered_pairs = _filter_matched(
@@ -4347,7 +4432,11 @@ async def reconcile_run_rule37(
     if via is not None:
         return via
     notes = _notes_count_for_run(sb, rid)
-    rows = _build_rule37_rows(sb, rid, p, notes)
+    rows = _cached_bucket_dict_rows(
+        rid,
+        "rule37",
+        lambda: _build_rule37_rows(sb, rid, p, notes),
+    )
     return _paginated_body(rows, page, limit)
 
 
@@ -4466,6 +4555,7 @@ async def reconcile_run_rule37_action(
         cov_out: Optional[Literal["full", "partial"]] = None
         if payment_coverage in {"full", "partial"}:
             cov_out = payment_coverage  # type: ignore[assignment]
+        invalidate_run_bucket_cache(rid)
         return Rule37ActionResponse(
             id=rec_id,
             status=body.status,
@@ -4520,7 +4610,11 @@ async def reconcile_run_section175(
     if via is not None:
         return via
     notes = _notes_count_for_run(sb, rid)
-    rows = _build_section175_rows(sb, rid, p, notes)
+    rows = _cached_bucket_dict_rows(
+        rid,
+        "section17",
+        lambda: _build_section175_rows(sb, rid, p, notes),
+    )
     return _paginated_body(rows, page, limit)
 
 

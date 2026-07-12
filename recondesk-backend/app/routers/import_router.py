@@ -57,7 +57,7 @@ def _dispatch_import_job(run_id: str, file_type: str, r2_key: str) -> bool:
     """
     from app.worker.tasks import run_import_job
 
-    if get_settings().IMPORT_USE_CELERY:
+    if get_settings().import_use_celery:
         try:
             celery_app.send_task(
                 "worker.run_import_job",

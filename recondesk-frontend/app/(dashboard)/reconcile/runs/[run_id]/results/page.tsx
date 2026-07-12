@@ -1280,13 +1280,19 @@ export default function ReconcileResultsPage() {
   );
 
   const itcListKey = useMemo(() => {
-    if (!authReady || !runId || !summary || summary.missed_itc_count <= 0)
+    if (
+      !authReady ||
+      !runId ||
+      !summary ||
+      resultsTab !== "itc" ||
+      summary.missed_itc_count <= 0
+    )
       return null;
     return [
       `/api/reconcile/runs/${runId}/itc?${itcListQuery}`,
       authToken,
     ] as const;
-  }, [authReady, runId, summary, itcListQuery, authToken]);
+  }, [authReady, runId, summary, itcListQuery, authToken, resultsTab]);
 
   const {
     data: itcPageData,
@@ -1309,13 +1315,19 @@ export default function ReconcileResultsPage() {
   );
 
   const riskListKey = useMemo(() => {
-    if (!authReady || !runId || !summary || summary.wrongful_risk_count <= 0)
+    if (
+      !authReady ||
+      !runId ||
+      !summary ||
+      resultsTab !== "risk" ||
+      summary.wrongful_risk_count <= 0
+    )
       return null;
     return [
       `/api/reconcile/runs/${runId}/risk?${riskListQuery}`,
       authToken,
     ] as const;
-  }, [authReady, runId, summary, riskListQuery, authToken]);
+  }, [authReady, runId, summary, riskListQuery, authToken, resultsTab]);
 
   const {
     data: riskPageData,
@@ -1327,14 +1339,20 @@ export default function ReconcileResultsPage() {
   });
 
   const duplicateEntryListKey = useMemo(() => {
-    if (!authReady || !runId || !summary || (summary.duplicate_entry_count ?? 0) <= 0)
+    if (
+      !authReady ||
+      !runId ||
+      !summary ||
+      resultsTab !== "duplicate_entry" ||
+      (summary.duplicate_entry_count ?? 0) <= 0
+    )
       return null;
     // Backend mounts this on /api/reconciliation (not /api/reconcile).
     return [
       `/api/reconciliation/results/${runId}/invoices?category=duplicate_entry&page=1&page_size=200`,
       authToken,
     ] as const;
-  }, [authReady, runId, summary, authToken]);
+  }, [authReady, runId, summary, authToken, resultsTab]);
 
   const {
     data: duplicateEntryData,
@@ -1359,12 +1377,13 @@ export default function ReconcileResultsPage() {
     () =>
       authReady &&
       runId &&
+      resultsTab === "matched" &&
       summary &&
       typeof summary.late_match_count === "number" &&
       summary.late_match_count > 0
         ? ([`/api/reconcile/runs/${runId}/late-matches`, authToken] as const)
         : null,
-    [authReady, runId, summary?.late_match_count, authToken]
+    [authReady, runId, summary?.late_match_count, authToken, resultsTab]
   );
 
   const {
@@ -1390,10 +1409,10 @@ export default function ReconcileResultsPage() {
 
   const matchedKey = useMemo(
     () =>
-      authReady && runId
+      authReady && runId && resultsTab === "matched"
         ? ([`/api/reconcile/runs/${runId}/matched?${matchedQuery}`, authToken] as const)
         : null,
-    [authReady, runId, matchedQuery, authToken]
+    [authReady, runId, matchedQuery, authToken, resultsTab]
   );
 
   useEffect(() => {
@@ -1430,10 +1449,10 @@ export default function ReconcileResultsPage() {
 
   const reviewRequiredKey = useMemo(
     () =>
-      authReady && runId
+      authReady && runId && resultsTab === "review_required"
         ? ([`/api/reconcile/runs/${runId}/matched?${reviewRequiredQuery}`, authToken] as const)
         : null,
-    [authReady, runId, reviewRequiredQuery, authToken]
+    [authReady, runId, reviewRequiredQuery, authToken, resultsTab]
   );
 
   const {
@@ -3210,6 +3229,7 @@ export default function ReconcileResultsPage() {
         )}
 
         {summary &&
+          resultsTab === "matched" &&
           typeof summary.late_match_count === "number" &&
           summary.late_match_count > 0 && (
             <div className={sectionContainerClass}>

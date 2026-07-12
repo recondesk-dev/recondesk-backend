@@ -14,7 +14,6 @@ from app.auth import get_current_active_user
 from app.config import settings
 from app.database import get_supabase, get_user_profile
 from app.services.reconciliation_import_wizard import wizard_service as ws
-from app.utils.audit import client_display_label
 
 _log = logging.getLogger(__name__)
 router = APIRouter()
@@ -177,6 +176,7 @@ async def list_manage_data(
         .select("id, gstin, trade_name, legal_name")
         .eq("firm_owner_id", admin_id)
         .eq("is_active", True)
+        .limit(500)
         .execute()
     )
     clients = list(clients_res.data or [])
@@ -191,6 +191,7 @@ async def list_manage_data(
         .select("id, client_gstin_id, period, status, created_at")
         .in_("client_gstin_id", client_ids)
         .order("created_at", desc=True)
+        .limit(500)
         .execute()
     )
     runs = list(runs_res.data or [])
@@ -216,11 +217,17 @@ async def list_manage_data(
         cg_id = str(run.get("client_gstin_id") or "")
         client = client_by_id.get(cg_id, {})
         import_row = import_by_id.get(rid)
+        client_name = (
+            str(client.get("trade_name") or "").strip()
+            or str(client.get("legal_name") or "").strip()
+            or str(client.get("gstin") or "").strip()
+            or "Client"
+        )
         out.append(
             ManageDataRow(
                 run_id=rid,
                 client_gstin_id=cg_id,
-                client_name=client_display_label(sb, cg_id) if cg_id else "Client",
+                client_name=client_name,
                 gstin=str(client.get("gstin") or ""),
                 period=run.get("period"),
                 status=str(run.get("status") or ""),
