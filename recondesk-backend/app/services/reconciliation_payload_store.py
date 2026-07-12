@@ -138,8 +138,15 @@ _RULE37_DECISION_KEYS = (
 
 _SECTION175_DECISION_KEYS = (
     "supplier_gstin",
+    "invoice_number",
+    "invoice_date",
+    "amount",
+    "estimated_itc_amount",
     "hsn_code",
     "category",
+    "reason",
+    "section",
+    "flag_source",
     "decision_what",
     "decision_why",
     "decision_next",

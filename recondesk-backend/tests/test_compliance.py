@@ -168,6 +168,7 @@ class TestSection175:
     def test_section175_warnings_in_populate_decisions(self):
         warnings = [{
             "supplier_gstin": "27ABCDE1234F1Z0",
+            "invoice_number": "INV-8703",
             "hsn_code": "8703",
             "category": "Motor Vehicles",
             "itc_amount": 50000,
@@ -177,6 +178,24 @@ class TestSection175:
         assert len(enriched_175) == 1, (
             f"section_175_warnings must be processed. Got: {enriched_175}"
         )
+        assert "?" not in enriched_175[0]["decision_what"]
+        assert "?" not in enriched_175[0]["decision_why"]
+        assert "8703" in enriched_175[0]["decision_why"]
+        assert "Motor Vehicles" in enriched_175[0]["decision_what"]
+
+    def test_populate_decisions_no_hsn_does_not_emit_question_marks(self):
+        warnings = [{
+            "supplier_gstin": "27ABCDE1234F1Z0",
+            "invoice_number": "INV-INELIG",
+            "category": "Marked ITC-ineligible in purchase register",
+            "hsn_code": None,
+        }]
+        result = populate_decisions([], section_175_warnings=warnings)
+        row = result["section_175"][0]
+        assert "?" not in row["decision_what"]
+        assert "?" not in row["decision_why"]
+        assert "ineligible" in row["decision_what"].lower() or "17(5)" in row["decision_what"]
+
 
 class TestMissedAndWrongfulITC:
     def test_missed_itc_decision_mentions_amount_and_action(self):

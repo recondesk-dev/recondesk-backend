@@ -515,8 +515,28 @@ def build_excel_workbook_bytes(
             c.fill = hdr_fill
         ws5.freeze_panes = "A2"
         combined: list[tuple[str, dict[str, Any]]] = [
-            ("Rule 37", r) for r in rule37_rows
-        ] + [("Section 17(5)", r) for r in section17_rows]
+            ("Rule 37", r) for r in rule37_rows if isinstance(r, dict)
+        ]
+        for r in section17_rows:
+            if not isinstance(r, dict):
+                continue
+            # Drop blank Section 17(5) shells (every text column would be "—").
+            has_identity = bool(
+                str(r.get("supplier_gstin") or "").strip()
+                or str(r.get("invoice_number") or "").strip()
+            )
+            has_decision = bool(
+                str(r.get("decision_what") or "").strip()
+                or str(r.get("decision_why") or "").strip()
+                or str(r.get("decision_next") or "").strip()
+            )
+            if not has_identity or not has_decision:
+                continue
+            what = str(r.get("decision_what") or "")
+            why = str(r.get("decision_why") or "")
+            if "blocked credit: ?" in what or "HSN ?" in why:
+                continue
+            combined.append(("Section 17(5)", r))
         full_count = len(combined)
         capped = full_count > _EXCEL_CAP
         combined = combined[:_EXCEL_CAP]

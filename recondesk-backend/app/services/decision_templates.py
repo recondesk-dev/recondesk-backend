@@ -83,6 +83,11 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "HSN {hsn_code} commonly associated with {category} -- ineligible for ITC",
         "next": "Verify end-use with client. If business use exempted from 17(5), document the exception before claiming.",
     },
+    "BLOCKED_CREDIT_NO_HSN": {
+        "what": "Invoice may be under Section 17(5) blocked credit: {category}",
+        "why": "{category} — ineligible for ITC pending verification",
+        "next": "Verify end-use with client. If business use exempted from 17(5), document the exception before claiming.",
+    },
     "LATE_FILING": {
         "what": "Invoice dated {original_period} appeared in {gstr_period} GSTR-2B ({late_months} months late)",
         "why": "Supplier filed this invoice late with the GST portal",

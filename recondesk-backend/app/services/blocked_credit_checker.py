@@ -99,6 +99,70 @@ def _raw_hsn_from_record(record: Mapping[str, Any]) -> object | None:
     return None
 
 
+def _invoice_identity(record: Mapping[str, Any]) -> tuple[Any, str]:
+    inv = (
+        record.get("invoice_number")
+        or record.get("invoice_number_norm")
+        or record.get("invoice_number_normalized")
+    )
+    gst = str(
+        record.get("supplier_gstin")
+        or record.get("supplier_gstin_norm")
+        or ""
+    ).strip()
+    return inv, gst
+
+
+def _invoice_date(record: Mapping[str, Any]) -> Any:
+    return record.get("invoice_date") or record.get("invoice_date_norm") or record.get("idt")
+
+
+def _amount_rupees(record: Mapping[str, Any]) -> float:
+    """Best-effort ITC / invoice tax amount in rupees for export columns."""
+    for key in ("total_tax_paise", "igst_paise", "estimated_itc_paise"):
+        v = record.get(key)
+        if v is not None:
+            try:
+                return round(abs(int(v)) / 100.0, 2)
+            except (TypeError, ValueError):
+                pass
+    for key in ("amount", "estimated_itc_amount", "total_tax", "val"):
+        v = record.get(key)
+        if v is not None:
+            try:
+                return round(abs(float(v)), 2)
+            except (TypeError, ValueError):
+                pass
+    # Derive from taxable + components when only those exist
+    try:
+        taxable = int(record.get("taxable_amount_paise") or 0)
+        tax = int(record.get("total_tax_paise") or 0)
+        if tax:
+            return round(abs(tax) / 100.0, 2)
+        if taxable:
+            # No tax line — leave amount 0 rather than inventing ITC
+            return 0.0
+    except (TypeError, ValueError):
+        pass
+    return 0.0
+
+
+def _base_warning(record: Mapping[str, Any], *, reason: str, **extra: Any) -> dict[str, Any]:
+    inv, gst = _invoice_identity(record)
+    amt = _amount_rupees(record)
+    out: dict[str, Any] = {
+        "invoice_number": inv,
+        "supplier_gstin": gst,
+        "invoice_date": _invoice_date(record),
+        "amount": amt,
+        "estimated_itc_amount": amt,
+        "reason": reason,
+        "section": "17(5)",
+    }
+    out.update(extra)
+    return out
+
+
 def check_blocked_credits(invoices: list[dict]) -> list[dict]:
     """
     Return advisory warnings for HSN codes commonly restricted under 17(5).
@@ -109,6 +173,10 @@ def check_blocked_credits(invoices: list[dict]) -> list[dict]:
     GSTR-2B ``record_data`` shape. 8+ digit values use the first four digits
     for lookup, consistent with line-item HSN.
 
+    Each warning includes ``hsn_code`` / ``category`` (when known), plus
+    ``invoice_date`` and ``amount`` so export / decision templates never fall
+    back to literal ``?`` or blank identity columns.
+
     Never auto-block: CA makes the final call. Only warn.
     """
     warnings: list[dict] = []
@@ -117,17 +185,14 @@ def check_blocked_credits(invoices: list[dict]) -> list[dict]:
         itc_eligibility = str(record.get("itc_eligibility") or "").strip().lower()
         if itc_eligibility in INELIGIBLE_ITC_VALUES:
             warnings.append(
-                {
-                    "invoice_number": record.get("invoice_number")
-                    or record.get("invoice_number_norm"),
-                    "supplier_gstin": str(
-                        record.get("supplier_gstin")
-                        or record.get("supplier_gstin_norm")
-                        or ""
-                    ),
-                    "reason": "Marked ITC-ineligible in purchase register",
-                    "section": "17(5)",
-                }
+                _base_warning(
+                    record,
+                    reason="Marked ITC-ineligible in purchase register",
+                    # No HSN on this path — decision layer uses a no-HSN template.
+                    hsn_code=None,
+                    category="Marked ITC-ineligible in purchase register",
+                    flag_source="pr_eligibility",
+                )
             )
             continue
 
@@ -136,37 +201,31 @@ def check_blocked_credits(invoices: list[dict]) -> list[dict]:
         if hsn_chapter is None or hsn_chapter not in BLOCKED_HSN_CODES:
             continue
 
-        hsn_str = hsn_chapter
-
-        entry = BLOCKED_HSN_CODES[hsn_str]
+        entry = BLOCKED_HSN_CODES[hsn_chapter]
         category = entry["category"]
         usage_dependent = entry["usage_dependent"]
         exempt_note = entry["exempt_note"]
 
         if usage_dependent:
             reason = (
-                f"HSN {hsn_str} falls under {category}. "
+                f"HSN {hsn_chapter} falls under {category}. "
                 "Verify before claiming ITC -- may be blocked under Section 17(5). "
                 f"Note: {exempt_note}"
             )
         else:
             reason = (
-                f"HSN {hsn_str} falls under {category}. "
+                f"HSN {hsn_chapter} falls under {category}. "
                 "Verify before claiming ITC -- likely blocked under Section 17(5)"
             )
 
         warnings.append(
-            {
-                "invoice_number": record.get("invoice_number")
-                or record.get("invoice_number_norm"),
-                "supplier_gstin": str(
-                    record.get("supplier_gstin")
-                    or record.get("supplier_gstin_norm")
-                    or ""
-                ),
-                "reason": reason,
-                "section": "17(5)",
-            }
+            _base_warning(
+                record,
+                reason=reason,
+                hsn_code=hsn_chapter,
+                category=category,
+                flag_source="hsn",
+            )
         )
 
     return warnings
