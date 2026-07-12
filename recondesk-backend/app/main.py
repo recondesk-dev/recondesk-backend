@@ -21,6 +21,7 @@ from app.routers import (
     audit_logs,
     auth,
     billing,
+    export as export_router,
     import_router,
     intelligence,
     manage_data,
@@ -207,6 +208,11 @@ app.include_router(
     reconciliation_api.reconcile_runs_router,
     prefix="/api/v1/reconcile",
     tags=["Reconcile Runs"],
+)
+app.include_router(
+    export_router.router,
+    prefix="/api/export",
+    tags=["Advanced Export"],
 )
 app.include_router(notes.router, prefix="/api/notes", tags=["Notes"])
 app.include_router(clients_router, prefix="/api/clients", tags=["Clients"])
