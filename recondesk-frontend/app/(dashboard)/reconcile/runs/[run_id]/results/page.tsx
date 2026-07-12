@@ -158,7 +158,27 @@ type ReconcileRow = {
   invoice_amount?: number;
   rule37_payment_coverage?: "full" | "partial" | null;
   section_17_5_category?: string;
+  match_confidence?: number | null;
 };
+
+/** Small pill showing L5/fuzzy invoice-similarity score. Only renders when match_confidence is present. */
+function MatchConfidenceBadge({ score }: { score: number }) {
+  const pct = Math.round(score * 100);
+  const colorCls =
+    pct >= 90
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
+      : pct >= 75
+        ? "bg-amber-50 text-amber-700 ring-amber-600/20"
+        : "bg-red-50 text-red-700 ring-red-600/20";
+  return (
+    <span
+      className={`inline-flex items-center whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${colorCls}`}
+      title={`Invoice similarity: ${pct}%`}
+    >
+      {pct}% match
+    </span>
+  );
+}
 
 type RunSummary = {
   run_id: string;
@@ -2355,10 +2375,15 @@ export default function ReconcileResultsPage() {
                             />
                           </td>
                           <td className={decisionTd("what")}>
-                            <HoverTextCell
-                              text={row.decision_what}
-                              displayClassName="text-[13px] text-gray-600"
-                            />
+                            <div className="flex items-center gap-1.5">
+                              <HoverTextCell
+                                text={row.decision_what}
+                                displayClassName="text-[13px] text-gray-600"
+                              />
+                              {row.match_confidence != null && (
+                                <MatchConfidenceBadge score={row.match_confidence} />
+                              )}
+                            </div>
                           </td>
                           <td className={decisionTd("why")}>
                             <HoverTextCell
@@ -2818,10 +2843,15 @@ export default function ReconcileResultsPage() {
                             />
                           </td>
                           <td className={decisionTd("what")}>
-                            <HoverTextCell
-                              text={row.decision_what}
-                              displayClassName="text-[13px] text-gray-600"
-                            />
+                            <div className="flex items-center gap-1.5">
+                              <HoverTextCell
+                                text={row.decision_what}
+                                displayClassName="text-[13px] text-gray-600"
+                              />
+                              {row.match_confidence != null && (
+                                <MatchConfidenceBadge score={row.match_confidence} />
+                              )}
+                            </div>
                           </td>
                           <td className={decisionTd("why")}>
                             <HoverTextCell

@@ -167,6 +167,7 @@ class OutcomeRow:
     is_credit_note: bool
     amount: Optional[int]
     matched_pr_id: Optional[str] = None
+    match_confidence: Optional[float] = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -193,6 +194,7 @@ class OutcomeRow:
             "is_credit_note": self.is_credit_note,
             "amount": self.amount,
             "matched_pr_id": self.matched_pr_id,
+            "match_confidence": self.match_confidence,
         }
 
 
@@ -408,6 +410,7 @@ def build_outcome_rows(
                 late_filing_flag=lf_flag,
                 is_credit_note=False,
                 amount=_opt_int(g.get("total_tax_paise")) if _opt_int(g.get("total_tax_paise")) is not None else _opt_int(p.get("total_tax_paise")),
+                match_confidence=m0.get("match_confidence"),
             )
         )
 
@@ -665,6 +668,7 @@ def build_outcome_rows(
                 late_filing_flag=bool(typo.get("is_late_filing")),
                 is_credit_note=False,
                 amount=_opt_int(m_rec.get("total_tax_paise")),
+                match_confidence=typo.get("match_confidence"),
             )
         )
 

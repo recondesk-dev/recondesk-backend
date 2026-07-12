@@ -2531,6 +2531,7 @@ def _build_matched_pair_records(
                 "notes_count": int(_lookup_by_record_id(note_counts, rid_str, 0)),
                 "gstr2b_data": gd2,
                 "purchase_register_data": pd2,
+                "match_confidence": en_row.get("match_confidence") if isinstance(en_row, dict) else None,
             }
             out_pairs.append((api_row, orow))
         except Exception as e:
