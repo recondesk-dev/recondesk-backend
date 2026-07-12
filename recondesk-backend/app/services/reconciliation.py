@@ -305,7 +305,31 @@ class ReconState:
 
 
 
-def _push_clean_matched(state, gstr_id, pr_id, score, best_result, is_late_filing=False, original_period=None, late_months=0, match_confidence=None):
+def _push_clean_matched(
+    state,
+    gstr_id,
+    pr_id,
+    score,
+    best_result,
+    is_late_filing=False,
+    original_period=None,
+    late_months=0,
+    match_confidence=None,
+    gstr_rec: "dict | None" = None,
+    pr_rec: "dict | None" = None,
+):
+    # Persist abs(GSTR taxable − PR taxable) so the decision layer can render
+    # L2/L3 ``{diff}`` correctly. Without this, populate_decisions defaulted
+    # missing amount_difference_paise to 0 and every FUZZY Matched export row
+    # showed "amount differs by ₹0.00".
+    taxable_diff: int = 0
+    g_taxable: int | None = None
+    p_taxable: int | None = None
+    if gstr_rec is not None and pr_rec is not None:
+        g_taxable = int(gstr_rec.get("taxable_amount_paise") or 0)
+        p_taxable = int(pr_rec.get("taxable_amount_paise") or 0)
+        taxable_diff = abs(g_taxable - p_taxable)
+
     match_dict = {
         "gstr_id": str(gstr_id),
         "pr_id": str(pr_id),
@@ -323,7 +347,13 @@ def _push_clean_matched(state, gstr_id, pr_id, score, best_result, is_late_filin
         "match_level": getattr(best_result, "level", 0),
         "match_confidence": match_confidence,  # invoice_similarity score for L5/fuzzy matches
         "compared_fields": list(getattr(best_result, "compared_fields", None) or []),
+        "taxable_diff_paise": taxable_diff,
+        "amount_difference_paise": taxable_diff,
     }
+    if g_taxable is not None:
+        match_dict["gstr_taxable_amount_paise"] = g_taxable
+    if p_taxable is not None:
+        match_dict["pr_taxable_amount_paise"] = p_taxable
     state.clean_matched.append(match_dict)
     state.consumed_pr_ids.add(str(pr_id))
     state.consumed_gstr_ids.add(str(gstr_id))
@@ -585,7 +615,10 @@ def _push_multiline_clean_match(
         financial_status="Exact",
     )
     score = compute_match_score(ml_result)
-    _push_clean_matched(state, gid, primary_pr_id, score, ml_result)
+    _push_clean_matched(
+        state, gid, primary_pr_id, score, ml_result,
+        gstr_rec=g, pr_rec=pr_primary,
+    )
     for pid in p_ids:
         if pid != primary_pr_id:
             state.consumed_pr_ids.add(pid)
@@ -599,6 +632,16 @@ def _push_multiline_clean_match(
         match_dict["match_reasons"].append(
             "Invoice numbers match after normalization or format variant"
         )
+    # Group-level taxable delta (primary line alone is a partial booking).
+    g_taxable = int(g.get("taxable_amount_paise") or 0)
+    p_taxable_sum = sum(
+        int(pr_by_id[pid].get("taxable_amount_paise") or 0) for pid in p_ids
+    )
+    taxable_diff = abs(g_taxable - p_taxable_sum)
+    match_dict["taxable_diff_paise"] = taxable_diff
+    match_dict["amount_difference_paise"] = taxable_diff
+    match_dict["gstr_taxable_amount_paise"] = g_taxable
+    match_dict["pr_taxable_amount_paise"] = p_taxable_sum
 
 
 def prepass_duplicate_ambiguity(
@@ -1042,7 +1085,10 @@ def process_gstr_records_chunk(
                     gstr_rec=gstr_record, pr_rec=best_pr,
                 )
             else:
-                _push_clean_matched(state, gstr_record["id"], best_pr["id"], score, best_result)
+                _push_clean_matched(
+                    state, gstr_record["id"], best_pr["id"], score, best_result,
+                    gstr_rec=gstr_record, pr_rec=best_pr,
+                )
             continue
             
         # Cross-period check for clean match (late filing)
@@ -1081,7 +1127,11 @@ def process_gstr_records_chunk(
                         gstr_rec=gstr_record, pr_rec=best_p,
                     )
                 else:
-                    _push_clean_matched(state, gstr_record["id"], best_p["id"], score, best_r, is_late_filing=True, original_period=period, late_months=late_months)
+                    _push_clean_matched(
+                        state, gstr_record["id"], best_p["id"], score, best_r,
+                        is_late_filing=True, original_period=period, late_months=late_months,
+                        gstr_rec=gstr_record, pr_rec=best_p,
+                    )
                 break
 
     if run_skipped_count > 0:
