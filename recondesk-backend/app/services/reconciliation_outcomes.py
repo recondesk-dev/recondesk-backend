@@ -168,6 +168,7 @@ class OutcomeRow:
     amount: Optional[int]
     matched_pr_id: Optional[str] = None
     match_confidence: Optional[float] = None
+    compared_fields: Optional[list[dict[str, Any]]] = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -195,6 +196,7 @@ class OutcomeRow:
             "amount": self.amount,
             "matched_pr_id": self.matched_pr_id,
             "match_confidence": self.match_confidence,
+            "compared_fields": self.compared_fields,
         }
 
 
@@ -411,6 +413,7 @@ def build_outcome_rows(
                 is_credit_note=False,
                 amount=_opt_int(g.get("total_tax_paise")) if _opt_int(g.get("total_tax_paise")) is not None else _opt_int(p.get("total_tax_paise")),
                 match_confidence=m0.get("match_confidence"),
+                compared_fields=m0.get("compared_fields"),
             )
         )
 
@@ -583,6 +586,8 @@ def build_outcome_rows(
                 late_filing_flag=False,
                 is_credit_note=False,
                 amount=_opt_int(dup.get("total_tax_paise")) if _opt_int(dup.get("total_tax_paise")) is not None else _opt_int(m_rec.get("total_tax_paise")),
+                match_confidence=dup.get("match_confidence"),
+                compared_fields=dup.get("compared_fields"),
             )
         )
 
@@ -669,6 +674,7 @@ def build_outcome_rows(
                 is_credit_note=False,
                 amount=_opt_int(m_rec.get("total_tax_paise")),
                 match_confidence=typo.get("match_confidence"),
+                compared_fields=typo.get("compared_fields"),
             )
         )
 

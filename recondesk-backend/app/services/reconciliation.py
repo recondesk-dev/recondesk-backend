@@ -16,6 +16,7 @@ from app.services.matcher import (
     INVOICE_SIMILARITY_L5_MIN,
     TOTAL_TOLERANCE_PAISE,
     MatchResult,
+    build_compared_fields,
     invoice_similarity,
     is_invoice_format_variant,
     match_gstr_to_pr,
@@ -321,6 +322,7 @@ def _push_clean_matched(state, gstr_id, pr_id, score, best_result, is_late_filin
         "review_reason": best_result.review_reason,
         "match_level": getattr(best_result, "level", 0),
         "match_confidence": match_confidence,  # invoice_similarity score for L5/fuzzy matches
+        "compared_fields": list(getattr(best_result, "compared_fields", None) or []),
     }
     state.clean_matched.append(match_dict)
     state.consumed_pr_ids.add(str(pr_id))
@@ -356,6 +358,15 @@ def _push_review_required(
         g_tt = int(gstr_rec.get("total_tax_paise") or 0)
         p_tt = int(pr_rec.get("total_tax_paise") or 0)
         taxable_diff = abs((g_taxable + g_tt) - (p_taxable + p_tt))
+
+    compared_fields = list(getattr(best_result, "compared_fields", None) or [])
+    if not compared_fields and gstr_rec is not None and pr_rec is not None:
+        compared_fields = build_compared_fields(
+            gstr_rec,
+            pr_rec,
+            invoice_sim_override=match_confidence,
+        )
+
     match_dict = {
         "gstr_id": str(gstr_id),
         "pr_id": str(pr_id),
@@ -370,6 +381,7 @@ def _push_review_required(
         "taxable_diff_paise": taxable_diff,
         "note": note,
         "match_confidence": match_confidence,  # invoice_similarity score for L5/fuzzy matches
+        "compared_fields": compared_fields or None,
     }
     if gstr_rec is not None:
         match_dict["gstr_invoice_date"] = gstr_rec.get("invoice_date")
