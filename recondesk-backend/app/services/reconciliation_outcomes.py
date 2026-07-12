@@ -958,6 +958,87 @@ def paginate(items: List[TItem], page: int, page_size: int) -> Tuple[List[TItem]
     return items[start : start + ps], total
 
 
+# Match confidence badge thresholds (same as step-1 UI): ≥90% high, ≥75% medium.
+CONFIDENCE_HIGH_MIN = 0.90
+CONFIDENCE_MEDIUM_MIN = 0.75
+
+
+def _normalize_match_confidence(raw: Any) -> Optional[float]:
+    """Return similarity in [0, 1], or None when absent / unparsable."""
+    if raw is None:
+        return None
+    try:
+        score = float(raw)
+    except (TypeError, ValueError):
+        return None
+    # Tolerate accidental 0–100 storage without changing engine writes.
+    if score > 1.0:
+        score = score / 100.0
+    return score
+
+
+def confidence_bucket(match_confidence: Any, *, linked: bool) -> str:
+    """Map a per-invoice score to high / medium / low / unmatched.
+
+    Linked rows with no fuzzy score (L1–L4 exact) count as high. Unmatched
+    invoices are never folded into low confidence.
+    """
+    if not linked:
+        return "unmatched"
+    score = _normalize_match_confidence(match_confidence)
+    if score is None:
+        return "high"
+    if score >= CONFIDENCE_HIGH_MIN:
+        return "high"
+    if score >= CONFIDENCE_MEDIUM_MIN:
+        return "medium"
+    return "low"
+
+
+def build_confidence_summary(
+    run_id: str,
+    outcome_rows: list[OutcomeRow],
+) -> dict[str, Any]:
+    """Aggregate run-level confidence buckets from outcome rows (read-only).
+
+    Counts GSTR-side invoices only: matched + review_required (excluding PR
+    marker ``dp:`` rows) + missed_itc. Buckets always sum to ``total_invoices``.
+    """
+    high = medium = low = unmatched = 0
+    for row in outcome_rows:
+        cat = row.category
+        rid = str(row.id)
+        if cat == "matched":
+            bucket = confidence_bucket(row.match_confidence, linked=True)
+        elif cat == "review_required":
+            if rid.startswith("dp:"):
+                continue
+            bucket = confidence_bucket(row.match_confidence, linked=True)
+        elif cat == "missed_itc":
+            bucket = "unmatched"
+        else:
+            continue
+
+        if bucket == "high":
+            high += 1
+        elif bucket == "medium":
+            medium += 1
+        elif bucket == "low":
+            low += 1
+        else:
+            unmatched += 1
+
+    total = high + medium + low + unmatched
+    return {
+        "run_id": str(run_id),
+        "total_invoices": total,
+        "high_confidence": high,
+        "medium_confidence": medium,
+        "low_confidence": low,
+        "unmatched": unmatched,
+    }
+
+
 def _abs_tax_components(ig: int, cg: int, sg: int) -> int:
     return abs(int(ig)) + abs(int(cg)) + abs(int(sg))
 

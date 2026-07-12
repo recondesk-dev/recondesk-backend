@@ -695,6 +695,17 @@ class Rule37SummaryResponse(BaseModel):
     action_history: list[Rule37ActionHistoryItem]
 
 
+class ConfidenceSummaryResponse(BaseModel):
+    """Run-level match-confidence buckets (read-only aggregation)."""
+
+    run_id: str
+    total_invoices: int
+    high_confidence: int
+    medium_confidence: int
+    low_confidence: int
+    unmatched: int
+
+
 class DecisionStatusPatch(BaseModel):
     status: Optional[Literal["acted", "ignored", "pending"]] = None
     decision_status: Optional[Literal["acted", "ignored", "pending"]] = None
@@ -3611,6 +3622,29 @@ async def reconcile_run_summary(
     except Exception as e:
         _log.error(f"Error in reconcile_run_summary: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@reconcile_runs_router.get(
+    "/runs/{run_id}/confidence-summary",
+    response_model=ConfidenceSummaryResponse,
+)
+async def reconcile_run_confidence_summary(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Aggregate high/medium/low/unmatched confidence counts for a run.
+
+    Read-only: buckets already-stored ``match_confidence`` on outcome rows using
+    the same thresholds as the per-invoice confidence badge (≥90% / ≥75%).
+    """
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+    p = _payload_or_404(sb, rid)
+    outcome_rows, _ = ro.build_outcome_rows(sb, rid, p)
+    return ConfidenceSummaryResponse(
+        **ro.build_confidence_summary(rid, outcome_rows)
+    )
 
 
 def _payload_or_404(sb, rid: str) -> dict[str, Any]:
