@@ -354,6 +354,15 @@ def _push_clean_matched(
         match_dict["gstr_taxable_amount_paise"] = g_taxable
     if p_taxable is not None:
         match_dict["pr_taxable_amount_paise"] = p_taxable
+    if gstr_rec is not None:
+        g_inv = str(gstr_rec.get("invoice_number") or "").strip()
+        if g_inv:
+            match_dict["gstr_invoice_number"] = g_inv
+            match_dict["invoice_number"] = g_inv
+    if pr_rec is not None:
+        p_inv = str(pr_rec.get("invoice_number") or "").strip()
+        if p_inv:
+            match_dict["pr_invoice_number"] = p_inv
     state.clean_matched.append(match_dict)
     state.consumed_pr_ids.add(str(pr_id))
     state.consumed_gstr_ids.add(str(gstr_id))

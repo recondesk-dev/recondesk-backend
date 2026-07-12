@@ -11,8 +11,13 @@ def test_l1_exact():
 
 
 def test_l2_normalized():
-    d = generate_decision("L2_NORMALIZED")
+    d = generate_decision(
+        "L2_NORMALIZED",
+        gstr_invoice="GST/0001/26",
+        pr_invoice="GST126",
+    )
     assert "Normalized invoice match" in d.what
+    assert "GST/0001/26" in d.what and "GST126" in d.what
     assert "normalization" in d.why.lower() or "format variant" in d.why.lower()
     assert "No action required" in d.next
 
@@ -148,6 +153,8 @@ def test_l2_fuzzy_zero_diff_uses_normalized_template_not_amount_differs_zero():
     assert "amount differs" not in d.what.lower()
     assert "₹0.00" not in d.what
     assert "Normalized invoice match" in d.what
+    assert "GST/0001/26" in d.what and "GST126" in d.what
+    assert "invoice_number" in d.differed_fields
 
 
 def test_l2_fuzzy_decision_what_from_live_taxable_pair():

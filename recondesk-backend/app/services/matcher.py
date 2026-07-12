@@ -308,17 +308,26 @@ def build_compared_fields(
         format_variant = is_invoice_format_variant(
             g_inv, p_inv, gstr_rec.get("invoice_number"), pr_rec.get("invoice_number")
         )
+    # Normalized / format-variant identity with different raw strings is not "exact".
+    # Labelling those exact made Matched FUZZY rationale identical to L1 and hid the
+    # only real difference a CA needs to see (GST/0001/26 ↔ GST126).
+    if g_inv and p_inv and not raw_inv_ok and (inv_ok or format_variant):
+        format_variant = True
     inv_sim = (
         float(invoice_sim_override)
         if invoice_sim_override is not None
         else (invoice_similarity(g_inv, p_inv) if g_inv and p_inv else 0.0)
     )
-    if raw_inv_ok or inv_ok:
+    if raw_inv_ok:
         out.append(_field_entry("invoice_number", "exact"))
-    elif format_variant or inv_sim >= INVOICE_SIMILARITY_L5_MIN:
-        out.append(
-            _field_entry("invoice_number", "fuzzy", int(round(inv_sim * 100)))
-        )
+    elif format_variant or inv_ok or inv_sim >= INVOICE_SIMILARITY_L5_MIN:
+        if not raw_inv_ok and (inv_ok or format_variant):
+            # Cap below 100 so rationale never reads as "fuzzy 100%" for a
+            # formatting-only difference — that still isn't raw-exact identity.
+            score = 95
+        else:
+            score = int(round(inv_sim * 100)) if inv_sim > 0 else None
+        out.append(_field_entry("invoice_number", "fuzzy", score))
     else:
         score = int(round(inv_sim * 100)) if inv_sim > 0 else None
         out.append(_field_entry("invoice_number", "not_matched", score))

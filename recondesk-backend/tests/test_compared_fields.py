@@ -66,6 +66,26 @@ def test_fuzzy_invoice_reports_similarity_score():
     assert fields["gstin"]["match_type"] == "exact"
 
 
+def test_normalized_invoice_format_variant_is_fuzzy_not_exact():
+    """Raw strings differ (INV/001 vs INV001) but normalize equal — must be fuzzy.
+
+    Matched-tab FUZZY rows previously reported Invoice#: exact because
+    invoices_effectively_match was treated as raw-exact. That made rationale
+    indistinguishable from L1 and hid the only real difference.
+    """
+    g, p = _pair(
+        g={"invoice_number": "INV/001", "invoice_number_normalized": "INV001"},
+        p={"invoice_number": "INV001", "invoice_number_normalized": "INV001"},
+    )
+    result = _match_gstr_to_pr_pair(g, p)
+    assert result.level == 2
+    assert result.requires_human_review is False
+    fields = _by_name(result.compared_fields)
+    assert fields["invoice_number"]["match_type"] == "fuzzy"
+    assert fields["taxable_amount"]["match_type"] == "exact"
+    assert fields["date"]["match_type"] == "exact"
+
+
 def test_amount_outside_tolerance_is_not_matched():
     g, p = _pair(p={"taxable_amount_paise": 200_000})
     fields = _by_name(build_compared_fields(g, p))
