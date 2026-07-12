@@ -275,3 +275,174 @@ class TestExportHelpers:
     def test_decision_cell_value_returns_value(self):
         from app.services.reconcile_export_workbook import _decision_cell
         assert _decision_cell("No action required") == "No action required"
+
+    def test_format_match_confidence_none_is_dash(self):
+        from app.services.reconcile_export_workbook import _format_match_confidence
+        assert _format_match_confidence(None) == "—"
+
+    def test_format_match_confidence_fuzzy_percent(self):
+        from app.services.reconcile_export_workbook import _format_match_confidence
+        assert _format_match_confidence(0.85) == "85%"
+        assert _format_match_confidence(0.9) == "90%"
+
+    def test_format_match_rationale_flattens_fields(self):
+        from app.services.reconcile_export_workbook import _format_match_rationale
+        text = _format_match_rationale(
+            [
+                {"field_name": "gstin", "match_type": "exact", "field_score": None},
+                {"field_name": "invoice_number", "match_type": "fuzzy", "field_score": 87},
+                {"field_name": "taxable_amount", "match_type": "exact", "field_score": None},
+                {"field_name": "date", "match_type": "not_matched", "field_score": None},
+            ]
+        )
+        assert text == (
+            "GSTIN: exact | Invoice#: fuzzy 87% | Amount: exact | Date: not matched"
+        )
+
+    def test_format_match_rationale_empty_is_dash(self):
+        from app.services.reconcile_export_workbook import _format_match_rationale
+        assert _format_match_rationale(None) == "—"
+        assert _format_match_rationale([]) == "—"
+
+
+class TestExcelConfidenceColumns:
+    """Append-only Match Confidence / Match Rationale columns."""
+
+    def _build(self, **overrides):
+        from app.services.reconcile_export_workbook import build_excel_workbook_bytes
+        kwargs = dict(
+            run_id=RUN_ID,
+            firm_name=FIRM_NAME,
+            client_trade_name=CLIENT_NAME,
+            period_raw=PERIOD_RAW,
+            summary=SUMMARY,
+            matched_pairs=MATCHED_PAIRS,
+            missed_rows=MISSED_ROWS,
+            risk_rows=RISK_ROWS,
+            rule37_rows=RULE37_ROWS,
+            section17_rows=SECTION17_ROWS,
+            review_required_rows=[],
+            generated_at=GENERATED_AT,
+            generated_by_name="Omkar Kadam",
+        )
+        kwargs.update(overrides)
+        return build_excel_workbook_bytes(**kwargs)
+
+    def test_matched_sheet_appends_confidence_columns_without_shifting(self):
+        from openpyxl import load_workbook
+
+        xlsx_bytes, _ = self._build()
+        wb = load_workbook(BytesIO(xlsx_bytes))
+        ws = wb["Matched Records"]
+        headers = [c.value for c in ws[1]]
+        # Pre-existing columns keep their positions
+        assert headers[:11] == [
+            "Supplier GSTIN",
+            "Invoice#",
+            "Date",
+            "Document Type",
+            "Taxable Amount",
+            "Total Tax",
+            "Match Level",
+            "Confidence",
+            "WHAT IS WRONG",
+            "WHY",
+            "WHAT TO DO NEXT",
+        ]
+        assert headers[-2:] == ["Match Confidence", "Match Rationale"]
+
+    def test_matched_l1_row_shows_dash_for_null_match_confidence(self):
+        from openpyxl import load_workbook
+
+        pairs = [
+            (
+                {
+                    **MATCHED_PAIRS[0][0],
+                    "amount": 1800,
+                    "confidence_score": 100,
+                    "match_confidence": None,
+                    "compared_fields": [
+                        {"field_name": "gstin", "match_type": "exact", "field_score": None},
+                        {
+                            "field_name": "invoice_number",
+                            "match_type": "exact",
+                            "field_score": None,
+                        },
+                    ],
+                    "gstr2b_data": {"taxable_amount_paise": 1000000},
+                },
+                MATCHED_PAIRS[0][1],
+            )
+        ]
+        xlsx_bytes, _ = self._build(matched_pairs=pairs)
+        wb = load_workbook(BytesIO(xlsx_bytes))
+        ws = wb["Matched Records"]
+        headers = [c.value for c in ws[1]]
+        conf_col = headers.index("Match Confidence") + 1
+        rationale_col = headers.index("Match Rationale") + 1
+        assert ws.cell(row=2, column=conf_col).value == "—"
+        assert "GSTIN: exact" in str(ws.cell(row=2, column=rationale_col).value)
+
+    def test_matched_fuzzy_row_formats_percent(self):
+        from openpyxl import load_workbook
+
+        pairs = [
+            (
+                {
+                    **MATCHED_PAIRS[0][0],
+                    "amount": 1800,
+                    "confidence_score": 60,
+                    "match_confidence": 0.87,
+                    "compared_fields": [
+                        {
+                            "field_name": "invoice_number",
+                            "match_type": "fuzzy",
+                            "field_score": 87,
+                        },
+                    ],
+                    "gstr2b_data": {"taxable_amount_paise": 1000000},
+                },
+                MATCHED_PAIRS[0][1],
+            )
+        ]
+        xlsx_bytes, _ = self._build(matched_pairs=pairs)
+        wb = load_workbook(BytesIO(xlsx_bytes))
+        ws = wb["Matched Records"]
+        headers = [c.value for c in ws[1]]
+        conf_col = headers.index("Match Confidence") + 1
+        assert ws.cell(row=2, column=conf_col).value == "87%"
+
+    def test_review_required_sheet_appends_columns(self):
+        from openpyxl import load_workbook
+
+        review_rows = [
+            {
+                "supplier_gstin": "27ABCDE1234F1Z0",
+                "invoice_number": "INV-TYPO",
+                "invoice_date": "2024-04-02",
+                "decision_why": "TYPO_MISMATCH",
+                "amount": 18000,
+                "match_confidence": 0.82,
+                "compared_fields": [
+                    {
+                        "field_name": "invoice_number",
+                        "match_type": "fuzzy",
+                        "field_score": 82,
+                    },
+                ],
+            }
+        ]
+        xlsx_bytes, _ = self._build(review_required_rows=review_rows)
+        wb = load_workbook(BytesIO(xlsx_bytes))
+        ws = wb["Review Required"]
+        headers = [c.value for c in ws[1]]
+        assert headers[:5] == [
+            "Supplier GSTIN",
+            "Invoice Number",
+            "Invoice Date",
+            "Reason",
+            "Amount",
+        ]
+        assert headers[-2:] == ["Match Confidence", "Match Rationale"]
+        assert ws.cell(row=2, column=6).value == "82%"
+        assert "Invoice#: fuzzy 82%" in str(ws.cell(row=2, column=7).value)
