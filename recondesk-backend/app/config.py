@@ -46,7 +46,8 @@ class Settings(BaseSettings):
     R2_BUCKET_NAME: str = "recondesk-uploads"
     R2_PUBLIC_URL: str = ""
 
-    # Celery / Redis
+    # Celery / Redis — local default false; production always queues imports
+    # (set IMPORT_USE_CELERY=true locally when a worker is running).
     IMPORT_USE_CELERY: bool = False
     IMPORT_SANITY_STRICT: bool = False
 
@@ -131,6 +132,13 @@ class Settings(BaseSettings):
     @property
     def jwt_verify_aud_iss(self) -> bool:
         return bool((self.JWT_AUDIENCE or "").strip() and (self.JWT_ISSUER or "").strip())
+
+    @property
+    def import_use_celery(self) -> bool:
+        """Queue imports to Celery when explicitly enabled or in production."""
+        if self.IMPORT_USE_CELERY:
+            return True
+        return (self.APP_ENV or "").lower() == "production"
 
 
 @lru_cache

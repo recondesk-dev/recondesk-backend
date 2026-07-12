@@ -192,6 +192,8 @@ async def list_clients(current_user: dict = Depends(get_current_active_user)):
             .select("*")
             .eq("firm_owner_id", uid)
             .eq("is_active", True)
+            .order("added_at", desc=True)
+            .limit(500)
             .execute()
         )
     else:
@@ -200,6 +202,8 @@ async def list_clients(current_user: dict = Depends(get_current_active_user)):
             .select("*")
             .eq("assigned_to", uid)
             .eq("is_active", True)
+            .order("added_at", desc=True)
+            .limit(500)
             .execute()
         )
     return res.data or []

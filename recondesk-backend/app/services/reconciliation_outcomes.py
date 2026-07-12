@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, List, Optional, Tuple, TypeVar
@@ -14,6 +15,25 @@ from app.constants import ChangeReason, DecisionNext, DecisionWhat, DecisionWhy
 from app.services import reconciliation_record_adapter as rec_adapt
 from app.services.credit_note_handler import classify_document
 from app.services.matcher import TOTAL_TOLERANCE_PAISE, match_gstr_to_pr
+
+# Request-scoped memo so one HTTP handler does not re-page GSTR/PR maps /
+# payload / outcome rows when multiple builders run in the same call.
+_request_load_cache: ContextVar[dict[str, Any] | None] = ContextVar(
+    "recon_request_load_cache", default=None
+)
+
+
+def _req_cache() -> dict[str, Any]:
+    c = _request_load_cache.get()
+    if c is None:
+        c = {}
+        _request_load_cache.set(c)
+    return c
+
+
+def clear_request_load_cache() -> None:
+    """Reset memo (tests / long-lived workers)."""
+    _request_load_cache.set(None)
 
 # Rule 37 statuses that surface as “warnings / flag”
 RULE37_CONCERNS = frozenset(
@@ -79,6 +99,12 @@ _DB_PAGE_SIZE = 1000
 
 
 def _load_gstr_map(sb: Client, run_id: str) -> dict[str, dict[str, Any]]:
+    cache = _req_cache()
+    ck = f"gstr:{run_id}"
+    hit = cache.get(ck)
+    if hit is not None:
+        return hit
+
     out: dict[str, dict[str, Any]] = {}
     count_res = (
         sb.table("gstr_records")
@@ -106,10 +132,17 @@ def _load_gstr_map(sb: Client, run_id: str) -> dict[str, dict[str, Any]]:
                 "record_data": row.get("record_data") or {},
             }
         off += len(rows)
+    cache[ck] = out
     return out
 
 
 def _load_pr_map(sb: Client, run_id: str) -> dict[str, dict[str, Any]]:
+    cache = _req_cache()
+    ck = f"pr:{run_id}"
+    hit = cache.get(ck)
+    if hit is not None:
+        return hit
+
     out: dict[str, dict[str, Any]] = {}
     count_res = (
         sb.table("pr_records")
@@ -137,6 +170,7 @@ def _load_pr_map(sb: Client, run_id: str) -> dict[str, dict[str, Any]]:
                 "record_data": row.get("record_data") or {},
             }
         off += len(rows)
+    cache[ck] = out
     return out
 
 
@@ -312,6 +346,13 @@ def build_outcome_rows(
     payload: dict[str, Any],
 ) -> tuple[list[OutcomeRow], dict[str, int], dict[str, Any]]:
     """Load maps, merge engine+compliance, return rows + category counts + money stats."""
+    cache = _req_cache()
+    # Same payload object within one request → reuse full outcome build.
+    ck = f"outcomes:{run_id}:{id(payload)}"
+    hit = cache.get(ck)
+    if hit is not None:
+        return hit
+
     engine = payload.get("engine") or {}
     comp = payload.get("compliance") or {}
     gstr_m = _load_gstr_map(sb, run_id)
@@ -834,16 +875,22 @@ def build_outcome_rows(
             if (x.get("status") or "") in _RULE37_CONCERNS
         ]
     )
-    return rows, ccounts, {
-        "total_invoices": total_invoices,
-        "matched_count": len(engine.get("matched") or []),
-        "missing_in_2b_count": missing_in_2b,
-        "missing_in_books_count": missing_in_books,
-        "rule37_warnings_count": r37_warn_n,
-        "blocked_credit_count": ccounts.get("blocked_credit", 0),
-        "late_filing_count": len(late_filing),
-        **money,
-    }
+    result = (
+        rows,
+        ccounts,
+        {
+            "total_invoices": total_invoices,
+            "matched_count": len(engine.get("matched") or []),
+            "missing_in_2b_count": missing_in_2b,
+            "missing_in_books_count": missing_in_books,
+            "rule37_warnings_count": r37_warn_n,
+            "blocked_credit_count": ccounts.get("blocked_credit", 0),
+            "late_filing_count": len(late_filing),
+            **money,
+        },
+    )
+    cache[ck] = result
+    return result
 
 
 load_gstr_map = _load_gstr_map
@@ -888,6 +935,11 @@ def _merge_payload_blobs(record_data: Any, payload: Any) -> dict[str, Any]:
 
 
 def load_payload(sb: Client, run_id: str) -> dict[str, Any]:
+    cache = _req_cache()
+    ck = f"payload:{run_id}"
+    hit = cache.get(ck)
+    if hit is not None:
+        return hit
     r = (
         sb.table("reconciliation_results")
         .select("record_data, payload")
@@ -896,9 +948,12 @@ def load_payload(sb: Client, run_id: str) -> dict[str, Any]:
         .execute()
     )
     if not r.data:
-        return {}
-    row = r.data[0]
-    return _merge_payload_blobs(row.get("record_data"), row.get("payload"))
+        out: dict[str, Any] = {}
+    else:
+        row = r.data[0]
+        out = _merge_payload_blobs(row.get("record_data"), row.get("payload"))
+    cache[ck] = out
+    return out
 
 
 def filter_invoices(
