@@ -23,6 +23,14 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "Invoice number, amount, and date all match within rounding tolerance",
         "next": "No action required. ITC can be claimed as filed.",
     },
+    "L2_NORMALIZED": {
+        "what": "Normalized invoice match",
+        "why": (
+            "Invoice numbers match after normalization or format variant; "
+            "amounts and dates align"
+        ),
+        "next": "No action required — formatting differs, amounts align",
+    },
     "L2_AMOUNT_DIFF": {
         "what": "Invoice matched but amount differs by {diff}",
         "why": "Likely rounding difference in {source_software} export or supplier revised the invoice",

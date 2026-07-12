@@ -10,6 +10,13 @@ def test_l1_exact():
     assert "No action" in d.next
 
 
+def test_l2_normalized():
+    d = generate_decision("L2_NORMALIZED")
+    assert "Normalized invoice match" in d.what
+    assert "normalization" in d.why.lower() or "format variant" in d.why.lower()
+    assert "No action required" in d.next
+
+
 def test_l2_amount_diff():
     d = generate_decision("L2_AMOUNT_DIFF", diff="₹150.00", source_software="Tally")
     assert "₹150.00" in d.what
@@ -119,6 +126,28 @@ def test_l2_fuzzy_decision_what_uses_taxable_diff_paise_not_hardcoded_zero():
     assert d.rule == "L2_AMOUNT_DIFF"
     assert "₹12,345.00" in d.what, f"expected real delta in decision_what, got {d.what!r}"
     assert "₹0.00" not in d.what
+
+
+def test_l2_fuzzy_zero_diff_uses_normalized_template_not_amount_differs_zero():
+    """Path B: clean-matched L2 with real taxable delta 0 must NOT say
+    \"amount differs by ₹0.00\". That string is reserved for a genuine delta;
+    zero-discrepancy format-variant matches use L2_NORMALIZED instead.
+    """
+    from app.decisions.layer import _decision_for_row
+
+    row = {
+        "match_level": 2,
+        "taxable_diff_paise": 0,
+        "source_software": "Tally",
+        "supplier_gstin": "27AABCU9603R1ZX",
+        "gstr_invoice_number": "GST/0001/26",
+        "pr_invoice_number": "GST126",
+    }
+    d = _decision_for_row(row)
+    assert d.rule == "L2_NORMALIZED", f"expected L2_NORMALIZED, got {d.rule!r}"
+    assert "amount differs" not in d.what.lower()
+    assert "₹0.00" not in d.what
+    assert "Normalized invoice match" in d.what
 
 
 def test_l2_fuzzy_decision_what_from_live_taxable_pair():
