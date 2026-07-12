@@ -767,8 +767,6 @@ def _match_gstr_to_pr_pair(
     format_variant = False
     if not inv_ok:
         format_variant = is_invoice_format_variant(g_inv, p_inv, gstr_rec.get("invoice_number"), pr_rec.get("invoice_number"))
-    inv_sim = invoice_similarity(g_inv, p_inv)
-    strong_invoice = inv_ok or format_variant or inv_sim >= INVOICE_SIMILARITY_L5_MIN
 
     raw_inv_ok = bool(g_inv_raw and p_inv_raw and g_inv_raw == p_inv_raw)
     amount_pct = _compute_percentage_diff(amount_diff, skip_amount, tg, tp)
@@ -826,7 +824,14 @@ def _match_gstr_to_pr_pair(
 
     # Period-boundary date mismatch: same ±N-day tolerance does NOT apply when
     # the invoice dates fall in different GST return periods (month+year).
-    if crosses_return_period and gstin_match and strong_invoice:
+    #
+    # Invoice identity here MUST be exact-normalized or a recognised format
+    # variant — never Levenshtein/fuzzy similarity. Using ``strong_invoice``
+    # (which includes sim ≥ 0.70) caused adjacent sequential invoices that
+    # differ by one digit (e.g. ``09454`` vs ``09754``, sim=0.75 after
+    # leading-zero strip) to auto-link across a month boundary, steal the
+    # exact PR counterpart, and orphan the real match into Missed ITC.
+    if crosses_return_period and gstin_match and (inv_ok or format_variant):
         g_period = _format_gst_return_period_label(dg)
         p_period = _format_gst_return_period_label(dp)
         g_date_label = _format_invoice_date_label(dg)
@@ -941,18 +946,12 @@ def _match_gstr_to_pr_pair(
                 review_reason="Amount/Date mismatch",
             )
 
-        # Same GSTIN + same normalized invoice but amount or date exceeds L2 — L3 review
-        # Large diff + date outside L2 window → return L6 (no match) for extreme cases
-        if not date_within_l2 and not amount_within_l2:
-            return _ret(
-                level=6, matched=False, confidence=0, requires_human_review=False,
-                decision_what="No match found in purchase register",
-                decision_why="Invoice number matches but amount and date differences are too large",
-                decision_next="Check if this is the same transaction or raise ITC risk flag.",
-                discrepancies=discrepancies, identity_confidence="None", financial_status="None",
-            )
-        # Determine the dominant reason
-        if not tax_structure_match or not l12_finance_ok:
+        # Same GSTIN + same normalized invoice but amount or date exceeds L2 — L3 review.
+        # Exact invoice identity is never rejected: even when BOTH amount and date
+        # exceed L2 (e.g. 5.83% amount + 10-day date gap), link as Review Required.
+        # Returning L6 here previously orphaned the pair into Missed ITC + ITC at
+        # Risk as if the invoice numbers had never matched.
+        if not tax_structure_match or not l12_finance_ok or not amount_within_l2:
             rr = "AMOUNT_MISMATCH"
         else:
             rr = "Amount Mismatch or Date mismatch"
@@ -965,19 +964,6 @@ def _match_gstr_to_pr_pair(
             discrepancies=discrepancies,
             identity_confidence="High", financial_status=financial_status,
         )
-
-    # ── Tier 3: Same GSTIN + normalized invoice number + amount within 2% + date within 30 days (L3) ─────────────────
-    if gstin_match and inv_ok:
-        if amount_within_l3 and date_within_l3:
-            return _ret(
-                level=3, matched=True, confidence=75, requires_human_review=True,
-                decision_what="Invoice matched with differences",
-                decision_why="Same normalized invoice and GSTIN, but amount or date differ within 2%/30d",
-                decision_next="Review differences and correct if needed",
-                review_reason="Amount Mismatch or Date mismatch",
-                discrepancies=discrepancies,
-                identity_confidence="High", financial_status=financial_status,
-            )
 
     # ── Tier 3: Same GSTIN + format-variant invoice ──────────────────────────
     # A genuinely zero-discrepancy format-variant pair is already handled by
