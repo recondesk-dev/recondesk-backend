@@ -1,27 +1,28 @@
 from app.services.blocked_credit_checker import check_blocked_credits
 
 
-def test_invoice_number_mapped_and_strict_schema():
+def test_invoice_number_mapped_and_includes_hsn_category():
     warnings = check_blocked_credits(
         [
             {
                 "invoice_number": "INV1",
                 "supplier_gstin": "27AAA",
                 "hsn_code": "8703",
+                "invoice_date": "2024-04-01",
+                "total_tax_paise": 180_000,
             }
         ]
     )
     assert len(warnings) == 1
-    assert warnings[0]["invoice_number"] == "INV1"
-    assert warnings[0]["supplier_gstin"] == "27AAA"
-    assert warnings[0]["section"] == "17(5)"
-    assert set(warnings[0].keys()) == {
-        "invoice_number",
-        "supplier_gstin",
-        "reason",
-        "section",
-    }
-    assert "8703" in warnings[0]["reason"]
+    w = warnings[0]
+    assert w["invoice_number"] == "INV1"
+    assert w["supplier_gstin"] == "27AAA"
+    assert w["section"] == "17(5)"
+    assert w["hsn_code"] == "8703"
+    assert "Motor vehicles" in w["category"]
+    assert w["invoice_date"] == "2024-04-01"
+    assert w["amount"] == 1800.0
+    assert "8703" in w["reason"]
 
 
 def test_hsn_key_and_long_code_normalized():
@@ -36,6 +37,7 @@ def test_hsn_key_and_long_code_normalized():
         ]
     )
     assert len(warnings) == 1
+    assert warnings[0]["hsn_code"] == "8703"
     assert "8703" in warnings[0]["reason"]
 
 
@@ -50,6 +52,7 @@ def test_hsn_code_fallback_still_works():
         ]
     )
     assert len(warnings) == 1
+    assert warnings[0]["hsn_code"] == "9963"
     assert "9963" in warnings[0]["reason"]
 
 
@@ -64,6 +67,7 @@ def test_hsn_from_items_when_top_level_missing():
         ]
     )
     assert len(warnings) == 1
+    assert warnings[0]["hsn_code"] == "8703"
     assert "8703" in warnings[0]["reason"]
 
 
@@ -78,6 +82,7 @@ def test_hsn_from_itm_det_nested():
         ]
     )
     assert len(warnings) == 1
+    assert warnings[0]["hsn_code"] == "9963"
     assert "9963" in warnings[0]["reason"]
 
 
@@ -88,11 +93,17 @@ def test_blocked_itc_eligibility_value_is_ineligible():
                 "invoice_number": "INV6",
                 "supplier_gstin": "27FFF",
                 "itc_eligibility": "Blocked",
+                "invoice_date": "2024-05-10",
+                "total_tax_paise": 50_000,
             }
         ]
     )
     assert len(warnings) == 1
     assert "ITC-ineligible" in warnings[0]["reason"]
+    assert warnings[0]["hsn_code"] is None
+    assert "ineligible" in warnings[0]["category"].lower()
+    assert warnings[0]["invoice_date"] == "2024-05-10"
+    assert warnings[0]["amount"] == 500.0
 
 
 def test_hsn_2106_chapter_triggers_warning():
@@ -106,4 +117,5 @@ def test_hsn_2106_chapter_triggers_warning():
         ]
     )
     assert len(warnings) == 1
+    assert warnings[0]["hsn_code"] == "2106"
     assert "2106" in warnings[0]["reason"]

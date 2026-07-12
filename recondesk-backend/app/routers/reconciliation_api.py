@@ -3172,23 +3172,95 @@ def _db_rule37_warning_to_frontend(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_section175_rows(sb, rid: str, payload: dict[str, Any], note_counts: Counter[str]) -> list[dict[str, Any]]:
+    """Build Section 17(5) export/API rows from decisions + compliance payloads.
+
+    Decisions carry rendered WHAT/WHY/NEXT; compliance carries identity fields from
+    ``check_blocked_credits``. Merge by (GSTIN, invoice) so we never emit:
+      - literal ``?`` placeholders (fixed upstream in the checker/decision layer)
+      - blank ``—`` decision columns from compliance-only shells
+      - orphan decision rows that lost invoice_number during payload slim
+    Rows that still lack both identity and decision text are excluded.
+    """
     dec = payload.get("decisions") if isinstance(payload.get("decisions"), dict) else {}
     comp = payload.get("compliance") if isinstance(payload.get("compliance"), dict) else {}
-    lst: list = []
-    lst.extend(list(dec.get("section_17_5") or dec.get("section_175") or []))
-    lst.extend(list(comp.get("section_17_5") or comp.get("section_175") or []))
+    dec_list = list(dec.get("section_17_5") or dec.get("section_175") or [])
+    comp_list = list(comp.get("section_17_5") or comp.get("section_175") or [])
 
-    uniq: dict[str, dict[str, Any]] = {}
-    for item in lst:
+    def _key(item: dict[str, Any]) -> str:
+        inv = str(item.get("invoice_number") or item.get("invoice_no") or "").strip()
+        gst = str(item.get("supplier_gstin") or "").strip()
+        return f"{gst}|{inv}"
+
+    merged: dict[str, dict[str, Any]] = {}
+
+    # Start with compliance (identity + hsn/category/amount), then overlay decisions.
+    for item in comp_list:
         if not isinstance(item, dict):
             continue
-        inv = str(item.get("invoice_number") or item.get("invoice_no") or "")
-        gst = str(item.get("supplier_gstin") or "")
-        k = f"{gst}|{inv}"
-        uniq[k] = item
+        k = _key(item)
+        if not k.strip("|"):
+            continue
+        merged[k] = dict(item)
+
+    for item in dec_list:
+        if not isinstance(item, dict):
+            continue
+        k = _key(item)
+        if not k.strip("|"):
+            # Decision row lost invoice_number during an older slim — try to
+            # attach onto a single compliance row with the same GSTIN.
+            gst = str(item.get("supplier_gstin") or "").strip()
+            if gst:
+                candidates = [mk for mk in merged if mk.startswith(f"{gst}|")]
+                if len(candidates) == 1:
+                    k = candidates[0]
+                else:
+                    continue
+            else:
+                continue
+        base = merged.get(k, {})
+        combined = {**base, **{kk: vv for kk, vv in item.items() if vv not in (None, "")}}
+        # Prefer decision_* from the decisions payload when present.
+        for dk in ("decision_what", "decision_why", "decision_next", "decision_rule"):
+            if item.get(dk):
+                combined[dk] = item[dk]
+        merged[k] = combined
 
     out: list[dict[str, Any]] = []
-    for k, bn in uniq.items():
+    for k, bn in merged.items():
+        gst = str(bn.get("supplier_gstin") or "").strip()
+        inv = str(bn.get("invoice_number") or bn.get("invoice_no") or "").strip()
+        d_what = bn.get("decision_what")
+        d_why = bn.get("decision_why")
+        d_next = bn.get("decision_next")
+        # Exclude shells with no identity and no decision text (would render as
+        # Type=Section 17(5) with "—" in every text column).
+        has_identity = bool(gst or inv)
+        has_decision = bool(
+            (isinstance(d_what, str) and d_what.strip())
+            or (isinstance(d_why, str) and d_why.strip())
+            or (isinstance(d_next, str) and d_next.strip())
+            or (isinstance(bn.get("reason"), str) and str(bn.get("reason")).strip())
+        )
+        if not has_identity or not has_decision:
+            continue
+        # Skip still-broken placeholder text from pre-fix payloads.
+        text_blob = " ".join(str(x or "") for x in (d_what, d_why, d_next))
+        if "HSN ?" in text_blob or "blocked credit: ?" in text_blob:
+            # Re-render from stored hsn/category when available.
+            hsn = str(bn.get("hsn_code") or "").strip()
+            cat = str(bn.get("category") or bn.get("reason") or "").strip()
+            if hsn and cat:
+                from app.services.decision_templates import generate_decision
+                dout = generate_decision("BLOCKED_CREDIT", category=cat, hsn_code=hsn)
+                d_what, d_why, d_next = dout.what, dout.why, dout.next
+            elif cat:
+                from app.services.decision_templates import generate_decision
+                dout = generate_decision("BLOCKED_CREDIT_NO_HSN", category=cat)
+                d_what, d_why, d_next = dout.what, dout.why, dout.next
+            else:
+                continue
+
         row_id = f"s175:{k.replace('|', '-')[:240]}"
         cat = bn.get("category")
         raw_am = bn.get("estimated_itc_amount") if "estimated_itc_amount" in bn else bn.get("amount")
@@ -3196,19 +3268,24 @@ def _build_section175_rows(sb, rid: str, payload: dict[str, Any], note_counts: C
             amt = round(float(raw_am if raw_am is not None else 0.0), 2)
         except (TypeError, ValueError):
             amt = 0.0
+        inv_date = bn.get("invoice_date")
+        inv_date_str = ""
+        if inv_date not in (None, ""):
+            inv_date_str = str(inv_date)[:40]
+
         out.append(
             {
                 "id": row_id,
-                "supplier_gstin": str(bn.get("supplier_gstin") or ""),
-                "invoice_number": str(bn.get("invoice_number") or ""),
-                "invoice_date": str(bn.get("invoice_date") or "")[:40],
+                "supplier_gstin": gst,
+                "invoice_number": inv,
+                "invoice_date": inv_date_str,
                 "amount": amt,
                 "match_level": "UNMATCHED",
                 "confidence_score": 0.0,
                 "discrepancy_note": bn.get("hsn_code"),
-                "decision_what": bn.get("decision_what"),
-                "decision_why": bn.get("decision_why"),
-                "decision_next": bn.get("decision_next"),
+                "decision_what": d_what,
+                "decision_why": d_why,
+                "decision_next": d_next,
                 "decision_status": "pending",
                 "decision_type": None,
                 "notes_count": int(_lookup_by_record_id(note_counts, row_id, 0)),

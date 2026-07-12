@@ -522,3 +522,110 @@ class TestFuzzyWhatIsWrongAmountDiff:
             f"FUZZY WHAT IS WRONG must contain {expected_rupees}, got {what_cell!r}"
         )
         assert "₹0.00" not in what_cell
+
+
+class TestSection175ExportSheet:
+    """Rule 37 & Section 17-5 sheet must not emit ? placeholders or blank shells."""
+
+    def test_section175_export_has_hsn_category_date_amount(self):
+        from openpyxl import load_workbook
+        from collections import Counter
+        from app.services.blocked_credit_checker import check_blocked_credits
+        from app.decisions.layer import populate_decisions
+        from app.routers.reconciliation_api import _build_section175_rows
+        from app.services.reconcile_export_workbook import build_excel_workbook_bytes
+
+        warnings = check_blocked_credits(
+            [
+                {
+                    "invoice_number": "INV-8703",
+                    "supplier_gstin": "27ABCDE1234F1Z5",
+                    "hsn_code": "8703",
+                    "invoice_date": "2024-06-15",
+                    "total_tax_paise": 90_000,
+                }
+            ]
+        )
+        decided = populate_decisions([], section_175_warnings=warnings)
+        payload = {
+            "decisions": {"section_175": decided["section_175"]},
+            "compliance": {"section_17_5": warnings},
+        }
+        rows = _build_section175_rows(None, RUN_ID, payload, Counter())
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["invoice_number"] == "INV-8703"
+        assert row["invoice_date"] == "2024-06-15"
+        assert row["amount"] == 900.0
+        assert "?" not in (row["decision_what"] or "")
+        assert "?" not in (row["decision_why"] or "")
+        assert "8703" in (row["decision_why"] or "")
+
+        xlsx_bytes, _ = build_excel_workbook_bytes(
+            run_id=RUN_ID,
+            firm_name=FIRM_NAME,
+            client_trade_name=CLIENT_NAME,
+            period_raw=PERIOD_RAW,
+            summary=SUMMARY,
+            matched_pairs=[],
+            missed_rows=[],
+            risk_rows=[],
+            rule37_rows=[],
+            section17_rows=rows,
+            review_required_rows=[],
+            generated_at=GENERATED_AT,
+            generated_by_name="Omkar Kadam",
+        )
+        wb = load_workbook(BytesIO(xlsx_bytes))
+        ws = wb["Rule 37 & Section 17-5"]
+        headers = [c.value for c in ws[1]]
+        assert ws.cell(row=2, column=headers.index("Type") + 1).value == "Section 17(5)"
+        assert ws.cell(row=2, column=headers.index("Invoice#") + 1).value == "INV-8703"
+        assert "2024-06-15" in str(ws.cell(row=2, column=headers.index("Date") + 1).value)
+        what = str(ws.cell(row=2, column=headers.index("WHAT IS WRONG") + 1).value)
+        why = str(ws.cell(row=2, column=headers.index("WHY") + 1).value)
+        assert "?" not in what
+        assert "?" not in why
+        assert "8703" in why
+
+    def test_blank_section175_shells_excluded_from_export(self):
+        from openpyxl import load_workbook
+        from app.services.reconcile_export_workbook import build_excel_workbook_bytes
+
+        blank = {
+            "supplier_gstin": "",
+            "invoice_number": "",
+            "invoice_date": "",
+            "amount": 0,
+            "decision_what": None,
+            "decision_why": None,
+            "decision_next": None,
+        }
+        placeholder = {
+            "supplier_gstin": "27ABCDE1234F1Z5",
+            "invoice_number": "INV-X",
+            "invoice_date": "",
+            "amount": 0,
+            "decision_what": "Invoice may be under Section 17(5) blocked credit: ?",
+            "decision_why": "HSN ? commonly associated with ? -- ineligible for ITC",
+            "decision_next": "Verify",
+        }
+        xlsx_bytes, _ = build_excel_workbook_bytes(
+            run_id=RUN_ID,
+            firm_name=FIRM_NAME,
+            client_trade_name=CLIENT_NAME,
+            period_raw=PERIOD_RAW,
+            summary=SUMMARY,
+            matched_pairs=[],
+            missed_rows=[],
+            risk_rows=[],
+            rule37_rows=[],
+            section17_rows=[blank, placeholder],
+            review_required_rows=[],
+            generated_at=GENERATED_AT,
+            generated_by_name="Omkar Kadam",
+        )
+        wb = load_workbook(BytesIO(xlsx_bytes))
+        ws = wb["Rule 37 & Section 17-5"]
+        # Only the header + empty-state message (no data rows)
+        assert ws.cell(row=2, column=1).value == "No Rule 37 or Section 17(5) flags found."

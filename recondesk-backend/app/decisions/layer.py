@@ -295,19 +295,35 @@ def populate_decisions(
         mf = []
         if w.get("supplier_gstin"):
             mf.append("gstin")
-        if w.get("hsn_code") not in (None, ""):
+        hsn_raw = w.get("hsn_code")
+        hsn = str(hsn_raw).strip() if hsn_raw not in (None, "") else ""
+        category = str(
+            w.get("category") or w.get("reason") or "Section 17(5) blocked credit"
+        ).strip()
+        if hsn:
             mf.append("hsn_code")
-        if w.get("category") not in (None, ""):
+        if category:
             mf.append("blocked_credit_category")
-        decision = generate_decision(
-            "BLOCKED_CREDIT",
-            confidence="LOW",
-            matched_fields=mf,
-            differed_fields=[],
-            normalized_pairs=[],
-            category=w.get("category", "?"),
-            hsn_code=w.get("hsn_code", "?"),
-        )
+        # Never pass literal "?" placeholders — missing HSN uses a no-HSN template.
+        if hsn:
+            decision = generate_decision(
+                "BLOCKED_CREDIT",
+                confidence="LOW",
+                matched_fields=mf,
+                differed_fields=[],
+                normalized_pairs=[],
+                category=category,
+                hsn_code=hsn,
+            )
+        else:
+            decision = generate_decision(
+                "BLOCKED_CREDIT_NO_HSN",
+                confidence="LOW",
+                matched_fields=mf,
+                differed_fields=[],
+                normalized_pairs=[],
+                category=category,
+            )
         enriched_175.append(_enrich_with_decision(w, decision))
 
     return {

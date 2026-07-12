@@ -1063,6 +1063,19 @@ def execute_reconciliation(run_id: str) -> None:
                 merged["invoice_number"] = ggr.get("invoice_number_normalized")
             if ggr.get("supplier_gstin") is not None:
                 merged["supplier_gstin"] = ggr.get("supplier_gstin")
+            # Date / tax amounts are required for export columns; matcher rows
+            # carry them even when record_data is sparse.
+            if ggr.get("invoice_date") is not None and not merged.get("invoice_date"):
+                merged["invoice_date"] = ggr.get("invoice_date")
+            for amt_key in (
+                "taxable_amount_paise",
+                "total_tax_paise",
+                "igst_paise",
+                "cgst_paise",
+                "sgst_paise",
+            ):
+                if ggr.get(amt_key) is not None and merged.get(amt_key) is None:
+                    merged[amt_key] = ggr.get(amt_key)
             
             # Merge PR's itc_eligibility if matched
             matched_pr_id = matched_gstr_to_pr.get(gid)
