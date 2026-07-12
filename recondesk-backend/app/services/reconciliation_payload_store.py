@@ -29,6 +29,9 @@ _MATCHED_KEYS = (
     # pr_id and fabricates a fake gap equal to the sibling line(s).
     "pr_ids",
     "multiline_pr_split",
+    # L5/fuzzy match invoice_similarity score [0.0–1.0] — surfaced as a
+    # confidence badge on the UI. None for exact (L1–L4) matches.
+    "match_confidence",
 )
 
 _MISSED_ITC_KEYS = (
@@ -97,6 +100,9 @@ _DUPLICATE_KEYS = (
     "decision_matched_fields",
     "decision_differed_fields",
     "decision_normalized_pairs",
+    # L5/fuzzy match invoice_similarity score [0.0–1.0] — surfaced as a
+    # confidence badge on the UI. None for exact (L1–L4) matches.
+    "match_confidence",
 )
 
 _DECISION_ROW_KEYS = (

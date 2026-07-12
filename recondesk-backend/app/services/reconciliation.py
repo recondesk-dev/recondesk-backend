@@ -304,7 +304,7 @@ class ReconState:
 
 
 
-def _push_clean_matched(state, gstr_id, pr_id, score, best_result, is_late_filing=False, original_period=None, late_months=0):
+def _push_clean_matched(state, gstr_id, pr_id, score, best_result, is_late_filing=False, original_period=None, late_months=0, match_confidence=None):
     match_dict = {
         "gstr_id": str(gstr_id),
         "pr_id": str(pr_id),
@@ -320,6 +320,7 @@ def _push_clean_matched(state, gstr_id, pr_id, score, best_result, is_late_filin
         "financial_status": getattr(best_result, "financial_status", "Exact"),
         "review_reason": best_result.review_reason,
         "match_level": getattr(best_result, "level", 0),
+        "match_confidence": match_confidence,  # invoice_similarity score for L5/fuzzy matches
     }
     state.clean_matched.append(match_dict)
     state.consumed_pr_ids.add(str(pr_id))
@@ -335,6 +336,7 @@ def _push_review_required(
     gstr_rec: "dict | None" = None,
     pr_rec: "dict | None" = None,
     note: str | None = None,
+    match_confidence: float | None = None,
 ):
     # Compute the absolute invoice-value diff (paise) so it can be stored and
     # later shown in the Review Required → Discrepancy / Reason column.
@@ -367,6 +369,7 @@ def _push_review_required(
         "vendor_similarity_score": getattr(best_result, "vendor_similarity_score", None) if best_result else None,
         "taxable_diff_paise": taxable_diff,
         "note": note,
+        "match_confidence": match_confidence,  # invoice_similarity score for L5/fuzzy matches
     }
     if gstr_rec is not None:
         match_dict["gstr_invoice_date"] = gstr_rec.get("invoice_date")
@@ -1374,11 +1377,13 @@ def execute_phase2_and_3(
                 _push_review_required(
                     state, gid, best_p["id"], 45, "MULTIPLE_CANDIDATES",
                     gstr_rec=g, pr_rec=best_p,
+                    match_confidence=_best_sim,
                 )
             else:
                 _push_review_required(
                     state, gid, best_p["id"], 45, "GSTIN_MISMATCH",
                     gstr_rec=g, pr_rec=best_p,
+                    match_confidence=_best_sim,
                 )
             continue
             
@@ -1409,11 +1414,13 @@ def execute_phase2_and_3(
                 _push_review_required(
                     state, gid, candidates_typo[0][0]["id"], 60, "MULTIPLE_CANDIDATES",
                     gstr_rec=g, pr_rec=candidates_typo[0][0],
+                    match_confidence=candidates_typo[0][1],
                 )
             else:
                 _push_review_required(
                     state, gid, candidates_typo[0][0]["id"], 60, "TYPO_MISMATCH",
                     gstr_rec=g, pr_rec=candidates_typo[0][0],
+                    match_confidence=candidates_typo[0][1],
                 )
             continue
 
