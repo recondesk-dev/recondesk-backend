@@ -2532,6 +2532,12 @@ def _build_matched_pair_records(
                 "gstr2b_data": gd2,
                 "purchase_register_data": pd2,
                 "match_confidence": en_row.get("match_confidence") if isinstance(en_row, dict) else None,
+                "compared_fields": en_row.get("compared_fields") if isinstance(en_row, dict) else None,
+                "decision_rule": dm.get("decision_rule"),
+                "decision_confidence": dm.get("decision_confidence"),
+                "decision_matched_fields": dm.get("decision_matched_fields"),
+                "decision_differed_fields": dm.get("decision_differed_fields"),
+                "decision_normalized_pairs": dm.get("decision_normalized_pairs"),
             }
             out_pairs.append((api_row, orow))
         except Exception as e:

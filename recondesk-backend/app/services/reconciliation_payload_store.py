@@ -32,6 +32,8 @@ _MATCHED_KEYS = (
     # L5/fuzzy match invoice_similarity score [0.0–1.0] — surfaced as a
     # confidence badge on the UI. None for exact (L1–L4) matches.
     "match_confidence",
+    # Per-field comparison snapshot for the CA rationale drawer.
+    "compared_fields",
 )
 
 _MISSED_ITC_KEYS = (
@@ -103,6 +105,8 @@ _DUPLICATE_KEYS = (
     # L5/fuzzy match invoice_similarity score [0.0–1.0] — surfaced as a
     # confidence badge on the UI. None for exact (L1–L4) matches.
     "match_confidence",
+    # Per-field comparison snapshot for the CA rationale drawer.
+    "compared_fields",
 )
 
 _DECISION_ROW_KEYS = (

@@ -246,6 +246,134 @@ class MatchResult:
     original_period: date | None = None
     late_months: int = 0
     vendor_similarity_score: float | None = None
+    # Field-by-field comparison snapshot for the CA rationale drawer.
+    # Additive / observational only — never feeds matching decisions.
+    compared_fields: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _field_entry(
+    field_name: str,
+    match_type: str,
+    field_score: int | None = None,
+) -> dict[str, Any]:
+    return {
+        "field_name": field_name,
+        "match_type": match_type,
+        "field_score": field_score,
+    }
+
+
+def build_compared_fields(
+    gstr_rec: Mapping[str, Any],
+    pr_rec: Mapping[str, Any],
+    *,
+    invoice_sim_override: float | None = None,
+) -> list[dict[str, Any]]:
+    """Observe (do not decide) per-field comparison outcomes for a GSTR↔PR pair.
+
+    Uses the same helpers / tolerances as ``_match_gstr_to_pr_pair`` so the
+    rationale drawer reflects what the engine actually compared. Returns a list
+    of ``{field_name, match_type, field_score}`` dicts where ``match_type`` is
+    ``exact`` / ``fuzzy`` / ``not_matched`` and ``field_score`` is a 0–100
+    similarity percentage for fuzzy fields (``None`` for exact / not_matched).
+    """
+    out: list[dict[str, Any]] = []
+
+    g_gst = _supplier_gstin(gstr_rec)
+    p_gst = _supplier_gstin(pr_rec)
+    gstin_exact = bool(g_gst) and bool(p_gst) and g_gst.upper().strip() == p_gst.upper().strip()
+    if gstin_exact:
+        out.append(_field_entry("gstin", "exact"))
+    elif g_gst and p_gst and same_pan(g_gst, p_gst):
+        out.append(_field_entry("gstin", "fuzzy"))
+    elif g_gst and p_gst:
+        dist = levenshtein(g_gst.upper().strip(), p_gst.upper().strip())
+        if dist <= 2:
+            max_len = max(len(g_gst), len(p_gst))
+            score = int(round((1.0 - dist / max_len) * 100)) if max_len else None
+            out.append(_field_entry("gstin", "fuzzy", score))
+        else:
+            out.append(_field_entry("gstin", "not_matched"))
+    else:
+        out.append(_field_entry("gstin", "not_matched"))
+
+    g_inv = _invoice_number(gstr_rec)
+    p_inv = _invoice_number(pr_rec)
+    g_inv_raw = str(gstr_rec.get("invoice_number", "")).strip()
+    p_inv_raw = str(pr_rec.get("invoice_number", "")).strip()
+    inv_ok = invoices_effectively_match(g_inv, p_inv) if g_inv and p_inv else False
+    raw_inv_ok = bool(g_inv_raw and p_inv_raw and g_inv_raw == p_inv_raw)
+    format_variant = False
+    if g_inv and p_inv and not inv_ok:
+        format_variant = is_invoice_format_variant(
+            g_inv, p_inv, gstr_rec.get("invoice_number"), pr_rec.get("invoice_number")
+        )
+    inv_sim = (
+        float(invoice_sim_override)
+        if invoice_sim_override is not None
+        else (invoice_similarity(g_inv, p_inv) if g_inv and p_inv else 0.0)
+    )
+    if raw_inv_ok or inv_ok:
+        out.append(_field_entry("invoice_number", "exact"))
+    elif format_variant or inv_sim >= INVOICE_SIMILARITY_L5_MIN:
+        out.append(
+            _field_entry("invoice_number", "fuzzy", int(round(inv_sim * 100)))
+        )
+    else:
+        score = int(round(inv_sim * 100)) if inv_sim > 0 else None
+        out.append(_field_entry("invoice_number", "not_matched", score))
+
+    tg = _optional_taxable(gstr_rec)
+    tp = _optional_taxable(pr_rec)
+    amount_diff, skip_amount = _amount_diff_and_skip(tg, tp)
+    amount_pct = _compute_percentage_diff(amount_diff, skip_amount, tg, tp)
+    if skip_amount or amount_diff <= AMOUNT_TOLERANCE_L1_PAISE:
+        out.append(_field_entry("taxable_amount", "exact"))
+    elif amount_pct <= AMOUNT_TOLERANCE_L3_PCT:
+        out.append(
+            _field_entry(
+                "taxable_amount",
+                "fuzzy",
+                int(round(max(0.0, 1.0 - amount_pct) * 100)),
+            )
+        )
+    else:
+        out.append(_field_entry("taxable_amount", "not_matched"))
+
+    dg = _parse_invoice_date(gstr_rec)
+    dp = _parse_invoice_date(pr_rec)
+    date_diff_days, skip_date = _date_diff_days_and_skip(dg, dp)
+    if skip_date or date_diff_days <= DATE_TOLERANCE_L1_DAYS:
+        out.append(_field_entry("date", "exact"))
+    elif date_diff_days <= DATE_TOLERANCE_L3_DAYS:
+        closeness = max(
+            0.0, 1.0 - (date_diff_days / float(DATE_TOLERANCE_L3_DAYS))
+        )
+        out.append(_field_entry("date", "fuzzy", int(round(closeness * 100))))
+    else:
+        out.append(_field_entry("date", "not_matched"))
+
+    g_vendor = str(gstr_rec.get("supplier_name") or "").strip()
+    p_vendor = str(pr_rec.get("vendor_name") or "").strip()
+    if g_vendor and p_vendor:
+        if l1_vendor_name_ok(g_vendor, p_vendor):
+            out.append(_field_entry("vendor_name", "exact"))
+        else:
+            v_sim = vendor_name_similarity(g_vendor, p_vendor)
+            if v_sim >= 0.70:
+                out.append(
+                    _field_entry("vendor_name", "fuzzy", int(round(v_sim * 100)))
+                )
+            else:
+                out.append(
+                    _field_entry(
+                        "vendor_name",
+                        "not_matched",
+                        int(round(v_sim * 100)) if v_sim > 0 else None,
+                    )
+                )
+
+    return out
 
 
 def _safe_paise_field(rec: Mapping[str, Any], key: str) -> int:
@@ -376,6 +504,10 @@ def _financial_downgrade_l13(
         ),
         review_reason=review_reason,
         discrepancies=list(res.discrepancies),
+        compared_fields=list(res.compared_fields),
+        vendor_similarity_score=res.vendor_similarity_score,
+        identity_confidence=res.identity_confidence,
+        financial_status=res.financial_status,
     )
 
 
@@ -653,6 +785,13 @@ def _match_gstr_to_pr_pair(
         not skip_date and _crosses_gst_return_period(dg, dp)
     )
 
+    # Observational snapshot for the CA rationale drawer — does not affect tiers.
+    compared = build_compared_fields(gstr_rec, pr_rec)
+
+    def _ret(**kwargs: Any) -> MatchResult:
+        kwargs.setdefault("compared_fields", compared)
+        return MatchResult(**kwargs)
+
     # Financial severity classification
     financial_status = "Exact"
     if not tax_structure_match:
@@ -696,7 +835,7 @@ def _match_gstr_to_pr_pair(
             f"return_period: GSTR={g_period} ({g_date_label}), "
             f"PR={p_period} ({p_date_label}), diff={date_diff_days} days"
         ]
-        return MatchResult(
+        return _ret(
             level=2,
             matched=True,
             confidence=75,
@@ -752,7 +891,7 @@ def _match_gstr_to_pr_pair(
         # (requires_human_review=False) so the Non-exact chip and FUZZY filter
         # can surface formatting-only matches. Do not promote those to L1.
         if raw_inv_ok:
-            return MatchResult(
+            return _ret(
                 level=1, matched=True, confidence=100, requires_human_review=False,
                 decision_what="Exact match found",
                 decision_why="Invoice number, amount, and date align",
@@ -761,7 +900,7 @@ def _match_gstr_to_pr_pair(
                 identity_confidence="High", financial_status="Exact",
                 review_reason=None,
             )
-        return MatchResult(
+        return _ret(
             level=2, matched=True, confidence=95, requires_human_review=False,
             decision_what="Normalized invoice match",
             decision_why=(
@@ -776,7 +915,7 @@ def _match_gstr_to_pr_pair(
 
     if gstin_match and raw_inv_ok and _vendor_name_ok:
         if amount_within_l1 and date_within_l1 and l12_finance_ok:
-            return MatchResult(
+            return _ret(
                 level=1, matched=True, confidence=100, requires_human_review=False,
                 decision_what="Exact match found",
                 decision_why="Invoice number, amount, and date align",
@@ -792,7 +931,7 @@ def _match_gstr_to_pr_pair(
             # A genuinely zero-discrepancy pair is already handled by the
             # zero-discrepancy invariant above and never reaches this branch;
             # anything landing here has a real (if small) amount/date diff.
-            return MatchResult(
+            return _ret(
                 level=2, matched=True, confidence=90, requires_human_review=True,
                 decision_what="Invoice matched with normalized invoice and minor amount difference",
                 decision_why="Same normalized invoice and GSTIN, amount within acceptable tolerance",
@@ -805,7 +944,7 @@ def _match_gstr_to_pr_pair(
         # Same GSTIN + same normalized invoice but amount or date exceeds L2 — L3 review
         # Large diff + date outside L2 window → return L6 (no match) for extreme cases
         if not date_within_l2 and not amount_within_l2:
-            return MatchResult(
+            return _ret(
                 level=6, matched=False, confidence=0, requires_human_review=False,
                 decision_what="No match found in purchase register",
                 decision_why="Invoice number matches but amount and date differences are too large",
@@ -817,7 +956,7 @@ def _match_gstr_to_pr_pair(
             rr = "AMOUNT_MISMATCH"
         else:
             rr = "Amount Mismatch or Date mismatch"
-        return MatchResult(
+        return _ret(
             level=3, matched=True, confidence=75, requires_human_review=True,
             decision_what="Invoice matched but with differences",
             decision_why="Same invoice number and GSTIN, but amount or date differ",
@@ -830,7 +969,7 @@ def _match_gstr_to_pr_pair(
     # ── Tier 3: Same GSTIN + normalized invoice number + amount within 2% + date within 30 days (L3) ─────────────────
     if gstin_match and inv_ok:
         if amount_within_l3 and date_within_l3:
-            return MatchResult(
+            return _ret(
                 level=3, matched=True, confidence=75, requires_human_review=True,
                 decision_what="Invoice matched with differences",
                 decision_why="Same normalized invoice and GSTIN, but amount or date differ within 2%/30d",
@@ -846,7 +985,7 @@ def _match_gstr_to_pr_pair(
     # (if small) amount/date diff.
     if gstin_match and format_variant:
         if amount_within_l3 and date_within_l3:
-            return MatchResult(
+            return _ret(
                 level=3, matched=True, confidence=75, requires_human_review=True,
                 decision_what="Format variant with amount or date mismatch",
                 decision_why="Invoice format matches, amount/date within L3 tolerances",
@@ -863,7 +1002,7 @@ def _match_gstr_to_pr_pair(
     # GSTIN is correct before ITC can be claimed — but flag it explicitly as
     # GSTIN_MISMATCH review rather than silently falling through to "no match".
     if not gstin_match and same_pan(g_gst, p_gst) and (inv_ok or format_variant) and amount_within_l2:
-        return MatchResult(
+        return _ret(
             level=4, matched=False, confidence=50, requires_human_review=True,
             decision_what="Possible GSTIN typo",
             decision_why="Same PAN and invoice number, but GSTIN check-digit/state-code differs",
@@ -874,7 +1013,7 @@ def _match_gstr_to_pr_pair(
         )
 
     # ── L6 — No match ────────────────────────────────────────────────────────
-    return MatchResult(
+    return _ret(
         level=6, matched=False, confidence=0, requires_human_review=False,
         decision_what="No match found in purchase register",
         decision_why="No PR record matches this GSTR invoice on any criteria",

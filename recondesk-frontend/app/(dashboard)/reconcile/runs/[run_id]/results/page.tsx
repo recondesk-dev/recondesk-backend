@@ -16,11 +16,13 @@ import { HoverTextCell } from "@/components/ui/HoverTextCell";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  type MouseEvent,
 } from "react";
 import useSWR from "swr";
 import {
@@ -128,6 +130,12 @@ type DecisionType = "claim" | "follow_up" | "escalate" | "ignore" | null;
 type Rule37Urgency = "CRITICAL" | "HIGH" | "MEDIUM";
 type Rule37ActionStatus = "resolved" | "acknowledged";
 
+type ComparedField = {
+  field_name: string;
+  match_type: "exact" | "fuzzy" | "not_matched" | string;
+  field_score: number | null;
+};
+
 type ReconcileRow = {
   id: string;
   supplier_gstin: string;
@@ -159,10 +167,17 @@ type ReconcileRow = {
   rule37_payment_coverage?: "full" | "partial" | null;
   section_17_5_category?: string;
   match_confidence?: number | null;
+  compared_fields?: ComparedField[] | null;
 };
 
 /** Small pill showing L5/fuzzy invoice-similarity score. Only renders when match_confidence is present. */
-function MatchConfidenceBadge({ score }: { score: number }) {
+function MatchConfidenceBadge({
+  score,
+  onClick,
+}: {
+  score: number;
+  onClick?: (e: MouseEvent) => void;
+}) {
   const pct = Math.round(score * 100);
   const colorCls =
     pct >= 90
@@ -170,13 +185,134 @@ function MatchConfidenceBadge({ score }: { score: number }) {
       : pct >= 75
         ? "bg-amber-50 text-amber-700 ring-amber-600/20"
         : "bg-red-50 text-red-700 ring-red-600/20";
+  const interactive = onClick != null;
   return (
-    <span
-      className={`inline-flex items-center whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${colorCls}`}
-      title={`Invoice similarity: ${pct}%`}
+    <button
+      type="button"
+      disabled={!interactive}
+      onClick={onClick}
+      className={`inline-flex items-center whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${colorCls} ${
+        interactive
+          ? "cursor-pointer hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+          : "cursor-default"
+      }`}
+      title={
+        interactive
+          ? `Invoice similarity: ${pct}% — click for field breakdown`
+          : `Invoice similarity: ${pct}%`
+      }
     >
       {pct}% match
-    </span>
+    </button>
+  );
+}
+
+function fieldMatchTypeClass(matchType: string): string {
+  if (matchType === "exact") return "text-emerald-700 bg-emerald-50";
+  if (matchType === "fuzzy") return "text-amber-700 bg-amber-50";
+  return "text-gray-500 bg-gray-100";
+}
+
+function formatFieldLabel(name: string): string {
+  return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Inline accordion showing engine field-by-field comparison for one invoice. */
+function ComparedFieldsAccordionRow({
+  row,
+  colSpan,
+}: {
+  row: ReconcileRow;
+  colSpan: number;
+}) {
+  const fields = row.compared_fields ?? [];
+  return (
+    <tr className="bg-[#F8F9FB]">
+      <td colSpan={colSpan} className="px-4 py-3">
+        <div className="max-w-2xl">
+          {row.decision_rule ? (
+            <p className="mb-2 text-[12px] text-gray-600">
+              Rule fired:{" "}
+              <span className="font-semibold text-gray-800">
+                {row.decision_rule}
+              </span>
+              {row.decision_confidence ? (
+                <span className="text-gray-400">
+                  {" "}
+                  · {row.decision_confidence}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
+          {fields.length === 0 ? (
+            <p className="text-[12px] text-gray-500">
+              No field comparison was recorded for this row.
+            </p>
+          ) : (
+            <table className="w-full border-collapse text-left text-[12px]">
+              <thead>
+                <tr className="border-b border-[#E8E8EC] text-[11px] uppercase tracking-wide text-gray-400">
+                  <th className="pb-1.5 pr-3 font-medium">Field</th>
+                  <th className="pb-1.5 pr-3 font-medium">Match Type</th>
+                  <th className="pb-1.5 font-medium">Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fields.map((f) => (
+                  <tr
+                    key={f.field_name}
+                    className="border-b border-[#EEF0F4] last:border-0"
+                  >
+                    <td className="py-1.5 pr-3 font-medium text-gray-800">
+                      {formatFieldLabel(f.field_name)}
+                    </td>
+                    <td className="py-1.5 pr-3">
+                      <span
+                        className={`inline-flex rounded px-1.5 py-0.5 text-[11px] font-medium capitalize ${fieldMatchTypeClass(
+                          f.match_type
+                        )}`}
+                      >
+                        {f.match_type.replace(/_/g, " ")}
+                      </span>
+                    </td>
+                    <td className="py-1.5 text-gray-600">
+                      {f.field_score != null ? `${f.field_score}%` : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/** Compact "why?" control — opens the compared_fields accordion without leaving the table. */
+function WhyRationaleButton({
+  expanded,
+  onToggle,
+}: {
+  expanded: boolean;
+  onToggle: (e: MouseEvent) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
+        expanded
+          ? "bg-brand/10 text-brand"
+          : "text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+      }`}
+      title={expanded ? "Hide match rationale" : "Why this decision?"}
+      aria-expanded={expanded}
+      aria-label="Why this match decision"
+    >
+      <Info className="h-3 w-3" />
+      why?
+    </button>
   );
 }
 
@@ -640,8 +776,23 @@ export default function ReconcileResultsPage() {
   const [section17Page, setSection17Page] = useState(1);
 
   const [resultsTab, setResultsTab] = useState<ResultsBucketTabId>("matched");
+  const [rationaleExpandedId, setRationaleExpandedId] = useState<string | null>(
+    null
+  );
+
+  const toggleRationale = useCallback(
+    (e: MouseEvent, rowId: string) => {
+      e.stopPropagation();
+      setRationaleExpandedId((prev) => (prev === rowId ? null : rowId));
+    },
+    []
+  );
   const [rule37Open, setRule37Open] = useState(false);
   const [section17Open, setSection17Open] = useState(false);
+
+  useEffect(() => {
+    setRationaleExpandedId(null);
+  }, [resultsTab]);
 
   useEffect(() => {
     if (resultsTab === "rule37") {
@@ -2331,7 +2482,8 @@ export default function ReconcileResultsPage() {
                     </thead>
                     <tbody>
                       {itcRows.filter(r => checkDocType(r, docTypeFilterItc)).map((row, i) => (
-                        <tr key={row.id} className={`group ${tableRowClass}`}>
+                        <Fragment key={row.id}>
+                        <tr className={`group ${tableRowClass}`}>
                           <td className={tableStickyCheckboxCellClass}>
                             <input
                               type="checkbox"
@@ -2381,7 +2533,16 @@ export default function ReconcileResultsPage() {
                                 displayClassName="text-[13px] text-gray-600"
                               />
                               {row.match_confidence != null && (
-                                <MatchConfidenceBadge score={row.match_confidence} />
+                                <MatchConfidenceBadge
+                                  score={row.match_confidence}
+                                  onClick={(e) => toggleRationale(e, row.id)}
+                                />
+                              )}
+                              {(row.compared_fields?.length ?? 0) > 0 && (
+                                <WhyRationaleButton
+                                  expanded={rationaleExpandedId === row.id}
+                                  onToggle={(e) => toggleRationale(e, row.id)}
+                                />
                               )}
                             </div>
                           </td>
@@ -2412,6 +2573,10 @@ export default function ReconcileResultsPage() {
                             </div>
                           </td>
                         </tr>
+                        {rationaleExpandedId === row.id && (
+                          <ComparedFieldsAccordionRow row={row} colSpan={11} />
+                        )}
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>
@@ -2799,7 +2964,8 @@ export default function ReconcileResultsPage() {
                     </thead>
                     <tbody>
                       {riskRows.filter(r => checkDocType(r, docTypeFilterRisk)).map((row, i) => (
-                        <tr key={row.id} className={`group ${tableRowClass}`}>
+                        <Fragment key={row.id}>
+                        <tr className={`group ${tableRowClass}`}>
                           <td className={tableStickyCheckboxCellClass}>
                             <input
                               type="checkbox"
@@ -2849,7 +3015,16 @@ export default function ReconcileResultsPage() {
                                 displayClassName="text-[13px] text-gray-600"
                               />
                               {row.match_confidence != null && (
-                                <MatchConfidenceBadge score={row.match_confidence} />
+                                <MatchConfidenceBadge
+                                  score={row.match_confidence}
+                                  onClick={(e) => toggleRationale(e, row.id)}
+                                />
+                              )}
+                              {(row.compared_fields?.length ?? 0) > 0 && (
+                                <WhyRationaleButton
+                                  expanded={rationaleExpandedId === row.id}
+                                  onToggle={(e) => toggleRationale(e, row.id)}
+                                />
                               )}
                             </div>
                           </td>
@@ -2890,6 +3065,10 @@ export default function ReconcileResultsPage() {
                             </button>
                           </td>
                         </tr>
+                        {rationaleExpandedId === row.id && (
+                          <ComparedFieldsAccordionRow row={row} colSpan={12} />
+                        )}
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>
@@ -3250,8 +3429,8 @@ export default function ReconcileResultsPage() {
                       // fallback for non-financial mismatches), so it is used as-is.
 
                       return (
+                      <Fragment key={row.id}>
                       <tr
-                        key={row.id}
                         className={`group cursor-pointer ${tableRowClass}`}
                         onClick={() => {
                           setActiveRecord(row);
@@ -3275,7 +3454,21 @@ export default function ReconcileResultsPage() {
                           <AmountDisplay amount={row.amount} />
                         </td>
                         <td className={matchedTdMatchLevel}>
-                          <MatchLevelBadge level={row.match_level} />
+                          <div className="flex items-center gap-1.5">
+                            <MatchLevelBadge level={row.match_level} />
+                            {(row.compared_fields?.length ?? 0) > 0 && (
+                              <WhyRationaleButton
+                                expanded={rationaleExpandedId === row.id}
+                                onToggle={(e) => toggleRationale(e, row.id)}
+                              />
+                            )}
+                            {row.match_confidence != null && (
+                              <MatchConfidenceBadge
+                                score={row.match_confidence}
+                                onClick={(e) => toggleRationale(e, row.id)}
+                              />
+                            )}
+                          </div>
                         </td>
                         <td className={matchedTdConfidence}>
                           {Math.round(
@@ -3300,6 +3493,10 @@ export default function ReconcileResultsPage() {
                           )}
                         </td>
                       </tr>
+                      {rationaleExpandedId === row.id && (
+                        <ComparedFieldsAccordionRow row={row} colSpan={8} />
+                      )}
+                      </Fragment>
                     );
                     })}
                   </tbody>
@@ -3643,8 +3840,8 @@ export default function ReconcileResultsPage() {
                       // as-is with no further client-side override.
 
                       return (
+                      <Fragment key={row.id}>
                       <tr
-                        key={row.id}
                         className={`group cursor-pointer ${tableRowClass}`}
                         onClick={() => {
                           setActiveRecord(row);
@@ -3668,7 +3865,21 @@ export default function ReconcileResultsPage() {
                           <AmountDisplay amount={row.amount} />
                         </td>
                         <td className={matchedTdMatchLevel}>
-                          <MatchLevelBadge level={row.match_level} />
+                          <div className="flex items-center gap-1.5">
+                            <MatchLevelBadge level={row.match_level} />
+                            {(row.compared_fields?.length ?? 0) > 0 && (
+                              <WhyRationaleButton
+                                expanded={rationaleExpandedId === row.id}
+                                onToggle={(e) => toggleRationale(e, row.id)}
+                              />
+                            )}
+                            {row.match_confidence != null && (
+                              <MatchConfidenceBadge
+                                score={row.match_confidence}
+                                onClick={(e) => toggleRationale(e, row.id)}
+                              />
+                            )}
+                          </div>
                         </td>
                         <td className={matchedTdConfidence}>
                           {Math.round(
@@ -3711,6 +3922,10 @@ export default function ReconcileResultsPage() {
                           )}
                         </td>
                       </tr>
+                      {rationaleExpandedId === row.id && (
+                        <ComparedFieldsAccordionRow row={row} colSpan={10} />
+                      )}
+                      </Fragment>
                     );
                     })
 })()}
