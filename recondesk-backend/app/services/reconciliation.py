@@ -964,7 +964,29 @@ def process_gstr_records_chunk(
     """PHASE 1: Strict Clean Matching (L1, L2, L3)."""
     gstr_period = date(effective_gstr_period.year, effective_gstr_period.month, 1)
     run_skipped_count = 0  # batched across entire chunk — logged once at end
-    for gstr_record in gstr_records:
+
+    # Process GSTR rows that have an exact same-GSTIN + normalized-invoice PR
+    # hit first. Phase 1 is greedy (consumes the PR on first acceptable link);
+    # without this ordering a near-invoice GSTR processed earlier can steal the
+    # PR via a weaker path and orphan the exact counterpart into Missed ITC.
+    def _exact_pr_hit_first(rec: dict) -> tuple[int, str]:
+        gst = str(rec.get("supplier_gstin") or "").strip()
+        inv = str(rec.get("invoice_number_normalized") or "")
+        has_exact = bool(
+            pr_by_invoice
+            and gst
+            and inv
+            and pr_by_invoice.get(gst, {}).get(inv) is not None
+        )
+        return (0 if has_exact else 1, str(rec.get("id") or ""))
+
+    ordered_gstr = (
+        sorted(gstr_records, key=_exact_pr_hit_first)
+        if pr_by_invoice
+        else gstr_records
+    )
+
+    for gstr_record in ordered_gstr:
         gstr_id = str(gstr_record["id"])
         if gstr_id in state.consumed_gstr_ids:
             continue

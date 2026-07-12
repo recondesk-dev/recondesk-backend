@@ -847,3 +847,139 @@ def test_lookback_6_months_exact_boundary():
     )
     assert res["stats"]["matched_count"] == 1
     assert res["matched"][0]["late_months"] == 6
+
+
+# --- Regression: exact-invoice priority vs fuzzy near-misses ---
+
+
+def test_period_boundary_does_not_link_edit_distance_1_near_invoice():
+    """Adjacent sequential invoices (09454 vs 09754) must NOT auto-link via the
+    period-boundary path just because Levenshtein sim ≥ 0.70 after leading-zero
+    strip. That path previously stole the exact PR counterpart and orphaned the
+    real GSTR match into Missed ITC.
+    """
+    g = _base_rec(
+        supplier_gstin=GSTIN_MH,
+        invoice_number="09454",
+        invoice_date="2025-03-02",
+        taxable_paise=29_230_171,
+    )
+    g["total_tax_paise"] = 5_261_431
+    g["igst_paise"] = 5_261_431
+    p = _base_rec(
+        supplier_gstin=GSTIN_MH,
+        invoice_number="09754",
+        invoice_date="2025-02-23",
+        taxable_paise=29_569_726,
+    )
+    p["total_tax_paise"] = 5_322_551
+    p["igst_paise"] = 5_322_551
+    assert invoice_similarity("09454", "09754") >= 0.70
+    r = match_gstr_to_pr(g, [p])
+    assert r is None
+
+
+def test_exact_invoice_amount_and_date_both_outside_l2_still_review():
+    """Same GSTIN + identical invoice number with ~5.83% amount diff AND date
+    gap > 7 days must land as L3 Review Required — never L6 / unmatched.
+    """
+    base = 45_804_642
+    pr_taxable = int(round(base * 1.0583))
+    g = _base_rec(
+        supplier_gstin=GSTIN_MH,
+        invoice_number="INV/24-25/9769",
+        invoice_date="2024-07-10",
+        taxable_paise=base,
+    )
+    g["total_tax_paise"] = 8_244_836
+    g["igst_paise"] = 8_244_836
+    p = _base_rec(
+        supplier_gstin=GSTIN_MH,
+        invoice_number="INV/24-25/9769",
+        invoice_date="2024-07-20",
+        taxable_paise=pr_taxable,
+    )
+    p["total_tax_paise"] = int(round(pr_taxable * 0.18))
+    p["igst_paise"] = p["total_tax_paise"]
+    r = match_gstr_to_pr(g, [p])
+    assert r is not None
+    assert r.matched is True
+    assert r.level == 3
+    assert r.requires_human_review is True
+    assert r.review_reason is not None
+    assert "AMOUNT" in r.review_reason.upper() or "mismatch" in r.review_reason.lower()
+
+
+def test_phase1_exact_invoice_wins_over_near_miss_processed_first():
+    """End-to-end: GSTR 09454 listed before exact twin 09754 must not steal PR 09754.
+    Exact match is Matched; near-miss GSTR stays Missed ITC.
+    """
+    from datetime import date
+
+    from app.services.reconciliation import (
+        ReconState,
+        build_gstr_by_invoice,
+        build_pr_by_invoice,
+        build_pr_candidate_indices,
+        execute_phase2_and_3,
+        process_gstr_records_chunk,
+    )
+
+    gstin = "23CMMPW9621S6ZO"
+    g_near = _base_rec(
+        supplier_gstin=gstin,
+        invoice_number="09454",
+        invoice_date="2025-03-02",
+        taxable_paise=29_230_171,
+    )
+    g_near["id"] = "g09454"
+    g_near["total_tax_paise"] = 5_261_431
+    g_near["igst_paise"] = 5_261_431
+    g_near["supplier_name"] = "Shri Engineering Private Limited"
+
+    g_exact = _base_rec(
+        supplier_gstin=gstin,
+        invoice_number="09754",
+        invoice_date="2025-02-23",
+        taxable_paise=29_569_726,
+    )
+    g_exact["id"] = "g09754"
+    g_exact["total_tax_paise"] = 5_322_551
+    g_exact["igst_paise"] = 5_322_551
+    g_exact["supplier_name"] = "Shri Engineering Private Limited"
+
+    pr_exact = _base_rec(
+        supplier_gstin=gstin,
+        invoice_number="09754",
+        invoice_date="2025-02-23",
+        taxable_paise=29_569_726,
+    )
+    pr_exact["id"] = "p09754"
+    pr_exact["total_tax_paise"] = 5_322_551
+    pr_exact["igst_paise"] = 5_322_551
+    pr_exact["vendor_name"] = "Shri Engineering Private Limited"
+
+    # File order: near-miss first (reproduces production steal)
+    gstr_list = [g_near, g_exact]
+    pr_index = {gstin: [pr_exact]}
+    state = ReconState()
+    pr_by_invoice = build_pr_by_invoice(pr_index)
+    cand = build_pr_candidate_indices(pr_index)
+    process_gstr_records_chunk(
+        gstr_list,
+        date(2025, 6, 1),
+        pr_index,
+        {},
+        state,
+        gstr_by_invoice=build_gstr_by_invoice(gstr_list),
+        pr_by_invoice=pr_by_invoice,
+        candidate_indices=cand,
+    )
+    execute_phase2_and_3(gstr_list, [pr_exact], state, cand)
+
+    assert any(m["gstr_id"] == "g09754" and m["pr_id"] == "p09754" for m in state.clean_matched)
+    assert not any(m.get("gstr_id") == "g09454" for m in state.clean_matched)
+    assert not any(m.get("gstr_id") == "g09454" for m in state.review_required)
+    missed_ids = {m.get("gstr_id") or m.get("id") for m in state.missed_itc}
+    assert "g09454" in missed_ids
+    assert "g09754" not in missed_ids
