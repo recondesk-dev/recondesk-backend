@@ -10,6 +10,7 @@ import { Rule37SummarySection } from "@/components/reconcile/Rule37SummarySectio
 import type { Rule37SummaryResponse } from "@/lib/rule37Summary";
 import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
 import { Gstr3bCheckPanel } from "@/components/reconcile/Gstr3bCheckPanel";
+import { AdvancedExportPanel } from "@/components/reconcile/AdvancedExportPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
 import { GstinCell } from "@/components/ui/GstinCell";
 import { HoverTextCell } from "@/components/ui/HoverTextCell";
@@ -2269,6 +2270,15 @@ export default function ReconcileResultsPage() {
       </div>
 
       <div className={pageContentClass}>
+        {summary && authToken && (
+          <AdvancedExportPanel
+            runId={runId}
+            authToken={authToken}
+            clientName={summary.client_name}
+            period={summary.period}
+            onError={(message) => addToast(message, "error")}
+          />
+        )}
         {summary && (
           <ResultsBucketTabs
             active={resultsTab}
