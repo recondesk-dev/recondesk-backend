@@ -232,6 +232,24 @@ def _reverse_charge_value(invoice: dict) -> bool:
     return str(raw).strip().upper() == "Y"
 
 
+def _itc_available_value(invoice: dict) -> bool:
+    """Parse GSTR-2B ``itcavl`` into a bool.
+
+    Official GSTN JSON usually uses ``"Y"`` / ``"N"``, but some portal /
+    third-party exports emit JSON booleans ``true`` / ``false``. The previous
+    check (``== "Y"``) treated every boolean ``true`` as ineligible.
+    """
+    raw = invoice.get("itcavl", "N")
+    if isinstance(raw, bool):
+        return raw
+    if raw is None:
+        return False
+    s = str(raw).strip().upper()
+    if s in ("Y", "YES", "TRUE", "1"):
+        return True
+    return False
+
+
 def _item_tax_value(itm: dict, field: str) -> str:
     aliases = {
         "igst": ("igst", "iamt"),
@@ -480,7 +498,7 @@ def _parse_b2b_invoice(
 
     pos = str(invoice.get("pos", ""))
     reverse_charge = _reverse_charge_value(invoice)
-    itc_available = invoice.get("itcavl", "N") == "Y"
+    itc_available = _itc_available_value(invoice)
 
     original_invoice_number_raw = None
     original_invoice_number = None
@@ -599,7 +617,7 @@ def _parse_cdnr_invoice(
 
     pos = str(invoice.get("pos", ""))
     reverse_charge = _reverse_charge_value(invoice)
-    itc_available = invoice.get("itcavl", "N") == "Y"
+    itc_available = _itc_available_value(invoice)
 
     original_invoice_number_raw = None
     original_invoice_number = None

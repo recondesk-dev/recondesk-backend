@@ -452,6 +452,21 @@ def test_itcavl_n_sets_itc_available_false():
     assert result["records"][0]["itc_available"] is False
 
 
+def test_itcavl_boolean_true_sets_itc_available_true():
+    """Portal/third-party exports may emit JSON boolean true instead of \"Y\"."""
+    result = parse_gstr2b(
+        _payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itcavl=True)])])
+    )
+    assert result["records"][0]["itc_available"] is True
+
+
+def test_itcavl_boolean_false_sets_itc_available_false():
+    result = parse_gstr2b(
+        _payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itcavl=False)])])
+    )
+    assert result["records"][0]["itc_available"] is False
+
+
 def test_normalization_notes_only_for_transformed_fields():
     # Clean values — no transformations applied, notes should be empty
     result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(inum="INV001", dt="01-04-2024", val=1000)])]))
