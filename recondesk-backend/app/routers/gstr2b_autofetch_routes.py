@@ -23,6 +23,8 @@ from app.integrations.gstr2b_autofetch import (
 )
 from app.parsers.gstr2b_parser import parse_gstr2b
 from app.services.firm_access import list_accessible_client_gstin_ids
+from app.services.ims_overlay import fetch_ims_overlay
+from app.services.sandbox_gst_client import SandboxClientError
 
 router = APIRouter(redirect_slashes=False)
 _log = logging.getLogger(__name__)
@@ -403,3 +405,97 @@ async def gstn_fetch_gstr2b(
     # ``upload_payload`` is the GSTN-shaped JSON the wizard can PUT to R2 and
     # run through the same sanity-check path as a manual portal export.
     return {**parsed, "upload_payload": payload}
+
+
+@router.post("/{client_id}/gstn/fetch-ims")
+async def gstn_fetch_ims(
+    client_id: str,
+    body: FetchGstr2bRequest,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Fetch IMS invoice counts + status map for the connected GSTN session."""
+    sb = get_supabase()
+    cid = client_id.strip()
+    _assert_client_access(sb, current_user, cid)
+
+    client_row = _load_client_gstin(sb, cid)
+    access_token = client_row.get("gstn_access_token")
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="GSTN not connected for this client; complete OTP verification first",
+        )
+
+    gstin = str(client_row.get("gstin") or "").strip()
+    if not gstin:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="client has no GSTIN on file",
+        )
+
+    _assert_gstn_token_fresh(client_row)
+
+    try:
+        year = int(str(body.year).strip())
+        month = int(str(body.month).strip())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="year and month must be integers",
+        ) from exc
+    if month < 1 or month > 12:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="month must be 1–12",
+        )
+
+    _log.info(
+        "IMS fetch starting client_id=%s gstin=%s period=%s-%02d has_token=%s",
+        cid,
+        gstin,
+        year,
+        month,
+        bool(access_token),
+    )
+
+    try:
+        result = await asyncio.to_thread(
+            fetch_ims_overlay, str(access_token), gstin, year, month
+        )
+    except SandboxClientError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        _log.warning(
+            "IMS Sandbox HTTP error client_id=%s status=%s body=%s",
+            cid,
+            exc.response.status_code,
+            (exc.response.text or "")[:300],
+        )
+        _raise_sandbox_http_error(
+            exc,
+            context=f"IMS fetch failed for {gstin} period {year}-{month:02d}",
+        )
+    except Exception as exc:
+        _log.exception("IMS fetch failed for client %s", cid)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="failed to fetch IMS via Sandbox API",
+        ) from exc
+
+    pending = int(result.status_counts.get("pending", 0)) + int(
+        result.status_counts.get("no_action_taken", 0)
+    )
+    return {
+        "gstin": gstin,
+        "year": year,
+        "month": month,
+        "counts": result.counts,
+        "total_by_status": result.total_by_status,
+        "status_counts": result.status_counts,
+        "invoices_fetched": result.invoices_fetched,
+        "status_map_size": result.status_map_size,
+        "pending_action_count": pending,
+    }

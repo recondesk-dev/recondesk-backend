@@ -117,11 +117,49 @@ export const matchedThGuidanceNext = `${tableHeadCellClass} w-[12%]`;
 export const matchedTdGuidanceNext = `${tableCellClass} max-w-0 overflow-visible text-[13px] font-medium text-brand`;
 export const matchedThNotes = `${tableHeadCellClass} w-[8%]`;
 export const matchedTdNotes = `${tableCellClass}`;
+export const matchedThIms = `${tableHeadCellClass} w-[10%] text-center`;
+export const matchedTdIms = `${tableCellClass} text-center`;
+
+export type ImsStatusValue =
+  | "accepted"
+  | "rejected"
+  | "pending"
+  | "no_action_taken"
+  | string;
+
+export function ImsStatusBadge({ status }: { status?: string | null }) {
+  const raw = (status || "no_action_taken").trim().toLowerCase();
+  const label =
+    raw === "accepted"
+      ? "Accepted"
+      : raw === "rejected"
+        ? "Rejected"
+        : raw === "pending"
+          ? "Pending"
+          : "No action";
+  const tone =
+    raw === "accepted"
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+      : raw === "rejected"
+        ? "bg-red-50 text-red-700 ring-red-200"
+        : raw === "pending"
+          ? "bg-amber-50 text-amber-800 ring-amber-200"
+          : "bg-gray-50 text-gray-600 ring-gray-200";
+  return (
+    <span
+      className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ${tone}`}
+    >
+      {label}
+    </span>
+  );
+}
 
 export function DecisionTableColGroup({
   includeNotice = false,
+  includeIms = false,
 }: {
   includeNotice?: boolean;
+  includeIms?: boolean;
 }) {
   return (
     <colgroup>
@@ -132,10 +170,11 @@ export function DecisionTableColGroup({
       <col style={{ width: "8%" }} />
       <col style={{ width: "8%" }} />
       <col style={{ width: "6%" }} />
-      <col style={{ width: includeNotice ? "13%" : "15%" }} />
-      <col style={{ width: includeNotice ? "12%" : "14%" }} />
-      <col style={{ width: includeNotice ? "11%" : "13%" }} />
-      <col style={{ width: includeNotice ? "7%" : "8%" }} />
+      <col style={{ width: includeNotice || includeIms ? "12%" : "15%" }} />
+      <col style={{ width: includeNotice || includeIms ? "11%" : "14%" }} />
+      <col style={{ width: includeNotice || includeIms ? "10%" : "13%" }} />
+      <col style={{ width: includeNotice || includeIms ? "7%" : "8%" }} />
+      {includeIms ? <col style={{ width: "9%" }} /> : null}
       {includeNotice ? <col style={{ width: "10%" }} /> : null}
     </colgroup>
   );

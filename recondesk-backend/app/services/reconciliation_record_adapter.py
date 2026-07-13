@@ -115,6 +115,9 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
             or None
         ),
         "section": str(rd.get("section") or "").strip().lower() or None,
+        "ims_status": (
+            str(rd.get("ims_status") or "").strip() or "no_action_taken"
+        ),
     }
 
 

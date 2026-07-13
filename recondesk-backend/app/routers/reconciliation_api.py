@@ -2077,6 +2077,12 @@ def _build_missed_itc_records(
                 "notes_count": int(_lookup_by_record_id(note_counts, row_id, 0)),
                 "gstr2b_data": gd2,
                 "purchase_register_data": {},
+                "ims_status": str(
+                    mi.get("ims_status")
+                    or mt.get("ims_status")
+                    or (rd.get("ims_status") if isinstance(rd, dict) else None)
+                    or "no_action_taken"
+                ),
             }
         )
     return out
@@ -2557,6 +2563,12 @@ def _build_matched_pair_records(
                 "decision_matched_fields": dm.get("decision_matched_fields"),
                 "decision_differed_fields": dm.get("decision_differed_fields"),
                 "decision_normalized_pairs": dm.get("decision_normalized_pairs"),
+                "ims_status": str(
+                    (en_row.get("ims_status") if isinstance(en_row, dict) else None)
+                    or gm.get("ims_status")
+                    or (grd_raw.get("ims_status") if isinstance(grd_raw, dict) else None)
+                    or "no_action_taken"
+                ),
             }
             out_pairs.append((api_row, orow))
         except Exception as e:
@@ -2576,6 +2588,7 @@ def _filter_matched(
     require_notes: bool,
     review_required: bool,
     section174: bool,
+    ims_status_filter: Optional[str] = None,
 ) -> list[tuple[dict[str, Any], Any]]:
     out_f: list[tuple[dict[str, Any], Any]] = []
     for api_row, orow in pairs:
@@ -2617,6 +2630,12 @@ def _filter_matched(
                 else bool(api_row.get("_bc"))
             )
             if not blk:
+                continue
+
+        if ims_status_filter:
+            want = ims_status_filter.strip().lower()
+            got = str(api_row.get("ims_status") or "no_action_taken").strip().lower()
+            if got != want:
                 continue
 
         out_f.append((api_row, orow))
@@ -3947,6 +3966,7 @@ async def reconcile_run_itc_bucket(
     supplier_gstin: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    ims_status: Optional[str] = None,
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
@@ -3976,6 +3996,13 @@ async def reconcile_run_itc_bucket(
         supplier_gstin_q=supplier_gstin,
     )
     rows = _filter_itc_date_range(rows, date_from=dfrom, date_to=dto)
+    if ims_status and str(ims_status).strip():
+        want = str(ims_status).strip().lower()
+        rows = [
+            r
+            for r in rows
+            if str(r.get("ims_status") or "no_action_taken").strip().lower() == want
+        ]
     _sort_reconcile_bucket_rows(rows, sort)
     return _paginated_body(rows, page, limit)
 
@@ -4356,6 +4383,7 @@ async def reconcile_run_matched_bucket(
     section_17_5: Optional[str] = None,
     amount_min: Optional[str] = None,
     amount_max: Optional[str] = None,
+    ims_status: Optional[str] = None,
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
@@ -4391,6 +4419,7 @@ async def reconcile_run_matched_bucket(
         require_notes=hn,
         review_required=rr_req,
         section174=s174,
+        ims_status_filter=ims_status,
     )
     extracted = [pair[0] for pair in filtered_pairs]
     if sort.endswith("desc"):

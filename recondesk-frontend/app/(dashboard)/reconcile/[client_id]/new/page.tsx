@@ -592,6 +592,24 @@ export default function NewReconcileWizardPage() {
           `Fetched ${total.toLocaleString("en-IN")} invoice${total === 1 ? "" : "s"} from GSTR-2B`
         );
       }
+      // Background IMS prefetch for UX only — worker overlays status at match time.
+      void gstnApi
+        .fetchIms(token, clientId, ym)
+        .then((ims) => {
+          const pending = Number(ims.pending_action_count ?? 0);
+          const mapSize = Number(ims.status_map_size ?? 0);
+          setGstnFetchSummary((prev) => {
+            const base =
+              prev ??
+              (total === 0
+                ? "GSTR-2B fetched (0 invoices)"
+                : `Fetched ${total.toLocaleString("en-IN")} invoice${total === 1 ? "" : "s"} from GSTR-2B`);
+            return `${base} · IMS: ${mapSize.toLocaleString("en-IN")} mapped (${pending.toLocaleString("en-IN")} pending action)`;
+          });
+        })
+        .catch(() => {
+          /* soft-fail — reconcile still works without IMS */
+        });
     } catch (e) {
       const ae = e as ApiError;
       setGstnFetchError(ae.detail ?? "Couldn't fetch GSTR-2B automatically.");

@@ -34,6 +34,8 @@ _MATCHED_KEYS = (
     "match_confidence",
     # Per-field comparison snapshot for the CA rationale drawer.
     "compared_fields",
+    # IMS taxpayer action status overlaid from Sandbox IMS fetch.
+    "ims_status",
 )
 
 _MISSED_ITC_KEYS = (
@@ -43,6 +45,7 @@ _MISSED_ITC_KEYS = (
     "invoice_date",
     "total_tax_paise",
     "mismatch_reason",
+    "ims_status",
 )
 
 _WRONGFUL_KEYS = (
@@ -107,6 +110,8 @@ _DUPLICATE_KEYS = (
     "match_confidence",
     # Per-field comparison snapshot for the CA rationale drawer.
     "compared_fields",
+    # IMS taxpayer action status overlaid from Sandbox IMS fetch.
+    "ims_status",
 )
 
 _DECISION_ROW_KEYS = (
