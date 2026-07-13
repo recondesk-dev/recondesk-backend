@@ -72,6 +72,9 @@ import {
   matchedThInvoice,
   matchedThMatchLevel,
   matchedThNotes,
+  matchedThIms,
+  matchedTdIms,
+  ImsStatusBadge,
   pageContentClass,
   ResultsBucketTabs,
   rule37BorderClass,
@@ -169,6 +172,7 @@ type ReconcileRow = {
   section_17_5_category?: string;
   match_confidence?: number | null;
   compared_fields?: ComparedField[] | null;
+  ims_status?: string | null;
 };
 
 /** Small pill showing L5/fuzzy invoice-similarity score. Only renders when match_confidence is present. */
@@ -638,6 +642,7 @@ function buildMatchedQuery(
     section_17_5: boolean;
     amount_min: string;
     amount_max: string;
+    ims_status: string;
     /** When true, forces review_required=true in the query (Review Required tab). */
     force_review_required?: boolean;
   }
@@ -654,6 +659,7 @@ function buildMatchedQuery(
   if (f.section_17_5) p.set("section_17_5", "true");
   if (f.amount_min.trim()) p.set("amount_min", f.amount_min.trim());
   if (f.amount_max.trim()) p.set("amount_max", f.amount_max.trim());
+  if (f.ims_status.trim()) p.set("ims_status", f.ims_status.trim());
   return p.toString();
 }
 
@@ -665,6 +671,7 @@ function hasActiveMatchedFilters(
     section_17_5: boolean;
     amount_min: string;
     amount_max: string;
+    ims_status: string;
   }
 ): boolean {
   return (
@@ -673,7 +680,8 @@ function hasActiveMatchedFilters(
     f.has_notes ||
     f.section_17_5 ||
     !!f.amount_min.trim() ||
-    !!f.amount_max.trim()
+    !!f.amount_max.trim() ||
+    !!f.ims_status.trim()
   );
 }
 
@@ -683,6 +691,7 @@ type ItcFiltersState = {
   supplier_gstin: string;
   date_from: string;
   date_to: string;
+  ims_status: string;
 };
 
 type RiskFiltersState = {
@@ -707,6 +716,7 @@ function buildItcListQueryString(
   if (f.supplier_gstin.trim()) p.set("supplier_gstin", f.supplier_gstin.trim());
   if (f.date_from.trim()) p.set("date_from", f.date_from.trim());
   if (f.date_to.trim()) p.set("date_to", f.date_to.trim());
+  if (f.ims_status.trim()) p.set("ims_status", f.ims_status.trim());
   return p.toString();
 }
 
@@ -718,6 +728,7 @@ function buildItcExportQueryString(sort: string, f: ItcFiltersState): string {
   if (f.supplier_gstin.trim()) p.set("supplier_gstin", f.supplier_gstin.trim());
   if (f.date_from.trim()) p.set("date_from", f.date_from.trim());
   if (f.date_to.trim()) p.set("date_to", f.date_to.trim());
+  if (f.ims_status.trim()) p.set("ims_status", f.ims_status.trim());
   return p.toString();
 }
 
@@ -942,6 +953,7 @@ export default function ReconcileResultsPage() {
     section_17_5: false,
     amount_min: "",
     amount_max: "",
+    ims_status: "",
   });
 
   const [reviewRequiredFilters, setReviewRequiredFilters] = useState({
@@ -950,6 +962,7 @@ export default function ReconcileResultsPage() {
     section_17_5: false,
     amount_min: "",
     amount_max: "",
+    ims_status: "",
   });
 
   useEffect(() => {
@@ -1041,6 +1054,7 @@ export default function ReconcileResultsPage() {
     supplier_gstin: "",
     date_from: "",
     date_to: "",
+    ims_status: "",
   });
   const [debouncedItcFilters, setDebouncedItcFilters] =
     useState<ItcFiltersState>(itcFilters);
@@ -2453,6 +2467,19 @@ export default function ReconcileResultsPage() {
                 />
                 <select
                   className={filterDropdownClass}
+                  value={itcFilters.ims_status}
+                  onChange={(e) =>
+                    setItcFilters((f) => ({ ...f, ims_status: e.target.value }))
+                  }
+                >
+                  <option value="">All IMS</option>
+                  <option value="accepted">IMS Accepted</option>
+                  <option value="rejected">IMS Rejected</option>
+                  <option value="pending">IMS Pending</option>
+                  <option value="no_action_taken">IMS No action</option>
+                </select>
+                <select
+                  className={filterDropdownClass}
                   value={itcSort}
                   onChange={(e) => setItcSort(e.target.value)}
                 >
@@ -2473,6 +2500,7 @@ export default function ReconcileResultsPage() {
                         supplier_gstin: "",
                         date_from: "",
                         date_to: "",
+                        ims_status: "",
                       });
                     }}
                   >
@@ -2571,7 +2599,7 @@ export default function ReconcileResultsPage() {
                 ) : (
                 <div className={decisionTableWrapClass}>
                   <table className={decisionTableClass}>
-                    <DecisionTableColGroup />
+                    <DecisionTableColGroup includeIms />
                     <thead className={tableHeadClass}>
                       <tr>
                         <th className={tableStickyCheckboxHeadClass}>
@@ -2610,6 +2638,7 @@ export default function ReconcileResultsPage() {
                         <th className={decisionTh("why")}>WHY</th>
                         <th className={decisionTh("next")}>NEXT</th>
                         <th className={decisionTh("status")}>Match Status</th>
+                        <th className={decisionTh("status")}>IMS</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2704,9 +2733,12 @@ export default function ReconcileResultsPage() {
                               )}
                             </div>
                           </td>
+                          <td className={decisionTd("status")}>
+                            <ImsStatusBadge status={row.ims_status} />
+                          </td>
                         </tr>
                         {rationaleExpandedId === row.id && (
-                          <ComparedFieldsAccordionRow row={row} colSpan={11} />
+                          <ComparedFieldsAccordionRow row={row} colSpan={12} />
                         )}
                         </Fragment>
                       ))}
@@ -3379,6 +3411,22 @@ export default function ReconcileResultsPage() {
                   }))
                 }
               />
+              <select
+                className={filterDropdownClass}
+                value={matchedFilters.ims_status}
+                onChange={(e) =>
+                  setMatchedFilters((f) => ({
+                    ...f,
+                    ims_status: e.target.value,
+                  }))
+                }
+              >
+                <option value="">All IMS</option>
+                <option value="accepted">IMS Accepted</option>
+                <option value="rejected">IMS Rejected</option>
+                <option value="pending">IMS Pending</option>
+                <option value="no_action_taken">IMS No action</option>
+              </select>
               <button
                 type="button"
                 className={`${filterToggleClass} ${
@@ -3426,6 +3474,7 @@ export default function ReconcileResultsPage() {
                       section_17_5: false,
                       amount_min: "",
                       amount_max: "",
+                      ims_status: "",
                     });
                     setMatchedPage(1);
                   }}
@@ -3503,6 +3552,7 @@ export default function ReconcileResultsPage() {
                         section_17_5: false,
                         amount_min: "",
                         amount_max: "",
+                        ims_status: "",
                       });
                       setMatchedPage(1);
                     }}
@@ -3531,6 +3581,7 @@ export default function ReconcileResultsPage() {
                         </div>
                       </th>
                       <th className={matchedThConfidence}>Confidence</th>
+                      <th className={matchedThIms}>IMS</th>
                       <th className={matchedThDiscrepancy}>Discrepancy</th>
                       <th className={matchedThNotes}>Notes</th>
                     </tr>
@@ -3609,6 +3660,9 @@ export default function ReconcileResultsPage() {
                           )}
                           %
                         </td>
+                        <td className={matchedTdIms}>
+                          <ImsStatusBadge status={row.ims_status} />
+                        </td>
                         <td className={matchedTdDiscrepancy}>
                           <HoverTextCell
                             text={taxDiff.display}
@@ -3627,7 +3681,7 @@ export default function ReconcileResultsPage() {
                         </td>
                       </tr>
                       {rationaleExpandedId === row.id && (
-                        <ComparedFieldsAccordionRow row={row} colSpan={8} />
+                        <ComparedFieldsAccordionRow row={row} colSpan={9} />
                       )}
                       </Fragment>
                     );
@@ -3859,6 +3913,7 @@ export default function ReconcileResultsPage() {
                       section_17_5: false,
                       amount_min: "",
                       amount_max: "",
+                      ims_status: "",
                     });
                     setReviewRequiredPage(1);
                   }}
@@ -3901,6 +3956,7 @@ export default function ReconcileResultsPage() {
                         section_17_5: false,
                         amount_min: "",
                         amount_max: "",
+                        ims_status: "",
                       });
                       setReviewRequiredPage(1);
                     }}

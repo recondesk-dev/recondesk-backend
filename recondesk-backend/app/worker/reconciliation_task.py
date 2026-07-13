@@ -43,6 +43,11 @@ from app.services.reconciliation_payload_store import (
 from uuid import UUID
 
 from app.services.carry_forward import update_invoice_tracking
+from app.services.ims_overlay import (
+    apply_ims_status_to_matcher_rows,
+    apply_ims_status_to_record_data,
+    try_fetch_ims_status_map_for_client,
+)
 from app.services.rule37_tracker import (
     build_payment_records_from_pr,
     check_rule_37_compliance,
@@ -736,6 +741,35 @@ def execute_reconciliation(run_id: str) -> None:
             len(gstr_matcher),
             n_pr,
         )
+
+        # Soft-fail IMS overlay: enrich matcher rows when GSTN session is live.
+        try:
+            period_y, period_m = _parse_period(period)
+            ims_map = try_fetch_ims_status_map_for_client(
+                client,
+                client_gstin_id,
+                year=period_y,
+                month=period_m,
+            )
+            if ims_map is not None:
+                hits = apply_ims_status_to_matcher_rows(gstr_matcher, ims_map)
+                apply_ims_status_to_record_data(gstr_raw_by_id, gstr_matcher)
+                _log.info(
+                    "IMS overlay applied run_id=%s hits=%d map_size=%d",
+                    run_id,
+                    hits,
+                    len(ims_map),
+                )
+            else:
+                for rec in gstr_matcher:
+                    rec.setdefault("ims_status", "no_action_taken")
+        except Exception as exc:
+            _log.warning(
+                "IMS overlay soft-fail run_id=%s err=%s", run_id, exc
+            )
+            for rec in gstr_matcher:
+                rec.setdefault("ims_status", "no_action_taken")
+
         _update_run(
             client,
             run_id,
@@ -1297,6 +1331,15 @@ def execute_reconciliation(run_id: str) -> None:
 
             valid_review_required.append(r)
 
+        # Finalize first so ims_status (and other finalize mutations) are on
+        # state lists before we slim + persist the results payload.
+        res_payload = _finalize_reconciliation_result(
+            state,
+            n_gstr,
+            n_pr,
+            pr_current,
+            gstr_matcher,
+        )
         payload = _json_safe(
             build_stored_results_payload(
                 matched=state.clean_matched,
@@ -1319,13 +1362,6 @@ def execute_reconciliation(run_id: str) -> None:
         )
         if isinstance(payload, str):
             payload = json.loads(payload)
-        res_payload = _finalize_reconciliation_result(
-            state,
-            n_gstr,
-            n_pr,
-            pr_current,
-            gstr_matcher,
-        )
         save_reconciliation_results(
             client,
             run_id,

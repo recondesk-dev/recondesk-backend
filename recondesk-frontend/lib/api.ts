@@ -368,6 +368,19 @@ export type GstnFetchGstr2bResult = {
   [key: string]: unknown;
 };
 
+/** IMS overlay summary from POST .../gstn/fetch-ims. */
+export type GstnFetchImsResult = {
+  gstin: string;
+  year: number;
+  month: number;
+  counts: Record<string, Record<string, number>>;
+  total_by_status: Record<string, number>;
+  status_counts: Record<string, number>;
+  invoices_fetched: number;
+  status_map_size: number;
+  pending_action_count: number;
+};
+
 export const gstnApi = {
   sendOtp: (
     token: string,
@@ -404,6 +417,20 @@ export const gstnApi = {
   ) =>
     apiFetch<GstnFetchGstr2bResult>(
       clientsApiPath(client_gstin_id, "gstn", "fetch"),
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
+  fetchIms: (
+    token: string,
+    client_gstin_id: string,
+    body: { year: string; month: string }
+  ) =>
+    apiFetch<GstnFetchImsResult>(
+      clientsApiPath(client_gstin_id, "gstn", "fetch-ims"),
       {
         method: "POST",
         body: JSON.stringify(body),
