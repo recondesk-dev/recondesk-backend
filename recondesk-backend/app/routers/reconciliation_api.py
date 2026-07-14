@@ -2835,6 +2835,42 @@ def _assert_record_ids_in_run(sb, rid: str, record_ids: list[str]) -> None:
         )
 
 
+def _row_supplier_name_sort_key(row: dict[str, Any]) -> str:
+    """Best-effort supplier display name for A–Z sorting."""
+    for key in ("trade_name", "supplier_name"):
+        v = row.get(key)
+        if v:
+            return str(v).strip().lower()
+    for blob_key in ("gstr2b_data", "purchase_register_data", "pr_data"):
+        blob = row.get(blob_key)
+        if not isinstance(blob, dict):
+            continue
+        for key in ("trade_name", "Trade Name", "supplier_name", "Supplier Name"):
+            v = blob.get(key)
+            if v:
+                return str(v).strip().lower()
+    return str(row.get("supplier_gstin") or "").lower()
+
+
+def _row_confidence_sort_value(row: dict[str, Any]) -> float:
+    """Lower values surface first for review (confidence_asc)."""
+    cs = row.get("confidence_score")
+    if cs is not None and cs != "":
+        try:
+            return float(cs)
+        except (TypeError, ValueError):
+            pass
+    mc = row.get("match_confidence")
+    if mc is not None and mc != "":
+        try:
+            v = float(mc)
+            # match_confidence is often 0–1; confidence_score is typically 0–100
+            return v * 100.0 if v <= 1.0 else v
+        except (TypeError, ValueError):
+            pass
+    return 0.0
+
+
 def _sort_reconcile_bucket_rows(rows: list[dict[str, Any]], sort: str) -> None:
     s = (sort or "amount_desc").strip().lower()
     if s == "amount_asc":
@@ -2843,15 +2879,30 @@ def _sort_reconcile_bucket_rows(rows: list[dict[str, Any]], sort: str) -> None:
         rows.sort(key=lambda x: (-float(x.get("amount") or 0), str(x.get("id"))))
     elif s == "supplier_name":
         rows.sort(
-            key=lambda x: (str(x.get("supplier_gstin") or "").lower(), str(x.get("id")))
+            key=lambda x: (_row_supplier_name_sort_key(x), str(x.get("id")))
         )
-    elif s == "invoice_date":
+    elif s in ("invoice_date", "invoice_date_desc"):
         rows.sort(
             key=lambda x: (
                 _row_invoice_date_value(x) or date.min,
                 str(x.get("id")),
             ),
             reverse=True,
+        )
+    elif s == "invoice_date_asc":
+        rows.sort(
+            key=lambda x: (
+                _row_invoice_date_value(x) or date.max,
+                str(x.get("id")),
+            )
+        )
+    elif s == "confidence_asc":
+        rows.sort(
+            key=lambda x: (_row_confidence_sort_value(x), str(x.get("id")))
+        )
+    elif s == "confidence_desc":
+        rows.sort(
+            key=lambda x: (-_row_confidence_sort_value(x), str(x.get("id")))
         )
     else:
         rows.sort(key=lambda x: (-float(x.get("amount") or 0), str(x.get("id"))))
@@ -4608,10 +4659,7 @@ async def reconcile_run_matched_bucket(
         ims_status_filter=ims_status,
     )
     extracted = [pair[0] for pair in filtered_pairs]
-    if sort.endswith("desc"):
-        extracted.sort(key=lambda x: (-x["amount"], x["id"]))
-    else:
-        extracted.sort(key=lambda x: (x["amount"], x["id"]))
+    _sort_reconcile_bucket_rows(extracted, sort)
     return _paginated_body(extracted, page, limit)
 
 

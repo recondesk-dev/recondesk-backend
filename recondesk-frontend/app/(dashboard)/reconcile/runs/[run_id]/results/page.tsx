@@ -40,6 +40,7 @@ import {
   filterAmountInputClass,
   filterDateInputClass,
   filterDropdownClass,
+  filterSortDropdownClass,
   filterGstinInputClass,
   filterInputClass,
   filterRowClass,
@@ -632,10 +633,73 @@ async function authJsonFetcher<T>([path, token]: FetcherKey): Promise<T> {
   return apiFetch<T>(path, { token });
 }
 
+/** Shared `?sort=` values for reconcile bucket APIs + client-side duplicate sort. */
+type ReconcileSortValue =
+  | "amount_desc"
+  | "amount_asc"
+  | "invoice_date_desc"
+  | "invoice_date_asc"
+  | "confidence_asc"
+  | "supplier_name";
+
+const RECONCILE_SORT_OPTIONS_BASE: { value: ReconcileSortValue; label: string }[] =
+  [
+    { value: "amount_desc", label: "Amount: High to Low" },
+    { value: "amount_asc", label: "Amount: Low to High" },
+    { value: "invoice_date_desc", label: "Date: Newest first" },
+    { value: "invoice_date_asc", label: "Date: Oldest first" },
+    { value: "supplier_name", label: "Supplier name: A–Z" },
+  ];
+
+const RECONCILE_SORT_OPTIONS_WITH_CONFIDENCE: {
+  value: ReconcileSortValue;
+  label: string;
+}[] = [
+  ...RECONCILE_SORT_OPTIONS_BASE.slice(0, 4),
+  { value: "confidence_asc", label: "Confidence: Low to High" },
+  ...RECONCILE_SORT_OPTIONS_BASE.slice(4),
+];
+
+function sortDuplicateEntryRows<
+  T extends {
+    id: string;
+    amount: number | null;
+    invoice_date: string | null;
+    supplier_gstin: string;
+    supplier_name?: string | null;
+  },
+>(rows: T[], sort: ReconcileSortValue): T[] {
+  const out = [...rows];
+  const idKey = (r: T) => String(r.id);
+  if (sort === "amount_asc") {
+    out.sort((a, b) => Math.abs(a.amount ?? 0) - Math.abs(b.amount ?? 0) || idKey(a).localeCompare(idKey(b)));
+  } else if (sort === "amount_desc") {
+    out.sort((a, b) => Math.abs(b.amount ?? 0) - Math.abs(a.amount ?? 0) || idKey(a).localeCompare(idKey(b)));
+  } else if (sort === "invoice_date_asc") {
+    out.sort((a, b) =>
+      String(a.invoice_date || "9999-12-31").localeCompare(String(b.invoice_date || "9999-12-31")) ||
+      idKey(a).localeCompare(idKey(b))
+    );
+  } else if (sort === "invoice_date_desc") {
+    out.sort((a, b) =>
+      String(b.invoice_date || "").localeCompare(String(a.invoice_date || "")) ||
+      idKey(a).localeCompare(idKey(b))
+    );
+  } else if (sort === "supplier_name") {
+    out.sort((a, b) => {
+      const an = String(a.supplier_name || a.supplier_gstin || "").toLowerCase();
+      const bn = String(b.supplier_name || b.supplier_gstin || "").toLowerCase();
+      return an.localeCompare(bn) || idKey(a).localeCompare(idKey(b));
+    });
+  }
+  return out;
+}
+
 function buildMatchedQuery(
   page: number,
   limit: number,
   search: string,
+  sort: string,
   f: {
     match_level: string;
     has_notes: boolean;
@@ -650,7 +714,7 @@ function buildMatchedQuery(
   const p = new URLSearchParams();
   p.set("page", String(page));
   p.set("limit", String(limit));
-  p.set("sort", "amount_desc");
+  p.set("sort", sort);
   const q = search.trim();
   if (q) p.set("search", q);
   if (f.match_level) p.set("match_level", f.match_level);
@@ -965,13 +1029,26 @@ export default function ReconcileResultsPage() {
     ims_status: "",
   });
 
+  /** Defaults: Matched → newest date; Review Required → lowest confidence first. */
+  const [matchedSort, setMatchedSort] =
+    useState<ReconcileSortValue>("invoice_date_desc");
+  const [reviewRequiredSort, setReviewRequiredSort] =
+    useState<ReconcileSortValue>("confidence_asc");
+  const [duplicateEntrySort, setDuplicateEntrySort] =
+    useState<ReconcileSortValue>("amount_desc");
+
   useEffect(() => {
     setMatchedPage(1);
-  }, [debouncedMatchedSearch, matchedFilters, matchedPageSize]);
+  }, [debouncedMatchedSearch, matchedFilters, matchedPageSize, matchedSort]);
 
   useEffect(() => {
     setReviewRequiredPage(1);
-  }, [debouncedReviewRequiredSearch, reviewRequiredFilters, reviewRequiredPageSize]);
+  }, [
+    debouncedReviewRequiredSearch,
+    reviewRequiredFilters,
+    reviewRequiredPageSize,
+    reviewRequiredSort,
+  ]);
 
   const handleTablePageSizeChange = useCallback(
     (
@@ -1063,7 +1140,7 @@ export default function ReconcileResultsPage() {
     return () => window.clearTimeout(h);
   }, [itcFilters]);
 
-  const [itcSort, setItcSort] = useState("amount_desc");
+  const [itcSort, setItcSort] = useState<ReconcileSortValue>("amount_desc");
 
   useEffect(() => {
     setItcPage(1);
@@ -1082,7 +1159,7 @@ export default function ReconcileResultsPage() {
     return () => window.clearTimeout(h);
   }, [riskFilters]);
 
-  const [riskSort, setRiskSort] = useState("amount_desc");
+  const [riskSort, setRiskSort] = useState<ReconcileSortValue>("amount_desc");
 
   useEffect(() => {
     setRiskPage(1);
@@ -1376,6 +1453,7 @@ export default function ReconcileResultsPage() {
     invoices: Array<{
       id: string;
       supplier_gstin: string;
+      supplier_name?: string | null;
       invoice_number: string;
       invoice_date: string | null;
       amount: number | null;
@@ -1386,6 +1464,15 @@ export default function ReconcileResultsPage() {
     }>;
     total: number;
   }>(duplicateEntryListKey, authJsonFetcher, { revalidateOnFocus: false });
+
+  const sortedDuplicateEntries = useMemo(
+    () =>
+      sortDuplicateEntryRows(
+        duplicateEntryData?.invoices ?? [],
+        duplicateEntrySort
+      ),
+    [duplicateEntryData?.invoices, duplicateEntrySort]
+  );
 
   const lateMatchesKey = useMemo(
     () =>
@@ -1416,9 +1503,10 @@ export default function ReconcileResultsPage() {
         matchedPage,
         matchedPageSize,
         debouncedMatchedSearch,
+        matchedSort,
         matchedFilters
       ),
-    [matchedPage, matchedPageSize, debouncedMatchedSearch, matchedFilters]
+    [matchedPage, matchedPageSize, debouncedMatchedSearch, matchedSort, matchedFilters]
   );
 
   const matchedKey = useMemo(
@@ -1456,9 +1544,16 @@ export default function ReconcileResultsPage() {
         reviewRequiredPage,
         reviewRequiredPageSize,
         debouncedReviewRequiredSearch,
+        reviewRequiredSort,
         { ...reviewRequiredFilters, force_review_required: true }
       ),
-    [reviewRequiredPage, reviewRequiredPageSize, debouncedReviewRequiredSearch, reviewRequiredFilters]
+    [
+      reviewRequiredPage,
+      reviewRequiredPageSize,
+      debouncedReviewRequiredSearch,
+      reviewRequiredSort,
+      reviewRequiredFilters,
+    ]
   );
 
   const reviewRequiredKey = useMemo(
@@ -2488,14 +2583,18 @@ export default function ReconcileResultsPage() {
                   <option value="no_action_taken">IMS No action</option>
                 </select>
                 <select
-                  className={filterDropdownClass}
+                  className={filterSortDropdownClass}
+                  aria-label="Sort by"
                   value={itcSort}
-                  onChange={(e) => setItcSort(e.target.value)}
+                  onChange={(e) =>
+                    setItcSort(e.target.value as ReconcileSortValue)
+                  }
                 >
-                  <option value="amount_desc">ITC Amount ↓</option>
-                  <option value="amount_asc">ITC Amount ↑</option>
-                  <option value="supplier_name">Supplier Name</option>
-                  <option value="invoice_date">Invoice Date</option>
+                  {RECONCILE_SORT_OPTIONS_BASE.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
                 {(hasActiveItcFilters(itcFilters) || !!docTypeFilterItc) && (
                   <button
@@ -2950,14 +3049,18 @@ export default function ReconcileResultsPage() {
                   <option value="low">Low</option>
                 </select>
                 <select
-                  className={filterDropdownClass}
+                  className={filterSortDropdownClass}
+                  aria-label="Sort by"
                   value={riskSort}
-                  onChange={(e) => setRiskSort(e.target.value)}
+                  onChange={(e) =>
+                    setRiskSort(e.target.value as ReconcileSortValue)
+                  }
                 >
-                  <option value="amount_desc">ITC at Risk ↓</option>
-                  <option value="amount_asc">ITC at Risk ↑</option>
-                  <option value="supplier_name">Supplier Name</option>
-                  <option value="invoice_date">Invoice Date</option>
+                  {RECONCILE_SORT_OPTIONS_BASE.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
                 {(hasActiveRiskFilters(riskFilters) || !!docTypeFilterRisk) && (
                   <button
@@ -3436,6 +3539,20 @@ export default function ReconcileResultsPage() {
                 <option value="pending">IMS Pending</option>
                 <option value="no_action_taken">IMS No action</option>
               </select>
+              <select
+                className={filterSortDropdownClass}
+                aria-label="Sort by"
+                value={matchedSort}
+                onChange={(e) =>
+                  setMatchedSort(e.target.value as ReconcileSortValue)
+                }
+              >
+                {RECONCILE_SORT_OPTIONS_WITH_CONFIDENCE.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
                 className={`${filterToggleClass} ${
@@ -3742,6 +3859,26 @@ export default function ReconcileResultsPage() {
               GSTR-2B. These are data-entry duplicates in your books — not missing
               from GSTR-2B, and not included in ITC at Risk.
             </p>
+            {(summary?.duplicate_entry_count ?? 0) > 0 && (
+              <div className={`${filterToolbarClass}`}>
+                <div className={filterRowClass}>
+                  <select
+                    className={filterSortDropdownClass}
+                    aria-label="Sort by"
+                    value={duplicateEntrySort}
+                    onChange={(e) =>
+                      setDuplicateEntrySort(e.target.value as ReconcileSortValue)
+                    }
+                  >
+                    {RECONCILE_SORT_OPTIONS_BASE.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
             {(summary?.duplicate_entry_count ?? 0) <= 0 ? (
               <p className="text-sm text-gray-500">No duplicate entries in this run.</p>
             ) : duplicateEntryLoading ? (
@@ -3768,7 +3905,7 @@ export default function ReconcileResultsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(duplicateEntryData?.invoices ?? []).map((row) => (
+                    {sortedDuplicateEntries.map((row) => (
                       <tr key={row.id} className="border-t border-[#EFEFF2]">
                         <td className="px-3 py-2 font-mono text-[12px]">
                           {row.supplier_gstin || "—"}
@@ -3870,6 +4007,20 @@ export default function ReconcileResultsPage() {
                   }))
                 }
               />
+              <select
+                className={filterSortDropdownClass}
+                aria-label="Sort by"
+                value={reviewRequiredSort}
+                onChange={(e) =>
+                  setReviewRequiredSort(e.target.value as ReconcileSortValue)
+                }
+              >
+                {RECONCILE_SORT_OPTIONS_WITH_CONFIDENCE.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
                 className={`${filterToggleClass} ${

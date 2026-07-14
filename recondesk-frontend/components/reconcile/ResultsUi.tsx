@@ -23,6 +23,9 @@ export const filterGstinInputClass = `${filterInputClass} min-w-[140px] max-w-fu
 
 export const filterDropdownClass = `${filterInputClass} w-[148px] shrink-0 appearance-none`;
 
+/** Wider pill select for “Sort by” labels like “Amount: High to Low”. */
+export const filterSortDropdownClass = `${filterInputClass} w-[200px] shrink-0 appearance-none`;
+
 export const filterToggleClass =
   "inline-flex h-9 items-center rounded-full px-3.5 text-[13px] font-medium transition-colors duration-150";
 
