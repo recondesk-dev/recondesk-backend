@@ -189,7 +189,7 @@ export function AdvancedExportPanel({
         aria-expanded={open}
       >
         <div>
-          <h2 className="text-[15px] font-semibold tracking-tight text-gray-900">
+          <h2 className="text-[15px] font-semibold tracking-tight text-[var(--ink)]">
             Advanced Export
           </h2>
           <p className="mt-0.5 text-[12px] text-gray-500">
@@ -204,7 +204,7 @@ export function AdvancedExportPanel({
       </button>
 
       {open && (
-        <div className={`${filterToolbarClass} mt-4 border-t border-[#EFEFF2] pt-4`}>
+        <div className={`${filterToolbarClass} mt-4 border-t border-[#F0F0F0] pt-4`}>
           <div className="space-y-3">
             <div>
               <p className="mb-1.5 text-[12px] font-medium text-gray-600">Status</p>
@@ -219,10 +219,10 @@ export function AdvancedExportPanel({
                         setStatuses((prev) => toggleValue(prev, opt.value));
                         setPreviewCount(null);
                       }}
-                      className={`inline-flex h-8 items-center rounded-lg border px-2.5 text-[12px] font-medium transition-colors ${
+                      className={`inline-flex h-8 items-center rounded-full px-3 text-[12px] font-medium transition-colors ${
                         active
-                          ? "border-brand/40 bg-brand/[0.06] text-brand"
-                          : "border-[#E8E8EC] bg-white text-gray-600 hover:bg-gray-50"
+                          ? "bg-[var(--ink)] text-white"
+                          : "bg-[#F5F5F6] text-gray-600 hover:bg-gray-200/70"
                       }`}
                     >
                       {opt.label}
@@ -249,10 +249,10 @@ export function AdvancedExportPanel({
                           setSelectedClients((prev) => toggleValue(prev, c.id));
                           setPreviewCount(null);
                         }}
-                        className={`inline-flex h-8 items-center rounded-lg border px-2.5 text-[12px] font-medium transition-colors ${
+                        className={`inline-flex h-8 items-center rounded-full px-3 text-[12px] font-medium transition-colors ${
                           active
-                            ? "border-brand/40 bg-brand/[0.06] text-brand"
-                            : "border-[#E8E8EC] bg-white text-gray-600 hover:bg-gray-50"
+                            ? "bg-[var(--ink)] text-white"
+                            : "bg-[#F5F5F6] text-gray-600 hover:bg-gray-200/70"
                         }`}
                       >
                         {c.name}
@@ -294,7 +294,7 @@ export function AdvancedExportPanel({
                     setItcCategories(selected);
                     setPreviewCount(null);
                   }}
-                  className={`${filterDropdownClass} h-auto min-h-[72px] w-full max-w-md py-1.5`}
+                  className={`${filterDropdownClass} h-auto min-h-[72px] w-full max-w-md rounded-2xl py-1.5`}
                 >
                   {(availableItc.length > 0
                     ? availableItc

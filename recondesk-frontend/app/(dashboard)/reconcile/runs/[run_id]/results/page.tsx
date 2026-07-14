@@ -198,7 +198,7 @@ function MatchConfidenceBadge({
       onClick={onClick}
       className={`inline-flex items-center whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${colorCls} ${
         interactive
-          ? "cursor-pointer hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+          ? "cursor-pointer hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-black/15"
           : "cursor-default"
       }`}
       title={
@@ -306,9 +306,9 @@ function WhyRationaleButton({
     <button
       type="button"
       onClick={onToggle}
-      className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
+      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-black/15 ${
         expanded
-          ? "bg-brand/10 text-brand"
+          ? "bg-[var(--ink)] text-white"
           : "text-gray-400 hover:bg-gray-100 hover:text-gray-700"
       }`}
       title={expanded ? "Hide match rationale" : "Why this decision?"}
@@ -406,14 +406,14 @@ function ConfidenceSummaryCard({ data }: { data: ConfidenceSummary }) {
   ] as const;
 
   return (
-    <div className="mt-4 rounded-xl border border-[#E8E8EC] bg-white px-4 py-3">
+    <div className="mt-4 rounded-[1.25rem] bg-[#F7F7F8] px-4 py-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-[12px] font-semibold text-gray-800">Match confidence</p>
+        <p className="text-[12px] font-semibold text-[var(--ink)]">Match confidence</p>
         <p className="text-[11px] tabular-nums text-gray-400">
           {total_invoices.toLocaleString("en-IN")} invoices
         </p>
       </div>
-      <div className="flex h-2 w-full overflow-hidden rounded-full bg-[#ECECF0]">
+      <div className="flex h-2 w-full overflow-hidden rounded-full bg-white">
         {segments.map((seg) =>
           seg.count > 0 ? (
             <div
@@ -429,7 +429,7 @@ function ConfidenceSummaryCard({ data }: { data: ConfidenceSummary }) {
         {segments.map((seg) => (
           <span
             key={seg.key}
-            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium tabular-nums ${seg.chipClass}`}
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium tabular-nums ${seg.chipClass}`}
           >
             <span className="font-semibold">{seg.count.toLocaleString("en-IN")}</span>
             {seg.label}
@@ -442,9 +442,9 @@ function ConfidenceSummaryCard({ data }: { data: ConfidenceSummary }) {
 
 /** Shared action button styles for results header / exports */
 const actionBtnBase =
-  "inline-flex h-9 items-center justify-center gap-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
-const exportToolbarBtn = `${actionBtnBase} rounded-lg border border-[#E8E8EC] bg-white px-3 text-gray-600 hover:bg-gray-50`;
-const deleteRunBtn = `${actionBtnBase} rounded-lg border border-[#E8E8EC] bg-white px-3.5 text-gray-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600`;
+  "inline-flex h-9 items-center justify-center gap-2 text-[13px] font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-50";
+const exportToolbarBtn = `${actionBtnBase} rounded-full bg-[#F5F5F6] px-4 text-gray-700 hover:bg-gray-200/70`;
+const deleteRunBtn = `${actionBtnBase} rounded-full bg-[#F5F5F6] px-4 text-gray-700 hover:bg-red-50 hover:text-red-600`;
 
 type Paginated<T> = {
   data: T[];
@@ -2077,9 +2077,9 @@ export default function ReconcileResultsPage() {
 
   if (isProcessing) {
     return (
-      <div className="box-border -mx-8 -mt-8 flex min-h-[60vh] flex-col items-center justify-center bg-white px-8">
-        <Loader2 className="mb-4 h-10 w-10 animate-spin text-[#7B5CFA]" />
-        <p className="text-base font-medium text-gray-900">
+      <div className="box-border -mx-8 -mt-8 flex min-h-[60vh] flex-col items-center justify-center px-8">
+        <Loader2 className="mb-4 h-10 w-10 animate-spin text-[var(--ink)]" />
+        <p className="text-base font-medium text-[var(--ink)]">
           {summary?.status_message?.trim() ||
             "Running reconciliation... This usually takes 20–40 seconds."}
         </p>
@@ -2089,7 +2089,7 @@ export default function ReconcileResultsPage() {
 
   if (isRunFailed && summary && !summaryError) {
     return (
-      <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden bg-white px-8 py-10">
+      <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden px-8 py-10">
         <SectionError
           message={runFailMsg}
           onRetry={() => void mutateSummary()}
@@ -2099,10 +2099,10 @@ export default function ReconcileResultsPage() {
   }
 
   return (
-    <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden bg-white pb-32">
+    <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden pb-32">
       <div
         ref={summaryRef}
-        className="sticky top-0 z-40 box-border w-full min-w-0 overflow-x-hidden border-b border-[#EFEFF2] bg-white/95 px-8 py-5 backdrop-blur-sm"
+        className="sticky top-0 z-40 box-border w-full min-w-0 overflow-x-hidden bg-[var(--bg)]/90 px-8 py-5 backdrop-blur-md"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
@@ -2125,8 +2125,10 @@ export default function ReconcileResultsPage() {
           <>
             <div className="flex w-full flex-wrap items-center justify-between gap-3">
               <div className="min-w-0 shrink">
-                <p className="text-[15px] font-semibold tracking-tight text-gray-900">{summary.period}</p>
-                <p className="mt-0.5 text-[12px] text-gray-500">
+                <p className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
+                  {summary.period}
+                </p>
+                <p className="mt-1 text-[13px] text-gray-500">
                   Assigned to:{" "}
                   {summary.assigned_to_name?.trim() ? (
                     summary.assigned_to_name
@@ -2137,7 +2139,7 @@ export default function ReconcileResultsPage() {
                 {isRunFinalized &&
                   summary.finalized_by_name &&
                   summary.finalized_at && (
-                    <span className="mt-2 inline-flex rounded-md bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
+                    <span className="mt-2 inline-flex rounded-full bg-[var(--ink)] px-2.5 py-0.5 text-[11px] font-medium text-white">
                       Finalized by {summary.finalized_by_name} on{" "}
                       {formatDate(summary.finalized_at)}
                     </span>
@@ -2146,7 +2148,7 @@ export default function ReconcileResultsPage() {
 
               <div className="flex shrink-0 items-center gap-2">
                 <div
-                  className="inline-flex items-center rounded-lg border border-[#E8E8EC] bg-white p-0.5"
+                  className="inline-flex items-center gap-2"
                   role="group"
                   aria-label="Export reports"
                 >
@@ -2186,7 +2188,7 @@ export default function ReconcileResultsPage() {
 
             {(summary.pr_skipped_count ?? 0) > 0 ? (
               <div
-                className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+                className="mt-3 rounded-[1.25rem] bg-amber-50 px-4 py-2.5 text-sm text-amber-950"
                 role="status"
               >
                 {summary.pr_skipped_detail?.trim() ||
@@ -2266,9 +2268,9 @@ export default function ReconcileResultsPage() {
               {/* Clean match rate bar */}
               <div className="flex w-full items-center gap-3">
                 <div className="min-w-0 flex-1 overflow-hidden">
-                  <div className="h-1 w-full overflow-hidden rounded-full bg-[#ECECF0]">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white">
                     <div
-                      className="h-1 max-w-full rounded-full bg-brand transition-all duration-150"
+                      className="h-1.5 max-w-full rounded-full bg-[var(--ink)] transition-all duration-150"
                       style={{ width: `${Math.min(100, Math.max(0, cleanPct))}%` }}
                     />
                   </div>
@@ -2280,9 +2282,9 @@ export default function ReconcileResultsPage() {
               {/* Total linked rate bar */}
               <div className="flex w-full items-center gap-3">
                 <div className="min-w-0 flex-1 overflow-hidden">
-                  <div className="h-1 w-full overflow-hidden rounded-full bg-[#ECECF0]">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white">
                     <div
-                      className="h-1 max-w-full rounded-full bg-[#7B5CFA] transition-all duration-150"
+                      className="h-1.5 max-w-full rounded-full bg-gray-400 transition-all duration-150"
                       style={{ width: `${Math.min(100, Math.max(0, linkedPct))}%` }}
                     />
                   </div>
@@ -2293,11 +2295,11 @@ export default function ReconcileResultsPage() {
               </div>
               {/* Combined label */}
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 rounded-md bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-brand">
+                <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ink)] px-2.5 py-0.5 text-[11px] font-medium text-white">
                   {cleanPct}% clean
                 </span>
                 <span className="text-[11px] text-gray-300">·</span>
-                <span className="inline-flex items-center gap-1 rounded-md bg-[#7B5CFA]/10 px-2 py-0.5 text-[11px] font-medium text-[#7B5CFA]">
+                <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-0.5 text-[11px] font-medium text-gray-600 shadow-sm">
                   {linkedPct}% linked
                 </span>
               </div>
@@ -2334,15 +2336,15 @@ export default function ReconcileResultsPage() {
               <button
                 type="button"
                 disabled={pdfDownloading || !summary}
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[#E8E8EC] bg-white px-3.5 text-[13px] font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-full bg-[var(--ink)] px-4 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void downloadPdfReport()}
               >
                 {pdfDownloading ? (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#7B5CFA]" />
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white" />
                 ) : (
-                  <FileText className="h-4 w-4 shrink-0 text-[#7B5CFA]" />
+                  <FileText className="h-4 w-4 shrink-0 text-white" />
                 )}
-                Download Reconciliation Report (PDF)
+                Download Report (PDF)
               </button>
             }
           />
@@ -2498,7 +2500,7 @@ export default function ReconcileResultsPage() {
                 {(hasActiveItcFilters(itcFilters) || !!docTypeFilterItc) && (
                   <button
                     type="button"
-                    className="h-9 text-[13px] font-medium text-brand hover:underline"
+                    className="h-9 text-[13px] font-medium text-[var(--ink)] hover:underline"
                     onClick={() => {
                       setDocTypeFilterItc("");
                       setItcFilters({
@@ -2589,7 +2591,7 @@ export default function ReconcileResultsPage() {
                     </button>
                     <button
                       type="button"
-                      className="text-[13px] font-medium text-brand hover:underline"
+                      className="text-[13px] font-medium text-[var(--ink)] hover:underline"
                       onClick={() =>
                         setSelectedIds((p) => ({ ...p, itc: new Set() }))
                       }
@@ -2723,7 +2725,7 @@ export default function ReconcileResultsPage() {
                           <td className={decisionTd("next")}>
                             <HoverTextCell
                               text={row.decision_next}
-                              displayClassName="text-[13px] font-medium text-brand"
+                              displayClassName="text-[13px] font-medium text-[var(--ink)]"
                             />
                           </td>
                           <td className={decisionTd("status")}>
@@ -2887,7 +2889,7 @@ export default function ReconcileResultsPage() {
                     <div className="mt-3 text-right">
                       <Link
                         href={`/reconcile/runs/${runId}/vendors`}
-                        className="text-[13px] font-medium text-brand hover:underline"
+                        className="text-[13px] font-medium text-[var(--ink)] hover:underline"
                       >
                         View full vendor intelligence →
                       </Link>
@@ -2960,7 +2962,7 @@ export default function ReconcileResultsPage() {
                 {(hasActiveRiskFilters(riskFilters) || !!docTypeFilterRisk) && (
                   <button
                     type="button"
-                    className="h-9 text-[13px] font-medium text-brand hover:underline"
+                    className="h-9 text-[13px] font-medium text-[var(--ink)] hover:underline"
                     onClick={() => {
                       setDocTypeFilterRisk("");
                       setRiskFilters({
@@ -3039,7 +3041,7 @@ export default function ReconcileResultsPage() {
                           ? "Select invoices from one supplier only"
                           : undefined
                       }
-                      className="rounded-lg border border-brand/30 bg-brand/5 px-3 py-1.5 text-[13px] font-medium text-brand hover:bg-brand/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-full bg-[#F5F5F6] px-3 py-1.5 text-[13px] font-medium text-[var(--ink)] hover:bg-gray-200/70 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => tryOpenBulkFollowup()}
                     >
                       Generate follow-up letter
@@ -3068,7 +3070,7 @@ export default function ReconcileResultsPage() {
                     </button>
                     <button
                       type="button"
-                      className="text-[13px] font-medium text-brand hover:underline"
+                      className="text-[13px] font-medium text-[var(--ink)] hover:underline"
                       onClick={() =>
                         setSelectedIds((p) => ({ ...p, risk: new Set() }))
                       }
@@ -3208,7 +3210,7 @@ export default function ReconcileResultsPage() {
                           <td className={decisionTd("next")}>
                             <HoverTextCell
                               text={row.decision_next}
-                              displayClassName="text-[13px] font-medium text-brand"
+                              displayClassName="text-[13px] font-medium text-[var(--ink)]"
                             />
                           </td>
                           <td className={decisionTd("status")}>
@@ -3229,7 +3231,7 @@ export default function ReconcileResultsPage() {
                             <button
                               type="button"
                               disabled={isRunFinalized || !authToken}
-                              className="max-w-full rounded-lg border border-[#E5E7EB] bg-white px-2 py-1.5 text-[10px] font-medium leading-tight text-brand hover:bg-brand/5 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="max-w-full rounded-lg border border-[#E5E7EB] bg-white px-2 py-1.5 text-[10px] font-medium leading-tight text-[var(--ink)] hover:bg-[#F5F5F6] disabled:cursor-not-allowed disabled:opacity-50"
                               onClick={() => openFollowupLetter([row])}
                             >
                               Generate follow-up letter
@@ -3470,7 +3472,7 @@ export default function ReconcileResultsPage() {
               {(hasActiveMatchedFilters(debouncedMatchedSearch, matchedFilters) || !!docTypeFilterMatched) && (
                 <button
                   type="button"
-                  className="h-9 text-[13px] font-medium text-brand hover:underline"
+                  className="h-9 text-[13px] font-medium text-[var(--ink)] hover:underline"
                   onClick={() => {
                     setMatchedSearch("");
                     setDebouncedMatchedSearch("");
@@ -3909,7 +3911,7 @@ export default function ReconcileResultsPage() {
                 !!docTypeFilterReviewRequired) && (
                 <button
                   type="button"
-                  className="h-9 text-[13px] font-medium text-brand hover:underline"
+                  className="h-9 text-[13px] font-medium text-[var(--ink)] hover:underline"
                   onClick={() => {
                     setReviewRequiredSearch("");
                     setDebouncedReviewRequiredSearch("");
@@ -4105,7 +4107,7 @@ export default function ReconcileResultsPage() {
                         <td className={matchedTdGuidanceNext}>
                           <HoverTextCell
                             text={row.decision_next}
-                            displayClassName="text-[13px] font-medium text-brand"
+                            displayClassName="text-[13px] font-medium text-[var(--ink)]"
                           />
                         </td>
                         <td className={matchedTdNotes}>
@@ -4259,7 +4261,7 @@ export default function ReconcileResultsPage() {
                       <p className="mt-1 text-[13px] text-gray-400">
                         {row.decision_why ?? "—"}
                       </p>
-                      <p className="mt-2 text-[13px] font-medium text-brand">
+                      <p className="mt-2 text-[13px] font-medium text-[var(--ink)]">
                         {row.decision_next ?? "—"}
                       </p>
                       <DecisionDiagnosticsBlock row={row} />
@@ -4419,7 +4421,7 @@ export default function ReconcileResultsPage() {
                     <p className="mt-1 text-[13px] text-gray-400">
                       {row.decision_why ?? "—"}
                     </p>
-                    <p className="mt-2 text-[13px] font-medium text-brand">
+                    <p className="mt-2 text-[13px] font-medium text-[var(--ink)]">
                       {row.decision_next ?? "—"}
                     </p>
                     <DecisionDiagnosticsBlock row={row} />
@@ -4549,7 +4551,7 @@ export default function ReconcileResultsPage() {
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
                   WHAT TO DO NEXT
                 </p>
-                <p className="mb-3 text-[13px] font-medium text-brand">
+                <p className="mb-3 text-[13px] font-medium text-[var(--ink)]">
                   {activeRecord.decision_next ?? "—"}
                 </p>
                 <DecisionDiagnosticsBlock row={activeRecord} />
@@ -4665,12 +4667,12 @@ export default function ReconcileResultsPage() {
 
       {/* Finalize bar */}
       {finalizeBarVisible && (
-        <div className="fixed bottom-0 left-[240px] right-0 z-40 border-t border-[#EFEFF2] bg-white/95 px-6 py-3.5 backdrop-blur-sm">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
-            <div className="flex min-w-0 items-start gap-2.5 rounded-lg border border-[#EFEFF2] bg-[#FAFAFB] px-3.5 py-2.5">
+        <div className="fixed bottom-3 left-[256px] right-3 z-40">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 rounded-[1.5rem] bg-white/95 px-5 py-3.5 shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04] backdrop-blur-xl">
+            <div className="flex min-w-0 items-start gap-2.5 rounded-2xl bg-[#F7F7F8] px-3.5 py-2.5">
               <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden />
               <div className="min-w-0">
-                <p className="text-[12px] font-medium text-gray-700">
+                <p className="text-[12px] font-medium text-[var(--ink)]">
                   Checklist before finalize
                 </p>
                 <p className="mt-0.5 text-[11px] leading-snug text-gray-500">
@@ -4680,7 +4682,7 @@ export default function ReconcileResultsPage() {
             </div>
             <button
               type="button"
-              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-brand-hover"
+              className="inline-flex shrink-0 items-center gap-2 rounded-full bg-[var(--ink)] px-5 py-2.5 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
               onClick={() => setFinalizeModalOpen(true)}
             >
               Finalize Reconciliation
@@ -4690,10 +4692,12 @@ export default function ReconcileResultsPage() {
       )}
 
       {staffFinalizeMessageVisible && (
-        <div className="fixed bottom-0 left-[240px] right-0 z-40 border-t border-[#EFEFF2] bg-white/95 px-6 py-4 backdrop-blur-sm flex items-center justify-center">
-          <p className="text-center text-[13px] text-gray-500">
-            Only your CA principal (admin) can finalize this reconciliation.
-          </p>
+        <div className="fixed bottom-3 left-[256px] right-3 z-40">
+          <div className="flex items-center justify-center rounded-[1.5rem] bg-white/95 px-6 py-4 shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04] backdrop-blur-xl">
+            <p className="text-center text-[13px] text-gray-500">
+              Only your CA principal (admin) can finalize this reconciliation.
+            </p>
+          </div>
         </div>
       )}
 
@@ -4817,9 +4821,9 @@ export default function ReconcileResultsPage() {
                     className="flex w-full cursor-pointer items-start gap-3 rounded text-left disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span
-                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 ${
+                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
                         checked
-                          ? "border-brand bg-brand text-white"
+                          ? "border-[var(--ink)] bg-[var(--ink)] text-white"
                           : "border-gray-300 bg-white"
                       }`}
                       aria-hidden
@@ -4851,7 +4855,7 @@ export default function ReconcileResultsPage() {
                   </p>
                   <div className="mt-1 h-1.5 w-full rounded-full bg-[#F0F0F0]">
                     <div
-                      className="h-1.5 rounded-full bg-brand transition-all duration-150"
+                      className="h-1.5 rounded-full bg-[var(--ink)] transition-all duration-150"
                       style={{ width: `${(n / 5) * 100}%` }}
                     />
                   </div>
@@ -4863,7 +4867,7 @@ export default function ReconcileResultsPage() {
               <button
                 type="button"
                 disabled={finalizing}
-                className="min-h-[44px] rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-[44px] rounded-full bg-[#F5F5F6] px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200/70 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={closeFinalizeModal}
               >
                 Cancel
@@ -4874,7 +4878,7 @@ export default function ReconcileResultsPage() {
                   finalizing ||
                   Object.values(checklist).filter(Boolean).length !== 5
                 }
-                className="inline-flex items-center gap-2 rounded-2xl bg-brand px-6 py-3 text-sm font-semibold text-white shadow-md shadow-brand/20 transition-all duration-150 hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-full bg-[var(--ink)] px-6 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void submitFinalize()}
               >
                 {finalizing && (
