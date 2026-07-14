@@ -457,7 +457,7 @@ export default function DashboardShellLayout({
       </aside>
 
       <div className="ml-[256px] flex min-h-screen min-w-0 w-[calc(100%-256px)] max-w-[calc(100%-256px)] flex-1 flex-col overflow-x-hidden">
-        <header className="flex h-16 shrink-0 items-center justify-between px-8 pt-2">
+        <header className="relative z-40 flex h-16 shrink-0 items-center justify-between px-8 pt-2">
           <div />
           <div className="flex items-center gap-3">
             <button
@@ -471,7 +471,7 @@ export default function DashboardShellLayout({
                 <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[var(--danger)] ring-2 ring-white" />
               )}
             </button>
-            <div className="relative" ref={headerProfileRef}>
+            <div className="relative z-50" ref={headerProfileRef}>
               <button
                 type="button"
                 className="flex items-center rounded-full bg-white p-1 shadow-[var(--shadow-soft)] transition-all hover:ring-2 hover:ring-black/10"
@@ -484,7 +484,7 @@ export default function DashboardShellLayout({
               </button>
               {headerProfileOpen && (
                 <div
-                  className="absolute right-0 top-full mt-2 w-64 overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04]"
+                  className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04]"
                   role="menu"
                 >
                   {/* ── User info header ── */}
