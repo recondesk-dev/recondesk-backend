@@ -47,33 +47,30 @@ const pricingFaq = [
 
 type PlanCardProps = {
   name: string;
-  /** Main price string, e.g. "₹499" */
-  price: string;
+  /** Main price string, e.g. "₹499". Empty keeps the price area blank. */
+  price?: string;
   bullets: string[];
   highlight?: boolean;
-  badge?: string;
   cta: string;
   href: string;
 };
 
-function PlanCard({ name, price, bullets, highlight = false, badge, cta, href }: PlanCardProps) {
+function PlanCard({ name, price, bullets, highlight = false, cta, href }: PlanCardProps) {
   return (
     <div
       className={`relative z-10 flex flex-col rounded-[1.5rem] bg-white p-6 transition duration-300 ${
         highlight ? "shadow-[var(--shadow-lift)]" : "shadow-[var(--shadow-soft)]"
       }`}
     >
-      {badge ? (
-        <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-[var(--ink)] px-3 py-0.5 text-xs font-semibold text-white">
-          {badge}
-        </span>
-      ) : null}
-
       <h2 className="text-lg font-semibold text-[var(--ink)]">{name}</h2>
 
-      <p className="mt-2 font-mono text-3xl font-bold tracking-tight text-[var(--ink)]">
-        {price}
-        <span className="ml-1.5 text-base font-normal text-gray-400">+ GST</span>
+      <p className="mt-2 min-h-[2.25rem] font-mono text-3xl font-bold tracking-tight text-[var(--ink)]">
+        {price ? (
+          <>
+            {price}
+            <span className="ml-1.5 text-base font-normal text-gray-400">+ GST</span>
+          </>
+        ) : null}
       </p>
 
       <ul className="mt-4 flex-1 space-y-2 text-sm text-gray-600">
@@ -108,7 +105,7 @@ function EnterpriseCard() {
     <div className="lg:col-span-2 flex flex-col gap-6 rounded-[1.5rem] bg-white p-6 shadow-[var(--shadow-soft)] sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
       <div className="flex min-w-0 flex-1 flex-col">
         <h2 className="text-lg font-semibold text-[var(--ink)]">Enterprise</h2>
-        <p className="mt-2 font-mono text-3xl font-bold tracking-tight text-[var(--ink)]">Custom pricing</p>
+        <p className="mt-2 min-h-[2.25rem] font-mono text-3xl font-bold tracking-tight text-[var(--ink)]" />
         <ul className="mt-4 space-y-2 text-sm text-gray-600">
           {bullets.map((line) => (
             <li key={line}>• {line}</li>
@@ -192,33 +189,26 @@ export default function PricingPage() {
           <div key="solo" className="pricing-tier-enter grid gap-6 lg:grid-cols-4">
             <PlanCard
               name="Starter"
-              price="₹499"
-              bullets={["1 run/month", "₹499/run", "Runs expire monthly — no carry over"]}
+              bullets={["1 run/month", "Runs expire monthly — no carry over"]}
               href="/auth/signup"
               cta="Start Free"
             />
             <PlanCard
               name="Growth"
-              price="₹1,699"
-              bullets={["5 runs/month", "₹340/run", "Runs expire monthly — no carry over"]}
+              bullets={["5 runs/month", "Runs expire monthly — no carry over"]}
               highlight
-              badge="Most Popular"
               href="/auth/signup"
               cta="Start Free"
             />
             <PlanCard
               name="Pro"
-              price="₹3,699"
-              bullets={["12 runs/month", "₹308/run", "Runs expire monthly — no carry over"]}
-              badge="Best Value"
+              bullets={["12 runs/month", "Runs expire monthly — no carry over"]}
               href="/auth/signup"
               cta="Start Free"
             />
             <PlanCard
               name="Scale"
-              price="₹5,699"
-              bullets={["30 runs/month", "₹190/run", "Runs expire monthly — no carry over"]}
-              badge="Founder's Offer"
+              bullets={["30 runs/month", "Runs expire monthly — no carry over"]}
               href="/auth/signup"
               cta="Start Free"
             />
@@ -227,26 +217,20 @@ export default function PricingPage() {
           <div key="firm" className="pricing-tier-enter grid gap-6 lg:grid-cols-2">
             <PlanCard
               name="Growth Firm"
-              price="₹8,699"
               bullets={[
                 "50 runs/month",
-                "₹174/run",
                 "Unused runs carry over for up to 2 months",
               ]}
               highlight
-              badge="Most Popular"
               href="/auth/signup"
               cta="Start Free"
             />
             <PlanCard
               name="Scale Firm"
-              price="₹14,699"
               bullets={[
                 "100 runs/month",
-                "₹147/run",
                 "Unused runs carry over for up to 2 months",
               ]}
-              badge="Best Value"
               href="/auth/signup"
               cta="Start Free"
             />
@@ -255,9 +239,6 @@ export default function PricingPage() {
         )}
       </div>
 
-      <p className="mx-auto mt-6 max-w-6xl text-xs text-gray-500">
-        All prices exclude GST. 18% GST applicable.
-      </p>
 
       <div className="mx-auto mt-16 max-w-3xl rounded-[1.5rem] bg-white p-6 shadow-[var(--shadow-soft)] sm:p-8">
         <h2 className="text-center text-lg font-semibold text-[var(--ink)]">Included in every plan</h2>
