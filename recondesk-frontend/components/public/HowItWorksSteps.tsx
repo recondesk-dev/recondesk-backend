@@ -3,8 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ClipboardList, GitMerge, Upload } from "lucide-react";
 
-import { formatInrFull } from "@/lib/format";
-
 const STEPS = [
   {
     key: "upload",
@@ -26,13 +24,156 @@ const STEPS = [
   },
 ] as const;
 
-function InrFromFormat({ value }: { value: number }) {
-  const formatted = formatInrFull(value);
+const RESULT_STATS = [
+  {
+    label: "Matched",
+    value: "4,457",
+    sub: "Clean matched",
+    valueClass: "text-[var(--ink)]",
+    dotClass: "bg-[var(--ink)]",
+  },
+  {
+    label: "Review Required",
+    value: "396",
+    sub: "Needs verification",
+    valueClass: "text-[var(--ink)]",
+    dotClass: "bg-amber-500",
+  },
+  {
+    label: "Missed ITC",
+    value: "₹43.73L",
+    sub: "Still recoverable",
+    valueClass: "text-red-700",
+    dotClass: "bg-red-500",
+  },
+  {
+    label: "ITC at Risk",
+    value: "₹14.93L",
+    sub: "Compliance risk",
+    valueClass: "text-amber-800",
+    dotClass: "bg-amber-500",
+  },
+] as const;
+
+const RESULT_TABS = [
+  { label: "Matched", count: "4,457", active: true },
+  { label: "Review Required", count: "396", active: false },
+  { label: "Missed ITC", count: "147", active: false },
+  { label: "ITC at Risk", count: "124", active: false },
+] as const;
+
+function ResultsPagePreview({ clear }: { clear: boolean }) {
   return (
-    <span>
-      <span className="font-sans">{formatted.charAt(0)}</span>
-      <span className="font-mono">{formatted.slice(1)}</span>
-    </span>
+    <div
+      className={`how-works-results mx-auto mt-10 max-w-4xl transition-all duration-700 ease-out sm:mt-14 ${
+        clear
+          ? "translate-y-0 scale-100 opacity-100 blur-0"
+          : "translate-y-2 scale-[0.985] opacity-[0.28] blur-[1.5px]"
+      }`}
+      aria-hidden
+    >
+      <div className="overflow-hidden rounded-[1.75rem] bg-white shadow-[var(--shadow-lift)] ring-1 ring-[#F0F0F0]">
+        {/* Fake chrome */}
+        <div className="flex items-center gap-2 border-b border-[#F0F0F0] px-4 py-3">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#E5E5E5]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#E5E5E5]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#E5E5E5]" />
+          <span className="ml-3 truncate rounded-full bg-[#F5F5F6] px-3 py-1 text-[11px] font-medium text-gray-400">
+            app.recondesk.in / reconcile / results
+          </span>
+        </div>
+
+        <div className="bg-[var(--bg)] p-4 sm:p-5">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <p className="text-lg font-semibold tracking-tight text-[var(--ink)]">2026-03</p>
+              <p className="mt-0.5 text-[11px] text-gray-500">Assigned to: Your team</p>
+            </div>
+            <span className="rounded-full bg-[#F5F5F6] px-3 py-1.5 text-[11px] font-semibold text-gray-600">
+              Sample result
+            </span>
+          </div>
+
+          {/* Result summary cards — mirrors real results page */}
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {RESULT_STATS.map((stat, i) => (
+              <div
+                key={stat.label}
+                className={`rounded-[1.15rem] bg-white p-3.5 shadow-[var(--shadow-soft)] ${
+                  clear ? "how-works-metric" : ""
+                }`}
+                style={clear ? { animationDelay: `${i * 0.08}s` } : undefined}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                    {stat.label}
+                  </p>
+                  <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${stat.dotClass}`} />
+                </div>
+                <p
+                  className={`mt-2 font-sans text-xl font-semibold tracking-tight sm:text-2xl ${stat.valueClass}`}
+                >
+                  {stat.value}
+                </p>
+                <p className="mt-1 text-[11px] text-gray-500">{stat.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Bucket tabs */}
+          <div className="mt-4 flex gap-1.5 overflow-hidden">
+            {RESULT_TABS.map((tab) => (
+              <span
+                key={tab.label}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${
+                  tab.active
+                    ? "bg-[var(--ink)] text-white"
+                    : "bg-white text-gray-500 shadow-[var(--shadow-soft)]"
+                }`}
+              >
+                {tab.label}
+                <span className={tab.active ? "text-white/70" : "text-gray-400"}>{tab.count}</span>
+              </span>
+            ))}
+          </div>
+
+          {/* Mini table hint */}
+          <div className="mt-3 overflow-hidden rounded-[1.15rem] bg-white shadow-[var(--shadow-soft)]">
+            <div className="grid grid-cols-4 gap-2 border-b border-[#F0F0F0] px-3 py-2 text-[9px] font-semibold uppercase tracking-widest text-gray-400">
+              <span>Supplier</span>
+              <span>Invoice#</span>
+              <span>Amount</span>
+              <span>Status</span>
+            </div>
+            {[
+              ["27AABCU…", "INV-2041", "₹23,644", "Matched"],
+              ["33BWYCM…", "BILL-912", "₹8,290", "Matched"],
+              ["19EYICC…", "PO-1743", "₹1.4L", "Matched"],
+            ].map((row) => (
+              <div
+                key={row[1]}
+                className="grid grid-cols-4 gap-2 border-b border-[#F7F7F8] px-3 py-2.5 text-[11px] last:border-0"
+              >
+                <span className="truncate font-mono text-gray-500">{row[0]}</span>
+                <span className="truncate font-medium text-[var(--ink)]">{row[1]}</span>
+                <span className="tabular-nums text-gray-700">{row[2]}</span>
+                <span className="text-emerald-700">{row[3]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <p
+        className={`mt-3 text-center text-xs transition-opacity duration-500 ${
+          clear ? "text-gray-500 opacity-100" : "text-gray-400 opacity-60"
+        }`}
+      >
+        {clear
+          ? "Decide with a clear results view — matched, review, missed ITC, and risk."
+          : "Results stay soft until matching finishes…"}
+      </p>
+    </div>
   );
 }
 
@@ -67,12 +208,12 @@ export function HowItWorksSteps() {
     if (!inView || reduceMotion) return;
     const id = window.setInterval(() => {
       setActiveStep((prev) => (prev + 1) % STEPS.length);
-    }, 2200);
+    }, 2400);
     return () => window.clearInterval(id);
   }, [inView, reduceMotion]);
 
   const progress = reduceMotion || !inView ? 1 : activeStep / (STEPS.length - 1);
-  const showSummary = reduceMotion || !inView || activeStep === STEPS.length - 1;
+  const resultsClear = reduceMotion || !inView || activeStep === STEPS.length - 1;
 
   return (
     <div ref={rootRef} className={inView ? "how-works-inview" : ""}>
@@ -81,7 +222,6 @@ export function HowItWorksSteps() {
       </h2>
 
       <div className="relative mt-12">
-        {/* Connector line (desktop) */}
         <div
           className="pointer-events-none absolute left-[16.666%] right-[16.666%] top-[28px] hidden h-[2px] bg-[#E8E8EA] md:block"
           aria-hidden
@@ -148,39 +288,7 @@ export function HowItWorksSteps() {
         </ol>
       </div>
 
-      {/* Sample run summary */}
-      <div
-        className={`landing-card mx-auto mt-10 max-w-lg rounded-[1.5rem] bg-white p-5 text-center transition-all duration-500 sm:mt-14 sm:p-6 ${
-          showSummary
-            ? "translate-y-0 opacity-100"
-            : "pointer-events-none translate-y-3 opacity-40"
-        }`}
-      >
-        <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Sample run summary</p>
-        <div className="mt-4 grid grid-cols-3 gap-3 sm:flex sm:flex-wrap sm:items-start sm:justify-center sm:gap-12">
-          <div className={showSummary && !reduceMotion ? "how-works-metric" : ""}>
-            <p className="text-xs text-gray-500">ITC at Risk</p>
-            <p className="mt-1 text-lg font-semibold text-amber-600">
-              <InrFromFormat value={124500} />
-            </p>
-          </div>
-          <div
-            className={showSummary && !reduceMotion ? "how-works-metric" : ""}
-            style={{ animationDelay: "0.1s" }}
-          >
-            <p className="text-xs text-gray-500">Matched</p>
-            <p className="mt-1 font-mono text-lg font-semibold text-emerald-600">847</p>
-            <p className="text-[10px] text-gray-400">invoices</p>
-          </div>
-          <div
-            className={showSummary && !reduceMotion ? "how-works-metric" : ""}
-            style={{ animationDelay: "0.2s" }}
-          >
-            <p className="text-xs text-gray-500">Mismatches</p>
-            <p className="mt-1 font-mono text-lg font-semibold text-[var(--ink)]">23</p>
-          </div>
-        </div>
-      </div>
+      <ResultsPagePreview clear={resultsClear} />
     </div>
   );
 }
