@@ -590,71 +590,95 @@ export default function DashboardShellLayout({
             aria-label="Close notifications"
             onClick={() => setPanelOpen(false)}
           />
-          <div className="fixed inset-y-3 right-3 z-[90] flex w-full max-w-md flex-col overflow-hidden rounded-[1.75rem] bg-white shadow-[var(--shadow-lift)]">
-            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-              <h2 className="text-base font-semibold text-gray-900">Failed reconciliations</h2>
+          <div className="fixed inset-y-3 right-3 z-[90] flex w-full max-w-md flex-col overflow-hidden rounded-[1.75rem] bg-white shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04]">
+            <div className="flex items-center justify-between px-5 pb-3 pt-5">
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
+                  Failed reconciliations
+                </h2>
+                {failedCount > 0 && (
+                  <p className="mt-0.5 text-sm text-gray-500">
+                    {failedCount} run{failedCount === 1 ? "" : "s"} need a retry
+                  </p>
+                )}
+              </div>
               <button
                 type="button"
-                className="rounded-xl p-1.5 text-gray-400 hover:bg-gray-50 transition-colors"
+                className="rounded-full bg-[#F5F5F6] p-2 text-gray-500 transition-colors hover:bg-gray-200/70 hover:text-[var(--ink)]"
                 onClick={() => setPanelOpen(false)}
                 aria-label="Close"
               >
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto px-4 pb-5">
               {failuresLoading && (
-                <p className="text-sm text-gray-400">Loading failed runs…</p>
+                <div className="space-y-2.5">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-24 animate-pulse rounded-2xl bg-[#F7F7F8]" />
+                  ))}
+                </div>
               )}
               {failuresError && (
-                <p className="text-sm text-red-500">
+                <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800">
                   Could not load failures.{" "}
                   <button
                     type="button"
-                    className="font-semibold underline"
+                    className="font-semibold text-[var(--ink)] underline"
                     onClick={() => void mutateFailures()}
                   >
                     Retry
                   </button>
-                </p>
+                </div>
               )}
               {!failuresLoading &&
                 !failuresError &&
                 failures &&
                 failures.items.length === 0 && (
-                  <p className="text-sm text-gray-400">No failed runs.</p>
+                  <div className="rounded-2xl bg-[#F7F7F8] px-4 py-10 text-center">
+                    <p className="text-sm font-medium text-[var(--ink)]">No failed runs</p>
+                    <p className="mt-1 text-xs text-gray-400">You’re all clear for now</p>
+                  </div>
                 )}
-              <ul className="space-y-3">
+              <ul className="space-y-2.5">
                 {failures?.items.map((item) => (
                   <li
                     key={item.runId}
-                    className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm"
+                    className="rounded-2xl bg-[#F7F7F8] px-4 py-3.5"
                   >
-                    <p className="font-medium text-gray-900">{item.tradeName}</p>
-                    <p className="text-xs text-gray-400">{item.period}</p>
-                    <p className="mt-1 line-clamp-2 text-xs text-red-500">{item.errorSnippet}</p>
-                    <button
-                      type="button"
-                      className="mt-2 text-sm font-semibold text-brand hover:underline"
-                      onClick={() => {
-                        if (typeof accessToken !== "string") return;
-                        void (async () => {
-                          try {
-                            await reconcileRunsApi.retryFailed(accessToken, item.runId);
-                            toast("Retry queued", "success");
-                            await mutateFailures();
-                            await invalidateDw();
-                            setPanelOpen(false);
-                          } catch (e: unknown) {
-                            toast(isApiError(e) ? e.detail : "Retry failed", "error");
-                          }
-                        })();
-                      }}
-                    >
-                      Retry
-                    </button>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-[var(--ink)]">
+                          {item.tradeName}
+                        </p>
+                        <p className="mt-0.5 text-xs text-gray-400">{item.period}</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                        onClick={() => {
+                          if (typeof accessToken !== "string") return;
+                          void (async () => {
+                            try {
+                              await reconcileRunsApi.retryFailed(accessToken, item.runId);
+                              toast("Retry queued", "success");
+                              await mutateFailures();
+                              await invalidateDw();
+                              setPanelOpen(false);
+                            } catch (e: unknown) {
+                              toast(isApiError(e) ? e.detail : "Retry failed", "error");
+                            }
+                          })();
+                        }}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-red-600">
+                      {item.errorSnippet}
+                    </p>
                   </li>
                 ))}
               </ul>
