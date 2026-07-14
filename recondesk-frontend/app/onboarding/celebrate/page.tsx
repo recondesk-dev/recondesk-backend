@@ -7,7 +7,8 @@ import useSWR from "swr";
 
 import { isApiError, reconcileRunsApi, usersApi, type ReconcileRunSummaryDto } from "@/lib/api";
 import { formatINR } from "@/lib/format";
-import { subscribeAccessToken } from "@/lib/supabase/client";
+import { setOnboardingDoneCookie } from "@/lib/onboarding-cookie";
+import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -24,9 +25,16 @@ function CelebrateContent() {
     const t = typeof token === "string" ? token : null;
     if (!t || completedRef.current) return;
     completedRef.current = true;
-    void usersApi.onboardingComplete(t).catch(() => {
-      completedRef.current = false;
-    });
+    void usersApi
+      .onboardingComplete(t)
+      .then(async () => {
+        const supabase = createClient();
+        const { data } = await supabase.auth.getUser();
+        if (data.user?.id) setOnboardingDoneCookie(data.user.id);
+      })
+      .catch(() => {
+        completedRef.current = false;
+      });
   }, [token]);
 
   const summaryKey =

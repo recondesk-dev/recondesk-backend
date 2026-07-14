@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { clearOnboardingDoneCookie } from "@/lib/onboarding-cookie";
 import { createClient } from "@/lib/supabase/client";
 import { Bell, ChevronDown, LogOut, User, Menu } from "lucide-react";
 
@@ -40,6 +41,7 @@ export default function Header({ user, onMenuToggle }: HeaderProps) {
   }, []);
 
   const handleLogout = async () => {
+    clearOnboardingDoneCookie();
     await supabase.auth.signOut();
     router.push("/login");
     router.refresh();
