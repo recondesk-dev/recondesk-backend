@@ -207,6 +207,34 @@ def test_mixed_full_plus_partial_pr_not_mislabeled_duplicate_entry():
     assert "p-partial" in wrongful_ids
 
 
+def test_identical_pr_clones_with_gstr_amount_drift_are_duplicate_entries():
+    """Two identical PR rows that both drift from GSTR must not leak to ITC at Risk.
+
+    Extreme packs book the invoice twice in PR with the same (wrong) amounts.
+    Prepass must flag the extra as Duplicate Entry; the survivor goes to Review
+    for the amount gap — never ITC at Risk.
+    """
+    gstr = [_gstr("g1", "DRIFT-1", 480_340_21, 8_646_124)]
+    pr = [
+        _pr("p-a", "DRIFT-1", 47_126_801, 8_646_124),
+        _pr("p-b", "DRIFT-1", 47_126_801, 8_646_124),
+    ]
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+    stats = res["stats"]
+
+    assert stats.get("duplicate_entry_count") == 1
+    assert stats["wrongful_risk_count"] == 0
+    assert stats["missed_itc_count"] == 0
+    # One survivor linked (Review for amount drift, or Matched if tolerances allow)
+    assert stats["clean_matched_count"] + stats["review_required_count"] == 1
+    dup = res["duplicate_entries"][0]
+    survivor = (res["matched"] or res["review_required"])[0]["pr_id"]
+    assert dup["id"] in ("p-a", "p-b")
+    assert dup["id"] != survivor
+    assert dup["matched_pr_id"] == survivor
+    assert dup["gstr_id"] == "g1"
+
+
 def test_duplicate_plus_format_variant_is_l2_matched_not_conflict():
     """True duplicates with GSTR/PR format-variant raw strings → L2 + Duplicate Entry."""
     gstr = [_gstr("g1", "INV/700", 100_000, 18_000)]
