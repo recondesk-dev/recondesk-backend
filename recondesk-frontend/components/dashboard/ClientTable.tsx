@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Pie, PieChart, ResponsiveContainer, Cell } from "recharts";
 import { useRouter } from "next/navigation";
 import type { ClientPortfolioRow, PortfolioSortKey, SortDirection } from "@/lib/types";
@@ -337,33 +338,59 @@ function PreviewPopover({
 }) {
   const latest = row.latestRun;
   const popoverRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: anchor.top, left: anchor.right + 8 });
-
-  useLayoutEffect(() => {
-    const el = popoverRef.current;
-    if (!el) return;
-
+  // w-64 = 256px — used until layout measurement is available
+  const POPOVER_W = 256;
+  const POPOVER_H_FALLBACK = 280;
+  const [pos, setPos] = useState(() => {
     const margin = 12;
     const gap = 8;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    // Prefer to the right of the row; flip left if that would clip.
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
+    const vh = typeof window !== "undefined" ? window.innerHeight : 800;
     let left = anchor.right + gap;
-    if (left + w > vw - margin) {
-      left = anchor.left - w - gap;
-    }
-    left = Math.min(Math.max(left, margin), Math.max(margin, vw - margin - w));
-
+    if (left + POPOVER_W > vw - margin) left = anchor.left - POPOVER_W - gap;
+    left = Math.min(Math.max(left, margin), Math.max(margin, vw - margin - POPOVER_W));
     let top = anchor.top;
-    if (top + h > vh - margin) {
-      top = vh - margin - h;
-    }
-    top = Math.min(Math.max(top, margin), Math.max(margin, vh - margin - h));
+    if (top + POPOVER_H_FALLBACK > vh - margin) top = vh - margin - POPOVER_H_FALLBACK;
+    top = Math.min(Math.max(top, margin), Math.max(margin, vh - margin - POPOVER_H_FALLBACK));
+    return { top, left };
+  });
 
-    setPos({ top, left });
+  useLayoutEffect(() => {
+    const place = () => {
+      const el = popoverRef.current;
+      if (!el) return;
+
+      const margin = 12;
+      const gap = 8;
+      const w = el.offsetWidth || POPOVER_W;
+      const h = el.offsetHeight || POPOVER_H_FALLBACK;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      // Prefer right of row; flip left if it would clip the viewport.
+      let left = anchor.right + gap;
+      if (left + w > vw - margin) {
+        left = anchor.left - w - gap;
+      }
+      left = Math.min(Math.max(left, margin), Math.max(margin, vw - margin - w));
+
+      let top = anchor.top;
+      if (top + h > vh - margin) {
+        top = Math.max(margin, vh - margin - h);
+      }
+      top = Math.min(Math.max(top, margin), Math.max(margin, vh - margin - h));
+
+      setPos((prev) => (prev.top === top && prev.left === left ? prev : { top, left }));
+    };
+
+    place();
+    // Recharts may change height after first paint
+    const raf = requestAnimationFrame(place);
+    window.addEventListener("resize", place);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", place);
+    };
   }, [anchor.top, anchor.left, anchor.right, anchor.bottom]);
 
   if (!latest || latest.status !== "COMPLETE" || latest.matchRate == null) return null;
@@ -374,10 +401,10 @@ function PreviewPopover({
     { name: "rest", value: Math.max(0, 100 - matchRate), fill: PREVIEW_RED },
   ];
 
-  return (
+  const node = (
     <div
       ref={popoverRef}
-      className="pointer-events-auto fixed z-[60] w-64 rounded-[1.5rem] bg-white p-5 shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04]"
+      className="pointer-events-auto fixed z-[200] w-64 rounded-[1.5rem] bg-white p-5 shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04]"
       style={{
         top: pos.top,
         left: pos.left,
@@ -433,6 +460,10 @@ function PreviewPopover({
       </Link>
     </div>
   );
+
+  // Portal escapes table `overflow-hidden`, which otherwise clips fixed popovers.
+  if (typeof document === "undefined") return null;
+  return createPortal(node, document.body);
 }
 
 export function ClientTable({
@@ -517,7 +548,7 @@ export function ClientTable({
   const maxPage = Math.max(1, Math.ceil(total / pageSize));
 
   return (
-    <div className="relative overflow-hidden bg-white">
+    <div className="relative bg-white">
       <div className="overflow-x-auto">
         <table className="min-w-[1100px] w-full border-collapse text-left">
           <thead>
