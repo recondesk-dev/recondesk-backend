@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Pie, PieChart, ResponsiveContainer, Cell } from "recharts";
 import { useRouter } from "next/navigation";
 import type { ClientPortfolioRow, PortfolioSortKey, SortDirection } from "@/lib/types";
@@ -329,13 +329,43 @@ function PreviewPopover({
   onMouseEnter,
   onMouseLeave,
 }: {
-  anchor: { top: number; left: number };
+  anchor: { top: number; left: number; right: number; bottom: number };
   row: ClientPortfolioRow;
   categories: { name: string; count: number }[];
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }) {
   const latest = row.latestRun;
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: anchor.top, left: anchor.right + 8 });
+
+  useLayoutEffect(() => {
+    const el = popoverRef.current;
+    if (!el) return;
+
+    const margin = 12;
+    const gap = 8;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // Prefer to the right of the row; flip left if that would clip.
+    let left = anchor.right + gap;
+    if (left + w > vw - margin) {
+      left = anchor.left - w - gap;
+    }
+    left = Math.min(Math.max(left, margin), Math.max(margin, vw - margin - w));
+
+    let top = anchor.top;
+    if (top + h > vh - margin) {
+      top = vh - margin - h;
+    }
+    top = Math.min(Math.max(top, margin), Math.max(margin, vh - margin - h));
+
+    setPos({ top, left });
+  }, [anchor.top, anchor.left, anchor.right, anchor.bottom]);
+
   if (!latest || latest.status !== "COMPLETE" || latest.matchRate == null) return null;
 
   const matchRate = latest.matchRate;
@@ -346,10 +376,11 @@ function PreviewPopover({
 
   return (
     <div
+      ref={popoverRef}
       className="pointer-events-auto fixed z-[60] w-64 rounded-[1.5rem] bg-white p-5 shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04]"
       style={{
-        top: anchor.top,
-        left: anchor.left + 8,
+        top: pos.top,
+        left: pos.left,
       }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
@@ -435,7 +466,12 @@ export function ClientTable({
 }) {
   void _onFinalizeConfirm;
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [previewAnchor, setPreviewAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [previewAnchor, setPreviewAnchor] = useState<{
+    top: number;
+    left: number;
+    right: number;
+    bottom: number;
+  } | null>(null);
   const previewLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearPreviewTimer = () => {
@@ -448,7 +484,12 @@ export function ClientTable({
   const onPreviewEnter = useCallback((id: string, rect: DOMRect) => {
     clearPreviewTimer();
     setPreviewId(id);
-    setPreviewAnchor({ top: rect.top, left: rect.right });
+    setPreviewAnchor({
+      top: rect.top,
+      left: rect.left,
+      right: rect.right,
+      bottom: rect.bottom,
+    });
   }, []);
 
   const onPreviewLeave = useCallback(() => {
