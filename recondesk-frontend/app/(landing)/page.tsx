@@ -3,6 +3,7 @@ import { ClipboardList, GitMerge, Upload } from "lucide-react";
 
 import { FaqAccordion } from "@/components/public/FaqAccordion";
 import { FeatureStatsStrip } from "@/components/public/FeatureStatsStrip";
+import { LandingDashboardPreview } from "@/components/public/LandingDashboardPreview";
 import { SecurityTrustStrip } from "@/components/public/SecurityTrustStrip";
 import { formatInrFull } from "@/lib/format";
 
@@ -104,6 +105,11 @@ export default function LandingPage() {
       </Section>
 
       <SecurityTrustStrip />
+
+      {/* Product showcase */}
+      <Section className="py-12 sm:py-16">
+        <LandingDashboardPreview />
+      </Section>
 
       {/* Pain */}
       <Section className="py-10 sm:py-12">
