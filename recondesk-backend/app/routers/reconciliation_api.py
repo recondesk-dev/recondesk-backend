@@ -3061,6 +3061,14 @@ async def _reconcile_finalize_core(
     st = raw_status.upper()
     if st == RunStatus.FINAL or raw_status.lower() == "final":
         p = ro.load_payload(sb, rid) or {}
+        # Backfill matched ITC for older finalized runs so dashboard ITC Protected works.
+        try:
+            patch_row = dict(run_row)
+            _backfill_matched_itc_paise(sb, patch_row, persist=True)
+            if isinstance(patch_row.get("run_summary"), dict):
+                run_row = {**run_row, "run_summary": patch_row["run_summary"]}
+        except Exception:
+            _log.exception("finalize backfill matched_itc_paise failed for %s", rid)
         return _build_reconcile_summary(
             sb, run_row=run_row, payload=p, current_user_id=uid
         )
@@ -3093,6 +3101,23 @@ async def _reconcile_finalize_core(
     }
     if checklist_snapshot is not None:
         update_fields["checklist_snapshot"] = checklist_snapshot
+
+    # Persist matched ITC into run_summary at finalize so dashboard stats work
+    # even for runs completed before matched_itc_paise was written by the worker.
+    try:
+        patch_row = dict(run_row)
+        _backfill_matched_itc_paise(sb, patch_row, persist=False)
+        rs_enriched = patch_row.get("run_summary")
+        if isinstance(rs_enriched, dict) and rs_enriched.get("matched_itc_paise") is not None:
+            update_fields["run_summary"] = rs_enriched
+            if rs_enriched.get("itc_at_risk") is not None:
+                update_fields["itc_at_risk"] = rs_enriched.get("itc_at_risk")
+            elif rs_enriched.get("missed_itc_paise") is not None:
+                update_fields["itc_at_risk"] = rs_enriched.get("missed_itc_paise")
+            if rs_enriched.get("wrongful_itc") is not None:
+                update_fields["wrongful_itc"] = rs_enriched.get("wrongful_itc")
+    except Exception:
+        _log.exception("could not enrich run_summary before finalize for %s", rid)
 
     def _do_update(fields: dict[str, Any]):
         return (
@@ -3502,6 +3527,58 @@ def _csv_bytes(headers: tuple[str, ...], data_rows: list[list[Any]]) -> bytes:
 
 
 _CHUNK_CLIENT_IDS = 120
+# Cap payload backfills per list request so a large portfolio stays snappy.
+_MATCHED_ITC_BACKFILL_CAP = 5
+
+
+def _hydrate_run_list_money_fields(row_out: dict[str, Any]) -> None:
+    """Prefer top-level money columns; fall back to run_summary scalars."""
+    rs = row_out.get("run_summary")
+    if not isinstance(rs, dict):
+        return
+    top_risk = row_out.get("itc_at_risk")
+    if top_risk in (None, 0):
+        for k in ("itc_at_risk", "missed_itc_paise"):
+            v = rs.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                row_out["itc_at_risk"] = int(v)
+                break
+    top_wrong = row_out.get("wrongful_itc")
+    if top_wrong in (None, 0):
+        v = rs.get("wrongful_itc")
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            row_out["wrongful_itc"] = int(v)
+
+
+def _backfill_matched_itc_paise(
+    sb, row_out: dict[str, Any], *, persist: bool = True
+) -> None:
+    """Ensure FINAL/COMPLETED runs expose matched_itc_paise for dashboard ITC Protected."""
+    st = str(row_out.get("status") or "").strip().upper()
+    if st not in (RunStatus.FINAL, RunStatus.COMPLETED):
+        return
+    rs_raw = row_out.get("run_summary")
+    rs: dict[str, Any] = dict(rs_raw) if isinstance(rs_raw, dict) else {}
+    existing = rs.get("matched_itc_paise")
+    if isinstance(existing, (int, float)) and not isinstance(existing, bool):
+        row_out["run_summary"] = rs
+        return
+    rid = str(row_out.get("id") or "").strip()
+    if not rid:
+        return
+    try:
+        payload = ro.load_payload(sb, rid)
+        if not payload:
+            return
+        paise = ro.matched_itc_paise_from_payload(sb, rid, payload)
+        rs["matched_itc_paise"] = int(paise)
+        row_out["run_summary"] = rs
+        if persist:
+            sb.table("reconciliation_run").update({"run_summary": rs}).eq(
+                "id", rid
+            ).execute()
+    except Exception:
+        _log.exception("matched_itc_paise backfill failed for run %s", rid)
 
 
 def _list_reconciliation_run_rows_for_clients(
@@ -3565,7 +3642,8 @@ async def list_reconcile_runs(
     current_user: dict = Depends(get_current_active_user),
 ):
     user_id = str(current_user.get("id", "")).strip()
-    cache_key = f"cache:runs:{user_id}:{status or ''}:{limit}:{client_gstin_id or ''}"
+    # v2: list rows hydrate money from run_summary + matched_itc_paise backfill
+    cache_key = f"cache:runs:v2:{user_id}:{status or ''}:{limit}:{client_gstin_id or ''}"
     cached_val = cache_get(cache_key)
     if cached_val is not None:
         return cached_val
@@ -3637,6 +3715,7 @@ async def list_reconcile_runs(
             _log.exception("Failed to batch query user profiles in list_reconcile_runs")
 
     out: list[dict[str, Any]] = []
+    backfills = 0
     for r in rows:
         cg = str(r.get("client_gstin_id") or "")
         tn = trade_by_id.get(cg, {})
@@ -3646,6 +3725,20 @@ async def list_reconcile_runs(
         row_out["trade_name"] = tn.get("trade_name")
         row_out["client_gstin"] = tn.get("gstin")
         row_out["finalized_by_name"] = finalized_name
+        _hydrate_run_list_money_fields(row_out)
+        rs = row_out.get("run_summary")
+        needs_matched = (
+            not isinstance(rs, dict)
+            or rs.get("matched_itc_paise") is None
+        )
+        st = str(row_out.get("status") or "").strip().upper()
+        if (
+            needs_matched
+            and st in (RunStatus.FINAL, RunStatus.COMPLETED)
+            and backfills < _MATCHED_ITC_BACKFILL_CAP
+        ):
+            _backfill_matched_itc_paise(sb, row_out, persist=True)
+            backfills += 1
         out.append(row_out)
     cache_set(cache_key, out, ttl_seconds=30)
     return out

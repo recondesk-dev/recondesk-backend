@@ -1329,6 +1329,17 @@ def execute_reconciliation(run_id: str) -> None:
             f"Review PRs:{review_pr_count} Skipped:{skipped_count} Total:{n_pr}"
         )
 
+        matched_itc_paise = 0
+        for m in state.clean_matched:
+            gid = str(m.get("gstr_id") or "")
+            pid = str(m.get("pr_id") or "")
+            g = gstr_by_id.get(gid) or {}
+            p = pr_by_id.get(pid) or {}
+            matched_itc_paise += min(
+                int(g.get("total_tax_paise") or 0),
+                int(p.get("total_tax_paise") or 0),
+            )
+
         run_summary = build_run_summary_metrics(
             n_gstr=n_gstr,
             n_pr=n_pr,
@@ -1346,6 +1357,7 @@ def execute_reconciliation(run_id: str) -> None:
             skipped_count=skipped_count,
             review_required_count=review_gstr_count,
             duplicate_entry_count=len(state.duplicate_entries),
+            matched_itc_paise=matched_itc_paise,
         )
 
         valid_review_required = []
@@ -1429,6 +1441,11 @@ def execute_reconciliation(run_id: str) -> None:
                 "completed_at": _now_iso(),
                 "status_message": completion_msg,
                 "run_summary": run_summary,
+                "matched_count": matched_count + review_gstr_count,
+                "unmatched_count": missed_itc_count + wrongful_count,
+                "itc_at_risk": itc_at_risk_total,
+                "wrongful_itc": wrongful_paise,
+                "late_itc": late_itc_paise,
                 "matching_version": MATCHING_VERSION,
                 "rules_version": RULES_VERSION,
                 "decision_version": DECISION_VERSION,

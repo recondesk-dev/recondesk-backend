@@ -61,6 +61,8 @@ export interface DashboardStats {
   totalClients: number;
   pendingThisMonth: number;
   totalItcProtected: number;
+  /** True when at least one finalized run has matched ITC in run_summary. */
+  itcProtectedHasData: boolean;
   teamMembers: number;
 }
 

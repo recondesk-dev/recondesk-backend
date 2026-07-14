@@ -89,9 +89,11 @@ def test_run_summary_metrics_has_no_nested_decisions():
         itc_at_risk_total=100,
         late_itc_paise=0,
         late_match_count=0,
+        matched_itc_paise=9_999_00,
     )
     assert summary["matched_count"] == 3417
+    assert summary["matched_itc_paise"] == 9_999_00
     assert "decisions" not in summary
     assert "compliance" not in summary
     assert summary.get("duplicate_entry_count") == 0
-    assert len(json.dumps(summary)) < 600
+    assert len(json.dumps(summary)) < 700

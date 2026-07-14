@@ -121,6 +121,28 @@ function matchedItcPaiseFromSummary(rs: unknown): number | null {
   return null;
 }
 
+/**
+ * List rows often leave top-level itc_at_risk/wrongful_itc at 0 while the
+ * amounts live in run_summary (worker historically only wrote run_summary).
+ */
+function moneyPaiseFromRow(
+  row: ReconcileRunListRow,
+  top: number | null | undefined,
+  summaryKeys: readonly string[]
+): number | null {
+  if (typeof top === "number" && !Number.isNaN(top) && top !== 0) return top;
+  const rs = row.run_summary;
+  if (rs && typeof rs === "object") {
+    const m = rs as Record<string, unknown>;
+    for (const k of summaryKeys) {
+      const v = m[k];
+      if (typeof v === "number" && !Number.isNaN(v)) return v;
+    }
+  }
+  if (typeof top === "number" && !Number.isNaN(top)) return top;
+  return null;
+}
+
 export function initialsFromDisplayName(name: string): string {
   const t = name.trim();
   if (!t) return "?";
@@ -223,8 +245,13 @@ export function reconcileListRowToUiRun(
   runNumber: number
 ): ReconciliationRun {
   const uiStatus = mapBackendRunStatus(row.status);
-  const missedRupee = paiseToRupee(row.itc_at_risk);
-  const wrongfulRupee = paiseToRupee(row.wrongful_itc);
+  const missedRupee = paiseToRupee(
+    moneyPaiseFromRow(row, row.itc_at_risk, ["itc_at_risk", "missed_itc_paise"]) ??
+      undefined
+  );
+  const wrongfulRupee = paiseToRupee(
+    moneyPaiseFromRow(row, row.wrongful_itc, ["wrongful_itc"]) ?? undefined
+  );
   const complianceRisk = inferComplianceRisk(missedRupee, wrongfulRupee, uiStatus);
   const ts =
     row.updated_at || row.completed_at || row.created_at;
@@ -459,6 +486,7 @@ export function computeDashboardStats(
 ): DashboardStats {
   let pendingThisMonth = 0;
   let totalItcProtected = 0;
+  let itcProtectedHasData = false;
   for (const r of runs) {
     const ui = mapBackendRunStatus(r.status);
     if (ui === "PENDING" || ui === "IMPORTING" || ui === "MATCHING") {
@@ -466,14 +494,18 @@ export function computeDashboardStats(
     }
     if (ui === "FINALIZED") {
       const paise = matchedItcPaiseFromSummary(r.run_summary);
-      const rupee = paiseToRupee(paise ?? undefined);
-      if (rupee != null) totalItcProtected += rupee;
+      if (paise != null) {
+        itcProtectedHasData = true;
+        const rupee = paiseToRupee(paise);
+        if (rupee != null) totalItcProtected += rupee;
+      }
     }
   }
   return {
     totalClients: clientsLen,
     pendingThisMonth,
     totalItcProtected,
+    itcProtectedHasData,
     teamMembers: staffLen,
   };
 }
