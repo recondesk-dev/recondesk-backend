@@ -114,28 +114,14 @@ export default function LandingPage() {
           <p className="mt-3 text-gray-500">Start free. Upgrade when you&apos;re ready.</p>
         </div>
         <div className="mx-auto mt-10 grid max-w-3xl gap-4 md:grid-cols-2">
-          <div className="landing-card flex flex-col rounded-[1.5rem] bg-white p-5 sm:p-6">
-            <h3 className="text-lg font-semibold text-[var(--ink)]">Solo CA</h3>
-            <p className="mt-2 min-h-[2.25rem] text-3xl font-semibold text-[var(--ink)]" />
-            <p className="mt-4 text-sm text-gray-500">1 client GSTIN · 2 free runs to start</p>
-            <Link
-              href="/auth/signup"
-              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-[#F5F5F6] text-sm font-semibold text-[var(--ink)] transition hover:bg-[#EBEBED]"
-            >
-              Start Free
-            </Link>
-          </div>
-          <div className="landing-card relative flex flex-col rounded-[1.5rem] bg-white p-5 shadow-[var(--shadow-lift)] sm:p-6">
-            <h3 className="text-lg font-semibold text-[var(--ink)]">CA Firm</h3>
-            <p className="mt-2 min-h-[2.25rem] text-3xl font-semibold text-[var(--ink)]" />
-            <p className="mt-4 text-sm text-gray-500">50 runs/month · Team access included</p>
-            <Link
-              href="/pricing"
-              className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] text-sm font-semibold text-white transition-opacity hover:opacity-90"
-            >
-              View All Plans
-            </Link>
-          </div>
+          <div
+            className="landing-card min-h-[220px] rounded-[1.5rem] bg-white p-5 sm:p-6"
+            aria-hidden
+          />
+          <div
+            className="landing-card min-h-[220px] rounded-[1.5rem] bg-white p-5 shadow-[var(--shadow-lift)] sm:p-6"
+            aria-hidden
+          />
         </div>
       </Section>
 

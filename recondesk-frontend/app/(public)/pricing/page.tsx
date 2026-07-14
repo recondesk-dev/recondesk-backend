@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { Check } from "lucide-react";
 
 const features = [
@@ -45,82 +44,23 @@ const pricingFaq = [
   },
 ];
 
-type PlanCardProps = {
-  name: string;
-  /** Main price string, e.g. "₹499". Empty keeps the price area blank. */
-  price?: string;
-  bullets: string[];
-  highlight?: boolean;
-  cta: string;
-  href: string;
-};
-
-function PlanCard({ name, price, bullets, highlight = false, cta, href }: PlanCardProps) {
+function PlanCard({ highlight = false }: { highlight?: boolean }) {
   return (
     <div
-      className={`relative z-10 flex flex-col rounded-[1.5rem] bg-white p-6 transition duration-300 ${
+      className={`relative z-10 min-h-[280px] rounded-[1.5rem] bg-white p-6 transition duration-300 ${
         highlight ? "shadow-[var(--shadow-lift)]" : "shadow-[var(--shadow-soft)]"
       }`}
-    >
-      <h2 className="text-lg font-semibold text-[var(--ink)]">{name}</h2>
-
-      <p className="mt-2 min-h-[2.25rem] font-mono text-3xl font-bold tracking-tight text-[var(--ink)]">
-        {price ? (
-          <>
-            {price}
-            <span className="ml-1.5 text-base font-normal text-gray-400">+ GST</span>
-          </>
-        ) : null}
-      </p>
-
-      <ul className="mt-4 flex-1 space-y-2 text-sm text-gray-600">
-        {bullets.map((line) => (
-          <li key={line}>• {line}</li>
-        ))}
-      </ul>
-
-      <Link
-        href={href}
-        className={`mt-6 inline-flex w-full min-h-[44px] items-center justify-center rounded-full px-4 py-2.5 text-sm font-semibold transition ${
-          highlight
-            ? "bg-[var(--ink)] text-white hover:opacity-90"
-            : "bg-[#F5F5F6] text-[var(--ink)] hover:bg-[#EBEBED]"
-        }`}
-      >
-        {cta}
-      </Link>
-    </div>
+      aria-hidden
+    />
   );
 }
 
 function EnterpriseCard() {
-  const bullets = [
-    "100+ runs/month",
-    "Dedicated support",
-    "Custom onboarding",
-    "SLA guarantee",
-  ];
-
   return (
-    <div className="lg:col-span-2 flex flex-col gap-6 rounded-[1.5rem] bg-white p-6 shadow-[var(--shadow-soft)] sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
-      <div className="flex min-w-0 flex-1 flex-col">
-        <h2 className="text-lg font-semibold text-[var(--ink)]">Enterprise</h2>
-        <p className="mt-2 min-h-[2.25rem] font-mono text-3xl font-bold tracking-tight text-[var(--ink)]" />
-        <ul className="mt-4 space-y-2 text-sm text-gray-600">
-          {bullets.map((line) => (
-            <li key={line}>• {line}</li>
-          ))}
-        </ul>
-      </div>
-      <div className="flex shrink-0 flex-col justify-end sm:w-48">
-        <a
-          href="mailto:contact@recondesk.in"
-          className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-[var(--ink)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-        >
-          Contact Sales
-        </a>
-      </div>
-    </div>
+    <div
+      className="lg:col-span-2 min-h-[200px] rounded-[1.5rem] bg-white p-6 shadow-[var(--shadow-soft)]"
+      aria-hidden
+    />
   );
 }
 
@@ -187,53 +127,15 @@ export default function PricingPage() {
       >
         {tier === "solo" ? (
           <div key="solo" className="pricing-tier-enter grid gap-6 lg:grid-cols-4">
-            <PlanCard
-              name="Starter"
-              bullets={["1 run/month", "Runs expire monthly — no carry over"]}
-              href="/auth/signup"
-              cta="Start Free"
-            />
-            <PlanCard
-              name="Growth"
-              bullets={["5 runs/month", "Runs expire monthly — no carry over"]}
-              highlight
-              href="/auth/signup"
-              cta="Start Free"
-            />
-            <PlanCard
-              name="Pro"
-              bullets={["12 runs/month", "Runs expire monthly — no carry over"]}
-              href="/auth/signup"
-              cta="Start Free"
-            />
-            <PlanCard
-              name="Scale"
-              bullets={["30 runs/month", "Runs expire monthly — no carry over"]}
-              href="/auth/signup"
-              cta="Start Free"
-            />
+            <PlanCard />
+            <PlanCard highlight />
+            <PlanCard />
+            <PlanCard />
           </div>
         ) : (
           <div key="firm" className="pricing-tier-enter grid gap-6 lg:grid-cols-2">
-            <PlanCard
-              name="Growth Firm"
-              bullets={[
-                "50 runs/month",
-                "Unused runs carry over for up to 2 months",
-              ]}
-              highlight
-              href="/auth/signup"
-              cta="Start Free"
-            />
-            <PlanCard
-              name="Scale Firm"
-              bullets={[
-                "100 runs/month",
-                "Unused runs carry over for up to 2 months",
-              ]}
-              href="/auth/signup"
-              cta="Start Free"
-            />
+            <PlanCard highlight />
+            <PlanCard />
             <EnterpriseCard />
           </div>
         )}
