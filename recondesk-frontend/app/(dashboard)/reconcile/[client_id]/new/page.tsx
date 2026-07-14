@@ -217,7 +217,7 @@ function StepIndicator({ step }: { step: number }) {
                 done
                   ? "bg-[var(--success)] text-white"
                   : active
-                    ? "bg-brand text-white"
+                    ? "bg-[var(--ink)] text-white"
                     : "bg-[var(--border)] text-[var(--text-secondary)]"
               }`}
             >
@@ -1112,9 +1112,9 @@ export default function NewReconcileWizardPage() {
 
   if (token === null) {
     return (
-      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8 text-[var(--text-secondary)]">
+      <div className="dashboard-card flex min-h-[40vh] flex-col items-center justify-center gap-4 p-8 text-[var(--text-secondary)]">
         <svg
-          className="h-8 w-8 animate-spin text-brand"
+          className="h-8 w-8 animate-spin text-[var(--ink)]"
           xmlns="http://www.w3.org/2000/svg"
           fill="none"
           viewBox="0 0 24 24"
@@ -1134,7 +1134,7 @@ export default function NewReconcileWizardPage() {
 
   if (token === false) {
     return (
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8 text-[var(--text-secondary)]">
+      <div className="dashboard-card p-8 text-[var(--text-secondary)]">
         Sign in to continue.
       </div>
     );
@@ -1144,12 +1144,12 @@ export default function NewReconcileWizardPage() {
     const pct = poll?.pct ?? run.progress_pct ?? 0;
     const msg = poll?.message || run.status_message || "Processing…";
     return (
-      <div className="mx-auto max-w-lg space-y-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8">
-        <h1 className="text-lg font-semibold text-[var(--text-primary)]">Reconciliation in progress</h1>
+      <div className="mx-auto max-w-lg dashboard-card space-y-6 p-8">
+        <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">Reconciliation in progress</h1>
         <p className="text-[var(--text-primary)]">{msg}</p>
         <div className="h-3 w-full overflow-hidden rounded-full bg-[var(--border)]">
           <div
-            className="h-full bg-brand transition-all"
+            className="h-full bg-[var(--ink)] transition-all"
             style={{ width: `${Math.min(100, pct)}%` }}
           />
         </div>
@@ -1160,7 +1160,7 @@ export default function NewReconcileWizardPage() {
             {err.includes("upgrade") || err.includes("plan") ? (
               <Link
                 href="/billing"
-                className="inline-flex rounded-full bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
+                className="inline-flex rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
               >
                 Go to Billing
               </Link>
@@ -1182,7 +1182,7 @@ export default function NewReconcileWizardPage() {
           </button>
           <Link
             href="/dashboard"
-            className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
+            className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
           >
             Back to Dashboard
           </Link>
@@ -1195,14 +1195,14 @@ export default function NewReconcileWizardPage() {
     <div className="mx-auto max-w-4xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-[var(--text-primary)]">New reconciliation</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">New reconciliation</h1>
           <p className="text-sm text-[var(--text-secondary)]">
             Client: <span className="font-mono">{clientId}</span>
           </p>
         </div>
         <Link
           href={`/clients/${clientId}`}
-          className="text-sm font-medium text-brand hover:underline"
+          className="text-sm font-medium text-[var(--ink)] hover:underline"
         >
           ← Back to client
         </Link>
@@ -1219,7 +1219,7 @@ export default function NewReconcileWizardPage() {
             <button
               type="button"
               onClick={onResume}
-              className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
+              className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
             >
               Resume
             </button>
@@ -1242,8 +1242,8 @@ export default function NewReconcileWizardPage() {
       ) : null}
 
       {uiStep === 1 ? (
-        <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
-          <h2 className="font-semibold text-[var(--text-primary)]">Select period</h2>
+        <div className="dashboard-card space-y-4 p-6">
+          <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Select period</h2>
           <label className="block text-sm text-[var(--text-secondary)]">
             Month
             <select
@@ -1268,7 +1268,7 @@ export default function NewReconcileWizardPage() {
             type="button"
             disabled={!period || busy}
             onClick={onConfirmPeriod}
-            className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
+            className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:opacity-90"
           >
             Continue
           </button>
@@ -1276,14 +1276,14 @@ export default function NewReconcileWizardPage() {
       ) : null}
 
       {uiStep === 2 && runId ? (
-        <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+        <div className="dashboard-card space-y-4 p-6">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-[var(--text-primary)]">
+            <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
               {gstnConnected && !showManualGstrUpload && !run?.gstr2b_file_name
                 ? "GSTR-2B"
                 : "Upload GSTR-2B JSON"}
             </h2>
-            <button type="button" onClick={onBack} className="text-sm text-brand hover:underline">
+            <button type="button" onClick={onBack} className="text-sm text-[var(--ink)] hover:underline">
               Back
             </button>
           </div>
@@ -1299,7 +1299,7 @@ export default function NewReconcileWizardPage() {
                 type="button"
                 disabled={gstnFetchBusy || busy || !step2PeriodIso}
                 onClick={onGstnAutoFetch}
-                className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
+                className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:opacity-90"
               >
                 {gstnFetchBusy
                   ? "Fetching GSTR-2B…"
@@ -1309,7 +1309,7 @@ export default function NewReconcileWizardPage() {
                 <button
                   type="button"
                   onClick={() => setShowManualGstrUpload(true)}
-                  className="text-sm text-[var(--text-secondary)] underline-offset-2 hover:text-brand hover:underline"
+                  className="text-sm text-[var(--text-secondary)] underline-offset-2 hover:text-[var(--ink)] hover:underline"
                 >
                   Upload manually instead
                 </button>
@@ -1340,7 +1340,7 @@ export default function NewReconcileWizardPage() {
                 <button
                   type="button"
                   onClick={() => setUiStep(3)}
-                  className="rounded-full bg-[var(--text-primary)] px-3 py-1.5 text-sm font-medium text-white"
+                  className="rounded-full bg-[var(--ink)] px-3 py-1.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
                 >
                   Continue anyway
                 </button>
@@ -1367,7 +1367,7 @@ export default function NewReconcileWizardPage() {
                     setShowManualGstrUpload(true);
                     setGstnFetchError(null);
                   }}
-                  className="text-sm font-medium text-brand underline-offset-2 hover:underline"
+                  className="text-sm font-medium text-[var(--ink)] underline-offset-2 hover:underline"
                 >
                   Upload manually instead
                 </button>
@@ -1394,7 +1394,7 @@ export default function NewReconcileWizardPage() {
                           setShowManualGstrUpload(false);
                           setGstnFetchError(null);
                         }}
-                        className="text-sm text-brand hover:underline"
+                        className="text-sm text-[var(--ink)] hover:underline"
                       >
                         Back to auto-fetch
                       </button>
@@ -1410,7 +1410,7 @@ export default function NewReconcileWizardPage() {
                     <div className="space-y-1">
                       <div className="h-2 w-full overflow-hidden rounded bg-[var(--border)]">
                         <div
-                          className="h-full bg-brand"
+                          className="h-full bg-[var(--ink)]"
                           style={{ width: `${gstrProgress}%` }}
                         />
                       </div>
@@ -1421,7 +1421,7 @@ export default function NewReconcileWizardPage() {
                     type="button"
                     disabled={!gstrFile || busy || gstnFetchBusy}
                     onClick={onGstrUpload}
-                    className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
+                    className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:opacity-90"
                   >
                     Upload &amp; verify
                   </button>
@@ -1555,7 +1555,7 @@ export default function NewReconcileWizardPage() {
                     setGstnZeroData(false);
                     if (gstnConnected) setShowManualGstrUpload(false);
                   }}
-                  className="text-sm font-medium text-brand"
+                  className="text-sm font-medium text-[var(--ink)]"
                 >
                   Re-upload GSTR-2B
                 </button>
@@ -1572,7 +1572,7 @@ export default function NewReconcileWizardPage() {
             type="button"
             disabled={!canGoToStep3}
             onClick={() => setUiStep(3)}
-            className="rounded-full bg-[var(--text-primary)] px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-400 disabled:text-gray-100 disabled:opacity-90"
+            className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-gray-400 disabled:text-gray-100 disabled:opacity-90 disabled:hover:opacity-90"
           >
             Continue to purchase register
           </button>
@@ -1580,10 +1580,10 @@ export default function NewReconcileWizardPage() {
       ) : null}
 
       {uiStep === 3 && runId ? (
-        <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+        <div className="dashboard-card space-y-4 p-6">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-[var(--text-primary)]">Upload purchase register</h2>
-            <button type="button" onClick={onBack} className="text-sm text-brand hover:underline">
+            <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Upload purchase register</h2>
+            <button type="button" onClick={onBack} className="text-sm text-[var(--ink)] hover:underline">
               Back
             </button>
           </div>
@@ -1605,7 +1605,7 @@ export default function NewReconcileWizardPage() {
               {prProgress > 0 && prProgress < 100 ? (
                 <div className="space-y-1">
                   <div className="h-2 w-full overflow-hidden rounded bg-[var(--border)]">
-                    <div className="h-full bg-brand" style={{ width: `${prProgress}%` }} />
+                    <div className="h-full bg-[var(--ink)]" style={{ width: `${prProgress}%` }} />
                   </div>
                   <p className="font-mono text-xs text-[var(--text-secondary)]">{prProgress}%</p>
                 </div>
@@ -1619,7 +1619,7 @@ export default function NewReconcileWizardPage() {
                       type="button"
                       disabled={!canConfirmAndUpload}
                       onClick={onPrUpload}
-                      className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover"
+                      className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:opacity-90"
                     >
                       Confirm &amp; Upload
                     </button>
@@ -1629,7 +1629,7 @@ export default function NewReconcileWizardPage() {
                         setConfirmSavedMapping(false);
                         setSavedMappingCovers(false);
                       }}
-                      className="ml-2 text-sm text-brand hover:underline"
+                      className="ml-2 text-sm text-[var(--ink)] hover:underline"
                     >
                       Edit mapping
                     </button>
@@ -1724,7 +1724,7 @@ export default function NewReconcileWizardPage() {
                     type="button"
                     disabled={!canConfirmAndUpload}
                     onClick={onPrUpload}
-                    className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
+                    className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:opacity-90"
                   >
                     {schemaOk ? "Upload & continue" : "Save mapping & upload"}
                   </button>
@@ -1917,7 +1917,7 @@ export default function NewReconcileWizardPage() {
                 setUiStep(4);
               })();
             }}
-            className="rounded-full bg-[var(--text-primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             Continue to start
           </button>
@@ -1925,10 +1925,10 @@ export default function NewReconcileWizardPage() {
       ) : null}
 
       {uiStep === 4 && runId ? (
-        <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+        <div className="dashboard-card space-y-4 p-6">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-[var(--text-primary)]">Start reconciliation</h2>
-            <button type="button" onClick={onBack} className="text-sm text-brand hover:underline">
+            <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Start reconciliation</h2>
+            <button type="button" onClick={onBack} className="text-sm text-[var(--ink)] hover:underline">
               Back
             </button>
           </div>
@@ -1977,7 +1977,7 @@ export default function NewReconcileWizardPage() {
             type="button"
             disabled={startBusy || run?.status === "error" || !highRiskWarningsOk}
             onClick={onStart}
-            className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
+            className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:opacity-90"
           >
             Start reconciliation
           </button>

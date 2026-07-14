@@ -413,7 +413,7 @@ export function Gstr3bCheckPanel({
     <div className={sectionContainerClass}>
       <SectionHeader
         title="GSTR-3B ITC Check"
-        dotColor="#7C3AED"
+        dotColor="#111111"
       />
 
       {fetchFailed && (

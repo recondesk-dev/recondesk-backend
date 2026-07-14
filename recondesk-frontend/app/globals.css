@@ -9,8 +9,8 @@
     --surface: #ffffff;
     --surface-textured: #f2f3f5;
     --surface-textured-dot: rgba(17, 24, 39, 0.06);
-    --accent: #7c3aed; /* synced with tailwind brand.DEFAULT — lib/brand.ts */
-    --accent-dim: #ede9fe; /* synced with tailwind brand.dim */
+    --accent: #111111; /* synced with dashboard ink CTAs — lib/brand.ts */
+    --accent-dim: #f0f0f0; /* synced with tailwind brand.dim */
     --ink: #111111;
     --danger: #ef4444;
     --warning: #f59e0b;
@@ -175,18 +175,18 @@
 @layer components {
   .input-field {
     @apply w-full min-h-[44px] rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 shadow-sm transition-colors placeholder:text-gray-400;
-    @apply focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20;
+    @apply focus:border-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-black/10;
   }
 
   .btn-primary {
-    @apply inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-full bg-brand px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors;
-    @apply hover:bg-brand-hover focus:outline-none focus:ring-2 focus:ring-brand/40 focus:ring-offset-2;
+    @apply inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-full bg-[var(--ink)] px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-opacity;
+    @apply hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-black/10 focus:ring-offset-2;
     @apply disabled:cursor-not-allowed disabled:opacity-70;
   }
 
   .btn-secondary {
     @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full border border-gray-300 bg-white px-6 py-2.5 text-sm font-semibold text-gray-900 shadow-sm transition-colors;
-    @apply hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand/20 focus:ring-offset-2;
+    @apply hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-black/10 focus:ring-offset-2;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 }
@@ -416,9 +416,9 @@
   background: conic-gradient(
     from var(--gradient-angle),
     #ffffff,
-    #7C3AED,
+    #111111,
     #ffffff,
-    #7C3AED,
+    #111111,
     #ffffff
   );
   -webkit-mask:
@@ -439,9 +439,9 @@
   background: conic-gradient(
     from var(--gradient-angle),
     rgba(255, 255, 255, 0.4),
-    rgba(124, 58, 237, 0.4),
+    rgba(17, 17, 17, 0.35),
     rgba(255, 255, 255, 0.4),
-    rgba(124, 58, 237, 0.4),
+    rgba(17, 17, 17, 0.35),
     rgba(255, 255, 255, 0.4)
   );
   filter: blur(16px);

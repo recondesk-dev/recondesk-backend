@@ -1,6 +1,6 @@
-/** Single source of truth for ReconDesk brand purple (matches logo dot). */
+/** Primary UI accent — matches dashboard ink CTAs (logo may keep its own mark color). */
 export const brandColors = {
-  DEFAULT: "#7C3AED",
-  hover: "#7034D5",
-  dim: "#EDE9FE",
+  DEFAULT: "#111111",
+  hover: "#000000",
+  dim: "#F0F0F0",
 } as const;

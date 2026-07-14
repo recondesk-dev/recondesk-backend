@@ -96,7 +96,7 @@ export function SupplierFollowupAuditLogPanel({
 
   return (
     <div className={sectionContainerClass}>
-      <SectionHeader title="Follow-up Log" dotColor="#7C3AED" />
+      <SectionHeader title="Follow-up Log" dotColor="#111111" />
       <FollowupAuditFilters
         status={statusFilter}
         onStatusChange={setStatusFilter}
