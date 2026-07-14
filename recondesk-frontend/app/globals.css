@@ -136,18 +136,11 @@
   }
 
   .landing-page {
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue",
-      Arial, sans-serif;
-  }
-
-  .landing-page * {
     font-family: inherit;
   }
 
   .landing-page .landing-card {
-    box-shadow:
-      0 4px 24px rgba(0, 0, 0, 0.07),
-      0 1px 4px rgba(0, 0, 0, 0.04);
+    box-shadow: var(--shadow-soft);
     transition:
       box-shadow 0.2s ease,
       transform 0.2s ease;
@@ -155,9 +148,7 @@
 
   @media (hover: hover) {
     .landing-page .landing-card:hover {
-      box-shadow:
-        0 8px 32px rgba(0, 0, 0, 0.1),
-        0 2px 8px rgba(0, 0, 0, 0.06);
+      box-shadow: var(--shadow-lift);
       transform: translateY(-2px);
     }
   }
@@ -175,12 +166,12 @@
 
   .landing-trust-marquee::before {
     left: 0;
-    background: linear-gradient(to right, var(--surface-textured) 0%, rgba(248, 247, 252, 0) 100%);
+    background: linear-gradient(to right, var(--bg) 0%, rgba(242, 243, 245, 0) 100%);
   }
 
   .landing-trust-marquee::after {
     right: 0;
-    background: linear-gradient(to left, var(--surface-textured) 0%, rgba(248, 247, 252, 0) 100%);
+    background: linear-gradient(to left, var(--bg) 0%, rgba(242, 243, 245, 0) 100%);
   }
 
   .landing-trust-track {

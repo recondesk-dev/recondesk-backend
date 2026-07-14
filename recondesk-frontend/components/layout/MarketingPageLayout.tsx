@@ -9,7 +9,7 @@ type MarketingPageLayoutProps = {
 export function MarketingPageLayout({ children, className = "" }: MarketingPageLayoutProps) {
   return (
     <div
-      className={`recondesk-textured-bg min-h-screen min-w-0 text-[#3A3A3A] antialiased ${className}`.trim()}
+      className={`dashboard-soft-bg min-h-screen min-w-0 font-sans text-[var(--text-secondary)] antialiased ${className}`.trim()}
     >
       <PublicNavbar theme="light" />
       <main className="min-w-0">{children}</main>

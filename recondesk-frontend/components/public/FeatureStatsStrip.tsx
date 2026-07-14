@@ -34,10 +34,10 @@ function StatCard({
   description: string;
 }) {
   return (
-    <div className="flex flex-col rounded-2xl border border-[#E8E8E8] bg-white px-6 py-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-      <p className="text-2xl font-semibold tracking-tight text-[#0A0A0A] sm:text-3xl">{value}</p>
-      <p className="mt-1 text-sm font-medium text-[#0A0A0A]">{label}</p>
-      <p className="mt-2 text-xs leading-relaxed text-[#6B6B6B]">{description}</p>
+    <div className="flex flex-col rounded-[1.25rem] bg-white px-5 py-5 shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5">
+      <p className="text-2xl font-semibold tracking-tight text-[var(--ink)] sm:text-3xl">{value}</p>
+      <p className="mt-1 text-sm font-medium text-[var(--ink)]">{label}</p>
+      <p className="mt-2 text-xs leading-relaxed text-gray-500">{description}</p>
     </div>
   );
 }
@@ -77,7 +77,7 @@ export function FeatureStatsStrip() {
       <p className="text-center text-[11px] font-semibold uppercase tracking-widest text-gray-400">
         WHAT&apos;S UNDER THE HOOD
       </p>
-      <div className="mt-6 grid grid-cols-2 gap-4 text-left md:grid-cols-4">
+      <div className="mt-6 grid grid-cols-2 gap-3 text-left md:grid-cols-4">
         <StatCard
           value={ruleCount}
           label="Logic Rules"
