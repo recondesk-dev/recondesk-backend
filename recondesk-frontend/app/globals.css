@@ -108,6 +108,26 @@
   }
 }
 
+@keyframes landing-dash-screen {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-dash-bar {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
 @layer components {
   .input-field {
     @apply w-full min-h-[44px] rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 shadow-sm transition-colors placeholder:text-gray-400;
@@ -253,6 +273,15 @@
     transform-origin: left center;
   }
 
+  .landing-dash-screen {
+    animation: landing-dash-screen 0.45s ease-out both;
+  }
+
+  .landing-dash-bar {
+    transform-origin: left center;
+    animation: landing-dash-bar 0.7s ease-out both;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .landing-dash-enter,
     .landing-dash-stagger-1,
@@ -261,7 +290,9 @@
     .landing-dash-stagger-4,
     .landing-dash-stagger-5,
     .landing-dash-stagger-6,
-    .landing-dash-pulse {
+    .landing-dash-pulse,
+    .landing-dash-screen,
+    .landing-dash-bar {
       animation: none !important;
       opacity: 1 !important;
       transform: none !important;
