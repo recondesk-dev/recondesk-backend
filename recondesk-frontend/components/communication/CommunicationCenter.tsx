@@ -116,10 +116,7 @@ function TableSkeleton({ rows = 3 }: { rows?: number }) {
   return (
     <div className="space-y-2">
       {Array.from({ length: rows }).map((_, index) => (
-        <div
-          key={index}
-          className="h-10 animate-pulse rounded bg-gray-200 dark:bg-gray-800"
-        />
+        <div key={index} className="h-10 animate-pulse rounded-2xl bg-gray-100" />
       ))}
     </div>
   );
@@ -127,9 +124,9 @@ function TableSkeleton({ rows = 3 }: { rows?: number }) {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="flex flex-col items-center justify-center py-12 text-center">
+    <div className="flex flex-col items-center justify-center rounded-2xl bg-[#F7F7F8] px-4 py-12 text-center">
       <svg
-        className="mb-3 h-10 w-10 text-gray-300 dark:text-gray-700"
+        className="mb-3 h-10 w-10 text-gray-300"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -146,6 +143,15 @@ function EmptyState({ message }: { message: string }) {
     </div>
   );
 }
+
+const loadMoreBtnClass =
+  "rounded-full bg-[#F5F5F6] px-4 py-2 text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-gray-200/70 disabled:cursor-not-allowed disabled:opacity-40";
+
+const tableHeadRow =
+  "border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400";
+
+const tableRowClass =
+  "border-b border-[#F0F0F0] transition-colors last:border-b-0 hover:bg-[#F7F7F8]";
 
 export default function CommunicationCenter({
   clientId,
@@ -361,36 +367,40 @@ export default function CommunicationCenter({
   const uploadRequestIds = uploadRequests.map((request) => request.id);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {successBanner && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-900/50 dark:bg-green-950/30 dark:text-green-300">
+        <div className="rounded-[1.25rem] bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
           Upload link generated and logged.
         </div>
       )}
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold text-[var(--text-primary)]">Communication Center</h1>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">
+          <h1 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
+            Communication Center
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
             Manage upload requests and client follow-ups.
           </p>
         </div>
         <button
           type="button"
           onClick={() => setModalOpen(true)}
-          className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
+          className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
         >
           Generate Upload Link
         </button>
       </div>
 
-      <section>
-        <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-gray-500">
+      <section className="dashboard-card space-y-4 p-6">
+        <h2 className="text-base font-semibold tracking-tight text-[var(--ink)]">
           Upload Requests
         </h2>
 
         {uploadsError && (
-          <p className="mb-3 text-sm text-red-600 dark:text-red-400">{uploadsError}</p>
+          <div className="rounded-[1.25rem] bg-red-50 px-5 py-3 text-sm text-red-800">
+            {uploadsError}
+          </div>
         )}
 
         {uploadsLoading ? (
@@ -399,71 +409,67 @@ export default function CommunicationCenter({
           <EmptyState message="No upload links generated yet." />
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead className="bg-gray-50 dark:bg-gray-800/50">
-                  <tr>
-                    {["Title", "Created", "Expires", "Status", "Link"].map((heading) => (
-                      <th
-                        key={heading}
-                        className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-                      >
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {uploadRequests.map((request) => {
-                    const expired = isExpired(request.expires_at);
-                    return (
-                      <tr
-                        key={request.id}
-                        className="border-t border-gray-100 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50"
-                      >
-                        <td className="px-4 py-3 text-sm text-[var(--text-primary)]">
-                          {request.title}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">
-                          {formatDate(request.created_at)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">
-                          {request.expires_at ? formatDate(request.expires_at) : "No expiry"}
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          <span
-                            className={
-                              expired
-                                ? "font-medium text-red-600 dark:text-red-400"
-                                : "font-medium text-green-600 dark:text-green-400"
-                            }
-                          >
-                            {expired ? "Expired" : "Active"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          <button
-                            type="button"
-                            onClick={() => void handleCopyLink(request)}
-                            className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-                          >
-                            {copiedRequestId === request.id ? "Copied!" : "Copy"}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
+              <div className="overflow-x-auto">
+                <table className="min-w-full border-collapse text-left text-sm">
+                  <thead>
+                    <tr className={tableHeadRow}>
+                      {["Title", "Created", "Expires", "Status", "Link"].map((heading) => (
+                        <th key={heading} className="px-5 py-4">
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uploadRequests.map((request) => {
+                      const expired = isExpired(request.expires_at);
+                      return (
+                        <tr key={request.id} className={tableRowClass}>
+                          <td className="px-5 py-3.5 font-medium text-[var(--ink)]">
+                            {request.title}
+                          </td>
+                          <td className="px-4 py-3.5 text-gray-500">
+                            {formatDate(request.created_at)}
+                          </td>
+                          <td className="px-4 py-3.5 text-gray-500">
+                            {request.expires_at ? formatDate(request.expires_at) : "No expiry"}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <span
+                              className={
+                                expired
+                                  ? "inline-flex rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-700"
+                                  : "inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700"
+                              }
+                            >
+                              {expired ? "Expired" : "Active"}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <button
+                              type="button"
+                              onClick={() => void handleCopyLink(request)}
+                              className="rounded-full bg-[#F5F5F6] px-3 py-1.5 text-xs font-semibold text-[var(--ink)] transition-colors hover:bg-gray-200/70"
+                            >
+                              {copiedRequestId === request.id ? "Copied!" : "Copy"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             {hasMoreUploads && (
-              <div className="mt-4 flex justify-center">
+              <div className="flex justify-center">
                 <button
                   type="button"
                   disabled={uploadsLoadingMore}
                   onClick={() => void fetchUploadRequests(uploadRequests.length, true)}
-                  className="rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                  className={loadMoreBtnClass}
                 >
                   {uploadsLoadingMore ? "Loading…" : "Load more"}
                 </button>
@@ -473,13 +479,15 @@ export default function CommunicationCenter({
         )}
       </section>
 
-      <section className="mt-10">
-        <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-gray-500">
+      <section className="dashboard-card space-y-4 p-6">
+        <h2 className="text-base font-semibold tracking-tight text-[var(--ink)]">
           Uploaded Files
         </h2>
 
         {filesError && (
-          <p className="mb-3 text-sm text-red-600 dark:text-red-400">{filesError}</p>
+          <div className="rounded-[1.25rem] bg-red-50 px-5 py-3 text-sm text-red-800">
+            {filesError}
+          </div>
         )}
 
         {uploadsLoading || filesLoading ? (
@@ -488,73 +496,69 @@ export default function CommunicationCenter({
           <EmptyState message="No files uploaded yet." />
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead className="bg-gray-50 dark:bg-gray-800/50">
-                  <tr>
-                    {[
-                      "File Name",
-                      "Size",
-                      "Type",
-                      "Upload Request",
-                      "Uploaded At",
-                      "Download",
-                    ].map((heading) => (
-                      <th
-                        key={heading}
-                        className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-                      >
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {uploadedFiles.map((file) => (
-                    <tr
-                      key={file.id}
-                      className="border-t border-gray-100 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50"
-                    >
-                      <td className="px-4 py-3 text-sm text-[var(--text-primary)]">
-                        {file.filename}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">
-                        {formatFileSize(file.file_size)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">
-                        {simplifyMimeType(file.mime_type)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-[var(--text-primary)]">
-                        {file.upload_requests?.title ?? "—"}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">
-                        {formatDateTime(file.uploaded_at)}
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        <a
-                          href={file.public_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-medium text-brand hover:underline"
-                        >
-                          Download
-                        </a>
-                      </td>
+            <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
+              <div className="overflow-x-auto">
+                <table className="min-w-full border-collapse text-left text-sm">
+                  <thead>
+                    <tr className={tableHeadRow}>
+                      {[
+                        "File Name",
+                        "Size",
+                        "Type",
+                        "Upload Request",
+                        "Uploaded At",
+                        "Download",
+                      ].map((heading) => (
+                        <th key={heading} className="px-5 py-4">
+                          {heading}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {uploadedFiles.map((file) => (
+                      <tr key={file.id} className={tableRowClass}>
+                        <td className="px-5 py-3.5 font-medium text-[var(--ink)]">
+                          {file.filename}
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-500">
+                          {formatFileSize(file.file_size)}
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-500">
+                          {simplifyMimeType(file.mime_type)}
+                        </td>
+                        <td className="px-4 py-3.5 text-[var(--ink)]">
+                          {file.upload_requests?.title ?? "—"}
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-500">
+                          {formatDateTime(file.uploaded_at)}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <a
+                            href={file.public_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-semibold text-[var(--ink)] underline"
+                          >
+                            Download
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             {hasMoreFiles && (
-              <div className="mt-4 flex justify-center">
+              <div className="flex justify-center">
                 <button
                   type="button"
                   disabled={filesLoadingMore}
                   onClick={() =>
                     void fetchUploadedFiles(uploadedFiles.length, true, uploadRequestIds)
                   }
-                  className="rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                  className={loadMoreBtnClass}
                 >
                   {filesLoadingMore ? "Loading…" : "Load more"}
                 </button>
@@ -564,13 +568,15 @@ export default function CommunicationCenter({
         )}
       </section>
 
-      <section className="mt-10">
-        <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-gray-500">
+      <section className="dashboard-card space-y-4 p-6">
+        <h2 className="text-base font-semibold tracking-tight text-[var(--ink)]">
           Communication Log
         </h2>
 
         {logsError && (
-          <p className="mb-3 text-sm text-red-600 dark:text-red-400">{logsError}</p>
+          <div className="rounded-[1.25rem] bg-red-50 px-5 py-3 text-sm text-red-800">
+            {logsError}
+          </div>
         )}
 
         {logsLoading ? (
@@ -579,54 +585,50 @@ export default function CommunicationCenter({
           <EmptyState message="No communication logged yet." />
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead className="bg-gray-50 dark:bg-gray-800/50">
-                  <tr>
-                    {["Date", "Type", "Sent Via", "Staff", "Notes"].map((heading) => (
-                      <th
-                        key={heading}
-                        className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-                      >
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {communicationLogs.map((log) => (
-                    <tr
-                      key={log.id}
-                      className="border-t border-gray-100 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50"
-                    >
-                      <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">
-                        {formatDateTime(log.created_at)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-[var(--text-primary)]">
-                        {formatTemplateType(log.template_type)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">
-                        {formatSentVia(log.sent_via)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-[var(--text-primary)]">
-                        {log.user_profiles?.full_name?.trim() || "—"}
-                      </td>
-                      <td className="max-w-xs px-4 py-3 text-sm text-[var(--text-secondary)]">
-                        {truncateNotes(log.notes, log.message_content)}
-                      </td>
+            <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
+              <div className="overflow-x-auto">
+                <table className="min-w-full border-collapse text-left text-sm">
+                  <thead>
+                    <tr className={tableHeadRow}>
+                      {["Date", "Type", "Sent Via", "Staff", "Notes"].map((heading) => (
+                        <th key={heading} className="px-5 py-4">
+                          {heading}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {communicationLogs.map((log) => (
+                      <tr key={log.id} className={tableRowClass}>
+                        <td className="px-5 py-3.5 text-gray-500">
+                          {formatDateTime(log.created_at)}
+                        </td>
+                        <td className="px-4 py-3.5 font-medium text-[var(--ink)]">
+                          {formatTemplateType(log.template_type)}
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-500">
+                          {formatSentVia(log.sent_via)}
+                        </td>
+                        <td className="px-4 py-3.5 text-[var(--ink)]">
+                          {log.user_profiles?.full_name?.trim() || "—"}
+                        </td>
+                        <td className="max-w-xs px-5 py-3.5 text-gray-500">
+                          {truncateNotes(log.notes, log.message_content)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             {hasMoreLogs && (
-              <div className="mt-4 flex justify-center">
+              <div className="flex justify-center">
                 <button
                   type="button"
                   disabled={logsLoadingMore}
                   onClick={() => void fetchCommunicationLogs(communicationLogs.length, true)}
-                  className="rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                  className={loadMoreBtnClass}
                 >
                   {logsLoadingMore ? "Loading…" : "Load more"}
                 </button>

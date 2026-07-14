@@ -47,10 +47,10 @@ const TAX: ImportTargetField[] = ["cgst", "sgst", "igst", "cess"];
 
 function PanelSkeleton() {
   return (
-    <div className="animate-pulse space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
-      <div className="h-4 w-48 rounded bg-[#E5E7EB]" />
-      <div className="h-10 w-full rounded bg-[#E5E7EB]" />
-      <div className="h-32 w-full rounded bg-[#E5E7EB]" />
+    <div className="dashboard-card animate-pulse space-y-3 p-6">
+      <div className="h-4 w-48 rounded-full bg-gray-100" />
+      <div className="h-10 w-full rounded-2xl bg-gray-100" />
+      <div className="h-32 w-full rounded-2xl bg-gray-100" />
     </div>
   );
 }
@@ -174,40 +174,44 @@ export default function ClientImportMappingPage() {
 
   if (clientError || !client) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+      <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
         Could not load client.
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-lg font-semibold text-[var(--text-primary)]">Import Mapping</h1>
-        <p className="mt-1 text-sm text-[var(--text-secondary)]">
+        <h1 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
+          Import Mapping
+        </h1>
+        <p className="mt-1 text-sm text-gray-500">
           Saved purchase-register column mapping for{" "}
-          <strong>{client.trade_name || client.gstin}</strong>. Used automatically on the next
-          upload when headers match.
+          <strong className="font-semibold text-[var(--ink)]">
+            {client.trade_name || client.gstin}
+          </strong>
+          . Used automatically on the next upload when headers match.
         </p>
       </div>
 
       {mappingError ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
           Could not load saved mapping.
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+      <div className="dashboard-card p-6">
         {!rows?.length && !editing ? (
-          <div className="space-y-3">
-            <p className="text-sm text-[var(--text-secondary)]">
+          <div className="flex flex-col items-start gap-4 rounded-2xl bg-[#F7F7F8] px-5 py-8">
+            <p className="text-sm text-gray-500">
               No saved mapping yet. Map columns during the next purchase-register upload, or add
               one here.
             </p>
             <button
               type="button"
               onClick={startEdit}
-              className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
+              className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
             >
               Add mapping
             </button>
@@ -215,34 +219,41 @@ export default function ClientImportMappingPage() {
         ) : null}
 
         {rows?.length && !editing ? (
-          <div className="space-y-4">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--border)] text-[var(--text-secondary)]">
-                  <th className="py-2 pr-3">Target field</th>
-                  <th className="py-2 pr-3">Source column</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.target_field} className="border-b border-[var(--border)]">
-                    <td className="py-2 pr-3 font-medium">
-                      {LABELS[r.target_field] ?? r.target_field}
-                      {REQUIRED.includes(r.target_field) ? (
-                        <span className="text-red-600">*</span>
-                      ) : null}
-                    </td>
-                    <td className="py-2 pr-3 font-mono text-xs">{r.source_column_name}</td>
+          <div className="space-y-5">
+            <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
+              <table className="w-full border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
+                    <th className="px-5 py-4">Target field</th>
+                    <th className="px-5 py-4">Source column</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="flex gap-2">
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr
+                      key={r.target_field}
+                      className="border-b border-[#F0F0F0] transition-colors last:border-b-0 hover:bg-[#F7F7F8]"
+                    >
+                      <td className="px-5 py-3.5 font-medium text-[var(--ink)]">
+                        {LABELS[r.target_field] ?? r.target_field}
+                        {REQUIRED.includes(r.target_field) ? (
+                          <span className="text-red-600">*</span>
+                        ) : null}
+                      </td>
+                      <td className="px-5 py-3.5 font-mono text-xs text-gray-600">
+                        {r.source_column_name}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={startEdit}
                 disabled={busy}
-                className="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-medium"
+                className="rounded-full bg-[#F5F5F6] px-4 py-2 text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-gray-200/70 disabled:opacity-40"
               >
                 Edit
               </button>
@@ -250,7 +261,7 @@ export default function ClientImportMappingPage() {
                 type="button"
                 onClick={() => void onDelete()}
                 disabled={busy}
-                className="rounded-full border border-red-200 px-4 py-2 text-sm font-medium text-red-700"
+                className="rounded-full bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:opacity-40"
               >
                 Delete
               </button>
@@ -259,15 +270,15 @@ export default function ClientImportMappingPage() {
         ) : null}
 
         {editing ? (
-          <div className="space-y-4">
-            <p className="text-sm text-[var(--text-secondary)]">
+          <div className="space-y-5">
+            <p className="text-sm text-gray-500">
               Enter the exact column header from this client&apos;s purchase register for each
               field.
             </p>
             <div className="space-y-3">
               {TARGET_FIELDS.map((tf) => (
-                <label key={tf} className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center">
-                  <span className="w-40 font-medium text-[var(--text-primary)]">
+                <label key={tf} className="flex flex-col gap-1.5 text-sm sm:flex-row sm:items-center">
+                  <span className="w-40 font-medium text-[var(--ink)]">
                     {LABELS[tf]}
                     {REQUIRED.includes(tf) || TAX.includes(tf) ? (
                       <span className="text-red-600">*</span>
@@ -279,26 +290,26 @@ export default function ClientImportMappingPage() {
                       setDraft((prev) => ({ ...prev, [tf]: e.target.value }))
                     }
                     placeholder="Column header in file"
-                    className="flex-1 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                    className="flex-1 rounded-full border-0 bg-[#F5F5F6] px-4 py-2.5 text-sm font-medium text-[var(--ink)] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
                   />
                 </label>
               ))}
             </div>
-            <p className="text-xs text-[var(--text-secondary)]">
+            <p className="text-xs text-gray-400">
               * Required: GSTIN, invoice number, invoice date, taxable value, and at least one of
               CGST / SGST / IGST / Cess.
             </p>
             {formError ? (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <div className="rounded-[1.25rem] bg-red-50 px-5 py-3 text-sm text-red-800">
                 {formError}
               </div>
             ) : null}
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 disabled={busy || !canSave}
                 onClick={() => void onSave()}
-                className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-hover"
+                className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 Save
               </button>
@@ -309,7 +320,7 @@ export default function ClientImportMappingPage() {
                   setEditing(false);
                   setFormError(null);
                 }}
-                className="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-medium"
+                className="rounded-full bg-[#F5F5F6] px-4 py-2 text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-gray-200/70 disabled:opacity-40"
               >
                 Cancel
               </button>

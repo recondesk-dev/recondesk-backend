@@ -27,28 +27,26 @@ export default function ClientWorkspaceLayout({
   }
 
   return (
-    <div>
-      <nav className="border-b border-[var(--border)]">
-        <div className="flex gap-6">
-          {tabs.map(({ label, href }) => {
-            const active = isActive(href);
-            return (
-              <Link
-                key={href}
-                href={href}
-                className={
-                  active
-                    ? "-mb-px border-b-2 border-brand py-3 text-sm font-medium text-[var(--text-primary)]"
-                    : "py-3 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
-                }
-              >
-                {label}
-              </Link>
-            );
-          })}
-        </div>
+    <div className="space-y-6">
+      <nav className="flex flex-wrap gap-2">
+        {tabs.map(({ label, href }) => {
+          const active = isActive(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={
+                active
+                  ? "rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white shadow-sm"
+                  : "rounded-full bg-white px-4 py-2 text-sm font-medium text-gray-500 shadow-[var(--shadow-soft)] transition-colors hover:text-[var(--ink)]"
+              }
+            >
+              {label}
+            </Link>
+          );
+        })}
       </nav>
-      <div className="mt-8">{children}</div>
+      <div>{children}</div>
     </div>
   );
 }
