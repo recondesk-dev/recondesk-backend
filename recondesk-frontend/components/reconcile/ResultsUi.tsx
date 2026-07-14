@@ -54,14 +54,14 @@ export const resultsSummaryGridClass =
 
 export const statCardValueClass = "text-xl font-semibold tabular-nums tracking-tight";
 
-export const tableWrapClass = "w-full min-w-0 overflow-x-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]";
+export const tableWrapClass = "w-full min-w-0 overflow-x-auto rounded-[1.25rem] ring-1 ring-[#F0F0F0]";
 
 export const tableClass = "w-full table-auto border-collapse text-left";
 
 export const decisionTableWrapClass = tableWrapClass;
 
 export const decisionTableClass =
-  "w-full table-fixed border-collapse text-left";
+  "w-full min-w-[1100px] table-auto border-collapse text-left";
 
 export const tableHeadClass =
   "text-[11px] font-medium uppercase tracking-widest text-gray-400";
@@ -96,32 +96,33 @@ export const topSuppliersTdTotal = `${tableCellClass} text-right font-semibold`;
 export const topSuppliersThImpact = `${tableHeadCellClass} w-[14%] text-right`;
 export const topSuppliersTdImpact = `${tableCellClass} text-right`;
 
-export const matchedTableClass = decisionTableClass;
+export const matchedTableClass =
+  "w-full min-w-[1080px] table-auto border-collapse text-left";
 
-export const matchedThGstin = `${tableHeadCellClass} w-[16%]`;
-export const matchedTdGstin = `${tableCellClass} max-w-0 overflow-visible font-mono text-[12px] text-gray-500`;
-export const matchedThInvoice = `${tableHeadCellClass} w-[12%]`;
-export const matchedTdInvoice = `${tableCellClass} max-w-0 overflow-visible`;
-export const matchedThDate = `${tableHeadCellClass} w-[10%]`;
-export const matchedTdDate = `${tableCellClass} text-[13px] text-gray-500`;
-export const matchedThAmount = `${tableHeadCellClass} w-[10%] text-right`;
-export const matchedTdAmount = `${tableCellClass} text-right`;
-export const matchedThMatchLevel = `${tableHeadCellClass} w-[10%] text-center`;
-export const matchedTdMatchLevel = `${tableCellClass} text-center`;
-export const matchedThConfidence = `${tableHeadCellClass} w-[10%] text-center`;
-export const matchedTdConfidence = `${tableCellClass} text-center text-[13px] text-gray-600`;
-export const matchedThDiscrepancy = `${tableHeadCellClass} w-[16%]`;
-export const matchedTdDiscrepancy = `${tableCellClass} max-w-0 overflow-visible text-[13px] text-gray-600`;
-export const matchedThGuidanceWhat = `${tableHeadCellClass} w-[14%]`;
-export const matchedTdGuidanceWhat = `${tableCellClass} max-w-0 overflow-visible text-[13px] text-gray-600`;
-export const matchedThGuidanceWhy = `${tableHeadCellClass} w-[12%]`;
-export const matchedTdGuidanceWhy = `${tableCellClass} max-w-0 overflow-visible text-[13px] italic text-gray-400`;
-export const matchedThGuidanceNext = `${tableHeadCellClass} w-[12%]`;
-export const matchedTdGuidanceNext = `${tableCellClass} max-w-0 overflow-visible text-[13px] font-medium text-[var(--ink)]`;
-export const matchedThNotes = `${tableHeadCellClass} w-[8%]`;
-export const matchedTdNotes = `${tableCellClass}`;
-export const matchedThIms = `${tableHeadCellClass} w-[10%] text-center`;
-export const matchedTdIms = `${tableCellClass} text-center`;
+export const matchedThGstin = `${tableHeadCellClass} min-w-[150px] whitespace-nowrap`;
+export const matchedTdGstin = `${tableCellClass} font-mono text-[12px] text-gray-500`;
+export const matchedThInvoice = `${tableHeadCellClass} min-w-[110px] whitespace-nowrap`;
+export const matchedTdInvoice = `${tableCellClass}`;
+export const matchedThDate = `${tableHeadCellClass} min-w-[110px] whitespace-nowrap`;
+export const matchedTdDate = `${tableCellClass} whitespace-nowrap text-[13px] text-gray-500`;
+export const matchedThAmount = `${tableHeadCellClass} min-w-[100px] whitespace-nowrap text-right`;
+export const matchedTdAmount = `${tableCellClass} whitespace-nowrap text-right`;
+export const matchedThMatchLevel = `${tableHeadCellClass} min-w-[180px] whitespace-nowrap`;
+export const matchedTdMatchLevel = `${tableCellClass}`;
+export const matchedThConfidence = `${tableHeadCellClass} min-w-[100px] whitespace-nowrap text-center`;
+export const matchedTdConfidence = `${tableCellClass} whitespace-nowrap text-center text-[13px] text-gray-600`;
+export const matchedThDiscrepancy = `${tableHeadCellClass} min-w-[140px] whitespace-nowrap`;
+export const matchedTdDiscrepancy = `${tableCellClass} text-[13px] text-gray-600`;
+export const matchedThGuidanceWhat = `${tableHeadCellClass} min-w-[160px] whitespace-nowrap`;
+export const matchedTdGuidanceWhat = `${tableCellClass} text-[13px] text-gray-600`;
+export const matchedThGuidanceWhy = `${tableHeadCellClass} min-w-[140px] whitespace-nowrap`;
+export const matchedTdGuidanceWhy = `${tableCellClass} text-[13px] italic text-gray-400`;
+export const matchedThGuidanceNext = `${tableHeadCellClass} min-w-[140px] whitespace-nowrap`;
+export const matchedTdGuidanceNext = `${tableCellClass} text-[13px] font-medium text-[var(--ink)]`;
+export const matchedThNotes = `${tableHeadCellClass} min-w-[80px] whitespace-nowrap`;
+export const matchedTdNotes = `${tableCellClass} whitespace-nowrap`;
+export const matchedThIms = `${tableHeadCellClass} min-w-[100px] whitespace-nowrap text-center`;
+export const matchedTdIms = `${tableCellClass} whitespace-nowrap text-center`;
 
 export type ImsStatusValue =
   | "accepted"

@@ -71,18 +71,21 @@ const ATTENTION_ROWS = [
 const DECISIONS = [
   {
     invoice: "INV-2041",
-    issue: "Taxable value mismatch",
-    action: "Ask supplier to amend GSTR-1",
+    what: "Taxable value mismatch",
+    why: "GSTR-2B and books differ by ₹2,480",
+    next: "Ask supplier to amend GSTR-1",
   },
   {
     invoice: "INV-1188",
-    issue: "Missing in GSTR-2B",
-    action: "Hold ITC until reflected",
+    what: "Missing in GSTR-2B",
+    why: "Invoice present in books only",
+    next: "Hold ITC until reflected",
   },
   {
     invoice: "INV-3310",
-    issue: "Section 17(5) likely",
-    action: "Flag as blocked credit",
+    what: "Section 17(5) likely",
+    why: "Expense category may block credit",
+    next: "Flag as blocked credit",
   },
 ];
 
@@ -297,30 +300,36 @@ function DecisionsScreen({ activeDecision }: { activeDecision: number }) {
           return (
             <div
               key={item.invoice}
-              className={`rounded-[1.15rem] p-3.5 transition-all duration-500 ${
-                active
-                  ? "bg-[var(--ink)] text-white shadow-[var(--shadow-lift)]"
-                  : "bg-white text-[var(--ink)] shadow-[var(--shadow-soft)]"
+              className={`rounded-[1.15rem] bg-white p-3 shadow-[var(--shadow-soft)] transition-all duration-500 ${
+                active ? "ring-2 ring-[var(--ink)]/15 shadow-[var(--shadow-lift)]" : "opacity-70"
               }`}
             >
               <div className="flex items-center justify-between gap-2">
-                <p className={`font-mono text-xs font-semibold ${active ? "text-white" : "text-[var(--ink)]"}`}>
+                <p className="text-xs font-semibold tracking-tight text-[var(--ink)]">
                   {item.invoice}
                 </p>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                    active ? "bg-white/15 text-white" : "bg-[#F5F5F6] text-gray-600"
-                  }`}
-                >
+                <span className="rounded-full bg-[#F5F5F6] px-2 py-0.5 text-[10px] font-semibold text-gray-600">
                   Mismatch
                 </span>
               </div>
-              <p className={`mt-2 text-sm font-semibold ${active ? "text-white" : "text-[var(--ink)]"}`}>
-                {item.issue}
-              </p>
-              <p className={`mt-1 text-[11px] leading-relaxed ${active ? "text-white/70" : "text-gray-500"}`}>
-                Next: {item.action}
-              </p>
+              {active ? (
+                <div className="mt-2 grid gap-1.5 sm:grid-cols-3">
+                  <div className="rounded-lg bg-[#F7F7F8] px-2.5 py-1.5">
+                    <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400">What</p>
+                    <p className="mt-0.5 text-[11px] font-medium leading-snug text-gray-700">{item.what}</p>
+                  </div>
+                  <div className="rounded-lg bg-[#F7F7F8] px-2.5 py-1.5">
+                    <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400">Why</p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-gray-500">{item.why}</p>
+                  </div>
+                  <div className="rounded-lg bg-[#F7F7F8] px-2.5 py-1.5">
+                    <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400">Next</p>
+                    <p className="mt-0.5 text-[11px] font-medium leading-snug text-[var(--ink)]">{item.next}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-1.5 truncate text-[11px] text-gray-500">{item.what}</p>
+              )}
             </div>
           );
         })}

@@ -17,9 +17,12 @@ const tooltipClass =
 export function GstinCell({
   gstin,
   className = "",
+  truncate = true,
 }: {
   gstin: string;
   className?: string;
+  /** When false, show the full GSTIN (use in card layouts with more room). */
+  truncate?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -118,7 +121,9 @@ export function GstinCell({
         className={`group relative inline-block w-full max-w-full cursor-pointer ${className}`}
       >
         <span className="inline-flex w-full max-w-full items-center gap-1">
-          <span className="min-w-0 truncate">{display}</span>
+          <span className={`min-w-0 ${truncate ? "truncate" : "whitespace-nowrap"}`}>
+            {display}
+          </span>
           <Copy className="h-3 w-3 shrink-0 text-gray-400 opacity-0 transition-opacity group-hover:opacity-100" />
         </span>
       </span>
