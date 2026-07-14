@@ -5,18 +5,21 @@
 @layer base {
   :root {
     --sidebar: #0f1117;
-    --bg: #f8f9fc;
+    --bg: #f2f3f5;
     --surface: #ffffff;
-    --surface-textured: #f8f7fc;
-    --surface-textured-dot: rgba(124, 58, 237, 0.12);
+    --surface-textured: #f2f3f5;
+    --surface-textured-dot: rgba(17, 24, 39, 0.06);
     --accent: #7c3aed; /* synced with tailwind brand.DEFAULT — lib/brand.ts */
     --accent-dim: #ede9fe; /* synced with tailwind brand.dim */
+    --ink: #111111;
     --danger: #ef4444;
     --warning: #f59e0b;
     --success: #10b981;
-    --text-primary: #111827;
+    --text-primary: #111111;
     --text-secondary: #6b7280;
-    --border: #e5e7eb;
+    --border: #ebebec;
+    --shadow-soft: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px rgba(16, 24, 40, 0.05);
+    --shadow-lift: 0 2px 8px rgba(16, 24, 40, 0.06), 0 16px 40px rgba(16, 24, 40, 0.06);
   }
 
   * {
@@ -93,6 +96,26 @@
 }
 
 @layer utilities {
+  .dashboard-soft-bg {
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(ellipse 80% 50% at 10% -10%, rgba(17, 17, 17, 0.045), transparent 55%),
+      radial-gradient(ellipse 60% 40% at 95% 5%, rgba(17, 17, 17, 0.03), transparent 50%),
+      radial-gradient(ellipse 50% 35% at 80% 90%, rgba(17, 17, 17, 0.025), transparent 55%);
+  }
+
+  .dashboard-card {
+    border-radius: 1.5rem;
+    background: var(--surface);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .dashboard-card-lift {
+    border-radius: 1.5rem;
+    background: var(--surface);
+    box-shadow: var(--shadow-lift);
+  }
+
   .recondesk-textured-bg {
     background-color: var(--surface-textured);
     background-image: radial-gradient(

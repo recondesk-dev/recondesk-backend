@@ -354,14 +354,11 @@ export default function DashboardShellLayout({
   ];
 
   return (
-    <div className="flex min-h-screen w-full min-w-0 bg-[var(--bg)] text-[var(--text-primary)]">
-      <aside className="fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col border-r border-[#F0F0F0] bg-white">
-        <div className="px-5 py-6">
-          <Link
-            href="/dashboard"
-            className="flex items-center"
-          >
-            <Logo width={210} height={40} />
+    <div className="dashboard-soft-bg flex min-h-screen w-full min-w-0 text-[var(--text-primary)]">
+      <aside className="fixed inset-y-3 left-3 z-50 flex w-[232px] flex-col rounded-[1.75rem] bg-white shadow-[var(--shadow-soft)]">
+        <div className="px-5 pb-4 pt-6">
+          <Link href="/dashboard" className="flex items-center">
+            <Logo width={180} height={34} />
           </Link>
         </div>
         <nav className="flex-1 space-y-1 px-3">
@@ -374,29 +371,23 @@ export default function DashboardShellLayout({
               <Link
                 key={href}
                 href={href}
-                className={`relative flex items-center gap-3 rounded-lg py-2.5 pl-3 pr-3 text-sm transition-colors duration-150 ${
+                className={`flex items-center gap-3 rounded-full px-3.5 py-2.5 text-sm transition-all duration-200 ${
                   isActive
-                    ? "bg-brand/[0.08] font-semibold text-brand"
-                    : "font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-800"
+                    ? "bg-[var(--ink)] font-semibold text-white shadow-sm"
+                    : "font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-900"
                 }`}
               >
-                {isActive ? (
-                  <span
-                    className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand"
-                    aria-hidden
-                  />
-                ) : null}
-                <Icon className={`shrink-0 ${isActive ? "text-brand" : "text-gray-400"}`} />
+                <Icon className={`shrink-0 ${isActive ? "text-white" : "text-gray-400"}`} />
                 {label}
               </Link>
             );
           })}
         </nav>
-        <div className="border-t border-gray-100 p-4">
+        <div className="p-4">
           <div className="relative" ref={profileRef}>
             {profileOpen && (
               <div
-                className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm"
+                className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04]"
                 role="menu"
               >
                 <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
@@ -405,7 +396,7 @@ export default function DashboardShellLayout({
                     <p className="truncate text-sm font-medium text-gray-900">
                       {currentUser.name}
                     </p>
-                    <span className="mt-0.5 inline-block rounded bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                    <span className="mt-0.5 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
                       {currentUser.role}
                     </span>
                   </div>
@@ -414,7 +405,7 @@ export default function DashboardShellLayout({
                 {profileBilling.status === "loading" && <ProfileBillingSkeleton />}
                 {profileBilling.status === "ready" && (
                   <div className="space-y-1.5 border-b border-gray-100 px-4 py-3">
-                    <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                    <span className="inline-flex rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-semibold text-gray-700">
                       {profileBilling.planLabel}
                     </span>
                     <p className="text-xs text-gray-500">
@@ -446,44 +437,49 @@ export default function DashboardShellLayout({
             )}
             <button
               type="button"
-              className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition-colors hover:bg-gray-50"
+              className="flex w-full items-center gap-3 rounded-2xl p-2 text-left transition-colors hover:bg-gray-50"
               onClick={() => setProfileOpen((open) => !open)}
               aria-expanded={profileOpen}
               aria-haspopup="menu"
             >
-              <Avatar initials={currentUser.initials} />
+              <span className="relative shrink-0">
+                <Avatar initials={currentUser.initials} />
+                {failedCount > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[var(--ink)] px-1 text-[9px] font-bold text-white">
+                    {failedCount > 99 ? "99+" : failedCount}
+                  </span>
+                )}
+              </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-gray-900">{currentUser.name}</p>
-                <span className="mt-0.5 inline-block rounded bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                  {currentUser.role}
-                </span>
+                <p className="truncate text-sm font-semibold text-gray-900">{currentUser.name}</p>
+                <p className="truncate text-xs text-gray-400">
+                  {currentUser.email || currentUser.role}
+                </p>
               </div>
             </button>
           </div>
         </div>
       </aside>
 
-      <div className="ml-[240px] flex min-h-screen min-w-0 w-[calc(100%-240px)] max-w-[calc(100%-240px)] flex-1 flex-col overflow-x-hidden">
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-8">
+      <div className="ml-[256px] flex min-h-screen min-w-0 w-[calc(100%-256px)] max-w-[calc(100%-256px)] flex-1 flex-col overflow-x-hidden">
+        <header className="flex h-16 shrink-0 items-center justify-between px-8 pt-2">
           <div />
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <button
               type="button"
-              className="relative rounded-xl p-2 text-gray-400 hover:bg-gray-50 transition-colors"
+              className="relative rounded-full bg-white p-2.5 text-gray-500 shadow-[var(--shadow-soft)] transition-colors hover:text-gray-900"
               aria-label="Notifications"
               onClick={() => setPanelOpen(true)}
             >
               <BellIcon />
               {failedCount > 0 && (
-                <span className="absolute right-1 top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[var(--danger)] px-1 text-[10px] font-bold text-white">
-                  {failedCount}
-                </span>
+                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[var(--danger)] ring-2 ring-white" />
               )}
             </button>
             <div className="relative" ref={headerProfileRef}>
               <button
                 type="button"
-                className="flex items-center rounded-full transition-all hover:ring-2 hover:ring-brand/30"
+                className="flex items-center rounded-full bg-white p-1 shadow-[var(--shadow-soft)] transition-all hover:ring-2 hover:ring-black/10"
                 onClick={() => setHeaderProfileOpen((o) => !o)}
                 aria-expanded={headerProfileOpen}
                 aria-haspopup="menu"
@@ -493,7 +489,7 @@ export default function DashboardShellLayout({
               </button>
               {headerProfileOpen && (
                 <div
-                  className="absolute right-0 top-full mt-2 w-64 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg"
+                  className="absolute right-0 top-full mt-2 w-64 overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04]"
                   role="menu"
                 >
                   {/* ── User info header ── */}
@@ -586,7 +582,7 @@ export default function DashboardShellLayout({
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-white p-8">
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-8 pb-10 pt-2">
           {children}
         </main>
       </div>
@@ -595,11 +591,11 @@ export default function DashboardShellLayout({
         <>
           <button
             type="button"
-            className="fixed inset-0 z-[80] bg-black/30"
+            className="fixed inset-0 z-[80] bg-black/20 backdrop-blur-[2px]"
             aria-label="Close notifications"
             onClick={() => setPanelOpen(false)}
           />
-          <div className="fixed inset-y-0 right-0 z-[90] flex w-full max-w-md flex-col border-l border-gray-100 bg-white shadow-2xl">
+          <div className="fixed inset-y-3 right-3 z-[90] flex w-full max-w-md flex-col overflow-hidden rounded-[1.75rem] bg-white shadow-[var(--shadow-lift)]">
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
               <h2 className="text-base font-semibold text-gray-900">Failed reconciliations</h2>
               <button

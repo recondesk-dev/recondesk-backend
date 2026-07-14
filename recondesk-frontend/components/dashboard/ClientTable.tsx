@@ -15,7 +15,7 @@ import { Modal } from "@/components/ui/Modal";
 
 function SortArrow({ active, dir }: { active: boolean; dir: SortDirection }) {
   if (!active) return <span className="ml-1 text-gray-300">↕</span>;
-  return <span className="ml-1 text-brand">{dir === "asc" ? "↑" : "↓"}</span>;
+  return <span className="ml-1 text-[var(--ink)]">{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
 function MatchRateBar({ rate }: { rate: number | null }) {
@@ -198,20 +198,15 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
   };
 
   const isFailed = status === "FAILED";
-  const isComplete = status === "COMPLETE";
   const isFinalized = status === "FINALIZED";
-  const rowBg = isFailed
-    ? "bg-red-50/40"
-    : isComplete
-      ? "bg-amber-50/30"
-      : "";
+  const rowBg = isFailed ? "bg-red-50/30" : "";
   const firstCellBorder = "";
-  const rowOpacity = isFinalized ? "opacity-50" : "";
-  const hoverClass = "hover:bg-gray-50/50";
+  const rowOpacity = isFinalized ? "opacity-55" : "";
+  const hoverClass = "hover:bg-[#F7F7F8]";
 
   return (
     <tr
-      className={`cursor-pointer border-b border-gray-100 transition-colors ${rowBg} ${rowOpacity} ${hoverClass}`}
+      className={`cursor-pointer border-b border-[#F0F0F0] transition-colors last:border-b-0 ${rowBg} ${rowOpacity} ${hoverClass}`}
       onClick={navigateDetail}
       onMouseEnter={(e) => {
         if (latest?.status === "COMPLETE") {
@@ -230,7 +225,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           type="checkbox"
           checked={selected}
           onChange={() => onToggleSelect(row.client.id)}
-          className="h-4 w-4 rounded border-gray-200 accent-brand"
+          className="h-4 w-4 rounded border-gray-200 accent-[var(--ink)]"
           aria-label={`Select ${row.client.tradeName}`}
         />
       </td>
@@ -240,7 +235,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
       <td className="px-4 py-3.5">
         <Link
           href={`/clients/${row.client.id}`}
-          className="font-medium text-brand hover:underline cursor-pointer"
+          className="font-medium text-[var(--ink)] hover:underline cursor-pointer"
         >
           {row.client.tradeName}
         </Link>
@@ -279,7 +274,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           {status === "COMPLETE" && (
             <button
               type="button"
-              className="rounded-full border border-brand bg-transparent px-4 py-1.5 text-xs font-semibold text-brand hover:bg-brand-dim transition-colors focus:outline-none focus:ring-2 focus:ring-brand/30"
+              className="rounded-full bg-[var(--ink)] px-4 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-black/20"
               onClick={() => navigateToResults()}
             >
               Review
@@ -297,7 +292,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           {status === "PENDING" && (
             <button
               type="button"
-              className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-hover transition-opacity"
+              className="rounded-full bg-[var(--ink)] px-4 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
               onClick={() => navigateDetail()}
             >
               Start
@@ -306,7 +301,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           {!latest && (
             <button
               type="button"
-              className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-hover transition-opacity"
+              className="rounded-full bg-[var(--ink)] px-4 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
               onClick={() => navigateDetail()}
             >
               Start
@@ -316,7 +311,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
             <button
               type="button"
               disabled
-              className="cursor-not-allowed rounded-full bg-gray-100 px-4 py-1.5 text-xs font-semibold text-gray-400"
+              className="cursor-not-allowed rounded-full bg-[#F0F0F0] px-4 py-1.5 text-xs font-semibold text-gray-400"
             >
               In Progress
             </button>
@@ -351,7 +346,7 @@ function PreviewPopover({
 
   return (
     <div
-      className="pointer-events-auto fixed z-[60] w-64 rounded-2xl bg-white p-5 shadow-2xl"
+      className="pointer-events-auto fixed z-[60] w-64 rounded-[1.5rem] bg-white p-5 shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04]"
       style={{
         top: anchor.top,
         left: anchor.left + 8,
@@ -401,7 +396,7 @@ function PreviewPopover({
       </p>
       <Link
         href={`/clients/${row.client.id}`}
-        className="mt-3 inline-block text-xs font-semibold text-brand hover:underline"
+        className="mt-3 inline-block text-xs font-semibold text-[var(--ink)] hover:underline"
       >
         Open Full Report →
       </Link>
@@ -481,22 +476,22 @@ export function ClientTable({
   const maxPage = Math.max(1, Math.ceil(total / pageSize));
 
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-white shadow-sm">
+    <div className="relative overflow-hidden bg-white">
       <div className="overflow-x-auto">
         <table className="min-w-[1100px] w-full border-collapse text-left">
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50/80 text-[11px] font-medium uppercase tracking-widest text-gray-400">
-              <th className="w-10 px-4 py-3.5">
+            <tr className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
+              <th className="w-10 px-5 py-4">
                 <input
                   type="checkbox"
                   checked={allSelected}
                   disabled={loading || rows.length === 0}
                   onChange={(e) => onToggleAllOnPage(pageIds, e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-200 accent-brand"
+                  className="h-4 w-4 rounded border-gray-200 accent-[var(--ink)]"
                   aria-label="Select all on page"
                 />
               </th>
-              <th className="px-4 py-3.5">
+              <th className="px-4 py-4">
                 <button
                   type="button"
                   className="inline-flex items-center font-medium"
@@ -506,11 +501,11 @@ export function ClientTable({
                   <SortArrow active={sort.key === "priority"} dir={sort.dir} />
                 </button>
               </th>
-              <th className="px-4 py-3.5">Client Name</th>
-              <th className="px-4 py-3.5">GSTIN</th>
-              <th className="px-4 py-3.5">Status</th>
-              <th className="px-4 py-3.5">Period</th>
-              <th className="px-4 py-3.5">
+              <th className="px-4 py-4">Client Name</th>
+              <th className="px-4 py-4">GSTIN</th>
+              <th className="px-4 py-4">Status</th>
+              <th className="px-4 py-4">Period</th>
+              <th className="px-4 py-4">
                 <button
                   type="button"
                   className="inline-flex items-center font-medium"
@@ -520,7 +515,7 @@ export function ClientTable({
                   <SortArrow active={sort.key === "matchRate"} dir={sort.dir} />
                 </button>
               </th>
-              <th className="px-4 py-3.5">
+              <th className="px-4 py-4">
                 <button
                   type="button"
                   className="inline-flex items-center font-medium"
@@ -530,8 +525,8 @@ export function ClientTable({
                   <SortArrow active={sort.key === "missedItc"} dir={sort.dir} />
                 </button>
               </th>
-              <th className="px-4 py-3.5">Assigned To</th>
-              <th className="min-w-[100px] px-4 py-3.5 text-right">Actions</th>
+              <th className="px-4 py-4">Assigned To</th>
+              <th className="min-w-[100px] px-5 py-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -560,7 +555,7 @@ export function ClientTable({
           onMouseLeave={onPreviewLeave}
         />
       )}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 bg-white px-5 py-4 text-sm text-gray-400">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#F0F0F0] bg-white px-5 py-4 text-sm text-gray-400">
         <span>
           Showing {start}–{end} of {total} clients
         </span>
@@ -569,7 +564,7 @@ export function ClientTable({
             type="button"
             disabled={page <= 1 || loading}
             onClick={() => onPageChange(page - 1)}
-            className="rounded-full border border-gray-200 px-4 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+            className="rounded-full bg-[#F5F5F6] px-4 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-200/70 disabled:opacity-30"
           >
             Previous
           </button>
@@ -577,7 +572,7 @@ export function ClientTable({
             type="button"
             disabled={page >= maxPage || loading}
             onClick={() => onPageChange(page + 1)}
-            className="rounded-full border border-gray-200 px-4 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+            className="rounded-full bg-[var(--ink)] px-4 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-30"
           >
             Next
           </button>
@@ -618,7 +613,7 @@ export function RetryConfirmModal({
             type="button"
             disabled={loading}
             onClick={onConfirm}
-            className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:bg-brand-hover transition-opacity"
+            className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:opacity-90 transition-opacity"
           >
             Retry
           </button>
