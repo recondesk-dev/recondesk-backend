@@ -10,7 +10,7 @@ import {
   Users,
 } from "lucide-react";
 
-type ScreenId = "dashboard" | "results" | "decisions";
+type ScreenId = "matching" | "results" | "dashboard" | "decisions";
 
 const SCREENS: {
   id: ScreenId;
@@ -20,11 +20,11 @@ const SCREENS: {
   featureIndex: number;
 }[] = [
   {
-    id: "dashboard",
-    path: "dashboard",
-    title: "See your portfolio at a glance",
-    description: "Stats, risk, and next actions for every client — in one soft workspace.",
-    featureIndex: 2,
+    id: "matching",
+    path: "reconcile / match",
+    title: "5-level invoice matching",
+    description: "Exact to probable matches across thousands of invoices in minutes.",
+    featureIndex: 0,
   },
   {
     id: "results",
@@ -32,6 +32,13 @@ const SCREENS: {
     title: "Know the ITC at risk instantly",
     description: "Matched vs mismatch totals with rupee impact, ready for review.",
     featureIndex: 1,
+  },
+  {
+    id: "dashboard",
+    path: "dashboard",
+    title: "See your portfolio at a glance",
+    description: "Stats, risk, and next actions for every client — in one soft workspace.",
+    featureIndex: 2,
   },
   {
     id: "decisions",
@@ -60,6 +67,14 @@ const FEATURES = [
     description: "What’s wrong, why it happened, and what to do — per invoice.",
   },
 ];
+
+const MATCH_LEVELS = [
+  { level: "L1", label: "Exact", detail: "GSTIN + invoice number", pct: 62 },
+  { level: "L2", label: "Fuzzy invoice", detail: "GSTIN + close invoice #", pct: 14 },
+  { level: "L3", label: "Amount match", detail: "GSTIN + taxable value", pct: 11 },
+  { level: "L4", label: "Vendor + amount", detail: "Name fuzzy + amount", pct: 8 },
+  { level: "L5", label: "Probable", detail: "Partial / review needed", pct: 5 },
+] as const;
 
 const ATTENTION_ROWS = [
   { initials: "AK", name: "Aarav Textiles", status: "Pending", tone: "amber" as const },
@@ -102,6 +117,19 @@ function statusClass(tone: "amber" | "ink" | "emerald" | "rose") {
   }
 }
 
+function navIndexForScreen(id: ScreenId): number {
+  switch (id) {
+    case "dashboard":
+      return 0;
+    case "matching":
+      return 1;
+    case "results":
+      return 1;
+    case "decisions":
+      return 2;
+  }
+}
+
 function Shell({
   path,
   activeNav,
@@ -138,6 +166,99 @@ function Shell({
         <div className="min-w-0 flex-1 bg-[var(--bg)] p-4 sm:p-5">{children}</div>
       </div>
     </div>
+  );
+}
+
+function MatchingScreen({ activeLevel }: { activeLevel: number }) {
+  return (
+    <>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold tracking-tight text-[var(--ink)]">5-level matching</p>
+          <p className="mt-0.5 text-[11px] text-gray-500">Scanning 5,000+ invoices…</p>
+        </div>
+        <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ink)] px-2.5 py-1 text-[10px] font-semibold text-white">
+          <GitMerge className="h-3 w-3" />
+          Engine live
+        </span>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {MATCH_LEVELS.map((row, index) => {
+          const active = index === activeLevel;
+          const done = index < activeLevel;
+          return (
+            <div
+              key={row.level}
+              className={`rounded-[1.1rem] px-3 py-2.5 transition-all duration-500 ${
+                active
+                  ? "bg-[var(--ink)] text-white shadow-[var(--shadow-lift)]"
+                  : "bg-white shadow-[var(--shadow-soft)]"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+                    active
+                      ? "bg-white/15 text-white"
+                      : done
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-[#F5F5F6] text-gray-500"
+                  }`}
+                >
+                  {done && !active ? "✓" : row.level}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p
+                      className={`text-xs font-semibold ${
+                        active ? "text-white" : "text-[var(--ink)]"
+                      }`}
+                    >
+                      {row.label}
+                    </p>
+                    <p
+                      className={`text-[11px] font-semibold tabular-nums ${
+                        active ? "text-white/80" : "text-gray-500"
+                      }`}
+                    >
+                      {row.pct}%
+                    </p>
+                  </div>
+                  <p className={`mt-0.5 text-[11px] ${active ? "text-white/65" : "text-gray-500"}`}>
+                    {row.detail}
+                  </p>
+                  <div
+                    className={`mt-2 h-1.5 overflow-hidden rounded-full ${
+                      active ? "bg-white/20" : "bg-[#F0F0F0]"
+                    }`}
+                  >
+                    <div
+                      className={`h-full rounded-full transition-all duration-700 ${
+                        active || done ? (active ? "bg-white" : "bg-[var(--ink)]") : "bg-transparent"
+                      }`}
+                      style={{ width: active || done ? `${row.pct}%` : "0%" }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 rounded-[1.15rem] bg-white px-3.5 py-3 shadow-[var(--shadow-soft)]">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+          This pass
+        </p>
+        <div className="mt-1.5 flex items-end justify-between gap-3">
+          <p className="font-sans text-xl font-semibold tracking-tight text-[var(--ink)]">
+            847 matched
+          </p>
+          <p className="text-[11px] text-gray-500">23 need a decision</p>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -233,7 +354,7 @@ function ResultsScreen() {
         </div>
         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
           <GitMerge className="h-3 w-3" />
-          5-level match
+          Ready
         </span>
       </div>
       <div className="mt-3 grid grid-cols-3 gap-2">
@@ -255,12 +376,12 @@ function ResultsScreen() {
         ))}
       </div>
       <div className="mt-3 rounded-[1.25rem] bg-white p-3.5 shadow-[var(--shadow-soft)]">
-        <p className="text-xs font-semibold text-[var(--ink)]">Match breakdown</p>
+        <p className="text-xs font-semibold text-[var(--ink)]">Where the risk sits</p>
         <div className="mt-3 space-y-2.5">
           {[
-            { label: "L1 Exact", pct: 72 },
-            { label: "L2–L3 Probable", pct: 18 },
-            { label: "Unmatched", pct: 10 },
+            { label: "Missing in 2B", pct: 48 },
+            { label: "Value mismatch", pct: 32 },
+            { label: "Blocked credit flags", pct: 20 },
           ].map((row) => (
             <div key={row.label}>
               <div className="mb-1 flex justify-between text-[11px]">
@@ -342,6 +463,7 @@ export function LandingDashboardPreview() {
   const [screenIndex, setScreenIndex] = useState(0);
   const [activeRow, setActiveRow] = useState(0);
   const [activeDecision, setActiveDecision] = useState(0);
+  const [activeLevel, setActiveLevel] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
 
   const screen = SCREENS[screenIndex];
@@ -378,18 +500,33 @@ export function LandingDashboardPreview() {
     return () => window.clearInterval(id);
   }, [reduceMotion, screen.id]);
 
+  useEffect(() => {
+    if (screen.id !== "matching") {
+      setActiveLevel(0);
+      return;
+    }
+    if (reduceMotion) {
+      setActiveLevel(MATCH_LEVELS.length - 1);
+      return;
+    }
+    setActiveLevel(0);
+    const id = window.setInterval(() => {
+      setActiveLevel((prev) => (prev + 1) % MATCH_LEVELS.length);
+    }, 900);
+    return () => window.clearInterval(id);
+  }, [reduceMotion, screen.id]);
+
   return (
     <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-12">
       <div className="landing-dash-enter relative mx-auto w-full max-w-lg lg:max-w-none" aria-hidden>
         <div key={screen.id} className="landing-dash-screen">
-          <Shell
-            path={screen.path}
-            activeNav={screen.id === "dashboard" ? 0 : screen.id === "results" ? 1 : 2}
-          >
-            {screen.id === "dashboard" ? (
-              <DashboardScreen activeRow={activeRow} />
+          <Shell path={screen.path} activeNav={navIndexForScreen(screen.id)}>
+            {screen.id === "matching" ? (
+              <MatchingScreen activeLevel={activeLevel} />
             ) : screen.id === "results" ? (
               <ResultsScreen />
+            ) : screen.id === "dashboard" ? (
+              <DashboardScreen activeRow={activeRow} />
             ) : (
               <DecisionsScreen activeDecision={activeDecision} />
             )}
@@ -429,12 +566,9 @@ export function LandingDashboardPreview() {
                   onClick={() => {
                     const target = SCREENS.findIndex((s) => s.featureIndex === index);
                     if (target >= 0) setScreenIndex(target);
-                    else if (index === 0) setScreenIndex(1);
                   }}
                   className={`flex w-full gap-3 rounded-[1.15rem] px-3 py-3 text-left transition-all duration-300 ${
-                    active
-                      ? "bg-white shadow-[var(--shadow-soft)]"
-                      : "hover:bg-white/60"
+                    active ? "bg-white shadow-[var(--shadow-soft)]" : "hover:bg-white/60"
                   }`}
                 >
                   <span
