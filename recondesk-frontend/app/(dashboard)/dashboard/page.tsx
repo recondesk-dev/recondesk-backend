@@ -24,10 +24,10 @@ const RetryConfirmModal = dynamic(
   { ssr: false }
 );
 
-const PortfolioActivityChart = dynamic(
+const ReturnPeriodBoard = dynamic(
   () =>
-    import("@/components/dashboard/PortfolioActivityChart").then(
-      (mod) => mod.PortfolioActivityChart
+    import("@/components/dashboard/ReturnPeriodBoard").then(
+      (mod) => mod.ReturnPeriodBoard
     ),
   { ssr: false, loading: () => <div className="h-[340px] animate-pulse rounded-[1.5rem] bg-gray-100" /> }
 );
@@ -627,7 +627,7 @@ export default function PortfolioDashboardPage() {
       )}
 
       <section className="grid gap-4 lg:grid-cols-[1.45fr_0.85fr]">
-        <PortfolioActivityChart
+        <ReturnPeriodBoard
           runs={(runs ?? []) as ReconcileRunListRow[]}
           loading={portfolioLoading}
         />
