@@ -658,6 +658,17 @@ def flag_fuzzy_duplicates_of_linked_prs(
             continue
         by_gstin_taxable[(gst, int(p.get("taxable_amount_paise") or 0))].append(p)
 
+    # Also index all linked PRs by GSTIN for the high-sim / 2% taxable path
+    # (when total_tax drifts beyond paise tolerance on messy clones).
+    linked_by_gstin: dict[str, list[dict]] = defaultdict(list)
+    for pid in linked_meta:
+        p = pr_by_id.get(pid)
+        if not p:
+            continue
+        gst_l = str(p.get("supplier_gstin") or "").strip().upper()
+        if gst_l:
+            linked_by_gstin[gst_l].append(p)
+
     flagged = 0
     # Deterministic order so ties are stable across runs.
     for p in sorted(pr_records, key=lambda r: str(r.get("id") or "")):
@@ -674,29 +685,48 @@ def flag_fuzzy_duplicates_of_linked_prs(
             continue
         p_date = _parse_invoice_date(p)
 
-        best: tuple[float, dict] | None = None
-        for tkey in (tax, tax - 100, tax + 100):
-            if tkey < 0:
+        best = None
+        candidates = list(by_gstin_taxable.get((gst, tax), []))
+        for tkey in (tax - 100, tax + 100):
+            if tkey >= 0:
+                candidates.extend(by_gstin_taxable.get((gst, tkey), []))
+        # High-sim path: scan all linked same-GSTIN rows (taxable within 2%).
+        seen_cids = {str(c["id"]) for c in candidates}
+        for cp in linked_by_gstin.get(gst, []):
+            cid = str(cp["id"])
+            if cid not in seen_cids:
+                candidates.append(cp)
+                seen_cids.add(cid)
+
+        for cp in candidates:
+            cid = str(cp["id"])
+            if cid == pid:
                 continue
-            for cp in by_gstin_taxable.get((gst, tkey), []):
-                cid = str(cp["id"])
-                if cid == pid:
+            c_tax = abs(int(cp.get("taxable_amount_paise") or 0))
+            c_tot = abs(int(cp.get("total_tax_paise") or 0))
+            c_inv = str(cp.get("invoice_number_normalized") or "")
+            if not c_inv:
+                continue
+            sim = 1.0 if c_inv == inv else invoice_similarity(inv, c_inv)
+            if sim < invoice_sim_min:
+                ok_digit, _ = _invoice_twin_similarity_ok(
+                    inv, c_inv, sim_min=invoice_sim_min, digit_dist_max=2
+                )
+                if not ok_digit:
                     continue
-                if abs(abs(int(cp.get("taxable_amount_paise") or 0)) - abs(tax)) > amount_tolerance_paise:
-                    continue
-                if abs(abs(int(cp.get("total_tax_paise") or 0)) - tot) > amount_tolerance_paise:
-                    continue
-                c_inv = str(cp.get("invoice_number_normalized") or "")
-                if not c_inv:
-                    continue
-                sim = 1.0 if c_inv == inv else invoice_similarity(inv, c_inv)
-                if sim < invoice_sim_min:
-                    continue
-                c_date = _parse_invoice_date(cp)
-                if p_date and c_date and abs((p_date - c_date).days) > date_tolerance_days:
-                    continue
-                if best is None or sim > best[0] or (sim == best[0] and cid < str(best[1]["id"])):
-                    best = (sim, cp)
+            taxable_ok = abs(c_tax - abs(tax)) <= amount_tolerance_paise or (
+                sim >= 0.85 and _pct_within(c_tax, abs(tax), 0.02)
+            )
+            if not taxable_ok:
+                continue
+            tax_ok = abs(c_tot - tot) <= amount_tolerance_paise or sim >= 0.85
+            if not tax_ok:
+                continue
+            c_date = _parse_invoice_date(cp)
+            if p_date and c_date and abs((p_date - c_date).days) > date_tolerance_days:
+                continue
+            if best is None or sim > best[0] or (sim == best[0] and cid < str(best[1]["id"])):
+                best = (sim, cp)
 
         if best is None:
             continue
@@ -714,6 +744,99 @@ def flag_fuzzy_duplicates_of_linked_prs(
         logger.info(
             "[FUZZY_DUPLICATE] Flagged %d unconsumed PR clone(s) of linked invoices "
             "as Duplicate Entry (not ITC at Risk)",
+            flagged,
+        )
+    return flagged
+
+
+def flag_fuzzy_pr_peer_duplicates(
+    state: ReconState,
+    pr_records: list[dict],
+    *,
+    invoice_sim_min: float = 0.75,
+    taxable_pct: float = 0.02,
+    date_tolerance_days: int = 45,
+) -> int:
+    """Flag PR↔PR clones among unconsumed rows (neither side linked to GSTR).
+
+    When both bookings of a fuzzed duplicate sit outside GSTR linking, the
+    linked-only sweep cannot see them and both would become ITC at Risk.
+    Keep one canonical survivor (earliest date, then lowest id); extras →
+    Duplicate Entry.
+    """
+    from app.services.matcher import _parse_invoice_date
+
+    by_gstin: dict[str, list[dict]] = defaultdict(list)
+    for p in pr_records:
+        pid = str(p["id"])
+        if pid in state.consumed_pr_ids:
+            continue
+        gst = str(p.get("supplier_gstin") or "").strip().upper()
+        inv = str(p.get("invoice_number_normalized") or "")
+        if not gst or not inv:
+            continue
+        by_gstin[gst].append(p)
+
+    flagged = 0
+    for gst, plist in by_gstin.items():
+        if len(plist) < 2:
+            continue
+        # Deterministic order for greedy clustering.
+        ordered = sorted(
+            plist,
+            key=lambda r: (
+                str(_parse_invoice_date(r) or date.max),
+                str(r.get("id") or ""),
+            ),
+        )
+        claimed: set[str] = set()
+        for i, canon in enumerate(ordered):
+            cid = str(canon["id"])
+            if cid in state.consumed_pr_ids or cid in claimed:
+                continue
+            c_inv = str(canon.get("invoice_number_normalized") or "")
+            c_tax = int(canon.get("taxable_amount_paise") or 0)
+            c_date = _parse_invoice_date(canon)
+            for extra in ordered[i + 1 :]:
+                eid = str(extra["id"])
+                if eid in state.consumed_pr_ids or eid in claimed:
+                    continue
+                e_inv = str(extra.get("invoice_number_normalized") or "")
+                if not e_inv:
+                    continue
+                ok, sim = _peer_pr_invoice_clone_ok(c_inv, e_inv)
+                if not ok:
+                    continue
+                e_tax = int(extra.get("taxable_amount_paise") or 0)
+                if not (
+                    abs(c_tax - e_tax) <= TOTAL_TOLERANCE_PAISE
+                    or _pct_within(c_tax, e_tax, taxable_pct)
+                ):
+                    continue
+                e_date = _parse_invoice_date(extra)
+                if c_date and e_date and abs((c_date - e_date).days) > date_tolerance_days:
+                    continue
+                _push_duplicate_entry(
+                    state,
+                    extra_pr_id=eid,
+                    matched_pr_id=cid,
+                    gstr_id="",
+                    pr_rec=extra,
+                )
+                claimed.add(eid)
+                flagged += 1
+                logger.debug(
+                    "[FUZZY_PEER_DUPLICATE] PR %s clone of unlinked PR %s "
+                    "(sim=%.3f) → Duplicate Entry",
+                    eid,
+                    cid,
+                    sim,
+                )
+
+    if flagged:
+        logger.info(
+            "[FUZZY_PEER_DUPLICATE] Flagged %d unconsumed PR↔PR clone(s) as "
+            "Duplicate Entry",
             flagged,
         )
     return flagged
@@ -1418,6 +1541,68 @@ def _levenshtein_distance(s1: str, s2: str) -> int:
     return previous_row[-1]
 
 
+def _invoice_digit_core(s: str | None) -> str:
+    """Digits-only spine of an invoice number (for mangled-prefix twin checks)."""
+    return re.sub(r"[^0-9]", "", str(s or ""))
+
+
+def _pct_within(a: int, b: int, pct: float) -> bool:
+    if a == b:
+        return True
+    base = max(abs(a), abs(b), 1)
+    return abs(a - b) / base <= pct
+
+
+def _invoice_twin_similarity_ok(
+    g_inv: str,
+    p_inv: str,
+    *,
+    sim_min: float,
+    digit_dist_max: int | None = 2,
+    min_digit_len: int = 4,
+) -> tuple[bool, float]:
+    """True when invoice sim ≥ ``sim_min`` or digit-core edit distance ≤ max.
+
+    Digit-core fallback requires both spines to be at least ``min_digit_len``
+    digits so letter-only / empty cores (e.g. synthetic ``PRBOOKA`` fixtures)
+    cannot collide via distance 0 on ``\"\"``.
+    """
+    sim = invoice_similarity(g_inv, p_inv)
+    if sim >= sim_min:
+        return True, sim
+    if digit_dist_max is not None:
+        gc = _invoice_digit_core(g_inv)
+        pc = _invoice_digit_core(p_inv)
+        if (
+            len(gc) >= min_digit_len
+            and len(pc) >= min_digit_len
+            and _levenshtein_distance(gc, pc) <= digit_dist_max
+        ):
+            return True, sim
+    return False, sim
+
+
+def _peer_pr_invoice_clone_ok(a_inv: str, b_inv: str) -> tuple[bool, float]:
+    """Stricter identity for unlinked PR↔PR clones.
+
+    Bare invoice_similarity ≥ 0.75 is unsafe here: same-vendor letter prefixes
+    (``PRBOOKA`` vs ``PRBOOKB``) score ~0.89 and would collapse hundreds of
+    unrelated ITC-at-risk rows into one Duplicate Entry. Require a shared
+    digit spine (len ≥ 4, edit ≤ 2) or exact normalized equality.
+    """
+    if a_inv == b_inv:
+        return True, 1.0
+    sim = invoice_similarity(a_inv, b_inv)
+    ga, gb = _invoice_digit_core(a_inv), _invoice_digit_core(b_inv)
+    if (
+        len(ga) >= 4
+        and len(gb) >= 4
+        and _levenshtein_distance(ga, gb) <= 2
+    ):
+        return True, sim
+    return False, sim
+
+
 def execute_phase2_and_3(
     gstr_records: list[dict],
     pr_records: list[dict],
@@ -1973,20 +2158,50 @@ def execute_phase2_and_3(
         )
 
     # 5b. STRONG_TAXABLE_TWIN rescue (before Phase 3 Missed ITC)
-    # Same GSTIN + exact taxable (±₹1) + invoice sim ≥ 0.75 + date ≤ 30 days.
+    # Tier 1: same GSTIN + exact taxable (±₹1) + invoice sim ≥ 0.75 + date ≤ 30d.
+    # Tier 2: same GSTIN + taxable within 2% (+ total_tax within 5% when not
+    # exact) + (sim ≥ 0.70 OR digit-core edit ≤ 2) + date ≤ 45d.
     # Complements TYPO_MISMATCH (which keys off total_tax within 5%): tax-head
     # swaps or cess drift can push total_tax outside that band while taxable
     # still matches exactly — those twins must not become Missed ITC.
     # Global assignment (same pattern as credible-candidate) so row order cannot
     # decide which of two near-ties gets the PR.
+    def _assign_twin_pairs(
+        pairs: list[tuple],
+        by_gid: dict[str, list[tuple]],
+        *,
+        note: str,
+        confidence: int = 55,
+    ) -> None:
+        pairs.sort(key=lambda t: (t[0], t[1], t[2], t[3], t[4]))
+        for neg_sim, _taxable_diff, _date_diff, gid, pid, g, p in pairs:
+            if gid in state.consumed_gstr_ids or pid in state.consumed_pr_ids:
+                continue
+            reason = (
+                "MULTIPLE_CANDIDATES" if len(by_gid[gid]) > 1 else "TYPO_MISMATCH"
+            )
+            _push_review_required(
+                state,
+                gid,
+                pid,
+                confidence,
+                reason,
+                gstr_rec=g,
+                pr_rec=p,
+                match_confidence=-neg_sim,
+                note=note,
+            )
+
     unconsumed_gstr = [g for g in gstr_records if str(g["id"]) not in state.consumed_gstr_ids]
     unconsumed_pr_twin = [p for p in pr_records if str(p["id"]) not in state.consumed_pr_ids]
     pr_by_gstin_taxable: dict[tuple[str, int], list[dict]] = defaultdict(list)
+    pr_by_gstin_all: dict[str, list[dict]] = defaultdict(list)
     for p in unconsumed_pr_twin:
         p_gst = str(p.get("supplier_gstin") or "").strip()
         if not p_gst:
             continue
         pr_by_gstin_taxable[(p_gst, int(p.get("taxable_amount_paise") or 0))].append(p)
+        pr_by_gstin_all[p_gst].append(p)
 
     twin_pairs: list[tuple] = []
     twins_by_gid: dict[str, list[tuple]] = defaultdict(list)
@@ -2009,8 +2224,10 @@ def execute_phase2_and_3(
                 p_inv_norm = str(p.get("invoice_number_normalized") or "")
                 if not p_inv_norm or p_inv_norm == g_inv_norm:
                     continue  # exact norm already handled earlier in Phase 2
-                sim = invoice_similarity(g_inv_norm, p_inv_norm)
-                if sim < 0.75:
+                ok, sim = _invoice_twin_similarity_ok(
+                    g_inv_norm, p_inv_norm, sim_min=0.75, digit_dist_max=None
+                )
+                if not ok:
                     continue
                 p_date = _parse_invoice_date(p)
                 date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
@@ -2021,24 +2238,64 @@ def execute_phase2_and_3(
                 twin_pairs.append(pair)
                 twins_by_gid[gid].append(pair)
 
-    twin_pairs.sort(key=lambda t: (t[0], t[1], t[2], t[3], t[4]))
-    for neg_sim, taxable_diff, date_diff, gid, pid, g, p in twin_pairs:
-        if gid in state.consumed_gstr_ids or pid in state.consumed_pr_ids:
+    _assign_twin_pairs(
+        twin_pairs,
+        twins_by_gid,
+        note="Exact taxable twin with fuzzy invoice — verify before treating as Missed ITC",
+    )
+
+    # Tier 2 — looser amount/date/sim for extreme multi-mutation fuzz packs.
+    unconsumed_gstr = [g for g in gstr_records if str(g["id"]) not in state.consumed_gstr_ids]
+    unconsumed_pr_ids_tier2 = {
+        str(p["id"]) for p in pr_records if str(p["id"]) not in state.consumed_pr_ids
+    }
+    twin_pairs_t2: list[tuple] = []
+    twins_by_gid_t2: dict[str, list[tuple]] = defaultdict(list)
+    for g in unconsumed_gstr:
+        gid = str(g["id"])
+        gst = str(g.get("supplier_gstin") or "").strip()
+        if not gst:
             continue
-        reason = (
-            "MULTIPLE_CANDIDATES" if len(twins_by_gid[gid]) > 1 else "TYPO_MISMATCH"
-        )
-        _push_review_required(
-            state,
-            gid,
-            pid,
-            55,
-            reason,
-            gstr_rec=g,
-            pr_rec=p,
-            match_confidence=-neg_sim,
-            note="Exact taxable twin with fuzzy invoice — verify before treating as Missed ITC",
-        )
+        g_taxable = int(g.get("taxable_amount_paise") or 0)
+        g_tax = int(g.get("total_tax_paise") or 0)
+        g_inv_norm = str(g.get("invoice_number_normalized") or "")
+        if not g_inv_norm:
+            continue
+        g_date = _parse_invoice_date(g)
+        for p in pr_by_gstin_all.get(gst, []):
+            pid = str(p["id"])
+            if pid not in unconsumed_pr_ids_tier2:
+                continue
+            p_inv_norm = str(p.get("invoice_number_normalized") or "")
+            if not p_inv_norm or p_inv_norm == g_inv_norm:
+                continue
+            p_taxable = int(p.get("taxable_amount_paise") or 0)
+            p_tax = int(p.get("total_tax_paise") or 0)
+            taxable_diff = abs(g_taxable - p_taxable)
+            exact_taxable = taxable_diff <= 100
+            if not exact_taxable and not _pct_within(g_taxable, p_taxable, 0.02):
+                continue
+            if not exact_taxable and not _pct_within(g_tax, p_tax, 0.05):
+                continue
+            ok, sim = _invoice_twin_similarity_ok(
+                g_inv_norm, p_inv_norm, sim_min=0.70, digit_dist_max=2
+            )
+            if not ok:
+                continue
+            p_date = _parse_invoice_date(p)
+            date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
+            if g_date and p_date and date_diff > 45:
+                continue
+            pair = (-sim, taxable_diff, date_diff, gid, pid, g, p)
+            twin_pairs_t2.append(pair)
+            twins_by_gid_t2[gid].append(pair)
+
+    _assign_twin_pairs(
+        twin_pairs_t2,
+        twins_by_gid_t2,
+        note="Near-amount twin with fuzzy invoice — verify before treating as Missed ITC",
+        confidence=50,
+    )
 
     # PHASE 3: True Financial Buckets
     unconsumed_gstr = [g for g in gstr_records if str(g["id"]) not in state.consumed_gstr_ids]
@@ -2068,8 +2325,9 @@ def execute_phase2_and_3(
     # Extras that share amounts with an already-linked PR but were not in the
     # same exact-key prepass group (canonical matched via typo/format-variant,
     # or invoice number itself was mangled) must become Duplicate Entry, not
-    # ITC at Risk.
+    # ITC at Risk. Peer sweep catches clones when neither PR was linked.
     flag_fuzzy_duplicates_of_linked_prs(state, pr_records)
+    flag_fuzzy_pr_peer_duplicates(state, pr_records)
 
 
 def _gstin_pan(gstin: str | None) -> str:

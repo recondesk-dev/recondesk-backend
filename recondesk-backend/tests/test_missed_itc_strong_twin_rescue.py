@@ -113,3 +113,47 @@ def test_low_similarity_digit_noise_stays_missed_itc():
 
     assert res["stats"]["missed_itc_count"] == 1
     assert res["stats"]["review_required_count"] == 0
+
+
+def test_two_percent_taxable_drift_with_fuzzy_invoice_goes_to_review():
+    """Tier-2 rescue: taxable within 2% + sim≥0.70 must not stay Missed ITC."""
+    g_inv, p_inv = "INV-6501/25", "INV605125"
+    assert invoice_similarity(normalize_invoice(g_inv), normalize_invoice(p_inv)) >= 0.70
+
+    g_taxable = 10_000_000
+    p_taxable = 10_180_000  # 1.8% drift
+    g_tax, p_tax = 1_800_000, 1_832_400  # ~1.8% tax drift (within 5%)
+    gstr = [_row("g", "1", g_inv, g_taxable, g_tax)]
+    pr = [_row("p", "1", p_inv, p_taxable, p_tax)]
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+
+    assert res["stats"]["missed_itc_count"] == 0
+    assert res["stats"]["review_required_count"] == 1
+
+
+def test_date_gap_31_to_45_days_exact_taxable_goes_to_review():
+    """Tier-1 date cap is 30d; tier-2 allows up to 45d with exact taxable."""
+    gstr = [_row("g", "1", "SL-0179/25", 21_913_300, 3_944_400, inv_date="2025-08-21")]
+    pr = [_row("p", "1", "SL17952", 21_913_300, 3_944_400, inv_date="2025-09-25")]  # 35 days
+    assert 0.70 <= invoice_similarity(
+        normalize_invoice("SL-0179/25"), normalize_invoice("SL17952")
+    )
+
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+
+    assert res["stats"]["missed_itc_count"] == 0
+    assert res["stats"]["review_required_count"] == 1
+
+
+def test_low_sim_divergent_digit_core_stays_missed_itc():
+    """Same GSTIN + similar amount but unrelated invoice strings stay Missed ITC."""
+    g_inv, p_inv = "ALPHA-1111", "OMEGA-9999"
+    sim = invoice_similarity(normalize_invoice(g_inv), normalize_invoice(p_inv))
+    assert sim < 0.55
+
+    gstr = [_row("g", "1", g_inv, 300_000, 54_000)]
+    pr = [_row("p", "1", p_inv, 305_000, 54_900)]  # ~1.7% taxable drift
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+
+    assert res["stats"]["missed_itc_count"] == 1
+    assert res["stats"]["review_required_count"] == 0
