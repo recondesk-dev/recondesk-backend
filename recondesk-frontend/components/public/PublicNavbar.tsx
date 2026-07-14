@@ -14,18 +14,18 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const linkClass = isLight
-    ? "text-sm font-medium text-[#3A3A3A] transition hover:text-[#0A0A0A]"
+    ? "text-sm font-medium text-gray-500 transition hover:text-[var(--ink)]"
     : "text-sm font-medium text-slate-300 transition hover:text-white";
 
   const mobileLinkClass = isLight
-    ? "block rounded-lg px-3 py-3 text-base font-medium text-[#3A3A3A] transition hover:bg-[#F5F5F5] hover:text-[#0A0A0A]"
+    ? "block rounded-full px-3 py-3 text-base font-medium text-gray-600 transition hover:bg-[#F5F5F6] hover:text-[var(--ink)]"
     : "block rounded-lg px-3 py-3 text-base font-medium text-slate-300 transition hover:bg-white/5 hover:text-white";
 
   return (
     <header
       className={
         isLight
-          ? "sticky top-0 z-50 border-b border-[#E5E5E5] bg-white"
+          ? "sticky top-0 z-50 bg-[var(--bg)]/90 backdrop-blur-md"
           : "sticky top-0 z-50 border-b border-white/10 bg-[#0a0c10]/85 backdrop-blur-md"
       }
     >
@@ -33,7 +33,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
         <Link
           href="/"
           className={`font-brand inline-flex shrink-0 items-baseline gap-0 font-bold tracking-tight ${
-            isLight ? "text-[#0A0A0A]" : "text-white"
+            isLight ? "text-[var(--ink)]" : "text-white"
           }`}
           onClick={() => setMobileMenuOpen(false)}
         >
@@ -51,7 +51,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
               </Link>
               <Link
                 href="/auth/signup"
-                className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-brand px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-hover"
+                className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-[var(--ink)] px-4 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
               >
                 Start Free
               </Link>
@@ -59,7 +59,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
 
             <button
               type="button"
-              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-[#E5E5E5] text-[#0A0A0A] sm:hidden"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white text-[var(--ink)] shadow-[var(--shadow-soft)] sm:hidden"
               aria-expanded={mobileMenuOpen}
               aria-controls="landing-mobile-nav"
               aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
@@ -89,7 +89,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
       {isLight && mobileMenuOpen ? (
         <nav
           id="landing-mobile-nav"
-          className="border-t border-[#E5E5E5] px-4 py-3 sm:hidden"
+          className="border-t border-[#F0F0F0] bg-white/95 px-4 py-3 backdrop-blur-md sm:hidden"
         >
           <div className="flex flex-col gap-1">
             <Link href="/pricing" className={mobileLinkClass} onClick={() => setMobileMenuOpen(false)}>
@@ -100,7 +100,7 @@ export function PublicNavbar({ theme = "dark" }: PublicNavbarProps) {
             </Link>
             <Link
               href="/auth/signup"
-              className="mt-2 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-4 text-sm font-semibold text-white transition hover:bg-brand-hover"
+              className="mt-2 inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-4 text-sm font-semibold text-white transition-opacity hover:opacity-90"
               onClick={() => setMobileMenuOpen(false)}
             >
               Start Free
