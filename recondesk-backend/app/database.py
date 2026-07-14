@@ -148,6 +148,25 @@ def get_user_profile(user_id: str) -> Optional[dict]:
                 ).execute()
             except Exception:
                 pass
+        # Optional column (alembic 20260714). Fail soft if migration not applied yet.
+        try:
+            thr = (
+                client.table("user_profiles")
+                .select("auto_approve_confidence_threshold")
+                .eq("id", user_id)
+                .limit(1)
+                .execute()
+            )
+            if thr.data:
+                raw_thr = thr.data[0].get("auto_approve_confidence_threshold")
+                if raw_thr is not None:
+                    profile["auto_approve_confidence_threshold"] = int(raw_thr)
+                else:
+                    profile["auto_approve_confidence_threshold"] = 95
+            else:
+                profile["auto_approve_confidence_threshold"] = 95
+        except Exception:
+            profile["auto_approve_confidence_threshold"] = 95
         return profile
     except Exception:
         return None

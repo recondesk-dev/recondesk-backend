@@ -12,6 +12,7 @@ import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFo
 import { Gstr3bCheckPanel } from "@/components/reconcile/Gstr3bCheckPanel";
 import { AdvancedExportPanel } from "@/components/reconcile/AdvancedExportPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
+import { SupplierGroupView } from "@/components/reconcile/SupplierGroupView";
 import { GstinCell } from "@/components/ui/GstinCell";
 import { HoverTextCell } from "@/components/ui/HoverTextCell";
 import Link from "next/link";
@@ -25,7 +26,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import useSWR from "swr";
+import useSWR, { mutate as swrMutate } from "swr";
 import {
   AmountDisplay,
   CompactStatAmount,
@@ -105,7 +106,15 @@ import {
   topSuppliersThTotal,
   topSuppliersThTradeName,
 } from "@/components/reconcile/ResultsUi";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, reconcileSettingsApi } from "@/lib/api";
+import {
+  AUTH_PROFILE_SWR_OPTIONS,
+  authProfileFetcher,
+} from "@/lib/auth-profile";
+import {
+  fetchAllBucketPages,
+  groupRowsBySupplier,
+} from "@/lib/groupBySupplier";
 import { fetchReconciliationReportData } from "@/lib/reconciliationReportData";
 import {
   buildReconciliationReportPdf,
@@ -124,6 +133,18 @@ import {
   formatTaxDifferenceDisplay,
 } from "@/lib/format";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
+
+const DEFAULT_AUTO_APPROVE_THRESHOLD = 95;
+const RESULTS_TAB_EXPORT_LABELS: Record<ResultsBucketTabId, string> = {
+  matched: "Matched",
+  review_required: "Review Required",
+  duplicate_entry: "Duplicate Entries",
+  risk: "ITC at Risk",
+  itc: "Missed ITC",
+  rule37: "Rule 37",
+  gstr3b: "GSTR-3B Check",
+  followup: "Follow-up Log",
+};
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -174,6 +195,8 @@ type ReconcileRow = {
   match_confidence?: number | null;
   compared_fields?: ComparedField[] | null;
   ims_status?: string | null;
+  /** Set when confidence-threshold auto-triage promoted this row from Review Required. */
+  auto_approved?: boolean;
 };
 
 /** Small pill showing L5/fuzzy invoice-similarity score. Only renders when match_confidence is present. */
@@ -831,6 +854,79 @@ function hasActiveRiskFilters(f: RiskFiltersState): boolean {
   return Object.values(f).some((v) => String(v).trim() !== "");
 }
 
+function buildExportFilterParams(args: {
+  tab: ResultsBucketTabId;
+  matchedSearch: string;
+  matchedSort: string;
+  matchedFilters: {
+    match_level: string;
+    has_notes: boolean;
+    section_17_5: boolean;
+    amount_min: string;
+    amount_max: string;
+    ims_status: string;
+  };
+  reviewRequiredSearch: string;
+  reviewRequiredSort: string;
+  reviewRequiredFilters: {
+    match_level: string;
+    has_notes: boolean;
+    section_17_5: boolean;
+    amount_min: string;
+    amount_max: string;
+    ims_status: string;
+  };
+  itcSort: string;
+  itcFilters: ItcFiltersState;
+  riskSort: string;
+  riskFilters: RiskFiltersState;
+}): URLSearchParams {
+  const p = new URLSearchParams();
+  p.set("bucket", args.tab);
+
+  if (args.tab === "matched" || args.tab === "review_required") {
+    const isReview = args.tab === "review_required";
+    const search = (isReview ? args.reviewRequiredSearch : args.matchedSearch).trim();
+    const sort = isReview ? args.reviewRequiredSort : args.matchedSort;
+    const f = isReview ? args.reviewRequiredFilters : args.matchedFilters;
+    p.set("sort", sort);
+    if (search) p.set("search", search);
+    if (f.match_level) p.set("match_level", f.match_level);
+    if (f.has_notes) p.set("has_notes", "true");
+    if (f.section_17_5) p.set("section_17_5", "true");
+    if (f.amount_min.trim()) p.set("amount_min", f.amount_min.trim());
+    if (f.amount_max.trim()) p.set("amount_max", f.amount_max.trim());
+    if (f.ims_status.trim()) p.set("ims_status", f.ims_status.trim());
+    if (isReview) p.set("review_required", "true");
+  } else if (args.tab === "itc") {
+    p.set("sort", args.itcSort);
+    if (args.itcFilters.amount_min.trim())
+      p.set("amount_min", args.itcFilters.amount_min.trim());
+    if (args.itcFilters.amount_max.trim())
+      p.set("amount_max", args.itcFilters.amount_max.trim());
+    if (args.itcFilters.supplier_gstin.trim())
+      p.set("supplier_gstin", args.itcFilters.supplier_gstin.trim());
+    if (args.itcFilters.date_from.trim())
+      p.set("date_from", args.itcFilters.date_from.trim());
+    if (args.itcFilters.date_to.trim())
+      p.set("date_to", args.itcFilters.date_to.trim());
+    if (args.itcFilters.ims_status.trim())
+      p.set("ims_status", args.itcFilters.ims_status.trim());
+  } else if (args.tab === "risk") {
+    p.set("sort", args.riskSort);
+    if (args.riskFilters.amount_min.trim())
+      p.set("amount_min", args.riskFilters.amount_min.trim());
+    if (args.riskFilters.amount_max.trim())
+      p.set("amount_max", args.riskFilters.amount_max.trim());
+    if (args.riskFilters.supplier_gstin.trim())
+      p.set("supplier_gstin", args.riskFilters.supplier_gstin.trim());
+    if (args.riskFilters.risk_level.trim())
+      p.set("risk_level", args.riskFilters.risk_level.trim().toLowerCase());
+  }
+
+  return p;
+}
+
 function supplierRiskImpactLabel(
   supplierTotal: number,
   grandTotal: number
@@ -935,6 +1031,14 @@ export default function ReconcileResultsPage() {
   const [section17Page, setSection17Page] = useState(1);
 
   const [resultsTab, setResultsTab] = useState<ResultsBucketTabId>("matched");
+  const [itcGroupBySupplier, setItcGroupBySupplier] = useState(false);
+  const [riskGroupBySupplier, setRiskGroupBySupplier] = useState(false);
+  const [itcExpandedSupplier, setItcExpandedSupplier] = useState<string | null>(
+    null
+  );
+  const [riskExpandedSupplier, setRiskExpandedSupplier] = useState<
+    string | null
+  >(null);
   const [rationaleExpandedId, setRationaleExpandedId] = useState<string | null>(
     null
   );
@@ -1192,6 +1296,11 @@ export default function ReconcileResultsPage() {
   const [excelDownloading, setExcelDownloading] = useState(false);
   const [pdfDownloading, setPdfDownloading] = useState(false);
 
+  const [autoApproveThreshold, setAutoApproveThreshold] = useState(
+    DEFAULT_AUTO_APPROVE_THRESHOLD
+  );
+  const [autoApproveSaving, setAutoApproveSaving] = useState(false);
+
   const downloadItcCsv = useCallback(async () => {
     if (!authToken || !runId) return;
     setItcCsvDownloading(true);
@@ -1248,8 +1357,21 @@ export default function ReconcileResultsPage() {
     if (!authToken || !runId) return;
     setExcelDownloading(true);
     try {
+      const qs = buildExportFilterParams({
+        tab: resultsTab,
+        matchedSearch: debouncedMatchedSearch,
+        matchedSort,
+        matchedFilters,
+        reviewRequiredSearch: debouncedReviewRequiredSearch,
+        reviewRequiredSort,
+        reviewRequiredFilters,
+        itcSort,
+        itcFilters: debouncedItcFilters,
+        riskSort,
+        riskFilters: debouncedRiskFilters,
+      });
       const res = await fetch(
-        `${API_URL}/api/reconcile/runs/${runId}/export/excel`,
+        `${API_URL}/api/reconcile/runs/${runId}/export/excel?${qs.toString()}`,
         { headers: { Authorization: `Bearer ${authToken}` } }
       );
       if (!res.ok) throw new Error("failed");
@@ -1267,7 +1389,22 @@ export default function ReconcileResultsPage() {
     } finally {
       setExcelDownloading(false);
     }
-  }, [addToast, authToken, runId]);
+  }, [
+    addToast,
+    authToken,
+    debouncedItcFilters,
+    debouncedMatchedSearch,
+    debouncedReviewRequiredSearch,
+    debouncedRiskFilters,
+    itcSort,
+    matchedFilters,
+    matchedSort,
+    resultsTab,
+    reviewRequiredFilters,
+    reviewRequiredSort,
+    riskSort,
+    runId,
+  ]);
 
   const [drawerDecisionError, setDrawerDecisionError] = useState<string | null>(
     null
@@ -1339,10 +1476,19 @@ export default function ReconcileResultsPage() {
     if (!authToken || !runId || !summary) return;
     setPdfDownloading(true);
     try {
+      const itcFilterQuery =
+        resultsTab === "itc"
+          ? buildItcExportQueryString(itcSort, debouncedItcFilters)
+          : undefined;
+      const riskFilterQuery =
+        resultsTab === "risk"
+          ? buildRiskExportQueryString(riskSort, debouncedRiskFilters)
+          : undefined;
       const dataset = await fetchReconciliationReportData(
         authToken,
         runId,
-        summary
+        summary,
+        { itcFilterQuery, riskFilterQuery }
       );
       const blob = await buildReconciliationReportPdf(dataset);
       downloadBlobAsFile(
@@ -1357,7 +1503,17 @@ export default function ReconcileResultsPage() {
     } finally {
       setPdfDownloading(false);
     }
-  }, [addToast, authToken, runId, summary]);
+  }, [
+    addToast,
+    authToken,
+    debouncedItcFilters,
+    debouncedRiskFilters,
+    itcSort,
+    resultsTab,
+    riskSort,
+    runId,
+    summary,
+  ]);
 
   const itcListQuery = useMemo(
     () =>
@@ -1376,6 +1532,7 @@ export default function ReconcileResultsPage() {
       !runId ||
       !summary ||
       resultsTab !== "itc" ||
+      itcGroupBySupplier ||
       summary.missed_itc_count <= 0
     )
       return null;
@@ -1383,7 +1540,15 @@ export default function ReconcileResultsPage() {
       `/api/reconcile/runs/${runId}/itc?${itcListQuery}`,
       authToken,
     ] as const;
-  }, [authReady, runId, summary, itcListQuery, authToken, resultsTab]);
+  }, [
+    authReady,
+    runId,
+    summary,
+    itcListQuery,
+    authToken,
+    resultsTab,
+    itcGroupBySupplier,
+  ]);
 
   const {
     data: itcPageData,
@@ -1393,6 +1558,66 @@ export default function ReconcileResultsPage() {
   } = useSWR<Paginated<ReconcileRow>>(itcListKey, authJsonFetcher, {
     revalidateOnFocus: false,
   });
+
+  const itcAllRowsKey = useMemo(() => {
+    if (
+      !authReady ||
+      !runId ||
+      !summary ||
+      !itcGroupBySupplier ||
+      resultsTab !== "itc" ||
+      summary.missed_itc_count <= 0
+    )
+      return null;
+    return [
+      "itc-all-grouped",
+      runId,
+      itcSort,
+      debouncedItcFilters,
+      authToken,
+    ] as const;
+  }, [
+    authReady,
+    runId,
+    summary,
+    itcGroupBySupplier,
+    resultsTab,
+    itcSort,
+    debouncedItcFilters,
+    authToken,
+  ]);
+
+  const {
+    data: itcAllRows,
+    error: itcAllRowsError,
+    isLoading: itcAllRowsLoading,
+    mutate: mutateItcAllRows,
+  } = useSWR<ReconcileRow[]>(
+    itcAllRowsKey,
+    async ([, rid, sort, filters, token]: readonly [
+      "itc-all-grouped",
+      string,
+      ReconcileSortValue,
+      ItcFiltersState,
+      string,
+    ]) =>
+      fetchAllBucketPages<ReconcileRow>(async (page, limit) => {
+        const qs = buildItcListQueryString(page, limit, sort, filters);
+        return apiFetch<Paginated<ReconcileRow>>(
+          `/api/reconcile/runs/${rid}/itc?${qs}`,
+          { token }
+        );
+      }, 250),
+    { revalidateOnFocus: false }
+  );
+
+  const itcSupplierGroups = useMemo(
+    () =>
+      groupRowsBySupplier(
+        (itcAllRows ?? []).filter((r) => checkDocType(r, docTypeFilterItc))
+      ),
+    [itcAllRows, docTypeFilterItc]
+  );
 
   const riskListQuery = useMemo(
     () =>
@@ -1411,6 +1636,7 @@ export default function ReconcileResultsPage() {
       !runId ||
       !summary ||
       resultsTab !== "risk" ||
+      riskGroupBySupplier ||
       summary.wrongful_risk_count <= 0
     )
       return null;
@@ -1418,7 +1644,15 @@ export default function ReconcileResultsPage() {
       `/api/reconcile/runs/${runId}/risk?${riskListQuery}`,
       authToken,
     ] as const;
-  }, [authReady, runId, summary, riskListQuery, authToken, resultsTab]);
+  }, [
+    authReady,
+    runId,
+    summary,
+    riskListQuery,
+    authToken,
+    resultsTab,
+    riskGroupBySupplier,
+  ]);
 
   const {
     data: riskPageData,
@@ -1428,6 +1662,66 @@ export default function ReconcileResultsPage() {
   } = useSWR<Paginated<ReconcileRow>>(riskListKey, authJsonFetcher, {
     revalidateOnFocus: false,
   });
+
+  const riskAllRowsKey = useMemo(() => {
+    if (
+      !authReady ||
+      !runId ||
+      !summary ||
+      !riskGroupBySupplier ||
+      resultsTab !== "risk" ||
+      summary.wrongful_risk_count <= 0
+    )
+      return null;
+    return [
+      "risk-all-grouped",
+      runId,
+      riskSort,
+      debouncedRiskFilters,
+      authToken,
+    ] as const;
+  }, [
+    authReady,
+    runId,
+    summary,
+    riskGroupBySupplier,
+    resultsTab,
+    riskSort,
+    debouncedRiskFilters,
+    authToken,
+  ]);
+
+  const {
+    data: riskAllRows,
+    error: riskAllRowsError,
+    isLoading: riskAllRowsLoading,
+    mutate: mutateRiskAllRows,
+  } = useSWR<ReconcileRow[]>(
+    riskAllRowsKey,
+    async ([, rid, sort, filters, token]: readonly [
+      "risk-all-grouped",
+      string,
+      ReconcileSortValue,
+      RiskFiltersState,
+      string,
+    ]) =>
+      fetchAllBucketPages<ReconcileRow>(async (page, limit) => {
+        const qs = buildRiskListQueryString(page, limit, sort, filters);
+        return apiFetch<Paginated<ReconcileRow>>(
+          `/api/reconcile/runs/${rid}/risk?${qs}`,
+          { token }
+        );
+      }, 250),
+    { revalidateOnFocus: false }
+  );
+
+  const riskSupplierGroups = useMemo(
+    () =>
+      groupRowsBySupplier(
+        (riskAllRows ?? []).filter((r) => checkDocType(r, docTypeFilterRisk))
+      ),
+    [riskAllRows, docTypeFilterRisk]
+  );
 
   const duplicateEntryListKey = useMemo(() => {
     if (
@@ -1836,12 +2130,13 @@ export default function ReconcileResultsPage() {
 
   const topSuppliersByRisk = useMemo(() => {
     const grand = summary?.wrongful_risk_total_amount ?? 0;
-    if (!riskRows.length) return [];
+    const sourceRows = riskGroupBySupplier ? (riskAllRows ?? []) : riskRows;
+    if (!sourceRows.length) return [];
     const m = new Map<
       string,
       { gstin: string; tradeName: string; count: number; total: number }
     >();
-    for (const row of riskRows) {
+    for (const row of sourceRows) {
       const g = row.supplier_gstin?.trim();
       if (!g) continue;
       const cur = m.get(g) ?? {
@@ -1863,7 +2158,12 @@ export default function ReconcileResultsPage() {
         ...s,
         impact: supplierRiskImpactLabel(s.total, grand),
       }));
-  }, [riskRows, summary?.wrongful_risk_total_amount]);
+  }, [
+    riskRows,
+    riskAllRows,
+    riskGroupBySupplier,
+    summary?.wrongful_risk_total_amount,
+  ]);
 
   useEffect(() => {
     const el = riskHeaderRef.current;
@@ -1950,6 +2250,114 @@ export default function ReconcileResultsPage() {
   const staffFinalizeMessageVisible =
     summary?.user_role === "staff" && !isRunFinalized;
   const canDeleteRun = summary?.user_role === "admin";
+
+  const authProfileKey = useMemo(
+    () =>
+      authReady && authToken
+        ? (["results-me-recon", authToken] as const)
+        : null,
+    [authReady, authToken]
+  );
+  const { data: authProfile } = useSWR(
+    authProfileKey,
+    ([, t]) => authProfileFetcher(t),
+    AUTH_PROFILE_SWR_OPTIONS
+  );
+
+  useEffect(() => {
+    if (authProfile?.auto_approve_confidence_threshold != null) {
+      setAutoApproveThreshold(authProfile.auto_approve_confidence_threshold);
+    }
+  }, [authProfile?.auto_approve_confidence_threshold]);
+
+  const canEditAutoApproveThreshold =
+    summary?.user_role === "admin" ||
+    (authProfile?.role || "").toLowerCase() === "admin";
+
+  const saveAutoApproveThreshold = useCallback(async () => {
+    if (!authToken || !canEditAutoApproveThreshold) return;
+    const clamped = Math.max(
+      0,
+      Math.min(100, Math.round(autoApproveThreshold))
+    );
+    setAutoApproveSaving(true);
+    try {
+      await reconcileSettingsApi.updateAutoApproveThreshold(authToken, clamped);
+      setAutoApproveThreshold(clamped);
+      addToast("Auto-approve threshold saved", "success");
+      if (authProfileKey) void swrMutate(authProfileKey);
+      void swrMutate(["settings-me", authToken]);
+      void swrMutate(["settings-me-recon", authToken]);
+    } catch {
+      addToast("Failed to save threshold", "error");
+    } finally {
+      setAutoApproveSaving(false);
+    }
+  }, [
+    addToast,
+    authProfileKey,
+    authToken,
+    autoApproveThreshold,
+    canEditAutoApproveThreshold,
+  ]);
+
+  const exportScope = useMemo((): { label: string; count: number | null } => {
+    const label = RESULTS_TAB_EXPORT_LABELS[resultsTab] ?? resultsTab;
+    switch (resultsTab) {
+      case "matched":
+        return { label, count: matchedData?.total ?? null };
+      case "review_required":
+        return { label, count: reviewRequiredData?.total ?? null };
+      case "itc":
+        return {
+          label,
+          count: itcGroupBySupplier
+            ? (itcAllRows?.length ?? null)
+            : (itcPageData?.total ?? null),
+        };
+      case "risk":
+        return {
+          label,
+          count: riskGroupBySupplier
+            ? (riskAllRows?.length ?? null)
+            : (riskPageData?.total ?? null),
+        };
+      case "duplicate_entry":
+        return {
+          label,
+          count:
+            duplicateEntryData?.total ??
+            summary?.duplicate_entry_count ??
+            null,
+        };
+      case "rule37":
+        return { label, count: rule37Data?.total ?? null };
+      default:
+        return { label, count: null };
+    }
+  }, [
+    duplicateEntryData?.total,
+    itcAllRows?.length,
+    itcGroupBySupplier,
+    itcPageData?.total,
+    matchedData?.total,
+    resultsTab,
+    reviewRequiredData?.total,
+    riskAllRows?.length,
+    riskGroupBySupplier,
+    riskPageData?.total,
+    rule37Data?.total,
+    summary?.duplicate_entry_count,
+  ]);
+
+  const exportScopeLabel = (
+    <p className="text-[11px] text-gray-500">
+      Exporting: {exportScope.label}
+      {exportScope.count != null
+        ? `, ${exportScope.count.toLocaleString("en-IN")} records`
+        : ""}
+    </p>
+  );
 
   const closeFinalizeModal = useCallback(() => {
     if (finalizing) return;
@@ -2241,43 +2649,46 @@ export default function ReconcileResultsPage() {
                   )}
               </div>
 
-              <div className="flex shrink-0 items-center gap-2">
-                <div
-                  className="inline-flex items-center gap-2"
-                  role="group"
-                  aria-label="Export reports"
-                >
+              <div className="flex shrink-0 flex-col items-end gap-1.5">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="inline-flex items-center gap-2"
+                    role="group"
+                    aria-label="Export reports"
+                  >
+                    <button
+                      type="button"
+                      disabled={excelDownloading}
+                      className={exportToolbarBtn}
+                      onClick={() => void downloadExcelReport()}
+                    >
+                      {excelDownloading ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" />
+                      ) : (
+                        <FileSpreadsheet className="h-4 w-4 shrink-0 text-gray-500" />
+                      )}
+                      Excel
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    disabled={excelDownloading}
-                    className={exportToolbarBtn}
-                    onClick={() => void downloadExcelReport()}
+                    className={deleteRunBtn}
+                    disabled={!canDeleteRun}
+                    title={
+                      canDeleteRun ? undefined : "Only admins can delete runs"
+                    }
+                    aria-disabled={!canDeleteRun}
+                    onClick={() => {
+                      if (!canDeleteRun) return;
+                      setDeleteError(null);
+                      setDeleteModalOpen(true);
+                    }}
                   >
-                    {excelDownloading ? (
-                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" />
-                    ) : (
-                      <FileSpreadsheet className="h-4 w-4 shrink-0 text-gray-500" />
-                    )}
-                    Excel
+                    <Trash2 className="h-4 w-4 shrink-0" />
+                    Delete run
                   </button>
                 </div>
-                <button
-                  type="button"
-                  className={deleteRunBtn}
-                  disabled={!canDeleteRun}
-                  title={
-                    canDeleteRun ? undefined : "Only admins can delete runs"
-                  }
-                  aria-disabled={!canDeleteRun}
-                  onClick={() => {
-                    if (!canDeleteRun) return;
-                    setDeleteError(null);
-                    setDeleteModalOpen(true);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4 shrink-0" />
-                  Delete run
-                </button>
+                {exportScopeLabel}
               </div>
             </div>
 
@@ -2428,19 +2839,22 @@ export default function ReconcileResultsPage() {
               itc: summary.missed_itc_count ?? 0,
             }}
             rightContent={
-              <button
-                type="button"
-                disabled={pdfDownloading || !summary}
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-full bg-[var(--ink)] px-4 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => void downloadPdfReport()}
-              >
-                {pdfDownloading ? (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white" />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0 text-white" />
-                )}
-                Download Report (PDF)
-              </button>
+              <div className="flex flex-col items-end gap-1.5">
+                <button
+                  type="button"
+                  disabled={pdfDownloading || !summary}
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-full bg-[var(--ink)] px-4 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => void downloadPdfReport()}
+                >
+                  {pdfDownloading ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white" />
+                  ) : (
+                    <FileText className="h-4 w-4 shrink-0 text-white" />
+                  )}
+                  Download Report (PDF)
+                </button>
+                {exportScopeLabel}
+              </div>
             }
           />
         )}
@@ -2596,6 +3010,22 @@ export default function ReconcileResultsPage() {
                     </option>
                   ))}
                 </select>
+                <button
+                  type="button"
+                  className={`${filterToggleClass} ${
+                    itcGroupBySupplier
+                      ? filterToggleActiveClass
+                      : filterToggleIdleClass
+                  }`}
+                  onClick={() => {
+                    setItcGroupBySupplier((on) => {
+                      if (on) setItcExpandedSupplier(null);
+                      return !on;
+                    });
+                  }}
+                >
+                  Group by Supplier
+                </button>
                 {(hasActiveItcFilters(itcFilters) || !!docTypeFilterItc) && (
                   <button
                     type="button"
@@ -2618,6 +3048,92 @@ export default function ReconcileResultsPage() {
               </div>
             </div>
 
+            {itcGroupBySupplier ? (
+              <>
+                {(itcAllRowsError || (itcError && !itcAllRows)) && (
+                  <SectionError
+                    message={sectionLoadError("Failed to load.")}
+                    onRetry={() => void mutateItcAllRows()}
+                  />
+                )}
+                {!itcAllRowsError && (
+                  <SupplierGroupView<ReconcileRow>
+                    groups={itcSupplierGroups}
+                    expandedGstin={itcExpandedSupplier}
+                    onToggleExpand={(gstin) =>
+                      setItcExpandedSupplier((prev) =>
+                        prev === gstin ? null : gstin
+                      )
+                    }
+                    amountLabel="Missed ITC"
+                    grandTotal={summary.missed_itc_total_amount}
+                    loading={itcAllRowsLoading && !itcAllRows}
+                    renderInvoices={(invoices) => (
+                      <div className={decisionTableWrapClass}>
+                        <table className={decisionTableClass}>
+                          <thead className={tableHeadClass}>
+                            <tr>
+                              <th className={decisionTh("invoice")}>Invoice#</th>
+                              <th className={decisionTh("date")}>Date</th>
+                              <th className={decisionTh("amount", "right")}>
+                                Amount
+                              </th>
+                              <th className={decisionTh("impact")}>Impact</th>
+                              <th className={decisionTh("what")}>WHAT</th>
+                              <th className={decisionTh("status")}>Status</th>
+                              <th className={decisionTh("status")}>IMS</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {invoices.map((row) => (
+                              <tr key={row.id} className={tableRowClass}>
+                                <td className={decisionTd("invoice")}>
+                                  <HoverTextCell
+                                    text={row.invoice_number}
+                                    displayClassName="text-[13px] font-medium text-gray-800"
+                                  />
+                                </td>
+                                <td
+                                  className={`${decisionTd("date")} text-[13px] text-gray-500`}
+                                >
+                                  {formatDate(row.invoice_date)}
+                                </td>
+                                <td className={decisionTd("amount")}>
+                                  <AmountDisplay amount={row.amount} />
+                                </td>
+                                <td className={decisionTd("impact")}>
+                                  <ImpactBadge
+                                    level={getImpactLevel(
+                                      row.amount,
+                                      summary.missed_itc_total_amount
+                                    )}
+                                  />
+                                </td>
+                                <td className={decisionTd("what")}>
+                                  <HoverTextCell
+                                    text={row.decision_what}
+                                    displayClassName="text-[13px] text-gray-600"
+                                  />
+                                </td>
+                                <td className={decisionTd("status")}>
+                                  <DecisionStatusPill
+                                    status={effectiveStatus(row)}
+                                  />
+                                </td>
+                                <td className={decisionTd("status")}>
+                                  <ImsStatusBadge status={row.ims_status} />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  />
+                )}
+              </>
+            ) : (
+              <>
             {itcError && (
               <SectionError
                 message={sectionLoadError("Failed to load.")}
@@ -2873,6 +3389,8 @@ export default function ReconcileResultsPage() {
                 )}
               </>
             )}
+              </>
+            )}
           </div>
         )}
 
@@ -2928,20 +3446,26 @@ export default function ReconcileResultsPage() {
               <h3 className="mb-4 text-base font-semibold text-gray-900">
                 Top Suppliers by ITC at Risk
               </h3>
-              {riskLoading && !riskPageData && (
+              {((riskGroupBySupplier
+                ? riskAllRowsLoading && !riskAllRows
+                : riskLoading && !riskPageData)) && (
                 <div className="animate-pulse space-y-2 py-2">
                   <div className="h-8 rounded bg-gray-100" />
                   <div className="h-8 rounded bg-gray-100/90" />
                   <div className="h-8 rounded bg-gray-100/80" />
                 </div>
               )}
-              {!(riskLoading && !riskPageData) &&
+              {!(riskGroupBySupplier
+                ? riskAllRowsLoading && !riskAllRows
+                : riskLoading && !riskPageData) &&
                 topSuppliersByRisk.length === 0 && (
                   <p className="text-sm text-gray-500">
                     No supplier risk data available.
                   </p>
                 )}
-              {!(riskLoading && !riskPageData) &&
+              {!(riskGroupBySupplier
+                ? riskAllRowsLoading && !riskAllRows
+                : riskLoading && !riskPageData) &&
                 topSuppliersByRisk.length > 0 && (
                   <>
                     <div className={tableWrapClass}>
@@ -3062,6 +3586,22 @@ export default function ReconcileResultsPage() {
                     </option>
                   ))}
                 </select>
+                <button
+                  type="button"
+                  className={`${filterToggleClass} ${
+                    riskGroupBySupplier
+                      ? filterToggleActiveClass
+                      : filterToggleIdleClass
+                  }`}
+                  onClick={() => {
+                    setRiskGroupBySupplier((on) => {
+                      if (on) setRiskExpandedSupplier(null);
+                      return !on;
+                    });
+                  }}
+                >
+                  Group by Supplier
+                </button>
                 {(hasActiveRiskFilters(riskFilters) || !!docTypeFilterRisk) && (
                   <button
                     type="button"
@@ -3082,6 +3622,109 @@ export default function ReconcileResultsPage() {
               </div>
             </div>
 
+            {riskGroupBySupplier ? (
+              <>
+                {(riskAllRowsError || (riskError && !riskAllRows)) && (
+                  <SectionError
+                    message={sectionLoadError("Failed to load.")}
+                    onRetry={() => void mutateRiskAllRows()}
+                  />
+                )}
+                {!riskAllRowsError && (
+                  <SupplierGroupView<ReconcileRow>
+                    groups={riskSupplierGroups}
+                    expandedGstin={riskExpandedSupplier}
+                    onToggleExpand={(gstin) =>
+                      setRiskExpandedSupplier((prev) =>
+                        prev === gstin ? null : gstin
+                      )
+                    }
+                    amountLabel="ITC at Risk"
+                    grandTotal={summary.wrongful_risk_total_amount}
+                    loading={riskAllRowsLoading && !riskAllRows}
+                    onGenerateFollowup={(invoices) =>
+                      openFollowupLetter(invoices)
+                    }
+                    followupDisabled={isRunFinalized || !authToken}
+                    renderInvoices={(invoices) => (
+                      <div className={decisionTableWrapClass}>
+                        <table className={decisionTableClass}>
+                          <thead className={tableHeadClass}>
+                            <tr>
+                              <th className={decisionTh("invoice")}>Invoice#</th>
+                              <th className={decisionTh("date")}>Date</th>
+                              <th className={decisionTh("amount", "right")}>
+                                ITC at Risk
+                              </th>
+                              <th className={decisionTh("impact")}>Impact</th>
+                              <th className={decisionTh("what")}>WHAT</th>
+                              <th className={decisionTh("status")}>Status</th>
+                              <th className={decisionTh("notice", "right")}>
+                                Follow-up
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {invoices.map((row) => (
+                              <tr key={row.id} className={tableRowClass}>
+                                <td className={decisionTd("invoice")}>
+                                  <HoverTextCell
+                                    text={row.invoice_number}
+                                    displayClassName="text-[13px] font-medium text-gray-800"
+                                  />
+                                </td>
+                                <td
+                                  className={`${decisionTd("date")} text-[13px] text-gray-500`}
+                                >
+                                  {formatDate(row.invoice_date)}
+                                </td>
+                                <td className={decisionTd("amount")}>
+                                  <AmountDisplay amount={row.amount} />
+                                </td>
+                                <td className={decisionTd("impact")}>
+                                  <ImpactBadge
+                                    level={getImpactLevel(
+                                      row.amount,
+                                      summary.wrongful_risk_total_amount
+                                    )}
+                                  />
+                                </td>
+                                <td className={decisionTd("what")}>
+                                  <HoverTextCell
+                                    text={row.decision_what}
+                                    displayClassName="text-[13px] text-gray-600"
+                                  />
+                                </td>
+                                <td className={decisionTd("status")}>
+                                  <DecisionStatusPill
+                                    status={effectiveStatus(row)}
+                                  />
+                                </td>
+                                <td
+                                  className={decisionTd("notice", {
+                                    align: "right",
+                                  })}
+                                >
+                                  <button
+                                    type="button"
+                                    disabled={isRunFinalized || !authToken}
+                                    className="max-w-full rounded-lg border border-[#E5E7EB] bg-white px-2 py-1.5 text-[10px] font-medium leading-tight text-[var(--ink)] hover:bg-[#F5F5F6] disabled:cursor-not-allowed disabled:opacity-50"
+                                    onClick={() => openFollowupLetter([row])}
+                                  >
+                                    Generate follow-up letter
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  />
+                )}
+              </>
+            ) : (
+              <>
             {riskError && (
               <SectionError
                 message={sectionLoadError("Failed to load.")}
@@ -3367,6 +4010,8 @@ export default function ReconcileResultsPage() {
                   }
                 />
                 )}
+              </>
+            )}
               </>
             )}
           </div>
@@ -3766,6 +4411,14 @@ export default function ReconcileResultsPage() {
                         <td className={matchedTdMatchLevel}>
                           <div className="flex items-center gap-1.5">
                             <MatchLevelBadge level={row.match_level} />
+                            {row.auto_approved ? (
+                              <span
+                                className="inline-flex items-center whitespace-nowrap rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20"
+                                title="Promoted from Review Required by confidence threshold"
+                              >
+                                Auto-Approved
+                              </span>
+                            ) : null}
                             {(row.compared_fields?.length ?? 0) > 0 && (
                               <WhyRationaleButton
                                 expanded={rationaleExpandedId === row.id}
@@ -3946,9 +4599,70 @@ export default function ReconcileResultsPage() {
               </span>
             )}
           </h2>
-          <p className="mb-5 text-[12px] leading-relaxed text-gray-500">
+          <p className="mb-3 text-[12px] leading-relaxed text-gray-500">
             These records were matched but have discrepancies or low confidence that need manual verification before finalizing.
           </p>
+
+          <div className="mb-5 flex flex-col gap-2 rounded-xl border border-[#EFEFF2] bg-[#FAFAFA] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-[12px] font-medium text-[var(--ink)]">
+                Auto-approve confidence threshold
+              </p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-gray-500">
+                Records at or above this confidence are Auto-Approved into
+                Matched on the next reconciliation run.{" "}
+                <Link
+                  href="/settings/reconciliation"
+                  className="font-medium text-gray-700 underline underline-offset-2 hover:text-[var(--ink)]"
+                >
+                  Full settings
+                </Link>
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <input
+                type="range"
+                min={0}
+                max={100}
+                disabled={!canEditAutoApproveThreshold || autoApproveSaving}
+                value={autoApproveThreshold}
+                onChange={(e) =>
+                  setAutoApproveThreshold(Number(e.target.value))
+                }
+                className="h-1.5 w-28 accent-[var(--ink)]"
+                aria-label="Auto-approve confidence threshold"
+              />
+              <input
+                type="number"
+                min={0}
+                max={100}
+                disabled={!canEditAutoApproveThreshold || autoApproveSaving}
+                value={autoApproveThreshold}
+                onChange={(e) =>
+                  setAutoApproveThreshold(
+                    Number.isFinite(Number(e.target.value))
+                      ? Number(e.target.value)
+                      : DEFAULT_AUTO_APPROVE_THRESHOLD
+                  )
+                }
+                className="h-8 w-14 rounded-lg border border-[#E5E5EA] bg-white px-2 text-center text-[12px] tabular-nums text-[var(--ink)] disabled:opacity-50"
+                aria-label="Auto-approve threshold percent"
+              />
+              <span className="text-[12px] text-gray-500">%</span>
+              <button
+                type="button"
+                disabled={!canEditAutoApproveThreshold || autoApproveSaving}
+                onClick={() => void saveAutoApproveThreshold()}
+                className="inline-flex h-8 items-center rounded-full bg-[var(--ink)] px-3 text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {autoApproveSaving ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  "Save"
+                )}
+              </button>
+            </div>
+          </div>
 
           <div className={filterToolbarClass}>
             <input
@@ -4216,6 +4930,14 @@ export default function ReconcileResultsPage() {
                         <td className={matchedTdMatchLevel}>
                           <div className="flex items-center gap-1.5">
                             <MatchLevelBadge level={row.match_level} />
+                            {row.auto_approved ? (
+                              <span
+                                className="inline-flex items-center whitespace-nowrap rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20"
+                                title="Promoted from Review Required by confidence threshold"
+                              >
+                                Auto-Approved
+                              </span>
+                            ) : null}
                             {(row.compared_fields?.length ?? 0) > 0 && (
                               <WhyRationaleButton
                                 expanded={rationaleExpandedId === row.id}
