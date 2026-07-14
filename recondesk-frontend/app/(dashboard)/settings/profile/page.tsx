@@ -35,7 +35,7 @@ type FieldKey = keyof ProfileFormValues;
 type FieldErrors = Partial<Record<FieldKey, string>>;
 
 const FIELD_CLASS =
-  "min-h-[44px] w-full rounded-lg border border-[var(--border)] bg-white px-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/60 focus:outline-none focus:ring-2 focus:ring-brand/25";
+  "min-h-[44px] w-full rounded-full border-0 bg-[#F5F5F6] px-4 text-sm font-medium text-[var(--ink)] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10";
 
 const EMPTY_PROFILE_FORM: ProfileFormValues = {
   fullName: "",
@@ -89,17 +89,17 @@ function payloadFromValues(v: ProfileFormValues): ProfileUpdatePayload {
 
 function ProfileFormSkeleton() {
   return (
-    <div className="animate-pulse space-y-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 md:p-6">
-      <div className="h-4 w-full max-w-md rounded bg-[var(--border)]" />
+    <div className="dashboard-card animate-pulse space-y-6 p-5 md:p-6">
+      <div className="h-4 w-full max-w-md rounded bg-gray-100" />
       <div className="grid gap-4 md:grid-cols-2">
         {[1, 2, 3, 4, 5, 6].map((i) => (
           <div key={i} className="space-y-2">
-            <div className="h-4 w-24 rounded bg-[var(--border)]" />
-            <div className="h-11 rounded-lg bg-[var(--border)]" />
+            <div className="h-4 w-24 rounded bg-gray-100" />
+            <div className="h-11 rounded-full bg-gray-100" />
           </div>
         ))}
       </div>
-      <div className="h-11 w-32 rounded-lg bg-[var(--border)]" />
+      <div className="h-11 w-32 rounded-full bg-gray-100" />
     </div>
   );
 }
@@ -294,7 +294,7 @@ export default function ProfileSettingsPage() {
       <div className="space-y-6">
         <Link
           href="/settings"
-          className="inline-flex min-h-[44px] items-center text-sm font-semibold text-brand underline"
+          className="inline-flex min-h-[44px] items-center text-sm font-semibold text-[var(--ink)] underline"
         >
           ← Back to settings
         </Link>
@@ -309,11 +309,11 @@ export default function ProfileSettingsPage() {
       <div className="space-y-4">
         <Link
           href="/settings"
-          className="inline-flex min-h-[44px] items-center text-sm font-semibold text-brand underline"
+          className="inline-flex min-h-[44px] items-center text-sm font-semibold text-[var(--ink)] underline"
         >
           ← Back to settings
         </Link>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-8 text-center text-sm text-[var(--text-secondary)]">
+        <div className="dashboard-card px-5 py-8 text-center text-sm text-gray-500">
           Sign in required to edit your profile.
         </div>
       </div>
@@ -328,21 +328,27 @@ export default function ProfileSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <Link
-        href="/settings"
-        className="inline-flex min-h-[44px] items-center text-sm font-semibold text-brand underline"
-      >
-        ← Back to settings
-      </Link>
-
-      <h1 className="text-xl font-semibold text-[var(--text-primary)]">Profile</h1>
+      <div>
+        <Link
+          href="/settings"
+          className="inline-flex min-h-[40px] items-center text-sm font-semibold text-[var(--ink)] hover:underline"
+        >
+          ← Back to settings
+        </Link>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-[var(--ink)]">
+          Profile
+        </h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Your name, firm, and contact details
+        </p>
+      </div>
 
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-6">
-        <div className="rounded-xl bg-gray-100 px-5 py-4 text-sm text-[var(--text-primary)]">
+        <div className="dashboard-card px-5 py-4 text-sm text-gray-600">
           This information appears on your exported reconciliation reports.
         </div>
 
-        <div className="space-y-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 md:p-6">
+        <div className="dashboard-card space-y-6 p-5 md:p-6">
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <FieldLabel htmlFor="profile-full-name" required>
@@ -458,11 +464,11 @@ export default function ProfileSettingsPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 border-t border-[var(--border)] pt-5">
+          <div className="flex flex-wrap items-center gap-3 border-t border-[#F0F0F0] pt-5">
             <button
               type="submit"
               disabled={!isDirty || saving}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-6 text-sm font-semibold text-white hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-6 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save changes"}
             </button>

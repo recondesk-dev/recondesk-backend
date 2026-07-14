@@ -21,8 +21,8 @@ export const Toggle: React.FC<ToggleProps> = ({
       id={id}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-brand/20 focus:ring-offset-2 ${
-        checked ? "bg-brand" : "bg-gray-200"
+      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-black/15 focus:ring-offset-2 ${
+        checked ? "bg-[var(--ink)]" : "bg-gray-200"
       } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
       role="switch"
       aria-checked={checked}

@@ -43,11 +43,11 @@ function fmtDateShort(iso: string | null | undefined): string {
 
 function planBadgeClass(plan: string | null | undefined): string {
   const p = (plan || "").toLowerCase();
-  if (p === "starter") return "bg-slate-100 text-slate-800 border border-slate-200";
-  if (p === "growth") return "bg-violet-100 text-violet-800 border border-violet-200";
-  if (p === "pro") return "bg-amber-100 text-amber-900 border border-amber-300";
-  if (p === "scale") return "bg-purple-100 text-purple-800 border border-purple-300";
-  return "bg-gray-100 text-gray-700 border border-gray-200";
+  if (p === "starter") return "bg-[#F0F0F0] text-gray-700";
+  if (p === "growth") return "bg-[var(--ink)] text-white";
+  if (p === "pro") return "bg-[#F0F0F0] text-[var(--ink)] ring-1 ring-black/10";
+  if (p === "scale") return "bg-[var(--ink)] text-white";
+  return "bg-[#F0F0F0] text-gray-700";
 }
 
 function TableSkeletonRows() {
@@ -187,30 +187,36 @@ export default function BillingPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-10 text-[var(--text-primary)]">
+    <div className="mx-auto max-w-7xl space-y-8 text-[var(--text-primary)]">
       <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">Billing</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Credits, plans, and payment history for your workspace
+        </p>
+      </div>
       {banner}
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-xl border border-[var(--border)] bg-white p-5 shadow-sm">
-          <p className="text-sm font-medium text-[var(--text-secondary)]">Runs available</p>
-          <p className="mt-2 text-3xl font-semibold tabular-nums">
+      <section className="grid gap-3 md:grid-cols-3">
+        <div className="dashboard-card p-5">
+          <p className="text-sm font-medium text-gray-500">Runs available</p>
+          <p className="mt-2 text-[1.85rem] font-semibold tracking-tight tabular-nums text-[var(--ink)]">
             {(status?.free_runs_remaining ?? 0) + (status?.runs_balance ?? 0)}
           </p>
         </div>
-        <div className="rounded-xl border border-[var(--border)] bg-white p-5 shadow-sm">
-          <p className="text-sm font-medium text-[var(--text-secondary)]">Free runs left</p>
+        <div className="dashboard-card p-5">
+          <p className="text-sm font-medium text-gray-500">Free runs left</p>
           <p
-            className={`mt-2 text-3xl font-semibold tabular-nums ${
-              (status?.free_runs_remaining ?? 0) === 0 ? "text-gray-400" : ""
+            className={`mt-2 text-[1.85rem] font-semibold tracking-tight tabular-nums ${
+              (status?.free_runs_remaining ?? 0) === 0 ? "text-gray-300" : "text-[var(--ink)]"
             }`}
           >
             {status?.free_runs_remaining ?? 0}
           </p>
         </div>
-        <div className="rounded-xl border border-[var(--border)] bg-white p-5 shadow-sm">
-          <p className="text-sm font-medium text-[var(--text-secondary)]">Total spent</p>
-          <p className="mt-2 text-3xl font-semibold tabular-nums">
+        <div className="dashboard-card p-5">
+          <p className="text-sm font-medium text-gray-500">Total spent</p>
+          <p className="mt-2 text-[1.85rem] font-semibold tracking-tight tabular-nums text-[var(--ink)]">
             {formatInrPaise(status?.total_spent_paise ?? 0)}
           </p>
         </div>
@@ -223,17 +229,19 @@ export default function BillingPage() {
       )}
 
       {status && status.runs_balance > 0 && (
-        <section>
-          <h2 className="text-lg font-semibold">Your run credits</h2>
-          <div className="mt-3 overflow-x-auto rounded-xl border border-[var(--border)] bg-white shadow-sm">
+        <section className="dashboard-card space-y-4 p-6">
+          <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
+            Your run credits
+          </h2>
+          <div className="overflow-x-auto rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
             <table className="w-full min-w-[720px] text-left text-sm">
-              <thead className="border-b border-[var(--border)] bg-gray-50 text-xs uppercase tracking-wide text-[var(--text-secondary)]">
+              <thead className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Plan</th>
-                  <th className="px-4 py-3 font-medium">Purchased</th>
-                  <th className="px-4 py-3 font-medium">Runs left</th>
-                  <th className="px-4 py-3 font-medium">Expires on</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-5 py-4 font-medium">Plan</th>
+                  <th className="px-4 py-4 font-medium">Purchased</th>
+                  <th className="px-4 py-4 font-medium">Runs left</th>
+                  <th className="px-4 py-4 font-medium">Expires on</th>
+                  <th className="px-5 py-4 font-medium">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -253,14 +261,14 @@ export default function BillingPage() {
                       !Number.isNaN(exp.getTime()) &&
                       exp.getTime() <= now;
                     return (
-                      <tr key={`${b.purchased_at}-${idx}`} className="border-b border-[var(--border)]">
-                        <td className="px-4 py-3 capitalize">{b.plan}</td>
-                        <td className="px-4 py-3 text-[var(--text-secondary)]">
+                      <tr key={`${b.purchased_at}-${idx}`} className="border-b border-[#F0F0F0] last:border-b-0">
+                        <td className="px-5 py-3.5 capitalize font-medium text-[var(--ink)]">{b.plan}</td>
+                        <td className="px-4 py-3.5 text-gray-500">
                           {fmtDateShort(b.purchased_at)}
                         </td>
-                        <td className="px-4 py-3 tabular-nums">{b.runs_remaining}</td>
+                        <td className="px-4 py-3.5 tabular-nums">{b.runs_remaining}</td>
                         <td
-                          className={`px-4 py-3 tabular-nums ${
+                          className={`px-4 py-3.5 tabular-nums ${
                             useSoon
                               ? "font-medium text-orange-600"
                               : expired
@@ -270,14 +278,14 @@ export default function BillingPage() {
                         >
                           {fmtDateShort(b.expires_at)}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-5 py-3.5">
                           <span
                             className={
                               expired
-                                ? "rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600"
+                                ? "rounded-full bg-[#F0F0F0] px-3 py-1 text-xs text-gray-600"
                                 : useSoon
-                                  ? "rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800"
-                                  : "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800"
+                                  ? "rounded-full bg-orange-100 px-3 py-1 text-xs font-medium text-orange-800"
+                                  : "rounded-full bg-[var(--ink)] px-3 py-1 text-xs font-medium text-white"
                             }
                           >
                             {expired ? "Expired" : useSoon ? "Use soon" : "Active"}
@@ -292,20 +300,22 @@ export default function BillingPage() {
         </section>
       )}
 
-      <section id="buy-runs">
-        <h2 className="text-lg font-semibold">Buy more runs</h2>
-        <p className="mt-1 max-w-3xl text-sm text-[var(--text-secondary)]">
-          Monthly Solo and Firm plans; checkout opens soon. Carryover rules are noted on each card.
-        </p>
+      <section id="buy-runs" className="dashboard-card space-y-6 p-6">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Buy more runs</h2>
+          <p className="mt-1 max-w-3xl text-sm text-gray-500">
+            Monthly Solo and Firm plans. Carryover rules are noted on each card.
+          </p>
+        </div>
 
-        <div className="mx-auto mt-8 flex w-full max-w-md justify-center lg:max-w-none">
+        <div className="mx-auto flex w-full max-w-md justify-center lg:max-w-none">
           <div
-            className="relative inline-flex w-full rounded-full border border-[var(--border)] bg-gray-100 p-1 shadow-inner sm:w-auto"
+            className="relative inline-flex w-full rounded-full bg-[#F5F5F6] p-1 sm:w-auto"
             role="tablist"
             aria-label="Plan type"
           >
             <span
-              className="pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full bg-violet-600 shadow-md shadow-violet-600/25 transition-transform duration-300 ease-out"
+              className="pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full bg-[var(--ink)] shadow-sm transition-transform duration-300 ease-out"
               style={{
                 transform: billingTier === "solo" ? "translateX(0)" : "translateX(100%)",
               }}
@@ -317,8 +327,8 @@ export default function BillingPage() {
               role="tab"
               aria-selected={billingTier === "solo"}
               aria-controls="billing-plans-panel"
-              className={`relative z-10 min-h-[44px] flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 sm:flex-none sm:px-8 ${
-                billingTier === "solo" ? "text-white" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              className={`relative z-10 min-h-[44px] flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:flex-none sm:px-8 ${
+                billingTier === "solo" ? "text-white" : "text-gray-500 hover:text-[var(--ink)]"
               }`}
               onClick={() => setBillingTier("solo")}
             >
@@ -330,8 +340,8 @@ export default function BillingPage() {
               role="tab"
               aria-selected={billingTier === "firm"}
               aria-controls="billing-plans-panel"
-              className={`relative z-10 min-h-[44px] flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 sm:flex-none sm:px-8 ${
-                billingTier === "firm" ? "text-white" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              className={`relative z-10 min-h-[44px] flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:flex-none sm:px-8 ${
+                billingTier === "firm" ? "text-white" : "text-gray-500 hover:text-[var(--ink)]"
               }`}
               onClick={() => setBillingTier("firm")}
             >
@@ -371,7 +381,7 @@ export default function BillingPage() {
                 ]}
                 cta="Buy 5 runs"
                 highlight="growth"
-                badge={{ text: "Most Popular", className: "bg-violet-600 text-white" }}
+                badge={{ text: "Most Popular", className: "bg-[var(--ink)] text-white" }}
                 onBuy={() => handleBuyPlan("growth")}
                 isProcessing={isProcessing}
               />
@@ -385,27 +395,24 @@ export default function BillingPage() {
                 ]}
                 cta="Buy 12 runs"
                 highlight="pro"
-                badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
+                badge={{ text: "Best Value", className: "bg-[#F0F0F0] text-[var(--ink)]" }}
                 onBuy={() => handleBuyPlan("pro")}
                 isProcessing={isProcessing}
               />
-              {/* Scale card with animated rotating gradient border */}
-              <div className="glow-border-card rounded-xl">
-                <PlanCard
-                  title="Scale"
-                  price={`${formatInrWhole(5699)} + GST`}
-                  features={[
-                    "30 runs/month",
-                    "₹190/run",
-                    "Runs expire monthly — no carry over",
-                  ]}
-                  cta="Buy 30 runs"
-                  highlight="scale"
-                  badge={{ text: "Founder's Offer", className: "bg-purple-100 text-[#7C3AED] ring-1 ring-[#7C3AED]/30" }}
-                  onBuy={() => handleBuyPlan("scale")}
-                  isProcessing={isProcessing}
-                />
-              </div>
+              <PlanCard
+                title="Scale"
+                price={`${formatInrWhole(5699)} + GST`}
+                features={[
+                  "30 runs/month",
+                  "₹190/run",
+                  "Runs expire monthly — no carry over",
+                ]}
+                cta="Buy 30 runs"
+                highlight="scale"
+                badge={{ text: "Founder's Offer", className: "bg-[var(--ink)] text-white" }}
+                onBuy={() => handleBuyPlan("scale")}
+                isProcessing={isProcessing}
+              />
               <EnterpriseSoloCard />
             </div>
           ) : (
@@ -421,7 +428,7 @@ export default function BillingPage() {
                 cta="Coming soon"
                 ctaExact
                 highlight="growth"
-                badge={{ text: "Most Popular", className: "bg-violet-600 text-white" }}
+                badge={{ text: "Most Popular", className: "bg-[var(--ink)] text-white" }}
               />
               <PlanCard
                 title="Scale Firm"
@@ -434,34 +441,34 @@ export default function BillingPage() {
                 cta="Coming soon"
                 ctaExact
                 highlight="scale"
-                badge={{ text: "Best Value", className: "bg-amber-400 text-gray-900" }}
+                badge={{ text: "Best Value", className: "bg-[#F0F0F0] text-[var(--ink)]" }}
               />
               <EnterpriseFirmCard />
             </div>
           )}
         </div>
 
-        <p className="mt-6 text-xs text-gray-500">
+        <p className="text-xs text-gray-500">
           All prices exclude GST. 18% GST applicable.
         </p>
       </section>
 
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">Payment history</h2>
-        <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-white shadow-sm">
+      <section className="dashboard-card space-y-4 p-6">
+        <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Payment history</h2>
+        <div className="overflow-x-auto rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
           <table className="w-full min-w-[960px] text-left text-sm">
-            <thead className="border-b border-[var(--border)] bg-gray-50 text-xs uppercase tracking-wide text-[var(--text-secondary)]">
+            <thead className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
               <tr>
-                <th className="px-4 py-3 font-medium">Date</th>
-                <th className="px-4 py-3 font-medium">Plan</th>
-                <th className="px-4 py-3 font-medium">Runs</th>
-                <th className="px-4 py-3 font-medium">Client</th>
-                <th className="px-4 py-3 font-medium">Period</th>
-                <th className="px-4 py-3 font-medium">Base</th>
-                <th className="px-4 py-3 font-medium">GST</th>
-                <th className="px-4 py-3 font-medium">Total</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Receipt</th>
+                <th className="px-5 py-4 font-medium">Date</th>
+                <th className="px-4 py-4 font-medium">Plan</th>
+                <th className="px-4 py-4 font-medium">Runs</th>
+                <th className="px-4 py-4 font-medium">Client</th>
+                <th className="px-4 py-4 font-medium">Period</th>
+                <th className="px-4 py-4 font-medium">Base</th>
+                <th className="px-4 py-4 font-medium">GST</th>
+                <th className="px-4 py-4 font-medium">Total</th>
+                <th className="px-4 py-4 font-medium">Status</th>
+                <th className="px-5 py-4 font-medium">Receipt</th>
               </tr>
             </thead>
             <tbody>
@@ -512,7 +519,7 @@ function BillingBanner({
   onBuyRuns: () => void;
 }) {
   if (loading && !status) {
-    return <div className="h-14 animate-pulse rounded-lg bg-gray-200" aria-hidden />;
+    return <div className="h-14 animate-pulse rounded-[1.25rem] bg-white/70" aria-hidden />;
   }
   if (!status) return null;
 
@@ -522,7 +529,7 @@ function BillingBanner({
 
   if (free > 0) {
     return (
-      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+      <div className="rounded-[1.25rem] bg-[var(--ink)] px-5 py-4 text-sm text-white">
         You have {free} free reconciliation{free === 1 ? "" : "s"} remaining — no payment needed.
       </div>
     );
@@ -530,9 +537,9 @@ function BillingBanner({
 
   if (bal > 0) {
     return (
-      <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+      <div className="dashboard-card px-5 py-4 text-sm text-gray-700">
         <p>
-          You have {bal} {runsWord(bal)} remaining.
+          You have <strong className="text-[var(--ink)]">{bal}</strong> {runsWord(bal)} remaining.
         </p>
         {status.expiring_soon && status.expiring_soon.length > 0 && (
           <div className="mt-2 space-y-1">
@@ -556,12 +563,12 @@ function BillingBanner({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-950">
+    <div className="flex flex-wrap items-center gap-3 rounded-[1.25rem] bg-orange-50 px-5 py-4 text-sm text-orange-950">
       <span>No runs remaining — purchase a plan to continue reconciling.</span>
       <button
         type="button"
         onClick={onBuyRuns}
-        className="rounded-full bg-orange-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-orange-700"
+        className="rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
       >
         Buy runs
       </button>
@@ -571,25 +578,18 @@ function BillingBanner({
 
 function EnterpriseSoloCard() {
   return (
-    <div
-      className="flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm transition duration-300"
-      onMouseEnter={(e) =>
-        (e.currentTarget.style.boxShadow =
-          "0 0 0 1px rgba(124,58,237,0.2), 0 0 14px 2px rgba(124,58,237,0.1)")
-      }
-      onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "")}
-    >
-      <h3 className="text-lg font-semibold">Individual</h3>
-      <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
-      <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
+    <div className="flex flex-col rounded-[1.5rem] bg-[#F7F7F8] p-6 transition duration-200 hover:-translate-y-0.5">
+      <h3 className="text-lg font-semibold text-[var(--ink)]">Individual</h3>
+      <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--ink)]">Custom pricing</p>
+      <ul className="mt-4 flex-1 space-y-2 text-sm text-gray-500">
         <li>• Dedicated support</li>
         <li>• Custom onboarding</li>
         <li>• SLA guarantee</li>
       </ul>
-      <p className="mt-6 text-lg font-semibold text-[var(--text-primary)]">Need More?</p>
+      <p className="mt-6 text-lg font-semibold text-[var(--ink)]">Need More?</p>
       <a
         href="mailto:contact@recondesk.in"
-        className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+        className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-[var(--ink)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
       >
         Contact Sales
       </a>
@@ -599,17 +599,10 @@ function EnterpriseSoloCard() {
 
 function EnterpriseFirmCard() {
   return (
-    <div
-      className="flex flex-col rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm transition duration-300"
-      onMouseEnter={(e) =>
-        (e.currentTarget.style.boxShadow =
-          "0 0 0 1px rgba(124,58,237,0.2), 0 0 14px 2px rgba(124,58,237,0.1)")
-      }
-      onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "")}
-    >
-      <h3 className="text-lg font-semibold">Enterprise</h3>
-      <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)]">Custom pricing</p>
-      <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
+    <div className="flex flex-col rounded-[1.5rem] bg-[#F7F7F8] p-6 transition duration-200 hover:-translate-y-0.5">
+      <h3 className="text-lg font-semibold text-[var(--ink)]">Enterprise</h3>
+      <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--ink)]">Custom pricing</p>
+      <ul className="mt-4 flex-1 space-y-2 text-sm text-gray-500">
         <li>• 100+ runs/month</li>
         <li>• Dedicated support</li>
         <li>• Custom onboarding</li>
@@ -617,7 +610,7 @@ function EnterpriseFirmCard() {
       </ul>
       <a
         href="mailto:contact@recondesk.in"
-        className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+        className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-[var(--ink)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
       >
         Contact Sales
       </a>
@@ -638,35 +631,29 @@ function PlanCard(props: {
   isProcessing?: boolean;
 }) {
   const { title, price, features, cta, highlight, badge, ctaExact, onBuy, isProcessing } = props;
-  const border =
-    highlight === "growth"
-      ? "border-violet-400 shadow-md ring-1 ring-violet-200"
-      : highlight === "pro"
-        ? "border-amber-400 shadow-sm ring-1 ring-amber-100"
-        : highlight === "scale"
-          ? "border-purple-400 shadow-md ring-1 ring-purple-200"
-          : "border-[var(--border)] shadow-sm";
+  const emphasized = highlight === "growth" || highlight === "scale";
   const buttonLabel = onBuy ? cta : (ctaExact ? cta : `${cta} — Coming soon`);
 
   return (
     <div
-      className={`relative z-10 flex flex-col rounded-xl border bg-white p-6 transition duration-300 ${border}`}
-      onMouseEnter={(e) =>
-        (e.currentTarget.style.boxShadow =
-          "0 0 0 1px rgba(124,58,237,0.2), 0 0 14px 2px rgba(124,58,237,0.1)")
-      }
-      onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "")}
+      className={`relative z-10 flex flex-col rounded-[1.5rem] p-6 transition duration-200 hover:-translate-y-0.5 ${
+        emphasized
+          ? "bg-[var(--ink)] text-white shadow-[var(--shadow-lift)]"
+          : "bg-[#F7F7F8] text-[var(--ink)]"
+      }`}
     >
       {badge && (
         <span
-          className={`absolute -top-3 right-4 rounded-full px-3 py-0.5 text-xs font-semibold ${badge.className}`}
+          className={`absolute -top-3 right-4 rounded-full px-3 py-0.5 text-xs font-semibold ${
+            emphasized ? "bg-white text-[var(--ink)]" : badge.className
+          }`}
         >
           {badge.text}
         </span>
       )}
       <h3 className="text-lg font-semibold">{title}</h3>
       <p className="mt-2 text-2xl font-bold tracking-tight">{price}</p>
-      <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--text-secondary)]">
+      <ul className={`mt-4 flex-1 space-y-2 text-sm ${emphasized ? "text-white/70" : "text-gray-500"}`}>
         {features.map((f) => (
           <li key={f}>• {f}</li>
         ))}
@@ -675,10 +662,12 @@ function PlanCard(props: {
         type="button"
         disabled={!onBuy || isProcessing}
         onClick={onBuy}
-        className={`mt-6 w-full rounded-full border px-4 py-2.5 text-sm font-semibold transition-colors ${
+        className={`mt-6 w-full rounded-full px-4 py-2.5 text-sm font-semibold transition-opacity ${
           onBuy
-            ? "border-violet-600 bg-violet-600 text-white hover:bg-violet-700"
-            : "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-500"
+            ? emphasized
+              ? "bg-white text-[var(--ink)] hover:opacity-90"
+              : "bg-[var(--ink)] text-white hover:opacity-90"
+            : "cursor-not-allowed bg-white/50 text-gray-400"
         } ${isProcessing ? "opacity-75 cursor-wait" : ""}`}
       >
         {isProcessing && onBuy ? "Processing..." : buttonLabel}
@@ -691,10 +680,10 @@ function HistoryRow({ row, token }: { row: PaymentHistoryRow; token: string }) {
   const st = (row.status || "").toUpperCase();
   const stClass =
     st === "PAID"
-      ? "bg-emerald-100 text-emerald-800"
+      ? "bg-[var(--ink)] text-white"
       : st === "FAILED"
-        ? "bg-red-100 text-red-800"
-        : "bg-gray-100 text-gray-700";
+        ? "bg-[#FEF2F2] text-[#EF4444]"
+        : "bg-[#F0F0F0] text-gray-700";
 
   async function onReceipt() {
     if (!token) return;
@@ -707,34 +696,34 @@ function HistoryRow({ row, token }: { row: PaymentHistoryRow; token: string }) {
   }
 
   return (
-    <tr className="border-b border-[var(--border)]">
-      <td className="px-4 py-3 whitespace-nowrap">{fmtDateShort(row.created_at)}</td>
-      <td className="px-4 py-3">
+    <tr className="border-b border-[#F0F0F0] last:border-b-0">
+      <td className="px-5 py-3.5 whitespace-nowrap">{fmtDateShort(row.created_at)}</td>
+      <td className="px-4 py-3.5">
         <span
           className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${planBadgeClass(row.plan)}`}
         >
           {row.plan || "—"}
         </span>
       </td>
-      <td className="px-4 py-3 tabular-nums">{row.runs_purchased ?? "—"}</td>
-      <td className="px-4 py-3">{row.trade_name?.trim() || "—"}</td>
-      <td className="px-4 py-3 whitespace-nowrap">{row.period || "—"}</td>
-      <td className="px-4 py-3 tabular-nums">{formatInrPaise(row.base_amount_paise)}</td>
-      <td className="px-4 py-3 tabular-nums">{formatInrPaise(row.gst_paise)}</td>
-      <td className="px-4 py-3 font-medium tabular-nums">
+      <td className="px-4 py-3.5 tabular-nums">{row.runs_purchased ?? "—"}</td>
+      <td className="px-4 py-3.5">{row.trade_name?.trim() || "—"}</td>
+      <td className="px-4 py-3.5 whitespace-nowrap">{row.period || "—"}</td>
+      <td className="px-4 py-3.5 tabular-nums">{formatInrPaise(row.base_amount_paise)}</td>
+      <td className="px-4 py-3.5 tabular-nums">{formatInrPaise(row.gst_paise)}</td>
+      <td className="px-4 py-3.5 font-medium tabular-nums">
         {formatInrPaise(row.total_amount_paise)}
       </td>
-      <td className="px-4 py-3">
-        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${stClass}`}>
+      <td className="px-4 py-3.5">
+        <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${stClass}`}>
           {st}
         </span>
       </td>
-      <td className="px-4 py-3">
+      <td className="px-5 py-3.5">
         {st === "PAID" ? (
           <button
             type="button"
             onClick={() => void onReceipt()}
-            className="text-sm font-semibold text-violet-600 hover:underline"
+            className="text-sm font-semibold text-[var(--ink)] hover:underline"
           >
             Download
           </button>

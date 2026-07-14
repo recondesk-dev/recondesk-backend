@@ -40,19 +40,19 @@ function isSelfRow(row: TeamMemberListItem, profile: AuthMeProfile | undefined) 
 
 function TeamTableSkeleton() {
   return (
-    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+    <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
       <div className="animate-pulse space-y-0">
         {[1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
-            className="flex gap-4 border-b border-[var(--border)] px-4 py-4 last:border-b-0"
+            className="flex gap-4 border-b border-[#F0F0F0] px-5 py-4 last:border-b-0"
           >
-            <div className="h-4 flex-1 rounded bg-[var(--border)]" />
-            <div className="h-4 flex-1 rounded bg-[var(--border)]" />
-            <div className="h-4 w-20 rounded bg-[var(--border)]" />
-            <div className="h-4 w-24 rounded bg-[var(--border)]" />
-            <div className="h-4 w-16 rounded bg-[var(--border)]" />
-            <div className="h-8 w-24 rounded bg-[var(--border)]" />
+            <div className="h-4 flex-1 rounded bg-gray-100" />
+            <div className="h-4 flex-1 rounded bg-gray-100" />
+            <div className="h-4 w-20 rounded bg-gray-100" />
+            <div className="h-4 w-24 rounded bg-gray-100" />
+            <div className="h-4 w-16 rounded bg-gray-100" />
+            <div className="h-8 w-24 rounded-full bg-gray-100" />
           </div>
         ))}
       </div>
@@ -207,7 +207,7 @@ function TeamSettingsPageContent() {
 
   if (!isAdmin) {
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-6 text-sm text-amber-950">
+      <div className="rounded-[1.25rem] bg-amber-50 px-5 py-6 text-sm text-amber-950">
         Only admins can manage team members.
       </div>
     );
@@ -215,13 +215,18 @@ function TeamSettingsPageContent() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold text-[var(--text-primary)]">
-          Team Members
-        </h1>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
+            Team Members
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Invite staff and manage workspace access
+          </p>
+        </div>
         <button
           type="button"
-          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white hover:bg-brand-hover"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
           onClick={() => {
             setInviteError(null);
             setInviteOpen(true);
@@ -231,15 +236,15 @@ function TeamSettingsPageContent() {
         </button>
       </div>
 
-      <div className="rounded-xl bg-gray-100 px-5 py-4 text-sm text-[var(--text-primary)]">
-        <p className="font-semibold text-[var(--text-primary)]">Role descriptions</p>
-        <ul className="mt-3 list-disc space-y-2 pl-5 text-[var(--text-secondary)]">
+      <div className="dashboard-card px-5 py-4 text-sm text-[var(--ink)]">
+        <p className="font-semibold">Role descriptions</p>
+        <ul className="mt-3 list-disc space-y-2 pl-5 text-gray-500">
           <li>
-            <strong className="text-[var(--text-primary)]">Admin:</strong> Upload
+            <strong className="text-[var(--ink)]">Admin:</strong> Upload
             files, run reconciliation, view all clients, finalize runs, manage billing.
           </li>
           <li>
-            <strong className="text-[var(--text-primary)]">Staff:</strong> Upload
+            <strong className="text-[var(--ink)]">Staff:</strong> Upload
             files, run reconciliation, view assigned clients, add notes — cannot
             finalize.
           </li>
@@ -247,18 +252,20 @@ function TeamSettingsPageContent() {
       </div>
 
       {membersError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
           Could not load team members.
         </div>
       )}
 
       {membersLoading && !members ? (
-        <TeamTableSkeleton />
+        <section className="dashboard-card p-6">
+          <TeamTableSkeleton />
+        </section>
       ) : showTeamEmpty ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-6 py-16 text-center">
+        <div className="dashboard-card flex flex-col items-center justify-center px-6 py-16 text-center">
           <div className="mx-auto w-full max-w-[400px]">
-            <EmptyStateIllustration className="mx-auto text-gray-400" />
-            <h2 className="mt-4 text-lg font-semibold text-gray-900">
+            <EmptyStateIllustration className="mx-auto text-gray-300" />
+            <h2 className="mt-4 text-lg font-semibold text-[var(--ink)]">
               No team members yet
             </h2>
             <p className="mt-1 text-sm text-gray-500">
@@ -267,7 +274,7 @@ function TeamSettingsPageContent() {
             </p>
             <button
               type="button"
-              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white hover:bg-brand-hover"
+              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
               onClick={() => {
                 setInviteError(null);
                 setInviteOpen(true);
@@ -278,87 +285,89 @@ function TeamSettingsPageContent() {
           </div>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
-          <div className="overflow-x-auto">
-            <table className="min-w-[920px] w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--border)] bg-[#FAFAFB] text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Email</th>
-                  <th className="px-4 py-3">Role</th>
-                  <th className="px-4 py-3">Joined</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedMembers.map((row) => {
-                  const adminBadge =
-                    row.role.toLowerCase() === "admin";
-                  const pending = row.status === "pending";
-                  const selfRow = !pending && isSelfRow(row, me);
-                  return (
-                    <tr key={row.id} className="border-b border-[var(--border)]">
-                      <td className="px-4 py-3 font-medium text-[var(--text-primary)]">
-                        {pending ? "—" : row.full_name || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--text-secondary)]">
-                        {row.email}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex min-h-[28px] items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                            adminBadge
-                              ? "bg-brand-dim text-brand"
-                              : "bg-gray-100 text-gray-700"
-                          }`}
-                        >
-                          {adminBadge ? "Admin" : "Staff"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-[var(--text-secondary)]">
-                        {formatJoined(row.joined_at)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex min-h-[28px] items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                            pending
-                              ? "bg-amber-100 text-amber-900"
-                              : "bg-emerald-50 text-emerald-800"
-                          }`}
-                        >
-                          {pending ? "Pending" : "Active"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {pending ? (
-                          <button
-                            type="button"
-                            disabled={actionBusyId === row.id}
-                            className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[var(--border)] px-4 text-sm font-medium text-[var(--text-primary)] hover:bg-brand-dim disabled:opacity-50"
-                            onClick={() => void resendInvite(row)}
+        <section className="dashboard-card p-6">
+          <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
+            <div className="overflow-x-auto">
+              <table className="min-w-[920px] w-full border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
+                    <th className="px-5 py-4">Name</th>
+                    <th className="px-4 py-4">Email</th>
+                    <th className="px-4 py-4">Role</th>
+                    <th className="px-4 py-4">Joined</th>
+                    <th className="px-4 py-4">Status</th>
+                    <th className="px-5 py-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedMembers.map((row) => {
+                    const adminBadge =
+                      row.role.toLowerCase() === "admin";
+                    const pending = row.status === "pending";
+                    const selfRow = !pending && isSelfRow(row, me);
+                    return (
+                      <tr key={row.id} className="border-b border-[#F0F0F0] transition-colors hover:bg-[#F7F7F8] last:border-b-0">
+                        <td className="px-5 py-3.5 font-medium text-[var(--ink)]">
+                          {pending ? "—" : row.full_name || "—"}
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-500">
+                          {row.email}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span
+                            className={`inline-flex min-h-[28px] items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                              adminBadge
+                                ? "bg-[var(--ink)] text-white"
+                                : "bg-[#F0F0F0] text-gray-700"
+                            }`}
                           >
-                            {actionBusyId === row.id ? "Sending…" : "Resend Invite"}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={selfRow || actionBusyId === row.id}
-                            className="inline-flex min-h-[44px] items-center justify-center rounded-full px-4 text-sm font-semibold text-[var(--danger)] hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-35"
-                            title={selfRow ? "You cannot remove yourself" : undefined}
-                            onClick={() => void removeMember(row)}
+                            {adminBadge ? "Admin" : "Staff"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-500">
+                          {formatJoined(row.joined_at)}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span
+                            className={`inline-flex min-h-[28px] items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                              pending
+                                ? "bg-[#F0F0F0] text-gray-600"
+                                : "bg-[var(--ink)] text-white"
+                            }`}
                           >
-                            {actionBusyId === row.id ? "Removing…" : "Remove"}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            {pending ? "Pending" : "Active"}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3.5 text-right">
+                          {pending ? (
+                            <button
+                              type="button"
+                              disabled={actionBusyId === row.id}
+                              className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-[#F5F5F6] px-4 text-sm font-medium text-[var(--ink)] transition-colors hover:bg-gray-200/70 disabled:opacity-50"
+                              onClick={() => void resendInvite(row)}
+                            >
+                              {actionBusyId === row.id ? "Sending…" : "Resend Invite"}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={selfRow || actionBusyId === row.id}
+                              className="inline-flex min-h-[40px] items-center justify-center rounded-full px-4 text-sm font-semibold text-[var(--danger)] hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-35"
+                              title={selfRow ? "You cannot remove yourself" : undefined}
+                              onClick={() => void removeMember(row)}
+                            >
+                              {actionBusyId === row.id ? "Removing…" : "Remove"}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        </section>
       )}
 
       <Modal
@@ -378,7 +387,7 @@ function TeamSettingsPageContent() {
             <button
               type="button"
               disabled={inviteSubmitting}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-5 text-sm font-semibold text-white disabled:opacity-50 transition-opacity hover:opacity-90"
               onClick={() => void submitInvite()}
             >
               {inviteSubmitting ? "Sending…" : "Send Invite"}

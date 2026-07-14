@@ -4,7 +4,7 @@ import Link from "next/link";
 import useSWR from "swr";
 import { Bell, ChevronRight, ClipboardList, CreditCard, UserCircle, Users } from "lucide-react";
 
-import { teamApi, billingApi, type AuthMeProfile, type TeamMemberListItem } from "@/lib/api";
+import { teamApi, billingApi, type TeamMemberListItem } from "@/lib/api";
 import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
@@ -12,25 +12,24 @@ import {
 } from "@/lib/auth-profile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
-/** Backend exposes `/api/v1/auth/me`; same payload as documented “auth/me”. */
 function SettingsSkeleton() {
   return (
-    <div className="space-y-8">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-6">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[1, 2, 3, 4].map((i) => (
           <div
             key={i}
-            className="animate-pulse rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5"
+            className="dashboard-card animate-pulse p-5"
           >
-            <div className="mb-4 h-10 w-10 rounded-lg bg-[var(--border)]" />
-            <div className="mb-2 h-5 w-3/5 rounded bg-[var(--border)]" />
-            <div className="mb-4 h-4 w-full rounded bg-[var(--border)]" />
-            <div className="h-4 w-16 rounded bg-[var(--border)]" />
+            <div className="mb-4 h-11 w-11 rounded-full bg-gray-100" />
+            <div className="mb-2 h-5 w-3/5 rounded bg-gray-100" />
+            <div className="mb-4 h-4 w-full rounded bg-gray-100" />
+            <div className="h-4 w-16 rounded bg-gray-100" />
           </div>
         ))}
       </div>
-      <div className="animate-pulse rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-4">
-        <div className="h-5 w-2/3 rounded bg-[var(--border)]" />
+      <div className="dashboard-card animate-pulse px-5 py-4">
+        <div className="h-5 w-2/3 rounded bg-gray-100" />
       </div>
     </div>
   );
@@ -124,12 +123,12 @@ export default function SettingsHubPage() {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-7">
       <div>
-        <h1 className="text-xl font-semibold text-[var(--text-primary)]">
+        <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
           Settings
         </h1>
-        <p className="mt-1 text-sm text-[var(--text-secondary)]">
+        <p className="mt-1 text-sm text-gray-500">
           Manage your workspace and preferences.
         </p>
       </div>
@@ -138,23 +137,23 @@ export default function SettingsHubPage() {
         <SettingsSkeleton />
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {cards.map(({ href, title, description, Icon }) => (
               <Link
                 key={href}
                 href={href}
-                className="group flex flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm transition hover:border-brand hover:shadow-md"
+                className="group flex flex-col rounded-[1.5rem] bg-white p-5 shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5"
               >
-                <div className="mb-4 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-brand-dim text-brand">
-                  <Icon className="h-6 w-6" aria-hidden />
+                <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#F3F4F6] text-gray-700">
+                  <Icon className="h-5 w-5" aria-hidden />
                 </div>
-                <h2 className="text-base font-semibold text-[var(--text-primary)]">
+                <h2 className="text-base font-semibold text-[var(--ink)]">
                   {title}
                 </h2>
-                <p className="mt-1 flex-1 text-sm text-[var(--text-secondary)]">
+                <p className="mt-1 flex-1 text-sm text-gray-500">
                   {description}
                 </p>
-                <span className="mt-4 inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-brand">
+                <span className="mt-4 inline-flex min-h-[40px] items-center gap-1 text-sm font-semibold text-[var(--ink)]">
                   Open
                   <ChevronRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                 </span>
@@ -162,26 +161,26 @@ export default function SettingsHubPage() {
             ))}
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-4 text-sm">
+          <div className="dashboard-card flex flex-wrap items-center gap-x-8 gap-y-3 px-5 py-4 text-sm">
             <span>
-              <span className="text-[var(--text-secondary)]">Plan:</span>{" "}
-              <span className="font-semibold text-[var(--text-primary)]">
+              <span className="text-gray-500">Plan:</span>{" "}
+              <span className="font-semibold text-[var(--ink)]">
                 {planLabelStr}
               </span>
             </span>
-            <span className="hidden sm:inline text-[var(--border)]">|</span>
+            <span className="hidden text-[#E5E5E5] sm:inline">|</span>
             <span>
-              <span className="text-[var(--text-secondary)]">
+              <span className="text-gray-500">
                 Runs remaining:
               </span>{" "}
-              <span className="font-semibold text-[var(--text-primary)]">
+              <span className="font-semibold text-[var(--ink)]">
                 {runsRemaining}
               </span>
             </span>
-            <span className="hidden sm:inline text-[var(--border)]">|</span>
+            <span className="hidden text-[#E5E5E5] sm:inline">|</span>
             <span>
-              <span className="text-[var(--text-secondary)]">Team size:</span>{" "}
-              <span className="font-semibold text-[var(--text-primary)]">
+              <span className="text-gray-500">Team size:</span>{" "}
+              <span className="font-semibold text-[var(--ink)]">
                 {teamSize} members
               </span>
             </span>

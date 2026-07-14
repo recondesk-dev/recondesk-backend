@@ -32,28 +32,30 @@ export default function ActivityLogSettingsPage() {
       <div>
         <Link
           href="/settings"
-          className="text-sm font-medium text-brand hover:underline"
+          className="text-sm font-medium text-[var(--ink)] hover:underline"
         >
           ← Settings
         </Link>
-        <h1 className="mt-2 text-xl font-semibold text-[var(--text-primary)]">
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-[var(--ink)]">
           Activity Log
         </h1>
-        <p className="mt-1 text-sm text-[var(--text-secondary)]">
+        <p className="mt-1 text-sm text-gray-500">
           Review workspace actions by admin and staff users.
         </p>
       </div>
 
       {resolving ? (
-        <div className="animate-pulse rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8">
-          <div className="h-5 w-1/3 rounded bg-[var(--border)]" />
+        <div className="dashboard-card animate-pulse p-8">
+          <div className="h-5 w-1/3 rounded bg-gray-100" />
         </div>
       ) : !isAdmin ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+        <div className="rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm text-amber-900">
           Only workspace admins can view the activity log.
         </div>
       ) : authToken ? (
-        <ActivityLogPanel authToken={authToken} />
+        <div className="dashboard-card p-2 sm:p-4">
+          <ActivityLogPanel authToken={authToken} />
+        </div>
       ) : null}
     </div>
   );

@@ -36,16 +36,16 @@ function useDebounced<T>(value: T, ms: number): T {
 
 function ClientsSkeleton() {
   return (
-    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+    <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
       <div className="animate-pulse space-y-0">
         {[1, 2, 3, 4, 5, 6].map((i) => (
           <div
             key={i}
-            className="flex gap-4 border-b border-[var(--border)] px-4 py-4 last:border-b-0"
+            className="flex gap-4 border-b border-[#F0F0F0] px-5 py-4 last:border-b-0"
           >
-            <div className="h-4 flex-1 rounded bg-[var(--border)]" />
-            <div className="h-4 w-40 rounded bg-[var(--border)]" />
-            <div className="h-10 w-44 rounded bg-[var(--border)]" />
+            <div className="h-4 flex-1 rounded bg-gray-100" />
+            <div className="h-4 w-40 rounded bg-gray-100" />
+            <div className="h-10 w-44 rounded-full bg-gray-100" />
           </div>
         ))}
       </div>
@@ -304,25 +304,36 @@ export function ClientsPageContent() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap justify-end gap-3">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
+            Clients
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            GSTINs in your portfolio and who they are assigned to
+          </p>
+        </div>
         <button
           type="button"
-          className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white hover:bg-brand-hover"
+          className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
           onClick={() => {
             resetAddForm();
             setAddOpen(true);
           }}
         >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
           Add Client
         </button>
       </div>
 
       {clientsError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
           Could not load clients.{" "}
           <button
             type="button"
-            className="font-semibold text-brand underline"
+            className="font-semibold text-[var(--ink)] underline"
             onClick={() => void mutateClients()}
           >
             Retry
@@ -331,16 +342,16 @@ export function ClientsPageContent() {
       )}
 
       {!authToken && tokenState === false && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        <div className="rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm text-amber-950">
           Sign in to load clients from your workspace.
         </div>
       )}
 
       {showEmpty ? (
-        <div className="flex min-h-[320px] flex-col items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-6 py-16 text-center">
+        <div className="dashboard-card flex min-h-[320px] flex-col items-center justify-center px-6 py-16 text-center">
           <div className="mx-auto w-full max-w-[400px]">
-            <EmptyStateIllustration className="mx-auto text-gray-400" />
-            <h2 className="mt-4 text-lg font-semibold text-gray-900">
+            <EmptyStateIllustration className="mx-auto text-gray-300" />
+            <h2 className="mt-4 text-lg font-semibold text-[var(--ink)]">
               No clients added yet
             </h2>
             <p className="mt-1 text-sm text-gray-500">
@@ -348,7 +359,7 @@ export function ClientsPageContent() {
             </p>
             <button
               type="button"
-              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white hover:bg-brand-hover"
+              className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
               onClick={() => {
                 resetAddForm();
                 setAddOpen(true);
@@ -359,32 +370,38 @@ export function ClientsPageContent() {
           </div>
         </div>
       ) : (
-        <>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-            <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-              Search
-            </label>
+        <section className="dashboard-card space-y-5 p-6">
+          <div className="relative max-w-md">
+            <svg
+              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden
+            >
+              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M20 20l-3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="min-h-[44px] w-full max-w-md rounded-lg border border-[var(--border)] px-3 text-sm"
-              placeholder="Trade name or GSTIN"
+              className="w-full rounded-full border-0 bg-[#F5F5F6] py-2.5 pl-10 pr-4 text-sm font-medium text-gray-700 outline-none transition-shadow placeholder:text-gray-400 focus:ring-2 focus:ring-black/10"
+              placeholder="Search trade name or GSTIN"
             />
           </div>
 
           {showSkeleton ? (
             <ClientsSkeleton />
           ) : (
-            <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+            <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
               <div className="overflow-x-auto">
                 <table className="min-w-[860px] w-full border-collapse text-left text-sm">
                   <thead>
-                    <tr className="border-b border-[var(--border)] bg-[#FAFAFB] text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-                      <th className="px-4 py-3">Trade Name</th>
-                      <th className="px-4 py-3">GSTIN</th>
-                      <th className="px-4 py-3">Assign To</th>
+                    <tr className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
+                      <th className="px-5 py-4">Trade Name</th>
+                      <th className="px-4 py-4">GSTIN</th>
+                      <th className="px-4 py-4">Assign To</th>
                       {isAdmin && (
-                        <th className="px-4 py-3 text-right">Actions</th>
+                        <th className="px-5 py-4 text-right">Actions</th>
                       )}
                     </tr>
                   </thead>
@@ -392,23 +409,23 @@ export function ClientsPageContent() {
                     {filtered.map((row) => (
                       <tr
                         key={row.id}
-                        className="border-b border-[var(--border)] last:border-b-0"
+                        className="border-b border-[#F0F0F0] transition-colors hover:bg-[#F7F7F8] last:border-b-0"
                       >
-                        <td className="px-4 py-3">
+                        <td className="px-5 py-3.5">
                           <Link
                             href={`/clients/${row.id}`}
-                            className="font-medium text-brand hover:underline cursor-pointer"
+                            className="font-medium text-[var(--ink)] hover:underline cursor-pointer"
                           >
                             {row.trade_name ?? "—"}
                           </Link>
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs">
+                        <td className="px-4 py-3.5 font-mono text-xs text-gray-500">
                           {row.gstin}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3.5">
                           {isAdmin ? (
                             <select
-                              className="min-h-[44px] w-full max-w-[260px] rounded-lg border border-[var(--border)] bg-white px-3 text-sm"
+                              className="min-h-[40px] w-full max-w-[260px] rounded-full border-0 bg-[#F5F5F6] px-4 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-black/10"
                               value={
                                 row.assigned_to ??
                                 assignOptions[0]?.userId ??
@@ -426,16 +443,16 @@ export function ClientsPageContent() {
                               ))}
                             </select>
                           ) : (
-                            <span className="text-[var(--text-secondary)]">
+                            <span className="text-gray-500">
                               {assignLabel(row.assigned_to, assigneeNames)}
                             </span>
                           )}
                         </td>
                         {isAdmin && (
-                          <td className="px-4 py-3 text-right">
+                          <td className="px-5 py-3.5 text-right">
                             <button
                               type="button"
-                              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full px-3 text-sm font-semibold text-[var(--danger)] hover:bg-red-50"
+                              className="inline-flex min-h-[40px] items-center justify-center rounded-full px-3 text-sm font-semibold text-[var(--danger)] transition-colors hover:bg-red-50"
                               onClick={() => void handleDelete(row)}
                             >
                               Remove
@@ -448,13 +465,13 @@ export function ClientsPageContent() {
                 </table>
               </div>
               {filtered.length === 0 && (clients?.length ?? 0) > 0 && (
-                <p className="border-t border-[var(--border)] px-4 py-6 text-center text-sm text-[var(--text-secondary)]">
+                <p className="border-t border-[#F0F0F0] px-5 py-6 text-center text-sm text-gray-400">
                   No clients match your search.
                 </p>
               )}
             </div>
           )}
-        </>
+        </section>
       )}
 
       <Modal
@@ -474,7 +491,7 @@ export function ClientsPageContent() {
             <button
               type="button"
               disabled={!canSubmitAdd || addBusy}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white disabled:opacity-40 hover:bg-brand-hover disabled:hover:bg-brand"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-5 text-sm font-semibold text-white disabled:opacity-40 transition-opacity hover:opacity-90"
               onClick={() => void submitAdd()}
             >
               {addBusy ? "Saving…" : "Add Client"}
@@ -516,7 +533,7 @@ export function ClientsPageContent() {
                 type="button"
                 disabled={verifyBusy || !authToken}
                 onClick={() => void handleVerifyGstin()}
-                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-brand px-4 text-xs font-semibold text-brand hover:bg-brand/5 disabled:opacity-40 transition-colors"
+                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full bg-[#F5F5F6] px-4 text-xs font-semibold text-[var(--ink)] hover:bg-gray-200/70 disabled:opacity-40 transition-colors"
               >
                 {verifyBusy ? (
                   <>

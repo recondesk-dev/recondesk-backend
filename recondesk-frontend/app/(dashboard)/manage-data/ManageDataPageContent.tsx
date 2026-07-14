@@ -47,12 +47,12 @@ function isManageDataFileDeleted(file: ManageDataFileInfo): boolean {
 function runStatusBadge(raw: string): { label: string; className: string } {
   const u = (raw || "").trim().toUpperCase();
   if (u === "FAILED") {
-    return { label: "Failed", className: "bg-red-100 text-red-800" };
+    return { label: "Failed", className: "bg-[#FEF2F2] text-[#EF4444]" };
   }
   if (u === "COMPLETED" || u === "FINAL") {
-    return { label: "Matched", className: "bg-green-100 text-green-800" };
+    return { label: "Matched", className: "bg-[var(--ink)] text-white" };
   }
-  return { label: "Processing", className: "bg-yellow-100 text-yellow-800" };
+  return { label: "Processing", className: "bg-[#F0F0F0] text-[#4B5563]" };
 }
 
 function FileCell({
@@ -83,10 +83,10 @@ function FileCell({
   return (
     <div className="flex items-start justify-between gap-2">
       <div className="min-w-0">
-        <p className="truncate font-medium text-[var(--text-primary)]" title={file.name}>
+        <p className="truncate font-medium text-[var(--ink)]" title={file.name}>
           {file.name}
         </p>
-        <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+        <p className="mt-0.5 text-xs text-gray-400">
           {formatFileSize(file.size)}
         </p>
       </div>
@@ -95,7 +95,7 @@ function FileCell({
           type="button"
           disabled={busy}
           onClick={onDownload}
-          className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-brand disabled:opacity-50"
+          className="rounded-full p-2 text-gray-400 transition-colors hover:bg-white hover:text-[var(--ink)] disabled:opacity-50"
           aria-label={`Download ${fileLabel}`}
           title={`Download ${fileLabel}`}
         >
@@ -105,7 +105,7 @@ function FileCell({
           type="button"
           disabled={busy}
           onClick={onDelete}
-          className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50"
+          className="rounded-full p-2 text-gray-400 transition-colors hover:bg-white hover:text-gray-700 disabled:opacity-50"
           aria-label={`Delete ${fileLabel}`}
           title={`Delete ${fileLabel}`}
         >
@@ -124,19 +124,19 @@ type PendingDelete = {
 
 function ManageDataSkeleton() {
   return (
-    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+    <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
       <div className="animate-pulse space-y-0">
         {[1, 2, 3].map((i) => (
           <div
             key={i}
-            className="flex gap-4 border-b border-gray-100 px-4 py-4 last:border-b-0"
+            className="flex gap-4 border-b border-[#F0F0F0] px-5 py-4 last:border-b-0"
           >
-            <div className="h-4 w-36 rounded bg-[var(--border)]" />
-            <div className="h-4 w-20 rounded bg-[var(--border)]" />
-            <div className="h-4 w-24 rounded bg-[var(--border)]" />
-            <div className="h-4 w-40 rounded bg-[var(--border)]" />
-            <div className="h-4 w-40 rounded bg-[var(--border)]" />
-            <div className="h-4 w-24 rounded bg-[var(--border)]" />
+            <div className="h-4 w-36 rounded bg-gray-100" />
+            <div className="h-4 w-20 rounded bg-gray-100" />
+            <div className="h-4 w-24 rounded bg-gray-100" />
+            <div className="h-4 w-40 rounded bg-gray-100" />
+            <div className="h-4 w-40 rounded bg-gray-100" />
+            <div className="h-4 w-24 rounded bg-gray-100" />
           </div>
         ))}
       </div>
@@ -241,40 +241,46 @@ export function ManageDataPageContent() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-[var(--text-primary)]">Manage Data</h1>
-        <p className="mt-1 text-sm text-[var(--text-secondary)]">
-          View, download, or remove stored GSTR-2B and Purchase Register files. Reconciliation
-          results are kept when you delete a file.
+        <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
+          Manage Data
+        </h1>
+        <p className="mt-1 text-sm text-gray-500">
+          View, download, or remove stored GSTR-2B and Purchase Register files.
+          Reconciliation results are kept when you delete a file.
         </p>
       </div>
 
       {resolving ? (
-        <ManageDataSkeleton />
+        <section className="dashboard-card p-6">
+          <ManageDataSkeleton />
+        </section>
       ) : !isAdmin ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+        <div className="rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm text-amber-900">
           Only workspace admins can manage stored import files.
         </div>
       ) : !authToken ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        <div className="rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm text-amber-950">
           Sign in to manage stored files.
         </div>
       ) : (
-        <>
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Stored files</h2>
+        <section className="dashboard-card space-y-5 p-6">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
+              Stored files
+            </h2>
             {!showSkeleton && !listError && (
-              <span className="rounded-full bg-[#F3F4F6] px-2 py-1 text-xs font-medium text-[var(--text-secondary)]">
+              <span className="rounded-full bg-[#F0F0F0] px-2.5 py-1 text-xs font-semibold text-gray-600">
                 {totalRows}
               </span>
             )}
           </div>
 
           {listError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
               Could not load stored files.{" "}
               <button
                 type="button"
-                className="font-semibold text-brand underline"
+                className="font-semibold text-[var(--ink)] underline"
                 onClick={() => void mutateList()}
               >
                 Retry
@@ -285,10 +291,10 @@ export function ManageDataPageContent() {
           {showSkeleton ? (
             <ManageDataSkeleton />
           ) : rows && rows.length === 0 ? (
-            <div className="flex min-h-[320px] flex-col items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-6 py-16 text-center">
+            <div className="flex min-h-[280px] flex-col items-center justify-center rounded-[1.25rem] bg-[#F7F7F8] px-6 py-16 text-center">
               <div className="mx-auto w-full max-w-[400px]">
-                <EmptyStateIllustration className="mx-auto text-gray-400" />
-                <h3 className="mt-4 text-lg font-semibold text-gray-900">
+                <EmptyStateIllustration className="mx-auto text-gray-300" />
+                <h3 className="mt-4 text-lg font-semibold text-[var(--ink)]">
                   No stored files yet
                 </h3>
                 <p className="mt-1 text-sm text-gray-500">
@@ -297,17 +303,17 @@ export function ManageDataPageContent() {
               </div>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+            <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
               <div className="overflow-x-auto">
                 <table className="min-w-[1020px] w-full border-collapse text-left text-sm">
                   <thead>
-                    <tr className="border-b border-[var(--border)] bg-[#FAFAFB] text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-                      <th className="px-4 py-3">Client</th>
-                      <th className="px-4 py-3">Period</th>
-                      <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3">GSTR-2B file</th>
-                      <th className="px-4 py-3">Purchase Register file</th>
-                      <th className="px-4 py-3">Uploaded date</th>
+                    <tr className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
+                      <th className="px-5 py-4">Client</th>
+                      <th className="px-4 py-4">Period</th>
+                      <th className="px-4 py-4">Status</th>
+                      <th className="px-4 py-4">GSTR-2B file</th>
+                      <th className="px-4 py-4">Purchase Register file</th>
+                      <th className="px-5 py-4">Uploaded date</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -321,27 +327,27 @@ export function ManageDataPageContent() {
                       return (
                         <tr
                           key={row.run_id}
-                          className="border-b border-gray-100 hover:bg-gray-50 last:border-b-0"
+                          className="border-b border-[#F0F0F0] transition-colors hover:bg-[#F7F7F8] last:border-b-0"
                         >
-                          <td className="px-4 py-3">
-                            <div className="font-medium text-[var(--text-primary)]">
+                          <td className="px-5 py-3.5">
+                            <div className="font-medium text-[var(--ink)]">
                               {row.client_name}
                             </div>
-                            <div className="mt-0.5 font-mono text-xs text-[var(--text-secondary)]">
+                            <div className="mt-0.5 font-mono text-xs text-gray-400">
                               {row.gstin || "—"}
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-[var(--text-secondary)]">
+                          <td className="px-4 py-3.5 text-gray-500">
                             {row.period ?? "—"}
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-3.5">
                             <span
-                              className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${status.className}`}
+                              className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${status.className}`}
                             >
                               {status.label}
                             </span>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-3.5">
                             <FileCell
                               file={row.gstr2b}
                               fileLabel="GSTR-2B"
@@ -359,7 +365,7 @@ export function ManageDataPageContent() {
                               }}
                             />
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-3.5">
                             <FileCell
                               file={row.pr}
                               fileLabel="Purchase Register"
@@ -377,7 +383,7 @@ export function ManageDataPageContent() {
                               }}
                             />
                           </td>
-                          <td className="px-4 py-3 text-[var(--text-secondary)]">
+                          <td className="px-5 py-3.5 text-gray-500">
                             {formatDate(uploadedAt)}
                           </td>
                         </tr>
@@ -388,7 +394,7 @@ export function ManageDataPageContent() {
               </div>
             </div>
           )}
-        </>
+        </section>
       )}
 
       <Modal
@@ -401,7 +407,7 @@ export function ManageDataPageContent() {
               type="button"
               disabled={actionBusy}
               onClick={() => setPendingDelete(null)}
-              className="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-gray-50 disabled:opacity-50"
+              className="rounded-full bg-[#F5F5F6] px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200/70 disabled:opacity-50"
             >
               Cancel
             </button>
@@ -409,7 +415,7 @@ export function ManageDataPageContent() {
               type="button"
               disabled={actionBusy}
               onClick={() => void confirmDelete()}
-              className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-hover disabled:opacity-50"
+              className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               {actionBusy ? "Removing…" : "Remove file"}
             </button>
