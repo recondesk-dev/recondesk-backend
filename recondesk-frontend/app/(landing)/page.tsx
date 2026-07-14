@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { ClipboardList, GitMerge, Upload } from "lucide-react";
 
 import { FaqAccordion } from "@/components/public/FaqAccordion";
 import { FeatureStatsStrip } from "@/components/public/FeatureStatsStrip";
+import { HowItWorksSteps } from "@/components/public/HowItWorksSteps";
 import { LandingDashboardPreview } from "@/components/public/LandingDashboardPreview";
 import { SecurityTrustStrip } from "@/components/public/SecurityTrustStrip";
-import { formatInrFull } from "@/lib/format";
 
 function Section({
   id,
@@ -36,24 +35,6 @@ function InrAmount({
     <span className={className}>
       <span className="font-sans">{"\u20B9"}</span>
       <span className={amountClassName}>{amount}</span>
-    </span>
-  );
-}
-
-function InrFromFormat({
-  value,
-  className = "",
-  amountClassName = "font-mono",
-}: {
-  value: number;
-  className?: string;
-  amountClassName?: string;
-}) {
-  const formatted = formatInrFull(value);
-  return (
-    <span className={className}>
-      <span className="font-sans">{formatted.charAt(0)}</span>
-      <span className={amountClassName}>{formatted.slice(1)}</span>
     </span>
   );
 }
@@ -132,58 +113,7 @@ export default function LandingPage() {
 
       {/* How it works */}
       <Section id="how-it-works" className="scroll-mt-20 py-12 sm:scroll-mt-24 sm:py-20">
-        <h2 className="text-center text-2xl font-semibold text-[var(--ink)] sm:text-3xl">How ReconDesk Works</h2>
-        <ul className="mt-12 grid gap-8 md:grid-cols-3">
-          <li className="flex flex-col items-center text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-[var(--ink)] shadow-[var(--shadow-soft)]">
-              <Upload className="h-7 w-7" aria-hidden />
-            </div>
-            <h3 className="mt-4 text-base font-semibold text-[var(--ink)]">1. Upload</h3>
-            <p className="mt-2 text-sm leading-relaxed text-gray-600">
-              GSTR-2B JSON + Purchase Register (Tally, Busy, or any Excel — auto-detected)
-            </p>
-          </li>
-          <li className="flex flex-col items-center text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-[var(--ink)] shadow-[var(--shadow-soft)]">
-              <GitMerge className="h-7 w-7" aria-hidden />
-            </div>
-            <h3 className="mt-4 text-base font-semibold text-[var(--ink)]">2. Match</h3>
-            <p className="mt-2 text-sm leading-relaxed text-gray-600">
-              ReconDesk matches 5,000+ invoices using 5-level matching.
-            </p>
-          </li>
-          <li className="flex flex-col items-center text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-[var(--ink)] shadow-[var(--shadow-soft)]">
-              <ClipboardList className="h-7 w-7" aria-hidden />
-            </div>
-            <h3 className="mt-4 text-base font-semibold text-[var(--ink)]">3. Decide</h3>
-            <p className="mt-2 text-sm leading-relaxed text-gray-600">
-              Every mismatch explained: What is wrong, Why it happened, What to do next
-            </p>
-          </li>
-        </ul>
-
-        {/* Mock result card */}
-        <div className="landing-card mx-auto mt-10 max-w-lg rounded-[1.5rem] bg-white p-5 text-center sm:mt-14 sm:p-6">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Sample run summary</p>
-          <div className="mt-4 grid grid-cols-3 gap-3 sm:flex sm:flex-wrap sm:items-start sm:justify-center sm:gap-12">
-            <div>
-              <p className="text-xs text-gray-500">ITC at Risk</p>
-              <p className="mt-1 text-lg font-semibold text-amber-600">
-                <InrFromFormat value={124500} />
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Matched</p>
-              <p className="mt-1 font-mono text-lg font-semibold text-emerald-600">847</p>
-              <p className="text-[10px] text-gray-400">invoices</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Mismatches</p>
-              <p className="mt-1 font-mono text-lg font-semibold text-[var(--ink)]">23</p>
-            </div>
-          </div>
-        </div>
+        <HowItWorksSteps />
       </Section>
 
       {/* FAQ */}

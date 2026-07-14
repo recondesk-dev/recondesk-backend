@@ -128,6 +128,50 @@
   }
 }
 
+@keyframes how-works-title-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes how-works-icon-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes how-works-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(17, 17, 17, 0.22);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(17, 17, 17, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(17, 17, 17, 0);
+  }
+}
+
+@keyframes how-works-metric {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @layer components {
   .input-field {
     @apply w-full min-h-[44px] rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 shadow-sm transition-colors placeholder:text-gray-400;
@@ -282,6 +326,27 @@
     animation: landing-dash-bar 0.7s ease-out both;
   }
 
+  .how-works-inview .how-works-title {
+    animation: how-works-title-in 0.55s ease-out both;
+  }
+
+  .how-works-step-visible {
+    opacity: 1 !important;
+    transform: translateY(0) !important;
+  }
+
+  .how-works-icon-bounce {
+    animation: how-works-icon-bounce 1.1s ease-in-out infinite;
+  }
+
+  .how-works-ring {
+    animation: how-works-ring 1.8s ease-out infinite;
+  }
+
+  .how-works-metric {
+    animation: how-works-metric 0.45s ease-out both;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .landing-dash-enter,
     .landing-dash-stagger-1,
@@ -292,7 +357,11 @@
     .landing-dash-stagger-6,
     .landing-dash-pulse,
     .landing-dash-screen,
-    .landing-dash-bar {
+    .landing-dash-bar,
+    .how-works-inview .how-works-title,
+    .how-works-icon-bounce,
+    .how-works-ring,
+    .how-works-metric {
       animation: none !important;
       opacity: 1 !important;
       transform: none !important;
