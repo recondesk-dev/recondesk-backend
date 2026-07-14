@@ -126,3 +126,47 @@ def test_unrelated_invoice_same_amounts_not_fuzzy_duplicate():
     assert stats.get("duplicate_entry_count", 0) == 0
     assert stats["wrongful_risk_count"] == 1
     assert {w["id"] for w in res["wrongful_itc_risk"]} == {"p-other"}
+
+
+def test_unconsumed_pr_peer_clones_flag_one_duplicate():
+    """Two unlinked PR clones (no GSTR) → one Duplicate Entry, one ITC at Risk."""
+    a, b = "INV455325", "NIV455325"
+    assert 0.75 <= invoice_similarity(a, b) < 1.0
+
+    gstr = []  # no 2B counterpart
+    pr = [
+        _p("p-a", a, 33_316_906, 9_328_734),
+        _p("p-b", b, 33_316_906, 9_328_734),
+    ]
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+    stats = res["stats"]
+
+    assert stats["duplicate_entry_count"] == 1
+    assert stats["wrongful_risk_count"] == 1
+    assert {d["id"] for d in res["duplicate_entries"]} | {
+        w["id"] for w in res["wrongful_itc_risk"]
+    } == {"p-a", "p-b"}
+
+
+def test_linked_extra_with_taxable_drift_high_sim_is_duplicate():
+    """Linked canonical + fuzzed extra with ~2% taxable drift + sim≥0.85."""
+    g_inv, p_canon, p_extra = "INV-4553/25", "INV455325", "INV455326"
+    assert invoice_similarity(p_canon, p_extra) >= 0.85
+
+    g_taxable = 10_000_000
+    p_extra_taxable = 10_180_000  # 1.8%
+    g_tax = 1_800_000
+    pr_extra_tax = 1_832_400
+
+    gstr = [_g("g1", g_inv, g_taxable, g_tax)]
+    pr = [
+        _p("p-canon", p_canon, g_taxable, g_tax),
+        _p("p-extra", p_extra, p_extra_taxable, pr_extra_tax),
+    ]
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+    stats = res["stats"]
+
+    assert stats["wrongful_risk_count"] == 0
+    assert stats["duplicate_entry_count"] == 1
+    assert res["duplicate_entries"][0]["id"] == "p-extra"
+    assert res["duplicate_entries"][0]["matched_pr_id"] == "p-canon"
