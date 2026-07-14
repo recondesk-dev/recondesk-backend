@@ -255,7 +255,7 @@ export function ActivityLogPanel({ authToken }: { authToken: string }) {
 
   return (
     <div className={sectionContainerClass}>
-      <SectionHeader title="Activity Log" dotColor="#7C3AED" />
+      <SectionHeader title="Activity Log" dotColor="#111111" />
       <p className="mb-4 text-sm text-[var(--text-secondary)]">
         Track every action taken by admin and staff in your workspace.
       </p>
