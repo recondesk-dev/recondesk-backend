@@ -17,6 +17,7 @@ import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
 } from "@/lib/auth-profile";
+import { setOnboardingDoneCookie } from "@/lib/onboarding-cookie";
 import { createClient, fetchAccessTokenFromServer } from "@/lib/supabase/client";
 import { Logo } from "@/components/ui/Logo";
 
@@ -543,6 +544,8 @@ export default function OnboardingPage() {
                     });
                     if (!res.ok) {
                       console.error("onboarding-complete failed:", res.status);
+                    } else if (me?.id) {
+                      setOnboardingDoneCookie(me.id);
                     }
                   } catch (e) {
                     console.error("Failed to mark onboarding complete:", e);

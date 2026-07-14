@@ -1,6 +1,7 @@
 import { mutate } from "swr";
 
 import { authApi, type AuthMeProfile } from "@/lib/api";
+import { setOnboardingDoneCookie } from "@/lib/onboarding-cookie";
 
 /** SWR options for `/auth/me` — always revalidate; never serve a stale cached role. */
 export const AUTH_PROFILE_SWR_OPTIONS = {
@@ -65,6 +66,9 @@ export async function invalidateAuthProfileCache(): Promise<void> {
 /** Fetch profile + role fresh from user_profiles (via backend), never from JWT. */
 export async function fetchFreshAuthProfile(token: string): Promise<AuthMeProfile> {
   const profile = await authApi.me(token, { fresh: true });
+  if (profile.onboarding_completed === true && profile.id) {
+    setOnboardingDoneCookie(profile.id);
+  }
   return {
     ...profile,
     role: normalizeAuthRole(profile.role),

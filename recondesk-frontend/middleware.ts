@@ -1,12 +1,50 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
+import {
+  ONBOARDING_DONE_COOKIE,
+  isOnboardingDoneForUser,
+  onboardingDoneCookieOptions,
+} from "@/lib/onboarding-cookie";
+
 const API_ME = (base: string) =>
   `${base.replace(/\/+$/, "")}/api/v1/auth/me`;
+
+/** Keep well under Vercel middleware limits; cold Railway must not hang the edge. */
+const AUTH_ME_TIMEOUT_MS = 2500;
 
 /** Plain pass-through; use on errors so we never reuse a response that may be in a bad state. */
 function passThrough(request: NextRequest) {
   return NextResponse.next({ request: { headers: request.headers } });
+}
+
+function withOnboardingCookie(response: NextResponse, userId: string): NextResponse {
+  response.cookies.set(
+    ONBOARDING_DONE_COOKIE,
+    userId,
+    onboardingDoneCookieOptions()
+  );
+  return response;
+}
+
+function redirectHomeToDashboard(request: NextRequest, response: NextResponse) {
+  const pathname = request.nextUrl.pathname;
+  if (pathname !== "/" && pathname !== "") {
+    return response;
+  }
+  const url = request.nextUrl.clone();
+  url.pathname = "/dashboard";
+  url.search = "";
+  const redirect = NextResponse.redirect(url);
+  const done = response.cookies.get(ONBOARDING_DONE_COOKIE);
+  if (done?.value) {
+    redirect.cookies.set(
+      ONBOARDING_DONE_COOKIE,
+      done.value,
+      onboardingDoneCookieOptions()
+    );
+  }
+  return redirect;
 }
 
 export async function middleware(request: NextRequest) {
@@ -61,6 +99,35 @@ export async function middleware(request: NextRequest) {
       return response;
     }
 
+    // Fast path: already confirmed onboarded for this user — no profile / API round-trip.
+    if (isOnboardingDoneForUser(request.cookies.get(ONBOARDING_DONE_COOKIE)?.value, user.id)) {
+      return redirectHomeToDashboard(request, response);
+    }
+
+    // Prefer Supabase (usually warm) over Railway `/auth/me` (cold starts cause 504s).
+    try {
+      const { data: profile, error: profileError } = await supabase
+        .from("user_profiles")
+        .select("onboarding_completed")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (!profileError && profile) {
+        const done = (profile as { onboarding_completed?: boolean | null })
+          .onboarding_completed === true;
+        if (!done) {
+          const url = request.nextUrl.clone();
+          url.pathname = "/onboarding";
+          url.search = "";
+          return NextResponse.redirect(url);
+        }
+        response = withOnboardingCookie(response, user.id);
+        return redirectHomeToDashboard(request, response);
+      }
+    } catch {
+      // Fall through to timed Railway check.
+    }
+
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
     if (!token) {
@@ -74,6 +141,7 @@ export async function middleware(request: NextRequest) {
       const meRes = await fetch(API_ME(apiBase), {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
+        signal: AbortSignal.timeout(AUTH_ME_TIMEOUT_MS),
       });
       if (!meRes.ok) {
         return response;
@@ -89,17 +157,12 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(url);
       }
 
-      if (pathname === "/" || pathname === "") {
-        const url = request.nextUrl.clone();
-        url.pathname = "/dashboard";
-        url.search = "";
-        return NextResponse.redirect(url);
-      }
+      response = withOnboardingCookie(response, user.id);
+      return redirectHomeToDashboard(request, response);
     } catch {
+      // Timeout / network: fail open so Vercel never returns MIDDLEWARE_INVOCATION_TIMEOUT.
       return response;
     }
-
-    return response;
   } catch {
     return passThrough(request);
   }

@@ -20,6 +20,7 @@ import {
   resolveDisplayName,
 } from "@/lib/auth-profile";
 import { DW, formatPeriodLabel } from "@/lib/dashboard-portfolio";
+import { clearOnboardingDoneCookie } from "@/lib/onboarding-cookie";
 import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 
 function initialsFromDisplayName(name: string): string {
@@ -338,6 +339,7 @@ export default function DashboardShellLayout({
   }
 
   async function handleSignOut(): Promise<void> {
+    clearOnboardingDoneCookie();
     await supabase.auth.signOut();
     router.push("/login");
   }
