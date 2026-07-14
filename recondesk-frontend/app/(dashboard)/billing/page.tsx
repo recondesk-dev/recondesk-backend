@@ -22,14 +22,6 @@ function formatInrPaise(paise: number | null | undefined): string {
   }).format(p / 100);
 }
 
-function formatInrWhole(amount: number): string {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
-
 function fmtDateShort(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -360,10 +352,8 @@ export default function BillingPage() {
             <div key="solo" className="pricing-tier-enter grid gap-5 lg:grid-cols-4">
               <PlanCard
                 title="Starter"
-                price={`${formatInrWhole(499)} + GST`}
                 features={[
                   "1 run/month",
-                  "₹499/run",
                   "Runs expire monthly — no carry over",
                 ]}
                 cta="Buy 1 run"
@@ -373,43 +363,34 @@ export default function BillingPage() {
               />
               <PlanCard
                 title="Growth"
-                price={`${formatInrWhole(1699)} + GST`}
                 features={[
                   "5 runs/month",
-                  "₹340/run",
                   "Runs expire monthly — no carry over",
                 ]}
                 cta="Buy 5 runs"
                 highlight="growth"
-                badge={{ text: "Most Popular", className: "bg-[var(--ink)] text-white" }}
                 onBuy={() => handleBuyPlan("growth")}
                 isProcessing={isProcessing}
               />
               <PlanCard
                 title="Pro"
-                price={`${formatInrWhole(3699)} + GST`}
                 features={[
                   "12 runs/month",
-                  "₹308/run",
                   "Runs expire monthly — no carry over",
                 ]}
                 cta="Buy 12 runs"
                 highlight="pro"
-                badge={{ text: "Best Value", className: "bg-[#F0F0F0] text-[var(--ink)]" }}
                 onBuy={() => handleBuyPlan("pro")}
                 isProcessing={isProcessing}
               />
               <PlanCard
                 title="Scale"
-                price={`${formatInrWhole(5699)} + GST`}
                 features={[
                   "30 runs/month",
-                  "₹190/run",
                   "Runs expire monthly — no carry over",
                 ]}
                 cta="Buy 30 runs"
                 highlight="scale"
-                badge={{ text: "Founder's Offer", className: "bg-[var(--ink)] text-white" }}
                 onBuy={() => handleBuyPlan("scale")}
                 isProcessing={isProcessing}
               />
@@ -419,38 +400,29 @@ export default function BillingPage() {
             <div key="firm" className="pricing-tier-enter grid gap-5 lg:grid-cols-3">
               <PlanCard
                 title="Growth Firm"
-                price={`${formatInrWhole(8699)} + GST`}
                 features={[
                   "50 runs/month",
-                  "₹174/run",
                   "Unused runs carry over for up to 2 months",
                 ]}
                 cta="Coming soon"
                 ctaExact
                 highlight="growth"
-                badge={{ text: "Most Popular", className: "bg-[var(--ink)] text-white" }}
               />
               <PlanCard
                 title="Scale Firm"
-                price={`${formatInrWhole(14699)} + GST`}
                 features={[
                   "100 runs/month",
-                  "₹147/run",
                   "Unused runs carry over for up to 2 months",
                 ]}
                 cta="Coming soon"
                 ctaExact
                 highlight="scale"
-                badge={{ text: "Best Value", className: "bg-[#F0F0F0] text-[var(--ink)]" }}
               />
               <EnterpriseFirmCard />
             </div>
           )}
         </div>
 
-        <p className="text-xs text-gray-500">
-          All prices exclude GST. 18% GST applicable.
-        </p>
       </section>
 
       <section className="dashboard-card space-y-4 p-6">
@@ -580,7 +552,7 @@ function EnterpriseSoloCard() {
   return (
     <div className="flex flex-col rounded-[1.5rem] bg-[#F7F7F8] p-6 transition duration-200 hover:-translate-y-0.5">
       <h3 className="text-lg font-semibold text-[var(--ink)]">Individual</h3>
-      <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--ink)]">Custom pricing</p>
+      <p className="mt-2 min-h-[2rem] text-2xl font-bold tracking-tight text-[var(--ink)]" />
       <ul className="mt-4 flex-1 space-y-2 text-sm text-gray-500">
         <li>• Dedicated support</li>
         <li>• Custom onboarding</li>
@@ -601,7 +573,7 @@ function EnterpriseFirmCard() {
   return (
     <div className="flex flex-col rounded-[1.5rem] bg-[#F7F7F8] p-6 transition duration-200 hover:-translate-y-0.5">
       <h3 className="text-lg font-semibold text-[var(--ink)]">Enterprise</h3>
-      <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--ink)]">Custom pricing</p>
+      <p className="mt-2 min-h-[2rem] text-2xl font-bold tracking-tight text-[var(--ink)]" />
       <ul className="mt-4 flex-1 space-y-2 text-sm text-gray-500">
         <li>• 100+ runs/month</li>
         <li>• Dedicated support</li>
@@ -620,17 +592,16 @@ function EnterpriseFirmCard() {
 
 function PlanCard(props: {
   title: string;
-  price: string;
+  price?: string;
   features: string[];
   cta: string;
   highlight: false | "growth" | "pro" | "scale";
-  badge?: { text: string; className: string };
   /** When true, button label is exactly `cta` (e.g. "Coming soon"). Otherwise appends " — Coming soon". */
   ctaExact?: boolean;
   onBuy?: () => void;
   isProcessing?: boolean;
 }) {
-  const { title, price, features, cta, highlight, badge, ctaExact, onBuy, isProcessing } = props;
+  const { title, price, features, cta, highlight, ctaExact, onBuy, isProcessing } = props;
   const emphasized = highlight === "growth" || highlight === "scale";
   const buttonLabel = onBuy ? cta : (ctaExact ? cta : `${cta} — Coming soon`);
 
@@ -642,17 +613,8 @@ function PlanCard(props: {
           : "bg-[#F7F7F8] text-[var(--ink)]"
       }`}
     >
-      {badge && (
-        <span
-          className={`absolute -top-3 right-4 rounded-full px-3 py-0.5 text-xs font-semibold ${
-            emphasized ? "bg-white text-[var(--ink)]" : badge.className
-          }`}
-        >
-          {badge.text}
-        </span>
-      )}
       <h3 className="text-lg font-semibold">{title}</h3>
-      <p className="mt-2 text-2xl font-bold tracking-tight">{price}</p>
+      <p className="mt-2 min-h-[2rem] text-2xl font-bold tracking-tight">{price ?? ""}</p>
       <ul className={`mt-4 flex-1 space-y-2 text-sm ${emphasized ? "text-white/70" : "text-gray-500"}`}>
         {features.map((f) => (
           <li key={f}>• {f}</li>

@@ -22,23 +22,6 @@ function Section({
   );
 }
 
-function InrAmount({
-  amount,
-  className = "",
-  amountClassName = "font-mono",
-}: {
-  amount: string;
-  className?: string;
-  amountClassName?: string;
-}) {
-  return (
-    <span className={className}>
-      <span className="font-sans">{"\u20B9"}</span>
-      <span className={amountClassName}>{amount}</span>
-    </span>
-  );
-}
-
 export default function LandingPage() {
   return (
     <>
@@ -66,7 +49,7 @@ export default function LandingPage() {
             </a>
           </div>
           <p className="mt-6 px-1 text-sm leading-relaxed text-gray-500">
-            Plans from <InrAmount amount="499/month" amountClassName="" /> · No credit card to start
+            No credit card to start
           </p>
           <div className="mx-auto mt-8 max-w-3xl rounded-[1.25rem] bg-white px-4 py-4 text-sm text-gray-600 shadow-[var(--shadow-soft)] sm:px-6">
             <p className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-6 sm:gap-y-2">
@@ -133,10 +116,7 @@ export default function LandingPage() {
         <div className="mx-auto mt-10 grid max-w-3xl gap-4 md:grid-cols-2">
           <div className="landing-card flex flex-col rounded-[1.5rem] bg-white p-5 sm:p-6">
             <h3 className="text-lg font-semibold text-[var(--ink)]">Solo CA</h3>
-            <p className="mt-2 text-3xl font-semibold text-[var(--ink)]">
-              <InrAmount amount="499" amountClassName="font-mono" />
-              <span className="text-base font-normal text-gray-500">/month</span>
-            </p>
+            <p className="mt-2 min-h-[2.25rem] text-3xl font-semibold text-[var(--ink)]" />
             <p className="mt-4 text-sm text-gray-500">1 client GSTIN · 2 free runs to start</p>
             <Link
               href="/auth/signup"
@@ -145,15 +125,9 @@ export default function LandingPage() {
               Start Free
             </Link>
           </div>
-          <div className="landing-card relative flex flex-col rounded-[1.5rem] bg-white p-5 pt-7 shadow-[var(--shadow-lift)] sm:p-6 sm:pt-6">
-            <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[var(--ink)] px-3 py-0.5 text-xs font-semibold text-white">
-              Most Popular
-            </span>
+          <div className="landing-card relative flex flex-col rounded-[1.5rem] bg-white p-5 shadow-[var(--shadow-lift)] sm:p-6">
             <h3 className="text-lg font-semibold text-[var(--ink)]">CA Firm</h3>
-            <p className="mt-2 text-3xl font-semibold text-[var(--ink)]">
-              <InrAmount amount="8,699" amountClassName="font-mono" />
-              <span className="text-base font-normal text-gray-500">/month</span>
-            </p>
+            <p className="mt-2 min-h-[2.25rem] text-3xl font-semibold text-[var(--ink)]" />
             <p className="mt-4 text-sm text-gray-500">50 runs/month · Team access included</p>
             <Link
               href="/pricing"
