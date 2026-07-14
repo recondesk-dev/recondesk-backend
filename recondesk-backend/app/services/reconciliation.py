@@ -608,6 +608,117 @@ def _flag_pr_to_pr_clone_duplicates(
     return flagged
 
 
+def flag_fuzzy_duplicates_of_linked_prs(
+    state: ReconState,
+    pr_records: list[dict],
+    *,
+    invoice_sim_min: float = 0.75,
+    amount_tolerance_paise: int = TOTAL_TOLERANCE_PAISE,
+    date_tolerance_days: int = 30,
+) -> int:
+    """Post-match sweep: flag unconsumed PRs that clone an already-linked PR.
+
+    Covers two gaps the exact-key prepass cannot see:
+
+    1. **Same invoice, no GSTR on that key** — the canonical PR matched a GSTR
+       via format-variant / typo / strong-twin, so prepass never grouped the
+       extra with a GSTR and left it to become ITC at Risk.
+    2. **Mangled invoice extras** — e.g. ``NIV455325`` vs linked ``INV455325``
+       with identical GSTIN + taxable + total tax + date.
+
+    Requires same GSTIN, taxable/total-tax within tolerance, invoice similarity
+    ≥ ``invoice_sim_min`` (or exact norm), and date within ``date_tolerance_days``.
+    Routes to Duplicate Entry (never ITC at Risk). Returns extras flagged.
+    """
+    from app.services.matcher import _parse_invoice_date
+
+    linked_meta: dict[str, str] = {}  # pr_id -> gstr_id (may be "")
+    for row in list(state.clean_matched) + list(state.review_required):
+        pid = str(row.get("pr_id") or row.get("matched_pr_id") or "").strip()
+        if not pid or pid == "None":
+            continue
+        gid = str(row.get("gstr_id") or "").strip()
+        if gid == "None":
+            gid = ""
+        # Prefer a row that carries a real gstr_id when the same PR appears twice.
+        if pid not in linked_meta or (gid and not linked_meta[pid]):
+            linked_meta[pid] = gid
+
+    if not linked_meta:
+        return 0
+
+    pr_by_id = {str(p["id"]): p for p in pr_records}
+    by_gstin_taxable: dict[tuple[str, int], list[dict]] = defaultdict(list)
+    for pid in linked_meta:
+        p = pr_by_id.get(pid)
+        if not p:
+            continue
+        gst = str(p.get("supplier_gstin") or "").strip().upper()
+        if not gst:
+            continue
+        by_gstin_taxable[(gst, int(p.get("taxable_amount_paise") or 0))].append(p)
+
+    flagged = 0
+    # Deterministic order so ties are stable across runs.
+    for p in sorted(pr_records, key=lambda r: str(r.get("id") or "")):
+        pid = str(p["id"])
+        if pid in state.consumed_pr_ids:
+            continue
+        gst = str(p.get("supplier_gstin") or "").strip().upper()
+        if not gst:
+            continue
+        tax = int(p.get("taxable_amount_paise") or 0)
+        tot = abs(int(p.get("total_tax_paise") or 0))
+        inv = str(p.get("invoice_number_normalized") or "")
+        if not inv:
+            continue
+        p_date = _parse_invoice_date(p)
+
+        best: tuple[float, dict] | None = None
+        for tkey in (tax, tax - 100, tax + 100):
+            if tkey < 0:
+                continue
+            for cp in by_gstin_taxable.get((gst, tkey), []):
+                cid = str(cp["id"])
+                if cid == pid:
+                    continue
+                if abs(abs(int(cp.get("taxable_amount_paise") or 0)) - abs(tax)) > amount_tolerance_paise:
+                    continue
+                if abs(abs(int(cp.get("total_tax_paise") or 0)) - tot) > amount_tolerance_paise:
+                    continue
+                c_inv = str(cp.get("invoice_number_normalized") or "")
+                if not c_inv:
+                    continue
+                sim = 1.0 if c_inv == inv else invoice_similarity(inv, c_inv)
+                if sim < invoice_sim_min:
+                    continue
+                c_date = _parse_invoice_date(cp)
+                if p_date and c_date and abs((p_date - c_date).days) > date_tolerance_days:
+                    continue
+                if best is None or sim > best[0] or (sim == best[0] and cid < str(best[1]["id"])):
+                    best = (sim, cp)
+
+        if best is None:
+            continue
+        _sim, cp = best
+        _push_duplicate_entry(
+            state,
+            extra_pr_id=pid,
+            matched_pr_id=str(cp["id"]),
+            gstr_id=linked_meta.get(str(cp["id"]), ""),
+            pr_rec=p,
+        )
+        flagged += 1
+
+    if flagged:
+        logger.info(
+            "[FUZZY_DUPLICATE] Flagged %d unconsumed PR clone(s) of linked invoices "
+            "as Duplicate Entry (not ITC at Risk)",
+            flagged,
+        )
+    return flagged
+
+
 def _push_duplicate_entry(
     state: ReconState,
     *,
@@ -1952,6 +2063,13 @@ def execute_phase2_and_3(
             entry["gstin_format_invalid"] = True
             entry["mismatch_reason"] = "GSTIN format invalid — could not verify against PR"
         state.missed_itc.append(entry)
+
+    # 5c. FUZZY / late duplicate sweep — after all GSTR↔PR linking.
+    # Extras that share amounts with an already-linked PR but were not in the
+    # same exact-key prepass group (canonical matched via typo/format-variant,
+    # or invoice number itself was mangled) must become Duplicate Entry, not
+    # ITC at Risk.
+    flag_fuzzy_duplicates_of_linked_prs(state, pr_records)
 
 
 def _gstin_pan(gstin: str | None) -> str:
