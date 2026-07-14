@@ -1854,6 +1854,7 @@ export default function ReconcileResultsPage() {
     summary?.user_role === "admin" && !isRunFinalized;
   const staffFinalizeMessageVisible =
     summary?.user_role === "staff" && !isRunFinalized;
+  const canDeleteRun = summary?.user_role === "admin";
 
   const closeFinalizeModal = useCallback(() => {
     if (finalizing) return;
@@ -1955,7 +1956,7 @@ export default function ReconcileResultsPage() {
   );
 
   const submitDeleteRun = useCallback(async () => {
-    if (!runId || !authToken || deleting) return;
+    if (!runId || !authToken || deleting || !canDeleteRun) return;
     setDeleting(true);
     setDeleteError(null);
     try {
@@ -1980,7 +1981,7 @@ export default function ReconcileResultsPage() {
       }
       setDeleteError(msg);
     }
-  }, [authToken, deleting, runId, router]);
+  }, [authToken, canDeleteRun, deleting, runId, router]);
 
   const submitFinalize = useCallback(async () => {
     if (!runId || !authToken) return;
@@ -2166,7 +2167,13 @@ export default function ReconcileResultsPage() {
                 <button
                   type="button"
                   className={deleteRunBtn}
+                  disabled={!canDeleteRun}
+                  title={
+                    canDeleteRun ? undefined : "Only admins can delete runs"
+                  }
+                  aria-disabled={!canDeleteRun}
                   onClick={() => {
+                    if (!canDeleteRun) return;
                     setDeleteError(null);
                     setDeleteModalOpen(true);
                   }}
@@ -4703,7 +4710,7 @@ export default function ReconcileResultsPage() {
         />
       )}
 
-      {deleteModalOpen && (
+      {deleteModalOpen && canDeleteRun && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
           role="presentation"

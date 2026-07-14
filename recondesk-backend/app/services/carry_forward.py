@@ -18,6 +18,9 @@ Run the following in the Supabase SQL editor (not applied via Alembic):
         invoice_number text not null,
         supplier_gstin text not null,
         taxable_amount bigint not null,
+        -- NOTE: these FKs are NOT ON DELETE CASCADE. Deleting a run must
+        -- re-point or delete invoice_tracking rows first (see
+        -- delete_reconciliation_run_cascade / _clear_invoice_tracking_for_run).
         first_seen_run_id uuid not null references reconciliation_run(id),
         last_seen_run_id uuid not null references reconciliation_run(id),
         consecutive_unmatched_runs int not null default 1,

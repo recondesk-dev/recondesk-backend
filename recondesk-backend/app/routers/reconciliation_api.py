@@ -3682,68 +3682,254 @@ async def retry_failed_reconcile_run(
     return {"run_id": rid, "status": "MATCHING"}
 
 
+def _safe_delete_by_eq(sb, table: str, column: str, value: str) -> None:
+    """Delete rows matching column=value; ignore missing tables."""
+    try:
+        sb.table(table).delete().eq(column, value).execute()
+    except Exception as exc:
+        msg = str(exc).lower()
+        if any(
+            token in msg
+            for token in (
+                "does not exist",
+                "42p01",
+                "pgrst205",
+                "could not find the table",
+                "relation",
+            )
+        ):
+            _log.warning(
+                "skip delete from %s (%s=%s): table unavailable: %s",
+                table,
+                column,
+                value,
+                exc,
+            )
+            return
+        raise
+
+
+def _clear_invoice_tracking_for_run(sb, rid: str) -> None:
+    """Remove or re-point invoice_tracking FKs that block reconciliation_run deletes.
+
+    ``invoice_tracking.first_seen_run_id`` / ``last_seen_run_id`` reference
+    ``reconciliation_run(id)`` without ON DELETE CASCADE, so a bare parent
+    delete raises PostgreSQL 23503 and surfaces as a generic 500.
+    """
+    rows: list[dict] = []
+    try:
+        for column in ("first_seen_run_id", "last_seen_run_id"):
+            res = (
+                sb.table("invoice_tracking")
+                .select("id, first_seen_run_id, last_seen_run_id")
+                .eq(column, rid)
+                .execute()
+            )
+            rows.extend(res.data or [])
+    except Exception as exc:
+        msg = str(exc).lower()
+        if any(
+            token in msg
+            for token in (
+                "does not exist",
+                "42p01",
+                "pgrst205",
+                "could not find the table",
+                "relation",
+            )
+        ):
+            _log.warning(
+                "skip invoice_tracking cleanup for run %s: table unavailable: %s",
+                rid,
+                exc,
+            )
+            return
+        raise
+
+    seen_ids: set[str] = set()
+    for trow in rows:
+        tid = str(trow.get("id") or "")
+        if not tid or tid in seen_ids:
+            continue
+        seen_ids.add(tid)
+        first = str(trow.get("first_seen_run_id") or "")
+        last = str(trow.get("last_seen_run_id") or "")
+        if first == rid:
+            sb.table("invoice_tracking").delete().eq("id", tid).execute()
+            continue
+        if last == rid and first and first != rid:
+            sb.table("invoice_tracking").update(
+                {"last_seen_run_id": first}
+            ).eq("id", tid).execute()
+
+    # Final sweep in case any last_seen refs remain.
+    _safe_delete_by_eq(sb, "invoice_tracking", "last_seen_run_id", rid)
+    _safe_delete_by_eq(sb, "invoice_tracking", "first_seen_run_id", rid)
+
+
 @reconcile_runs_router.delete("/runs/{run_id}")
 async def delete_reconcile_run(
     request: Request,
     run_id: str,
     current_user: dict = Depends(get_current_active_user),
 ):
+    uid = str(current_user.get("id", ""))
+    role = await get_user_role(uid)
+    if (role or "").strip().lower() != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can delete reconciliation runs",
+        )
+
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
     assert_run_accessible(sb, rid, current_user)
 
-    full = (
-        sb.table("reconciliation_run")
-        .select("id, r2_key, client_gstin_id")
-        .eq("id", rid)
-        .limit(1)
-        .execute()
-    )
-    if not full.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="run not found",
+    try:
+        full = (
+            sb.table("reconciliation_run")
+            .select("id, r2_key, client_gstin_id")
+            .eq("id", rid)
+            .limit(1)
+            .execute()
         )
-    row = full.data[0]
-    r2_keys: list[str] = []
-    stored_key = row.get("r2_key")
-    if stored_key:
-        r2_keys.append(str(stored_key))
-    client_gstin_id = str(row.get("client_gstin_id") or "").strip()
-    if client_gstin_id:
-        for ext in (".xlsx", ".xls", ".csv"):
-            r2_keys.append(
-                f"uploads/{client_gstin_id}/{rid}/purchase_register{ext}"
+        if not full.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="run not found",
+            )
+        row = full.data[0]
+
+        r2_keys: list[str] = []
+        stored_key = row.get("r2_key")
+        if stored_key:
+            r2_keys.append(str(stored_key))
+        client_gstin_id = str(row.get("client_gstin_id") or "").strip()
+        if client_gstin_id:
+            for ext in (".xlsx", ".xls", ".csv"):
+                r2_keys.append(
+                    f"uploads/{client_gstin_id}/{rid}/purchase_register{ext}"
+                )
+
+        # Import-wizard uploads share the same run UUID but live in a separate table.
+        try:
+            import_res = (
+                sb.table("reconciliation_import_runs")
+                .select("id, gstr2b_r2_key, pr_r2_key")
+                .eq("id", rid)
+                .limit(1)
+                .execute()
+            )
+            import_row = (import_res.data or [None])[0]
+            if import_row:
+                for key_name in ("gstr2b_r2_key", "pr_r2_key"):
+                    key_val = import_row.get(key_name)
+                    if key_val:
+                        r2_keys.append(str(key_val))
+        except Exception as exc:
+            _log.warning(
+                "could not load reconciliation_import_runs for run %s: %s",
+                rid,
+                exc,
+            )
+            import_row = None
+
+        # Prefer a single DB transaction via RPC when the migration is applied.
+        used_rpc = False
+        try:
+            sb.rpc("delete_reconciliation_run_cascade", {"p_run_id": rid}).execute()
+            used_rpc = True
+            _log.info("delete_reconcile_run used RPC cascade for run_id=%s", rid)
+        except Exception as rpc_exc:
+            rpc_msg = str(rpc_exc).lower()
+            rpc_missing = any(
+                token in rpc_msg
+                for token in (
+                    "could not find the function",
+                    "pgrst202",
+                    "does not exist",
+                    "42883",
+                )
+            )
+            if not rpc_missing:
+                raise
+            _log.warning(
+                "delete_reconciliation_run_cascade RPC unavailable for run_id=%s "
+                "(%s); falling back to ordered deletes",
+                rid,
+                rpc_exc,
+            )
+            # 1) Non-cascading FK blockers (invoice_tracking)
+            _clear_invoice_tracking_for_run(sb, rid)
+            # 2) Tables without FK to reconciliation_run
+            _safe_delete_by_eq(sb, "rule37_actions", "run_id", rid)
+            if import_row:
+                _safe_delete_by_eq(sb, "reconciliation_import_runs", "id", rid)
+            # 3) Parent — remaining children cascade via ON DELETE CASCADE
+            sb.table("reconciliation_run").delete().eq("id", rid).execute()
+
+        # R2 cleanup is best-effort and must not roll back a successful DB delete.
+        seen: set[str] = set()
+        for key in r2_keys:
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            try:
+                await delete_file(key)
+            except Exception as exc:
+                _log.warning("R2 delete failed for key %s: %s", key, exc)
+
+        still = (
+            sb.table("reconciliation_run")
+            .select("id")
+            .eq("id", rid)
+            .limit(1)
+            .execute()
+        )
+        if still.data:
+            raise RuntimeError(
+                "reconciliation_run row still present after delete "
+                f"(rpc={used_rpc})"
             )
 
-    seen: set[str] = set()
-    for key in r2_keys:
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        try:
-            await delete_file(key)
-        except Exception as exc:
-            _log.warning("R2 delete failed for key %s: %s", key, exc)
-
-    del_res = sb.table("reconciliation_run").delete().eq("id", rid).execute()
-    if not del_res.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="run not found",
+        await log_action(
+            uid,
+            "delete_run",
+            "reconciliation_run",
+            rid,
+            {},
+            ip_address=(request.client.host if request.client else None),
         )
-
-    uid = str(current_user.get("id", ""))
-    await log_action(
-        uid,
-        "delete_run",
-        "reconciliation_run",
-        rid,
-        {},
-        ip_address=(request.client.host if request.client else None),
-    )
-    invalidate_user_dashboard(uid)
-    return {"message": "Run deleted successfully"}
+        invalidate_user_dashboard(uid)
+        invalidate_run_bucket_cache(rid)
+        return {"message": "Run deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _log.exception(
+            "delete_reconcile_run failed run_id=%s user=%s: %s",
+            rid,
+            uid,
+            exc,
+        )
+        print(
+            f"[delete_reconcile_run] FAILED run_id={rid} user={uid}: "
+            f"{type(exc).__name__}: {exc}",
+            flush=True,
+        )
+        detail = supabase_error_message(
+            exc, context="Failed to delete reconciliation run"
+        )
+        low = str(exc).lower()
+        if "23503" in low or "foreign key" in low:
+            detail = (
+                "Cannot delete run: related records still reference it "
+                f"(likely invoice_tracking). {detail}"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=detail,
+        )
 
 
 @reconcile_runs_router.get("/runs/{run_id}/summary")
