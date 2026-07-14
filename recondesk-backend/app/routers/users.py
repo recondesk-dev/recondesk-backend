@@ -9,7 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth import get_current_active_user
 from app.database import get_supabase, get_user_profile
-from app.models.user import ProfileUpdateRequest, UserProfileResponse
+from app.models.user import (
+    AutoApproveThresholdUpdate,
+    ProfileUpdateRequest,
+    UserProfileResponse,
+)
 
 router = APIRouter()
 _log = logging.getLogger(__name__)
@@ -141,4 +145,60 @@ async def update_profile(
             detail="Profile saved but could not be loaded after upsert",
         )
     profile["role"] = str(profile.get("role") or (existing or {}).get("role") or "admin")
+    if profile.get("auto_approve_confidence_threshold") is None:
+        profile["auto_approve_confidence_threshold"] = 95
+    return UserProfileResponse(**profile)
+
+
+@router.patch("/auto-approve-threshold", response_model=UserProfileResponse)
+async def update_auto_approve_threshold(
+    payload: AutoApproveThresholdUpdate,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Set firm confidence threshold for Review Required → Auto-Approved triage."""
+    uid = str(current_user.get("id", "")).strip()
+    if not uid:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    role = str(current_user.get("role") or "admin").strip().lower()
+    if role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can update the auto-approve threshold",
+        )
+
+    threshold = int(payload.auto_approve_confidence_threshold)
+    sb = get_supabase()
+    existing = get_user_profile(uid)
+    try:
+        if existing:
+            sb.table("user_profiles").update(
+                {"auto_approve_confidence_threshold": threshold}
+            ).eq("id", uid).execute()
+        else:
+            insert_row = {
+                "id": uid,
+                "auto_approve_confidence_threshold": threshold,
+                "is_active": True,
+            }
+            email = str(current_user.get("email") or "").strip().lower()
+            if email:
+                insert_row["email"] = email
+            sb.table("user_profiles").insert(insert_row).execute()
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("Failed to update auto-approve threshold for user_id=%s", uid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+    profile = get_user_profile(uid)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Threshold saved but profile could not be reloaded",
+        )
+    profile["role"] = str(profile.get("role") or role or "admin")
+    if profile.get("auto_approve_confidence_threshold") is None:
+        profile["auto_approve_confidence_threshold"] = threshold
     return UserProfileResponse(**profile)

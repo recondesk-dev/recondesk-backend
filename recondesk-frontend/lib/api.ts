@@ -68,6 +68,7 @@ export interface AuthMeProfile {
   icai_membership_number?: string | null;
   firm_gstin?: string | null;
   onboarding_completed?: boolean | null;
+  auto_approve_confidence_threshold?: number | null;
 }
 
 export interface ProfileUpdatePayload {
@@ -1134,6 +1135,15 @@ export const notificationsApi = {
     apiFetch<NotificationPreferences>("/api/v1/notifications/preferences", {
       method: "PUT",
       body: JSON.stringify(preferences),
+      token,
+    }),
+};
+
+export const reconcileSettingsApi = {
+  updateAutoApproveThreshold: (token: string, threshold: number) =>
+    apiFetch<AuthMeProfile>("/api/users/auto-approve-threshold", {
+      method: "PATCH",
+      body: JSON.stringify({ auto_approve_confidence_threshold: threshold }),
       token,
     }),
 };

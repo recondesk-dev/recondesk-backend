@@ -2569,6 +2569,9 @@ def _build_matched_pair_records(
                     or (grd_raw.get("ims_status") if isinstance(grd_raw, dict) else None)
                     or "no_action_taken"
                 ),
+                "auto_approved": bool(
+                    isinstance(en_row, dict) and en_row.get("auto_approved")
+                ),
             }
             out_pairs.append((api_row, orow))
         except Exception as e:
@@ -5030,9 +5033,36 @@ async def reconcile_export_risk(
     return StreamingResponse(io.BytesIO(blob), media_type="text/csv", headers=headers)
 
 
+def _sort_matched_pair_records(
+    pairs: list[tuple[dict[str, Any], Any]],
+    sort: str,
+) -> list[tuple[dict[str, Any], Any]]:
+    """Sort matched (api_row, outcome) pairs using the shared bucket sorter."""
+    if not pairs:
+        return []
+    api_rows = [p[0] for p in pairs]
+    orow_by_id = {id(p[0]): p[1] for p in pairs}
+    _sort_reconcile_bucket_rows(api_rows, sort)
+    return [(row, orow_by_id[id(row)]) for row in api_rows]
+
+
 @reconcile_runs_router.get("/runs/{run_id}/export/excel")
 async def reconcile_export_excel_workbook(
     run_id: str,
+    bucket: Optional[str] = None,
+    sort: str = Query("amount_desc"),
+    search: Optional[str] = None,
+    match_level: Optional[str] = None,
+    has_notes: Optional[str] = None,
+    section_17_5: Optional[str] = None,
+    amount_min: Optional[str] = None,
+    amount_max: Optional[str] = None,
+    ims_status: Optional[str] = None,
+    supplier_gstin: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    risk_level: Optional[str] = None,
+    review_required: Optional[str] = None,
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
@@ -5080,6 +5110,87 @@ async def reconcile_export_excel_workbook(
 
     oc_rows, _cc, _st = ro.build_outcome_rows(sb, rid, p)
     review_rows = [x.as_dict() for x in oc_rows if x.category == "review_required"]
+
+    amin = _parse_money_query(amount_min)
+    amax = _parse_money_query(amount_max)
+    dfrom = _parse_iso_date_query(date_from)
+    dto = _parse_iso_date_query(date_to)
+    hn = bool(
+        has_notes and str(has_notes).strip().lower() in ("true", "1", "yes")
+    )
+    s174 = bool(
+        section_17_5
+        and str(section_17_5).strip().lower() in ("true", "1", "yes")
+    )
+    bucket_norm = (bucket or "").strip().lower() or None
+    # `review_required` is accepted for clients that mirror the matched-bucket API;
+    # when bucket=review_required we always filter as review-required.
+
+    if bucket_norm == "matched":
+        matched_pairs = _filter_matched(
+            matched_pairs,
+            search_q=search,
+            match_level_filter=match_level,
+            amount_min_val=amin,
+            amount_max_val=amax,
+            require_notes=hn,
+            review_required=False,
+            section174=s174,
+            ims_status_filter=ims_status,
+        )
+        matched_pairs = _sort_matched_pair_records(matched_pairs, sort)
+        missed, risk, r37, s17, review_rows = [], [], [], [], []
+    elif bucket_norm == "review_required":
+        review_pairs = _build_matched_pair_records(
+            sb,
+            rid=rid,
+            payload=p,
+            note_counts=notes,
+            fetch_review_required=True,
+            precomputed_outcome_rows=summ_outcome_rows,
+        )
+        review_pairs = _filter_matched(
+            review_pairs,
+            search_q=search,
+            match_level_filter=match_level,
+            amount_min_val=amin,
+            amount_max_val=amax,
+            require_notes=hn,
+            review_required=True,
+            section174=s174,
+            ims_status_filter=ims_status,
+        )
+        review_pairs = _sort_matched_pair_records(review_pairs, sort)
+        review_rows = [pair[0] for pair in review_pairs]
+        matched_pairs, missed, risk, r37, s17 = [], [], [], [], []
+    elif bucket_norm == "itc":
+        missed = _filter_bucket_amount_gstin(
+            missed,
+            amount_min_val=amin,
+            amount_max_val=amax,
+            supplier_gstin_q=supplier_gstin,
+        )
+        missed = _filter_itc_date_range(missed, date_from=dfrom, date_to=dto)
+        if ims_status and str(ims_status).strip():
+            want = str(ims_status).strip().lower()
+            missed = [
+                r
+                for r in missed
+                if str(r.get("ims_status") or "no_action_taken").strip().lower()
+                == want
+            ]
+        _sort_reconcile_bucket_rows(missed, sort)
+        matched_pairs, risk, r37, s17, review_rows = [], [], [], [], []
+    elif bucket_norm == "risk":
+        risk = _filter_bucket_amount_gstin(
+            risk,
+            amount_min_val=amin,
+            amount_max_val=amax,
+            supplier_gstin_q=supplier_gstin,
+        )
+        risk = _filter_risk_by_level(risk, risk_level)
+        _sort_reconcile_bucket_rows(risk, sort)
+        matched_pairs, missed, r37, s17, review_rows = [], [], [], [], []
 
     blob, fn = build_excel_workbook_bytes(
         run_id=rid,

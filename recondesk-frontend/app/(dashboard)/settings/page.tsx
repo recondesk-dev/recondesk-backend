@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import useSWR from "swr";
-import { Bell, ChevronRight, ClipboardList, CreditCard, UserCircle, Users } from "lucide-react";
+import {
+  Bell,
+  ChevronRight,
+  ClipboardList,
+  CreditCard,
+  SlidersHorizontal,
+  UserCircle,
+  Users,
+} from "lucide-react";
 
 import { teamApi, billingApi, type TeamMemberListItem } from "@/lib/api";
 import {
@@ -102,6 +110,12 @@ export default function SettingsHubPage() {
           },
         ]
       : []),
+    {
+      href: "/settings/reconciliation",
+      title: "Reconciliation",
+      description: "Auto-approve confidence threshold and match triage.",
+      Icon: SlidersHorizontal,
+    },
     {
       href: "/settings/billing",
       title: "Billing",

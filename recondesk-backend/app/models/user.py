@@ -88,6 +88,9 @@ class UserProfileResponse(StrictModel):
     icai_membership_number: Optional[str] = Field(default=None, max_length=64)
     firm_gstin: Optional[str] = Field(default=None, max_length=15)
     onboarding_completed: Optional[bool] = None
+    auto_approve_confidence_threshold: Optional[int] = Field(
+        default=95, ge=0, le=100
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -99,3 +102,7 @@ class ProfileUpdateRequest(StrictModel):
     icai_membership_number: Optional[str] = Field(default=None, max_length=64)
     firm_gstin: Optional[str] = Field(default=None, max_length=15)
     firm_city: Optional[str] = Field(default=None, max_length=128)
+
+
+class AutoApproveThresholdUpdate(StrictModel):
+    auto_approve_confidence_threshold: int = Field(ge=0, le=100)

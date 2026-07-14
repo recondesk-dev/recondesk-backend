@@ -65,18 +65,41 @@ export type ReportPdfDataset = {
   confidenceSummary: ReportConfidenceSummary | null;
 };
 
+export type ReconciliationReportFetchOptions = {
+  /** Extra query string for ITC bucket pages (sort + filters, no page/limit). */
+  itcFilterQuery?: string;
+  /** Extra query string for risk bucket pages (sort + filters, no page/limit). */
+  riskFilterQuery?: string;
+};
+
+function mergeBucketQuery(
+  page: number,
+  limit: number,
+  filterQuery?: string
+): string {
+  const qs = new URLSearchParams(
+    (filterQuery ?? "").replace(/^\?/, "").trim()
+  );
+  if (!qs.has("sort")) qs.set("sort", "amount_desc");
+  qs.set("page", String(page));
+  qs.set("limit", String(limit));
+  return qs.toString();
+}
+
 async function fetchAllBucketRows(
   token: string,
   runId: string,
-  bucket: "risk" | "itc"
+  bucket: "risk" | "itc",
+  filterQuery?: string
 ): Promise<ReportReconcileRow[]> {
   const all: ReportReconcileRow[] = [];
   let page = 1;
   let totalPages = 1;
   const limit = 200;
   do {
+    const qs = mergeBucketQuery(page, limit, filterQuery);
     const res = await apiFetch<Paginated<ReportReconcileRow>>(
-      `/api/reconcile/runs/${encodeURIComponent(runId)}/${bucket}?page=${page}&limit=${limit}&sort=amount_desc`,
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/${bucket}?${qs}`,
       { token }
     );
     all.push(...(res.data ?? []));
@@ -110,16 +133,17 @@ async function fetchAllRule37Rows(
 export async function fetchReconciliationReportData(
   token: string,
   runId: string,
-  summary: ReportSummary
+  summary: ReportSummary,
+  options?: ReconciliationReportFetchOptions
 ): Promise<ReportPdfDataset> {
   const [me, riskRows, itcRows, rule37Rows, rule37Summary, followupRows, gstr3bResult, confidenceSummary] =
     await Promise.all([
       authApi.me(token).catch(() => null),
       summary.wrongful_risk_count > 0
-        ? fetchAllBucketRows(token, runId, "risk")
+        ? fetchAllBucketRows(token, runId, "risk", options?.riskFilterQuery)
         : Promise.resolve([]),
       summary.missed_itc_count > 0
-        ? fetchAllBucketRows(token, runId, "itc")
+        ? fetchAllBucketRows(token, runId, "itc", options?.itcFilterQuery)
         : Promise.resolve([]),
       fetchAllRule37Rows(token, runId),
       apiFetch<Rule37SummaryResponse>(

@@ -405,6 +405,8 @@ async def get_me(
         )
     role = await get_user_role(user_id)
     profile["role"] = role
+    if profile.get("auto_approve_confidence_threshold") is None:
+        profile["auto_approve_confidence_threshold"] = 95
     return UserProfileResponse(**profile)
 
 

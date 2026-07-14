@@ -1236,18 +1236,64 @@ def execute_reconciliation(run_id: str) -> None:
 
         _phase("decision-layer")
         merged_rule37 = (rule37 or []) + (late_filing or [])
+
+        # Enrich review-required rows with decision output first so auto-triage
+        # can promote rows that already carry decision_* fields.
+        state.review_required = populate_review_decisions(state.review_required)
+
+        # Confidence-threshold auto-triage: promote high-confidence Review
+        # Required pairs into Matched (tagged auto_approved) so KPI cards
+        # reflect the real counts. Threshold comes from firm owner's profile
+        # (default 95%). See app.services.auto_approve.
+        from app.services.auto_approve import (
+            DEFAULT_AUTO_APPROVE_THRESHOLD,
+            apply_confidence_auto_approve,
+            normalize_confidence_threshold,
+        )
+        from app.services.firm_access import get_firm_owner_for_client
+
+        auto_approve_threshold = DEFAULT_AUTO_APPROVE_THRESHOLD
+        try:
+            owner_id = get_firm_owner_for_client(client, client_gstin_id)
+            pref_res = (
+                client.table("user_profiles")
+                .select("auto_approve_confidence_threshold")
+                .eq("id", owner_id)
+                .limit(1)
+                .execute()
+            )
+            if pref_res.data:
+                auto_approve_threshold = normalize_confidence_threshold(
+                    pref_res.data[0].get("auto_approve_confidence_threshold")
+                )
+        except Exception:
+            _log.exception(
+                "Failed to load auto-approve threshold for client_gstin_id=%s; using default %d",
+                client_gstin_id,
+                DEFAULT_AUTO_APPROVE_THRESHOLD,
+            )
+
+        state.clean_matched, state.review_required, auto_approved_n = (
+            apply_confidence_auto_approve(
+                state.clean_matched,
+                state.review_required,
+                auto_approve_threshold,
+            )
+        )
+        if auto_approved_n:
+            _log.info(
+                "Auto-approved %d review row(s) at threshold %d%% (run_id=%s)",
+                auto_approved_n,
+                auto_approve_threshold,
+                run_id,
+            )
+
         decision_payload = populate_decisions(
             state.clean_matched,
             rule37=merged_rule37,
             section_175_warnings=s175,
             credit_note_adjustment=cn_net,
         )
-
-        # Enrich review-required rows with decision output.
-        # Previously only clean_matched went through the decision layer;
-        # review_required rows were stored without decision_* fields,
-        # causing the Notes column to always show "—".
-        state.review_required = populate_review_decisions(state.review_required)
         _update_run(
             client,
             run_id,
