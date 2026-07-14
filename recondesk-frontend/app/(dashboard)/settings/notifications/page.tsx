@@ -54,46 +54,45 @@ export default function NotificationsSettingsPage() {
   const loading = resolvingToken || (!!authToken && prefsLoading);
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="max-w-3xl space-y-6">
       <div className="flex items-center gap-4">
         <Link
           href="/settings"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:shadow-sm transition"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-gray-500 shadow-[var(--shadow-soft)] transition hover:text-[var(--ink)]"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div>
-          <h1 className="text-xl font-semibold text-[var(--text-primary)]">
+          <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
             Notification Preferences
           </h1>
-          <p className="text-sm text-[var(--text-secondary)]">
+          <p className="text-sm text-gray-500">
             Control which email notifications you receive.
           </p>
         </div>
       </div>
 
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-sm">
+      <div className="dashboard-card overflow-hidden">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-12 text-[var(--text-secondary)]">
-            <Loader2 className="h-8 w-8 animate-spin text-brand" />
+          <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+            <Loader2 className="h-8 w-8 animate-spin text-[var(--ink)]" />
             <span className="mt-2 text-sm">Loading preferences...</span>
           </div>
         ) : !preferences ? (
-          <div className="p-6 text-center text-sm text-[var(--text-secondary)]">
+          <div className="p-6 text-center text-sm text-gray-500">
             Unable to load notification preferences. Please try reloading the page.
           </div>
         ) : (
-          <div className="divide-y divide-[var(--border)]">
-            {/* Preference Row 1 */}
-            <div className="flex items-start justify-between p-5 md:p-6 gap-6 hover:bg-gray-50/50 transition duration-150">
+          <div className="divide-y divide-[#F0F0F0]">
+            <div className="flex items-start justify-between gap-6 p-5 transition duration-150 hover:bg-[#F7F7F8] md:p-6">
               <div className="space-y-1">
                 <label
                   htmlFor="toggle-run-completed"
-                  className="text-sm font-semibold text-[var(--text-primary)] cursor-pointer"
+                  className="cursor-pointer text-sm font-semibold text-[var(--ink)]"
                 >
                   Run Completed
                 </label>
-                <p className="text-xs md:text-sm text-[var(--text-secondary)] leading-relaxed">
+                <p className="text-xs leading-relaxed text-gray-500 md:text-sm">
                   Receive an email report once a reconciliation run finishes processing, summarizing matches, missed ITC, and at-risk claims.
                 </p>
               </div>
@@ -106,16 +105,15 @@ export default function NotificationsSettingsPage() {
               </div>
             </div>
 
-            {/* Preference Row 2 */}
-            <div className="flex items-start justify-between p-5 md:p-6 gap-6 hover:bg-gray-50/50 transition duration-150">
+            <div className="flex items-start justify-between gap-6 p-5 transition duration-150 hover:bg-[#F7F7F8] md:p-6">
               <div className="space-y-1">
                 <label
                   htmlFor="toggle-runs-expiring"
-                  className="text-sm font-semibold text-[var(--text-primary)] cursor-pointer"
+                  className="cursor-pointer text-sm font-semibold text-[var(--ink)]"
                 >
                   Runs Expiring Soon
                 </label>
-                <p className="text-xs md:text-sm text-[var(--text-secondary)] leading-relaxed">
+                <p className="text-xs leading-relaxed text-gray-500 md:text-sm">
                   Get notified when a purchased run credit batch is within 7 days of its expiration date.
                 </p>
               </div>
@@ -128,16 +126,15 @@ export default function NotificationsSettingsPage() {
               </div>
             </div>
 
-            {/* Preference Row 3 */}
-            <div className="flex items-start justify-between p-5 md:p-6 gap-6 hover:bg-gray-50/50 transition duration-150">
+            <div className="flex items-start justify-between gap-6 p-5 transition duration-150 hover:bg-[#F7F7F8] md:p-6">
               <div className="space-y-1">
                 <label
                   htmlFor="toggle-payment-receipts"
-                  className="text-sm font-semibold text-[var(--text-primary)] cursor-pointer"
+                  className="cursor-pointer text-sm font-semibold text-[var(--ink)]"
                 >
                   Payment Receipts
                 </label>
-                <p className="text-xs md:text-sm text-[var(--text-secondary)] leading-relaxed">
+                <p className="text-xs leading-relaxed text-gray-500 md:text-sm">
                   Receive a detailed email invoice and confirmation receipt immediately after making a successful payment.
                 </p>
               </div>
