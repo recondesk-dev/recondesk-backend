@@ -2,7 +2,6 @@
 
 import useSWR from "swr";
 import { useEffect, useState } from "react";
-import Script from "next/script";
 import {
   billingApi,
   isApiError,
@@ -65,7 +64,6 @@ function TableSkeletonRows() {
 export default function BillingPage() {
   const [accessToken, setAccessToken] = useState<string | false | null>(null);
   const [billingTier, setBillingTier] = useState<"solo" | "firm">("solo");
-  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => subscribeAccessToken(setAccessToken), []);
 
@@ -103,84 +101,8 @@ export default function BillingPage() {
 
   const banner = <BillingBanner status={status} loading={statusLoading} onBuyRuns={scrollBuyRuns} />;
 
-  async function handleBuyPlan(planName: string) {
-    setIsProcessing(true);
-    try {
-      const createRes = await fetch("/api/billing/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan_name: planName }),
-      });
-      
-      const createData = await createRes.json();
-      if (!createRes.ok) {
-        throw new Error(createData.error || "Failed to create order");
-      }
-
-      const options = {
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-        amount: createData.amount,
-        currency: createData.currency,
-        order_id: createData.order_id,
-        name: "ReconDesk",
-        description: `Purchase ${planName} plan`,
-        handler: async function (response: any) {
-          console.log("[Razorpay] Handler fired! Received response:", response);
-          try {
-            console.log("[Razorpay] Sending verify-payment request...");
-            const verifyRes = await fetch("/api/billing/verify-payment", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-              }),
-            });
-            console.log("[Razorpay] verify-payment response status:", verifyRes.status);
-            const verifyData = await verifyRes.json();
-            console.log("[Razorpay] verify-payment response data:", verifyData);
-
-            if (!verifyRes.ok) {
-              throw new Error(verifyData.error || "Payment verification failed");
-            }
-            alert("Payment successful! Runs have been credited to your account.");
-            // Refresh data
-            window.location.reload();
-          } catch (err: any) {
-            console.error("[Razorpay] verify-payment caught error:", err);
-            alert(err.message || "Payment verification failed");
-          } finally {
-            console.log("[Razorpay] Handler finished processing.");
-            setIsProcessing(false);
-          }
-        },
-        modal: {
-          ondismiss: function () {
-            console.log("[Razorpay] modal.ondismiss fired!");
-            setIsProcessing(false);
-          },
-        },
-        theme: {
-          color: "#7C3AED",
-        },
-      };
-
-      const rzp = new (window as any).Razorpay(options);
-      rzp.on("payment.failed", function (response: any) {
-        alert(`Payment failed: ${response.error.description}`);
-        setIsProcessing(false);
-      });
-      rzp.open();
-    } catch (err: any) {
-      alert(err.message || "An error occurred");
-      setIsProcessing(false);
-    }
-  }
-
   return (
     <div className="mx-auto max-w-7xl space-y-8 text-[var(--text-primary)]">
-      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">Billing</h1>
         <p className="mt-1 text-sm text-gray-500">
@@ -350,74 +272,16 @@ export default function BillingPage() {
         >
           {billingTier === "solo" ? (
             <div key="solo" className="pricing-tier-enter grid gap-5 lg:grid-cols-4">
-              <PlanCard
-                title="Starter"
-                features={[
-                  "1 run/month",
-                  "Runs expire monthly — no carry over",
-                ]}
-                cta="Buy 1 run"
-                highlight={false}
-                onBuy={() => handleBuyPlan("starter")}
-                isProcessing={isProcessing}
-              />
-              <PlanCard
-                title="Growth"
-                features={[
-                  "5 runs/month",
-                  "Runs expire monthly — no carry over",
-                ]}
-                cta="Buy 5 runs"
-                highlight="growth"
-                onBuy={() => handleBuyPlan("growth")}
-                isProcessing={isProcessing}
-              />
-              <PlanCard
-                title="Pro"
-                features={[
-                  "12 runs/month",
-                  "Runs expire monthly — no carry over",
-                ]}
-                cta="Buy 12 runs"
-                highlight="pro"
-                onBuy={() => handleBuyPlan("pro")}
-                isProcessing={isProcessing}
-              />
-              <PlanCard
-                title="Scale"
-                features={[
-                  "30 runs/month",
-                  "Runs expire monthly — no carry over",
-                ]}
-                cta="Buy 30 runs"
-                highlight="scale"
-                onBuy={() => handleBuyPlan("scale")}
-                isProcessing={isProcessing}
-              />
+              <PlanCard highlight={false} />
+              <PlanCard highlight="growth" />
+              <PlanCard highlight="pro" />
+              <PlanCard highlight="scale" />
               <EnterpriseSoloCard />
             </div>
           ) : (
             <div key="firm" className="pricing-tier-enter grid gap-5 lg:grid-cols-3">
-              <PlanCard
-                title="Growth Firm"
-                features={[
-                  "50 runs/month",
-                  "Unused runs carry over for up to 2 months",
-                ]}
-                cta="Coming soon"
-                ctaExact
-                highlight="growth"
-              />
-              <PlanCard
-                title="Scale Firm"
-                features={[
-                  "100 runs/month",
-                  "Unused runs carry over for up to 2 months",
-                ]}
-                cta="Coming soon"
-                ctaExact
-                highlight="scale"
-              />
+              <PlanCard highlight="growth" />
+              <PlanCard highlight="scale" />
               <EnterpriseFirmCard />
             </div>
           )}
@@ -550,91 +414,37 @@ function BillingBanner({
 
 function EnterpriseSoloCard() {
   return (
-    <div className="flex flex-col rounded-[1.5rem] bg-[#F7F7F8] p-6 transition duration-200 hover:-translate-y-0.5">
-      <h3 className="text-lg font-semibold text-[var(--ink)]">Individual</h3>
-      <p className="mt-2 min-h-[2rem] text-2xl font-bold tracking-tight text-[var(--ink)]" />
-      <ul className="mt-4 flex-1 space-y-2 text-sm text-gray-500">
-        <li>• Dedicated support</li>
-        <li>• Custom onboarding</li>
-        <li>• SLA guarantee</li>
-      </ul>
-      <p className="mt-6 text-lg font-semibold text-[var(--ink)]">Need More?</p>
-      <a
-        href="mailto:contact@recondesk.in"
-        className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-[var(--ink)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-      >
-        Contact Sales
-      </a>
-    </div>
+    <div
+      className="min-h-[280px] rounded-[1.5rem] bg-[#F7F7F8] p-6 transition duration-200 hover:-translate-y-0.5"
+      aria-hidden
+    />
   );
 }
 
 function EnterpriseFirmCard() {
   return (
-    <div className="flex flex-col rounded-[1.5rem] bg-[#F7F7F8] p-6 transition duration-200 hover:-translate-y-0.5">
-      <h3 className="text-lg font-semibold text-[var(--ink)]">Enterprise</h3>
-      <p className="mt-2 min-h-[2rem] text-2xl font-bold tracking-tight text-[var(--ink)]" />
-      <ul className="mt-4 flex-1 space-y-2 text-sm text-gray-500">
-        <li>• 100+ runs/month</li>
-        <li>• Dedicated support</li>
-        <li>• Custom onboarding</li>
-        <li>• SLA guarantee</li>
-      </ul>
-      <a
-        href="mailto:contact@recondesk.in"
-        className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-[var(--ink)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-      >
-        Contact Sales
-      </a>
-    </div>
+    <div
+      className="min-h-[280px] rounded-[1.5rem] bg-[#F7F7F8] p-6 transition duration-200 hover:-translate-y-0.5"
+      aria-hidden
+    />
   );
 }
 
 function PlanCard(props: {
-  title: string;
-  price?: string;
-  features: string[];
-  cta: string;
   highlight: false | "growth" | "pro" | "scale";
-  /** When true, button label is exactly `cta` (e.g. "Coming soon"). Otherwise appends " — Coming soon". */
-  ctaExact?: boolean;
-  onBuy?: () => void;
-  isProcessing?: boolean;
 }) {
-  const { title, price, features, cta, highlight, ctaExact, onBuy, isProcessing } = props;
+  const { highlight } = props;
   const emphasized = highlight === "growth" || highlight === "scale";
-  const buttonLabel = onBuy ? cta : (ctaExact ? cta : `${cta} — Coming soon`);
 
   return (
     <div
-      className={`relative z-10 flex flex-col rounded-[1.5rem] p-6 transition duration-200 hover:-translate-y-0.5 ${
+      className={`relative z-10 min-h-[280px] rounded-[1.5rem] p-6 transition duration-200 hover:-translate-y-0.5 ${
         emphasized
-          ? "bg-[var(--ink)] text-white shadow-[var(--shadow-lift)]"
-          : "bg-[#F7F7F8] text-[var(--ink)]"
+          ? "bg-[var(--ink)] shadow-[var(--shadow-lift)]"
+          : "bg-[#F7F7F8]"
       }`}
-    >
-      <h3 className="text-lg font-semibold">{title}</h3>
-      <p className="mt-2 min-h-[2rem] text-2xl font-bold tracking-tight">{price ?? ""}</p>
-      <ul className={`mt-4 flex-1 space-y-2 text-sm ${emphasized ? "text-white/70" : "text-gray-500"}`}>
-        {features.map((f) => (
-          <li key={f}>• {f}</li>
-        ))}
-      </ul>
-      <button
-        type="button"
-        disabled={!onBuy || isProcessing}
-        onClick={onBuy}
-        className={`mt-6 w-full rounded-full px-4 py-2.5 text-sm font-semibold transition-opacity ${
-          onBuy
-            ? emphasized
-              ? "bg-white text-[var(--ink)] hover:opacity-90"
-              : "bg-[var(--ink)] text-white hover:opacity-90"
-            : "cursor-not-allowed bg-white/50 text-gray-400"
-        } ${isProcessing ? "opacity-75 cursor-wait" : ""}`}
-      >
-        {isProcessing && onBuy ? "Processing..." : buttonLabel}
-      </button>
-    </div>
+      aria-hidden
+    />
   );
 }
 
