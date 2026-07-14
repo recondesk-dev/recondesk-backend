@@ -444,11 +444,6 @@ export default function DashboardShellLayout({
             >
               <span className="relative shrink-0">
                 <Avatar initials={currentUser.initials} />
-                {failedCount > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[var(--ink)] px-1 text-[9px] font-bold text-white">
-                    {failedCount > 99 ? "99+" : failedCount}
-                  </span>
-                )}
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-gray-900">{currentUser.name}</p>

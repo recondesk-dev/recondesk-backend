@@ -70,7 +70,7 @@ export function ReconcilePaginationFooter({
           type="button"
           disabled={disabled || page <= 1}
           onClick={onPrev}
-          className="min-h-[44px] rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 disabled:opacity-40"
+          className="min-h-[40px] rounded-full bg-[#F5F5F6] px-4 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200/70 disabled:opacity-40"
         >
           Previous
         </button>
@@ -78,7 +78,7 @@ export function ReconcilePaginationFooter({
           type="button"
           disabled={disabled || page >= totalPages}
           onClick={onNext}
-          className="min-h-[44px] rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 disabled:opacity-40"
+          className="min-h-[40px] rounded-full bg-[var(--ink)] px-4 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
         >
           Next
         </button>

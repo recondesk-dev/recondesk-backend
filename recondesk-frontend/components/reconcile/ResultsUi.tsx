@@ -8,7 +8,7 @@ import { formatINR, formatINRNumber, formatInrCompact } from "@/lib/format";
 // ─── Shared class tokens ─────────────────────────────────────────────────────
 
 export const filterInputClass =
-  "h-9 border border-[#E8E8EC] rounded-lg text-[13px] px-3 bg-white text-gray-800 placeholder:text-gray-400 focus:ring-2 focus:ring-brand/15 focus:border-brand outline-none transition-colors duration-150";
+  "h-9 rounded-full border-0 bg-[#F5F5F6] px-4 text-[13px] font-medium text-gray-700 placeholder:text-gray-400 outline-none transition-shadow focus:ring-2 focus:ring-black/10";
 
 export const filterRowClass =
   "flex w-full flex-wrap items-center gap-2";
@@ -21,37 +21,37 @@ export const filterDateInputClass = `${filterInputClass} w-[138px] shrink-0`;
 
 export const filterGstinInputClass = `${filterInputClass} min-w-[140px] max-w-full flex-1`;
 
-export const filterDropdownClass = `${filterInputClass} w-[148px] shrink-0`;
+export const filterDropdownClass = `${filterInputClass} w-[148px] shrink-0 appearance-none`;
 
 export const filterToggleClass =
-  "inline-flex h-9 items-center rounded-lg border px-3 text-[13px] font-medium transition-colors duration-150";
+  "inline-flex h-9 items-center rounded-full px-3.5 text-[13px] font-medium transition-colors duration-150";
 
 export const filterToggleActiveClass =
-  "border-brand/40 bg-brand/[0.06] text-brand";
+  "bg-[var(--ink)] text-white";
 
 export const filterToggleIdleClass =
-  "border-[#E8E8EC] bg-white text-gray-600 hover:bg-gray-50 hover:border-gray-300";
+  "bg-[#F5F5F6] text-gray-600 hover:bg-gray-200/70";
 
 export const csvDownloadBtnClass =
-  "inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-[#E8E8EC] bg-white text-gray-600 text-[13px] font-medium rounded-lg px-3.5 hover:bg-gray-50 transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-full bg-[#F5F5F6] px-4 text-[13px] font-semibold text-gray-700 transition-colors duration-150 hover:bg-gray-200/70 disabled:cursor-not-allowed disabled:opacity-50";
 
 export const sectionContainerClass =
-  "mb-6 box-border w-full max-w-full rounded-xl border border-[#EFEFF2] bg-white p-6";
+  "mb-6 box-border w-full max-w-full rounded-[1.5rem] bg-white p-6 shadow-[var(--shadow-soft)]";
 
 export const pageContentClass =
   "box-border w-full max-w-full space-y-5 overflow-x-hidden px-8 pt-5 pb-32";
 
 /** Default grid for secondary panels (GSTR-3B, etc.) */
 export const statCardsGridClass =
-  "mt-4 grid w-full min-w-0 grid-cols-2 gap-3 border-t border-[#EFEFF2] pt-4 lg:grid-cols-3";
+  "mt-4 grid w-full min-w-0 grid-cols-2 gap-3 border-t border-[#F0F0F0] pt-4 lg:grid-cols-3";
 
 /** Results summary: secondary metrics + dominant money cards */
 export const resultsSummaryGridClass =
-  "mt-5 grid w-full min-w-0 grid-cols-2 gap-3 border-t border-[#EFEFF2] pt-5 sm:grid-cols-3 lg:grid-cols-5";
+  "mt-5 grid w-full min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5";
 
 export const statCardValueClass = "text-xl font-semibold tabular-nums tracking-tight";
 
-export const tableWrapClass = "w-full min-w-0 overflow-x-hidden";
+export const tableWrapClass = "w-full min-w-0 overflow-x-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]";
 
 export const tableClass = "w-full table-auto border-collapse text-left";
 
@@ -61,24 +61,24 @@ export const decisionTableClass =
   "w-full table-fixed border-collapse text-left";
 
 export const tableHeadClass =
-  "bg-[#FAFAFB] text-[11px] font-semibold uppercase tracking-wider text-gray-400";
+  "text-[11px] font-medium uppercase tracking-widest text-gray-400";
 
 export const tableHeadCellClass =
-  "px-4 py-2.5 text-left overflow-hidden text-ellipsis whitespace-nowrap";
+  "px-4 py-3.5 text-left overflow-hidden text-ellipsis whitespace-nowrap";
 
 export const tableRowClass =
-  "border-b border-[#F4F4F6] bg-white hover:bg-[#FAFAFB] transition-colors duration-100";
+  "border-b border-[#F0F0F0] bg-white transition-colors duration-100 last:border-b-0 hover:bg-[#F7F7F8]";
 
-export const tableCellClass = "px-4 py-2.5 align-middle";
+export const tableCellClass = "px-4 py-3 align-middle";
 
 export const tableTruncateCellClass =
   `${tableCellClass} overflow-hidden text-ellipsis whitespace-nowrap`;
 
 export const tableStickyCheckboxHeadClass =
-  "sticky left-0 z-10 w-8 bg-[#FAFAFB] px-3 py-2.5";
+  "sticky left-0 z-10 w-8 bg-white px-3 py-3.5";
 
 export const tableStickyCheckboxCellClass =
-  "sticky left-0 z-10 w-8 bg-white px-3 py-2.5 transition-colors duration-100 group-hover:bg-[#FAFAFB]";
+  "sticky left-0 z-10 w-8 bg-white px-3 py-3 transition-colors duration-100 group-hover:bg-[#F7F7F8]";
 
 export const topSuppliersTableClass = decisionTableClass;
 
@@ -114,7 +114,7 @@ export const matchedTdGuidanceWhat = `${tableCellClass} max-w-0 overflow-visible
 export const matchedThGuidanceWhy = `${tableHeadCellClass} w-[12%]`;
 export const matchedTdGuidanceWhy = `${tableCellClass} max-w-0 overflow-visible text-[13px] italic text-gray-400`;
 export const matchedThGuidanceNext = `${tableHeadCellClass} w-[12%]`;
-export const matchedTdGuidanceNext = `${tableCellClass} max-w-0 overflow-visible text-[13px] font-medium text-brand`;
+export const matchedTdGuidanceNext = `${tableCellClass} max-w-0 overflow-visible text-[13px] font-medium text-[var(--ink)]`;
 export const matchedThNotes = `${tableHeadCellClass} w-[8%]`;
 export const matchedTdNotes = `${tableCellClass}`;
 export const matchedThIms = `${tableHeadCellClass} w-[10%] text-center`;
@@ -139,15 +139,15 @@ export function ImsStatusBadge({ status }: { status?: string | null }) {
           : "No action";
   const tone =
     raw === "accepted"
-      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+      ? "bg-[var(--ink)] text-white"
       : raw === "rejected"
-        ? "bg-red-50 text-red-700 ring-red-200"
+        ? "bg-[#FEF2F2] text-[#EF4444]"
         : raw === "pending"
-          ? "bg-amber-50 text-amber-800 ring-amber-200"
-          : "bg-gray-50 text-gray-600 ring-gray-200";
+          ? "bg-[#F0F0F0] text-gray-600"
+          : "bg-[#F0F0F0] text-gray-500";
   return (
     <span
-      className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ${tone}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${tone}`}
     >
       {label}
     </span>
@@ -220,7 +220,7 @@ export function decisionTd(
 export function InrAmount({
   amount,
   sizeClass = "text-[13px] font-semibold",
-  numberColorClass = "text-gray-900",
+  numberColorClass = "text-[var(--ink)]",
   numberStyle,
 }: {
   amount: number;
@@ -283,11 +283,11 @@ export function EmptyTableState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-[#E8E8EC] bg-[#FAFAFB] px-6 py-14 text-center">
-      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white border border-[#EFEFF2]">
+    <div className="flex flex-col items-center justify-center rounded-[1.25rem] bg-[#F7F7F8] px-6 py-14 text-center">
+      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm">
         <Inbox className="h-4 w-4 text-gray-400" aria-hidden />
       </div>
-      <p className="text-[13px] font-medium text-gray-800">{title}</p>
+      <p className="text-[13px] font-medium text-[var(--ink)]">{title}</p>
       {description ? (
         <p className="mt-1 max-w-sm text-[12px] leading-relaxed text-gray-500">
           {description}
@@ -313,43 +313,40 @@ type StatEmphasis = "default" | "secondary" | "attention" | "danger";
 
 const statAccentMeta: Record<
   StatAccent,
-  { value: string; dot: string; attentionBorder?: string }
+  { value: string; dot: string; surface?: string }
 > = {
-  neutral: { value: "text-gray-900", dot: "bg-gray-300" },
-  matched: { value: "text-gray-900", dot: "bg-brand" },
+  neutral: { value: "text-[var(--ink)]", dot: "bg-gray-300" },
+  matched: { value: "text-[var(--ink)]", dot: "bg-[var(--ink)]" },
   missed: {
     value: "text-red-700",
     dot: "bg-red-500",
-    attentionBorder: "border-l-red-500",
+    surface: "bg-[#FFFBFB]",
   },
   risk: {
     value: "text-amber-800",
     dot: "bg-amber-500",
-    attentionBorder: "border-l-amber-500",
+    surface: "bg-[#FFFCFA]",
   },
   saved: {
-    value: "text-green-700",
-    dot: "bg-green-500",
-    attentionBorder: "border-l-green-500",
+    value: "text-[var(--ink)]",
+    dot: "bg-[var(--ink)]",
   },
   reversed: {
     value: "text-red-600",
     dot: "bg-red-500",
-    attentionBorder: "border-l-red-500",
+    surface: "bg-[#FFFBFB]",
   },
   pending: {
-    value: "text-amber-700",
-    dot: "bg-amber-500",
-    attentionBorder: "border-l-amber-500",
+    value: "text-gray-700",
+    dot: "bg-gray-400",
   },
   review_required: {
-    value: "text-amber-800",
+    value: "text-[var(--ink)]",
     dot: "bg-amber-500",
-    attentionBorder: "border-l-amber-500",
   },
   linked: {
-    value: "text-gray-800",
-    dot: "bg-violet-400",
+    value: "text-[var(--ink)]",
+    dot: "bg-gray-400",
   },
 };
 
@@ -367,7 +364,7 @@ export function StatCard({
   accent?: StatAccent;
   subtext?: string;
   extraContent?: ReactNode;
-  /** Visual weight: danger/attention get left accent + larger type; secondary is quieter. */
+  /** Visual weight: danger/attention get larger type; secondary is quieter. */
   emphasis?: StatEmphasis;
   title?: string;
 }) {
@@ -380,25 +377,15 @@ export function StatCard({
       : accent === "saved" || accent === "reversed" || accent === "pending"
         ? "attention"
         : "default";
-  const isAttention =
-    resolvedEmphasis === "attention" ||
-    resolvedEmphasis === "danger" ||
-    isDanger;
   const isSecondary = resolvedEmphasis === "secondary";
-
-  const cardSurface = isDanger
-    ? "border-[#F0E4E4] bg-[#FFFBFB]"
-    : "border-[#EFEFF2] bg-white";
-
-  const leftAccent =
-    isAttention && colors.attentionBorder
-      ? `border-l-[3px] ${colors.attentionBorder}`
-      : "border-l border-l-transparent";
+  const isEmphasized = isDanger || accent === "matched";
 
   return (
     <div
-      className={`box-border flex min-w-0 w-full flex-col rounded-xl border py-3.5 px-3.5 ${cardSurface} ${leftAccent} ${
-        isDanger ? "gap-2.5 sm:col-span-1" : "gap-1.5"
+      className={`box-border flex min-w-0 w-full flex-col rounded-[1.25rem] px-4 py-4 shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5 ${
+        isEmphasized
+          ? `${colors.surface ?? "bg-white"} gap-2.5`
+          : "gap-1.5 bg-white"
       } ${isSecondary ? "opacity-90" : ""}`}
       title={titleAttr}
     >
@@ -407,11 +394,7 @@ export function StatCard({
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${colors.dot}`}
           aria-hidden
         />
-        <p
-          className={`min-w-0 truncate font-medium uppercase tracking-[0.08em] text-gray-500 ${
-            isDanger ? "text-[10px]" : "text-[10px]"
-          }`}
-        >
+        <p className="min-w-0 truncate text-[10px] font-medium uppercase tracking-[0.08em] text-gray-500">
           {label}
         </p>
       </div>
@@ -426,9 +409,7 @@ export function StatCard({
       </div>
       {subtext && (
         <p
-          className={`truncate text-[11px] leading-snug ${
-            isSecondary ? "text-gray-400" : "text-gray-400"
-          }`}
+          className="truncate text-[11px] leading-snug text-gray-400"
           title={subtext}
         >
           {subtext}
@@ -446,24 +427,24 @@ const sectionAmountBadgeStyles: Record<
   { card: string; label: string; amount: string }
 > = {
   claim: {
-    card: "bg-green-50/80 border-green-100",
-    label: "text-green-600",
-    amount: "text-green-800",
+    card: "bg-[#F7F7F8]",
+    label: "text-gray-500",
+    amount: "text-[var(--ink)]",
   },
   risk: {
-    card: "bg-red-50/80 border-red-100",
+    card: "bg-[#FFFBFB]",
     label: "text-red-500",
     amount: "text-red-700",
   },
   rule37: {
-    card: "bg-amber-50/80 border-amber-100",
+    card: "bg-[#FFFCFA]",
     label: "text-amber-600",
     amount: "text-amber-800",
   },
   neutral: {
-    card: "bg-gray-50 border-gray-200",
+    card: "bg-[#F7F7F8]",
     label: "text-gray-500",
-    amount: "text-gray-800",
+    amount: "text-[var(--ink)]",
   },
 };
 
@@ -481,7 +462,7 @@ export function SectionAmountBadge({
   const styles = sectionAmountBadgeStyles[variant];
   return (
     <div
-      className={`inline-flex min-w-[120px] flex-col items-center justify-center rounded-xl border px-4 py-2.5 ${styles.card}`}
+      className={`inline-flex min-w-[120px] flex-col items-center justify-center rounded-2xl px-4 py-2.5 ${styles.card}`}
     >
       <span
         className={`text-center text-[10px] font-semibold uppercase tracking-widest ${styles.label}`}
@@ -543,7 +524,7 @@ export function SectionHeader({
           style={{ backgroundColor: dotColor }}
           aria-hidden
         />
-        <h2 className="min-w-0 truncate text-[15px] font-semibold tracking-tight text-gray-900">
+        <h2 className="min-w-0 truncate text-[15px] font-semibold tracking-tight text-[var(--ink)]">
           {title}
         </h2>
       </div>
@@ -571,14 +552,14 @@ export function SectionHeader({
 
 export function ImpactBadge({ level }: { level: "high" | "medium" | "low" }) {
   const cls = {
-    high: "bg-red-50 text-red-600",
-    medium: "bg-amber-50 text-amber-700",
-    low: "bg-gray-100 text-gray-500",
+    high: "bg-[#FEF2F2] text-[#EF4444]",
+    medium: "bg-[#F0F0F0] text-gray-700",
+    low: "bg-[#F0F0F0] text-gray-500",
   }[level];
   const label = level === "medium" ? "Medium" : level === "high" ? "High" : "Low";
   return (
     <span
-      className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium ${cls}`}
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium ${cls}`}
     >
       {label}
     </span>
@@ -590,18 +571,18 @@ export type DecisionStatus = "pending" | "acted" | "ignored";
 export function DecisionStatusPill({ status }: { status: DecisionStatus }) {
   if (status === "acted")
     return (
-      <span className="inline-flex rounded-md bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
+      <span className="inline-flex rounded-full bg-[var(--ink)] px-2.5 py-0.5 text-[11px] font-medium text-white">
         Done
       </span>
     );
   if (status === "ignored")
     return (
-      <span className="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-400 line-through">
+      <span className="inline-flex rounded-full bg-[#F0F0F0] px-2.5 py-0.5 text-[11px] font-medium text-gray-400 line-through">
         Ignored
       </span>
     );
   return (
-    <span className="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
+    <span className="inline-flex rounded-full bg-[#F0F0F0] px-2.5 py-0.5 text-[11px] font-medium text-gray-500">
       Pending
     </span>
   );
@@ -669,9 +650,9 @@ export function ResultsBucketTabs({
   tabCounts?: Partial<Record<ResultsBucketTabId, number>>;
 }) {
   return (
-    <div className="mb-6 flex flex-col gap-3 border-b border-[#EFEFF2] sm:flex-row sm:items-end sm:justify-between">
+    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <nav
-        className="flex flex-wrap gap-x-0.5 gap-y-0"
+        className="flex flex-wrap gap-1.5"
         role="tablist"
         aria-label="Reconciliation results"
       >
@@ -686,8 +667,8 @@ export function ResultsBucketTabs({
               aria-selected={isActive}
               className={
                 isActive
-                  ? "-mb-px inline-flex items-center gap-1.5 border-b-2 border-brand px-3 py-2.5 text-[13px] font-medium text-gray-900"
-                  : "inline-flex items-center gap-1.5 border-b-2 border-transparent px-3 py-2.5 text-[13px] font-medium text-gray-500 transition-colors hover:text-gray-800"
+                  ? "inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm"
+                  : "inline-flex items-center gap-1.5 rounded-full bg-white px-3.5 py-2 text-[13px] font-medium text-gray-500 shadow-[var(--shadow-soft)] transition-colors hover:text-[var(--ink)]"
               }
               onClick={() => onChange(id)}
             >
@@ -696,8 +677,8 @@ export function ResultsBucketTabs({
                 <span
                   className={
                     isActive
-                      ? "inline-flex min-w-[1.25rem] items-center justify-center rounded-md bg-brand/10 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-brand"
-                      : "inline-flex min-w-[1.25rem] items-center justify-center rounded-md bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-gray-500"
+                      ? "inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white"
+                      : "inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-[#F0F0F0] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-gray-500"
                   }
                 >
                   {count.toLocaleString("en-IN")}
@@ -707,7 +688,7 @@ export function ResultsBucketTabs({
           );
         })}
       </nav>
-      {rightContent && <div className="mb-2 shrink-0">{rightContent}</div>}
+      {rightContent && <div className="shrink-0">{rightContent}</div>}
     </div>
   );
 }
