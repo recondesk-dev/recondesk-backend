@@ -99,8 +99,15 @@ export function ClientFollowupHistoryPanel({
 
   return (
     <div className={sectionContainerClass}>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-gray-900">Follow-up History</h2>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
+            Follow-up History
+          </h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Supplier letters generated for this client
+          </p>
+        </div>
         <button
           type="button"
           disabled={exporting || isLoading}
@@ -117,7 +124,7 @@ export function ClientFollowupHistoryPanel({
       </div>
 
       {exportError && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="mb-4 rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
           {exportError}
         </div>
       )}
@@ -131,11 +138,11 @@ export function ClientFollowupHistoryPanel({
       />
 
       {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="mb-4 rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
           Failed to load follow-up history.{" "}
           <button
             type="button"
-            className="font-medium underline"
+            className="font-semibold text-[var(--ink)] underline"
             onClick={() => void mutate()}
           >
             Retry

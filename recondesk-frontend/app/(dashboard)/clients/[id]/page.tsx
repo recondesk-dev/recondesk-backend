@@ -40,10 +40,10 @@ const HISTORY_PAGE = 10;
 
 function CardSkeleton() {
   return (
-    <div className="animate-pulse space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
-      <div className="h-4 w-48 rounded bg-[#E5E7EB]" />
-      <div className="h-4 w-64 rounded bg-[#E5E7EB]" />
-      <div className="h-4 w-40 rounded bg-[#E5E7EB]" />
+    <div className="dashboard-card animate-pulse space-y-3 p-6">
+      <div className="h-4 w-48 rounded-full bg-gray-100" />
+      <div className="h-4 w-64 rounded-full bg-gray-100" />
+      <div className="h-4 w-40 rounded-full bg-gray-100" />
     </div>
   );
 }
@@ -52,7 +52,7 @@ function HistorySkeleton() {
   return (
     <div className="space-y-2 p-4">
       {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="h-10 animate-pulse rounded bg-[#E5E7EB]" />
+        <div key={i} className="h-10 animate-pulse rounded-2xl bg-gray-100" />
       ))}
     </div>
   );
@@ -60,7 +60,7 @@ function HistorySkeleton() {
 
 function missedCell(run: ReconciliationRun) {
   if (run.missedItc == null) {
-    return <span className="text-[var(--text-secondary)]">—</span>;
+    return <span className="text-gray-400">—</span>;
   }
   if (run.missedItc === 0) {
     return <span className="font-mono font-bold text-[var(--success)]">₹0</span>;
@@ -185,10 +185,10 @@ export default function ClientDetailPage() {
 
   if (tokenState === null) {
     return (
-      <div className="space-y-8">
+      <div className="space-y-6">
         <CardSkeleton />
-        <div className="h-[200px] animate-pulse rounded-lg bg-[#E5E7EB]" />
-        <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+        <div className="h-[200px] animate-pulse rounded-[1.5rem] bg-gray-100" />
+        <div className="dashboard-card overflow-hidden">
           <HistorySkeleton />
         </div>
       </div>
@@ -197,16 +197,16 @@ export default function ClientDetailPage() {
 
   if (tokenState === false) {
     return (
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--text-secondary)]">
+      <div className="rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm text-amber-950">
         Sign in required to view this client.
       </div>
     );
   }
 
   return (
-    <div className="space-y-8" id="top">
+    <div className="space-y-6" id="top">
       {clientError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
           Could not load client details.
         </div>
       )}
@@ -214,34 +214,40 @@ export default function ClientDetailPage() {
       {cLoad || !client ? (
         <CardSkeleton />
       ) : (
-        <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+        <div className="dashboard-card flex flex-wrap items-start justify-between gap-4 p-6">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-3 text-sm">
-              <span className="font-mono text-[var(--text-primary)]">{client.gstin}</span>
+              <span className="font-mono text-[var(--ink)]">{client.gstin}</span>
               {gstnConnected ? (
                 <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
                   GSTN connected ✓
                 </span>
               ) : (
-                <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-[var(--text-secondary)]">
+                <span className="inline-flex items-center rounded-full bg-[#F5F5F6] px-2.5 py-0.5 text-xs font-medium text-gray-500">
                   GSTN not connected
                 </span>
               )}
-              <span className="text-[var(--text-secondary)]">|</span>
-              <span className="text-lg font-semibold text-[var(--text-primary)]">
+              <span className="text-gray-300">|</span>
+              <span className="text-lg font-semibold tracking-tight text-[var(--ink)]">
                 {client.tradeName}
               </span>
             </div>
-            <p className="text-sm text-[var(--text-secondary)]">
-              Registration: <strong className="text-[var(--text-primary)]">{client.registrationType}</strong>
+            <p className="text-sm text-gray-500">
+              Registration:{" "}
+              <strong className="font-semibold text-[var(--ink)]">
+                {client.registrationType}
+              </strong>
             </p>
             {assigned && (
               <div className="flex items-center gap-2">
                 <Avatar initials={assigned.avatarInitials} size="sm" />
-                <span className="text-sm">{assigned.name}</span>
+                <span className="text-sm text-gray-700">{assigned.name}</span>
               </div>
             )}
-            <Link href="/clients" className="text-sm font-medium text-brand hover:underline">
+            <Link
+              href="/clients"
+              className="text-sm font-semibold text-[var(--ink)] underline"
+            >
               Edit Client
             </Link>
           </div>
@@ -250,7 +256,7 @@ export default function ClientDetailPage() {
               <button
                 type="button"
                 onClick={() => setConnectGstnOpen(true)}
-                className="inline-flex items-center justify-center rounded-full border border-brand bg-transparent px-4 py-2 text-sm font-semibold text-brand hover:bg-brand-dim transition-colors"
+                className="inline-flex items-center justify-center rounded-full bg-[#F5F5F6] px-4 py-2 text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-gray-200/70"
               >
                 Connect GSTN
               </button>
@@ -260,7 +266,7 @@ export default function ClientDetailPage() {
                 type="button"
                 disabled
                 title={startTitle}
-                className="inline-flex cursor-not-allowed items-center justify-center rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white opacity-50"
+                className="inline-flex cursor-not-allowed items-center justify-center rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white opacity-50"
               >
                 Start New Reconciliation
               </button>
@@ -268,7 +274,7 @@ export default function ClientDetailPage() {
               <Link
                 href={reconcileNewHref}
                 title={startTitle}
-                className="inline-flex cursor-pointer items-center justify-center rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-hover"
+                className="inline-flex cursor-pointer items-center justify-center rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
               >
                 Start New Reconciliation
               </Link>
@@ -292,113 +298,128 @@ export default function ClientDetailPage() {
       )}
 
       {latest?.status === "FAILED" && latest.errorMessage && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+        <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-900">
           Last reconciliation failed. {latest.errorMessage}{" "}
-          <Link href="#history" className="font-semibold text-brand underline">
+          <Link href="#history" className="font-semibold text-[var(--ink)] underline">
             Retry →
           </Link>
         </div>
       )}
       {latest?.status === "COMPLETE" && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        <div className="rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm text-amber-950">
           Results ready. Review and finalize →
         </div>
       )}
 
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">ITC trend (missed)</h2>
-        {rLoad ? (
-          <div className="h-[200px] animate-pulse rounded-lg bg-[#E5E7EB]" />
-        ) : sortedRuns.length < 3 ? (
-          <p className="text-sm text-[var(--text-secondary)]">
-            ITC trend available after 3+ reconciliations
-          </p>
-        ) : trendData ? (
-          <ItcTrendChart data={trendData} />
-        ) : null}
+      <section className="dashboard-card p-6">
+        <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
+          ITC trend (missed)
+        </h2>
+        <p className="mt-1 text-sm text-gray-500">
+          Missed ITC across recent reconciliations for this client
+        </p>
+        <div className="mt-4">
+          {rLoad ? (
+            <div className="h-[200px] animate-pulse rounded-2xl bg-gray-100" />
+          ) : sortedRuns.length < 3 ? (
+            <div className="flex h-[160px] items-center justify-center rounded-2xl bg-[#F7F7F8] px-4 text-center text-sm text-gray-500">
+              ITC trend available after 3+ reconciliations
+            </div>
+          ) : trendData ? (
+            <ItcTrendChart data={trendData} />
+          ) : null}
+        </div>
       </section>
 
-      <section id="history">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">Reconciliation history</h2>
+      <section id="history" className="dashboard-card space-y-5 p-6">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
+            Reconciliation history
+          </h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Past runs for this GSTIN — expand failed rows for error details
+          </p>
+        </div>
         {runsError && (
-          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
             Could not load reconciliation history.
           </div>
         )}
-        <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
-          {rLoad ? (
-            <HistorySkeleton />
-          ) : sortedRuns.length === 0 ? (
-            <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
-              <div className="mx-auto w-full max-w-[400px]">
-                <EmptyStateIllustration className="mx-auto text-gray-400" />
-                <h3 className="mt-4 text-lg font-semibold text-gray-900">
-                  No reconciliations yet
-                </h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  Start a reconciliation to see results here
-                </p>
-                <Link
-                  href={reconcileNewHref}
-                  className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white hover:bg-brand-hover"
-                >
-                  Start Reconciliation
-                </Link>
-              </div>
+        {rLoad ? (
+          <HistorySkeleton />
+        ) : sortedRuns.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-2xl bg-[#F7F7F8] px-6 py-14 text-center">
+            <div className="mx-auto w-full max-w-[400px]">
+              <EmptyStateIllustration className="mx-auto text-gray-300" />
+              <h3 className="mt-4 text-lg font-semibold text-[var(--ink)]">
+                No reconciliations yet
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Start a reconciliation to see results here
+              </p>
+              <Link
+                href={reconcileNewHref}
+                className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              >
+                Start Reconciliation
+              </Link>
             </div>
-          ) : (
-            <>
+          </div>
+        ) : (
+          <>
+            <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
               <div className="overflow-x-auto">
                 <table className="min-w-[960px] w-full border-collapse text-left text-sm">
                   <thead>
-                    <tr className="border-b border-[var(--border)] bg-[#FAFAFB] text-xs font-semibold uppercase text-[var(--text-secondary)]">
-                      <th className="px-3 py-3">Period</th>
-                      <th className="px-3 py-3">Run #</th>
-                      <th className="px-3 py-3">Status</th>
-                      <th className="px-3 py-3">Match Rate</th>
-                      <th className="px-3 py-3">ITC Claimed</th>
-                      <th className="px-3 py-3">Missed ITC</th>
-                      <th className="px-3 py-3">Finalized By</th>
-                      <th className="px-3 py-3">Date</th>
+                    <tr className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
+                      <th className="px-5 py-4">Period</th>
+                      <th className="px-4 py-4">Run #</th>
+                      <th className="px-4 py-4">Status</th>
+                      <th className="px-4 py-4">Match Rate</th>
+                      <th className="px-4 py-4">ITC Claimed</th>
+                      <th className="px-4 py-4">Missed ITC</th>
+                      <th className="px-4 py-4">Finalized By</th>
+                      <th className="px-5 py-4">Date</th>
                     </tr>
                   </thead>
                   <tbody>
                     {histSlice.map((run) => {
                       const fin = run.status === "FINALIZED";
                       const fail = run.status === "FAILED";
-                      const border = fin
-                        ? "border-l-4 border-l-brand"
-                        : fail
-                          ? "border-l-4 border-l-[var(--danger)]"
-                          : "";
                       return (
                         <Fragment key={run.id}>
                           <tr
-                            className={`border-b border-[var(--border)] ${border} ${
-                              fail ? "cursor-pointer" : ""
-                            }`}
+                            className={`border-b border-[#F0F0F0] transition-colors last:border-b-0 hover:bg-[#F7F7F8] ${
+                              fin ? "border-l-4 border-l-[var(--ink)]" : ""
+                            } ${fail ? "cursor-pointer border-l-4 border-l-[var(--danger)]" : ""}`}
                             onClick={() => fail && toggleExpand(run.id)}
                           >
-                            <td className="px-3 py-3">{run.period}</td>
-                            <td className="px-3 py-3 font-mono">{run.runNumber}</td>
-                            <td className="px-3 py-3">
+                            <td className="px-5 py-3.5 font-medium text-[var(--ink)]">
+                              {run.period}
+                            </td>
+                            <td className="px-4 py-3.5 font-mono text-gray-600">
+                              {run.runNumber}
+                            </td>
+                            <td className="px-4 py-3.5">
                               <StatusBadge status={run.status} finalizedLock={fin} />
                             </td>
-                            <td className="px-3 py-3 font-mono text-[var(--text-secondary)]">
+                            <td className="px-4 py-3.5 font-mono text-gray-500">
                               {run.matchRate != null ? `${run.matchRate}%` : "—"}
                             </td>
-                            <td className="px-3 py-3 font-mono">
+                            <td className="px-4 py-3.5 font-mono text-gray-700">
                               {run.itcClaimed != null ? formatInrFull(run.itcClaimed) : "—"}
                             </td>
-                            <td className="px-3 py-3">{missedCell(run)}</td>
-                            <td className="px-3 py-3">{run.finalizedBy ?? "—"}</td>
-                            <td className="px-3 py-3 text-[var(--text-secondary)]">
+                            <td className="px-4 py-3.5">{missedCell(run)}</td>
+                            <td className="px-4 py-3.5 text-gray-600">
+                              {run.finalizedBy ?? "—"}
+                            </td>
+                            <td className="px-5 py-3.5 text-gray-400">
                               {new Date(run.createdAt).toLocaleString("en-IN")}
                             </td>
                           </tr>
                           {fail && expanded.has(run.id) && run.errorMessage && (
                             <tr className="bg-red-50">
-                              <td colSpan={8} className="px-3 py-2 text-xs text-[var(--danger)]">
+                              <td colSpan={8} className="px-5 py-2.5 text-xs text-[var(--danger)]">
                                 {run.errorMessage}
                               </td>
                             </tr>
@@ -409,32 +430,32 @@ export default function ClientDetailPage() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-                <span>
-                  Page {histSafe} / {histPages}
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={histSafe <= 1}
-                    className="rounded border border-[var(--border)] px-3 py-1 disabled:opacity-40"
-                    onClick={() => setHistPage((p) => Math.max(1, p - 1))}
-                  >
-                    Previous
-                  </button>
-                  <button
-                    type="button"
-                    disabled={histSafe >= histPages}
-                    className="rounded border border-[var(--border)] px-3 py-1 disabled:opacity-40"
-                    onClick={() => setHistPage((p) => Math.min(histPages, p + 1))}
-                  >
-                    Next
-                  </button>
-                </div>
+            </div>
+            <div className="flex items-center justify-between text-sm text-gray-500">
+              <span>
+                Page {histSafe} / {histPages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={histSafe <= 1}
+                  className="rounded-full bg-[#F5F5F6] px-4 py-1.5 text-sm font-medium text-[var(--ink)] transition-colors hover:bg-gray-200/70 disabled:opacity-40"
+                  onClick={() => setHistPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={histSafe >= histPages}
+                  className="rounded-full bg-[#F5F5F6] px-4 py-1.5 text-sm font-medium text-[var(--ink)] transition-colors hover:bg-gray-200/70 disabled:opacity-40"
+                  onClick={() => setHistPage((p) => Math.min(histPages, p + 1))}
+                >
+                  Next
+                </button>
               </div>
-            </>
-          )}
-        </div>
+            </div>
+          </>
+        )}
       </section>
     </div>
   );

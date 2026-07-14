@@ -7,7 +7,7 @@ import { gstnApi, isApiError } from "@/lib/api";
 type Step = 1 | 2 | "success";
 
 const inputClassName =
-  "min-h-[44px] w-full rounded-lg border border-[var(--border)] px-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-brand/30 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:opacity-60";
+  "min-h-[44px] w-full rounded-full border-0 bg-[#F5F5F6] px-4 text-sm font-medium text-[var(--ink)] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:opacity-60";
 
 function apiErrorMessage(err: unknown, fallback: string): string {
   if (isApiError(err)) return err.detail;
@@ -126,7 +126,7 @@ export function ConnectGstnModal({
             <button
               type="button"
               disabled={loading}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[var(--border)] px-4 text-sm font-medium text-[var(--text-primary)] disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[#F5F5F6] px-4 text-sm font-medium text-[var(--ink)] disabled:opacity-50"
               onClick={onClose}
             >
               Cancel
@@ -134,7 +134,7 @@ export function ConnectGstnModal({
             <button
               type="button"
               disabled={!canSend}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               onClick={() => void handleSendOtp()}
             >
               {loading ? "Sending…" : "Send OTP"}
@@ -145,7 +145,7 @@ export function ConnectGstnModal({
             <button
               type="button"
               disabled={loading}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[var(--border)] px-4 text-sm font-medium text-[var(--text-primary)] disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[#F5F5F6] px-4 text-sm font-medium text-[var(--ink)] disabled:opacity-50"
               onClick={() => {
                 setStep(1);
                 setOtp("");
@@ -157,7 +157,7 @@ export function ConnectGstnModal({
             <button
               type="button"
               disabled={!canVerify}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-semibold text-white disabled:opacity-50 hover:bg-brand-hover disabled:hover:bg-brand"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               onClick={() => void handleVerifyOtp()}
             >
               {loading ? "Verifying…" : "Verify"}
@@ -257,7 +257,7 @@ export function ConnectGstnModal({
               <button
                 type="button"
                 disabled={loading}
-                className="text-sm font-medium text-brand hover:underline disabled:opacity-50"
+                className="text-sm font-semibold text-[var(--ink)] underline disabled:opacity-50"
                 onClick={() => void handleResendOtp()}
               >
                 Resend OTP

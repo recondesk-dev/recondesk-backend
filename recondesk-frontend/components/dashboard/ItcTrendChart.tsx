@@ -10,7 +10,6 @@ import {
   YAxis,
 } from "recharts";
 import type { ItcTrendPoint } from "@/lib/types";
-import { brandColors } from "@/lib/brand";
 import { formatInrAxis, formatInrFull } from "@/lib/format";
 
 function TrendTooltip({
@@ -23,10 +22,8 @@ function TrendTooltip({
   if (!active || !payload?.[0]) return null;
   const row = payload[0].payload;
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs shadow-md">
-      <span className="font-mono font-semibold text-[var(--text-primary)]">
-        {formatInrFull(row.missedItc)} missed ITC — {row.period}
-      </span>
+    <div className="rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-xs font-semibold text-white shadow-lg">
+      {formatInrFull(row.missedItc)} missed · {row.period}
     </div>
   );
 }
@@ -36,7 +33,7 @@ export function ItcTrendChart({ data }: { data: ItcTrendPoint[] }) {
 
   if (allZero) {
     return (
-      <div className="flex h-[200px] items-center justify-center rounded-full border border-[var(--border)] bg-[#F0FDF4] text-sm font-medium text-[var(--success)]">
+      <div className="flex h-[200px] items-center justify-center rounded-2xl bg-[#F0FDF4] text-sm font-medium text-[var(--success)]">
         No missed ITC in the last 6 months ✓
       </div>
     );
@@ -51,15 +48,30 @@ export function ItcTrendChart({ data }: { data: ItcTrendPoint[] }) {
     <div className="h-[200px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-          <XAxis dataKey="short" tick={{ fontSize: 11, fill: "var(--text-secondary)" }} />
+          <CartesianGrid strokeDasharray="0" stroke="#F0F0F0" vertical={false} />
+          <XAxis
+            dataKey="short"
+            tick={{ fontSize: 11, fill: "#9CA3AF", fontWeight: 500 }}
+            axisLine={false}
+            tickLine={false}
+          />
           <YAxis
             tickFormatter={(v) => formatInrAxis(Number(v))}
-            tick={{ fontSize: 10, fill: "var(--text-secondary)" }}
+            tick={{ fontSize: 10, fill: "#C0C0C4" }}
+            axisLine={false}
+            tickLine={false}
             width={56}
           />
-          <Tooltip content={<TrendTooltip />} />
-          <Bar dataKey="missedItc" fill={brandColors.DEFAULT} radius={[4, 4, 0, 0]} maxBarSize={48} />
+          <Tooltip
+            cursor={{ fill: "rgba(17,17,17,0.03)", radius: 8 }}
+            content={<TrendTooltip />}
+          />
+          <Bar
+            dataKey="missedItc"
+            fill="#111111"
+            radius={[8, 8, 8, 8]}
+            maxBarSize={28}
+          />
         </BarChart>
       </ResponsiveContainer>
     </div>

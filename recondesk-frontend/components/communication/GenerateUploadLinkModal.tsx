@@ -78,7 +78,7 @@ function getSupabaseClient(): SupabaseClient {
 }
 
 const inputClassName =
-  "w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:disabled:bg-gray-800";
+  "w-full rounded-full border-0 bg-[#F5F5F6] px-4 py-2.5 text-sm font-medium text-[var(--ink)] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:opacity-60";
 
 export default function GenerateUploadLinkModal({
   clientId,
@@ -226,14 +226,14 @@ export default function GenerateUploadLinkModal({
         role="dialog"
         aria-modal="true"
         aria-label="Generate upload link"
-        className="relative z-10 w-full max-w-md rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900"
+        className="relative z-10 w-full max-w-md rounded-[1.5rem] bg-white shadow-[var(--shadow-lift)]"
       >
-        <div className="flex items-start justify-between border-b border-gray-200 px-5 py-4 dark:border-gray-700">
+        <div className="flex items-start justify-between border-b border-[#F0F0F0] px-5 py-4">
           <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            <h2 className="text-base font-semibold tracking-tight text-[var(--ink)]">
               Generate Upload Link
             </h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-sm text-gray-500">
               Create a secure link for your client to upload documents.
             </p>
           </div>
@@ -241,7 +241,7 @@ export default function GenerateUploadLinkModal({
             type="button"
             onClick={onClose}
             disabled={isLoading}
-            className="rounded-lg p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+            className="rounded-full p-1.5 text-gray-400 transition-colors hover:bg-[#F5F5F6] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="Close"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
@@ -253,17 +253,17 @@ export default function GenerateUploadLinkModal({
         <div className="px-5 py-4">
           {modalState === "success" ? (
             <div className="space-y-4">
-              <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 dark:border-green-900/50 dark:bg-green-950/30">
-                <p className="text-sm font-medium text-green-800 dark:text-green-300">
+              <div className="rounded-[1.25rem] bg-emerald-50 px-4 py-3">
+                <p className="text-sm font-medium text-emerald-800">
                   Upload link generated successfully
                 </p>
-                <p className="mt-1 text-sm text-green-700 dark:text-green-400">
+                <p className="mt-1 text-sm text-emerald-700">
                   Share this link with your client. It can be used to upload files securely.
                 </p>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label className="mb-1.5 block text-sm font-medium text-[var(--ink)]">
                   Shareable link
                 </label>
                 <div className="flex gap-2">
@@ -276,7 +276,7 @@ export default function GenerateUploadLinkModal({
                   <button
                     type="button"
                     onClick={() => void handleCopyLink()}
-                    className="shrink-0 rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
+                    className="shrink-0 rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
                   >
                     {copied ? "Copied!" : "Copy Link"}
                   </button>
@@ -287,14 +287,14 @@ export default function GenerateUploadLinkModal({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                  className="rounded-full bg-[#F5F5F6] px-4 py-2 text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-gray-200/70"
                 >
                   Done
                 </button>
                 <button
                   type="button"
                   onClick={resetToIdle}
-                  className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
+                  className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
                 >
                   Generate Another
                 </button>
@@ -305,7 +305,7 @@ export default function GenerateUploadLinkModal({
               <div>
                 <label
                   htmlFor="upload-request-title"
-                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  className="mb-1.5 block text-sm font-medium text-[var(--ink)]"
                 >
                   Request Title <span className="text-red-500">*</span>
                 </label>
@@ -324,7 +324,7 @@ export default function GenerateUploadLinkModal({
               <div>
                 <label
                   htmlFor="upload-request-description"
-                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  className="mb-1.5 block text-sm font-medium text-[var(--ink)]"
                 >
                   Description
                 </label>
@@ -336,9 +336,9 @@ export default function GenerateUploadLinkModal({
                   maxLength={300}
                   rows={3}
                   placeholder="Optional instructions for your client"
-                  className={`${inputClassName} resize-none`}
+                  className="w-full resize-none rounded-2xl border-0 bg-[#F5F5F6] px-4 py-2.5 text-sm font-medium text-[var(--ink)] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:opacity-60"
                 />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-1 text-xs text-gray-400">
                   {description.length}/300 characters
                 </p>
               </div>
@@ -346,7 +346,7 @@ export default function GenerateUploadLinkModal({
               <div>
                 <label
                   htmlFor="upload-request-expiry"
-                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  className="mb-1.5 block text-sm font-medium text-[var(--ink)]"
                 >
                   Expiry Date
                 </label>
@@ -362,7 +362,7 @@ export default function GenerateUploadLinkModal({
               </div>
 
               {modalState === "error" && errorMessage && (
-                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+                <p className="rounded-[1.25rem] bg-red-50 px-4 py-3 text-sm text-red-800">
                   {errorMessage}
                 </p>
               )}
@@ -372,14 +372,14 @@ export default function GenerateUploadLinkModal({
                   type="button"
                   onClick={onClose}
                   disabled={isLoading}
-                  className="rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                  className="rounded-full bg-[#F5F5F6] px-4 py-2 text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-gray-200/70 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-70"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isLoading && (
                     <svg

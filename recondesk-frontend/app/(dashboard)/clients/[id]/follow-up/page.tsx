@@ -9,10 +9,10 @@ import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 function PanelSkeleton() {
   return (
-    <div className="animate-pulse space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
-      <div className="h-4 w-48 rounded bg-[#E5E7EB]" />
-      <div className="h-10 w-full rounded bg-[#E5E7EB]" />
-      <div className="h-32 w-full rounded bg-[#E5E7EB]" />
+    <div className="dashboard-card animate-pulse space-y-3 p-6">
+      <div className="h-4 w-48 rounded-full bg-gray-100" />
+      <div className="h-10 w-full rounded-2xl bg-gray-100" />
+      <div className="h-32 w-full rounded-2xl bg-gray-100" />
     </div>
   );
 }
@@ -39,7 +39,7 @@ export default function ClientFollowupHistoryPage() {
 
   if (error || !client) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+      <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
         Could not load client for follow-up history.
       </div>
     );
