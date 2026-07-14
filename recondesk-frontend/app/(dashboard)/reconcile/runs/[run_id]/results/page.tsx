@@ -2611,7 +2611,7 @@ export default function ReconcileResultsPage() {
     <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden pb-32">
       <div
         ref={summaryRef}
-        className="sticky top-0 z-40 box-border w-full min-w-0 overflow-x-hidden bg-[var(--bg)]/90 px-8 py-5 backdrop-blur-md"
+        className="sticky top-0 z-30 box-border w-full min-w-0 overflow-x-hidden bg-[var(--bg)]/90 px-8 py-5 backdrop-blur-md"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
