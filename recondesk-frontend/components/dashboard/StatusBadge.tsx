@@ -3,32 +3,31 @@ import type { ReconciliationStatus } from "@/lib/types";
 /**
  * Display mapping only — do not rename ReconciliationStatus enum values.
  * COMPLETE = engine finished matching (not user sign-off). FINALIZED = Finalize clicked.
- * Showing "Complete" for COMPLETE was misleading; that green label is reserved for FINALIZED.
  */
 const STYLES: Record<
   ReconciliationStatus,
   { wrap: string; dot: string; dotAnim?: string }
 > = {
   PENDING: {
-    wrap: "bg-[#F3F4F6] text-[#6B7280]",
+    wrap: "bg-[#F0F0F0] text-[#6B7280]",
     dot: "bg-[#9CA3AF]",
   },
   IMPORTING: {
-    wrap: "bg-[#EFF6FF] text-[#3B82F6]",
-    dot: "bg-[#3B82F6]",
+    wrap: "bg-[#F0F0F0] text-[#4B5563]",
+    dot: "bg-[#6B7280]",
   },
   MATCHING: {
-    wrap: "bg-[#EFF6FF] text-[#3B82F6]",
-    dot: "bg-[#3B82F6] relative",
-    dotAnim: "animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3B82F6] opacity-75",
+    wrap: "bg-[#F0F0F0] text-[#4B5563]",
+    dot: "bg-[#111111] relative",
+    dotAnim: "animate-ping absolute inline-flex h-full w-full rounded-full bg-[#111111] opacity-40",
   },
   COMPLETE: {
-    wrap: "bg-amber-50 text-amber-800",
-    dot: "bg-amber-500",
+    wrap: "bg-[#111111] text-white",
+    dot: "bg-white",
   },
   FINALIZED: {
-    wrap: "bg-[#ECFDF5] text-[#10B981]",
-    dot: "bg-[#10B981]",
+    wrap: "bg-[#F0F0F0] text-[#374151]",
+    dot: "bg-[#111111]",
   },
   FAILED: {
     wrap: "bg-[#FEF2F2] text-[#EF4444]",
@@ -55,13 +54,13 @@ export function StatusBadge({
   const s = STYLES[status];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${s.wrap}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${s.wrap}`}
     >
-      <span className="relative flex h-1 w-1 shrink-0 items-center justify-center">
+      <span className="relative flex h-1.5 w-1.5 shrink-0 items-center justify-center">
         {status === "MATCHING" && (
-          <span className={`h-1 w-1 rounded-full ${s.dotAnim ?? ""}`} aria-hidden />
+          <span className={`h-1.5 w-1.5 rounded-full ${s.dotAnim ?? ""}`} aria-hidden />
         )}
-        <span className={`h-1 w-1 rounded-full ${s.dot}`} />
+        <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
       </span>
       {LABELS[status]}
       {status === "FINALIZED" ? (

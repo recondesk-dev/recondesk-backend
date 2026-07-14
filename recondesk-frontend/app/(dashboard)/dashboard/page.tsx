@@ -11,7 +11,7 @@ import { StatusBadge } from "@/components/dashboard/StatusBadge";
 
 const FilterBar = dynamic(
   () => import("@/components/dashboard/FilterBar").then((mod) => mod.FilterBar),
-  { ssr: false, loading: () => <div className="h-[72px] animate-pulse rounded-2xl bg-gray-100" /> }
+  { ssr: false, loading: () => <div className="h-11 animate-pulse rounded-full bg-gray-100" /> }
 );
 
 const ClientTable = dynamic(
@@ -23,6 +23,15 @@ const RetryConfirmModal = dynamic(
   () => import("@/components/dashboard/ClientTable").then((mod) => mod.RetryConfirmModal),
   { ssr: false }
 );
+
+const PortfolioActivityChart = dynamic(
+  () =>
+    import("@/components/dashboard/PortfolioActivityChart").then(
+      (mod) => mod.PortfolioActivityChart
+    ),
+  { ssr: false, loading: () => <div className="h-[340px] animate-pulse rounded-[1.5rem] bg-gray-100" /> }
+);
+
 import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
@@ -93,6 +102,78 @@ function useDebounced<T>(value: T, ms: number): T {
 
 async function invalidateDw(): Promise<void> {
   await mutate((key: unknown) => Array.isArray(key) && key[0] === DW);
+}
+
+function IconUsers() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M17 20v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 20v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function IconAlert() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconShield() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconReview() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconFail() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M15 9l-6 6M9 9l6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconTeam() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8 10h8M8 14h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 export default function PortfolioDashboardPage() {
@@ -206,6 +287,20 @@ export default function PortfolioDashboardPage() {
   );
 
   const signals = useMemo(() => computeDashboardSignals(baseRows), [baseRows]);
+
+  const attentionRows = useMemo(() => {
+    return [...baseRows]
+      .filter((r) => {
+        const s = r.latestRun?.status;
+        return !s || s === "FAILED" || s === "COMPLETE" || s === "PENDING";
+      })
+      .sort((a, b) => b.priorityScore - a.priorityScore)
+      .slice(0, 5);
+  }, [baseRows]);
+
+  const itcAtRiskTotal = useMemo(() => {
+    return baseRows.reduce((sum, r) => sum + (r.latestRun?.missedItc ?? 0), 0);
+  }, [baseRows]);
 
   const rowByClientId = useMemo(() => {
     const m = new Map<string, ClientPortfolioRow>();
@@ -344,27 +439,26 @@ export default function PortfolioDashboardPage() {
   const totalClients = stats.totalClients;
   const isEmptyPortfolio = !portfolioLoading && totalClients === 0;
 
-  const startHereRow = useMemo(() => {
-    if (page !== 1 || portfolioLoading || !portfolio.data.length) return null;
-    return portfolio.data.find((r) => r.latestRun?.status !== "FINALIZED") ?? null;
-  }, [page, portfolio, portfolioLoading]);
-
   if (tokenState === null) {
     return (
-      <div className="space-y-8">
-        <div className="grid grid-cols-2 gap-6">
-          <div className="h-28 animate-pulse rounded-2xl bg-gray-100" />
-          <div className="h-28 animate-pulse rounded-2xl bg-gray-100" />
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-[148px] animate-pulse rounded-[1.5rem] bg-white/70" />
+          ))}
         </div>
-        <div className="h-40 animate-pulse rounded-2xl bg-gray-100" />
-        <div className="h-72 animate-pulse rounded-2xl bg-gray-100" />
+        <div className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
+          <div className="h-[340px] animate-pulse rounded-[1.5rem] bg-white/70" />
+          <div className="h-[340px] animate-pulse rounded-[1.5rem] bg-white/70" />
+        </div>
+        <div className="h-72 animate-pulse rounded-[1.5rem] bg-white/70" />
       </div>
     );
   }
 
   if (tokenState === false) {
     return (
-      <div className="rounded-2xl bg-white px-6 py-10 text-center text-sm font-medium text-gray-400 shadow-sm">
+      <div className="dashboard-card px-6 py-10 text-center text-sm font-medium text-gray-400">
         Sign in required to view the dashboard.
       </div>
     );
@@ -373,15 +467,15 @@ export default function PortfolioDashboardPage() {
   if (isEmptyPortfolio) {
     return (
       <div className="flex min-h-[calc(100vh-12rem)] flex-col items-center justify-center px-4">
-        <div className="mx-auto w-full max-w-[400px] text-center">
+        <div className="dashboard-card mx-auto w-full max-w-[420px] px-8 py-12 text-center">
           <EmptyStateIllustration className="mx-auto text-gray-300" />
-          <h2 className="mt-6 text-xl font-semibold text-gray-900">No clients yet</h2>
+          <h2 className="mt-6 text-xl font-semibold text-[var(--ink)]">No clients yet</h2>
           <p className="mt-2 text-sm text-gray-500">
             Add your first client to start reconciling their GSTR-2B
           </p>
           <Link
             href="/clients?add=1"
-            className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-6 text-sm font-semibold text-white shadow-sm hover:bg-brand-hover transition-opacity"
+            className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-6 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
           >
             Add First Client
           </Link>
@@ -391,14 +485,14 @@ export default function PortfolioDashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       {!portfolioLoading && signals.failedClientCount > 0 && (
-        <div className="flex items-center justify-between rounded-2xl bg-red-50 px-5 py-4 text-sm text-red-900">
+        <div className="flex items-center justify-between rounded-[1.25rem] bg-red-50/90 px-5 py-4 text-sm text-red-900">
           <span>
             <strong>{signals.failedClientCount}</strong> client(s) have failed reconciliations.{" "}
             <button
               type="button"
-              className="font-semibold text-brand underline"
+              className="font-semibold text-[var(--ink)] underline decoration-black/30 underline-offset-2"
               onClick={() => {
                 setFilters((f) => ({ ...f, status: "FAILED" }));
                 setSearchInput("");
@@ -412,8 +506,8 @@ export default function PortfolioDashboardPage() {
       {!portfolioLoading &&
         signals.failedClientCount === 0 &&
         signals.completeReadyCount > 0 && (
-          <div className="rounded-2xl border border-brand/10 bg-brand/[0.06] px-5 py-4 text-sm text-gray-800">
-            <strong className="font-semibold text-gray-900">
+          <div className="rounded-[1.25rem] bg-white px-5 py-4 text-sm text-gray-700 shadow-[var(--shadow-soft)]">
+            <strong className="font-semibold text-[var(--ink)]">
               {signals.completeReadyCount}
             </strong>{" "}
             {signals.completeReadyCount === 1
@@ -422,48 +516,97 @@ export default function PortfolioDashboardPage() {
           </div>
         )}
       {!portfolioLoading && signals.showAllFinalizedBanner && (
-        <div className="rounded-2xl bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-900">
-          All clients reconciled for this period 🎉
+        <div className="rounded-[1.25rem] bg-[var(--ink)] px-5 py-4 text-sm font-medium text-white">
+          All clients reconciled for this period
         </div>
       )}
 
-      <section className="space-y-3">
-        <p className="text-sm text-[var(--text-secondary)]">
-          Where should you act right now? Open the highest-priority client and start or continue
-          their reconciliation.
-        </p>
-
-        <div className="grid grid-cols-2 gap-6">
+      <section>
+        <div className="mb-4">
+          <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
+            Quick Stats
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Your portfolio snapshot — act on what needs attention first.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <StatCard
-            label="Needs Attention"
-            hint="Clients with a pending or in-progress reconciliation this month"
-            empty={
-              !portfolioLoading && !!stats && stats.pendingThisMonth === 0
-            }
-            emptyIcon="check"
-            emptyCaption="All caught up — nothing needs attention."
+            label="Total Clients"
+            hint="Clients in your firm portfolio"
+            icon={<IconUsers />}
             value={
               portfolioLoading ? (
-                <span className="inline-block h-8 w-16 animate-pulse rounded bg-gray-100" />
-              ) : stats ? (
-                String(stats.pendingThisMonth)
+                <span className="inline-block h-8 w-14 animate-pulse rounded bg-gray-100" />
               ) : (
-                "—"
+                String(stats.totalClients)
               )
             }
           />
           <StatCard
-            label="Total ITC Protected"
-            hint="Matched ITC total from finalized reconciliations"
-            empty={!portfolioLoading && !!stats && stats.totalItcProtected === 0}
-            emptyCaption="No data yet for this period"
+            label="Needs Attention"
+            hint="Pending or in-progress reconciliations"
+            icon={<IconAlert />}
+            empty={!portfolioLoading && stats.pendingThisMonth === 0}
+            emptyIcon="check"
+            emptyCaption="All caught up"
+            tone={!portfolioLoading && stats.pendingThisMonth > 0 ? "emphasis" : "default"}
+            trend={!portfolioLoading && stats.pendingThisMonth > 0 ? "up" : "none"}
             value={
               portfolioLoading ? (
-                <span className="inline-block h-8 w-28 animate-pulse rounded bg-gray-100" />
-              ) : stats ? (
-                formatInrCompact(stats.totalItcProtected)
+                <span className="inline-block h-8 w-12 animate-pulse rounded bg-white/20" />
               ) : (
-                "—"
+                String(stats.pendingThisMonth)
+              )
+            }
+          />
+          <StatCard
+            label="Ready for Review"
+            hint="Completed runs waiting for review"
+            icon={<IconReview />}
+            value={
+              portfolioLoading ? (
+                <span className="inline-block h-8 w-12 animate-pulse rounded bg-gray-100" />
+              ) : (
+                String(signals.completeReadyCount)
+              )
+            }
+          />
+          <StatCard
+            label="ITC Protected"
+            hint="Matched ITC from finalized reconciliations"
+            icon={<IconShield />}
+            empty={!portfolioLoading && stats.totalItcProtected === 0}
+            emptyCaption="No data yet"
+            value={
+              portfolioLoading ? (
+                <span className="inline-block h-8 w-20 animate-pulse rounded bg-gray-100" />
+              ) : (
+                formatInrCompact(stats.totalItcProtected)
+              )
+            }
+          />
+          <StatCard
+            label="ITC at Risk"
+            hint="Missed ITC across latest client runs"
+            icon={<IconFail />}
+            value={
+              portfolioLoading ? (
+                <span className="inline-block h-8 w-20 animate-pulse rounded bg-gray-100" />
+              ) : (
+                formatInrCompact(itcAtRiskTotal)
+              )
+            }
+          />
+          <StatCard
+            label="Team Members"
+            hint="People who can be assigned reconciliations"
+            icon={<IconTeam />}
+            value={
+              portfolioLoading || directoryLoading ? (
+                <span className="inline-block h-8 w-10 animate-pulse rounded bg-gray-100" />
+              ) : (
+                String(stats.teamMembers)
               )
             }
           />
@@ -471,11 +614,11 @@ export default function PortfolioDashboardPage() {
       </section>
 
       {loadError && (
-        <div className="rounded-2xl bg-red-50 px-5 py-4 text-sm text-red-800">
+        <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
           Could not load data.{" "}
           <button
             type="button"
-            className="font-semibold text-brand underline"
+            className="font-semibold text-[var(--ink)] underline"
             onClick={() => void invalidateDw()}
           >
             Retry
@@ -483,193 +626,162 @@ export default function PortfolioDashboardPage() {
         </div>
       )}
 
-      {!isEmptyPortfolio && (
-        <div className="space-y-5">
+      <section className="grid gap-4 lg:grid-cols-[1.45fr_0.85fr]">
+        <PortfolioActivityChart
+          runs={(runs ?? []) as ReconcileRunListRow[]}
+          loading={portfolioLoading}
+        />
+
+        <div className="dashboard-card flex flex-col p-6">
+          <div className="mb-5 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
+                Needs attention
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">Priority clients to act on next</p>
+            </div>
+            <Link
+              href="/clients"
+              className="rounded-full bg-[#F5F5F6] px-3 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-200/80"
+            >
+              View all
+            </Link>
+          </div>
+
           {portfolioLoading ? (
-            <div>
-              <div className="mb-3 flex items-center gap-2 animate-pulse">
-                <span className="inline-block h-2 w-2 rounded-full bg-gray-200" />
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-300">
-                  Start here
-                </p>
-              </div>
-              <div className="flex flex-col gap-4 animate-pulse rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 flex-1 space-y-2">
-                  <div className="h-5 w-48 rounded bg-gray-100" />
-                  <div className="h-4 w-36 rounded bg-gray-100" />
-                </div>
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <div className="h-4 w-28 rounded bg-gray-100" />
-                  <div className="h-4 w-4 rounded-full bg-gray-100" />
-                  <div className="h-6 w-20 rounded-full bg-gray-100" />
-                </div>
-                <div className="flex shrink-0 justify-end sm:pl-4">
-                  <div className="h-10 w-28 rounded-full bg-gray-100" />
-                </div>
-              </div>
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-16 animate-pulse rounded-2xl bg-gray-100" />
+              ))}
             </div>
-          ) : startHereRow ? (
-            <div>
-              <div className="mb-3 flex items-center gap-2">
-                <span
-                  className={`inline-block h-2 w-2 rounded-full ${
-                    startHereRow.latestRun?.status === "FAILED"
-                      ? "bg-[var(--danger)]"
-                      : "bg-brand"
-                  }`}
-                />
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">
-                  Start here
-                </p>
-              </div>
-              <div className="flex flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 flex-1">
-                  <p
-                    className="truncate text-lg font-semibold text-gray-900"
-                    style={{ fontSize: 18, fontWeight: 600 }}
-                  >
-                    {startHereRow.client.tradeName}
-                  </p>
-                  <p className="mt-1 font-mono text-sm text-gray-500">
-                    {startHereRow.client.gstin}
-                  </p>
-                </div>
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2 text-sm text-gray-700">
-                  {startHereRow.latestRun?.status === "FAILED" ? (
-                    <>
-                      <span>Failed — needs retry</span>
-                      <span className="text-gray-300">•</span>
-                      <StatusBadge status="FAILED" />
-                    </>
-                  ) : !startHereRow.latestRun ? (
-                    <span className="text-gray-400">No reconciliations yet</span>
-                  ) : (
-                    <>
-                      {startHereRow.latestRun.missedItc != null && (
-                        <>
-                          <span>{formatMissedSnippet(startHereRow.latestRun.missedItc)}</span>
-                          <span className="text-gray-300">•</span>
-                        </>
-                      )}
-                      {startHereRow.latestRun.complianceRisk != null && (
-                        <>
-                          <span
-                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                              startHereRow.latestRun.complianceRisk === "CRITICAL"
-                                ? "bg-red-50 text-[var(--danger)]"
-                                : startHereRow.latestRun.complianceRisk === "HIGH"
-                                  ? "bg-amber-50 text-[var(--warning)]"
-                                  : startHereRow.latestRun.complianceRisk === "MEDIUM"
-                                    ? "bg-amber-50 text-[#F59E0B]"
-                                    : "bg-emerald-50 text-[var(--success)]"
-                            }`}
-                          >
-                            {complianceRiskWords(startHereRow.latestRun.complianceRisk)}
-                          </span>
-                          <span className="text-gray-300">•</span>
-                        </>
-                      )}
-                      <StatusBadge status={startHereRow.latestRun.status} />
-                    </>
-                  )}
-                </div>
-                <div className="flex shrink-0 justify-end sm:pl-4">
-                  {startHereRow.latestRun?.status === "FAILED" && (
-                    <button
-                      type="button"
-                      className="rounded-full bg-[var(--danger)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-opacity"
-                      onClick={() => setRetryRow(startHereRow)}
-                    >
-                      Retry Now
-                    </button>
-                  )}
-                  {startHereRow.latestRun?.status === "COMPLETE" && (
-                    <button
-                      type="button"
-                      className="rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-hover transition-opacity"
-                      onClick={() => router.push(`/clients/${startHereRow.client.id}`)}
-                    >
-                      Review Now
-                    </button>
-                  )}
-                  {(startHereRow.latestRun?.status === "PENDING" ||
-                    startHereRow.latestRun?.status === "IMPORTING" ||
-                    startHereRow.latestRun?.status === "MATCHING") && (
-                    <button
-                      type="button"
-                      disabled
-                      className="cursor-not-allowed rounded-full bg-gray-100 px-5 py-2.5 text-sm font-semibold text-gray-400"
-                    >
-                      In Progress
-                    </button>
-                  )}
-                  {!startHereRow.latestRun && (
-                    <button
-                      type="button"
-                      className="rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-hover transition-opacity"
-                      onClick={() => router.push(`/clients/${startHereRow.client.id}`)}
-                    >
-                      Start
-                    </button>
-                  )}
-                </div>
-              </div>
+          ) : attentionRows.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center rounded-2xl bg-[#F7F7F8] px-4 py-10 text-center">
+              <p className="text-sm font-medium text-gray-700">Nothing waiting</p>
+              <p className="mt-1 text-xs text-gray-400">Your portfolio is clear for now</p>
             </div>
-          ) : null}
-
-          {directoryLoading ? (
-            <div className="h-[72px] animate-pulse rounded-2xl bg-gray-100" aria-hidden />
           ) : (
-            <FilterBar
-              filters={filters}
-              onChange={setFilters}
-              staff={staff}
-              periods={periods}
-              searchInput={searchInput}
-              onSearchInputChange={setSearchInput}
-              showReset={showReset}
-              onReset={onResetFilters}
-            />
-          )}
-
-          {!portfolioLoading &&
-            portfolio &&
-            portfolio.total === 0 &&
-            showReset && (
-              <div className="rounded-2xl bg-white px-6 py-10 text-center text-sm text-gray-400 shadow-sm">
-                No clients match your filters.{" "}
-                <button
-                  type="button"
-                  className="font-semibold text-brand underline"
-                  onClick={onResetFilters}
-                >
-                  Reset Filters
-                </button>
-              </div>
-            )}
-
-          {(portfolioLoading || (portfolio && portfolio.total > 0)) && (
-            <ClientTable
-              rows={portfolio?.data ?? []}
-              loading={portfolioLoading}
-              page={page}
-              pageSize={PAGE_SIZE}
-              total={portfolio?.total ?? 0}
-              onPageChange={setPage}
-              sort={sort}
-              onSortToggle={onSortToggle}
-              selectedIds={selectedIds}
-              onToggleSelect={toggleSelect}
-              onToggleAllOnPage={toggleAllOnPage}
-              onRetryConfirm={onRetryConfirm}
-              onFinalizeConfirm={(row) => void onFinalizeConfirm(row)}
-            />
+            <ul className="flex flex-1 flex-col gap-2.5">
+              {attentionRows.map((row) => {
+                const status = row.latestRun?.status;
+                return (
+                  <li key={row.client.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (status === "FAILED") {
+                          setRetryRow(row);
+                          return;
+                        }
+                        router.push(`/clients/${row.client.id}`);
+                      }}
+                      className="flex w-full items-center gap-3 rounded-2xl bg-[#F7F7F8] px-3.5 py-3 text-left transition-colors hover:bg-[#F0F0F0]"
+                    >
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-[var(--ink)] shadow-sm">
+                        {row.client.tradeName.slice(0, 2).toUpperCase()}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-[var(--ink)]">
+                          {row.client.tradeName}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-gray-400">
+                          {row.latestRun
+                            ? row.latestRun.status === "FAILED"
+                              ? "Failed — needs retry"
+                              : row.latestRun.missedItc != null
+                                ? formatMissedSnippet(row.latestRun.missedItc)
+                                : row.latestRun.period
+                            : "No reconciliations yet"}
+                          {row.latestRun?.complianceRisk
+                            ? ` · ${complianceRiskWords(row.latestRun.complianceRisk)}`
+                            : ""}
+                        </span>
+                      </span>
+                      {row.latestRun ? (
+                        <StatusBadge status={row.latestRun.status} />
+                      ) : (
+                        <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-500">
+                          Pending
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
-      )}
+      </section>
 
-      {!isEmptyPortfolio && !directoryLoading && staff.length === 0 && (
-        <div className="rounded-2xl bg-amber-50 px-5 py-4 text-sm text-amber-950">
+      <section className="dashboard-card space-y-5 p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
+              Manage clients
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Filter, review, and take action across your portfolio
+            </p>
+          </div>
+          <Link
+            href="/clients?add=1"
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--ink)] px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            Add client
+          </Link>
+        </div>
+
+        {directoryLoading ? (
+          <div className="h-11 animate-pulse rounded-full bg-gray-100" aria-hidden />
+        ) : (
+          <FilterBar
+            filters={filters}
+            onChange={setFilters}
+            staff={staff}
+            periods={periods}
+            searchInput={searchInput}
+            onSearchInputChange={setSearchInput}
+            showReset={showReset}
+            onReset={onResetFilters}
+          />
+        )}
+
+        {!portfolioLoading && portfolio && portfolio.total === 0 && showReset && (
+          <div className="rounded-2xl bg-[#F7F7F8] px-6 py-10 text-center text-sm text-gray-400">
+            No clients match your filters.{" "}
+            <button
+              type="button"
+              className="font-semibold text-[var(--ink)] underline"
+              onClick={onResetFilters}
+            >
+              Reset Filters
+            </button>
+          </div>
+        )}
+
+        {(portfolioLoading || (portfolio && portfolio.total > 0)) && (
+          <ClientTable
+            rows={portfolio?.data ?? []}
+            loading={portfolioLoading}
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={portfolio?.total ?? 0}
+            onPageChange={setPage}
+            sort={sort}
+            onSortToggle={onSortToggle}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onToggleAllOnPage={toggleAllOnPage}
+            onRetryConfirm={onRetryConfirm}
+            onFinalizeConfirm={(row) => void onFinalizeConfirm(row)}
+          />
+        )}
+      </section>
+
+      {!directoryLoading && staff.length === 0 && (
+        <div className="rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm text-amber-950">
           Team directory is empty — add staff in Settings → Team before using assign filters.
         </div>
       )}
@@ -683,12 +795,12 @@ export default function PortfolioDashboardPage() {
       />
 
       {selectedIds.size > 0 && staff.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 flex-wrap items-center gap-3 rounded-2xl border border-white/20 bg-white/80 px-5 py-3.5 shadow-xl backdrop-blur-xl">
-          <span className="text-sm font-semibold text-gray-800">
+        <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 flex-wrap items-center gap-3 rounded-full bg-white/90 px-5 py-3 shadow-[var(--shadow-lift)] ring-1 ring-black/[0.06] backdrop-blur-xl">
+          <span className="text-sm font-semibold text-[var(--ink)]">
             {selectedIds.size} selected
           </span>
           <select
-            className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 focus:outline-none"
+            className="rounded-full bg-[#F5F5F6] px-3 py-1.5 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-black/10"
             defaultValue=""
             onChange={(e) => {
               if (e.target.value) void onBulkAssign(e.target.value);
@@ -707,7 +819,7 @@ export default function PortfolioDashboardPage() {
             type="button"
             disabled={!canBulkFinalize}
             title={!canBulkFinalize ? "Select only COMPLETE rows" : undefined}
-            className="rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white disabled:opacity-40 transition-opacity hover:bg-brand-hover"
+            className="rounded-full bg-[var(--ink)] px-5 py-2 text-sm font-semibold text-white disabled:opacity-40 transition-opacity hover:opacity-90"
             onClick={() => void onBulkFinalize()}
           >
             Mark Selected as Finalized
@@ -723,7 +835,7 @@ export default function PortfolioDashboardPage() {
           </button>
           <button
             type="button"
-            className="text-sm font-medium text-gray-400 hover:text-gray-700 transition-colors"
+            className="text-sm font-medium text-gray-400 transition-colors hover:text-gray-700"
             onClick={() => setSelectedIds(new Set())}
           >
             Clear

@@ -1,87 +1,142 @@
+import type { ReactNode } from "react";
+
+type StatTone = "default" | "emphasis";
+
 export function StatCard({
   label,
   value,
   hint,
+  icon,
   empty = false,
   emptyCaption,
   emptyIcon = "dash",
+  tone = "default",
+  trend,
 }: {
   label: string;
-  value: React.ReactNode;
-  /** Shown on the info icon tooltip (replaces decorative corner icons). */
+  value: ReactNode;
   hint?: string;
+  icon?: ReactNode;
   empty?: boolean;
   emptyCaption?: string;
-  /** Visual for empty state: dash (default) or a calm success check/shield. */
   emptyIcon?: "dash" | "check";
+  tone?: StatTone;
+  trend?: "up" | "none";
 }) {
+  const emphasized = tone === "emphasis";
+
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+    <div
+      className={`group relative flex min-h-[148px] flex-col justify-between rounded-[1.5rem] p-5 transition-transform duration-200 hover:-translate-y-0.5 ${
+        emphasized
+          ? "bg-[var(--ink)] text-white shadow-[var(--shadow-lift)]"
+          : "dashboard-card"
+      }`}
+      title={hint}
+    >
       <div className="flex items-start justify-between gap-3">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
-          {label}
-        </p>
-        {hint ? (
-          <button
-            type="button"
-            title={hint}
-            aria-label={hint}
-            className="shrink-0 rounded-full p-1 text-gray-400 transition-colors hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-brand/30"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+        <span
+          className={`inline-flex h-11 w-11 items-center justify-center rounded-full ${
+            emphasized ? "bg-white/15 text-white" : "bg-[#F3F4F6] text-gray-700"
+          }`}
+          aria-hidden
+        >
+          {icon ?? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <path
-                d="M12 11v5M12 8h.01"
+                d="M4 19V5M4 19h16M8 15v4M12 10v9M16 7v12"
                 stroke="currentColor"
                 strokeWidth="1.5"
                 strokeLinecap="round"
               />
             </svg>
-          </button>
+          )}
+        </span>
+        {trend === "up" ? (
+          <span
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-full ${
+              emphasized ? "bg-white/15 text-white" : "bg-gray-100 text-gray-600"
+            }`}
+            aria-hidden
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M7 17L17 7M10 7h7v7"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
         ) : null}
       </div>
-      {empty ? (
-        <div className="mt-2">
-          {emptyIcon === "check" ? (
-            <div className="flex items-start gap-3">
+
+      <div className="mt-6">
+        {empty ? (
+          emptyIcon === "check" ? (
+            <div className="flex items-start gap-2.5">
               <span
-                className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"
+                className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                  emphasized ? "bg-white/15 text-white" : "bg-emerald-50 text-emerald-600"
+                }`}
                 aria-hidden
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinejoin="round"
-                  />
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                   <path
                     d="M9.5 12l1.8 1.8L14.8 10"
                     stroke="currentColor"
-                    strokeWidth="1.5"
+                    strokeWidth="1.75"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
                 </svg>
               </span>
-              <div className="min-w-0 pt-0.5">
-                <p className="text-sm font-medium text-gray-800">
-                  {emptyCaption ?? "All caught up"}
-                </p>
-              </div>
+              <p
+                className={`text-sm font-medium leading-snug ${
+                  emphasized ? "text-white/85" : "text-gray-700"
+                }`}
+              >
+                {emptyCaption ?? "All caught up"}
+              </p>
             </div>
           ) : (
             <>
-              <p className="font-mono text-3xl font-semibold text-gray-300">—</p>
+              <p
+                className={`font-sans text-[1.75rem] font-semibold tracking-tight ${
+                  emphasized ? "text-white/40" : "text-gray-300"
+                }`}
+              >
+                —
+              </p>
               {emptyCaption ? (
-                <p className="mt-1.5 text-xs text-gray-400">{emptyCaption}</p>
+                <p
+                  className={`mt-1 text-xs ${
+                    emphasized ? "text-white/55" : "text-gray-400"
+                  }`}
+                >
+                  {emptyCaption}
+                </p>
               ) : null}
             </>
-          )}
-        </div>
-      ) : (
-        <p className="mt-2 font-mono text-3xl font-semibold text-gray-900">{value}</p>
-      )}
+          )
+        ) : (
+          <p
+            className={`font-sans text-[1.85rem] font-semibold tracking-tight ${
+              emphasized ? "text-white" : "text-[var(--ink)]"
+            }`}
+          >
+            {value}
+          </p>
+        )}
+        <p
+          className={`mt-1.5 text-[13px] font-medium ${
+            emphasized ? "text-white/65" : "text-gray-500"
+          }`}
+        >
+          {label}
+        </p>
+      </div>
     </div>
   );
 }
