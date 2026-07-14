@@ -19,7 +19,7 @@ const SECURITY_BADGES: SecurityBadge[] = [
   { icon: Lock, label: "AES-256 Encrypted", subtitle: "Data at rest" },
   { icon: Shield, label: "TLS 1.2+ in Transit", subtitle: "All connections encrypted" },
   { icon: Users, label: "Full Data Isolation", subtitle: "Per CA, per client" },
-  { icon: Trash2, label: "Files Auto-Deleted", subtitle: "After processing" },
+  { icon: Trash2, label: "Delete Your Data", subtitle: "Anytime, on request" },
   { icon: Building2, label: "SOC 2 Infrastructure", subtitle: "Certified cloud providers" },
   { icon: ClipboardList, label: "Full Audit Logs", subtitle: "Every action recorded" },
   { icon: Ban, label: "Never Sold", subtitle: "Data never shared" },
