@@ -69,7 +69,7 @@ function buildPeriodRows(runs: ReconcileRunListRow[], now: Date): PeriodRow[] {
     { open: number; ready: number; finalized: number }
   >();
 
-  for (const run of latest.values()) {
+  for (const run of Array.from(latest.values())) {
     const period = (run.period || "").trim();
     const row = byPeriod.get(period) ?? { open: 0, ready: 0, finalized: 0 };
     row[bucketForStatus(run.status)] += 1;
@@ -77,7 +77,7 @@ function buildPeriodRows(runs: ReconcileRunListRow[], now: Date): PeriodRow[] {
   }
 
   const rows: PeriodRow[] = [];
-  for (const [periodKey, counts] of byPeriod) {
+  for (const [periodKey, counts] of Array.from(byPeriod.entries())) {
     const due = gstr3bDueDate(periodKey);
     if (!due) continue;
     const clients = counts.open + counts.ready + counts.finalized;

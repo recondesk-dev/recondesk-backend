@@ -6,10 +6,10 @@ import { Fragment, type ReactNode } from "react";
 import { AmountDisplay, ImpactBadge, tableRowClass } from "@/components/reconcile/ResultsUi";
 import { GstinCell } from "@/components/ui/GstinCell";
 import { HoverTextCell } from "@/components/ui/HoverTextCell";
-import type { SupplierGroup } from "@/lib/groupBySupplier";
+import type { SupplierGroup, SupplierGroupableRow } from "@/lib/groupBySupplier";
 import { formatINR } from "@/lib/format";
 
-type Props<T extends { id: string; amount: number }> = {
+type Props<T extends SupplierGroupableRow> = {
   groups: SupplierGroup<T>[];
   expandedGstin: string | null;
   onToggleExpand: (gstin: string) => void;
@@ -28,7 +28,7 @@ function impactFor(total: number, grand: number): "high" | "medium" | "low" {
   return "low";
 }
 
-export function SupplierGroupView<T extends { id: string; amount: number }>({
+export function SupplierGroupView<T extends SupplierGroupableRow>({
   groups,
   expandedGstin,
   onToggleExpand,
