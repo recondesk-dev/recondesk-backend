@@ -16,7 +16,6 @@ from pydantic import BaseModel, ConfigDict
 from app.auth import get_current_active_user, get_current_user, require_admin
 from app.database import get_supabase, get_user_profile
 from app.routers.reconciliation_api import _parse_uuid
-from app.routers.reconciliation_api import _history_row
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.services.carry_forward import get_chronic_risks
 from app.services.gstin_verification import verify_gstin as _verify_gstin
@@ -91,50 +90,6 @@ async def validate_gstin_endpoint(
         return {"valid": True, "normalized": normalized, "state": state}
     except NormalizationError as exc:
         return {"valid": False, "error": _validate_gstin_error_message(exc.reason)}
-
-
-def _history_for_client(sb, cgid: str) -> list[dict]:
-    runs = (
-        sb.table("reconciliation_run")
-        .select(
-            "id, period, status, run_summary, created_at, finalized_at, finalized_by, client_gstin_id"
-        )
-        .eq("client_gstin_id", cgid)
-        .execute()
-    )
-    data = list(runs.data or [])
-
-    def _period_sort_key(period: str) -> tuple[int, int]:
-        try:
-            y, m = (period or "0000-00").split("-", 1)
-            return (int(y), int(m))
-        except ValueError:
-            return (0, 0)
-
-    data.sort(
-        key=lambda d: (
-            _period_sort_key(str(d.get("period") or "")),
-            str(d.get("created_at") or ""),
-        )
-    )
-    uids: set[str] = set()
-    for x in data:
-        if x.get("finalized_by"):
-            uids.add(str(x.get("finalized_by")))
-    name_by: dict[str, str] = {}
-    for u in uids:
-        p2 = get_user_profile(u) or {}
-        if p2.get("full_name"):
-            name_by[u] = str(p2.get("full_name"))
-    by_period: dict[str, int] = {}
-    out_asc: list[dict] = []
-    for i, run in enumerate(data):
-        pkey = str(run.get("period") or "")
-        by_period[pkey] = by_period.get(pkey, 0) + 1
-        rnum = by_period[pkey]
-        prev = data[i - 1] if i > 0 else None
-        out_asc.append(_history_row(sb, run, prev, rnum, name_by))
-    return list(reversed(out_asc))
 
 
 class ClientCreate(BaseModel):
@@ -355,8 +310,11 @@ async def get_client(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="not allowed",
         )
-    hist = _history_for_client(sb, cid)
-    return {**row, "reconciliation_history": hist}
+    # Do not embed reconciliation_history here — rebuilding per-run outcomes from
+    # full payloads makes this endpoint seconds-to-minutes for chatty clients.
+    # History belongs on GET /api/reconcile/runs?client_gstin_id=… (and the
+    # dedicated /history/{gstin} route). Frontend never consumed the embedded list.
+    return row
 
 
 @router.patch("/{client_id}")
