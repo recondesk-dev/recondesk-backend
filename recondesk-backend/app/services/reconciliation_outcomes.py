@@ -956,6 +956,31 @@ def load_payload(sb: Client, run_id: str) -> dict[str, Any]:
     return out
 
 
+def matched_itc_paise_from_payload(
+    sb: Client, run_id: str, payload: dict[str, Any] | None = None
+) -> int:
+    """Sum matched ITC (paise) from engine pairs — used to backfill run_summary."""
+    p = payload if isinstance(payload, dict) else load_payload(sb, run_id)
+    if not p:
+        return 0
+    engine = p.get("engine") or {}
+    if not isinstance(engine, dict):
+        return 0
+    gstr_m = load_gstr_map(sb, run_id)
+    pr_m = load_pr_map(sb, run_id)
+    matched_itc = 0
+    for m0 in engine.get("matched") or []:
+        if not isinstance(m0, dict):
+            continue
+        g_id, p_id = str(m0.get("gstr_id", "")), str(m0.get("pr_id", ""))
+        g = (gstr_m.get(g_id) or {}).get("matcher") or {}
+        pr = (pr_m.get(p_id) or {}).get("matcher") or {}
+        matched_itc += min(
+            int(g.get("total_tax_paise") or 0), int(pr.get("total_tax_paise") or 0)
+        )
+    return int(matched_itc)
+
+
 def filter_invoices(
     rows: list[OutcomeRow],
     category: str,

@@ -576,7 +576,7 @@ export default function PortfolioDashboardPage() {
             label="ITC Protected"
             hint="Matched ITC from finalized reconciliations"
             icon={<IconShield />}
-            empty={!portfolioLoading && stats.totalItcProtected === 0}
+            empty={!portfolioLoading && !stats.itcProtectedHasData}
             emptyCaption="No data yet"
             value={
               portfolioLoading ? (

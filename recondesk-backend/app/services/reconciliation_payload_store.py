@@ -221,6 +221,7 @@ def build_run_summary_metrics(
     skipped_count: int = 0,
     review_required_count: int = 0,
     duplicate_entry_count: int = 0,
+    matched_itc_paise: int = 0,
 ) -> dict[str, Any]:
     """Scalar run_summary only — no decisions/compliance blobs (kept in results payload)."""
     skip_detail = None
@@ -237,6 +238,7 @@ def build_run_summary_metrics(
         "unmatched_count": missed_itc_count + wrongful_count,
         "itc_at_risk": itc_at_risk_total,
         "missed_itc_paise": itc_missed,
+        "matched_itc_paise": int(matched_itc_paise or 0),
         "rule37_itc_paise": rule37_itc_paise,
         "wrongful_itc": wrongful_paise,
         "late_itc": late_itc_paise,

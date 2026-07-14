@@ -447,13 +447,16 @@ export function computeDashboardStats(): DashboardStats {
   const pendingThisMonth = mockRuns.filter((r) =>
     ["PENDING", "IMPORTING", "MATCHING"].includes(r.status)
   ).length;
-  const totalItcProtected = mockRuns
-    .filter((r) => r.status === "FINALIZED")
-    .reduce((sum, r) => sum + (r.itcClaimed ?? 0), 0);
+  const finalized = mockRuns.filter((r) => r.status === "FINALIZED");
+  const totalItcProtected = finalized.reduce(
+    (sum, r) => sum + (r.itcClaimed ?? 0),
+    0
+  );
   return {
     totalClients,
     pendingThisMonth,
     totalItcProtected,
+    itcProtectedHasData: finalized.some((r) => r.itcClaimed != null),
     teamMembers: INITIAL_STAFF.length,
   };
 }
