@@ -13,6 +13,10 @@ import { Gstr3bCheckPanel } from "@/components/reconcile/Gstr3bCheckPanel";
 import { AdvancedExportPanel } from "@/components/reconcile/AdvancedExportPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
 import { SupplierGroupView } from "@/components/reconcile/SupplierGroupView";
+import {
+  DecisionInvoiceCard,
+  DecisionInvoiceList,
+} from "@/components/reconcile/DecisionInvoiceCard";
 import { GstinCell } from "@/components/ui/GstinCell";
 import { HoverTextCell } from "@/components/ui/HoverTextCell";
 import Link from "next/link";
@@ -246,6 +250,63 @@ function formatFieldLabel(name: string): string {
   return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Field-by-field comparison panel (used in cards and table accordions). */
+function ComparedFieldsPanel({ row }: { row: ReconcileRow }) {
+  const fields = row.compared_fields ?? [];
+  return (
+    <div className="max-w-2xl">
+      {row.decision_rule ? (
+        <p className="mb-2 text-[12px] text-gray-600">
+          Rule fired:{" "}
+          <span className="font-semibold text-gray-800">{row.decision_rule}</span>
+          {row.decision_confidence ? (
+            <span className="text-gray-400"> · {row.decision_confidence}</span>
+          ) : null}
+        </p>
+      ) : null}
+      {fields.length === 0 ? (
+        <p className="text-[12px] text-gray-500">
+          No field comparison was recorded for this row.
+        </p>
+      ) : (
+        <table className="w-full border-collapse text-left text-[12px]">
+          <thead>
+            <tr className="border-b border-[#E8E8EC] text-[11px] uppercase tracking-wide text-gray-400">
+              <th className="pb-1.5 pr-3 font-medium">Field</th>
+              <th className="pb-1.5 pr-3 font-medium">Match Type</th>
+              <th className="pb-1.5 font-medium">Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {fields.map((f) => (
+              <tr
+                key={f.field_name}
+                className="border-b border-[#EEF0F4] last:border-0"
+              >
+                <td className="py-1.5 pr-3 font-medium text-gray-800">
+                  {formatFieldLabel(f.field_name)}
+                </td>
+                <td className="py-1.5 pr-3">
+                  <span
+                    className={`inline-flex rounded px-1.5 py-0.5 text-[11px] font-medium capitalize ${fieldMatchTypeClass(
+                      f.match_type
+                    )}`}
+                  >
+                    {f.match_type.replace(/_/g, " ")}
+                  </span>
+                </td>
+                <td className="py-1.5 text-gray-600">
+                  {f.field_score != null ? `${f.field_score}%` : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 /** Inline accordion showing engine field-by-field comparison for one invoice. */
 function ComparedFieldsAccordionRow({
   row,
@@ -254,65 +315,10 @@ function ComparedFieldsAccordionRow({
   row: ReconcileRow;
   colSpan: number;
 }) {
-  const fields = row.compared_fields ?? [];
   return (
     <tr className="bg-[#F8F9FB]">
       <td colSpan={colSpan} className="px-4 py-3">
-        <div className="max-w-2xl">
-          {row.decision_rule ? (
-            <p className="mb-2 text-[12px] text-gray-600">
-              Rule fired:{" "}
-              <span className="font-semibold text-gray-800">
-                {row.decision_rule}
-              </span>
-              {row.decision_confidence ? (
-                <span className="text-gray-400">
-                  {" "}
-                  · {row.decision_confidence}
-                </span>
-              ) : null}
-            </p>
-          ) : null}
-          {fields.length === 0 ? (
-            <p className="text-[12px] text-gray-500">
-              No field comparison was recorded for this row.
-            </p>
-          ) : (
-            <table className="w-full border-collapse text-left text-[12px]">
-              <thead>
-                <tr className="border-b border-[#E8E8EC] text-[11px] uppercase tracking-wide text-gray-400">
-                  <th className="pb-1.5 pr-3 font-medium">Field</th>
-                  <th className="pb-1.5 pr-3 font-medium">Match Type</th>
-                  <th className="pb-1.5 font-medium">Score</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fields.map((f) => (
-                  <tr
-                    key={f.field_name}
-                    className="border-b border-[#EEF0F4] last:border-0"
-                  >
-                    <td className="py-1.5 pr-3 font-medium text-gray-800">
-                      {formatFieldLabel(f.field_name)}
-                    </td>
-                    <td className="py-1.5 pr-3">
-                      <span
-                        className={`inline-flex rounded px-1.5 py-0.5 text-[11px] font-medium capitalize ${fieldMatchTypeClass(
-                          f.match_type
-                        )}`}
-                      >
-                        {f.match_type.replace(/_/g, " ")}
-                      </span>
-                    </td>
-                    <td className="py-1.5 text-gray-600">
-                      {f.field_score != null ? `${f.field_score}%` : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <ComparedFieldsPanel row={row} />
       </td>
     </tr>
   );
@@ -3221,154 +3227,96 @@ export default function ReconcileResultsPage() {
                     description="Adjust amount, GSTIN, or date filters to see recoverable invoices."
                   />
                 ) : (
-                <div className={decisionTableWrapClass}>
-                  <table className={decisionTableClass}>
-                    <DecisionTableColGroup includeIms />
-                    <thead className={tableHeadClass}>
-                      <tr>
-                        <th className={tableStickyCheckboxHeadClass}>
-                          <input
-                            ref={itcHeaderRef}
-                            type="checkbox"
-                            disabled={isRunFinalized}
-                            checked={
-                              itcRows.length > 0 &&
-                              itcRows.every((r) => selectedIds.itc.has(r.id))
-                            }
-                            onChange={(e) => {
-                              const on = e.target.checked;
-                              setSelectedIds((prev) => {
-                                const next = {
-                                  ...prev,
-                                  itc: new Set(prev.itc),
-                                };
-                                if (on)
-                                  itcRows.forEach((r) => next.itc.add(r.id));
-                                else
-                                  itcRows.forEach((r) => next.itc.delete(r.id));
-                                return next;
-                              });
-                            }}
-                            className="rounded border-gray-300"
-                          />
-                        </th>
-                        <th className={decisionTh("num")}>#</th>
-                        <th className={decisionTh("gstin")}>Supplier GSTIN</th>
-                        <th className={decisionTh("invoice")}>Invoice#</th>
-                        <th className={decisionTh("date")}>Date</th>
-                        <th className={decisionTh("amount", "right")}>Amount</th>
-                        <th className={decisionTh("impact")}>Impact</th>
-                        <th className={decisionTh("what")}>WHAT</th>
-                        <th className={decisionTh("why")}>WHY</th>
-                        <th className={decisionTh("next")}>NEXT</th>
-                        <th className={decisionTh("status")}>Match Status</th>
-                        <th className={decisionTh("status")}>IMS</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {itcRows.filter(r => checkDocType(r, docTypeFilterItc)).map((row, i) => (
-                        <Fragment key={row.id}>
-                        <tr className={`group ${tableRowClass}`}>
-                          <td className={tableStickyCheckboxCellClass}>
-                            <input
-                              type="checkbox"
-                              disabled={isRunFinalized}
-                              checked={selectedIds.itc.has(row.id)}
-                              onChange={(e) => {
-                                setSelectedIds((prev) => {
-                                  const next = {
-                                    ...prev,
-                                    itc: new Set(prev.itc),
-                                  };
-                                  if (e.target.checked) next.itc.add(row.id);
-                                  else next.itc.delete(row.id);
-                                  return next;
-                                });
-                              }}
-                              className="rounded border-gray-300"
+                <DecisionInvoiceList
+                  selectAll={
+                    <>
+                      <input
+                        ref={itcHeaderRef}
+                        type="checkbox"
+                        disabled={isRunFinalized}
+                        checked={
+                          itcRows.length > 0 &&
+                          itcRows.every((r) => selectedIds.itc.has(r.id))
+                        }
+                        onChange={(e) => {
+                          const on = e.target.checked;
+                          setSelectedIds((prev) => {
+                            const next = {
+                              ...prev,
+                              itc: new Set(prev.itc),
+                            };
+                            if (on) itcRows.forEach((r) => next.itc.add(r.id));
+                            else itcRows.forEach((r) => next.itc.delete(r.id));
+                            return next;
+                          });
+                        }}
+                        className="rounded border-gray-300"
+                      />
+                      <span className="text-[13px] font-medium text-gray-600">
+                        Select all on this page
+                      </span>
+                    </>
+                  }
+                >
+                  {itcRows.filter((r) => checkDocType(r, docTypeFilterItc)).map((row, i) => (
+                    <DecisionInvoiceCard
+                      key={row.id}
+                      index={(itcPage - 1) * itcPageData.limit + i + 1}
+                      gstin={row.supplier_gstin}
+                      invoiceNumber={row.invoice_number}
+                      invoiceDate={formatDate(row.invoice_date)}
+                      amount={row.amount}
+                      selected={selectedIds.itc.has(row.id)}
+                      checkboxDisabled={isRunFinalized}
+                      onSelectChange={(checked) => {
+                        setSelectedIds((prev) => {
+                          const next = { ...prev, itc: new Set(prev.itc) };
+                          if (checked) next.itc.add(row.id);
+                          else next.itc.delete(row.id);
+                          return next;
+                        });
+                      }}
+                      impact={
+                        <ImpactBadge level={getImpactLevel(row.amount, itcMax)} />
+                      }
+                      status={
+                        <div className="flex flex-wrap items-center gap-2">
+                          <DecisionStatusPill status={effectiveStatus(row)} />
+                          {effectiveStatus(row) === "pending" ? (
+                            <span className="text-[11px] font-medium text-gray-500">
+                              {row.discrepancy_note || "Review required"}
+                            </span>
+                          ) : null}
+                          <ImsStatusBadge status={row.ims_status} />
+                        </div>
+                      }
+                      meta={
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {row.match_confidence != null ? (
+                            <MatchConfidenceBadge
+                              score={row.match_confidence}
+                              onClick={(e) => toggleRationale(e, row.id)}
                             />
-                          </td>
-                          <td className={`${decisionTd("num")} text-[13px] text-gray-500`}>
-                            {(itcPage - 1) * itcPageData.limit + i + 1}
-                          </td>
-                          <td className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}>
-                            <GstinCell gstin={row.supplier_gstin} />
-                          </td>
-                          <td className={decisionTd("invoice")}>
-                            <HoverTextCell
-                              text={row.invoice_number}
-                              displayClassName="text-[13px] font-medium text-gray-800"
+                          ) : null}
+                          {(row.compared_fields?.length ?? 0) > 0 ? (
+                            <WhyRationaleButton
+                              expanded={rationaleExpandedId === row.id}
+                              onToggle={(e) => toggleRationale(e, row.id)}
                             />
-                          </td>
-                          <td className={`${decisionTd("date")} text-[13px] text-gray-500`}>
-                            {formatDate(row.invoice_date)}
-                          </td>
-                          <td className={decisionTd("amount")}>
-                            <AmountDisplay amount={row.amount} />
-                          </td>
-                          <td className={decisionTd("impact")}>
-                            <ImpactBadge
-                              level={getImpactLevel(row.amount, itcMax)}
-                            />
-                          </td>
-                          <td className={decisionTd("what")}>
-                            <div className="flex items-center gap-1.5">
-                              <HoverTextCell
-                                text={row.decision_what}
-                                displayClassName="text-[13px] text-gray-600"
-                              />
-                              {row.match_confidence != null && (
-                                <MatchConfidenceBadge
-                                  score={row.match_confidence}
-                                  onClick={(e) => toggleRationale(e, row.id)}
-                                />
-                              )}
-                              {(row.compared_fields?.length ?? 0) > 0 && (
-                                <WhyRationaleButton
-                                  expanded={rationaleExpandedId === row.id}
-                                  onToggle={(e) => toggleRationale(e, row.id)}
-                                />
-                              )}
-                            </div>
-                          </td>
-                          <td className={decisionTd("why")}>
-                            <HoverTextCell
-                              text={row.decision_why}
-                              displayClassName="text-[13px] italic text-gray-400"
-                            />
-                          </td>
-                          <td className={decisionTd("next")}>
-                            <HoverTextCell
-                              text={row.decision_next}
-                              displayClassName="text-[13px] font-medium text-[var(--ink)]"
-                            />
-                          </td>
-                          <td className={decisionTd("status")}>
-                            <div className="flex flex-col gap-1.5">
-                              <div>
-                                <span className="inline-flex">
-                                  <DecisionStatusPill status={effectiveStatus(row)} />
-                                </span>
-                              </div>
-                              {effectiveStatus(row) === "pending" && (
-                                <div className="text-[11px] font-medium text-[#6B7280]">
-                                  {row.discrepancy_note || "Review required"}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                          <td className={decisionTd("status")}>
-                            <ImsStatusBadge status={row.ims_status} />
-                          </td>
-                        </tr>
-                        {rationaleExpandedId === row.id && (
-                          <ComparedFieldsAccordionRow row={row} colSpan={12} />
-                        )}
-                        </Fragment>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                          ) : null}
+                        </div>
+                      }
+                      what={row.decision_what}
+                      why={row.decision_why}
+                      next={row.decision_next}
+                      expandedContent={
+                        rationaleExpandedId === row.id ? (
+                          <ComparedFieldsPanel row={row} />
+                        ) : null
+                      }
+                    />
+                  ))}
+                </DecisionInvoiceList>
                 )}
                 {itcPageData.data.length > 0 && (
                 <ReconcilePaginationFooter
@@ -3831,167 +3779,106 @@ export default function ReconcileResultsPage() {
                     description="Adjust amount, GSTIN, or risk level filters to see compliance risk invoices."
                   />
                 ) : (
-                <div className={decisionTableWrapClass}>
-                  <table className={decisionTableClass}>
-                    <DecisionTableColGroup includeNotice />
-                    <thead className={tableHeadClass}>
-                      <tr>
-                        <th className={tableStickyCheckboxHeadClass}>
-                          <input
-                            ref={riskHeaderRef}
-                            type="checkbox"
-                            disabled={isRunFinalized}
-                            checked={
-                              riskRows.length > 0 &&
-                              riskRows.every((r) => selectedIds.risk.has(r.id))
-                            }
-                            onChange={(e) => {
-                              const on = e.target.checked;
-                              setSelectedIds((prev) => {
-                                const next = {
-                                  ...prev,
-                                  risk: new Set(prev.risk),
-                                };
-                                if (on)
-                                  riskRows.forEach((r) => next.risk.add(r.id));
-                                else
-                                  riskRows.forEach((r) =>
-                                    next.risk.delete(r.id)
-                                  );
-                                return next;
-                              });
-                            }}
-                            className="rounded border-gray-300"
-                          />
-                        </th>
-                        <th className={decisionTh("num")}>#</th>
-                        <th className={decisionTh("gstin")}>Supplier GSTIN</th>
-                        <th className={decisionTh("invoice")}>Invoice#</th>
-                        <th className={decisionTh("date")}>Date</th>
-                        <th className={decisionTh("amount", "right")}>
-                          ITC at Risk
-                        </th>
-                        <th className={decisionTh("impact")}>Impact</th>
-                        <th className={decisionTh("what")}>WHAT</th>
-                        <th className={decisionTh("why")}>WHY</th>
-                        <th className={decisionTh("next")}>NEXT</th>
-                        <th className={decisionTh("status")}>Match Status</th>
-                        <th className={decisionTh("notice", "right")}>
-                          Follow-up
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {riskRows.filter(r => checkDocType(r, docTypeFilterRisk)).map((row, i) => (
-                        <Fragment key={row.id}>
-                        <tr className={`group ${tableRowClass}`}>
-                          <td className={tableStickyCheckboxCellClass}>
-                            <input
-                              type="checkbox"
-                              disabled={isRunFinalized}
-                              checked={selectedIds.risk.has(row.id)}
-                              onChange={(e) => {
-                                setSelectedIds((prev) => {
-                                  const next = {
-                                    ...prev,
-                                    risk: new Set(prev.risk),
-                                  };
-                                  if (e.target.checked) next.risk.add(row.id);
-                                  else next.risk.delete(row.id);
-                                  return next;
-                                });
-                              }}
-                              className="rounded border-gray-300"
+                <DecisionInvoiceList
+                  selectAll={
+                    <>
+                      <input
+                        ref={riskHeaderRef}
+                        type="checkbox"
+                        disabled={isRunFinalized}
+                        checked={
+                          riskRows.length > 0 &&
+                          riskRows.every((r) => selectedIds.risk.has(r.id))
+                        }
+                        onChange={(e) => {
+                          const on = e.target.checked;
+                          setSelectedIds((prev) => {
+                            const next = {
+                              ...prev,
+                              risk: new Set(prev.risk),
+                            };
+                            if (on) riskRows.forEach((r) => next.risk.add(r.id));
+                            else riskRows.forEach((r) => next.risk.delete(r.id));
+                            return next;
+                          });
+                        }}
+                        className="rounded border-gray-300"
+                      />
+                      <span className="text-[13px] font-medium text-gray-600">
+                        Select all on this page
+                      </span>
+                    </>
+                  }
+                >
+                  {riskRows.filter((r) => checkDocType(r, docTypeFilterRisk)).map((row, i) => (
+                    <DecisionInvoiceCard
+                      key={row.id}
+                      index={(riskPage - 1) * riskPageData.limit + i + 1}
+                      gstin={row.supplier_gstin}
+                      invoiceNumber={row.invoice_number}
+                      invoiceDate={formatDate(row.invoice_date)}
+                      amount={row.amount}
+                      amountCaption="ITC at Risk"
+                      selected={selectedIds.risk.has(row.id)}
+                      checkboxDisabled={isRunFinalized}
+                      onSelectChange={(checked) => {
+                        setSelectedIds((prev) => {
+                          const next = { ...prev, risk: new Set(prev.risk) };
+                          if (checked) next.risk.add(row.id);
+                          else next.risk.delete(row.id);
+                          return next;
+                        });
+                      }}
+                      impact={
+                        <ImpactBadge level={getImpactLevel(row.amount, riskMax)} />
+                      }
+                      status={
+                        <div className="flex flex-wrap items-center gap-2">
+                          <DecisionStatusPill status={effectiveStatus(row)} />
+                          {effectiveStatus(row) === "pending" ? (
+                            <span className="text-[11px] font-medium text-gray-500">
+                              {row.discrepancy_note || "Review required"}
+                            </span>
+                          ) : null}
+                        </div>
+                      }
+                      meta={
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {row.match_confidence != null ? (
+                            <MatchConfidenceBadge
+                              score={row.match_confidence}
+                              onClick={(e) => toggleRationale(e, row.id)}
                             />
-                          </td>
-                          <td className={`${decisionTd("num")} text-[13px] text-gray-500`}>
-                            {(riskPage - 1) * riskPageData.limit + i + 1}
-                          </td>
-                          <td className={`${decisionTd("gstin")} font-mono text-[13px] text-gray-500`}>
-                            <GstinCell gstin={row.supplier_gstin} />
-                          </td>
-                          <td className={decisionTd("invoice")}>
-                            <HoverTextCell
-                              text={row.invoice_number}
-                              displayClassName="text-[13px] font-medium text-gray-800"
+                          ) : null}
+                          {(row.compared_fields?.length ?? 0) > 0 ? (
+                            <WhyRationaleButton
+                              expanded={rationaleExpandedId === row.id}
+                              onToggle={(e) => toggleRationale(e, row.id)}
                             />
-                          </td>
-                          <td className={`${decisionTd("date")} text-[13px] text-gray-500`}>
-                            {formatDate(row.invoice_date)}
-                          </td>
-                          <td className={decisionTd("amount")}>
-                            <AmountDisplay amount={row.amount} />
-                          </td>
-                          <td className={decisionTd("impact")}>
-                            <ImpactBadge
-                              level={getImpactLevel(row.amount, riskMax)}
-                            />
-                          </td>
-                          <td className={decisionTd("what")}>
-                            <div className="flex items-center gap-1.5">
-                              <HoverTextCell
-                                text={row.decision_what}
-                                displayClassName="text-[13px] text-gray-600"
-                              />
-                              {row.match_confidence != null && (
-                                <MatchConfidenceBadge
-                                  score={row.match_confidence}
-                                  onClick={(e) => toggleRationale(e, row.id)}
-                                />
-                              )}
-                              {(row.compared_fields?.length ?? 0) > 0 && (
-                                <WhyRationaleButton
-                                  expanded={rationaleExpandedId === row.id}
-                                  onToggle={(e) => toggleRationale(e, row.id)}
-                                />
-                              )}
-                            </div>
-                          </td>
-                          <td className={decisionTd("why")}>
-                            <HoverTextCell
-                              text={row.decision_why}
-                              displayClassName="text-[13px] italic text-gray-400"
-                            />
-                          </td>
-                          <td className={decisionTd("next")}>
-                            <HoverTextCell
-                              text={row.decision_next}
-                              displayClassName="text-[13px] font-medium text-[var(--ink)]"
-                            />
-                          </td>
-                          <td className={decisionTd("status")}>
-                            <div className="flex flex-col gap-1.5">
-                              <div>
-                                <span className="inline-flex">
-                                  <DecisionStatusPill status={effectiveStatus(row)} />
-                                </span>
-                              </div>
-                              {effectiveStatus(row) === "pending" && (
-                                <div className="text-[11px] font-medium text-[#6B7280]">
-                                  {row.discrepancy_note || "Review required"}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                          <td className={decisionTd("notice", { align: "right" })}>
-                            <button
-                              type="button"
-                              disabled={isRunFinalized || !authToken}
-                              className="max-w-full rounded-lg border border-[#E5E7EB] bg-white px-2 py-1.5 text-[10px] font-medium leading-tight text-[var(--ink)] hover:bg-[#F5F5F6] disabled:cursor-not-allowed disabled:opacity-50"
-                              onClick={() => openFollowupLetter([row])}
-                            >
-                              Generate follow-up letter
-                            </button>
-                          </td>
-                        </tr>
-                        {rationaleExpandedId === row.id && (
-                          <ComparedFieldsAccordionRow row={row} colSpan={12} />
-                        )}
-                        </Fragment>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                          ) : null}
+                        </div>
+                      }
+                      trailing={
+                        <button
+                          type="button"
+                          disabled={isRunFinalized || !authToken}
+                          className="rounded-full bg-[var(--ink)] px-3.5 py-2 text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={() => openFollowupLetter([row])}
+                        >
+                          Generate follow-up letter
+                        </button>
+                      }
+                      what={row.decision_what}
+                      why={row.decision_why}
+                      next={row.decision_next}
+                      expandedContent={
+                        rationaleExpandedId === row.id ? (
+                          <ComparedFieldsPanel row={row} />
+                        ) : null
+                      }
+                    />
+                  ))}
+                </DecisionInvoiceList>
                 )}
                 {riskPageData.data.length > 0 && (
                 <ReconcilePaginationFooter
@@ -4409,7 +4296,7 @@ export default function ReconcileResultsPage() {
                           <AmountDisplay amount={row.amount} />
                         </td>
                         <td className={matchedTdMatchLevel}>
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <MatchLevelBadge level={row.match_level} />
                             {row.auto_approved ? (
                               <span
@@ -4842,167 +4729,105 @@ export default function ReconcileResultsPage() {
             )}
           {reviewRequiredData && !reviewRequiredError && reviewRequiredData.data.length > 0 && (
             <>
-              <div className={tableWrapClass}>
-                <table className={matchedTableClass}>
-                  <thead className={tableHeadClass}>
-                    <tr>
-                      <th className={matchedThGstin}>Supplier GSTIN</th>
-                      <th className={matchedThInvoice}>Invoice#</th>
-                      <th className={matchedThDate}>Date</th>
-                      <th className={matchedThAmount}>Amount</th>
-                      <th className={matchedThMatchLevel}>
-                        <div className="flex items-center gap-1">
-                          Match Method
-                          <span title="L1 = Exact GSTIN + Invoice Number match&#10;L2 = GSTIN match + fuzzy invoice number&#10;L3 = GSTIN match + amount match&#10;L4 = Fuzzy vendor name + amount match&#10;L5 = Partial / manual review needed">
-                            <Info className="h-3.5 w-3.5 text-gray-400 cursor-help" />
-                          </span>
-                        </div>
-                      </th>
-                      <th className={matchedThConfidence}>Confidence</th>
-                      <th className={matchedThDiscrepancy}>Discrepancy / Reason</th>
-                      <th className={matchedThGuidanceWhat}>What</th>
-                      <th className={matchedThGuidanceWhy}>Why</th>
-                      <th className={matchedThGuidanceNext}>Next</th>
-                      <th className={matchedThNotes}>Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(() => {
-                      const validRows = reviewRequiredData.data
-                        .filter(r => checkDocType(r, docTypeFilterReviewRequired))
-                        .filter(r => r.supplier_gstin || r.invoice_number || (r.amount && r.amount > 0));
-                      return validRows.map((row) => {
-                      let taxDiff = formatTaxDifferenceDisplay(
-                        row.tax_difference_paise,
-                        row.discrepancy_note
-                      );
+              <DecisionInvoiceList>
+                {(() => {
+                  const validRows = reviewRequiredData.data
+                    .filter((r) => checkDocType(r, docTypeFilterReviewRequired))
+                    .filter(
+                      (r) =>
+                        r.supplier_gstin ||
+                        r.invoice_number ||
+                        (r.amount && r.amount > 0)
+                    );
+                  return validRows.map((row, i) => {
+                    let taxDiff = formatTaxDifferenceDisplay(
+                      row.tax_difference_paise,
+                      row.discrepancy_note
+                    );
 
-                      if (taxDiff.display === "₹0.00" && row.discrepancy_reason) {
-                        const reasonDisplay = row.discrepancy_reason.replace(/_/g, " ");
-                        const titleCased = reasonDisplay === reasonDisplay.toUpperCase()
-                          ? reasonDisplay.charAt(0).toUpperCase() + reasonDisplay.slice(1).toLowerCase()
+                    if (taxDiff.display === "₹0.00" && row.discrepancy_reason) {
+                      const reasonDisplay = row.discrepancy_reason.replace(/_/g, " ");
+                      const titleCased =
+                        reasonDisplay === reasonDisplay.toUpperCase()
+                          ? reasonDisplay.charAt(0).toUpperCase() +
+                            reasonDisplay.slice(1).toLowerCase()
                           : reasonDisplay;
-                        taxDiff = { display: titleCased, tooltip: row.discrepancy_reason };
-                      }
+                      taxDiff = { display: titleCased, tooltip: row.discrepancy_reason };
+                    }
 
-                      // NOTE: a client-side "gstrAmt vs raw PR invoice value" recompute
-                      // used to run here for FUZZY/EXACT rows (which is most Review
-                      // Required rows, since Phase-2 review reasons like GSTIN_MISMATCH,
-                      // DUPLICATE_AMBIGUITY, TYPO_MISMATCH etc. all map to "FUZZY"). It
-                      // compared row.amount (the GSTR record's total_tax_paise — the TAX
-                      // portion only) against a raw "Invoice Amount"/"Total"/"Grand Total"
-                      // field pulled from the uploaded Purchase Register (the FULL invoice
-                      // value, taxable + tax). Those two figures are not comparable, so for
-                      // a GSTIN-mismatch or date-shift row with an identical taxable amount
-                      // on both sides, the "diff" it produced was effectively the PR's own
-                      // invoice value — a large fabricated discrepancy where the real gap is
-                      // ₹0. The server-computed row.tax_difference_paise above is always the
-                      // correct abs(gstr_taxable - pr_taxable) for genuinely paired rows (and
-                      // ₹0 when there is no counterpart to diff against), with the
-                      // discrepancy_reason label shown when that diff is ₹0, so it is used
-                      // as-is with no further client-side override.
-
-                      return (
-                      <Fragment key={row.id}>
-                      <tr
-                        className={`group cursor-pointer ${tableRowClass}`}
-                        onClick={() => {
+                    return (
+                      <DecisionInvoiceCard
+                        key={row.id}
+                        index={
+                          (reviewRequiredData.page - 1) * reviewRequiredData.limit +
+                          i +
+                          1
+                        }
+                        gstin={row.supplier_gstin}
+                        invoiceNumber={row.invoice_number}
+                        invoiceDate={formatDate(row.invoice_date)}
+                        amount={row.amount}
+                        onOpen={() => {
                           setActiveRecord(row);
                           setDrawerDecisionError(null);
                           setNotePostError(null);
                         }}
-                      >
-                        <td className={matchedTdGstin}>
-                          <GstinCell gstin={row.supplier_gstin} />
-                        </td>
-                        <td className={matchedTdInvoice}>
-                          <HoverTextCell
-                            text={row.invoice_number}
-                            displayClassName="text-[13px] font-medium text-gray-800"
-                          />
-                        </td>
-                        <td className={matchedTdDate}>
-                          {formatDate(row.invoice_date)}
-                        </td>
-                        <td className={matchedTdAmount}>
-                          <AmountDisplay amount={row.amount} />
-                        </td>
-                        <td className={matchedTdMatchLevel}>
-                          <div className="flex items-center gap-1.5">
+                        status={
+                          <div className="flex flex-wrap items-center gap-2">
                             <MatchLevelBadge level={row.match_level} />
+                            <span className="rounded-full bg-[#F5F5F6] px-2.5 py-0.5 text-[11px] font-semibold text-gray-600">
+                              {Math.round(
+                                Math.min(100, Math.max(0, row.confidence_score))
+                              )}
+                              % confidence
+                            </span>
                             {row.auto_approved ? (
-                              <span
-                                className="inline-flex items-center whitespace-nowrap rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20"
-                                title="Promoted from Review Required by confidence threshold"
-                              >
+                              <span className="inline-flex items-center whitespace-nowrap rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
                                 Auto-Approved
                               </span>
                             ) : null}
-                            {(row.compared_fields?.length ?? 0) > 0 && (
+                            {row.notes_count > 0 ? (
+                              <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                                {row.notes_count} notes
+                              </span>
+                            ) : null}
+                          </div>
+                        }
+                        meta={
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span
+                              className="rounded-full bg-white px-2.5 py-0.5 text-[11px] font-medium text-gray-600 ring-1 ring-[#E8E8EC]"
+                              title={taxDiff.tooltip ?? undefined}
+                            >
+                              {taxDiff.display}
+                            </span>
+                            {(row.compared_fields?.length ?? 0) > 0 ? (
                               <WhyRationaleButton
                                 expanded={rationaleExpandedId === row.id}
                                 onToggle={(e) => toggleRationale(e, row.id)}
                               />
-                            )}
-                            {row.match_confidence != null && (
+                            ) : null}
+                            {row.match_confidence != null ? (
                               <MatchConfidenceBadge
                                 score={row.match_confidence}
                                 onClick={(e) => toggleRationale(e, row.id)}
                               />
-                            )}
+                            ) : null}
                           </div>
-                        </td>
-                        <td className={matchedTdConfidence}>
-                          {Math.round(
-                            Math.min(100, Math.max(0, row.confidence_score))
-                          )}
-                          %
-                        </td>
-                        <td className={matchedTdDiscrepancy}>
-                          <HoverTextCell
-                            text={taxDiff.display}
-                            tooltipText={taxDiff.tooltip}
-                            displayClassName="text-[13px] text-gray-600"
-                          />
-                        </td>
-                        <td className={matchedTdGuidanceWhat}>
-                          <HoverTextCell
-                            text={row.decision_what}
-                            displayClassName="text-[13px] text-gray-600"
-                          />
-                        </td>
-                        <td className={matchedTdGuidanceWhy}>
-                          <HoverTextCell
-                            text={row.decision_why}
-                            displayClassName="text-[13px] italic text-gray-400"
-                          />
-                        </td>
-                        <td className={matchedTdGuidanceNext}>
-                          <HoverTextCell
-                            text={row.decision_next}
-                            displayClassName="text-[13px] font-medium text-[var(--ink)]"
-                          />
-                        </td>
-                        <td className={matchedTdNotes}>
-                          {row.notes_count > 0 ? (
-                            <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                              {row.notes_count} notes
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                      </tr>
-                      {rationaleExpandedId === row.id && (
-                        <ComparedFieldsAccordionRow row={row} colSpan={10} />
-                      )}
-                      </Fragment>
+                        }
+                        what={row.decision_what}
+                        why={row.decision_why}
+                        next={row.decision_next}
+                        expandedContent={
+                          rationaleExpandedId === row.id ? (
+                            <ComparedFieldsPanel row={row} />
+                          ) : null
+                        }
+                      />
                     );
-                    })
-})()}
-                  </tbody>
-                </table>
-              </div>
+                  });
+                })()}
+              </DecisionInvoiceList>
               <ReconcilePaginationFooter
                 page={reviewRequiredData.page}
                 totalPages={reviewRequiredData.total_pages}
