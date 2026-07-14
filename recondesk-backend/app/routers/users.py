@@ -187,9 +187,25 @@ async def update_auto_approve_threshold(
             sb.table("user_profiles").insert(insert_row).execute()
     except Exception as exc:  # noqa: BLE001
         _log.exception("Failed to update auto-approve threshold for user_id=%s", uid)
+        msg = str(exc)
+        lowered = msg.lower()
+        if (
+            "auto_approve_confidence_threshold" in lowered
+            and (
+                "does not exist" in lowered
+                or "could not find" in lowered
+                or "schema cache" in lowered
+            )
+        ):
+            msg = (
+                "Database is missing column auto_approve_confidence_threshold. "
+                "Run alembic revision auto_approve_confidence "
+                "(or ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS "
+                "auto_approve_confidence_threshold INTEGER NOT NULL DEFAULT 95)."
+            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
+            detail=msg,
         ) from exc
 
     profile = get_user_profile(uid)

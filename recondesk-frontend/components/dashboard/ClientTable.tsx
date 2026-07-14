@@ -323,6 +323,41 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
   );
 });
 
+function viewportBox() {
+  const vv = typeof window !== "undefined" ? window.visualViewport : null;
+  return {
+    left: vv?.offsetLeft ?? 0,
+    top: vv?.offsetTop ?? 0,
+    width: vv?.width ?? (typeof window !== "undefined" ? window.innerWidth : 1200),
+    height: vv?.height ?? (typeof window !== "undefined" ? window.innerHeight : 800),
+  };
+}
+
+/** Place below the row (never to its right — full-width rows always overflow). */
+function placePreviewPopover(
+  anchor: { top: number; left: number; right: number; bottom: number },
+  size: { w: number; h: number }
+) {
+  const margin = 12;
+  const gap = 8;
+  const vp = viewportBox();
+  const maxLeft = vp.left + vp.width - margin - size.w;
+  const maxTop = vp.top + vp.height - margin - size.h;
+
+  // Prefer under the row, left-aligned to the visible part of the row.
+  const visibleLeft = Math.max(anchor.left, vp.left + margin);
+  let left = Math.min(visibleLeft, maxLeft);
+  left = Math.max(vp.left + margin, left);
+
+  let top = anchor.bottom + gap;
+  if (top > maxTop) {
+    top = anchor.top - size.h - gap;
+  }
+  top = Math.min(Math.max(top, vp.top + margin), Math.max(vp.top + margin, maxTop));
+
+  return { top, left };
+}
+
 function PreviewPopover({
   anchor,
   row,
@@ -341,55 +376,54 @@ function PreviewPopover({
   // w-64 = 256px — used until layout measurement is available
   const POPOVER_W = 256;
   const POPOVER_H_FALLBACK = 280;
-  const [pos, setPos] = useState(() => {
-    const margin = 12;
-    const gap = 8;
-    const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
-    const vh = typeof window !== "undefined" ? window.innerHeight : 800;
-    let left = anchor.right + gap;
-    if (left + POPOVER_W > vw - margin) left = anchor.left - POPOVER_W - gap;
-    left = Math.min(Math.max(left, margin), Math.max(margin, vw - margin - POPOVER_W));
-    let top = anchor.top;
-    if (top + POPOVER_H_FALLBACK > vh - margin) top = vh - margin - POPOVER_H_FALLBACK;
-    top = Math.min(Math.max(top, margin), Math.max(margin, vh - margin - POPOVER_H_FALLBACK));
-    return { top, left };
-  });
+  const [pos, setPos] = useState(() =>
+    placePreviewPopover(anchor, { w: POPOVER_W, h: POPOVER_H_FALLBACK })
+  );
 
   useLayoutEffect(() => {
     const place = () => {
       const el = popoverRef.current;
       if (!el) return;
 
-      const margin = 12;
-      const gap = 8;
-      const w = el.offsetWidth || POPOVER_W;
+      const w = Math.max(el.offsetWidth || POPOVER_W, POPOVER_W);
       const h = el.offsetHeight || POPOVER_H_FALLBACK;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
+      let next = placePreviewPopover(anchor, { w, h });
 
-      // Prefer right of row; flip left if it would clip the viewport.
-      let left = anchor.right + gap;
-      if (left + w > vw - margin) {
-        left = anchor.left - w - gap;
+      // Nudge from measured box so nothing sits past the viewport edge.
+      el.style.top = `${next.top}px`;
+      el.style.left = `${next.left}px`;
+      const r = el.getBoundingClientRect();
+      const vp = viewportBox();
+      const margin = 12;
+      if (r.right > vp.left + vp.width - margin) {
+        next = { ...next, left: next.left - (r.right - (vp.left + vp.width - margin)) };
       }
-      left = Math.min(Math.max(left, margin), Math.max(margin, vw - margin - w));
-
-      let top = anchor.top;
-      if (top + h > vh - margin) {
-        top = Math.max(margin, vh - margin - h);
+      if (r.left < vp.left + margin) {
+        next = { ...next, left: next.left + (vp.left + margin - r.left) };
       }
-      top = Math.min(Math.max(top, margin), Math.max(margin, vh - margin - h));
+      if (r.bottom > vp.top + vp.height - margin) {
+        next = { ...next, top: next.top - (r.bottom - (vp.top + vp.height - margin)) };
+      }
+      if (r.top < vp.top + margin) {
+        next = { ...next, top: next.top + (vp.top + margin - r.top) };
+      }
 
-      setPos((prev) => (prev.top === top && prev.left === left ? prev : { top, left }));
+      setPos((prev) =>
+        prev.top === next.top && prev.left === next.left ? prev : next
+      );
     };
 
     place();
     // Recharts may change height after first paint
     const raf = requestAnimationFrame(place);
     window.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("scroll", place);
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("scroll", place);
     };
   }, [anchor.top, anchor.left, anchor.right, anchor.bottom]);
 
@@ -404,7 +438,7 @@ function PreviewPopover({
   const node = (
     <div
       ref={popoverRef}
-      className="pointer-events-auto fixed z-[200] w-64 rounded-[1.5rem] bg-white p-5 shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04]"
+      className="pointer-events-auto fixed z-[200] w-64 max-w-[calc(100vw-24px)] rounded-[1.5rem] bg-white p-5 shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04]"
       style={{
         top: pos.top,
         left: pos.left,

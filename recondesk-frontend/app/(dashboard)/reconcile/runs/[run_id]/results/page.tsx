@@ -110,7 +110,7 @@ import {
   topSuppliersThTotal,
   topSuppliersThTradeName,
 } from "@/components/reconcile/ResultsUi";
-import { apiFetch, reconcileSettingsApi } from "@/lib/api";
+import { apiFetch, isApiError, reconcileSettingsApi } from "@/lib/api";
 import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
@@ -2294,8 +2294,11 @@ export default function ReconcileResultsPage() {
       if (authProfileKey) void swrMutate(authProfileKey);
       void swrMutate(["settings-me", authToken]);
       void swrMutate(["settings-me-recon", authToken]);
-    } catch {
-      addToast("Failed to save threshold", "error");
+    } catch (err) {
+      addToast(
+        isApiError(err) ? err.detail : "Failed to save threshold",
+        "error"
+      );
     } finally {
       setAutoApproveSaving(false);
     }
