@@ -347,6 +347,10 @@
     animation: how-works-metric 0.45s ease-out both;
   }
 
+  .how-works-results {
+    will-change: opacity, filter, transform;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .landing-dash-enter,
     .landing-dash-stagger-1,
@@ -363,6 +367,12 @@
     .how-works-ring,
     .how-works-metric {
       animation: none !important;
+      opacity: 1 !important;
+      transform: none !important;
+    }
+
+    .how-works-results {
+      filter: none !important;
       opacity: 1 !important;
       transform: none !important;
     }
