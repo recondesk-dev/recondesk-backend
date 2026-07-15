@@ -1,5 +1,5 @@
 /**
- * Types + client for POST /api/gstr1-reconcile/ (sales-side GSTR-1 check).
+ * Types + client for POST /api/gstr1-reconcile (sales-side GSTR-1 check).
  */
 
 import { apiFetch, isApiError } from "@/lib/api";
@@ -218,7 +218,7 @@ export async function runGstr1Reconcile(
   }
 
   try {
-    const result = await apiFetch<Gstr1ReconcileResult>("/api/gstr1-reconcile/", {
+    const result = await apiFetch<Gstr1ReconcileResult>("/api/gstr1-reconcile", {
       method: "POST",
       token: input.token,
       body: form,

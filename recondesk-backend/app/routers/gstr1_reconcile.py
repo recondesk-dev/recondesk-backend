@@ -45,7 +45,10 @@ from app.reconciliation.gstr1_vs_3b import reconcile_gstr1_vs_3b
 
 _log = logging.getLogger(__name__)
 
-router = APIRouter()
+# Match app-wide redirect_slashes=False (main.py) and peer routers like
+# clients/gstin — register at "" so POST /api/gstr1-reconcile works without
+# a trailing slash (frontend normalizeApiPath strips trailing slashes).
+router = APIRouter(redirect_slashes=False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -393,7 +396,7 @@ def _run_pipeline(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.post(
-    "/",
+    "",
     summary="Run GSTR-1 sales-side reconciliation",
     response_description=(
         "Combined reconciliation results with WHAT/WHY/NEXT decisions "
