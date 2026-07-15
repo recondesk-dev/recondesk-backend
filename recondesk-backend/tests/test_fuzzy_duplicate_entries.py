@@ -170,3 +170,105 @@ def test_linked_extra_with_taxable_drift_high_sim_is_duplicate():
     assert stats["duplicate_entry_count"] == 1
     assert res["duplicate_entries"][0]["id"] == "p-extra"
     assert res["duplicate_entries"][0]["matched_pr_id"] == "p-canon"
+
+
+def test_exact_invoice_double_booking_with_amount_drift_is_duplicate():
+    """Same invoice booked twice with ~4% taxable drift → Duplicate, not ITC at Risk.
+
+    Claude's tame-pack gap: exact-key extras with small amount typos used to leak
+    into ITC at Risk because prepass required ₹1 equality.
+    """
+    g_taxable, g_tax = 10_000_000, 1_800_000
+    extra_taxable = 10_400_000  # 4%
+    extra_tax = 1_872_000
+
+    gstr = [_g("g1", "INV-9001", g_taxable, g_tax)]
+    pr = [
+        _p("p-canon", "INV-9001", g_taxable, g_tax),
+        _p("p-extra", "INV-9001", extra_taxable, extra_tax),
+    ]
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+    stats = res["stats"]
+
+    assert stats["wrongful_risk_count"] == 0
+    assert stats["duplicate_entry_count"] == 1
+    assert stats["clean_matched_count"] + stats["review_required_count"] == 1
+    assert res["duplicate_entries"][0]["id"] == "p-extra"
+    assert res["duplicate_entries"][0]["matched_pr_id"] == "p-canon"
+
+
+def test_exact_invoice_double_booking_with_date_drift_is_duplicate():
+    """Same invoice twice, 50 days apart → still Duplicate Entry (exact-inv gate)."""
+    g_taxable, g_tax = 5_000_000, 900_000
+    gstr = [_g("g1", "INV-9002", g_taxable, g_tax, inv_date="2026-01-05")]
+    pr = [
+        _p("p-canon", "INV-9002", g_taxable, g_tax, inv_date="2026-01-05"),
+        _p("p-extra", "INV-9002", g_taxable, g_tax, inv_date="2026-02-24"),  # 50d
+    ]
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+    stats = res["stats"]
+
+    assert stats["wrongful_risk_count"] == 0
+    assert stats["duplicate_entry_count"] == 1
+    assert res["duplicate_entries"][0]["id"] == "p-extra"
+
+
+def test_exact_invoice_peer_with_amount_drift_flags_one_duplicate():
+    """No GSTR: two exact-invoice PR copies with 4% drift → one Dup, one Risk."""
+    a_taxable, a_tax = 8_000_000, 1_440_000
+    b_taxable, b_tax = 8_320_000, 1_497_600  # 4%
+
+    res = run_bidirectional_reconciliation(
+        [],
+        [
+            _p("p-a", "INV-PEER-01", a_taxable, a_tax),
+            _p("p-b", "INV-PEER-01", b_taxable, b_tax),
+        ],
+        gstr_period=PERIOD,
+    )
+    stats = res["stats"]
+
+    assert stats["duplicate_entry_count"] == 1
+    assert stats["wrongful_risk_count"] == 1
+    assert {d["id"] for d in res["duplicate_entries"]} | {
+        w["id"] for w in res["wrongful_itc_risk"]
+    } == {"p-a", "p-b"}
+
+
+def test_exact_invoice_amount_drift_over_5pct_not_forced_duplicate():
+    """Exact invoice but >5% taxable gap → do not force Duplicate (leave as Risk)."""
+    g_taxable, g_tax = 10_000_000, 1_800_000
+    extra_taxable = 10_600_000  # 6%
+    extra_tax = 1_908_000
+
+    gstr = [_g("g1", "INV-9003", g_taxable, g_tax)]
+    pr = [
+        _p("p-canon", "INV-9003", g_taxable, g_tax),
+        _p("p-extra", "INV-9003", extra_taxable, extra_tax),
+    ]
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+    stats = res["stats"]
+
+    # Survivor matches GSTR; the far-drift twin must not be auto-labeled Duplicate.
+    assert stats["clean_matched_count"] + stats["review_required_count"] == 1
+    assert stats["duplicate_entry_count"] == 0
+    assert stats["wrongful_risk_count"] == 1
+    assert {w["id"] for w in res["wrongful_itc_risk"]} == {"p-extra"}
+
+
+def test_different_invoices_near_amounts_not_collapsed_as_duplicates():
+    """Same vendor, different invoice numbers, similar amounts → never Duplicate."""
+    gstr = [
+        _g("g1", "BOOK-1001", 1_000_000, 180_000),
+        _g("g2", "BOOK-1002", 1_020_000, 183_600),
+    ]
+    pr = [
+        _p("p1", "BOOK-1001", 1_000_000, 180_000),
+        _p("p2", "BOOK-1002", 1_020_000, 183_600),
+    ]
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+    stats = res["stats"]
+
+    assert stats.get("duplicate_entry_count", 0) == 0
+    assert stats["wrongful_risk_count"] == 0
+    assert stats["clean_matched_count"] + stats["review_required_count"] == 2

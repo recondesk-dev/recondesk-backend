@@ -28,6 +28,14 @@ from app.services.gstr3b_reconciliation import _paise_to_rupees
 
 logger = logging.getLogger(__name__)
 
+# Exact same (GSTIN, normalized invoice) double-bookings may still drift a few
+# percent in taxable/tax or by several days between the two PR entries. Keep
+# these gates ONLY for exact invoice equality — never for fuzzy invoice pairs —
+# so unrelated same-vendor rows cannot collapse into Duplicate Entry.
+EXACT_INVOICE_DUP_TAXABLE_PCT = 0.05  # 5%
+EXACT_INVOICE_DUP_TAX_PCT = 0.05  # 5%
+EXACT_INVOICE_DUP_DATE_DAYS = 60
+
 
 def normalize_invoice_number(s: str | None) -> str:
     """Uppercase the string, strip all non-alphanumeric characters. Do NOT strip leading zeros."""
@@ -515,6 +523,27 @@ def _is_multiline_pr_split(
     return True
 
 
+def _exact_invoice_amounts_near(
+    a_taxable: int,
+    a_tax: int,
+    b_taxable: int,
+    b_tax: int,
+    *,
+    tolerance_paise: int = TOTAL_TOLERANCE_PAISE,
+    taxable_pct: float = EXACT_INVOICE_DUP_TAXABLE_PCT,
+    tax_pct: float = EXACT_INVOICE_DUP_TAX_PCT,
+) -> bool:
+    """Amount proximity for exact-(GSTIN, invoice) double-bookings only."""
+    if (
+        abs(a_taxable - b_taxable) <= tolerance_paise
+        and abs(a_tax - b_tax) <= tolerance_paise
+    ):
+        return True
+    return _pct_within(a_taxable, b_taxable, taxable_pct) and (
+        abs(a_tax - b_tax) <= tolerance_paise or _pct_within(a_tax, b_tax, tax_pct)
+    )
+
+
 def _is_true_duplicate_pr_group(
     g: dict,
     p_ids: list[str],
@@ -527,6 +556,7 @@ def _is_true_duplicate_pr_group(
     Distinguishes true data-entry duplicates from mixed groups (e.g. one full
     booking plus an unrelated partial row sharing the same invoice number).
     Uses magnitude compare so credit-note / CDNR sign differences still count.
+    Allows small %-drift so double-bookings with rounding typos still count.
     """
     if len(p_ids) < 2:
         return False
@@ -536,9 +566,9 @@ def _is_true_duplicate_pr_group(
         p = pr_by_id[pid]
         p_taxable = abs(int(p.get("taxable_amount_paise") or 0))
         p_tax = abs(int(p.get("total_tax_paise") or 0))
-        if abs(p_taxable - g_taxable) > tolerance_paise:
-            return False
-        if abs(p_tax - g_tax) > tolerance_paise:
+        if not _exact_invoice_amounts_near(
+            g_taxable, g_tax, p_taxable, p_tax, tolerance_paise=tolerance_paise
+        ):
             return False
     return True
 
@@ -559,8 +589,9 @@ def _flag_pr_to_pr_clone_duplicates(
     ``_is_true_duplicate_pr_group`` misses those because it requires every PR to
     match the GSTR full value — the extras then leaked into ITC at Risk.
 
-    Clusters remaining PRs by absolute (taxable, total_tax) within tolerance,
-    keeps one canonical per cluster (closest to GSTR), flags the rest.
+    Clusters remaining PRs by absolute (taxable, total_tax) within tolerance
+    or a small %, keeps one canonical per cluster (closest to GSTR), flags the
+    rest. Caller already grouped by exact (GSTIN, invoice) key.
     Returns how many extras were flagged.
     """
     remaining = [pid for pid in p_ids if str(pid) not in state.consumed_pr_ids]
@@ -568,7 +599,7 @@ def _flag_pr_to_pr_clone_duplicates(
         return 0
 
     # Greedy clusters: each PR joins the first cluster whose representative is
-    # within tolerance on both taxable and total tax (magnitude).
+    # within exact-invoice amount proximity (₹1 or small %).
     clusters: list[list[str]] = []
     for pid in remaining:
         p = pr_by_id[pid]
@@ -579,9 +610,12 @@ def _flag_pr_to_pr_clone_duplicates(
             rep = pr_by_id[cluster[0]]
             r_taxable = abs(int(rep.get("taxable_amount_paise") or 0))
             r_tax = abs(int(rep.get("total_tax_paise") or 0))
-            if (
-                abs(p_taxable - r_taxable) <= tolerance_paise
-                and abs(p_tax - r_tax) <= tolerance_paise
+            if _exact_invoice_amounts_near(
+                p_taxable,
+                p_tax,
+                r_taxable,
+                r_tax,
+                tolerance_paise=tolerance_paise,
             ):
                 cluster.append(pid)
                 placed = True
@@ -707,23 +741,38 @@ def flag_fuzzy_duplicates_of_linked_prs(
             c_inv = str(cp.get("invoice_number_normalized") or "")
             if not c_inv:
                 continue
-            sim = 1.0 if c_inv == inv else invoice_similarity(inv, c_inv)
-            if sim < invoice_sim_min:
+            exact_inv = c_inv == inv
+            sim = 1.0 if exact_inv else invoice_similarity(inv, c_inv)
+            if not exact_inv and sim < invoice_sim_min:
                 ok_digit, _ = _invoice_twin_similarity_ok(
                     inv, c_inv, sim_min=invoice_sim_min, digit_dist_max=2
                 )
                 if not ok_digit:
                     continue
-            taxable_ok = abs(c_tax - abs(tax)) <= amount_tolerance_paise or (
-                sim >= 0.85 and _pct_within(c_tax, abs(tax), 0.02)
-            )
-            if not taxable_ok:
-                continue
-            tax_ok = abs(c_tot - tot) <= amount_tolerance_paise or sim >= 0.85
-            if not tax_ok:
-                continue
+            # Exact invoice: allow wider amount/date drift (double-booking
+            # typos). Fuzzy invoice: keep the stricter 2%/₹1 + 30d gates.
+            if exact_inv:
+                if not _exact_invoice_amounts_near(
+                    c_tax,
+                    c_tot,
+                    abs(tax),
+                    tot,
+                    tolerance_paise=amount_tolerance_paise,
+                ):
+                    continue
+                max_date_days = EXACT_INVOICE_DUP_DATE_DAYS
+            else:
+                taxable_ok = abs(c_tax - abs(tax)) <= amount_tolerance_paise or (
+                    sim >= 0.85 and _pct_within(c_tax, abs(tax), 0.02)
+                )
+                if not taxable_ok:
+                    continue
+                tax_ok = abs(c_tot - tot) <= amount_tolerance_paise or sim >= 0.85
+                if not tax_ok:
+                    continue
+                max_date_days = date_tolerance_days
             c_date = _parse_invoice_date(cp)
-            if p_date and c_date and abs((p_date - c_date).days) > date_tolerance_days:
+            if p_date and c_date and abs((p_date - c_date).days) > max_date_days:
                 continue
             if best is None or sim > best[0] or (sim == best[0] and cid < str(best[1]["id"])):
                 best = (sim, cp)
@@ -763,6 +812,9 @@ def flag_fuzzy_pr_peer_duplicates(
     linked-only sweep cannot see them and both would become ITC at Risk.
     Keep one canonical survivor (earliest date, then lowest id); extras →
     Duplicate Entry.
+
+    Exact same invoice number uses the wider exact-invoice amount/date gates;
+    fuzzy peers keep the stricter digit-spine + 2% path.
     """
     from app.services.matcher import _parse_invoice_date
 
@@ -795,7 +847,8 @@ def flag_fuzzy_pr_peer_duplicates(
             if cid in state.consumed_pr_ids or cid in claimed:
                 continue
             c_inv = str(canon.get("invoice_number_normalized") or "")
-            c_tax = int(canon.get("taxable_amount_paise") or 0)
+            c_tax = abs(int(canon.get("taxable_amount_paise") or 0))
+            c_tot = abs(int(canon.get("total_tax_paise") or 0))
             c_date = _parse_invoice_date(canon)
             for extra in ordered[i + 1 :]:
                 eid = str(extra["id"])
@@ -807,14 +860,22 @@ def flag_fuzzy_pr_peer_duplicates(
                 ok, sim = _peer_pr_invoice_clone_ok(c_inv, e_inv)
                 if not ok:
                     continue
-                e_tax = int(extra.get("taxable_amount_paise") or 0)
-                if not (
-                    abs(c_tax - e_tax) <= TOTAL_TOLERANCE_PAISE
-                    or _pct_within(c_tax, e_tax, taxable_pct)
-                ):
-                    continue
+                e_tax = abs(int(extra.get("taxable_amount_paise") or 0))
+                e_tot = abs(int(extra.get("total_tax_paise") or 0))
+                exact_inv = c_inv == e_inv
+                if exact_inv:
+                    if not _exact_invoice_amounts_near(c_tax, c_tot, e_tax, e_tot):
+                        continue
+                    max_date_days = EXACT_INVOICE_DUP_DATE_DAYS
+                else:
+                    if not (
+                        abs(c_tax - e_tax) <= TOTAL_TOLERANCE_PAISE
+                        or _pct_within(c_tax, e_tax, taxable_pct)
+                    ):
+                        continue
+                    max_date_days = date_tolerance_days
                 e_date = _parse_invoice_date(extra)
-                if c_date and e_date and abs((c_date - e_date).days) > date_tolerance_days:
+                if c_date and e_date and abs((c_date - e_date).days) > max_date_days:
                     continue
                 _push_duplicate_entry(
                     state,
