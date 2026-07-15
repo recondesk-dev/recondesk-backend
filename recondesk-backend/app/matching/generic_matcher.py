@@ -204,6 +204,33 @@ def _gstin_match(
     return bool(a) and bool(b) and a.upper() == b.upper()
 
 
+def _gstin_both_absent(
+    rec_a: Mapping[str, Any],
+    rec_b: Mapping[str, Any],
+    config: MatchFieldsConfig,
+) -> bool:
+    """True when neither side has a GSTIN (B2CL / Export / unregistered)."""
+    a = _get_gstin(rec_a, config.a_gstin_fields)
+    b = _get_gstin(rec_b, config.b_gstin_fields)
+    return not a and not b
+
+
+def _gstin_identity_ok(
+    rec_a: Mapping[str, Any],
+    rec_b: Mapping[str, Any],
+    config: MatchFieldsConfig,
+) -> bool:
+    """Identity gate for L1–L3: matching GSTIN, or both sides blank.
+
+    When GSTIN is present on at least one side it remains the primary key
+    (both must match). When both sides are empty/null — legitimate for
+    B2CL and Export — identity falls through to invoice + amount + date.
+    """
+    return _gstin_match(rec_a, rec_b, config) or _gstin_both_absent(
+        rec_a, rec_b, config
+    )
+
+
 def _get_name(rec: Mapping[str, Any], field_name: str) -> str:
     """Extract counterparty name from *rec*."""
     return str(rec.get(field_name) or "").strip()
@@ -317,6 +344,9 @@ def _build_compared_fields(
     )
     if gstin_exact:
         out.append(_field_entry("gstin", "exact"))
+    elif not a_gst and not b_gst:
+        # Both blank (B2CL / Export) — not a mismatch; identity is invoice-based.
+        out.append(_field_entry("gstin", "exact"))
     elif a_gst and b_gst and same_pan(a_gst, b_gst):
         out.append(_field_entry("gstin", "fuzzy"))
     elif a_gst and b_gst:
@@ -330,6 +360,7 @@ def _build_compared_fields(
         else:
             out.append(_field_entry("gstin", "not_matched"))
     else:
+        # One side present, other blank — identity mismatch.
         out.append(_field_entry("gstin", "not_matched"))
 
     # ── Invoice number ───────────────────────────────────────────────────────
@@ -540,7 +571,10 @@ def generic_match_pair(
     amount_diff, skip_amount = _amount_diff_and_skip(ta, tb)
     date_diff_days, skip_date = _date_diff_days_and_skip(da, db)
 
+    # Exact non-empty GSTIN equality (L4 typo / L5 fuzzy still require this).
     gstin_ok = _gstin_match(rec_a, rec_b, config)
+    # L1–L3 identity: matching GSTIN, OR both blank (B2CL / Export).
+    identity_ok = _gstin_identity_ok(rec_a, rec_b, config)
     a_total = _invoice_total_paise(rec_a)
     b_total = _invoice_total_paise(rec_b)
     total_diff = abs(abs(a_total) - abs(b_total))
@@ -631,7 +665,7 @@ def generic_match_pair(
     # ══════════════════════════════════════════════════════════════════════
     # PERIOD-BOUNDARY DATE MISMATCH
     # ══════════════════════════════════════════════════════════════════════
-    if crosses_return_period and gstin_ok and (inv_ok or format_variant):
+    if crosses_return_period and identity_ok and (inv_ok or format_variant):
         a_period = _format_gst_return_period_label(da)
         b_period = _format_gst_return_period_label(db)
         a_date_label = _format_invoice_date_label(da)
@@ -674,7 +708,7 @@ def generic_match_pair(
         and tax_only_diff <= AMOUNT_TOLERANCE_L1_PAISE
     )
     if (
-        gstin_ok
+        identity_ok
         and (inv_ok or format_variant)
         and _name_ok
         and zero_discrepancy
@@ -709,9 +743,10 @@ def generic_match_pair(
         )
 
     # ══════════════════════════════════════════════════════════════════════
-    # TIER 1 — Same GSTIN + exact raw invoice + amount/date within L1
+    # TIER 1 — Identity OK + exact raw invoice + amount/date within L1
+    # Identity = same GSTIN, or both GSTINs blank (B2CL / Export).
     # ══════════════════════════════════════════════════════════════════════
-    if gstin_ok and raw_inv_ok and _name_ok:
+    if identity_ok and raw_inv_ok and _name_ok:
         if amount_within_l1 and date_within_l1 and l12_finance_ok:
             return _ret(
                 level=1, matched=True, confidence=100,
@@ -722,13 +757,13 @@ def generic_match_pair(
                 discrepancies=discrepancies,
                 identity_confidence="High", financial_status=financial_status,
             )
-        # Same raw invoice + same GSTIN + vendor ok but financial mismatch —
+        # Same raw invoice + identity ok + vendor ok but financial mismatch —
         # fall through to L2/L3 for human review.
 
     # ══════════════════════════════════════════════════════════════════════
-    # TIER 2 — Same GSTIN + normalised invoice match
+    # TIER 2 — Identity OK + normalised invoice match
     # ══════════════════════════════════════════════════════════════════════
-    if gstin_ok and inv_ok:
+    if identity_ok and inv_ok:
         if amount_within_l2 and date_within_l2 and tax_structure_match:
             return _ret(
                 level=2, matched=True, confidence=90,
@@ -747,7 +782,7 @@ def generic_match_pair(
                 review_reason="Amount/Date mismatch",
             )
 
-        # Same GSTIN + same normalised invoice but amount or date exceeds
+        # Identity ok + same normalised invoice but amount or date exceeds
         # L2 — link as L3 review. Exact invoice identity is never rejected.
         if not tax_structure_match or not l12_finance_ok or not amount_within_l2:
             rr = "AMOUNT_MISMATCH"
@@ -767,9 +802,9 @@ def generic_match_pair(
         )
 
     # ══════════════════════════════════════════════════════════════════════
-    # TIER 3 — Same GSTIN + format-variant invoice
+    # TIER 3 — Identity OK + format-variant invoice
     # ══════════════════════════════════════════════════════════════════════
-    if gstin_ok and format_variant:
+    if identity_ok and format_variant:
         if amount_within_l3 and date_within_l3:
             return _ret(
                 level=3, matched=True, confidence=75,
@@ -1034,7 +1069,8 @@ def generic_match_one_to_many(
     sel_a_total = _invoice_total_paise(rec_a)
     sel_b_total = _invoice_total_paise(rec_b_sel)
     total_diff_sel = abs(abs(sel_a_total) - abs(sel_b_total))
-    gstin_match_sel = _gstin_match(rec_a, rec_b_sel, config)
+    # Both-blank GSTIN is identity-safe (B2CL / Export); do not downgrade.
+    gstin_match_sel = _gstin_identity_ok(rec_a, rec_b_sel, config)
     enforce = bool(
         final.level >= 2
         and (

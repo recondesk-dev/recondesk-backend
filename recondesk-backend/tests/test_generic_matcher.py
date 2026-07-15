@@ -87,7 +87,7 @@ def _purchase_pr(
 
 def _sales_sr(
     *,
-    gstin: str = "27BBBFV1234A1ZP",
+    gstin: str | None = "27BBBFV1234A1ZP",
     inv: str = "SR-500",
     inv_norm: str | None = None,
     amount_paise: int = 200000,
@@ -117,7 +117,7 @@ def _sales_sr(
 
 def _sales_gstr1(
     *,
-    gstin: str = "27BBBFV1234A1ZP",
+    gstin: str | None = "27BBBFV1234A1ZP",
     inv: str = "SR-500",
     inv_norm: str | None = None,
     amount_paise: int = 200000,
@@ -276,6 +276,45 @@ class TestSalesPairL1:
         assert r.matched is True
         assert r.confidence == 100
         assert r.requires_human_review is False
+
+    def test_b2cl_both_null_gstin_matches_l1(self):
+        """B2CL/Export: null GSTIN on both sides still matches on inv+amount+date."""
+        sr = _sales_sr(
+            gstin=None,
+            inv="RD2026272028",
+            inv_norm="RD2026272028",
+            amount_paise=25000000,
+            tax_paise=4500000,
+            igst_paise=4500000,
+            inv_date="2026-07-12",
+            recipient_name="Priya Electronics",
+        )
+        g1 = _sales_gstr1(
+            gstin=None,
+            inv="RD2026272028",
+            inv_norm="RD2026272028",
+            amount_paise=25000000,
+            tax_paise=4500000,
+            igst_paise=4500000,
+            inv_date="2026-07-12",
+            recipient_name="",
+        )
+        r = generic_match_pair(sr, g1, SALES_MATCH_CONFIG)
+        assert r.matched is True
+        assert r.level == 1
+        assert r.confidence == 100
+        gstin_cf = next(
+            f for f in r.compared_fields if f["field_name"] == "gstin"
+        )
+        assert gstin_cf["match_type"] == "exact"
+
+    def test_one_side_gstin_other_blank_does_not_match(self):
+        """GSTIN present on one side only remains a hard identity failure."""
+        sr = _sales_sr(gstin="27BBBFV1234A1ZP", inv="B2CL-99")
+        g1 = _sales_gstr1(gstin=None, inv="B2CL-99")
+        r = generic_match_pair(sr, g1, SALES_MATCH_CONFIG)
+        assert r.matched is False
+        assert r.level == 6
 
 
 class TestSalesPairL2:
