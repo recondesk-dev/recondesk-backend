@@ -279,6 +279,13 @@ export default function ClientDetailPage() {
                 Start New Reconciliation
               </Link>
             )}
+            <Link
+              href="/reconcile/gstr1/new"
+              title="Sales Register ↔ GSTR-1 ↔ GSTR-3B tie-out"
+              className="inline-flex items-center justify-center rounded-full bg-[#F5F5F6] px-4 py-2 text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-gray-200/70"
+            >
+              GSTR-1 Check
+            </Link>
           </div>
         </div>
       )}

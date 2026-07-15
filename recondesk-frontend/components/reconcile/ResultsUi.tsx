@@ -629,7 +629,12 @@ export type ResultsBucketTabId =
   | "rule37"
   | "section17"
   | "gstr3b"
-  | "followup";
+  | "followup"
+  /** Sales / GSTR-1 reconciliation buckets */
+  | "unmatched_sr"
+  | "unmatched_gstr1"
+  | "tie_out"
+  | "diagnostics";
 
 const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "matched", label: "Matched" },
@@ -643,26 +648,47 @@ const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "followup", label: "Follow-up Log" },
 ];
 
+/** Default purchase-side tabs. Sales pages pass an explicit `tabs` list. */
+export const PURCHASE_RESULTS_BUCKET_TABS = RESULTS_BUCKET_TABS;
+
+export const SALES_RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
+  { id: "matched", label: "Matched" },
+  { id: "review_required", label: "Review Required" },
+  { id: "unmatched_sr", label: "Missing in GSTR-1" },
+  { id: "unmatched_gstr1", label: "Extra in GSTR-1" },
+  { id: "tie_out", label: "GSTR-1 vs 3B" },
+  { id: "diagnostics", label: "Diagnostics" },
+];
+
 export function ResultsBucketTabs({
   active,
   onChange,
   rightContent,
   tabCounts,
+  tabs,
+  ariaLabel = "Reconciliation results",
 }: {
   active: ResultsBucketTabId;
   onChange: (tab: ResultsBucketTabId) => void;
   rightContent?: ReactNode;
   /** Optional record count to display next to each tab label, e.g. { matched: 4222, review_required: 860 } */
   tabCounts?: Partial<Record<ResultsBucketTabId, number>>;
+  /**
+   * Override the tab list. Defaults to purchase reconciliation tabs.
+   * Sales / GSTR-1 pages should pass `SALES_RESULTS_BUCKET_TABS`.
+   */
+  tabs?: { id: ResultsBucketTabId; label: string }[];
+  ariaLabel?: string;
 }) {
+  const tabList = tabs ?? RESULTS_BUCKET_TABS;
   return (
     <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <nav
         className="flex flex-wrap gap-1.5"
         role="tablist"
-        aria-label="Reconciliation results"
+        aria-label={ariaLabel}
       >
-        {RESULTS_BUCKET_TABS.map(({ id, label }) => {
+        {tabList.map(({ id, label }) => {
           const isActive = active === id;
           const count = tabCounts?.[id];
           return (
