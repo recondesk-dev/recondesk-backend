@@ -951,6 +951,9 @@ export default function ReconcileResultsPage() {
     readStoredReconcileTablePageSize(RECONCILE_PAGE_SIZE_STORAGE_KEYS.rule37)
   );
   const [rule37Page, setRule37Page] = useState(1);
+  const [section17PageSize, setSection17PageSize] = useState(() =>
+    readStoredReconcileTablePageSize(RECONCILE_PAGE_SIZE_STORAGE_KEYS.section17)
+  );
   const [section17Page, setSection17Page] = useState(1);
 
   const [resultsTab, setResultsTab] = useState<ResultsBucketTabId>("matched");
@@ -983,6 +986,9 @@ export default function ReconcileResultsPage() {
   useEffect(() => {
     if (resultsTab === "rule37") {
       setRule37Open(true);
+    }
+    if (resultsTab === "section17") {
+      setSection17Open(true);
     }
   }, [resultsTab]);
 
@@ -1147,6 +1153,18 @@ export default function ReconcileResultsPage() {
         size,
         setRule37PageSize,
         setRule37Page
+      );
+    },
+    [handleTablePageSizeChange]
+  );
+
+  const handleSection17PageSizeChange = useCallback(
+    (size: number) => {
+      handleTablePageSizeChange(
+        RECONCILE_PAGE_SIZE_STORAGE_KEYS.section17,
+        size,
+        setSection17PageSize,
+        setSection17Page
       );
     },
     [handleTablePageSizeChange]
@@ -1791,11 +1809,11 @@ export default function ReconcileResultsPage() {
     () =>
       authReady && runId && section17Open
         ? ([
-            `/api/reconcile/runs/${runId}/section17?page=${section17Page}&limit=50`,
+            `/api/reconcile/runs/${runId}/section17?page=${section17Page}&limit=${section17PageSize}`,
             authToken,
           ] as const)
         : null,
-    [authReady, runId, section17Page, authToken, section17Open]
+    [authReady, runId, section17Page, section17PageSize, authToken, section17Open]
   );
 
   const {
@@ -2684,6 +2702,10 @@ export default function ReconcileResultsPage() {
               duplicate_entry: summary.duplicate_entry_count ?? 0,
               risk: summary.wrongful_risk_count ?? 0,
               itc: summary.missed_itc_count ?? 0,
+              ...(section17Data != null
+                ? { section17: section17Data.total }
+                : {}),
+              ...(rule37Data != null ? { rule37: rule37Data.total } : {}),
             }}
             rightContent={
               <div className="flex flex-col items-end gap-1.5">
@@ -4900,28 +4922,29 @@ export default function ReconcileResultsPage() {
         )}
 
         {/* Section 17(5) */}
+        {resultsTab === "section17" && (
         <div className={sectionContainerClass}>
           <button
             type="button"
-            className="flex w-full items-center justify-between text-left transition-all duration-150"
+            className="flex w-full items-center justify-between gap-3 text-left transition-all duration-150"
             onClick={() => setSection17Open((o) => !o)}
           >
-            <span className="flex items-center gap-2">
+            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
               <span
-                className="h-2 w-2 shrink-0 rounded-full bg-gray-400"
+                className="h-2 w-2 shrink-0 rounded-full bg-gray-500"
                 aria-hidden
               />
               <span className="text-lg font-semibold text-gray-900">
                 Section 17(5) — Blocked ITC Flags
-                {section17Data != null && (
-                  <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
-                    {section17Data.total}
-                  </span>
-                )}
               </span>
+              {section17Data != null && (
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
+                  {section17Data.total}
+                </span>
+              )}
             </span>
             <ChevronDown
-              className={`h-5 w-5 shrink-0 text-gray-500 transition-transform ${
+              className={`h-5 w-5 shrink-0 text-gray-400 transition-transform duration-150 ${
                 section17Open ? "rotate-180" : ""
               }`}
             />
@@ -4947,14 +4970,34 @@ export default function ReconcileResultsPage() {
                 section17Data.data.map((row) => (
                   <div
                     key={row.id}
-                    className="mb-3 rounded-2xl border border-[#F0F0F0] bg-white p-5"
+                    className="mb-3 rounded-2xl border border-[#F0F0F0] border-l-4 border-l-gray-400 bg-white p-5"
                   >
-                    {row.section_17_5_category && (
-                      <span className="mb-3 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
-                        {row.section_17_5_category}
-                      </span>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
+                        <GstinCell
+                          gstin={row.supplier_gstin}
+                          className="font-mono text-[12px] text-gray-400"
+                        />
+                        <span className="font-medium text-gray-800">
+                          {row.invoice_number}
+                        </span>
+                        <span className="text-gray-400">
+                          {formatDate(row.invoice_date)}
+                        </span>
+                        <AmountDisplay amount={row.amount} />
+                      </div>
+                      {row.section_17_5_category && (
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
+                          {row.section_17_5_category}
+                        </span>
+                      )}
+                    </div>
+                    {row.discrepancy_note && (
+                      <p className="mt-2 text-[12px] text-gray-400">
+                        HSN {row.discrepancy_note}
+                      </p>
                     )}
-                    <p className="text-[13px] font-medium text-gray-700">
+                    <p className="mt-3 text-[13px] font-medium text-gray-700">
                       {row.decision_what ?? "—"}
                     </p>
                     <p className="mt-1 text-[13px] text-gray-400">
@@ -4966,14 +5009,15 @@ export default function ReconcileResultsPage() {
                     <DecisionDiagnosticsBlock row={row} />
                   </div>
                 ))}
-              {section17Data &&
-                !section17Error &&
-                section17Data.total_pages > 1 && (
+              {section17Data && !section17Error && (
                   <ReconcilePaginationFooter
                     page={section17Data.page}
                     totalPages={section17Data.total_pages}
                     total={section17Data.total}
                     limit={section17Data.limit}
+                    pageSizeOptions={RECONCILE_TABLE_PAGE_SIZE_OPTIONS}
+                    pageSize={section17PageSize}
+                    onPageSizeChange={handleSection17PageSizeChange}
                     onPrev={() => setSection17Page((p) => Math.max(1, p - 1))}
                     onNext={() =>
                       setSection17Page((p) =>
@@ -4985,6 +5029,7 @@ export default function ReconcileResultsPage() {
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Drawer */}

@@ -11,6 +11,7 @@ export const RECONCILE_PAGE_SIZE_STORAGE_KEYS = {
   itc: "recondesk.reconcile.itcPageSize",
   risk: "recondesk.reconcile.riskPageSize",
   rule37: "recondesk.reconcile.rule37PageSize",
+  section17: "recondesk.reconcile.section17PageSize",
   followup: "recondesk.reconcile.followupPageSize",
 } as const;
 
