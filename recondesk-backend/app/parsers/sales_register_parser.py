@@ -487,10 +487,55 @@ def _parse_amount(raw_str: str) -> int | None:
 
 
 def _normalize_gstin_cell(val: Any) -> str | None:
+    """Upper-case GSTIN text, or ``None`` for blank / NaN cells.
+
+    Never returns the literal ``\"NAN\"`` — pandas missing values must not
+    leak into matching as a fake GSTIN string.
+    """
     s = _safe_cell(val)
     if s is None:
         return None
     return s.strip().upper()
+
+
+def _series_as_optional_str(ser: pd.Series, mapper) -> pd.Series:
+    """Map *ser* through *mapper* and keep real ``None`` (object dtype).
+
+    Pandas StringDtype / float upcasting turns Python ``None`` back into
+    ``NA`` / ``NaN``.  ``iterrows`` then yields ``nan``, and
+    ``str(nan).upper()`` becomes the bogus GSTIN ``\"NAN\"``.
+    """
+    values = [mapper(v) for v in ser.tolist()]
+    # Re-scrub in case mapper returned a pandas NA sentinel
+    cleaned: list[Any] = []
+    for v in values:
+        if v is None:
+            cleaned.append(None)
+            continue
+        try:
+            if pd.isna(v):
+                cleaned.append(None)
+                continue
+        except (TypeError, ValueError):
+            pass
+        cleaned.append(v)
+    return pd.Series(cleaned, index=ser.index, dtype=object)
+
+
+def _coerce_mapped_gstin_column(
+    df: pd.DataFrame, column_mapping: dict[str, str]
+) -> pd.DataFrame:
+    """Force the detected GSTIN column to optional strings before row parse.
+
+    Blank / B2C cells → ``None``.  Populated cells keep their exact text
+    (upper-cased), never coerced through a numeric dtype.
+    """
+    gstin_col = column_mapping.get("gstin")
+    if not gstin_col or gstin_col not in df.columns:
+        return df
+    out = df.copy()
+    out[gstin_col] = _series_as_optional_str(out[gstin_col], _normalize_gstin_cell)
+    return out
 
 
 def _normalize_invoice_number_cell(val: Any) -> str | None:
@@ -562,7 +607,7 @@ def normalize_dataframe_to_canonical_schema(
         canon = STANDARD_TO_CANONICAL[std_name]
         ser = df[orig_col]
         if canon == "gstin":
-            out_cols[canon] = ser.map(_normalize_gstin_cell)
+            out_cols[canon] = _series_as_optional_str(ser, _normalize_gstin_cell)
         elif canon == "invoice_number_normalized":
             out_cols[canon] = ser.map(_normalize_invoice_number_cell)
         elif canon == "invoice_date":
@@ -866,6 +911,9 @@ def _process_sr_sheet_rows(
         stripped = s.strip().lower()
         return not stripped or stripped in ("nan", "none", "nat")
 
+    # Ensure GSTIN column is optional-str before canonicalisation so blank
+    # B2C cells never survive as float NaN → literal "NAN".
+    df = _coerce_mapped_gstin_column(df, column_mapping)
     df_canon = normalize_dataframe_to_canonical_schema(df, column_mapping)
 
     for df_idx, row in df_canon.iterrows():
@@ -891,16 +939,19 @@ def _process_sr_sheet_rows(
         gstin_value: str | None = None
         gstin_valid = False
         if "gstin" in column_mapping:
-            raw_gstin = row.get("gstin")
+            # _safe_cell treats pandas/numpy NaN and the strings "nan"/"none"
+            # as missing — critical because ``is None`` is False for float nan,
+            # and ``str(nan).upper()`` would otherwise become "NAN".
+            raw_gstin = _safe_cell(row.get("gstin"))
             if raw_gstin is None:
                 # GSTIN can be absent for B2C sales — not an error on its own
                 pass
             else:
                 try:
-                    gstin_value = normalize_gstin(str(raw_gstin).strip())
+                    gstin_value = normalize_gstin(raw_gstin)
                     gstin_valid = True
                 except NormalizationError:
-                    gstin_value = str(raw_gstin).strip().upper() or None
+                    gstin_value = raw_gstin.strip().upper() or None
                     gstin_valid = False
 
         # --- Invoice number ---

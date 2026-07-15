@@ -286,7 +286,9 @@ def _normalize_gstin_value(val: Any) -> str | None:
     if val is None:
         return None
     s = str(val).strip()
-    if not s or s == "?" or s.upper() == "URP":
+    # "NAN"/"NONE"/"NAT" are pandas/numpy missing-value stringifications —
+    # never treat them as a real GSTIN in decision text.
+    if not s or s == "?" or s.upper() in ("URP", "NAN", "NONE", "NAT", "<NA>"):
         return None
     return s
 
