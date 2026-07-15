@@ -1,0 +1,523 @@
+"""GSTR-1 sales-side reconciliation endpoint — ``/api/gstr1-reconcile``.
+
+Chains the five standalone GSTR-1 modules end-to-end:
+
+1. ``sales_register_parser``  — parse the uploaded Sales Register file
+2. ``gstr1_parser``            — parse the uploaded GSTR-1 JSON
+3. ``generic_matcher``         — match SR records to GSTR-1 candidates
+4. ``gstr1_mismatch_rules``    — classify mismatches (G1M1–G1M6)
+5. ``gstr1_vs_3b``             — GSTR-1 vs GSTR-3B tie-out
+
+Returns combined ``{WHAT, WHY, NEXT, confidence}`` results matching the
+purchase-side API response shape.
+
+**This module does NOT modify any existing routes or purchase-side code.**
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from collections import defaultdict
+from typing import Any, Optional
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
+from pydantic import BaseModel
+
+from app.auth import get_current_active_user
+
+# ── Standalone GSTR-1 modules ────────────────────────────────────────────────
+from app.parsers.sales_register_parser import parse_sales_register, ParseError
+from app.parsers.gstr1_parser import parse_gstr1
+from app.parsers.gstr3b_parser import parse_gstr3b
+from app.matching.generic_matcher import match_sales_register_to_gstr1
+from app.rules.gstr1_mismatch_rules import classify_all_mismatches, MismatchResult
+from app.reconciliation.gstr1_vs_3b import reconcile_gstr1_vs_3b
+
+_log = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _confidence_label(confidence: int | None) -> str:
+    """Map a numeric 0-100 confidence score to HIGH/MEDIUM/LOW."""
+    if confidence is None:
+        return "LOW"
+    if confidence >= 90:
+        return "HIGH"
+    if confidence >= 60:
+        return "MEDIUM"
+    return "LOW"
+
+
+def _match_result_to_dict(mr: Any) -> dict[str, Any]:
+    """Serialise a ``MatchResult`` dataclass to a JSON-safe dict."""
+    return {
+        "match_level": mr.level,
+        "confidence": mr.confidence,
+        "decision_what": mr.decision_what,
+        "decision_why": mr.decision_why,
+        "decision_next": mr.decision_next,
+        "decision_confidence": _confidence_label(mr.confidence),
+        "decision_rule": f"L{mr.level}_MATCH",
+        "requires_human_review": mr.requires_human_review,
+        "identity_confidence": getattr(mr, "identity_confidence", "High"),
+        "financial_status": getattr(mr, "financial_status", "Exact"),
+        "review_reason": mr.review_reason,
+        "discrepancies": list(mr.discrepancies) if mr.discrepancies else [],
+        "compared_fields": list(mr.compared_fields) if mr.compared_fields else [],
+        "is_late_filing": getattr(mr, "is_late_filing", False),
+    }
+
+
+def _mismatch_result_to_dict(mr: MismatchResult) -> dict[str, Any]:
+    """Serialise a ``MismatchResult`` to the unified decision dict."""
+    d = mr.to_dict()
+    # Ensure the unified decision_confidence field is present
+    if "decision_confidence" not in d:
+        d["decision_confidence"] = mr.to_decision_output().confidence
+    return d
+
+
+def _sanitise_record(rec: dict[str, Any]) -> dict[str, Any]:
+    """Strip non-serialisable fields (DataFrames, etc.) from a parser record."""
+    out: dict[str, Any] = {}
+    for k, v in rec.items():
+        if k in ("normalized_dataframe", "df_canon"):
+            continue
+        # Convert date objects to ISO strings
+        if hasattr(v, "isoformat"):
+            out[k] = v.isoformat()
+        else:
+            out[k] = v
+    return out
+
+
+def _build_gstin_index(
+    records: list[dict[str, Any]],
+    gstin_keys: tuple[str, ...],
+) -> dict[str, list[dict[str, Any]]]:
+    """Group records by GSTIN into a lookup dict."""
+    index: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for rec in records:
+        gstin = ""
+        for key in gstin_keys:
+            v = rec.get(key)
+            if v and str(v).strip():
+                gstin = str(v).strip().upper()
+                break
+        index[gstin].append(rec)
+    return dict(index)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Core pipeline
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _run_pipeline(
+    sr_file_content: bytes,
+    sr_filename: str,
+    gstr1_file_content: bytes,
+    gstr3b_file_content: bytes,
+    gstr1_filing_period: str | None,
+) -> dict[str, Any]:
+    """Execute the full GSTR-1 reconciliation pipeline.
+
+    Returns a JSON-serialisable result dict.
+    """
+    t0 = time.perf_counter()
+
+    # ── Step 1: Parse ─────────────────────────────────────────────────────
+    # 1a — Sales Register
+    sr_result = parse_sales_register(sr_file_content, sr_filename)
+    if not sr_result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "sales_register_parse_failed",
+                "errors": sr_result.get("errors", []),
+            },
+        )
+    sr_records: list[dict[str, Any]] = sr_result.get("records", [])
+    _log.info(
+        "gstr1_reconcile: SR parsed — %d records, %d skipped",
+        len(sr_records), sr_result.get("skipped_rows", 0),
+    )
+
+    # 1b — GSTR-1
+    try:
+        gstr1_result = parse_gstr1(gstr1_file_content)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "gstr1_parse_failed",
+                "message": str(exc),
+            },
+        )
+    gstr1_records: list[dict[str, Any]] = gstr1_result.get("records", [])
+    _log.info(
+        "gstr1_reconcile: GSTR-1 parsed — %d records, %d skipped",
+        len(gstr1_records), gstr1_result.get("total_skipped", 0),
+    )
+
+    # 1c — GSTR-3B
+    try:
+        gstr3b_data = json.loads(gstr3b_file_content)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "gstr3b_parse_failed",
+                "message": f"Invalid JSON: {exc.msg}",
+            },
+        )
+
+    try:
+        parsed_gstr3b = parse_gstr3b(gstr3b_data)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "gstr3b_parse_failed",
+                "message": str(exc),
+            },
+        )
+
+    # Derive filing period from GSTR-1 if not explicitly supplied
+    if not gstr1_filing_period:
+        fp_raw = gstr1_result.get("filing_period", "")
+        # filing_period is ISO date "2026-04-01" → convert to MMYYYY
+        if fp_raw and len(fp_raw) >= 7:
+            try:
+                parts = fp_raw.split("-")
+                gstr1_filing_period = f"{parts[1]}{parts[0]}"  # "042026"
+            except (IndexError, ValueError):
+                pass
+
+    # ── Step 2: Match ─────────────────────────────────────────────────────
+    # Group GSTR-1 candidates by recipient GSTIN for O(n·m/k) matching
+    gstr1_by_gstin = _build_gstin_index(
+        gstr1_records, ("recipient_gstin", "gstin"),
+    )
+
+    matched_pairs: list[tuple[dict, dict, dict]] = []  # (sr, gstr1, match_result_dict)
+    unmatched_sr: list[dict[str, Any]] = []
+    used_gstr1_ids: set[int] = set()
+
+    for sr_rec in sr_records:
+        sr_gstin = ""
+        for key in ("gstin",):
+            v = sr_rec.get(key)
+            if v and str(v).strip():
+                sr_gstin = str(v).strip().upper()
+                break
+
+        # Candidates: same GSTIN + all records with empty GSTIN (B2C)
+        candidates = list(gstr1_by_gstin.get(sr_gstin, []))
+        if sr_gstin:
+            candidates.extend(gstr1_by_gstin.get("", []))
+
+        match_result = match_sales_register_to_gstr1(sr_rec, candidates)
+
+        if match_result is not None and match_result.matched:
+            # Find the actual GSTR-1 record that was matched
+            # Re-run pair matching to identify which candidate won
+            from app.matching.generic_matcher import (
+                generic_match_pair,
+                SALES_MATCH_CONFIG,
+            )
+            best_candidate = None
+            best_level = 999
+            for cand in candidates:
+                cand_id = id(cand)
+                if cand_id in used_gstr1_ids:
+                    continue
+                pr = generic_match_pair(sr_rec, cand, SALES_MATCH_CONFIG)
+                if pr.matched and pr.level < best_level:
+                    best_level = pr.level
+                    best_candidate = cand
+
+            if best_candidate is not None:
+                used_gstr1_ids.add(id(best_candidate))
+                matched_pairs.append(
+                    (sr_rec, best_candidate, _match_result_to_dict(match_result))
+                )
+            else:
+                # Match found by one-to-many but all candidates already used
+                matched_pairs.append(
+                    (sr_rec, {}, _match_result_to_dict(match_result))
+                )
+        else:
+            unmatched_sr.append(sr_rec)
+
+    # Unmatched GSTR-1: records not consumed by any SR match
+    unmatched_gstr1: list[dict[str, Any]] = [
+        rec for rec in gstr1_records if id(rec) not in used_gstr1_ids
+    ]
+
+    _log.info(
+        "gstr1_reconcile: matching done — %d matched, %d unmatched_sr, %d unmatched_gstr1",
+        len(matched_pairs), len(unmatched_sr), len(unmatched_gstr1),
+    )
+
+    # ── Step 3: Classify mismatches ───────────────────────────────────────
+    mismatch_results = classify_all_mismatches(
+        unmatched_sr=unmatched_sr,
+        unmatched_gstr1=unmatched_gstr1,
+        matched_pairs=[(sr, g1) for sr, g1, _ in matched_pairs if g1],
+        gstr1_filing_period=gstr1_filing_period,
+    )
+
+    _log.info(
+        "gstr1_reconcile: classified %d mismatches", len(mismatch_results),
+    )
+
+    # ── Step 4: GSTR-1 vs 3B tie-out ─────────────────────────────────────
+    tie_out = reconcile_gstr1_vs_3b(gstr1_records, parsed_gstr3b)
+
+    _log.info(
+        "gstr1_reconcile: tie-out period=%s clean=%s variances=%d",
+        tie_out.ret_period, tie_out.is_clean, len(tie_out.variances),
+    )
+
+    # ── Step 5: Assemble response ─────────────────────────────────────────
+    elapsed = time.perf_counter() - t0
+
+    # Build matched rows with decision fields
+    matched_output: list[dict[str, Any]] = []
+    for sr_rec, gstr1_rec, mr_dict in matched_pairs:
+        matched_output.append({
+            "sr_record": _sanitise_record(sr_rec),
+            "gstr1_record": _sanitise_record(gstr1_rec) if gstr1_rec else None,
+            **mr_dict,
+        })
+
+    # Build unmatched SR rows with G1M1 decisions
+    unmatched_sr_output: list[dict[str, Any]] = []
+    # Build unmatched GSTR-1 rows with G1M2 decisions
+    unmatched_gstr1_output: list[dict[str, Any]] = []
+    # Build all mismatch decisions
+    mismatch_output: list[dict[str, Any]] = []
+    for mr in mismatch_results:
+        d = _mismatch_result_to_dict(mr)
+        mismatch_output.append(d)
+        if mr.mismatch_type.value == "G1M1_MISSING_INVOICE":
+            # Find the corresponding SR record
+            inv_num = mr.details.get("invoice_number", "?")
+            sr_match = next(
+                (r for r in unmatched_sr
+                 if (r.get("invoice_number") or r.get("invoice_number_normalized")) == inv_num),
+                None,
+            )
+            unmatched_sr_output.append({
+                "record": _sanitise_record(sr_match) if sr_match else {"invoice_number": inv_num},
+                **d,
+            })
+        elif mr.mismatch_type.value == "G1M2_EXTRA_INVOICE":
+            inv_num = mr.details.get("invoice_number", "?")
+            g1_match = next(
+                (r for r in unmatched_gstr1
+                 if (r.get("invoice_number") or r.get("invoice_number_normalized")) == inv_num),
+                None,
+            )
+            unmatched_gstr1_output.append({
+                "record": _sanitise_record(g1_match) if g1_match else {"invoice_number": inv_num},
+                **d,
+            })
+
+    # Tie-out section
+    tie_out_output: dict[str, Any] = tie_out.summary_dict()
+    tie_out_output["mismatch_decisions"] = [
+        _mismatch_result_to_dict(m) for m in tie_out.mismatches
+    ]
+
+    return {
+        "success": True,
+        "elapsed_seconds": round(elapsed, 3),
+        "summary": {
+            "sr_total_records": len(sr_records),
+            "gstr1_total_records": len(gstr1_records),
+            "matched_count": len(matched_pairs),
+            "unmatched_sr_count": len(unmatched_sr),
+            "unmatched_gstr1_count": len(unmatched_gstr1),
+            "mismatch_count": len(mismatch_results),
+            "tie_out_clean": tie_out.is_clean,
+            "tie_out_variance_count": len(tie_out.variances),
+        },
+        "matched": matched_output,
+        "unmatched_sr": unmatched_sr_output,
+        "unmatched_gstr1": unmatched_gstr1_output,
+        "mismatches": mismatch_output,
+        "tie_out": tie_out_output,
+        "parse_diagnostics": {
+            "sr": {
+                "total_rows": sr_result.get("total_rows", 0),
+                "valid_rows": sr_result.get("valid_rows", 0),
+                "skipped_rows": sr_result.get("skipped_rows", 0),
+                "source_software": sr_result.get("source_software", ""),
+                "detected_columns": sr_result.get("detected_columns", {}),
+                "warnings": sr_result.get("warnings", []),
+                "errors": sr_result.get("errors", []),
+                "sheets_used": sr_result.get("sheets_used", []),
+                "sheets_skipped": sr_result.get("sheets_skipped", []),
+            },
+            "gstr1": {
+                "filing_gstin": gstr1_result.get("filing_gstin", ""),
+                "filing_period": gstr1_result.get("filing_period", ""),
+                "total_parsed": gstr1_result.get("total_parsed", 0),
+                "total_skipped": gstr1_result.get("total_skipped", 0),
+                "section_counts": gstr1_result.get("section_counts", {}),
+                "sections_present": gstr1_result.get("sections_present", []),
+                "skip_breakdown_labeled": gstr1_result.get("skip_breakdown_labeled", []),
+            },
+        },
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Endpoint
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post(
+    "/",
+    summary="Run GSTR-1 sales-side reconciliation",
+    response_description=(
+        "Combined reconciliation results with WHAT/WHY/NEXT decisions "
+        "for matched, unmatched, and mismatched invoices, plus GSTR-1 vs GSTR-3B tie-out."
+    ),
+)
+async def reconcile_gstr1(
+    sales_register_file: UploadFile = File(
+        ..., description="Sales Register file (.xlsx / .xls / .csv)",
+    ),
+    gstr1_json: UploadFile = File(
+        ..., description="GSTR-1 JSON file (portal download or API response)",
+    ),
+    gstr3b_json: UploadFile = File(
+        ..., description="GSTR-3B JSON file (portal download or API response)",
+    ),
+    gstr1_filing_period: Optional[str] = Form(
+        None,
+        description=(
+            "GSTR-1 filing period in MMYYYY format (e.g. '042026'). "
+            "Auto-detected from GSTR-1 JSON if omitted."
+        ),
+    ),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Run end-to-end GSTR-1 sales-side reconciliation.
+
+    Accepts a Sales Register file, GSTR-1 JSON, and GSTR-3B JSON.
+    Parses, matches, classifies mismatches, and performs a GSTR-1 vs 3B tie-out.
+
+    Returns combined ``{WHAT, WHY, NEXT, confidence}`` results in the same
+    shape as the purchase-side reconciliation API.
+    """
+    user_id = current_user.get("id", "?")
+    _log.info(
+        "gstr1_reconcile: user=%s sr=%s gstr1=%s gstr3b=%s",
+        user_id,
+        sales_register_file.filename,
+        gstr1_json.filename,
+        gstr3b_json.filename,
+    )
+
+    # ── Validate file types ──────────────────────────────────────────────
+    sr_filename = sales_register_file.filename or "upload.xlsx"
+    sr_ext = sr_filename.rsplit(".", 1)[-1].lower() if "." in sr_filename else ""
+    if sr_ext not in ("xlsx", "xls", "csv"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Sales Register must be .xlsx, .xls, or .csv — "
+                f"got '.{sr_ext}'"
+            ),
+        )
+
+    for upload, label in [
+        (gstr1_json, "GSTR-1"),
+        (gstr3b_json, "GSTR-3B"),
+    ]:
+        fname = upload.filename or ""
+        fext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+        if fext not in ("json",):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{label} file must be .json — got '.{fext}'",
+            )
+
+    # ── Read file contents ───────────────────────────────────────────────
+    try:
+        sr_content = await sales_register_file.read()
+        gstr1_content = await gstr1_json.read()
+        gstr3b_content = await gstr3b_json.read()
+    except Exception as exc:
+        _log.exception("gstr1_reconcile: file read failed")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to read uploaded files: {exc}",
+        )
+
+    if not sr_content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sales Register file is empty",
+        )
+    if not gstr1_content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GSTR-1 JSON file is empty",
+        )
+    if not gstr3b_content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GSTR-3B JSON file is empty",
+        )
+
+    # ── Run pipeline ─────────────────────────────────────────────────────
+    try:
+        result = _run_pipeline(
+            sr_file_content=sr_content,
+            sr_filename=sr_filename,
+            gstr1_file_content=gstr1_content,
+            gstr3b_file_content=gstr3b_content,
+            gstr1_filing_period=gstr1_filing_period,
+        )
+    except HTTPException:
+        raise
+    except ParseError as exc:
+        _log.warning("gstr1_reconcile: parse error — %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "parse_error", "message": str(exc)},
+        )
+    except Exception:
+        _log.exception("gstr1_reconcile: unhandled error user=%s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error during GSTR-1 reconciliation",
+        )
+
+    _log.info(
+        "gstr1_reconcile: completed user=%s matched=%d mismatches=%d elapsed=%.2fs",
+        user_id,
+        result["summary"]["matched_count"],
+        result["summary"]["mismatch_count"],
+        result["elapsed_seconds"],
+    )
+
+    return result

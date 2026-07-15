@@ -42,6 +42,7 @@ from app.routers.gstr2b_autofetch_routes import router as gstr2b_autofetch_route
 from app.routers.gstin import router as gstin_router
 from app.routers.team import router as team_router
 from app.routers.rules import router as rules_router
+from app.routers.gstr1_reconcile import router as gstr1_reconcile_router
 from app.utils.rate_limit import limiter
 from app.utils.storage import file_exists
 
@@ -265,6 +266,11 @@ app.include_router(
     manage_data.router,
     prefix="/api/v1/manage-data",
     tags=["Manage Data"],
+)
+app.include_router(
+    gstr1_reconcile_router,
+    prefix="/api/gstr1-reconcile",
+    tags=["GSTR-1 Reconciliation"],
 )
 
 
