@@ -10,23 +10,27 @@ import {
   formatRule37PaymentPdfLine,
 } from "@/lib/rule37Summary";
 
-// ─── Design tokens ───────────────────────────────────────────────────────────
+// ─── Design tokens (match dashboard) ─────────────────────────────────────────
 
-const PURPLE: [number, number, number] = [124, 58, 237];
-const CHARCOAL: [number, number, number] = [17, 24, 39];
-const GREY: [number, number, number] = [107, 114, 128];
-const LIGHT_GREY: [number, number, number] = [249, 250, 251];
-const BORDER: [number, number, number] = [229, 231, 235];
-const GREEN_DOT: [number, number, number] = [34, 197, 94];
-const RED_DOT: [number, number, number] = [239, 68, 68];
-const ORANGE_DOT: [number, number, number] = [245, 158, 11];
+const INK: [number, number, number] = [10, 10, 10]; // #0A0A0A
+const CHARCOAL: [number, number, number] = [17, 17, 17]; // #111111
+const GREY: [number, number, number] = [107, 114, 128]; // #6B7280
+const LIGHT_GREY: [number, number, number] = [250, 250, 250]; // #FAFAFA
+const HEADER_BG: [number, number, number] = [245, 245, 245]; // #F5F5F5
+const BORDER: [number, number, number] = [229, 231, 235]; // #E5E7EB
+const GREEN_DOT: [number, number, number] = [34, 197, 94]; // #22C55E
+const RED_DOT: [number, number, number] = [220, 38, 38]; // #DC2626
+const ORANGE_DOT: [number, number, number] = [245, 158, 11]; // #F59E0B
+const PILL_BG: [number, number, number] = [243, 244, 246]; // #F3F4F6
+
+const FONT = "NotoSans";
 
 const MARGIN = 14;
 const PAGE_W = 210;
 const PAGE_H = 297;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 const HEADER_Y = 10;
-const HEADER_H = 12;
+const HEADER_H = 10;
 const FOOTER_Y = PAGE_H - MARGIN;
 const CONTENT_TOP = MARGIN + HEADER_H + 4;
 const CONTENT_BOTTOM = FOOTER_Y - 10;
@@ -136,18 +140,90 @@ function topRowsByAmount<T extends { amount: number }>(rows: T[], max: number): 
   return [...rows].sort((a, b) => b.amount - a.amount).slice(0, max);
 }
 
+// ─── Font / asset loading ─────────────────────────────────────────────────────
+
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  const chunk = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunk) {
+    const slice = bytes.subarray(i, i + chunk);
+    let part = "";
+    for (let j = 0; j < slice.length; j++) {
+      part += String.fromCharCode(slice[j]!);
+    }
+    binary += part;
+  }
+  return btoa(binary);
+}
+
+let cachedFontBase64: { regular: string; bold: string } | null = null;
+let cachedLogoDataUrl: string | null | undefined;
+
+async function registerPdfFonts(doc: jsPDF): Promise<void> {
+  if (!cachedFontBase64) {
+    const [regularRes, boldRes] = await Promise.all([
+      fetch("/fonts/NotoSans-Regular.ttf"),
+      fetch("/fonts/NotoSans-Bold.ttf"),
+    ]);
+    if (!regularRes.ok || !boldRes.ok) {
+      throw new Error("Failed to load PDF fonts");
+    }
+    const [regular, bold] = await Promise.all([
+      regularRes.arrayBuffer(),
+      boldRes.arrayBuffer(),
+    ]);
+    cachedFontBase64 = {
+      regular: arrayBufferToBase64(regular),
+      bold: arrayBufferToBase64(bold),
+    };
+  }
+  doc.addFileToVFS("NotoSans-Regular.ttf", cachedFontBase64.regular);
+  doc.addFileToVFS("NotoSans-Bold.ttf", cachedFontBase64.bold);
+  doc.addFont("NotoSans-Regular.ttf", FONT, "normal");
+  doc.addFont("NotoSans-Bold.ttf", FONT, "bold");
+  doc.setFont(FONT, "normal");
+}
+
+async function loadLogoDataUrl(): Promise<string | null> {
+  if (cachedLogoDataUrl !== undefined) return cachedLogoDataUrl;
+  try {
+    const res = await fetch("/logo.png");
+    if (!res.ok) {
+      cachedLogoDataUrl = null;
+      return null;
+    }
+    const blob = await res.blob();
+    cachedLogoDataUrl = await new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () =>
+        resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+    return cachedLogoDataUrl;
+  } catch {
+    cachedLogoDataUrl = null;
+    return null;
+  }
+}
+
 // ─── Layout primitives ────────────────────────────────────────────────────────
+
+function setFont(doc: jsPDF, style: "normal" | "bold" = "normal") {
+  doc.setFont(FONT, style);
+}
 
 function setGrey(doc: jsPDF) {
   doc.setTextColor(...GREY);
 }
 
-function setCharcoal(doc: jsPDF) {
-  doc.setTextColor(...CHARCOAL);
+function setInk(doc: jsPDF) {
+  doc.setTextColor(...INK);
 }
 
-function setPurple(doc: jsPDF) {
-  doc.setTextColor(...PURPLE);
+function setCharcoal(doc: jsPDF) {
+  doc.setTextColor(...CHARCOAL);
 }
 
 function drawPageChrome(doc: jsPDF, pageNum: number, totalPages: number) {
@@ -160,19 +236,14 @@ function drawPageChrome(doc: jsPDF, pageNum: number, totalPages: number) {
   doc.setDrawColor(...BORDER);
   doc.setLineWidth(0.3);
 
-  // Header purple accent bar
-  doc.setFillColor(...PURPLE);
-  doc.rect(MARGIN, HEADER_Y, 1, HEADER_H, "F");
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  setPurple(doc);
-  doc.text("ReconDesk", MARGIN + 3, HEADER_Y + 5);
-
-  doc.setFont("helvetica", "normal");
+  setFont(doc, "bold");
   doc.setFontSize(8);
+  setInk(doc);
+  doc.text("ReconDesk GST Reconciliation Report", MARGIN, HEADER_Y + 5);
+
+  setFont(doc, "normal");
   setGrey(doc);
-  doc.text("GST Reconciliation Report", PAGE_W - MARGIN, HEADER_Y + 5, {
+  doc.text(`Page ${pageNum} of ${totalPages}`, PAGE_W - MARGIN, HEADER_Y + 5, {
     align: "right",
   });
 
@@ -184,15 +255,11 @@ function drawPageChrome(doc: jsPDF, pageNum: number, totalPages: number) {
 
   doc.setFontSize(7);
   setGrey(doc);
-  doc.setFont("helvetica", "normal");
+  setFont(doc, "normal");
   doc.text("recondesk.in", MARGIN, FOOTER_Y);
-
-  doc.setFont("helvetica", "italic");
   doc.text("Confidential — For client use only", PAGE_W / 2, FOOTER_Y, {
     align: "center",
   });
-
-  doc.setFont("helvetica", "normal");
   doc.text(`Page ${pageNum} of ${totalPages}`, PAGE_W - MARGIN, FOOTER_Y, {
     align: "right",
   });
@@ -216,25 +283,24 @@ function drawSectionTitle(
     doc.setFillColor(...dot);
     doc.circle(MARGIN + 1.5, y - 1.2, 1.2, "F");
   }
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  setCharcoal(doc);
+  setFont(doc, "bold");
+  doc.setFontSize(12);
+  setInk(doc);
   doc.text(title, MARGIN + (dot ? 5 : 0), y);
-  const titleW = doc.getTextWidth(title);
-  const x0 = MARGIN + (dot ? 5 : 0);
-  doc.setDrawColor(...PURPLE);
-  doc.setLineWidth(0.4);
-  doc.line(x0, y + 1.5, x0 + titleW, y + 1.5);
+
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.35);
+  doc.line(MARGIN, y + 2.5, PAGE_W - MARGIN, y + 2.5);
   return y + 8;
 }
 
 function drawSubtitle(doc: jsPDF, y: number, text: string): number {
-  doc.setFont("helvetica", "normal");
+  setFont(doc, "normal");
   doc.setFontSize(8);
   setGrey(doc);
   const lines = doc.splitTextToSize(text, CONTENT_W);
   doc.text(lines, MARGIN, y);
-  return y + lines.length * 3.5 + 3;
+  return y + lines.length * 3.4 + 2.5;
 }
 
 function fitBoldText(
@@ -244,7 +310,7 @@ function fitBoldText(
   startSize: number,
   minSize: number
 ): number {
-  doc.setFont("helvetica", "bold");
+  setFont(doc, "bold");
   for (let size = startSize; size >= minSize; size -= 0.5) {
     doc.setFontSize(size);
     if (doc.getTextWidth(text) <= maxWidth) return size;
@@ -262,45 +328,40 @@ function drawStatBox(
   label: string,
   value: string,
   dot?: [number, number, number],
-  opts?: { currency?: boolean }
+  opts?: { currency?: boolean; valueColor?: [number, number, number] }
 ) {
-  const pad = 3;
+  const pad = 3.5;
   const innerW = w - pad * 2;
 
   doc.setDrawColor(...BORDER);
   doc.setLineWidth(0.3);
   doc.setFillColor(255, 255, 255);
-  doc.rect(x, y, w, h, "FD");
+  doc.roundedRect(x, y, w, h, 1.5, 1.5, "FD");
 
-  doc.setFont("helvetica", "normal");
+  setFont(doc, "normal");
   doc.setFontSize(6.5);
   setGrey(doc);
   const labelLines = doc.splitTextToSize(label.toUpperCase(), innerW - (dot ? 4 : 0));
-  doc.text(labelLines.slice(0, 2), x + pad, y + 5.5);
+  doc.text(labelLines.slice(0, 2), x + pad, y + 5);
 
   if (dot) {
     doc.setFillColor(...dot);
-    doc.circle(x + w - pad - 1, y + 4.5, 1, "F");
+    doc.circle(x + w - pad - 1, y + 4.2, 1, "F");
   }
 
-  setCharcoal(doc);
-  const valueY = y + 13;
+  const color = opts?.valueColor ?? CHARCOAL;
+  doc.setTextColor(...color);
+  const valueY = y + h - 5;
 
   if (opts?.currency) {
     const display = value.startsWith("₹") ? value : `₹${value}`;
-    fitBoldText(doc, display, innerW, 12, 7);
-    let lines = doc.splitTextToSize(display, innerW).slice(0, 2);
-    if (lines.length > 1) {
-      fitBoldText(doc, display, innerW, 9, 7);
-      lines = doc.splitTextToSize(display, innerW).slice(0, 2);
-    }
-    doc.text(lines, x + pad, valueY);
+    fitBoldText(doc, display, innerW, 11, 7);
+    doc.text(display, x + pad, valueY);
     return;
   }
 
-  fitBoldText(doc, value, innerW, 16, 9);
-  const lines = doc.splitTextToSize(value, innerW).slice(0, 2);
-  doc.text(lines, x + pad, valueY);
+  fitBoldText(doc, value, innerW, 14, 9);
+  doc.text(value, x + pad, valueY);
 }
 
 function drawCurrencyStatBox(
@@ -311,11 +372,53 @@ function drawCurrencyStatBox(
   h: number,
   label: string,
   amount: number,
-  dot?: [number, number, number]
+  dot?: [number, number, number],
+  valueColor?: [number, number, number]
 ) {
   drawStatBox(doc, x, y, w, h, label, formatINRNumber(amount), dot, {
     currency: true,
+    valueColor,
   });
+}
+
+/** Dashboard-style status pill: light gray bg, dark text. */
+function drawStatusPill(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  label: string,
+  count?: string | number,
+  opts?: { active?: boolean; dot?: [number, number, number] }
+): number {
+  const text = count != null ? `${label}  ${count}` : label;
+  setFont(doc, "bold");
+  doc.setFontSize(7.5);
+  const textW = doc.getTextWidth(text);
+  const padX = 4;
+  const pillW = textW + padX * 2 + (opts?.dot ? 4 : 0);
+  const pillH = 6.5;
+
+  if (opts?.active) {
+    doc.setFillColor(...INK);
+    doc.roundedRect(x, y, pillW, pillH, 3, 3, "F");
+    doc.setTextColor(255, 255, 255);
+  } else {
+    doc.setFillColor(...PILL_BG);
+    doc.setDrawColor(...BORDER);
+    doc.setLineWidth(0.2);
+    doc.roundedRect(x, y, pillW, pillH, 3, 3, "FD");
+    setInk(doc);
+  }
+
+  let textX = x + padX;
+  if (opts?.dot && !opts.active) {
+    doc.setFillColor(...opts.dot);
+    doc.circle(x + padX + 1, y + pillH / 2, 1, "F");
+    textX += 4;
+  }
+
+  doc.text(text, textX, y + 4.4);
+  return pillW + 2;
 }
 
 type AutoTableFn = (
@@ -328,22 +431,27 @@ function baseTableOpts(y: number): Record<string, unknown> {
     startY: y,
     margin: { left: MARGIN, right: MARGIN, top: CONTENT_TOP, bottom: 14 },
     headStyles: {
-      fillColor: PURPLE,
-      textColor: [255, 255, 255],
+      fillColor: HEADER_BG,
+      textColor: INK,
       fontStyle: "bold",
-      fontSize: 8.5,
-      cellPadding: 2,
+      fontSize: 8,
+      font: FONT,
+      cellPadding: { top: 2.2, bottom: 2.2, left: 2, right: 2 },
     },
     bodyStyles: {
       fontSize: 8,
+      font: FONT,
       textColor: CHARCOAL,
-      cellPadding: 2,
+      cellPadding: { top: 2, bottom: 2, left: 2, right: 2 },
+      minCellHeight: 7,
     },
     alternateRowStyles: { fillColor: LIGHT_GREY },
     styles: {
+      font: FONT,
       lineColor: BORDER,
-      lineWidth: 0.2,
+      lineWidth: 0.15,
       overflow: "linebreak",
+      valign: "middle",
     },
     showHead: "everyPage",
   };
@@ -369,14 +477,14 @@ function drawTotalLine(
   }
   const formatted =
     typeof value === "number" && !Number.isNaN(value)
-      ? `Rs. ${Math.round(Math.abs(value)).toLocaleString("en-IN")}${value < 0 ? " (CR)" : ""}`
+      ? formatINR(Math.round(Math.abs(value))) + (value < 0 ? " (CR)" : "")
       : "-";
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(...PURPLE);
+  setFont(doc, "bold");
+  doc.setFontSize(9);
+  setInk(doc);
   doc.text(`${label}: ${formatted}`, 190, y, { align: "right" });
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(...CHARCOAL);
+  setFont(doc, "normal");
+  setCharcoal(doc);
   return y + 8;
 }
 
@@ -396,54 +504,50 @@ function buildCoverPage(doc: jsPDF, data: ReportPdfDataset) {
   const gstin = summary.client_gstin?.trim() || "—";
   const nowIst = formatReportDateIst();
 
-  doc.setFont("helvetica", "bold");
+  setFont(doc, "bold");
   doc.setFontSize(20);
-  setPurple(doc);
+  setInk(doc);
   doc.text("ReconDesk", MARGIN, 28);
 
-  doc.setFont("helvetica", "normal");
+  setFont(doc, "normal");
   doc.setFontSize(10);
   setGrey(doc);
   doc.text("GST Reconciliation Report", MARGIN, 36);
 
-  doc.setDrawColor(...PURPLE);
-  doc.setLineWidth(0.5);
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.4);
   doc.line(MARGIN, 40, PAGE_W - MARGIN, 40);
 
-  const blockY = 118;
-  doc.setFont("helvetica", "normal");
+  const blockY = 110;
+  setFont(doc, "normal");
   doc.setFontSize(7);
   setGrey(doc);
   doc.text("PREPARED FOR", MARGIN, blockY);
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(28);
-  setCharcoal(doc);
+  setFont(doc, "bold");
+  doc.setFontSize(26);
+  setInk(doc);
   const nameLines = doc.splitTextToSize(summary.client_name || "—", CONTENT_W);
-  doc.text(nameLines, MARGIN, blockY + 12);
+  doc.text(nameLines, MARGIN, blockY + 11);
 
-  doc.setFont("courier", "normal");
-  doc.setFontSize(11);
+  setFont(doc, "normal");
+  doc.setFontSize(10);
   setGrey(doc);
-  doc.text(gstin, MARGIN, blockY + 12 + nameLines.length * 10 + 4);
+  doc.text(gstin, MARGIN, blockY + 11 + nameLines.length * 9 + 3);
 
-  const metaY = blockY + 12 + nameLines.length * 10 + 16;
+  const metaY = blockY + 11 + nameLines.length * 9 + 14;
   const colMid = MARGIN + CONTENT_W / 2;
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
+  setFont(doc, "normal");
+  doc.setFontSize(8);
   setGrey(doc);
   doc.text("Tax Period", MARGIN, metaY);
   doc.text("Run Status", colMid, metaY);
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  setCharcoal(doc);
+  setFont(doc, "bold");
+  doc.setFontSize(12);
+  setInk(doc);
   doc.text(periodLabel, MARGIN, metaY + 6);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
-  setCharcoal(doc);
   doc.text(formatStatusLabel(summary.status), colMid, metaY + 6);
 
   const bottomY = PAGE_H - 52;
@@ -451,7 +555,7 @@ function buildCoverPage(doc: jsPDF, data: ReportPdfDataset) {
   doc.setLineWidth(0.3);
   doc.line(MARGIN, bottomY, PAGE_W - MARGIN, bottomY);
 
-  doc.setFont("helvetica", "normal");
+  setFont(doc, "normal");
   doc.setFontSize(8);
   setGrey(doc);
   doc.text("Generated by", MARGIN, bottomY + 8);
@@ -459,16 +563,15 @@ function buildCoverPage(doc: jsPDF, data: ReportPdfDataset) {
   doc.text("Platform", MARGIN, bottomY + 20);
   doc.text("Website", colMid, bottomY + 20);
 
-  setCharcoal(doc);
-  doc.setFont("helvetica", "bold");
+  setInk(doc);
+  setFont(doc, "bold");
   doc.text(generatedByName, MARGIN, bottomY + 13);
-  doc.setFont("helvetica", "normal");
+  setFont(doc, "normal");
   doc.text(nowIst, colMid, bottomY + 13);
   doc.text("ReconDesk", MARGIN, bottomY + 25);
-  setPurple(doc);
   doc.text("recondesk.in", colMid, bottomY + 25);
 
-  doc.setFont("helvetica", "italic");
+  setFont(doc, "normal");
   doc.setFontSize(7);
   setGrey(doc);
   const discLines = doc.splitTextToSize(DISCLAIMER, CONTENT_W);
@@ -486,7 +589,7 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
 
   const gap = 3;
   const boxW = (CONTENT_W - gap * 3) / 4;
-  const boxH = 24;
+  const boxH = 22;
   const boxY = y;
 
   drawStatBox(
@@ -516,6 +619,7 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
     boxH,
     "ITC at Risk",
     summary.wrongful_risk_total_amount,
+    RED_DOT,
     RED_DOT
   );
   drawCurrencyStatBox(
@@ -526,31 +630,48 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
     boxH,
     "Recoverable ITC",
     summary.missed_itc_total_amount,
+    ORANGE_DOT,
     ORANGE_DOT
   );
 
-  y = boxY + boxH + 10;
+  y = boxY + boxH + 8;
 
-  const barH = 5;
+  // Status pills row (dashboard-style)
+  let pillX = MARGIN;
+  pillX += drawStatusPill(doc, pillX, y, "Matched", summary.matched_count, {
+    dot: GREEN_DOT,
+  });
+  pillX += drawStatusPill(doc, pillX, y, "ITC at Risk", summary.wrongful_risk_count, {
+    dot: RED_DOT,
+  });
+  drawStatusPill(doc, pillX, y, "Missed ITC", summary.missed_itc_count, {
+    dot: ORANGE_DOT,
+  });
+
+  y += 10;
+
+  const barH = 4;
   const barW = CONTENT_W * 0.68;
   const labelW = CONTENT_W - barW - 2;
-  doc.setFillColor(...LIGHT_GREY);
-  doc.rect(MARGIN, y, barW, barH, "F");
+  doc.setFillColor(...BORDER);
+  doc.roundedRect(MARGIN, y, barW, barH, 1, 1, "F");
   const fillW = Math.max(0, Math.min(barW, (barW * matchPct) / 100));
-  doc.setFillColor(...PURPLE);
-  doc.rect(MARGIN, y, fillW, barH, "F");
+  if (fillW > 0) {
+    doc.setFillColor(...INK);
+    doc.roundedRect(MARGIN, y, fillW, barH, 1, 1, "F");
+  }
 
-  doc.setFont("helvetica", "normal");
+  setFont(doc, "normal");
   doc.setFontSize(8);
   setCharcoal(doc);
   doc.text(
     `Match Rate: ${matchPct.toFixed(1)}%`,
     MARGIN + barW + 2 + labelW,
-    y + 3.6,
+    y + 3.2,
     { align: "right", maxWidth: labelW }
   );
 
-  y += 12;
+  y += 10;
 
   const missedN = summary.missed_itc_count;
   const riskN = summary.wrongful_risk_count;
@@ -573,21 +694,20 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
   ];
 
   const valueColW = CONTENT_W * 0.42;
-  doc.setFont("helvetica", "normal");
+  setFont(doc, "normal");
   doc.setFontSize(8.5);
   for (const [label, value] of metrics) {
     setGrey(doc);
     doc.text(label, MARGIN, y);
-    doc.setFont("helvetica", "bold");
+    setFont(doc, "bold");
     setCharcoal(doc);
-    const valSize = value.startsWith("₹")
+    const valSize = value.includes("₹")
       ? fitBoldText(doc, value, valueColW, 8.5, 7)
       : 8.5;
     doc.setFontSize(valSize);
-    const valLines = doc.splitTextToSize(value, valueColW);
-    doc.text(valLines, PAGE_W - MARGIN, y, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    y += Math.max(6, valLines.length * 4.5);
+    doc.text(value, PAGE_W - MARGIN, y, { align: "right" });
+    setFont(doc, "normal");
+    y += 5.5;
     doc.setDrawColor(...BORDER);
     doc.setLineWidth(0.15);
     doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
@@ -604,16 +724,16 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
       ["Unmatched", conf.unmatched.toLocaleString("en-IN")],
       ["Total invoices", conf.total_invoices.toLocaleString("en-IN")],
     ];
-    doc.setFont("helvetica", "normal");
+    setFont(doc, "normal");
     doc.setFontSize(8.5);
     for (const [label, value] of confMetrics) {
       setGrey(doc);
       doc.text(label, MARGIN, y);
-      doc.setFont("helvetica", "bold");
+      setFont(doc, "bold");
       setCharcoal(doc);
       doc.text(value, PAGE_W - MARGIN, y, { align: "right" });
-      doc.setFont("helvetica", "normal");
-      y += 6;
+      setFont(doc, "normal");
+      y += 5.5;
       doc.setDrawColor(...BORDER);
       doc.setLineWidth(0.15);
       doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
@@ -641,13 +761,13 @@ function buildRiskSection(
   const truncated = data.riskRows.length > TABLE_MAX;
 
   if (sorted.length === 0) {
-    doc.setFont("helvetica", "italic");
+    setFont(doc, "normal");
     doc.setFontSize(9);
     setGrey(doc);
     doc.text("No ITC at risk invoices for this reconciliation run.", MARGIN, y + 4);
-    doc.setFont("helvetica", "bold");
+    setFont(doc, "bold");
     doc.setFontSize(9);
-    setPurple(doc);
+    setInk(doc);
     doc.text(
       `Total ITC at Risk: ${formatINR(data.summary.wrongful_risk_total_amount)}`,
       PAGE_W - MARGIN,
@@ -656,8 +776,6 @@ function buildRiskSection(
     );
     return;
   }
-
-
 
   const body = sorted.map((row, i) => {
     const taxable =
@@ -698,19 +816,18 @@ function buildRiskSection(
     body,
     columnStyles: {
       0: { cellWidth: 7 },
-      1: { cellWidth: 45, noWrap: true },
-      2: { cellWidth: 20 },
+      1: { cellWidth: 38, overflow: "ellipsize" },
+      2: { cellWidth: 22 },
       3: { cellWidth: 18 },
-      4: { cellWidth: 22, halign: "right", noWrap: true },
-      5: { cellWidth: 22, halign: "right", noWrap: true },
-      6: { cellWidth: 25 },
-      7: { cellWidth: 23 },
+      4: { cellWidth: 26, halign: "right", overflow: "ellipsize" },
+      5: { cellWidth: 24, halign: "right", overflow: "ellipsize" },
+      6: { cellWidth: 28 },
+      7: { cellWidth: 19 },
     },
   });
 
   const tableEndY = lastTableY(doc, y + 20);
 
-  // ── Truncation notice (if table was capped)
   let afterTableY = tableEndY + 4;
   if (afterTableY > CONTENT_BOTTOM) {
     doc.addPage();
@@ -718,7 +835,7 @@ function buildRiskSection(
   }
 
   if (truncated) {
-    doc.setFont("helvetica", "italic");
+    setFont(doc, "normal");
     doc.setFontSize(7.5);
     setGrey(doc);
     doc.text(
@@ -729,10 +846,9 @@ function buildRiskSection(
     afterTableY += 5;
   }
 
-  // ── Generic footnote
   const genericFootnote =
     "Note: Contact each flagged supplier immediately. Do not claim this ITC in GSTR-3B until it appears in GSTR-2B.";
-  doc.setFont("helvetica", "italic");
+  setFont(doc, "normal");
   doc.setFontSize(7.5);
   setGrey(doc);
   const fnLines = doc.splitTextToSize(genericFootnote, CONTENT_W);
@@ -743,8 +859,6 @@ function buildRiskSection(
   doc.text(fnLines, MARGIN, afterTableY);
   afterTableY += fnLines.length * 3.8 + 3;
 
-  // ── Section total (drawn outside any table, guarded by drawTotalLine)
-  console.log("DEBUG total:", "Total ITC at Risk", data.summary.wrongful_risk_total_amount, afterTableY);
   drawTotalLine(doc, "Total ITC at Risk", data.summary.wrongful_risk_total_amount, afterTableY);
 }
 
@@ -763,13 +877,13 @@ function buildMissedSection(
   );
 
   if (data.itcRows.length === 0) {
-    doc.setFont("helvetica", "italic");
+    setFont(doc, "normal");
     doc.setFontSize(9);
     setGrey(doc);
     doc.text("No recoverable missed ITC invoices for this reconciliation run.", MARGIN, y + 4);
-    doc.setFont("helvetica", "bold");
+    setFont(doc, "bold");
     doc.setFontSize(9);
-    setPurple(doc);
+    setInk(doc);
     doc.text(
       `Total Recoverable ITC: ${formatINR(data.summary.missed_itc_total_amount)}`,
       PAGE_W - MARGIN,
@@ -798,14 +912,14 @@ function buildMissedSection(
   const cnSubtotal = creditNoteRows.reduce((sum, r) => sum + r.amount, 0);
 
   // 1. Missed Invoices Table
-  doc.setFont("helvetica", "bold");
+  setFont(doc, "bold");
   doc.setFontSize(10);
   setCharcoal(doc);
   doc.text("Missed Invoices", MARGIN, y);
   y += 4;
 
   if (displayMissed.length === 0) {
-    doc.setFont("helvetica", "italic");
+    setFont(doc, "normal");
     doc.setFontSize(8.5);
     setGrey(doc);
     doc.text("No missed invoices found.", MARGIN, y + 4);
@@ -848,18 +962,17 @@ function buildMissedSection(
       body: missedBody,
       columnStyles: {
         0: { cellWidth: 7 },
-        1: { cellWidth: 45, noWrap: true },
-        2: { cellWidth: 20 },
+        1: { cellWidth: 40, overflow: "ellipsize" },
+        2: { cellWidth: 22 },
         3: { cellWidth: 18 },
-        4: { cellWidth: 22, halign: "right", noWrap: true },
-        5: { cellWidth: 22, halign: "right", noWrap: true },
-        6: { cellWidth: 48 },
+        4: { cellWidth: 30, halign: "right", overflow: "ellipsize" },
+        5: { cellWidth: 24, halign: "right", overflow: "ellipsize" },
+        6: { cellWidth: 41 },
       },
     });
 
     const missedTableEndY = lastTableY(doc, y + 20);
     const subtotalY = missedTableEndY + 6;
-    console.log("DEBUG total:", "Subtotal — Missed Invoices", missedSubtotal, subtotalY);
     drawTotalLine(doc, "Subtotal — Missed Invoices", missedSubtotal, subtotalY);
     y = subtotalY + 12;
     if (y > CONTENT_BOTTOM) {
@@ -874,14 +987,14 @@ function buildMissedSection(
     y = CONTENT_TOP;
   }
 
-  doc.setFont("helvetica", "bold");
+  setFont(doc, "bold");
   doc.setFontSize(10);
   setCharcoal(doc);
   doc.text("Credit Notes", MARGIN, y);
   y += 4;
 
   if (displayCN.length === 0) {
-    doc.setFont("helvetica", "italic");
+    setFont(doc, "normal");
     doc.setFontSize(8.5);
     setGrey(doc);
     doc.text("No credit notes found.", MARGIN, y + 4);
@@ -924,18 +1037,17 @@ function buildMissedSection(
       body: cnBody,
       columnStyles: {
         0: { cellWidth: 7 },
-        1: { cellWidth: 45, noWrap: true },
-        2: { cellWidth: 20 },
+        1: { cellWidth: 40, overflow: "ellipsize" },
+        2: { cellWidth: 22 },
         3: { cellWidth: 18 },
-        4: { cellWidth: 22, halign: "right", noWrap: true },
-        5: { cellWidth: 22, halign: "right", noWrap: true },
-        6: { cellWidth: 48 },
+        4: { cellWidth: 30, halign: "right", overflow: "ellipsize" },
+        5: { cellWidth: 24, halign: "right", overflow: "ellipsize" },
+        6: { cellWidth: 41 },
       },
     });
 
     const cnTableEndY = lastTableY(doc, y + 20);
     const cnSubtotalY = cnTableEndY + 6;
-    console.log("DEBUG total:", "Subtotal — Credit Notes", cnSubtotal, cnSubtotalY);
     drawTotalLine(doc, "Subtotal — Credit Notes", cnSubtotal, cnSubtotalY);
     y = cnSubtotalY + 12;
     if (y > CONTENT_BOTTOM) {
@@ -956,7 +1068,7 @@ function buildMissedSection(
       doc.addPage();
       y = CONTENT_TOP;
     }
-    doc.setFont("helvetica", "italic");
+    setFont(doc, "normal");
     doc.setFontSize(7.5);
     setGrey(doc);
     doc.text(
@@ -967,8 +1079,6 @@ function buildMissedSection(
     y += 5;
   }
 
-  // ── Section total — drawn outside any table, safe-guarded by drawTotalLine
-  console.log("DEBUG total:", "Total Recoverable ITC", data.summary.missed_itc_total_amount, y);
   drawTotalLine(doc, "Total Recoverable ITC", data.summary.missed_itc_total_amount, y);
 }
 
@@ -1017,7 +1127,9 @@ function buildRule37Section(
     miniW,
     miniH,
     "Pending Action",
-    rs.pending_action
+    rs.pending_action,
+    ORANGE_DOT,
+    ORANGE_DOT
   );
 
   y = miniY + miniH + 8;
@@ -1042,10 +1154,7 @@ function buildRule37Section(
     m.row.invoice_number || "—",
     m.row.supplier_gstin || "—",
     formatShortDateIst(m.row.invoice_date),
-    {
-      content: `Rs. ${Math.round(m.row.amount).toLocaleString("en-IN")}`,
-      styles: { cellWidth: 28, halign: "right" as const },
-    },
+    formatINR(m.row.amount),
     m.deadlineLabel,
     m.daysLeft != null ? String(m.daysLeft) : "—",
     m.status,
@@ -1061,7 +1170,7 @@ function buildRule37Section(
         "Invoice #",
         "Supplier GSTIN",
         "Invoice Date",
-        "Amount (\u20b9)",
+        "Amount (₹)",
         "Deadline",
         "Days Left",
         "Status",
@@ -1071,12 +1180,12 @@ function buildRule37Section(
     columnStyles: {
       0: { cellWidth: 8 },
       1: { cellWidth: 25 },
-      2: { cellWidth: 42, noWrap: true },
+      2: { cellWidth: 40, overflow: "ellipsize" },
       3: { cellWidth: 20 },
-      4: { cellWidth: 25, halign: "right" },
-      5: { cellWidth: 25 },
+      4: { cellWidth: 28, halign: "right", overflow: "ellipsize" },
+      5: { cellWidth: 22 },
       6: { cellWidth: 15, halign: "right" },
-      7: { cellWidth: 20 },
+      7: { cellWidth: 22 },
     },
     didParseCell: (hookData: {
       section: string;
@@ -1092,7 +1201,6 @@ function buildRule37Section(
     },
   });
 
-  // ── Truncation notice + Rule 37 total — both drawn outside any table
   const r37TableEndY = lastTableY(doc, y + 20);
   let r37AfterY = r37TableEndY + 4;
 
@@ -1101,7 +1209,7 @@ function buildRule37Section(
       doc.addPage();
       r37AfterY = CONTENT_TOP;
     }
-    doc.setFont("helvetica", "italic");
+    setFont(doc, "normal");
     doc.setFontSize(7.5);
     setGrey(doc);
     doc.text(
@@ -1112,14 +1220,12 @@ function buildRule37Section(
     r37AfterY += 5;
   }
 
-  console.log("DEBUG total:", "Total ITC at Risk (Rule 37)", rs.total_itc_at_risk, r37AfterY);
   const r37TotalY = drawTotalLine(doc, "Total ITC at Risk (Rule 37)", rs.total_itc_at_risk, r37AfterY);
-
 
   const history = data.rule37Summary.action_history ?? [];
   if (history.length > 0) {
     let histY = r37TotalY + 12;
-    doc.setFont("helvetica", "bold");
+    setFont(doc, "bold");
     doc.setFontSize(10);
     setCharcoal(doc);
     doc.text("Action History", MARGIN, histY);
@@ -1156,12 +1262,12 @@ function buildRule37Section(
       columnStyles: {
         0: { cellWidth: 7 },
         1: { cellWidth: 20 },
-        2: { cellWidth: 45, noWrap: true },
-        3: { cellWidth: 22, halign: "right", noWrap: true },
+        2: { cellWidth: 40, overflow: "ellipsize" },
+        3: { cellWidth: 24, halign: "right", overflow: "ellipsize" },
         4: { cellWidth: 33 },
         5: { cellWidth: 20 },
         6: { cellWidth: 15 },
-        7: { cellWidth: 20 },
+        7: { cellWidth: 23 },
       },
     });
   }
@@ -1179,7 +1285,7 @@ function buildFollowupSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPd
 
   const rows = data.followupRows;
   if (rows.length === 0) {
-    doc.setFont("helvetica", "italic");
+    setFont(doc, "normal");
     doc.setFontSize(9);
     setGrey(doc);
     doc.text(
@@ -1219,11 +1325,11 @@ function buildFollowupSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPd
     columnStyles: {
       0: { cellWidth: 7 },
       1: { cellWidth: 35 },
-      2: { cellWidth: 45, noWrap: true },
+      2: { cellWidth: 40, overflow: "ellipsize" },
       3: { cellWidth: 22 },
       4: { cellWidth: 20 },
       5: { cellWidth: 23 },
-      6: { cellWidth: 30 },
+      6: { cellWidth: 35 },
     },
   });
 }
@@ -1231,7 +1337,7 @@ function buildFollowupSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPd
 function buildGstr3bSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfDataset) {
   doc.addPage();
   let y = CONTENT_TOP;
-  y = drawSectionTitle(doc, y, "GSTR-3B ITC Verification", PURPLE);
+  y = drawSectionTitle(doc, y, "GSTR-3B ITC Verification");
   y = drawSubtitle(
     doc,
     y,
@@ -1240,7 +1346,7 @@ function buildGstr3bSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfD
 
   const g3b = data.gstr3bResult;
   if (!g3b) {
-    doc.setFont("helvetica", "italic");
+    setFont(doc, "normal");
     doc.setFontSize(9);
     setGrey(doc);
     doc.text(
@@ -1252,33 +1358,31 @@ function buildGstr3bSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfD
     return;
   }
 
-  // Overall status pill
   const statusLabel =
     g3b.overall_status === "OVERCLAIMED"
       ? "OVERCLAIMED"
       : g3b.overall_status === "UNDERCLAIMED"
       ? "UNDERCLAIMED"
       : "MATCHED";
-  const statusColor: [number, number, number] =
+  const statusDot: [number, number, number] =
     g3b.overall_status === "OVERCLAIMED"
-      ? [220, 38, 38]
+      ? RED_DOT
       : g3b.overall_status === "UNDERCLAIMED"
-      ? [217, 119, 6]
-      : [22, 163, 74];
+      ? ORANGE_DOT
+      : GREEN_DOT;
 
   const periodLabel = formatReportPeriod(g3b.tax_period);
-  doc.setFont("helvetica", "bold");
+  setFont(doc, "bold");
   doc.setFontSize(9);
   setCharcoal(doc);
   doc.text(`Period: ${periodLabel}`, MARGIN, y);
 
-  doc.setTextColor(...statusColor);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.text(`Overall Status: ${statusLabel}`, MARGIN + 50, y);
+  drawStatusPill(doc, MARGIN + 48, y - 4.5, `Overall Status: ${statusLabel}`, undefined, {
+    active: g3b.overall_status !== "MATCHED",
+    dot: statusDot,
+  });
   y += 8;
 
-  // Comparison table
   const heads = [
     ["Tax Head", "GSTR-2B Available", "GSTR-3B Claimed", "Difference", "Status"],
   ];
@@ -1296,9 +1400,9 @@ function buildGstr3bSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfD
   }
 
   const body = [
-    ["IGST",  formatINR(g3b.igst.gstr2b),  formatINR(g3b.igst.gstr3b),  diffLabel(g3b.igst.difference),  statusStr(g3b.igst.status)],
-    ["CGST",  formatINR(g3b.cgst.gstr2b),  formatINR(g3b.cgst.gstr3b),  diffLabel(g3b.cgst.difference),  statusStr(g3b.cgst.status)],
-    ["SGST",  formatINR(g3b.sgst.gstr2b),  formatINR(g3b.sgst.gstr3b),  diffLabel(g3b.sgst.difference),  statusStr(g3b.sgst.status)],
+    ["IGST", formatINR(g3b.igst.gstr2b), formatINR(g3b.igst.gstr3b), diffLabel(g3b.igst.difference), statusStr(g3b.igst.status)],
+    ["CGST", formatINR(g3b.cgst.gstr2b), formatINR(g3b.cgst.gstr3b), diffLabel(g3b.cgst.difference), statusStr(g3b.cgst.status)],
+    ["SGST", formatINR(g3b.sgst.gstr2b), formatINR(g3b.sgst.gstr3b), diffLabel(g3b.sgst.difference), statusStr(g3b.sgst.status)],
     ["Total", formatINR(g3b.total.gstr2b), formatINR(g3b.total.gstr3b), diffLabel(g3b.total.difference), statusStr(g3b.total.status)],
   ];
 
@@ -1308,12 +1412,18 @@ function buildGstr3bSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfD
     body,
     columnStyles: {
       0: { cellWidth: 22 },
-      1: { cellWidth: 42, halign: "right", noWrap: true },
-      2: { cellWidth: 42, halign: "right", noWrap: true },
-      3: { cellWidth: 42, halign: "right", noWrap: true },
+      1: { cellWidth: 42, halign: "right", overflow: "ellipsize" },
+      2: { cellWidth: 42, halign: "right", overflow: "ellipsize" },
+      3: { cellWidth: 42, halign: "right", overflow: "ellipsize" },
       4: { cellWidth: 34 },
     },
-    didParseCell: (hookData: { row: { index: number }; column: { index: number }; cell: { styles: { fontStyle: string; textColor: number[] } } }) => {
+    didParseCell: (hookData: {
+      section: string;
+      row: { index: number };
+      column: { index: number };
+      cell: { styles: { fontStyle: string; textColor: number[] } };
+    }) => {
+      if (hookData.section !== "body") return;
       if (hookData.row.index === body.length - 1) {
         hookData.cell.styles.fontStyle = "bold";
       }
@@ -1326,15 +1436,16 @@ function buildGstr3bSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfD
         ];
         const d = rowDiffs[hookData.row.index] ?? 0;
         hookData.cell.styles.textColor =
-          d > 0 ? [220, 38, 38] : d < 0 ? [217, 119, 6] : CHARCOAL;
+          d > 0 ? RED_DOT : d < 0 ? ORANGE_DOT : CHARCOAL;
       }
     },
   });
 
-  // Status explanation note
-  const tableEndY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable?.finalY ?? y + 40;
+  const tableEndY =
+    (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable?.finalY ??
+    y + 40;
   const noteY = tableEndY + 6;
-  doc.setFont("helvetica", "italic");
+  setFont(doc, "normal");
   doc.setFontSize(8);
   setGrey(doc);
 
@@ -1352,7 +1463,7 @@ function buildGstr3bSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfD
   doc.text(noteLines, MARGIN, noteY);
 
   const disclaimerY = noteY + noteLines.length * 3.5 + 6;
-  doc.setFont("helvetica", "italic");
+  setFont(doc, "normal");
   doc.setFontSize(7);
   const discText =
     "This comparison is based on data uploaded by the CA. ReconDesk does not connect to the GST portal directly. Verify figures before filing amendments.";
@@ -1360,38 +1471,41 @@ function buildGstr3bSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfD
   doc.text(discLines, MARGIN, disclaimerY);
 }
 
-function buildClosingPage(doc: jsPDF, data: ReportPdfDataset) {
+function buildClosingPage(
+  doc: jsPDF,
+  data: ReportPdfDataset,
+  logoDataUrl: string | null
+) {
   doc.addPage();
-  const periodLabel = formatReportPeriod(data.summary.period);
   const nowIst = formatReportDateIst();
-  const centerY = PAGE_H / 2 - 20;
+  const centerY = PAGE_H / 2 - 28;
 
-  doc.setFont("helvetica", "bold");
+  setFont(doc, "bold");
   doc.setFontSize(22);
-  setPurple(doc);
+  setInk(doc);
   doc.text("ReconDesk", PAGE_W / 2, centerY, { align: "center" });
 
-  doc.setFont("helvetica", "normal");
+  setFont(doc, "normal");
   doc.setFontSize(9);
   setGrey(doc);
   doc.text(
     "Automated GST Reconciliation for Indian CA Firms",
     PAGE_W / 2,
-    centerY + 10,
+    centerY + 9,
     { align: "center" }
   );
 
-  doc.setDrawColor(...PURPLE);
-  doc.setLineWidth(0.4);
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.35);
   const lineW = 60;
-  doc.line(PAGE_W / 2 - lineW / 2, centerY + 16, PAGE_W / 2 + lineW / 2, centerY + 16);
+  doc.line(PAGE_W / 2 - lineW / 2, centerY + 14, PAGE_W / 2 + lineW / 2, centerY + 14);
 
   setCharcoal(doc);
   doc.setFontSize(9);
   doc.text(
     `This report was generated on ${nowIst} for ${data.summary.client_name || "—"}`,
     PAGE_W / 2,
-    centerY + 26,
+    centerY + 24,
     { align: "center" }
   );
 
@@ -1400,14 +1514,36 @@ function buildClosingPage(doc: jsPDF, data: ReportPdfDataset) {
   doc.text(
     "For queries, contact your CA or visit recondesk.in",
     PAGE_W / 2,
-    centerY + 34,
+    centerY + 32,
     { align: "center" }
   );
 
-  doc.setFont("helvetica", "italic");
+  // Logo above closing disclaimer (~120px ≈ 32mm wide)
+  const logoW = 32;
+  const logoH = (logoW * 480) / 2720;
+  const discStartY = PAGE_H - 28;
+  const logoY = discStartY - logoH - 8;
+
+  if (logoDataUrl) {
+    try {
+      doc.addImage(
+        logoDataUrl,
+        "PNG",
+        PAGE_W / 2 - logoW / 2,
+        logoY,
+        logoW,
+        logoH
+      );
+    } catch {
+      // Logo optional — continue without it
+    }
+  }
+
+  setFont(doc, "normal");
   doc.setFontSize(7);
+  setGrey(doc);
   const discLines = doc.splitTextToSize(CLOSING_DISCLAIMER, CONTENT_W - 10);
-  doc.text(discLines, PAGE_W / 2, PAGE_H - 24, { align: "center" });
+  doc.text(discLines, PAGE_W / 2, discStartY, { align: "center" });
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -1419,6 +1555,8 @@ export async function buildReconciliationReportPdf(
   const autoTable = (await import("jspdf-autotable")).default;
 
   const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
+  await registerPdfFonts(doc);
+  const logoDataUrl = await loadLogoDataUrl();
 
   buildCoverPage(doc, data);
   buildOverviewPage(doc, data);
@@ -1427,7 +1565,7 @@ export async function buildReconciliationReportPdf(
   buildRule37Section(doc, autoTable, data);
   buildGstr3bSection(doc, autoTable, data);
   buildFollowupSection(doc, autoTable, data);
-  buildClosingPage(doc, data);
+  buildClosingPage(doc, data, logoDataUrl);
 
   applyPageChrome(doc);
 
