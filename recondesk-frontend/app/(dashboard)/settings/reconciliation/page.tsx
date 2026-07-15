@@ -11,7 +11,7 @@ import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
 } from "@/lib/auth-profile";
-import { reconcileSettingsApi } from "@/lib/api";
+import { isApiError, reconcileSettingsApi } from "@/lib/api";
 
 const DEFAULT_THRESHOLD = 95;
 
@@ -46,8 +46,11 @@ export default function ReconciliationSettingsPage() {
       toast("Auto-approve threshold saved", "success");
       if (meKey) mutate(meKey);
       mutate(["settings-me", authToken]);
-    } catch {
-      toast("Failed to save threshold", "error");
+    } catch (err) {
+      toast(
+        isApiError(err) ? err.detail : "Failed to save threshold",
+        "error"
+      );
     } finally {
       setSaving(false);
     }

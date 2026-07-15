@@ -8,6 +8,8 @@ from app.services.reconciliation import (  # noqa: F401
     resolve_orphans,
     process_gstr_records_chunk,
     execute_phase2_and_3,
+    flag_fuzzy_duplicates_of_linked_prs,
+    flag_fuzzy_pr_peer_duplicates,
     _finalize_reconciliation_result,
     build_pr_candidate_indices,
     build_pr_by_invoice,
@@ -72,4 +74,6 @@ __all__ = [
     "prepass_duplicate_ambiguity",
     "process_gstr_records_chunk",
     "run_bidirectional_reconciliation",
+    "flag_fuzzy_duplicates_of_linked_prs",
+    "flag_fuzzy_pr_peer_duplicates",
 ]

@@ -2482,7 +2482,14 @@ def _build_matched_pair_records(
             )
 
             if fetch_review_required:
-                amt_paise = int(en_row.get("total_tax_paise") or gm.get("total_tax_paise") or pm.get("total_tax_paise") or 0)
+                # Prefer DB matcher tax so Amount never shows ₹0 when only the
+                # slim engine row omitted total_tax_paise.
+                amt_paise = int(
+                    gm.get("total_tax_paise")
+                    or en_row.get("total_tax_paise")
+                    or pm.get("total_tax_paise")
+                    or 0
+                )
                 amt = _paise_to_rupees(amt_paise)
             else:
                 amt = _paise_to_rupees(int(gm.get("total_tax_paise") or 0))
@@ -2504,6 +2511,24 @@ def _build_matched_pair_records(
                 )
             tax_diff_paise: Optional[int] = _pair_tax_diff_paise(gm, pm_for_diff, en_row)
 
+            review_reason = str(
+                (en_row.get("review_reason") if isinstance(en_row, dict) else None)
+                or (en_row.get("reason") if isinstance(en_row, dict) else None)
+                or ""
+            ).strip()
+            discrepancy_reason = str(
+                (en_row.get("reason") if isinstance(en_row, dict) else None)
+                or review_reason
+                or ""
+            ).strip()
+            # GSTIN_MISMATCH with equal amounts has tax_diff=0 — surface the
+            # reason so the UI shows "Gstin mismatch" instead of ₹0.00.
+            if (
+                fetch_review_required
+                and review_reason == "GSTIN_MISMATCH"
+                and not (tax_diff_paise or 0)
+            ):
+                discrepancy_reason = "GSTIN_MISMATCH"
 
             # Decision data: for matched rows, look up from the decisions_by_gid
             # map (keyed by gstr_id).  For review-required rows, the decision
@@ -2540,7 +2565,7 @@ def _build_matched_pair_records(
                 "match_level": lvl,
                 "confidence_score": float(en_row.get("confidence_score") or 0.0),
                 "discrepancy_note": en_row.get("note") if isinstance(en_row, dict) else None,
-                "discrepancy_reason": str(en_row.get("reason", "") or ""),
+                "discrepancy_reason": discrepancy_reason,
                 "tax_difference_paise": tax_diff_paise or 0,
                 "decision_what": d_what
                 if d_what

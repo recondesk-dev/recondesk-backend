@@ -100,6 +100,71 @@ def test_gstin_mismatch_identical_amounts_has_zero_discrepancy():
     )
 
 
+def test_gstin_mismatch_api_exposes_amount_and_discrepancy_reason():
+    """Review API must show real ITC amount and GSTIN_MISMATCH reason (not blank ₹0)."""
+    from app.routers import reconciliation_api as api
+
+    tax_paise = 4_500_000
+    gstr_db = {
+        "g1": {
+            "matcher": {
+                "taxable_amount_paise": 25_000_000,
+                "total_tax_paise": tax_paise,
+                "supplier_gstin": "27AAAAA0000A1Z5",
+                "invoice_number_normalized": "INV5001",
+                "invoice_date": "2026-05-01",
+            },
+            "record_data": {},
+        }
+    }
+    pr_db = {
+        "p1": {
+            "matcher": {
+                "taxable_amount_paise": 25_000_000,
+                "total_tax_paise": tax_paise,
+                "supplier_gstin": "29BBBBB0000B1Z5",
+                "invoice_number_normalized": "INV5001",
+                "invoice_date": "2026-05-01",
+            },
+            "record_data": {},
+        }
+    }
+    # Slim engine row omits total_tax_paise — amount must come from gm.
+    en_row = {
+        "gstr_id": "g1",
+        "pr_id": "p1",
+        "id": "p1",
+        "confidence_score": 70,
+        "match_status": "review_required",
+        "review_reason": "GSTIN_MISMATCH",
+        "reason": "GSTIN_MISMATCH",
+        "match_level": 0,
+        "taxable_diff_paise": 0,
+    }
+    payload = {
+        "engine": {"duplicates": [en_row], "review_required_typo": []},
+        "decisions": {"rows": []},
+    }
+
+    with patch.object(api.ro, "load_gstr_map", return_value=gstr_db), patch.object(
+        api.ro, "load_pr_map", return_value=pr_db
+    ):
+        pairs = _build_matched_pair_records(
+            None,
+            rid="r1",
+            payload=payload,
+            note_counts={},
+            fetch_review_required=True,
+            precomputed_outcome_rows=[],
+        )
+
+    assert len(pairs) == 1
+    row, _orow = pairs[0]
+    assert row["amount"] == tax_paise / 100.0
+    assert row["tax_difference_paise"] == 0
+    assert row["discrepancy_reason"] == "GSTIN_MISMATCH"
+
+
 def test_date_shift_identical_amounts_has_zero_discrepancy():
     """Same GSTIN/invoice/amount, only the date shifted -> real diff is ₹0."""
     gstr = [_gstr("g1", "27AAAAA0000A1Z5", "INV6002", 300000, dt="2026-05-01")]
