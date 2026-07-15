@@ -139,16 +139,6 @@ import {
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 const DEFAULT_AUTO_APPROVE_THRESHOLD = 95;
-const RESULTS_TAB_EXPORT_LABELS: Record<ResultsBucketTabId, string> = {
-  matched: "Matched",
-  review_required: "Review Required",
-  duplicate_entry: "Duplicate Entries",
-  risk: "ITC at Risk",
-  itc: "Missed ITC",
-  rule37: "Rule 37",
-  gstr3b: "GSTR-3B Check",
-  followup: "Follow-up Log",
-};
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -860,79 +850,6 @@ function hasActiveRiskFilters(f: RiskFiltersState): boolean {
   return Object.values(f).some((v) => String(v).trim() !== "");
 }
 
-function buildExportFilterParams(args: {
-  tab: ResultsBucketTabId;
-  matchedSearch: string;
-  matchedSort: string;
-  matchedFilters: {
-    match_level: string;
-    has_notes: boolean;
-    section_17_5: boolean;
-    amount_min: string;
-    amount_max: string;
-    ims_status: string;
-  };
-  reviewRequiredSearch: string;
-  reviewRequiredSort: string;
-  reviewRequiredFilters: {
-    match_level: string;
-    has_notes: boolean;
-    section_17_5: boolean;
-    amount_min: string;
-    amount_max: string;
-    ims_status: string;
-  };
-  itcSort: string;
-  itcFilters: ItcFiltersState;
-  riskSort: string;
-  riskFilters: RiskFiltersState;
-}): URLSearchParams {
-  const p = new URLSearchParams();
-  p.set("bucket", args.tab);
-
-  if (args.tab === "matched" || args.tab === "review_required") {
-    const isReview = args.tab === "review_required";
-    const search = (isReview ? args.reviewRequiredSearch : args.matchedSearch).trim();
-    const sort = isReview ? args.reviewRequiredSort : args.matchedSort;
-    const f = isReview ? args.reviewRequiredFilters : args.matchedFilters;
-    p.set("sort", sort);
-    if (search) p.set("search", search);
-    if (f.match_level) p.set("match_level", f.match_level);
-    if (f.has_notes) p.set("has_notes", "true");
-    if (f.section_17_5) p.set("section_17_5", "true");
-    if (f.amount_min.trim()) p.set("amount_min", f.amount_min.trim());
-    if (f.amount_max.trim()) p.set("amount_max", f.amount_max.trim());
-    if (f.ims_status.trim()) p.set("ims_status", f.ims_status.trim());
-    if (isReview) p.set("review_required", "true");
-  } else if (args.tab === "itc") {
-    p.set("sort", args.itcSort);
-    if (args.itcFilters.amount_min.trim())
-      p.set("amount_min", args.itcFilters.amount_min.trim());
-    if (args.itcFilters.amount_max.trim())
-      p.set("amount_max", args.itcFilters.amount_max.trim());
-    if (args.itcFilters.supplier_gstin.trim())
-      p.set("supplier_gstin", args.itcFilters.supplier_gstin.trim());
-    if (args.itcFilters.date_from.trim())
-      p.set("date_from", args.itcFilters.date_from.trim());
-    if (args.itcFilters.date_to.trim())
-      p.set("date_to", args.itcFilters.date_to.trim());
-    if (args.itcFilters.ims_status.trim())
-      p.set("ims_status", args.itcFilters.ims_status.trim());
-  } else if (args.tab === "risk") {
-    p.set("sort", args.riskSort);
-    if (args.riskFilters.amount_min.trim())
-      p.set("amount_min", args.riskFilters.amount_min.trim());
-    if (args.riskFilters.amount_max.trim())
-      p.set("amount_max", args.riskFilters.amount_max.trim());
-    if (args.riskFilters.supplier_gstin.trim())
-      p.set("supplier_gstin", args.riskFilters.supplier_gstin.trim());
-    if (args.riskFilters.risk_level.trim())
-      p.set("risk_level", args.riskFilters.risk_level.trim().toLowerCase());
-  }
-
-  return p;
-}
-
 function supplierRiskImpactLabel(
   supplierTotal: number,
   grandTotal: number
@@ -1363,21 +1280,9 @@ export default function ReconcileResultsPage() {
     if (!authToken || !runId) return;
     setExcelDownloading(true);
     try {
-      const qs = buildExportFilterParams({
-        tab: resultsTab,
-        matchedSearch: debouncedMatchedSearch,
-        matchedSort,
-        matchedFilters,
-        reviewRequiredSearch: debouncedReviewRequiredSearch,
-        reviewRequiredSort,
-        reviewRequiredFilters,
-        itcSort,
-        itcFilters: debouncedItcFilters,
-        riskSort,
-        riskFilters: debouncedRiskFilters,
-      });
+      // Always request the full multi-sheet workbook — never scope by active tab.
       const res = await fetch(
-        `${API_URL}/api/reconcile/runs/${runId}/export/excel?${qs.toString()}`,
+        `${API_URL}/api/reconcile/runs/${runId}/export/excel`,
         { headers: { Authorization: `Bearer ${authToken}` } }
       );
       if (!res.ok) throw new Error("failed");
@@ -1395,22 +1300,7 @@ export default function ReconcileResultsPage() {
     } finally {
       setExcelDownloading(false);
     }
-  }, [
-    addToast,
-    authToken,
-    debouncedItcFilters,
-    debouncedMatchedSearch,
-    debouncedReviewRequiredSearch,
-    debouncedRiskFilters,
-    itcSort,
-    matchedFilters,
-    matchedSort,
-    resultsTab,
-    reviewRequiredFilters,
-    reviewRequiredSort,
-    riskSort,
-    runId,
-  ]);
+  }, [addToast, authToken, runId]);
 
   const [drawerDecisionError, setDrawerDecisionError] = useState<string | null>(
     null
@@ -2310,61 +2200,9 @@ export default function ReconcileResultsPage() {
     canEditAutoApproveThreshold,
   ]);
 
-  const exportScope = useMemo((): { label: string; count: number | null } => {
-    const label = RESULTS_TAB_EXPORT_LABELS[resultsTab] ?? resultsTab;
-    switch (resultsTab) {
-      case "matched":
-        return { label, count: matchedData?.total ?? null };
-      case "review_required":
-        return { label, count: reviewRequiredData?.total ?? null };
-      case "itc":
-        return {
-          label,
-          count: itcGroupBySupplier
-            ? (itcAllRows?.length ?? null)
-            : (itcPageData?.total ?? null),
-        };
-      case "risk":
-        return {
-          label,
-          count: riskGroupBySupplier
-            ? (riskAllRows?.length ?? null)
-            : (riskPageData?.total ?? null),
-        };
-      case "duplicate_entry":
-        return {
-          label,
-          count:
-            duplicateEntryData?.total ??
-            summary?.duplicate_entry_count ??
-            null,
-        };
-      case "rule37":
-        return { label, count: rule37Data?.total ?? null };
-      default:
-        return { label, count: null };
-    }
-  }, [
-    duplicateEntryData?.total,
-    itcAllRows?.length,
-    itcGroupBySupplier,
-    itcPageData?.total,
-    matchedData?.total,
-    resultsTab,
-    reviewRequiredData?.total,
-    riskAllRows?.length,
-    riskGroupBySupplier,
-    riskPageData?.total,
-    rule37Data?.total,
-    summary?.duplicate_entry_count,
-  ]);
-
   const exportScopeLabel = (
     <p className="text-[11px] text-gray-500">
-      Exporting: {exportScope.label}
-      {exportScope.count != null
-        ? `, ${exportScope.count.toLocaleString("en-IN")} records`
-        : ""}
+      Full workbook · all sections
     </p>
   );
 

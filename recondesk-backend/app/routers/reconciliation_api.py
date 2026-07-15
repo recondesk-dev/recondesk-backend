@@ -5167,25 +5167,17 @@ def _sort_matched_pair_records(
 @reconcile_runs_router.get("/runs/{run_id}/export/excel")
 async def reconcile_export_excel_workbook(
     run_id: str,
-    bucket: Optional[str] = None,
-    sort: str = Query("amount_desc"),
-    search: Optional[str] = None,
-    match_level: Optional[str] = None,
-    has_notes: Optional[str] = None,
-    section_17_5: Optional[str] = None,
-    amount_min: Optional[str] = None,
-    amount_max: Optional[str] = None,
-    ims_status: Optional[str] = None,
-    supplier_gstin: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    risk_level: Optional[str] = None,
-    review_required: Optional[str] = None,
     current_user: dict = Depends(get_current_active_user),
 ):
+    """Always return the full multi-sheet reconciliation workbook.
+
+    Tab/filter query params are intentionally ignored — every Excel download
+    includes all sections for the run, independent of the active UI tab.
+    Per-bucket CSV downloads remain available for filtered single-section exports.
+    """
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    run_row = assert_run_accessible(sb, rid, current_user)
+    assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
     uid = str(current_user.get("id", ""))
     run_ex = (
@@ -5208,6 +5200,8 @@ async def reconcile_export_excel_workbook(
     firm_name = str(prof.get("firm_name") or "")
     gen_name = str(prof.get("full_name") or "")
     notes = _notes_count_for_run(sb, rid)
+
+    # Each section is loaded independently for the full run — never gated by UI tab.
     matched_pairs = _build_matched_pair_records(
         sb,
         rid=rid,
@@ -5215,6 +5209,15 @@ async def reconcile_export_excel_workbook(
         note_counts=notes,
         precomputed_outcome_rows=summ_outcome_rows,
     )
+    review_pairs = _build_matched_pair_records(
+        sb,
+        rid=rid,
+        payload=p,
+        note_counts=notes,
+        fetch_review_required=True,
+        precomputed_outcome_rows=summ_outcome_rows,
+    )
+    review_rows = [pair[0] for pair in review_pairs]
     missed = _build_missed_itc_records(
         sb,
         rid=rid,
@@ -5225,90 +5228,40 @@ async def reconcile_export_excel_workbook(
     risk = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
     r37 = _build_rule37_rows(sb, rid, p, notes)
     s17 = _build_section175_rows(sb, rid, p, notes)
+    duplicate_rows = [
+        x.as_dict() for x in summ_outcome_rows if x.category == "duplicate_entry"
+    ]
 
-    oc_rows, _cc, _st = ro.build_outcome_rows(sb, rid, p)
-    review_rows = [x.as_dict() for x in oc_rows if x.category == "review_required"]
+    gstr3b_result: Optional[dict[str, Any]] = None
+    try:
+        g3b_ex = (
+            sb.table("gstr3b_reconciliation")
+            .select(
+                "id, run_id, client_gstin, tax_period, overall_status, "
+                "gstr3b_igst_claimed, gstr3b_cgst_claimed, gstr3b_sgst_claimed, "
+                "gstr2b_igst_available, gstr2b_cgst_available, gstr2b_sgst_available, "
+                "igst_difference, cgst_difference, sgst_difference, "
+                "igst_status, cgst_status, sgst_status, "
+                "outward_supply_total, uploaded_at"
+            )
+            .eq("run_id", rid)
+            .order("uploaded_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if g3b_ex.data:
+            gstr3b_result = dict(g3b_ex.data[0])
+    except Exception:
+        _log.exception("excel export: gstr3b fetch failed run=%s", rid)
 
-    amin = _parse_money_query(amount_min)
-    amax = _parse_money_query(amount_max)
-    dfrom = _parse_iso_date_query(date_from)
-    dto = _parse_iso_date_query(date_to)
-    hn = bool(
-        has_notes and str(has_notes).strip().lower() in ("true", "1", "yes")
-    )
-    s174 = bool(
-        section_17_5
-        and str(section_17_5).strip().lower() in ("true", "1", "yes")
-    )
-    bucket_norm = (bucket or "").strip().lower() or None
-    # `review_required` is accepted for clients that mirror the matched-bucket API;
-    # when bucket=review_required we always filter as review-required.
-
-    if bucket_norm == "matched":
-        matched_pairs = _filter_matched(
-            matched_pairs,
-            search_q=search,
-            match_level_filter=match_level,
-            amount_min_val=amin,
-            amount_max_val=amax,
-            require_notes=hn,
-            review_required=False,
-            section174=s174,
-            ims_status_filter=ims_status,
-        )
-        matched_pairs = _sort_matched_pair_records(matched_pairs, sort)
-        missed, risk, r37, s17, review_rows = [], [], [], [], []
-    elif bucket_norm == "review_required":
-        review_pairs = _build_matched_pair_records(
-            sb,
-            rid=rid,
-            payload=p,
-            note_counts=notes,
-            fetch_review_required=True,
-            precomputed_outcome_rows=summ_outcome_rows,
-        )
-        review_pairs = _filter_matched(
-            review_pairs,
-            search_q=search,
-            match_level_filter=match_level,
-            amount_min_val=amin,
-            amount_max_val=amax,
-            require_notes=hn,
-            review_required=True,
-            section174=s174,
-            ims_status_filter=ims_status,
-        )
-        review_pairs = _sort_matched_pair_records(review_pairs, sort)
-        review_rows = [pair[0] for pair in review_pairs]
-        matched_pairs, missed, risk, r37, s17 = [], [], [], [], []
-    elif bucket_norm == "itc":
-        missed = _filter_bucket_amount_gstin(
-            missed,
-            amount_min_val=amin,
-            amount_max_val=amax,
-            supplier_gstin_q=supplier_gstin,
-        )
-        missed = _filter_itc_date_range(missed, date_from=dfrom, date_to=dto)
-        if ims_status and str(ims_status).strip():
-            want = str(ims_status).strip().lower()
-            missed = [
-                r
-                for r in missed
-                if str(r.get("ims_status") or "no_action_taken").strip().lower()
-                == want
-            ]
-        _sort_reconcile_bucket_rows(missed, sort)
-        matched_pairs, risk, r37, s17, review_rows = [], [], [], [], []
-    elif bucket_norm == "risk":
-        risk = _filter_bucket_amount_gstin(
-            risk,
-            amount_min_val=amin,
-            amount_max_val=amax,
-            supplier_gstin_q=supplier_gstin,
-        )
-        risk = _filter_risk_by_level(risk, risk_level)
-        _sort_reconcile_bucket_rows(risk, sort)
-        matched_pairs, missed, r37, s17, review_rows = [], [], [], [], []
+    followup_rows: list[dict[str, Any]] = []
+    try:
+        followup_raw = _followup_audit_query(sb, run_id=rid)
+        followup_rows = [
+            x.model_dump() for x in _followup_audit_list_response(followup_raw)
+        ]
+    except Exception:
+        _log.exception("excel export: followup fetch failed run=%s", rid)
 
     blob, fn = build_excel_workbook_bytes(
         run_id=rid,
@@ -5322,6 +5275,9 @@ async def reconcile_export_excel_workbook(
         rule37_rows=r37,
         section17_rows=s17,
         review_required_rows=review_rows,
+        duplicate_rows=duplicate_rows,
+        gstr3b_result=gstr3b_result,
+        followup_rows=followup_rows,
         generated_at=datetime.now(timezone.utc),
         generated_by_name=gen_name,
     )

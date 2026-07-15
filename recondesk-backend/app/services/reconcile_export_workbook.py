@@ -172,6 +172,19 @@ class _SheetTrack:
         self.status = status
 
 
+def _outcome_amount_rupees(row: dict[str, Any]) -> float:
+    """Outcome rows store tax as paise (int); UI/API rows use rupees (float)."""
+    am = row.get("amount")
+    if am is None or am == "":
+        return 0.0
+    try:
+        if isinstance(am, int):
+            return float(am) / 100.0
+        return float(am)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def build_excel_workbook_bytes(
     *,
     run_id: str,
@@ -187,8 +200,17 @@ def build_excel_workbook_bytes(
     review_required_rows: list[dict[str, Any]],
     generated_at: datetime,
     generated_by_name: str,
+    duplicate_rows: list[dict[str, Any]] | None = None,
+    gstr3b_result: dict[str, Any] | None = None,
+    followup_rows: list[dict[str, Any]] | None = None,
 ) -> tuple[bytes, str]:
-    """Return (xlsx bytes, filename)."""
+    """Return (xlsx bytes, filename).
+
+    Always builds every section sheet. Empty sections still get a sheet with
+    headers and a status/placeholder row — never omit sheets based on UI tab.
+    """
+    duplicate_rows = list(duplicate_rows or [])
+    followup_rows = list(followup_rows or [])
     tracks: list[_SheetTrack] = []
 
     wb = Workbook()
@@ -224,13 +246,21 @@ def build_excel_workbook_bytes(
         stats = [
             ("Total GSTR Records", summary.get("total_gstr_records", 0)),
             ("Matched Records", summary.get("matched_count", 0)),
+            (
+                "Review Required",
+                summary.get("review_required_count", len(review_required_rows)),
+            ),
+            (
+                "Duplicate Entries",
+                summary.get("duplicate_entry_count", len(duplicate_rows)),
+            ),
             ("Match Rate %", summary.get("match_rate_percent", 0)),
             ("Missed ITC Count", summary.get("missed_itc_count", 0)),
             (
                 "Total ITC Recoverable",
                 _rs_int(float(summary.get("missed_itc_total_amount") or 0)),
             ),
-            ("Compliance Risk Count", summary.get("wrongful_risk_count", 0)),
+            ("ITC at Risk Count", summary.get("wrongful_risk_count", 0)),
             (
                 "Total ITC at Risk",
                 _rs_int(float(summary.get("wrongful_risk_total_amount") or 0)),
@@ -569,13 +599,15 @@ def build_excel_workbook_bytes(
                     row.get("supplier_gstin") or "—",
                     row.get("invoice_number") or "—",
                     row.get("invoice_date") or "—",
-                    row.get("decision_why") or "—",
-                    _rs_int(row.get("amount") or 0),
+                    row.get("decision_why") or row.get("discrepancy_reason") or "—",
+                    _rs_int(_outcome_amount_rupees(row) if isinstance(row.get("amount"), int) else float(row.get("amount") or 0)),
                     _format_match_confidence(row.get("match_confidence")),
                     _format_match_rationale(row.get("compared_fields")),
                 ]
             )
             r += 1
+        if not review_required_rows:
+            ws_rev["A2"] = "No review-required records for this reconciliation run."
         _autosize_columns(ws_rev)
         tracks.append(
             _SheetTrack(
@@ -588,7 +620,184 @@ def build_excel_workbook_bytes(
         _log.exception("excel review required sheet failed run=%s", run_id)
         tracks.append(_SheetTrack("Review Required", 0, f"FAILED: {e}"))
 
-    # --- Sheet 6 Export Notes ---
+    # --- Duplicate Entries ---
+    try:
+        ws_dup = wb.create_sheet("Duplicate Entries")
+        headers = (
+            "Supplier GSTIN",
+            "Invoice#",
+            "Date",
+            "Amount",
+            "Matched PR ID",
+            "WHAT IS WRONG",
+            "WHY",
+            "WHAT TO DO NEXT",
+        )
+        hdr_fill = PatternFill("solid", fgColor=_HEADER_ORANGE)
+        hdr_font = Font(bold=True, color="FFFFFF")
+        for col, h in enumerate(headers, 1):
+            c = ws_dup.cell(row=1, column=col, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+        ws_dup.freeze_panes = "A2"
+        if not duplicate_rows:
+            ws_dup["A2"] = "No duplicate entries for this reconciliation run."
+        else:
+            r = 2
+            for row in duplicate_rows:
+                vals = (
+                    row.get("supplier_gstin") or "—",
+                    row.get("invoice_number") or "—",
+                    row.get("invoice_date") or "—",
+                    _comma_int(_outcome_amount_rupees(row)),
+                    row.get("matched_pr_id") or "—",
+                    _decision_cell(row.get("decision_what")),
+                    _decision_cell(row.get("decision_why")),
+                    _decision_cell(row.get("decision_next")),
+                )
+                for col, v in enumerate(vals, 1):
+                    ws_dup.cell(row=r, column=col, value=v)
+                r += 1
+        _autosize_columns(ws_dup)
+        tracks.append(
+            _SheetTrack(
+                "Duplicate Entries",
+                row_count=len(duplicate_rows),
+                status="OK",
+            )
+        )
+    except Exception as e:
+        _log.exception("excel duplicate entries sheet failed run=%s", run_id)
+        tracks.append(_SheetTrack("Duplicate Entries", 0, f"FAILED: {e}"))
+
+    # --- GSTR-3B Check ---
+    try:
+        ws_g3b = wb.create_sheet("GSTR-3B Check")
+        headers = (
+            "Tax Head",
+            "GSTR-2B Available",
+            "GSTR-3B Claimed",
+            "Difference",
+            "Status",
+        )
+        hdr_fill = PatternFill("solid", fgColor=_HEADER_BLUE)
+        hdr_font = Font(bold=True, color="FFFFFF")
+        for col, h in enumerate(headers, 1):
+            c = ws_g3b.cell(row=1, column=col, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+        ws_g3b.freeze_panes = "A2"
+
+        def _g3b_f(key: str) -> float:
+            try:
+                return round(float((gstr3b_result or {}).get(key) or 0), 2)
+            except (TypeError, ValueError):
+                return 0.0
+
+        if not gstr3b_result:
+            ws_g3b["A2"] = "GSTR-3B not uploaded for this reconciliation run."
+            g3b_rows = 0
+        else:
+            ws_g3b["A2"] = (
+                f"Period: {gstr3b_result.get('tax_period') or '—'}  |  "
+                f"Overall: {gstr3b_result.get('overall_status') or '—'}"
+            )
+            heads = (
+                (
+                    "IGST",
+                    _g3b_f("gstr2b_igst_available"),
+                    _g3b_f("gstr3b_igst_claimed"),
+                    _g3b_f("igst_difference"),
+                    str(gstr3b_result.get("igst_status") or "—"),
+                ),
+                (
+                    "CGST",
+                    _g3b_f("gstr2b_cgst_available"),
+                    _g3b_f("gstr3b_cgst_claimed"),
+                    _g3b_f("cgst_difference"),
+                    str(gstr3b_result.get("cgst_status") or "—"),
+                ),
+                (
+                    "SGST",
+                    _g3b_f("gstr2b_sgst_available"),
+                    _g3b_f("gstr3b_sgst_claimed"),
+                    _g3b_f("sgst_difference"),
+                    str(gstr3b_result.get("sgst_status") or "—"),
+                ),
+            )
+            r = 3
+            for head, g2b, g3b, diff, st in heads:
+                vals = (head, _rs_int(g2b), _rs_int(g3b), _rs_int(diff), st)
+                for col, v in enumerate(vals, 1):
+                    ws_g3b.cell(row=r, column=col, value=v)
+                r += 1
+            tot_g2b = sum(h[1] for h in heads)
+            tot_g3b = sum(h[2] for h in heads)
+            tot_diff = sum(h[3] for h in heads)
+            for col, v in enumerate(
+                (
+                    "Total",
+                    _rs_int(tot_g2b),
+                    _rs_int(tot_g3b),
+                    _rs_int(tot_diff),
+                    str(gstr3b_result.get("overall_status") or "—"),
+                ),
+                1,
+            ):
+                c = ws_g3b.cell(row=r, column=col, value=v)
+                c.font = Font(bold=True)
+            g3b_rows = 4
+        _autosize_columns(ws_g3b)
+        tracks.append(_SheetTrack("GSTR-3B Check", row_count=g3b_rows, status="OK"))
+    except Exception as e:
+        _log.exception("excel gstr3b sheet failed run=%s", run_id)
+        tracks.append(_SheetTrack("GSTR-3B Check", 0, f"FAILED: {e}"))
+
+    # --- Follow-up Log ---
+    try:
+        ws_fu = wb.create_sheet("Follow-up Log")
+        headers = (
+            "Supplier Name",
+            "Supplier GSTIN",
+            "Invoice #",
+            "Status",
+            "Generated By",
+            "Date & Time",
+            "Template",
+        )
+        hdr_fill = PatternFill("solid", fgColor=_HEADER_BLUE)
+        hdr_font = Font(bold=True, color="FFFFFF")
+        for col, h in enumerate(headers, 1):
+            c = ws_fu.cell(row=1, column=col, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+        ws_fu.freeze_panes = "A2"
+        if not followup_rows:
+            ws_fu["A2"] = "No supplier follow-up letters for this reconciliation run."
+        else:
+            r = 2
+            for row in followup_rows:
+                vals = (
+                    row.get("supplier_name_display") or "—",
+                    row.get("supplier_gstin") or "—",
+                    row.get("invoice_numbers_display") or "—",
+                    row.get("status") or "—",
+                    row.get("generated_by_name") or "—",
+                    row.get("generated_at") or "—",
+                    row.get("template_type") or "—",
+                )
+                for col, v in enumerate(vals, 1):
+                    ws_fu.cell(row=r, column=col, value=v)
+                r += 1
+        _autosize_columns(ws_fu)
+        tracks.append(
+            _SheetTrack("Follow-up Log", row_count=len(followup_rows), status="OK")
+        )
+    except Exception as e:
+        _log.exception("excel follow-up sheet failed run=%s", run_id)
+        tracks.append(_SheetTrack("Follow-up Log", 0, f"FAILED: {e}"))
+
+    # --- Export Notes ---
     ws6 = wb.create_sheet("Export Notes")
     ws6["A1"] = "Export Notes"
     ws6["A1"].font = Font(bold=True, size=14)
@@ -598,7 +807,9 @@ def build_excel_workbook_bytes(
     ws6["B4"] = generated_by_name or "—"
     ws6["A5"] = "Run ID:"
     ws6["B5"] = run_id
-    r = 7
+    ws6["A6"] = "Scope:"
+    ws6["B6"] = "Full reconciliation workbook (all sections)"
+    r = 8
     ws6.cell(row=r, column=1, value="Sheet")
     ws6.cell(row=r, column=2, value="Row Count")
     ws6.cell(row=r, column=3, value="Status")
@@ -612,6 +823,9 @@ def build_excel_workbook_bytes(
         "Compliance Risk": "Compliance Risk",
         "Rule 37 & 17(5)": "Rule 37 & 17(5)",
         "Review Required": "Review Required",
+        "Duplicate Entries": "Duplicate Entries",
+        "GSTR-3B Check": "GSTR-3B Check",
+        "Follow-up Log": "Follow-up Log",
     }
     for tr in tracks:
         disp = name_map.get(tr.name, tr.name)

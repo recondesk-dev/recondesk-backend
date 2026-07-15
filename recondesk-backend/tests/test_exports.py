@@ -205,10 +205,150 @@ class TestExcelExport:
             risk_rows=[],
             rule37_rows=[],
             section17_rows=[],
+            review_required_rows=[],
+            duplicate_rows=[],
+            gstr3b_result=None,
+            followup_rows=[],
         )
         assert result is not None
         xlsx_bytes, _ = result
         assert len(xlsx_bytes) > 0
+
+    def test_full_workbook_always_includes_every_section_sheet(self):
+        """Regression: every Excel export must contain all section sheets with data.
+
+        Previously the UI `bucket` query cleared other sections so only the active
+        tab's sheet had rows. The builder must always emit every sheet, and when
+        sample data is provided for each category the data sheets must be non-empty.
+        """
+        from openpyxl import load_workbook
+
+        review_rows = [
+            {
+                "supplier_gstin": "27REVW1234F1Z5",
+                "invoice_number": "REV-1",
+                "invoice_date": date(2024, 4, 2),
+                "decision_why": "Amount mismatch",
+                "amount": 1500.0,
+                "match_confidence": 0.82,
+                "compared_fields": [],
+            }
+        ]
+        duplicate_rows = [
+            {
+                "supplier_gstin": "27DUPL1234F1Z5",
+                "invoice_number": "DUP-1",
+                "invoice_date": "2024-04-03",
+                "amount": 25000,  # paise
+                "matched_pr_id": "pr-canon",
+                "decision_what": "Duplicate Entry",
+                "decision_why": "Same invoice booked twice",
+                "decision_next": "Remove extra PR row",
+            }
+        ]
+        gstr3b_result = {
+            "tax_period": "2024-04",
+            "overall_status": "MATCHED",
+            "gstr2b_igst_available": 1000,
+            "gstr3b_igst_claimed": 1000,
+            "igst_difference": 0,
+            "igst_status": "MATCHED",
+            "gstr2b_cgst_available": 500,
+            "gstr3b_cgst_claimed": 500,
+            "cgst_difference": 0,
+            "cgst_status": "MATCHED",
+            "gstr2b_sgst_available": 500,
+            "gstr3b_sgst_claimed": 500,
+            "sgst_difference": 0,
+            "sgst_status": "MATCHED",
+        }
+        followup_rows = [
+            {
+                "supplier_name_display": "Acme Suppliers",
+                "supplier_gstin": "27ACME1234F1Z5",
+                "invoice_numbers_display": "INV001",
+                "status": "generated",
+                "generated_by_name": "Omkar Kadam",
+                "generated_at": "2024-05-01T10:00:00+00:00",
+                "template_type": "wrongful_itc",
+            }
+        ]
+
+        xlsx_bytes, _ = self._build(
+            review_required_rows=review_rows,
+            duplicate_rows=duplicate_rows,
+            gstr3b_result=gstr3b_result,
+            followup_rows=followup_rows,
+        )
+        wb = load_workbook(BytesIO(xlsx_bytes))
+
+        expected_sheets = [
+            "Summary",
+            "Matched Records",
+            "Missed ITC",
+            "Compliance Risk",
+            "Rule 37 & Section 17-5",
+            "Review Required",
+            "Duplicate Entries",
+            "GSTR-3B Check",
+            "Follow-up Log",
+            "Export Notes",
+        ]
+        for name in expected_sheets:
+            assert name in wb.sheetnames, (
+                f"Missing sheet '{name}'. Got: {wb.sheetnames}"
+            )
+
+        # Data sheets must have header + at least one data row (not empty/cleared).
+        assert wb["Matched Records"].max_row >= 2
+        assert wb["Missed ITC"].max_row >= 2
+        assert wb["Compliance Risk"].max_row >= 2
+        assert wb["Rule 37 & Section 17-5"].max_row >= 2
+        assert wb["Review Required"].max_row >= 2
+        assert wb["Duplicate Entries"].max_row >= 2
+        assert wb["GSTR-3B Check"].max_row >= 3
+        assert wb["Follow-up Log"].max_row >= 2
+
+        # Spot-check that section data actually landed (not a blank placeholder).
+        matched_vals = [
+            str(c.value or "")
+            for row in wb["Matched Records"].iter_rows(min_row=2, max_row=2)
+            for c in row
+        ]
+        assert any("INV001" in v for v in matched_vals)
+        dup_vals = [
+            str(c.value or "")
+            for row in wb["Duplicate Entries"].iter_rows(min_row=2, max_row=2)
+            for c in row
+        ]
+        assert any("DUP-1" in v for v in dup_vals)
+        fu_vals = [
+            str(c.value or "")
+            for row in wb["Follow-up Log"].iter_rows(min_row=2, max_row=2)
+            for c in row
+        ]
+        assert any("Acme" in v for v in fu_vals)
+
+    def test_empty_optional_sections_still_create_sheets_with_status(self):
+        """Rule 37 / GSTR-3B / Follow-up sheets exist even when empty."""
+        from openpyxl import load_workbook
+
+        xlsx_bytes, _ = self._build(
+            rule37_rows=[],
+            section17_rows=[],
+            gstr3b_result=None,
+            followup_rows=[],
+            duplicate_rows=[],
+        )
+        wb = load_workbook(BytesIO(xlsx_bytes))
+        assert "Rule 37 & Section 17-5" in wb.sheetnames
+        assert "GSTR-3B Check" in wb.sheetnames
+        assert "Follow-up Log" in wb.sheetnames
+        assert "Duplicate Entries" in wb.sheetnames
+        assert "No Rule 37" in str(wb["Rule 37 & Section 17-5"]["A2"].value or "")
+        assert "not uploaded" in str(wb["GSTR-3B Check"]["A2"].value or "").lower()
+        assert "No supplier follow-up" in str(wb["Follow-up Log"]["A2"].value or "")
+        assert "No duplicate" in str(wb["Duplicate Entries"]["A2"].value or "")
 
     def test_none_summary_values_do_not_crash(self):
         """None values in summary dict must not crash."""
