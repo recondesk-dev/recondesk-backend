@@ -281,6 +281,48 @@ def _get_field(rec: Mapping[str, Any], *keys: str, default: Any = "") -> Any:
     return default
 
 
+def _normalize_gstin_value(val: Any) -> str | None:
+    """Return a cleaned GSTIN, or ``None`` when missing / unregistered."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s or s == "?" or s.upper() == "URP":
+        return None
+    return s
+
+
+def _recipient_display_label(
+    *,
+    gstin: Any = None,
+    name: Any = None,
+) -> str:
+    """User-facing recipient phrase for decision text.
+
+    Never returns ``"?"`` or an empty string — B2C / missing GSTIN falls back
+    to a natural "unregistered B2C customer" description. Structured details
+    should still store the raw GSTIN as ``None`` when absent.
+    """
+    gstin_s = _normalize_gstin_value(gstin)
+    if gstin_s:
+        return gstin_s
+    name_s = str(name).strip() if name is not None else ""
+    if name_s and name_s != "?":
+        return f"{name_s} (an unregistered B2C customer)"
+    return "an unregistered B2C customer"
+
+
+def _recipient_from_record(
+    rec: Mapping[str, Any],
+    *gstin_keys: str,
+) -> tuple[str | None, str]:
+    """Extract ``(gstin_or_none, display_label)`` from a record."""
+    keys = gstin_keys or ("recipient_gstin", "gstin")
+    gstin = _normalize_gstin_value(_get_field(rec, *keys, default=""))
+    name = _get_field(rec, "recipient_name", "customer_name", "trade_name", default="")
+    name_s = str(name).strip() if name else ""
+    return gstin, _recipient_display_label(gstin=gstin, name=name_s or None)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Tolerance configuration
 # ══════════════════════════════════════════════════════════════════════════════
@@ -307,7 +349,9 @@ def classify_missing_invoice(
         The unmatched Sales Register record.
     """
     inv = str(_get_field(sr_rec, "invoice_number") or "?")
-    gstin = str(_get_field(sr_rec, "gstin", "recipient_gstin") or "?")
+    gstin, recipient_label = _recipient_from_record(
+        sr_rec, "gstin", "recipient_gstin",
+    )
     taxable = _safe_int(sr_rec.get("taxable_amount_paise"))
     total_tax = _safe_int(sr_rec.get("total_tax_paise"))
     inv_date = _parse_date(sr_rec.get("invoice_date"))
@@ -325,8 +369,9 @@ def classify_missing_invoice(
             f"interest under Section 50 and penalties under Section 122."
         ),
         decision_next=(
-            f"File or amend GSTR-1 to include invoice {inv} for recipient "
-            f"{gstin}. If the invoice was cancelled or returned, record a "
+            f"File or amend GSTR-1 to include invoice {inv} for "
+            f"{('recipient ' + gstin) if gstin else recipient_label}. "
+            f"If the invoice was cancelled or returned, record a "
             f"credit note instead."
         ),
         rule_id="G1M_001",
@@ -353,8 +398,8 @@ def classify_extra_invoice(
         The unmatched GSTR-1 record.
     """
     inv = str(_get_field(gstr1_rec, "invoice_number") or "?")
-    gstin = str(
-        _get_field(gstr1_rec, "recipient_gstin", "gstin") or "?"
+    gstin, recipient_label = _recipient_from_record(
+        gstr1_rec, "recipient_gstin", "gstin",
     )
     taxable = _safe_int(gstr1_rec.get("taxable_amount_paise"))
     total_tax = _safe_int(gstr1_rec.get("total_tax_paise"))
@@ -373,8 +418,8 @@ def classify_extra_invoice(
             f"transaction not yet recorded in the Sales Register."
         ),
         decision_next=(
-            f"Verify if invoice {inv} for {gstin} is a genuine sale. If "
-            f"duplicate, amend GSTR-1 to remove it. If genuine, add it to "
+            f"Verify if invoice {inv} for {recipient_label} is a genuine sale. "
+            f"If duplicate, amend GSTR-1 to remove it. If genuine, add it to "
             f"the Sales Register."
         ),
         rule_id="G1M_002",
@@ -511,12 +556,14 @@ def classify_wrong_classification(
     """
     inv = str(_get_field(sr_rec, "invoice_number") or "?")
 
-    sr_gstin = str(
-        _get_field(sr_rec, "gstin", "recipient_gstin") or ""
-    ).strip().upper()
-    g1_gstin = str(
-        _get_field(gstr1_rec, "recipient_gstin", "gstin") or ""
-    ).strip().upper()
+    sr_gstin_raw = _normalize_gstin_value(
+        _get_field(sr_rec, "gstin", "recipient_gstin", default="")
+    )
+    g1_gstin_raw = _normalize_gstin_value(
+        _get_field(gstr1_rec, "recipient_gstin", "gstin", default="")
+    )
+    sr_gstin = (sr_gstin_raw or "").upper()
+    g1_gstin = (g1_gstin_raw or "").upper()
 
     def _is_b2b(gstin: str) -> bool:
         return bool(gstin) and gstin != "URP" and len(gstin) == 15
@@ -529,6 +576,17 @@ def classify_wrong_classification(
 
     sr_class = "B2B" if sr_b2b else "B2C"
     g1_class = "B2B" if g1_b2b else "B2C"
+
+    recipient_name = (
+        _get_field(sr_rec, "recipient_name", "customer_name", "trade_name", default="")
+        or _get_field(
+            gstr1_rec, "recipient_name", "customer_name", "trade_name", default=""
+        )
+    )
+    recipient_label = _recipient_display_label(
+        gstin=sr_gstin_raw or g1_gstin_raw,
+        name=recipient_name or None,
+    )
 
     return MismatchResult(
         mismatch_type=MismatchType.WRONG_CLASSIFICATION,
@@ -544,7 +602,7 @@ def classify_wrong_classification(
             f"DRC-01C notice. Section 37 requires accurate classification."
         ),
         decision_next=(
-            f"Verify whether the recipient ({sr_gstin or g1_gstin}) is a "
+            f"Verify whether the recipient ({recipient_label}) is a "
             f"registered taxpayer. Amend GSTR-1 to move the invoice to the "
             f"correct table ({sr_class} if the Sales Register is authoritative, "
             f"or update the Sales Register if GSTR-1 is correct)."
@@ -554,8 +612,8 @@ def classify_wrong_classification(
             "invoice_number": inv,
             "sr_classification": sr_class,
             "gstr1_classification": g1_class,
-            "sr_gstin": sr_gstin,
-            "gstr1_gstin": g1_gstin,
+            "sr_gstin": sr_gstin_raw,
+            "gstr1_gstin": g1_gstin_raw,
             "matched_fields": ["invoice_number"],
             "differed_fields": ["classification"],
         },
