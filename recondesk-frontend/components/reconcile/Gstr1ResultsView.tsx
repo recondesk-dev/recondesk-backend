@@ -6,6 +6,7 @@ import {
   FileText,
   Loader2,
 } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import {
@@ -13,6 +14,7 @@ import {
   DecisionInvoiceList,
 } from "@/components/reconcile/DecisionInvoiceCard";
 import { Gstr1DocumentsIssuedPanel } from "@/components/reconcile/Gstr1DocumentsIssuedPanel";
+import { Gstr1aWindowBadge } from "@/components/reconcile/Gstr1aWindowBadge";
 import { Gstr1TieOutPanel } from "@/components/reconcile/Gstr1TieOutPanel";
 import {
   EmptyTableState,
@@ -26,11 +28,13 @@ import {
 } from "@/components/reconcile/ResultsUi";
 import {
   countMismatchesByType,
+  filterGstr1aEligibleMismatches,
   filterReviewRequired,
   mismatchTypeShort,
   recordAmountRupees,
   recordGstin,
   recordInvoiceNumber,
+  type Gstr1aWindow,
   type Gstr1MatchedRow,
   type Gstr1ReconcileResult,
   type Gstr1UnmatchedRow,
@@ -133,9 +137,11 @@ function MatchedCards({
 function UnmatchedCards({
   rows,
   emptyTitle,
+  gstr1aWindow,
 }: {
   rows: Gstr1UnmatchedRow[];
   emptyTitle: string;
+  gstr1aWindow?: Gstr1aWindow | null;
 }) {
   if (rows.length === 0) {
     return <EmptyTableState title={emptyTitle} />;
@@ -160,6 +166,12 @@ function UnmatchedCards({
             next={row.decision_next}
             status={<SeverityPill severity={row.mismatch_severity} />}
             impact={<TypePill type={row.mismatch_type} />}
+            meta={
+              <Gstr1aWindowBadge
+                eligibility={row.eligibility}
+                window={gstr1aWindow}
+              />
+            }
           />
         );
       })}
@@ -188,6 +200,15 @@ export function Gstr1ResultsView({
   );
 
   const summary = result.summary;
+  const gstr1aWindow =
+    result.gstr1a_window ?? summary.gstr1a_window ?? null;
+  const gstr1aEligible = useMemo(
+    () => filterGstr1aEligibleMismatches(result.mismatches || []),
+    [result.mismatches]
+  );
+  const gstr1aSummaryHref = result.run_id
+    ? `/reconcile/gstr1/gstr1a?run_id=${encodeURIComponent(result.run_id)}`
+    : "/reconcile/gstr1/gstr1a";
   /** GSTR-1-only invoices (same number as the Extra in GSTR-1 tab). */
   const extraInGstr1Count = summary.unmatched_gstr1_count;
   /**
@@ -282,6 +303,15 @@ export function Gstr1ResultsView({
                   No amendments vs prior GSTR-1
                 </span>
               )}
+              {gstr1aEligible.length > 0 ? (
+                <Link
+                  href={gstr1aSummaryHref}
+                  className="inline-flex rounded-full bg-[var(--ink)] px-2.5 py-0.5 text-[11px] font-medium text-white transition-opacity hover:opacity-90"
+                >
+                  GSTR-1A batch · {gstr1aEligible.length.toLocaleString("en-IN")}{" "}
+                  eligible
+                </Link>
+              ) : null}
             </div>
           </div>
 
@@ -500,6 +530,7 @@ export function Gstr1ResultsView({
             <UnmatchedCards
               rows={result.unmatched_sr || []}
               emptyTitle="No missing invoices"
+              gstr1aWindow={gstr1aWindow}
             />
           </section>
         )}
@@ -519,6 +550,7 @@ export function Gstr1ResultsView({
             <UnmatchedCards
               rows={result.unmatched_gstr1 || []}
               emptyTitle="No extra GSTR-1 invoices"
+              gstr1aWindow={gstr1aWindow}
             />
           </section>
         )}
@@ -612,9 +644,19 @@ export function Gstr1ResultsView({
 
             {/* Full mismatch flat list */}
             <div className="mt-6">
-              <p className="mb-3 text-[11px] font-medium uppercase tracking-widest text-gray-400">
-                All classified mismatches ({summary.mismatch_count})
-              </p>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-medium uppercase tracking-widest text-gray-400">
+                  All classified mismatches ({summary.mismatch_count})
+                </p>
+                {gstr1aEligible.length > 0 ? (
+                  <Link
+                    href={gstr1aSummaryHref}
+                    className="text-[12px] font-semibold text-[var(--ink)] underline-offset-2 hover:underline"
+                  >
+                    Open GSTR-1A period summary →
+                  </Link>
+                ) : null}
+              </div>
               {(result.mismatches || []).length === 0 ? (
                 <EmptyTableState title="No mismatches classified" />
               ) : (
@@ -627,6 +669,10 @@ export function Gstr1ResultsView({
                       <div className="flex flex-wrap items-center gap-2">
                         <TypePill type={m.mismatch_type} />
                         <SeverityPill severity={m.mismatch_severity} />
+                        <Gstr1aWindowBadge
+                          eligibility={m.eligibility}
+                          window={gstr1aWindow}
+                        />
                         <span className="text-[13px] font-medium text-[var(--ink)]">
                           {m.decision_what || m.invoice_number || "—"}
                         </span>

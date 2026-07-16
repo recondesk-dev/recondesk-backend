@@ -9,11 +9,14 @@ import { downloadBlobAsFile, pdfBytesToBlob } from "@/lib/download";
 import {
   countMismatchesByType,
   filterReviewRequired,
+  groupGstr1aEligibleByPeriod,
+  gstr1RunPeriodLabel,
   mismatchTypeShort,
   paiseToRupees,
   recordAmountRupees,
   recordGstin,
   recordInvoiceNumber,
+  type Gstr1DecisionFields,
   type Gstr1MatchedRow,
   type Gstr1ReconcileResult,
   type Gstr1UnmatchedRow,
@@ -201,6 +204,79 @@ export function downloadGstr1ExcelReport(result: Gstr1ReconcileResult): void {
     type: "text/csv;charset=utf-8",
   });
   downloadBlobAsFile(blob, `gstr1-reconcile-${stamp}.csv`);
+}
+
+function mismatchPaise(
+  m: Gstr1DecisionFields,
+  ...keys: string[]
+): number | null {
+  for (const key of keys) {
+    const v = m[key];
+    if (v == null || v === "") continue;
+    const n = Number(v);
+    if (!Number.isNaN(n)) return n;
+  }
+  return null;
+}
+
+/**
+ * Excel (CSV) export of GSTR-1A-eligible mismatches for the batch summary screen.
+ * Same download path as {@link downloadGstr1ExcelReport}.
+ */
+export function downloadGstr1aReadyExcel(result: Gstr1ReconcileResult): void {
+  const stamp = new Date().toISOString().slice(0, 10);
+  const fallbackPeriod = gstr1RunPeriodLabel(result) || "—";
+  const groups = groupGstr1aEligibleByPeriod(
+    result.mismatches || [],
+    fallbackPeriod
+  );
+
+  const headers = [
+    "period",
+    "invoice_number",
+    "gstin",
+    "taxable_value",
+    "tax_amount",
+    "mismatch_type",
+    "note",
+  ];
+
+  const rows: unknown[][] = [];
+  for (const group of groups) {
+    for (const m of group.mismatches) {
+      const taxablePaise = mismatchPaise(
+        m,
+        "taxable_amount_paise",
+        "sr_taxable_paise",
+        "gstr1_taxable_paise"
+      );
+      const taxPaise = mismatchPaise(
+        m,
+        "total_tax_paise",
+        "sr_tax_paise",
+        "gstr1_tax_paise"
+      );
+      const gstin =
+        (m.recipient_gstin != null && String(m.recipient_gstin).trim()) ||
+        (m.gstin != null && String(m.gstin).trim()) ||
+        (m.sr_gstin != null && String(m.sr_gstin).trim()) ||
+        "";
+
+      rows.push([
+        group.period,
+        m.invoice_number || "",
+        gstin,
+        taxablePaise != null ? paiseToRupees(taxablePaise).toFixed(2) : "",
+        taxPaise != null ? paiseToRupees(taxPaise).toFixed(2) : "",
+        mismatchTypeShort(m.mismatch_type),
+        m.note || "",
+      ]);
+    }
+  }
+
+  const csv = rowsToCsv(headers, rows);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  downloadBlobAsFile(blob, `gstr1a-ready-${stamp}.csv`);
 }
 
 export async function downloadGstr1PdfReport(

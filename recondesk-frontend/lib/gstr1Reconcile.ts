@@ -20,6 +20,29 @@ export type Gstr1MismatchType =
   | "G1M11_AMENDMENT_REQUIRED"
   | string;
 
+export type Gstr1aEligibility =
+  | "eligible"
+  | "not_eligible"
+  | "review_required"
+  | string;
+
+export type Gstr1aWindowStatus =
+  | "open"
+  | "window_closed"
+  | "expired"
+  | "not_open"
+  | "review_required"
+  | string;
+
+export type Gstr1aWindow = {
+  status: Gstr1aWindowStatus;
+  days_remaining: number | null;
+  gstr3b_due_date?: string | null;
+  gstr1_filed_date?: string | null;
+  gstr3b_filed_date?: string | null;
+  note?: string | null;
+};
+
 export type Gstr1DecisionFields = {
   mismatch_type?: Gstr1MismatchType;
   mismatch_severity?: string;
@@ -30,6 +53,9 @@ export type Gstr1DecisionFields = {
   decision_confidence?: string | null;
   recipient_gstin?: string | null;
   invoice_number?: string | null;
+  /** GSTR-1A amendability for this mismatch rule. */
+  eligibility?: Gstr1aEligibility | null;
+  note?: string | null;
   [key: string]: unknown;
 };
 
@@ -134,6 +160,9 @@ export type Gstr1ReconcileSummary = {
   amendment_detection_skipped?: boolean;
   /** Count of invoices requiring Tables 9A/9B/9C amendments. */
   amendment_count?: number;
+  gstr1_filed_date?: string | null;
+  gstr3b_filed_date?: string | null;
+  gstr1a_window?: Gstr1aWindow | null;
 };
 
 export type Gstr1DocumentsIssuedSeries = {
@@ -183,6 +212,10 @@ export type Gstr1ReconcileResult = {
   documents_issued?: Gstr1DocumentsIssued;
   tie_out: Gstr1TieOut;
   parse_diagnostics?: Gstr1ParseDiagnostics;
+  gstr1_filed_date?: string | null;
+  gstr3b_filed_date?: string | null;
+  /** Period-level GSTR-1A amendment window (shared across mismatches). */
+  gstr1a_window?: Gstr1aWindow | null;
   /** Persisted run id when client_gstin_id was supplied on upload. */
   run_id?: string;
   client_gstin_id?: string;
@@ -299,6 +332,83 @@ export function countMismatchesByType(
   return counts;
 }
 
+/** True when a mismatch can be routed through GSTR-1A. */
+export function isGstr1aEligible(
+  m: Pick<Gstr1DecisionFields, "eligibility">
+): boolean {
+  return String(m.eligibility || "").toLowerCase() === "eligible";
+}
+
+export function filterGstr1aEligibleMismatches(
+  mismatches: Gstr1DecisionFields[]
+): Gstr1DecisionFields[] {
+  return mismatches.filter(isGstr1aEligible);
+}
+
+/** Align period keys with backend ``normalise_action_period`` (prefer YYYY-MM). */
+export function normalisePeriodKey(raw: string | null | undefined): string {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  if (/^\d{4}-\d{2}$/.test(s)) return s;
+  if (/^\d{6}$/.test(s)) return `${s.slice(2, 6)}-${s.slice(0, 2)}`;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 7);
+  return s;
+}
+
+/**
+ * Resolve a display period for a mismatch.
+ * Prefers explicit filing/invoice period fields, then invoice month, then run fallback.
+ */
+export function resolveMismatchPeriod(
+  m: Gstr1DecisionFields,
+  fallbackPeriod: string
+): string {
+  const filing = m.filing_period ?? m.period ?? m.invoice_period;
+  if (filing != null && String(filing).trim()) {
+    return normalisePeriodKey(String(filing)) || String(filing).trim();
+  }
+  const invDate = m.invoice_date;
+  if (typeof invDate === "string" && invDate.length >= 7) {
+    // YYYY-MM-DD → YYYY-MM
+    if (/^\d{4}-\d{2}/.test(invDate)) return invDate.slice(0, 7);
+  }
+  const fb = normalisePeriodKey(fallbackPeriod) || String(fallbackPeriod || "").trim();
+  return fb || "Unknown period";
+}
+
+export type Gstr1aPeriodGroup = {
+  period: string;
+  mismatches: Gstr1DecisionFields[];
+};
+
+/** Group GSTR-1A-eligible mismatches by period (stable period order). */
+export function groupGstr1aEligibleByPeriod(
+  mismatches: Gstr1DecisionFields[],
+  fallbackPeriod: string
+): Gstr1aPeriodGroup[] {
+  const eligible = filterGstr1aEligibleMismatches(mismatches);
+  const map = new Map<string, Gstr1DecisionFields[]>();
+  for (const m of eligible) {
+    const period = resolveMismatchPeriod(m, fallbackPeriod);
+    const list = map.get(period);
+    if (list) list.push(m);
+    else map.set(period, [m]);
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([period, rows]) => ({ period, mismatches: rows }));
+}
+
+/** Run-level period label used as fallback when grouping. */
+export function gstr1RunPeriodLabel(result: Gstr1ReconcileResult): string {
+  return (
+    result.meta?.filing_period ||
+    result.tie_out?.ret_period ||
+    result.parse_diagnostics?.gstr1?.filing_period ||
+    ""
+  );
+}
+
 export async function runGstr1Reconcile(
   input: Gstr1ReconcileUploadInput
 ): Promise<Gstr1ReconcileResult> {
@@ -363,6 +473,51 @@ export async function getGstr1Run(
   return apiFetch<Gstr1RunDetail>(
     `/api/gstr1-reconcile/runs/${encodeURIComponent(runId)}`,
     { token, directBackend: true }
+  );
+}
+
+export type Gstr1aPeriodAction = {
+  id: string;
+  run_id: string;
+  period: string;
+  status: string;
+  filed_date?: string | null;
+  note?: string | null;
+  user_id?: string | null;
+  created_at?: string | null;
+  /** Present on PATCH response */
+  acted_by?: string | null;
+  acted_at?: string | null;
+};
+
+export async function listGstr1aFiledPeriods(
+  token: string,
+  runId: string
+): Promise<Gstr1aPeriodAction[]> {
+  return apiFetch<Gstr1aPeriodAction[]>(
+    `/api/gstr1-reconcile/runs/${encodeURIComponent(runId)}/gstr1a-filed`,
+    { token, directBackend: true }
+  );
+}
+
+export async function markGstr1aPeriodFiled(
+  token: string,
+  runId: string,
+  body: {
+    period: string;
+    confirmed: boolean;
+    filed_date?: string | null;
+    note?: string | null;
+  }
+): Promise<Gstr1aPeriodAction> {
+  return apiFetch<Gstr1aPeriodAction>(
+    `/api/gstr1-reconcile/runs/${encodeURIComponent(runId)}/gstr1a-filed`,
+    {
+      method: "PATCH",
+      token,
+      body: JSON.stringify(body),
+      directBackend: true,
+    }
   );
 }
 

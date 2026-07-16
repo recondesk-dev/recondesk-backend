@@ -101,10 +101,14 @@ def test_save_and_list_completed_run():
         result=result,
         created_by="user-1",
         period="042025",
+        gstr1_filed_date="2025-05-05",
+        gstr3b_filed_date=None,
     )
     assert saved["id"]
     assert saved["status"] == STATUS_COMPLETED
     assert saved["period"] == "2025-04"
+    assert saved["gstr1_filed_date"] == "2025-05-05"
+    assert saved["gstr3b_filed_date"] is None
 
     rows = list_gstr1_runs(
         sb,  # type: ignore[arg-type]
@@ -114,6 +118,7 @@ def test_save_and_list_completed_run():
     )
     assert len(rows) == 1
     assert rows[0]["id"] == saved["id"]
+    assert rows[0]["gstr1_filed_date"] == "2025-05-05"
 
 
 def test_banner_source_of_truth_survives_without_session_storage():

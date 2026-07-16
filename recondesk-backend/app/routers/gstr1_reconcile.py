@@ -42,11 +42,19 @@ from pydantic import BaseModel
 from app.auth import get_current_active_user
 from app.database import get_supabase
 from app.services.firm_access import list_accessible_client_gstin_ids
+from app.rules.gstr1a_eligibility import compute_gstr1a_window
 from app.services.gstr1_run_store import (
     get_gstr1_run,
     list_gstr1_runs,
+    normalise_period,
     save_gstr1_run,
 )
+from app.services.gstr1a_period_actions import (
+    list_gstr1a_period_actions,
+    mark_gstr1a_period_filed,
+    normalise_action_period,
+)
+from app.utils.audit import log_audit
 
 # ── Standalone GSTR-1 modules ────────────────────────────────────────────────
 from app.parsers.sales_register_parser import parse_sales_register, ParseError
@@ -704,6 +712,115 @@ async def get_gstr1_reconcile_run(
     return row
 
 
+class Gstr1aMarkFiledBody(BaseModel):
+    period: str
+    confirmed: bool = False
+    filed_date: Optional[str] = None
+    note: Optional[str] = None
+
+
+@router.get(
+    "/runs/{run_id}/gstr1a-filed",
+    summary="List periods marked GSTR-1A filed for a run",
+)
+async def list_gstr1a_filed_periods(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    row = get_gstr1_run(get_supabase(), run_id)
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="GSTR-1 run not found",
+        )
+    _assert_client_accessible(str(row.get("client_gstin_id", "")), current_user)
+    return list_gstr1a_period_actions(get_supabase(), run_id=run_id)
+
+
+@router.patch(
+    "/runs/{run_id}/gstr1a-filed",
+    summary="Mark GSTR-1A as filed for a period (Rule 37 settled analogue)",
+)
+async def mark_gstr1a_filed_for_period(
+    run_id: str,
+    body: Gstr1aMarkFiledBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    if not body.confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Confirmation required to mark GSTR-1A as filed",
+        )
+    period_norm = normalise_action_period(body.period)
+    if not period_norm:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="period is required",
+        )
+
+    sb = get_supabase()
+    row = get_gstr1_run(sb, run_id)
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="GSTR-1 run not found",
+        )
+    _assert_client_accessible(str(row.get("client_gstin_id", "")), current_user)
+
+    user_id = str(current_user.get("id") or "").strip()
+    try:
+        saved = mark_gstr1a_period_filed(
+            sb,
+            run_id=run_id,
+            period=period_norm,
+            user_id=user_id,
+            filed_date=body.filed_date,
+            note=body.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except Exception:
+        _log.exception(
+            "gstr1_reconcile: mark GSTR-1A filed failed run=%s period=%s",
+            run_id,
+            period_norm,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to mark GSTR-1A as filed",
+        )
+
+    await log_audit(
+        sb,
+        current_user,
+        "GSTR1A_MARKED_FILED",
+        "gstr1_reconciliation_run",
+        str(run_id),
+        f"GSTR-1A filed · {period_norm}",
+        {
+            "period": period_norm,
+            "status": saved.get("status"),
+            "filed_date": saved.get("filed_date"),
+            "action_id": saved.get("id"),
+            "client_gstin_id": row.get("client_gstin_id"),
+        },
+    )
+
+    return {
+        "id": saved.get("id"),
+        "run_id": run_id,
+        "period": saved.get("period") or period_norm,
+        "status": saved.get("status") or "filed",
+        "filed_date": saved.get("filed_date"),
+        "note": saved.get("note"),
+        "acted_by": saved.get("user_id") or user_id,
+        "acted_at": saved.get("created_at"),
+    }
+
+
 @router.post(
     "",
     summary="Run GSTR-1 sales-side reconciliation",
@@ -734,6 +851,20 @@ async def reconcile_gstr1(
         description=(
             "GSTR-1 filing period in MMYYYY format (e.g. '042026'). "
             "Auto-detected from GSTR-1 JSON if omitted."
+        ),
+    ),
+    gstr1_filed_date: Optional[str] = Form(
+        None,
+        description=(
+            "Date GSTR-1 was filed for the period (YYYY-MM-DD). "
+            "Used for GSTR-1A amendment-window calculation."
+        ),
+    ),
+    gstr3b_filed_date: Optional[str] = Form(
+        None,
+        description=(
+            "Date GSTR-3B was filed for the period (YYYY-MM-DD). "
+            "When set, the GSTR-1A window is closed."
         ),
     ),
     client_gstin_id: Optional[str] = Form(
@@ -870,6 +1001,30 @@ async def reconcile_gstr1(
         result["elapsed_seconds"],
     )
 
+    period_norm = normalise_period(
+        gstr1_filing_period
+        or (result.get("parse_diagnostics") or {})
+        .get("gstr1", {})
+        .get("filing_period")
+    )
+    gstr1a_window = compute_gstr1a_window(
+        gstr1_filed_date,
+        gstr3b_filed_date,
+        period=period_norm,
+    )
+    result = {
+        **result,
+        "gstr1_filed_date": gstr1_filed_date,
+        "gstr3b_filed_date": gstr3b_filed_date,
+        "gstr1a_window": gstr1a_window,
+        "summary": {
+            **(result.get("summary") or {}),
+            "gstr1_filed_date": gstr1_filed_date,
+            "gstr3b_filed_date": gstr3b_filed_date,
+            "gstr1a_window": gstr1a_window,
+        },
+    }
+
     # Persist for durable banner / revisit when a client is in scope.
     run_id: str | None = None
     cg_id = (client_gstin_id or "").strip()
@@ -882,6 +1037,8 @@ async def reconcile_gstr1(
                 result=result,
                 created_by=str(user_id) if user_id != "?" else None,
                 period=gstr1_filing_period,
+                gstr1_filed_date=gstr1_filed_date,
+                gstr3b_filed_date=gstr3b_filed_date,
             )
             run_id = str(saved["id"])
             result = {**result, "run_id": run_id, "client_gstin_id": cg_id}

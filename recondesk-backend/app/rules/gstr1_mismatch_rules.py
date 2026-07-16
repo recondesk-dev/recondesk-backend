@@ -42,6 +42,7 @@ from app.data.hsn_rate_reference import (
     required_hsn_digits,
 )
 from app.rules.base import REGISTRY, RuleCategory, RuleDefinition, RuleSeverity
+from app.rules.gstr1a_eligibility import get_gstr1a_eligibility
 from app.services.decision_templates import DecisionOutput
 from app.services.normalizer import GSTIN_REGEX, WHITELIST_PATTERN
 
@@ -289,6 +290,8 @@ class MismatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Flat dict for enriching reconciliation rows."""
+        gstr1a = get_gstr1a_eligibility(self.rule_id)
+        eligibility = gstr1a["eligibility"]
         return {
             "mismatch_type": self.mismatch_type.value,
             "mismatch_severity": self.severity.value,
@@ -298,6 +301,10 @@ class MismatchResult:
             "decision_rule": self.rule_id,
             "gst_ref": self.gst_ref,
             **self.details,
+            "eligibility": (
+                eligibility.value if hasattr(eligibility, "value") else eligibility
+            ),
+            "note": gstr1a["note"],
         }
 
 
