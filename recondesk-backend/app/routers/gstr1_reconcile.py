@@ -117,6 +117,83 @@ def _mismatch_result_to_dict(mr: MismatchResult) -> dict[str, Any]:
     return d
 
 
+async def _verify_buyer_gstins_for_g1m7(
+    sr_records: list[dict[str, Any]],
+    gstr1_records: list[dict[str, Any]],
+    *,
+    rate_limit_seconds: float = 0.15,
+) -> list[MismatchResult]:
+    """Verify unique buyer GSTINs once per run and build G1M7 mismatches.
+
+    Reuses ``app.services.gstin_verification.verify_gstin`` (Sandbox.co.in).
+    Format-invalid GSTINs are flagged without an API call. Infrastructure
+    failures are non-blocking — format flags still apply; API checks are
+    skipped for remaining GSTINs.
+    """
+    import asyncio
+
+    from app.rules.gstr1_mismatch_rules import (
+        build_g1m7_mismatches,
+        collect_unique_buyer_gstins,
+        gstin_format_ok,
+    )
+    from app.services.gstin_verification import verify_gstin
+
+    gstin_refs = collect_unique_buyer_gstins(
+        sr_records=sr_records,
+        gstr1_records=gstr1_records,
+    )
+    if not gstin_refs:
+        return []
+
+    verification_cache: dict[str, dict[str, Any]] = {}
+    api_enabled = True
+
+    for gstin in sorted(gstin_refs.keys()):
+        if not gstin_format_ok(gstin):
+            verification_cache[gstin] = {
+                "valid": False,
+                "status": "Invalid Format",
+                "reason": "invalid_format",
+                "legal_name": None,
+                "trade_name": None,
+                "taxpayer_type": None,
+                "registration_date": None,
+                "raw_response": {},
+            }
+            continue
+
+        if not api_enabled:
+            continue
+
+        try:
+            verification_cache[gstin] = await verify_gstin(gstin)
+        except Exception as exc:  # noqa: BLE001 — never fail the recon run
+            _log.error(
+                "gstr1_reconcile: GSTIN verification unavailable – %s. "
+                "Skipping remaining Sandbox lookups for this run.",
+                exc,
+            )
+            api_enabled = False
+            continue
+
+        if rate_limit_seconds > 0:
+            await asyncio.sleep(rate_limit_seconds)
+
+    g1m7 = build_g1m7_mismatches(
+        gstin_refs=gstin_refs,
+        verification_by_gstin=verification_cache,
+    )
+    _log.info(
+        "gstr1_reconcile: G1M7 GSTIN verification — unique=%d flagged=%d "
+        "api_enabled=%s",
+        len(gstin_refs),
+        len(g1m7),
+        api_enabled,
+    )
+    return g1m7
+
+
 def _sanitise_record(rec: dict[str, Any]) -> dict[str, Any]:
     """Strip non-serialisable fields (DataFrames, etc.) from a parser record."""
     out: dict[str, Any] = {}
@@ -167,7 +244,7 @@ def _build_gstin_index(
 # Core pipeline
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _run_pipeline(
+async def _run_pipeline(
     sr_file_content: bytes,
     sr_filename: str,
     gstr1_file_content: bytes,
@@ -344,6 +421,13 @@ def _run_pipeline(
     _log.info(
         "gstr1_reconcile: classified %d mismatches", len(mismatch_results),
     )
+
+    # ── Step 3b: G1M7 buyer GSTIN verification (unique GSTINs, per-run cache)
+    g1m7_results = await _verify_buyer_gstins_for_g1m7(
+        sr_records, gstr1_records,
+    )
+    if g1m7_results:
+        mismatch_results = list(mismatch_results) + list(g1m7_results)
 
     # ── Step 4: GSTR-1 vs 3B tie-out ─────────────────────────────────────
     # Tie-out still sees all parsed rows; aggregate exclusions live inside
@@ -552,7 +636,7 @@ async def reconcile_gstr1(
 
     # ── Run pipeline ─────────────────────────────────────────────────────
     try:
-        result = _run_pipeline(
+        result = await _run_pipeline(
             sr_file_content=sr_content,
             sr_filename=sr_filename,
             gstr1_file_content=gstr1_content,

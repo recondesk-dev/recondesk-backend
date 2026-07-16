@@ -13,6 +13,7 @@ export type Gstr1MismatchType =
   | "G1M4_WRONG_CLASSIFICATION"
   | "G1M5_RATE_MISMATCH"
   | "G1M6_PERIOD_MISMATCH"
+  | "G1M7_INVALID_GSTIN"
   | string;
 
 export type Gstr1DecisionFields = {
@@ -191,7 +192,15 @@ export function filterReviewRequired(matched: Gstr1MatchedRow[]): Gstr1MatchedRo
 
 export function mismatchTypeShort(type: string | undefined): string {
   if (!type) return "—";
-  for (const code of ["G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6"] as const) {
+  for (const code of [
+    "G1M1",
+    "G1M2",
+    "G1M3",
+    "G1M4",
+    "G1M5",
+    "G1M6",
+    "G1M7",
+  ] as const) {
     if (type.includes(code)) return code;
   }
   return type;

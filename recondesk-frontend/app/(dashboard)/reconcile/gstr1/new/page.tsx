@@ -113,7 +113,7 @@ export default function Gstr1ReconcileNewPage() {
         </h1>
         <p className="mt-2 text-[14px] leading-relaxed text-gray-500">
           Upload your Sales Register, GSTR-1 JSON, and GSTR-3B JSON. We match
-          invoices, classify G1M1–G1M6 mismatches, and tie out outward supplies
+          invoices, classify G1M1–G1M7 mismatches, and tie out outward supplies
           against Table 3.1(a).
         </p>
       </div>

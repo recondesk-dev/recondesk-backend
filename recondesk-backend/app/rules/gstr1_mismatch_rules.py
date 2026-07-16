@@ -17,6 +17,7 @@ G1M3 Amount mismatch                Tax liability
 G1M4 Wrong classification (B2B/B2C) Compliance
 G1M5 Rate mismatch                  Tax shortfall
 G1M6 Filing period mismatch         Period risk
+G1M7 Invalid / inactive GSTIN       Compliance
 ==== ============================== ===============
 
 This module is **standalone** — it does NOT modify any existing file.
@@ -25,6 +26,7 @@ This module is **standalone** — it does NOT modify any existing file.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
@@ -32,6 +34,7 @@ from typing import Any, Mapping
 
 from app.rules.base import REGISTRY, RuleCategory, RuleDefinition, RuleSeverity
 from app.services.decision_templates import DecisionOutput
+from app.services.normalizer import GSTIN_REGEX, WHITELIST_PATTERN
 
 _log = logging.getLogger(__name__)
 
@@ -124,6 +127,20 @@ REGISTRY.register(RuleDefinition(
     tags=["gstr1", "period", "mismatch"],
 ))
 
+REGISTRY.register(RuleDefinition(
+    id="G1M_007",
+    name="GSTR-1 Invalid / Inactive GSTIN",
+    category=RuleCategory.REPORTING,
+    severity=RuleSeverity.HIGH,
+    description=(
+        "Buyer GSTIN fails format validation or is not found / inactive / "
+        "cancelled per Sandbox.co.in GSTIN search."
+    ),
+    gst_ref="Section 37 CGST Act",
+    applies_to=["sales_register", "gstr1"],
+    tags=["gstr1", "gstin", "verification", "sandbox"],
+))
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Result types
@@ -137,6 +154,7 @@ class MismatchType(str, Enum):
     WRONG_CLASSIFICATION = "G1M4_WRONG_CLASSIFICATION"
     RATE_MISMATCH = "G1M5_RATE_MISMATCH"
     PERIOD_MISMATCH = "G1M6_PERIOD_MISMATCH"
+    INVALID_GSTIN = "G1M7_INVALID_GSTIN"
 
 
 class MismatchSeverity(str, Enum):
@@ -800,6 +818,223 @@ def _parse_filing_period(raw: str) -> date | None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# G1M7 — Invalid / inactive buyer GSTIN
+# ══════════════════════════════════════════════════════════════════════════════
+
+_ABSENT_BUYER_GSTIN_TOKENS: frozenset[str] = frozenset({
+    "NA", "N/A", "N.A", "N.A.", "NONE", "NULL", "NIL", "-", "--", ".", "0",
+    "UNREGISTERED", "URP", "NAN", "NAT", "<NA>",
+})
+
+
+def clean_buyer_gstin(raw: Any) -> str | None:
+    """Return a cleaned upper-case GSTIN, or ``None`` when absent / placeholder."""
+    if raw is None:
+        return None
+    s = str(raw).strip().upper()
+    if not s:
+        return None
+    collapsed = WHITELIST_PATTERN.sub("", s)
+    if s in _ABSENT_BUYER_GSTIN_TOKENS or collapsed in {
+        "NA", "NIL", "NULL", "NONE", "URP", "NAN", "NAT",
+    }:
+        return None
+    return collapsed or None
+
+
+def gstin_format_ok(gstin: str) -> bool:
+    """Basic 15-char GSTIN regex check (no Sandbox API call)."""
+    return bool(gstin) and bool(GSTIN_REGEX.match(gstin))
+
+
+def collect_unique_buyer_gstins(
+    *,
+    sr_records: list[Mapping[str, Any]] | None = None,
+    gstr1_records: list[Mapping[str, Any]] | None = None,
+) -> dict[str, list[dict[str, str]]]:
+    """Map each unique buyer GSTIN to invoice refs ``{source, invoice_number}``.
+
+    Sources are ``\"sales_register\"`` and ``\"gstr1\"``. Placeholders / blanks
+    are skipped. Used to cache Sandbox verification once per GSTIN per run.
+    """
+    out: dict[str, list[dict[str, str]]] = {}
+
+    def _add(rec: Mapping[str, Any], *, source: str, keys: tuple[str, ...]) -> None:
+        raw = _get_field(rec, *keys, default=None)
+        gstin = clean_buyer_gstin(raw)
+        if not gstin:
+            return
+        inv = str(_get_field(rec, "invoice_number", "invoice_number_normalized") or "?")
+        refs = out.setdefault(gstin, [])
+        entry = {"source": source, "invoice_number": inv}
+        if entry not in refs:
+            refs.append(entry)
+
+    for rec in sr_records or []:
+        _add(rec, source="sales_register", keys=("gstin", "recipient_gstin"))
+    for rec in gstr1_records or []:
+        _add(rec, source="gstr1", keys=("recipient_gstin", "gstin"))
+    return out
+
+
+def classify_invalid_gstin(
+    *,
+    gstin: str,
+    source: str,
+    invoice_number: str,
+    reason: str,
+    api_status: str | None = None,
+    legal_name: str | None = None,
+    trade_name: str | None = None,
+) -> MismatchResult:
+    """G1M7 — Buyer GSTIN is malformed, not found, cancelled, or inactive.
+
+    Parameters
+    ----------
+    gstin :
+        Cleaned GSTIN string that failed validation / verification.
+    source :
+        ``\"sales_register\"`` or ``\"gstr1\"``.
+    invoice_number :
+        Invoice that carries this GSTIN.
+    reason :
+        ``invalid_format`` | ``not_found`` | ``cancelled`` | ``inactive`` |
+        ``unknown_status``.
+    api_status, legal_name, trade_name :
+        Optional Sandbox verification fields for decision text.
+    """
+    status_label = (api_status or reason.replace("_", " ")).strip()
+    recipient_label = _recipient_display_label(
+        gstin=gstin, name=legal_name or trade_name,
+    )
+
+    if reason == "invalid_format":
+        what = f"Buyer GSTIN {gstin} on invoice {invoice_number} has an invalid format"
+        why = (
+            "A valid 15-character GSTIN is required for B2B reporting in GSTR-1. "
+            "An invalid format means the recipient cannot claim ITC and the "
+            "invoice may be rejected or flagged during filing."
+        )
+        next_step = (
+            f"Correct the GSTIN for invoice {invoice_number} in the "
+            f"{'Sales Register' if source == 'sales_register' else 'GSTR-1'} "
+            f"before filing or amending."
+        )
+        severity = MismatchSeverity.CRITICAL
+    elif reason == "not_found":
+        what = (
+            f"Buyer GSTIN {gstin} on invoice {invoice_number} was not found "
+            f"in the GST registry"
+        )
+        why = (
+            "Sandbox.co.in returned Not Found for this GSTIN. Reporting a "
+            "non-existent GSTIN in GSTR-1 risks notices and blocks the "
+            f"buyer's ITC claim for {recipient_label}."
+        )
+        next_step = (
+            f"Verify the correct GSTIN with the buyer for invoice "
+            f"{invoice_number}, then amend the Sales Register / GSTR-1."
+        )
+        severity = MismatchSeverity.CRITICAL
+    elif reason == "cancelled":
+        what = (
+            f"Buyer GSTIN {gstin} on invoice {invoice_number} has status "
+            f"'{status_label}'"
+        )
+        why = (
+            "A cancelled or suspended GSTIN cannot receive taxable supplies "
+            "as a registered person. Filing under this GSTIN can create "
+            "output-tax / ITC disputes."
+        )
+        next_step = (
+            f"Confirm registration status with {recipient_label}. If cancelled, "
+            f"treat as B2C/unregistered or obtain a valid GSTIN, then amend."
+        )
+        severity = MismatchSeverity.HIGH
+    else:
+        what = (
+            f"Buyer GSTIN {gstin} on invoice {invoice_number} failed "
+            f"verification (status: {status_label})"
+        )
+        why = (
+            "GSTIN verification did not confirm an active registration. "
+            "Filing against an inactive or unverified GSTIN creates "
+            "compliance risk for both supplier and recipient."
+        )
+        next_step = (
+            f"Re-check GSTIN {gstin} for invoice {invoice_number} with the "
+            f"buyer and amend if needed."
+        )
+        severity = MismatchSeverity.HIGH
+
+    return MismatchResult(
+        mismatch_type=MismatchType.INVALID_GSTIN,
+        severity=severity,
+        decision_what=what,
+        decision_why=why,
+        decision_next=next_step,
+        rule_id="G1M_007",
+        details={
+            "invoice_number": invoice_number,
+            "recipient_gstin": gstin,
+            "source": source,
+            "reason": reason,
+            "gstin_status": status_label,
+            "legal_name": legal_name,
+            "trade_name": trade_name,
+            "matched_fields": [],
+            "differed_fields": ["gstin"],
+        },
+    )
+
+
+def build_g1m7_mismatches(
+    *,
+    gstin_refs: Mapping[str, list[Mapping[str, str]]],
+    verification_by_gstin: Mapping[str, Mapping[str, Any]],
+) -> list[MismatchResult]:
+    """Build G1M7 results from a per-run GSTIN verification cache.
+
+    *verification_by_gstin* values should look like ``verify_gstin`` results,
+    or ``{\"valid\": False, \"status\": \"Invalid Format\", \"reason\":
+    \"invalid_format\"}`` for regex failures that never hit the API.
+    """
+    results: list[MismatchResult] = []
+    for gstin, refs in gstin_refs.items():
+        ver = verification_by_gstin.get(gstin)
+        if not ver:
+            continue
+        reason = str(ver.get("reason") or "").strip().lower()
+        status = str(ver.get("status") or "").strip()
+        valid = bool(ver.get("valid"))
+
+        if reason == "invalid_format" or status.lower() == "invalid format":
+            fail_reason = "invalid_format"
+        elif not valid and status.lower() in ("not found",):
+            fail_reason = "not_found"
+        elif not valid and status.lower() in ("cancelled", "inactive", "suspended"):
+            fail_reason = "cancelled"
+        elif not valid:
+            fail_reason = "inactive" if status else "unknown_status"
+        else:
+            continue  # Active / valid — no G1M7
+
+        for ref in refs:
+            results.append(
+                classify_invalid_gstin(
+                    gstin=gstin,
+                    source=str(ref.get("source") or "sales_register"),
+                    invoice_number=str(ref.get("invoice_number") or "?"),
+                    reason=fail_reason,
+                    api_status=status or None,
+                    legal_name=ver.get("legal_name"),  # type: ignore[arg-type]
+                    trade_name=ver.get("trade_name"),  # type: ignore[arg-type]
+                )
+            )
+    return results
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Batch classification — run all rules on a reconciled dataset
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -911,6 +1146,11 @@ __all__ = [
     "classify_wrong_classification",
     "classify_rate_mismatch",
     "classify_period_mismatch",
+    "classify_invalid_gstin",
+    "collect_unique_buyer_gstins",
+    "clean_buyer_gstin",
+    "gstin_format_ok",
+    "build_g1m7_mismatches",
     "classify_all_mismatches",
     # Tolerance constants (overridable by callers)
     "AMOUNT_TOLERANCE_PAISE",
