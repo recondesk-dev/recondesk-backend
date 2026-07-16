@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SubscriptionFeatures } from "@/components/billing/SubscriptionFeatures";
 
 const plans = [
   {
@@ -31,52 +32,6 @@ const plans = [
     cta: "Choose Pro",
     featured: false,
   },
-] as const;
-
-const pillars = [
-  {
-    title: "Recover",
-    kicker: "Find the rupees that never reached GSTR-3B",
-    items: [
-      "Multi-level invoice matching across 2B and books",
-      "Missed ITC surfaced with ₹ recovery amounts",
-      "Decision layer — what's wrong, why, what to do next",
-    ],
-  },
-  {
-    title: "Protect",
-    kicker: "Catch compliance risk before it becomes a notice",
-    items: [
-      "Rule 37 payment clocks and overdue flags",
-      "Section 17(5) blocked-credit HSN alerts",
-      "ITC-at-risk buckets + GSTR-3B tie-out checks",
-    ],
-  },
-  {
-    title: "Operate",
-    kicker: "Run the firm desk without spreadsheet chaos",
-    items: [
-      "Admin / staff roles with client assignment",
-      "GSTN OTP autofetch for GSTR-2B & IMS",
-      "Saved import maps · client upload links · follow-ups",
-    ],
-  },
-  {
-    title: "Prove",
-    kicker: "Leave a trail your clients can trust",
-    items: [
-      "Excel workbooks and PDF reconciliation reports",
-      "Supplier follow-up letters with audit history",
-      "Vendor intelligence and portfolio risk signals",
-    ],
-  },
-] as const;
-
-const trustStrip = [
-  "Works with Tally, Busy & Excel",
-  "Encryption in transit & at rest",
-  "Per-firm client isolation",
-  "First 2 reconciliations free",
 ] as const;
 
 const pricingFaq = [
@@ -217,55 +172,7 @@ export default function PricingPage() {
         Free to start · 2 reconciliations included · Manual Razorpay renewal · No auto-debit
       </p>
 
-      {/* Features — every subscription */}
-      <section className="mx-auto mt-24 max-w-6xl">
-        <div className="text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700/80">
-            Included everywhere
-          </p>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--ink)] sm:text-[2.15rem]">
-            Every subscription. The full desk.
-          </h2>
-          <p className="mx-auto mt-3 max-w-2xl text-base text-gray-600">
-            You don&apos;t unlock features by paying more — you unlock capacity. Same recovery
-            engine, same compliance tools, same exports. Scale only the GSTINs you manage.
-          </p>
-        </div>
-
-        <div className="mt-12 grid gap-5 sm:grid-cols-2">
-          {pillars.map((pillar) => (
-            <div key={pillar.title} className="pricing-feature-pillar p-6 sm:p-7">
-              <div className="flex items-baseline gap-3">
-                <span className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
-                  {pillar.title}
-                </span>
-                <span className="h-px flex-1 bg-gradient-to-r from-black/15 to-transparent" aria-hidden />
-              </div>
-              <p className="mt-2 text-sm font-medium text-gray-500">{pillar.kicker}</p>
-              <ul className="mt-5 space-y-3">
-                {pillar.items.map((item) => (
-                  <li key={item} className="flex gap-3 text-sm leading-relaxed text-gray-700">
-                    <span
-                      className="mt-2 h-1 w-1 shrink-0 rounded-full bg-emerald-600"
-                      aria-hidden
-                    />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 rounded-[1.25rem] bg-white/60 px-5 py-4 text-sm text-gray-600 shadow-[var(--shadow-soft)] backdrop-blur-sm">
-          {trustStrip.map((t) => (
-            <span key={t} className="inline-flex items-center gap-2">
-              <span className="h-1 w-1 rounded-full bg-[var(--ink)]" aria-hidden />
-              {t}
-            </span>
-          ))}
-        </div>
-      </section>
+      <SubscriptionFeatures />
 
       <div className="mx-auto mt-20 max-w-3xl">
         <h2 className="text-center text-xl font-semibold text-[var(--ink)]">Pricing FAQ</h2>

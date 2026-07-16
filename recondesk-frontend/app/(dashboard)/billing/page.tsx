@@ -9,6 +9,7 @@ import {
   type BillingStatus,
   type PaymentHistoryRow,
 } from "@/lib/api";
+import { SubscriptionFeatures } from "@/components/billing/SubscriptionFeatures";
 import { startPlanCheckout, type CheckoutPlan } from "@/lib/billing-checkout";
 import { subscribeAccessToken } from "@/lib/supabase/client";
 
@@ -366,6 +367,10 @@ export default function BillingPage() {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="dashboard-card p-6 sm:p-8">
+        <SubscriptionFeatures compact />
       </section>
 
       <section className="dashboard-card space-y-4 p-6">
