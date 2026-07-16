@@ -634,6 +634,7 @@ export type ResultsBucketTabId =
   | "unmatched_sr"
   | "unmatched_gstr1"
   | "tie_out"
+  | "documents_issued"
   | "diagnostics";
 
 const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
@@ -657,6 +658,7 @@ export const SALES_RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string 
   { id: "unmatched_sr", label: "Missing in GSTR-1" },
   { id: "unmatched_gstr1", label: "Extra in GSTR-1" },
   { id: "tie_out", label: "GSTR-1 vs 3B" },
+  { id: "documents_issued", label: "Table 13 Docs" },
   { id: "diagnostics", label: "Diagnostics" },
 ];
 

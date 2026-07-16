@@ -180,6 +180,21 @@ REGISTRY.register(RuleDefinition(
     tags=["gstr1", "hsn", "sac", "rate", "schedule"],
 ))
 
+REGISTRY.register(RuleDefinition(
+    id="G1M_010",
+    name="GSTR-1 Documents Issued Summary (Table 13)",
+    category=RuleCategory.REPORTING,
+    severity=RuleSeverity.LOW,
+    description=(
+        "Period-level summary of documents issued by type and series "
+        "(opening/closing serial, total issued, cancelled, net issued) "
+        "for GSTR-1 Table 13 reconciliation."
+    ),
+    gst_ref="GSTR-1 Table 13 / Rule 46 CGST Rules",
+    applies_to=["sales_register", "gstr1"],
+    tags=["gstr1", "table13", "documents_issued", "series"],
+))
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Result types
@@ -196,6 +211,7 @@ class MismatchType(str, Enum):
     INVALID_GSTIN = "G1M7_INVALID_GSTIN"
     INVOICE_SERIES_ISSUE = "G1M8_INVOICE_SERIES_ISSUE"
     HSN_RATE_ISSUE = "G1M9_HSN_RATE_ISSUE"
+    DOCUMENTS_ISSUED_SUMMARY = "G1M10_DOCUMENTS_ISSUED_SUMMARY"
 
 
 class MismatchSeverity(str, Enum):
@@ -2067,6 +2083,461 @@ def validate_hsn_rate_mapping(
     return results
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# G1M10 — Documents Issued Summary (GSTR-1 Table 13)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Table 13 document buckets used for period-level series summaries.
+_TABLE13_TAX_INVOICE = "TAX_INVOICE"
+_TABLE13_CREDIT_NOTE = "CREDIT_NOTE"
+_TABLE13_DEBIT_NOTE = "DEBIT_NOTE"
+_TABLE13_DELIVERY_CHALLAN = "DELIVERY_CHALLAN"
+_TABLE13_RECEIPT_VOUCHER = "RECEIPT_VOUCHER"
+_TABLE13_PAYMENT_VOUCHER = "PAYMENT_VOUCHER"
+_TABLE13_REFUND_VOUCHER = "REFUND_VOUCHER"
+
+# Aggregate / non-document rows — never contribute to Table 13 series.
+_TABLE13_SKIP_TYPES: frozenset[str] = frozenset({
+    "HSN_SUMMARY", "NIL_RATED", "EXEMPT", "NON_GST", "ADVANCES",
+    "NIL_EXEMPT", "HSN",
+})
+
+_TABLE13_LABELS: dict[str, str] = {
+    _TABLE13_TAX_INVOICE: "Tax invoices (outward supply)",
+    _TABLE13_CREDIT_NOTE: "Credit notes",
+    _TABLE13_DEBIT_NOTE: "Debit notes",
+    _TABLE13_DELIVERY_CHALLAN: "Delivery challans",
+    _TABLE13_RECEIPT_VOUCHER: "Receipt vouchers",
+    _TABLE13_PAYMENT_VOUCHER: "Payment vouchers",
+    _TABLE13_REFUND_VOUCHER: "Refund vouchers",
+}
+
+
+def _record_doc_type_raw(rec: Mapping[str, Any]) -> str:
+    """Best-effort document/invoice type string from a parsed record."""
+    for key in ("document_type", "invoice_type", "doc_type"):
+        v = rec.get(key)
+        if v is None:
+            continue
+        s = str(v).strip().upper()
+        if s:
+            return s
+    return ""
+
+
+def _map_to_table13_doc_type(rec: Mapping[str, Any]) -> str | None:
+    """Map a Sales Register / GSTR-1 record to a Table 13 document bucket.
+
+    Returns ``None`` for aggregate / non-document rows that must not enter
+    the documents-issued summary.
+    """
+    raw = _record_doc_type_raw(rec)
+    if not raw or raw in _TABLE13_SKIP_TYPES:
+        return None
+
+    if raw in {"CREDIT_NOTE", "C"} or "CREDIT" in raw:
+        return _TABLE13_CREDIT_NOTE
+    if raw in {"DEBIT_NOTE", "D"} or "DEBIT" in raw:
+        return _TABLE13_DEBIT_NOTE
+    if "CHALLAN" in raw or "DELIVERY" in raw:
+        return _TABLE13_DELIVERY_CHALLAN
+    if "RECEIPT" in raw:
+        return _TABLE13_RECEIPT_VOUCHER
+    if "PAYMENT" in raw:
+        return _TABLE13_PAYMENT_VOUCHER
+    if "REFUND" in raw:
+        return _TABLE13_REFUND_VOUCHER
+
+    # Tax invoices — B2B / B2C / Export / generic INVOICE
+    if raw in {
+        "B2B", "B2C", "B2C_LARGE", "B2C_SMALL", "B2CL", "B2CS",
+        "EXPORT", "INVOICE", "TAX_INVOICE", "SALES",
+    }:
+        return _TABLE13_TAX_INVOICE
+
+    # Unknown but present type — treat as tax invoice (books sales default)
+    return _TABLE13_TAX_INVOICE
+
+
+def _record_has_cancellation_marker(rec: Mapping[str, Any]) -> bool | None:
+    """Return True/False when a cancel flag is present; None if unknown.
+
+    Sales Register exports typically lack a cancelled/status column. We only
+    treat an explicit marker as determinable — never infer cancellation from
+    credit notes or series gaps.
+    """
+    for key in (
+        "cancelled", "is_cancelled", "is_cancel", "cancel",
+        "status", "invoice_status", "document_status",
+    ):
+        if key not in rec:
+            continue
+        v = rec.get(key)
+        if v is None:
+            continue
+        if isinstance(v, bool):
+            return v
+        s = str(v).strip().lower()
+        if not s or s in {"nan", "none", "null", "na", "n/a", "-"}:
+            continue
+        if s in {"cancelled", "canceled", "cancel", "yes", "y", "true", "1"}:
+            return True
+        if s in {"active", "issued", "no", "n", "false", "0", "valid"}:
+            return False
+        # Status column present but not interpretable as cancel flag
+        return None
+    return None
+
+
+def _classify_docs_issued_summary(
+    *,
+    series_count: int,
+    document_types: list[str],
+    cancellations_determinable: bool,
+) -> MismatchResult:
+    types_str = ", ".join(document_types) if document_types else "(none)"
+    return MismatchResult(
+        mismatch_type=MismatchType.DOCUMENTS_ISSUED_SUMMARY,
+        severity=MismatchSeverity.LOW,
+        decision_what=(
+            f"Table 13 documents issued summary computed for "
+            f"{series_count} series across: {types_str}"
+        ),
+        decision_why=(
+            "GSTR-1 Table 13 requires a period summary of documents issued "
+            "(opening/closing serial, total issued, cancelled, net issued) "
+            "by document type. This informational flag confirms the summary "
+            "was derived from the Sales Register series."
+        ),
+        decision_next=(
+            "Review the Table 13 – Documents Issued Summary panel and "
+            "cross-check opening/closing serials and counts against the "
+            "filed GSTR-1 doc_issue section before submission."
+        ),
+        rule_id="G1M_010",
+        gst_ref="GSTR-1 Table 13 / Rule 46 CGST Rules",
+        details={
+            "issue_type": "summary_computed",
+            "series_count": series_count,
+            "document_types": document_types,
+            "cancellations_determinable": cancellations_determinable,
+            "matched_fields": [],
+            "differed_fields": [],
+        },
+    )
+
+
+def _classify_docs_cancellations_unknown(
+    *,
+    series_count: int,
+) -> MismatchResult:
+    return MismatchResult(
+        mismatch_type=MismatchType.DOCUMENTS_ISSUED_SUMMARY,
+        severity=MismatchSeverity.LOW,
+        decision_what=(
+            "Unable to determine cancelled document counts for Table 13 "
+            f"({series_count} series)"
+        ),
+        decision_why=(
+            "The Sales Register has no reliable cancelled/status indicator "
+            "(cancelled, is_cancelled, or equivalent). Cancellation counts "
+            "must not be guessed from credit notes or series gaps — those "
+            "are separate reconciliation signals (G1M8)."
+        ),
+        decision_next=(
+            "Enter cancelled counts manually from the books / GSTR-1 "
+            "doc_issue section, or re-export the Sales Register with a "
+            "cancellation status column if available."
+        ),
+        rule_id="G1M_010",
+        gst_ref="GSTR-1 Table 13 / Rule 46 CGST Rules",
+        details={
+            "issue_type": "cancellations_unknown",
+            "series_count": series_count,
+            "cancellations_determinable": False,
+            "matched_fields": [],
+            "differed_fields": ["cancelled"],
+        },
+    )
+
+
+def _classify_docs_span_skipped(
+    *,
+    document_type: str,
+    series_prefix: str,
+    span: int,
+    total_issued: int,
+) -> MismatchResult:
+    prefix_label = series_prefix if series_prefix else "(numeric)"
+    return MismatchResult(
+        mismatch_type=MismatchType.DOCUMENTS_ISSUED_SUMMARY,
+        severity=MismatchSeverity.LOW,
+        decision_what=(
+            f"Table 13 series '{prefix_label}' ({document_type}): numeric "
+            f"span {span} exceeds safe bound — range-derived checks skipped"
+        ),
+        decision_why=(
+            f"Opening/closing serials span {span} while only {total_issued} "
+            f"records are present. Building a full numeric range for this "
+            f"series would risk memory exhaustion (same class of failure "
+            f"as the G1M8 OOM guard). Opening/closing and issued counts "
+            f"are still reported from actual records."
+        ),
+        decision_next=(
+            "Verify invoice numbering formats are consistent within this "
+            "series. Mixed formats (e.g. RD2026273001 vs RD3002) often "
+            "share a prefix but are not a continuous sequence."
+        ),
+        rule_id="G1M_010",
+        gst_ref="GSTR-1 Table 13 / Rule 46 CGST Rules",
+        details={
+            "issue_type": "span_skipped",
+            "document_type": document_type,
+            "series_prefix": series_prefix,
+            "span": span,
+            "total_issued": total_issued,
+            "max_span": _MAX_SERIES_NUMERIC_SPAN,
+            "matched_fields": [],
+            "differed_fields": ["series_span"],
+        },
+    )
+
+
+def summarize_documents_issued(
+    sr_records: list[Mapping[str, Any]] | None = None,
+    gstr1_records: list[Mapping[str, Any]] | None = None,
+    *,
+    gstr1_doc_issue: Mapping[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[MismatchResult]]:
+    """G1M10 — Build GSTR-1 Table 13 documents-issued summary from books.
+
+    Groups Sales Register (and optionally GSTR-1) records by Table 13
+    document type, then by invoice series (reusing G1M8's
+    ``_split_invoice_number`` + ``_MAX_SERIES_NUMERIC_SPAN`` guard).
+
+    For each series reports:
+    - opening / closing serial (from actual min/max numeric tails)
+    - total issued (record count)
+    - cancelled (only when an explicit cancel marker exists; else ``None``)
+    - net issued (issued − cancelled when known, else issued)
+
+    Returns
+    -------
+    (summary_dict, mismatch_results)
+        ``summary_dict`` is JSON-serialisable for the API
+        ``documents_issued`` field. ``mismatch_results`` are LOW-severity
+        G1M10 informational flags.
+    """
+    results: list[MismatchResult] = []
+    empty_summary: dict[str, Any] = {
+        "source": "sales_register",
+        "cancellations_determinable": False,
+        "series": [],
+        "by_document_type": {},
+        "gstr1_doc_issue_present": bool(gstr1_doc_issue),
+    }
+
+    # Prefer Sales Register as the books source of truth for Table 13.
+    # Fall back to invoice-level GSTR-1 only when SR is empty.
+    primary = list(sr_records or [])
+    source = "sales_register"
+    if not primary:
+        primary = [
+            r for r in (gstr1_records or [])
+            if _map_to_table13_doc_type(r) is not None
+        ]
+        source = "gstr1" if primary else "sales_register"
+
+    if not primary:
+        return empty_summary, results
+
+    # Group: document_type → series_prefix → list[(seq, inv_raw, cancelled?)]
+    grouped: dict[str, dict[str, list[tuple[int, str, bool | None]]]] = {}
+    cancel_markers_seen = 0
+
+    for rec in primary:
+        doc_type = _map_to_table13_doc_type(rec)
+        if doc_type is None:
+            continue
+        inv_raw = str(
+            _get_field(
+                rec, "invoice_number", "invoice_number_normalized", default="",
+            )
+        ).strip()
+        if not inv_raw:
+            continue
+        split = _split_invoice_number(inv_raw)
+        if split is None:
+            continue
+        prefix, num = split
+        cancelled = _record_has_cancellation_marker(rec)
+        if cancelled is not None:
+            cancel_markers_seen += 1
+        grouped.setdefault(doc_type, {}).setdefault(prefix, []).append(
+            (num, inv_raw, cancelled)
+        )
+
+    series_rows: list[dict[str, Any]] = []
+    by_doc: dict[str, dict[str, Any]] = {}
+
+    for doc_type, series_map in sorted(grouped.items()):
+        doc_issued = 0
+        doc_cancelled: int | None = 0 if cancel_markers_seen > 0 else None
+        for prefix, entries in sorted(series_map.items()):
+            if not entries:
+                continue
+            entries_sorted = sorted(entries, key=lambda e: e[0])
+            nums = [e[0] for e in entries_sorted]
+            series_min = nums[0]
+            series_max = nums[-1]
+            opening_inv = entries_sorted[0][1]
+            closing_inv = entries_sorted[-1][1]
+            total_issued = len(entries)
+
+            # Cancelled count only when every row in this series has a marker
+            markers = [e[2] for e in entries]
+            if all(m is not None for m in markers):
+                cancelled_count: int | None = sum(1 for m in markers if m)
+            else:
+                cancelled_count = None
+
+            span = series_max - series_min
+            span_ok = span <= _MAX_SERIES_NUMERIC_SPAN
+            expected_count: int | None = None
+            if span_ok:
+                # Inclusive span of serial numbers — O(1), never materialise
+                # the full range as a set (G1M8 OOM lesson).
+                expected_count = span + 1
+            else:
+                results.append(
+                    _classify_docs_span_skipped(
+                        document_type=doc_type,
+                        series_prefix=prefix,
+                        span=span,
+                        total_issued=total_issued,
+                    )
+                )
+
+            net_issued = (
+                total_issued - cancelled_count
+                if cancelled_count is not None
+                else total_issued
+            )
+
+            series_rows.append({
+                "document_type": doc_type,
+                "document_type_label": _TABLE13_LABELS.get(doc_type, doc_type),
+                "series_prefix": prefix,
+                "opening_number": opening_inv,
+                "closing_number": closing_inv,
+                "opening_seq": series_min,
+                "closing_seq": series_max,
+                "total_issued": total_issued,
+                "cancelled": cancelled_count,
+                "net_issued": net_issued,
+                "span": span,
+                "span_bounded": span_ok,
+                "expected_serial_count": expected_count,
+            })
+
+            doc_issued += total_issued
+            if doc_cancelled is not None and cancelled_count is not None:
+                doc_cancelled += cancelled_count
+            elif cancelled_count is None:
+                doc_cancelled = None
+
+        by_doc[doc_type] = {
+            "document_type": doc_type,
+            "document_type_label": _TABLE13_LABELS.get(doc_type, doc_type),
+            "total_issued": doc_issued,
+            "cancelled": doc_cancelled,
+            "net_issued": (
+                doc_issued - doc_cancelled
+                if doc_cancelled is not None
+                else doc_issued
+            ),
+            "series_count": len(series_map),
+        }
+
+    cancellations_determinable = cancel_markers_seen > 0 and all(
+        row["cancelled"] is not None for row in series_rows
+    )
+
+    summary: dict[str, Any] = {
+        "source": source,
+        "cancellations_determinable": cancellations_determinable,
+        "series": series_rows,
+        "by_document_type": by_doc,
+        "gstr1_doc_issue_present": bool(
+            gstr1_doc_issue
+            and (
+                gstr1_doc_issue.get("doc_det")
+                or gstr1_doc_issue.get("docs")
+            )
+        ),
+        "total_series": len(series_rows),
+        "total_documents_issued": sum(
+            r["total_issued"] for r in series_rows
+        ),
+    }
+
+    if series_rows:
+        results.append(
+            _classify_docs_issued_summary(
+                series_count=len(series_rows),
+                document_types=sorted(by_doc.keys()),
+                cancellations_determinable=cancellations_determinable,
+            )
+        )
+        if not cancellations_determinable:
+            results.append(
+                _classify_docs_cancellations_unknown(
+                    series_count=len(series_rows),
+                )
+            )
+
+    # Optional: note when GSTR-1 doc_issue section is absent (filed summary
+    # cannot be cross-checked automatically).
+    if series_rows and not summary["gstr1_doc_issue_present"]:
+        results.append(
+            MismatchResult(
+                mismatch_type=MismatchType.DOCUMENTS_ISSUED_SUMMARY,
+                severity=MismatchSeverity.LOW,
+                decision_what=(
+                    "GSTR-1 JSON has no doc_issue (Table 13) section to "
+                    "cross-check against the Sales Register summary"
+                ),
+                decision_why=(
+                    "Table 13 is often filed separately in the portal. "
+                    "Without a doc_issue block in the uploaded GSTR-1 JSON, "
+                    "ReconDesk can only report the books-side summary."
+                ),
+                decision_next=(
+                    "If Table 13 was filed, re-download the GSTR-1 JSON "
+                    "including the Documents Issued section and re-run "
+                    "reconciliation for an automated cross-check."
+                ),
+                rule_id="G1M_010",
+                gst_ref="GSTR-1 Table 13 / Rule 46 CGST Rules",
+                details={
+                    "issue_type": "gstr1_doc_issue_absent",
+                    "matched_fields": [],
+                    "differed_fields": ["doc_issue"],
+                },
+            )
+        )
+
+    _log.info(
+        "summarize_documents_issued: %d series, %d docs, "
+        "cancellations_determinable=%s source=%s",
+        len(series_rows),
+        summary["total_documents_issued"],
+        cancellations_determinable,
+        source,
+    )
+    return summary, results
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2089,6 +2560,7 @@ __all__ = [
     "classify_all_mismatches",
     "check_invoice_series_continuity",
     "validate_hsn_rate_mapping",
+    "summarize_documents_issued",
     # Tolerance constants (overridable by callers)
     "AMOUNT_TOLERANCE_PAISE",
     "AMOUNT_TOLERANCE_PCT",

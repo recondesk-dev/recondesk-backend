@@ -9,8 +9,8 @@ Chains the five standalone GSTR-1 modules end-to-end:
 5. ``gstr1_vs_3b``             — GSTR-1 vs GSTR-3B tie-out
 
 Also runs per-run buyer GSTIN verification (G1M7), invoice series
-continuity / duplicate detection (G1M8), and HSN/rate schedule
-validation (G1M9).
+continuity / duplicate detection (G1M8), HSN/rate schedule
+validation (G1M9), and Documents Issued / Table 13 summary (G1M10).
 
 Returns combined ``{WHAT, WHY, NEXT, confidence}`` results matching the
 purchase-side API response shape.
@@ -48,6 +48,7 @@ from app.rules.gstr1_mismatch_rules import (
     classify_all_mismatches,
     check_invoice_series_continuity,
     validate_hsn_rate_mapping,
+    summarize_documents_issued,
     MismatchResult,
 )
 from app.reconciliation.gstr1_vs_3b import reconcile_gstr1_vs_3b
@@ -459,6 +460,30 @@ async def _run_pipeline(
             len(g1m9_results),
         )
 
+    # ── Step 3e: G1M10 Documents Issued Summary (Table 13) ──────────────
+    gstr1_doc_issue: dict[str, Any] | None = None
+    try:
+        gstr1_raw = json.loads(gstr1_file_content)
+        if isinstance(gstr1_raw, dict):
+            raw_doc = gstr1_raw.get("doc_issue")
+            if isinstance(raw_doc, dict):
+                gstr1_doc_issue = raw_doc
+    except (json.JSONDecodeError, TypeError, ValueError):
+        gstr1_doc_issue = None
+
+    documents_issued, g1m10_results = summarize_documents_issued(
+        sr_records,
+        gstr1_records_all,
+        gstr1_doc_issue=gstr1_doc_issue,
+    )
+    if g1m10_results:
+        mismatch_results = list(mismatch_results) + list(g1m10_results)
+        _log.info(
+            "gstr1_reconcile: G1M10 documents issued — %d series, %d flags",
+            documents_issued.get("total_series", 0),
+            len(g1m10_results),
+        )
+
     # ── Step 4: GSTR-1 vs 3B tie-out ─────────────────────────────────────
     # Tie-out still sees all parsed rows; aggregate exclusions live inside
     # reconcile_gstr1_vs_3b (hsn/nil/at are skipped there too).
@@ -533,11 +558,15 @@ async def _run_pipeline(
             "mismatch_count": len(mismatch_results),
             "tie_out_clean": tie_out.is_clean,
             "tie_out_variance_count": len(tie_out.variances),
+            "documents_issued_series_count": documents_issued.get(
+                "total_series", 0
+            ),
         },
         "matched": matched_output,
         "unmatched_sr": unmatched_sr_output,
         "unmatched_gstr1": unmatched_gstr1_output,
         "mismatches": mismatch_output,
+        "documents_issued": documents_issued,
         "tie_out": tie_out_output,
         "parse_diagnostics": {
             "sr": {

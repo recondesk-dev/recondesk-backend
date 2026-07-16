@@ -149,7 +149,7 @@ def _obtain_token(args: argparse.Namespace) -> str:
 
 
 def _mismatch_type_key(item: dict[str, Any]) -> str:
-    """Normalise mismatch type to G1M1…G1M9 (or full code if unknown)."""
+    """Normalise mismatch type to G1M1…G1M10 (or full code if unknown)."""
     raw = (
         item.get("mismatch_type")
         or item.get("decision_rule")
@@ -157,7 +157,10 @@ def _mismatch_type_key(item: dict[str, Any]) -> str:
         or "?"
     )
     raw = str(raw)
-    for code in ("G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8", "G1M9"):
+    for code in (
+        "G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6",
+        "G1M7", "G1M8", "G1M9", "G1M10",
+    ):
         if code in raw:
             return code
     return raw
@@ -236,19 +239,41 @@ def _print_response(data: dict[str, Any]) -> None:
     print(f"  success: {data.get('success')}")
 
     counts = Counter(_mismatch_type_key(m) for m in mismatches)
-    _print_section("Mismatches (G1M1–G1M9)")
+    _print_section("Mismatches (G1M1–G1M10)")
     print(f"  Total mismatches found: {len(mismatches)}")
     if not counts:
         print("  (no invoice-level mismatches classified)")
     else:
         print("  Counts by type:")
-        for code in ("G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8", "G1M9"):
+        known = {
+            "G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6",
+            "G1M7", "G1M8", "G1M9", "G1M10",
+        }
+        for code in (
+            "G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6",
+            "G1M7", "G1M8", "G1M9", "G1M10",
+        ):
             if code in counts:
                 print(f"    {code}: {counts[code]}")
         # Any unexpected keys
         for code, n in sorted(counts.items()):
-            if code not in {"G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8", "G1M9"}:
+            if code not in known:
                 print(f"    {code}: {n}")
+
+    docs = data.get("documents_issued") or {}
+    if docs:
+        _print_section("Table 13 – Documents Issued Summary")
+        print(f"  source: {docs.get('source')}")
+        print(f"  series: {docs.get('total_series')}")
+        print(f"  total_issued: {docs.get('total_documents_issued')}")
+        print(f"  cancellations_determinable: {docs.get('cancellations_determinable')}")
+        for row in docs.get("series") or []:
+            print(
+                f"    - {row.get('document_type')} [{row.get('series_prefix') or '(numeric)'}] "
+                f"{row.get('opening_number')} → {row.get('closing_number')} "
+                f"issued={row.get('total_issued')} cancelled={row.get('cancelled')} "
+                f"net={row.get('net_issued')}"
+            )
 
     # Short WHAT lines for each mismatch
     if mismatches:
@@ -370,9 +395,12 @@ def main() -> int:
         for key, val in summary.items():
             print(f"  {key}: {val}")
         counts = Counter(_mismatch_type_key(m) for m in mismatches)
-        _print_section("Mismatches (G1M1–G1M9)")
+        _print_section("Mismatches (G1M1–G1M10)")
         print(f"  Total mismatches found: {len(mismatches)}")
-        for code in ("G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8", "G1M9"):
+        for code in (
+            "G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6",
+            "G1M7", "G1M8", "G1M9", "G1M10",
+        ):
             if code in counts:
                 print(f"    {code}: {counts[code]}")
         for m in mismatches:

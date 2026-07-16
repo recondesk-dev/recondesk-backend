@@ -16,6 +16,7 @@ export type Gstr1MismatchType =
   | "G1M7_INVALID_GSTIN"
   | "G1M8_INVOICE_SERIES_ISSUE"
   | "G1M9_HSN_RATE_ISSUE"
+  | "G1M10_DOCUMENTS_ISSUED_SUMMARY"
   | string;
 
 export type Gstr1DecisionFields = {
@@ -119,6 +120,43 @@ export type Gstr1ReconcileSummary = {
   mismatch_count: number;
   tie_out_clean: boolean;
   tie_out_variance_count: number;
+  /** G1M10 Table 13 series count. */
+  documents_issued_series_count?: number;
+};
+
+export type Gstr1DocumentsIssuedSeries = {
+  document_type: string;
+  document_type_label?: string;
+  series_prefix: string;
+  opening_number: string;
+  closing_number: string;
+  opening_seq?: number;
+  closing_seq?: number;
+  total_issued: number;
+  cancelled: number | null;
+  net_issued: number;
+  span?: number;
+  span_bounded?: boolean;
+  expected_serial_count?: number | null;
+};
+
+export type Gstr1DocumentsIssuedByType = {
+  document_type: string;
+  document_type_label?: string;
+  total_issued: number;
+  cancelled: number | null;
+  net_issued: number;
+  series_count: number;
+};
+
+export type Gstr1DocumentsIssued = {
+  source?: string;
+  cancellations_determinable?: boolean;
+  series?: Gstr1DocumentsIssuedSeries[];
+  by_document_type?: Record<string, Gstr1DocumentsIssuedByType>;
+  gstr1_doc_issue_present?: boolean;
+  total_series?: number;
+  total_documents_issued?: number;
 };
 
 export type Gstr1ReconcileResult = {
@@ -129,6 +167,8 @@ export type Gstr1ReconcileResult = {
   unmatched_sr: Gstr1UnmatchedRow[];
   unmatched_gstr1: Gstr1UnmatchedRow[];
   mismatches: Gstr1DecisionFields[];
+  /** G1M10 Table 13 period-level documents issued summary. */
+  documents_issued?: Gstr1DocumentsIssued;
   tie_out: Gstr1TieOut;
   parse_diagnostics?: Gstr1ParseDiagnostics;
   /** Client-side metadata attached after upload */
@@ -204,6 +244,7 @@ export function mismatchTypeShort(type: string | undefined): string {
     "G1M7",
     "G1M8",
     "G1M9",
+    "G1M10",
   ] as const) {
     if (type.includes(code)) return code;
   }

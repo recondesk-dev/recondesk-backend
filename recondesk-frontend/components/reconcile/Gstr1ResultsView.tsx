@@ -12,6 +12,7 @@ import {
   DecisionInvoiceCard,
   DecisionInvoiceList,
 } from "@/components/reconcile/DecisionInvoiceCard";
+import { Gstr1DocumentsIssuedPanel } from "@/components/reconcile/Gstr1DocumentsIssuedPanel";
 import { Gstr1TieOutPanel } from "@/components/reconcile/Gstr1TieOutPanel";
 import {
   EmptyTableState,
@@ -191,7 +192,7 @@ export function Gstr1ResultsView({
   const extraInGstr1Count = summary.unmatched_gstr1_count;
   /**
    * Field / compliance issues (G1M3–G1M9).
-   * Excludes G1M1/G1M2 — those already have dedicated Missing / Extra tiles.
+   * Excludes G1M1/G1M2 (dedicated tiles) and G1M10 (Table 13 summary panel).
    */
   const fieldMismatchCount =
     (mismatchCounts.G1M3 || 0) +
@@ -378,7 +379,7 @@ export function Gstr1ResultsView({
         {Object.keys(mismatchCounts).length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {(
-              ["G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8", "G1M9"] as const
+              ["G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8", "G1M9", "G1M10"] as const
             ).map(
               (code) =>
                 mismatchCounts[code] ? (
@@ -407,6 +408,10 @@ export function Gstr1ResultsView({
             unmatched_sr: summary.unmatched_sr_count,
             unmatched_gstr1: summary.unmatched_gstr1_count,
             tie_out: summary.tie_out_variance_count,
+            documents_issued:
+              summary.documents_issued_series_count ??
+              result.documents_issued?.total_series ??
+              0,
             diagnostics:
               (result.parse_diagnostics?.sr?.skipped_rows || 0) +
               (result.parse_diagnostics?.gstr1?.total_skipped || 0),
@@ -499,6 +504,12 @@ export function Gstr1ResultsView({
         )}
 
         {tab === "tie_out" && <Gstr1TieOutPanel tieOut={result.tie_out || {}} />}
+
+        {tab === "documents_issued" && (
+          <Gstr1DocumentsIssuedPanel
+            documentsIssued={result.documents_issued}
+          />
+        )}
 
         {tab === "diagnostics" && (
           <section className={sectionContainerClass}>
