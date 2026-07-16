@@ -146,7 +146,7 @@ export default function PricingPage() {
         aria-hidden
       >
         <div className="absolute left-1/2 top-8 h-72 w-[42rem] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(17,17,17,0.06),transparent_70%)] blur-2xl" />
-        <div className="absolute right-[8%] top-40 h-56 w-56 rounded-full bg-[radial-gradient(circle,rgba(16,185,129,0.12),transparent_70%)] blur-2xl" />
+        <div className="absolute right-[8%] top-40 h-56 w-56 rounded-full bg-[radial-gradient(circle,rgba(17,17,17,0.06),transparent_70%)] blur-2xl" />
       </div>
 
       <div className="mx-auto max-w-6xl text-center">

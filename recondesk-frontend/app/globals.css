@@ -536,7 +536,7 @@
   height: 200px;
   right: -56px;
   bottom: -64px;
-  background: radial-gradient(circle, rgba(16, 185, 129, 0.16), transparent 70%);
+  background: radial-gradient(circle, rgba(17, 17, 17, 0.1), transparent 70%);
   animation: liquid-drift-b 11s ease-in-out infinite;
 }
 

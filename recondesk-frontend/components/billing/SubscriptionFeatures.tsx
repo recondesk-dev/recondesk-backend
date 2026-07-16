@@ -18,7 +18,7 @@ const CHAPTERS: Chapter[] = [
     label: "Core reconciliation",
     title: "The engine",
     kicker: "From raw filings to a clear desk — purchase side and sales side.",
-    accent: "from-[rgba(17,17,17,0.06)] via-transparent to-[rgba(16,185,129,0.08)]",
+    accent: "from-[rgba(17,17,17,0.05)] via-transparent to-[rgba(17,17,17,0.02)]",
     lines: [
       {
         title: "GSTR-2B ↔ Purchase Register",
@@ -52,7 +52,7 @@ const CHAPTERS: Chapter[] = [
     label: "Compliance & intelligence",
     title: "The watchtower",
     kicker: "Catch risk early. See the portfolio the way a partner would.",
-    accent: "from-[rgba(16,185,129,0.1)] via-transparent to-[rgba(17,17,17,0.04)]",
+    accent: "from-[rgba(17,17,17,0.06)] via-transparent to-[rgba(17,17,17,0.03)]",
     lines: [
       {
         title: "Rule 37 tracking",
@@ -86,7 +86,7 @@ const CHAPTERS: Chapter[] = [
     label: "Firm workflow",
     title: "The firm desk",
     kicker: "Built for CA firms — owner reviews, staff executes, nothing falls through.",
-    accent: "from-[rgba(17,17,17,0.05)] via-transparent to-transparent",
+    accent: "from-[rgba(17,17,17,0.04)] via-transparent to-transparent",
     lines: [
       {
         title: "Admin vs Staff roles",
@@ -119,7 +119,7 @@ const CHAPTERS: Chapter[] = [
     label: "Client communication",
     title: "The client line",
     kicker: "Collect files. Chase suppliers. Leave a paper trail clients respect.",
-    accent: "from-[rgba(16,185,129,0.08)] via-transparent to-[rgba(17,17,17,0.05)]",
+    accent: "from-[rgba(17,17,17,0.05)] via-transparent to-[rgba(17,17,17,0.02)]",
     lines: [
       {
         title: "Upload request links",
@@ -192,7 +192,7 @@ export function SubscriptionFeatures({ compact = false }: Props) {
         >
           Full desk. Every plan.
           <br className="hidden sm:block" />
-          <span className={compact ? "text-gray-400" : "text-emerald-700/80"}>
+          <span className={compact ? "text-gray-400" : "text-gray-500"}>
             {" "}
             Nothing held back.
           </span>
@@ -229,7 +229,7 @@ export function SubscriptionFeatures({ compact = false }: Props) {
               key={`${label}-${i}`}
               className="inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 shadow-sm ring-1 ring-black/[0.04]"
             >
-              <span className="h-1 w-1 rounded-full bg-emerald-600" aria-hidden />
+              <span className="h-1 w-1 rounded-full bg-gray-400" aria-hidden />
               {label}
             </span>
           ))}
