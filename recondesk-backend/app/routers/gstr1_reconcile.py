@@ -33,12 +33,20 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
 from pydantic import BaseModel
 
 from app.auth import get_current_active_user
+from app.database import get_supabase
+from app.services.firm_access import list_accessible_client_gstin_ids
+from app.services.gstr1_run_store import (
+    get_gstr1_run,
+    list_gstr1_runs,
+    save_gstr1_run,
+)
 
 # ── Standalone GSTR-1 modules ────────────────────────────────────────────────
 from app.parsers.sales_register_parser import parse_sales_register, ParseError
@@ -644,8 +652,57 @@ async def _run_pipeline(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Endpoint
+# Endpoints
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _assert_client_accessible(client_gstin_id: str, current_user: dict) -> None:
+    sb = get_supabase()
+    allowed = list_accessible_client_gstin_ids(sb, current_user)
+    if str(client_gstin_id).strip() not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="not allowed for this client",
+        )
+
+
+@router.get(
+    "/runs",
+    summary="List GSTR-1 reconciliation runs for a client",
+)
+async def list_gstr1_reconcile_runs(
+    client_gstin_id: str,
+    limit: int = 20,
+    run_status: Optional[str] = Query(None, alias="status"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Return newest-first GSTR-1 runs (without full result payloads)."""
+    _assert_client_accessible(client_gstin_id, current_user)
+    rows = list_gstr1_runs(
+        get_supabase(),
+        client_gstin_id=client_gstin_id,
+        limit=limit,
+        status=run_status,
+    )
+    return rows
+
+
+@router.get(
+    "/runs/{run_id}",
+    summary="Get a persisted GSTR-1 reconciliation run (incl. full result)",
+)
+async def get_gstr1_reconcile_run(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    row = get_gstr1_run(get_supabase(), run_id)
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="GSTR-1 run not found",
+        )
+    _assert_client_accessible(str(row.get("client_gstin_id", "")), current_user)
+    return row
+
 
 @router.post(
     "",
@@ -677,6 +734,13 @@ async def reconcile_gstr1(
         description=(
             "GSTR-1 filing period in MMYYYY format (e.g. '042026'). "
             "Auto-detected from GSTR-1 JSON if omitted."
+        ),
+    ),
+    client_gstin_id: Optional[str] = Form(
+        None,
+        description=(
+            "Client GSTIN row id. When provided, the successful result is "
+            "persisted for later revisit (banner / results by run id)."
         ),
     ),
     current_user: dict = Depends(get_current_active_user),
@@ -805,5 +869,30 @@ async def reconcile_gstr1(
         result["summary"]["mismatch_count"],
         result["elapsed_seconds"],
     )
+
+    # Persist for durable banner / revisit when a client is in scope.
+    run_id: str | None = None
+    cg_id = (client_gstin_id or "").strip()
+    if cg_id and result.get("success"):
+        try:
+            _assert_client_accessible(cg_id, current_user)
+            saved = save_gstr1_run(
+                get_supabase(),
+                client_gstin_id=cg_id,
+                result=result,
+                created_by=str(user_id) if user_id != "?" else None,
+                period=gstr1_filing_period,
+            )
+            run_id = str(saved["id"])
+            result = {**result, "run_id": run_id, "client_gstin_id": cg_id}
+        except HTTPException:
+            raise
+        except Exception:
+            # Pipeline already succeeded — do not fail the request if persist fails.
+            _log.exception(
+                "gstr1_reconcile: persist failed user=%s client=%s",
+                user_id,
+                cg_id,
+            )
 
     return result

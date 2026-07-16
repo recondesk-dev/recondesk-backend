@@ -183,6 +183,9 @@ export type Gstr1ReconcileResult = {
   documents_issued?: Gstr1DocumentsIssued;
   tie_out: Gstr1TieOut;
   parse_diagnostics?: Gstr1ParseDiagnostics;
+  /** Persisted run id when client_gstin_id was supplied on upload. */
+  run_id?: string;
+  client_gstin_id?: string;
   /** Client-side metadata attached after upload */
   meta?: {
     created_at: string;
@@ -192,7 +195,23 @@ export type Gstr1ReconcileResult = {
     prior_gstr1_filename?: string;
     filing_period?: string | null;
     client_name?: string | null;
+    client_gstin_id?: string | null;
   };
+};
+
+export type Gstr1RunListRow = {
+  id: string;
+  client_gstin_id: string;
+  period?: string | null;
+  status: string;
+  run_summary?: Record<string, unknown> | null;
+  created_by?: string | null;
+  created_at: string;
+  completed_at?: string | null;
+};
+
+export type Gstr1RunDetail = Gstr1RunListRow & {
+  result_payload: Gstr1ReconcileResult;
 };
 
 export type Gstr1ReconcileUploadInput = {
@@ -202,6 +221,8 @@ export type Gstr1ReconcileUploadInput = {
   /** Optional prior-period GSTR-1 for Tables 9A/9B/9C amendment detection. */
   priorGstr1JsonFile?: File | null;
   gstr1FilingPeriod?: string | null;
+  /** When set, backend persists the run for durable banner / revisit. */
+  clientGstinId?: string | null;
   token: string;
 };
 
@@ -291,6 +312,9 @@ export async function runGstr1Reconcile(
   if (input.gstr1FilingPeriod?.trim()) {
     form.append("gstr1_filing_period", input.gstr1FilingPeriod.trim());
   }
+  if (input.clientGstinId?.trim()) {
+    form.append("client_gstin_id", input.clientGstinId.trim());
+  }
 
   try {
     const result = await apiFetch<Gstr1ReconcileResult>("/api/gstr1-reconcile", {
@@ -309,11 +333,60 @@ export async function runGstr1Reconcile(
         gstr3b_filename: input.gstr3bJsonFile.name,
         prior_gstr1_filename: input.priorGstr1JsonFile?.name,
         filing_period: input.gstr1FilingPeriod ?? null,
+        client_gstin_id: input.clientGstinId ?? null,
       },
     };
   } catch (err) {
     if (isApiError(err)) throw err;
     throw err;
+  }
+}
+
+export async function listGstr1Runs(
+  token: string,
+  params: { client_gstin_id: string; limit?: number; status?: string }
+): Promise<Gstr1RunListRow[]> {
+  const sp = new URLSearchParams();
+  sp.set("client_gstin_id", params.client_gstin_id);
+  if (params.limit != null) sp.set("limit", String(params.limit));
+  if (params.status) sp.set("status", params.status);
+  return apiFetch<Gstr1RunListRow[]>(`/api/gstr1-reconcile/runs?${sp}`, {
+    token,
+    directBackend: true,
+  });
+}
+
+export async function getGstr1Run(
+  token: string,
+  runId: string
+): Promise<Gstr1RunDetail> {
+  return apiFetch<Gstr1RunDetail>(
+    `/api/gstr1-reconcile/runs/${encodeURIComponent(runId)}`,
+    { token, directBackend: true }
+  );
+}
+
+export async function loadGstr1ResultByRunId(
+  token: string,
+  runId: string
+): Promise<Gstr1ReconcileResult | null> {
+  try {
+    const row = await getGstr1Run(token, runId);
+    const payload = row.result_payload;
+    if (!payload) return null;
+    return {
+      ...payload,
+      run_id: row.id,
+      client_gstin_id: row.client_gstin_id,
+      meta: {
+        ...(payload.meta || {}),
+        created_at: row.created_at || payload.meta?.created_at || new Date().toISOString(),
+        filing_period: row.period ?? payload.meta?.filing_period ?? null,
+        client_gstin_id: row.client_gstin_id,
+      },
+    };
+  } catch {
+    return null;
   }
 }
 

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { isApiError } from "@/lib/api";
@@ -47,8 +47,10 @@ function FileField({
   );
 }
 
-export default function Gstr1ReconcileNewPage() {
+function Gstr1ReconcileNewContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const clientGstinId = searchParams.get("client_gstin_id")?.trim() || null;
   const tokenState = useAccessToken();
   const token =
     typeof tokenState === "string" && tokenState.length > 0 ? tokenState : null;
@@ -96,10 +98,18 @@ export default function Gstr1ReconcileNewPage() {
         gstr3bJsonFile: gstr3bFile,
         priorGstr1JsonFile: priorGstr1File,
         gstr1FilingPeriod: filingPeriod.trim() || null,
+        clientGstinId,
         token,
       });
+      // Session storage = fast path for immediate redirect; DB is source of truth.
       persistGstr1Result(result);
-      router.push("/reconcile/gstr1/results");
+      if (result.run_id) {
+        router.push(
+          `/reconcile/gstr1/results?run_id=${encodeURIComponent(result.run_id)}`
+        );
+      } else {
+        router.push("/reconcile/gstr1/results");
+      }
     } catch (err) {
       if (isApiError(err)) {
         setError(err.detail || `Request failed (${err.status})`);
@@ -111,7 +121,16 @@ export default function Gstr1ReconcileNewPage() {
     } finally {
       setRunning(false);
     }
-  }, [token, srFile, gstr1File, gstr3bFile, priorGstr1File, filingPeriod, router]);
+  }, [
+    token,
+    srFile,
+    gstr1File,
+    gstr3bFile,
+    priorGstr1File,
+    filingPeriod,
+    clientGstinId,
+    router,
+  ]);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-8 py-8">
@@ -212,5 +231,19 @@ export default function Gstr1ReconcileNewPage() {
         </Link>
       </div>
     </div>
+  );
+}
+
+export default function Gstr1ReconcileNewPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] items-center justify-center px-8 text-[13px] text-gray-500">
+          Loading…
+        </div>
+      }
+    >
+      <Gstr1ReconcileNewContent />
+    </Suspense>
   );
 }

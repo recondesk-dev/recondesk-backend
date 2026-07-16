@@ -33,7 +33,7 @@ import {
   staffForAssignee,
 } from "@/lib/dashboard-portfolio";
 import { formatInrFull } from "@/lib/format";
-import { loadGstr1Result } from "@/lib/gstr1Reconcile";
+import { listGstr1Runs } from "@/lib/gstr1Reconcile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import type { ItcTrendPoint, ReconciliationRun } from "@/lib/types";
 
@@ -156,7 +156,7 @@ export default function ClientDetailPage() {
   const [histPage, setHistPage] = useState(1);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [connectGstnOpen, setConnectGstnOpen] = useState(false);
-  const [gstr1ResultsReady, setGstr1ResultsReady] = useState(false);
+  const [latestGstr1RunId, setLatestGstr1RunId] = useState<string | null>(null);
 
   const gstnConnected = isGstnConnected(rawClient as ClientGstin | undefined);
 
@@ -170,11 +170,34 @@ export default function ClientDetailPage() {
   const startTitle = runInProgress ? "Run in progress" : undefined;
 
   const reconcileNewHref = id ? `/reconcile/${id}/new` : "";
+  const gstr1NewHref = id
+    ? `/reconcile/gstr1/new?client_gstin_id=${encodeURIComponent(id)}`
+    : "/reconcile/gstr1/new";
 
+  // Source of truth: persisted GSTR-1 runs (not session storage).
   useEffect(() => {
-    const result = loadGstr1Result();
-    setGstr1ResultsReady(Boolean(result?.success));
-  }, []);
+    if (!authToken || !id) {
+      setLatestGstr1RunId(null);
+      return;
+    }
+    let cancelled = false;
+    void listGstr1Runs(authToken, {
+      client_gstin_id: id,
+      limit: 1,
+      status: "COMPLETED",
+    })
+      .then((rows) => {
+        if (!cancelled) {
+          setLatestGstr1RunId(rows[0]?.id ?? null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLatestGstr1RunId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, id]);
 
   const histTotal = sortedRuns.length;
   const histPages = Math.max(1, Math.ceil(histTotal / HISTORY_PAGE));
@@ -302,7 +325,7 @@ export default function ClientDetailPage() {
                   </Link>
                 )}
                 <Link
-                  href="/reconcile/gstr1/new"
+                  href={gstr1NewHref}
                   title="Sales Register ↔ GSTR-1 ↔ GSTR-3B tie-out"
                   className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[#F5F5F6] px-4 py-3 text-left ring-1 ring-[#F0F0F0] transition-colors hover:bg-gray-200/70"
                 >
@@ -349,9 +372,9 @@ export default function ClientDetailPage() {
           GSTR-2B results ready. Review and finalize →
         </Link>
       )}
-      {gstr1ResultsReady && (
+      {latestGstr1RunId && (
         <Link
-          href="/reconcile/gstr1/results"
+          href={`/reconcile/gstr1/results?run_id=${encodeURIComponent(latestGstr1RunId)}`}
           className="block rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm font-medium text-amber-950 transition-colors hover:bg-amber-100/80"
         >
           GSTR-1 results ready. Review and finalize →

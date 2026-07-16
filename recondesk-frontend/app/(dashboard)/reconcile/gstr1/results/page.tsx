@@ -1,24 +1,52 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 
 import { Gstr1ResultsView } from "@/components/reconcile/Gstr1ResultsView";
 import {
   loadGstr1Result,
+  loadGstr1ResultByRunId,
   type Gstr1ReconcileResult,
 } from "@/lib/gstr1Reconcile";
+import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
-export default function Gstr1ReconcileResultsPage() {
+function Gstr1ReconcileResultsContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const runId = searchParams.get("run_id")?.trim() || null;
+  const tokenState = useAccessToken();
+  const token =
+    typeof tokenState === "string" && tokenState.length > 0 ? tokenState : null;
+
   const [result, setResult] = useState<Gstr1ReconcileResult | null | undefined>(
     undefined
   );
 
   useEffect(() => {
-    setResult(loadGstr1Result());
-  }, []);
+    let cancelled = false;
+
+    async function load() {
+      // Prefer persisted run when run_id is present (survives new sessions).
+      if (runId && token) {
+        const fromDb = await loadGstr1ResultByRunId(token, runId);
+        if (!cancelled) {
+          setResult(fromDb ?? loadGstr1Result());
+        }
+        return;
+      }
+      // Fast-path fallback: session storage from the just-completed upload.
+      if (!cancelled) {
+        setResult(loadGstr1Result());
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, token]);
 
   if (result === undefined) {
     return (
@@ -42,16 +70,34 @@ export default function Gstr1ReconcileResultsPage() {
           href="/reconcile/gstr1/new"
           className="mt-6 inline-flex min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-6 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
         >
-          Start GSTR-1 Check
+          Start GSTR-1 Reconciliation
         </Link>
       </div>
     );
   }
 
+  const runAgainHref = result.client_gstin_id
+    ? `/reconcile/gstr1/new?client_gstin_id=${encodeURIComponent(result.client_gstin_id)}`
+    : "/reconcile/gstr1/new";
+
   return (
     <Gstr1ResultsView
       result={result}
-      onRunAgain={() => router.push("/reconcile/gstr1/new")}
+      onRunAgain={() => router.push(runAgainHref)}
     />
+  );
+}
+
+export default function Gstr1ReconcileResultsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] items-center justify-center px-8 text-[13px] text-gray-500">
+          Loading results…
+        </div>
+      }
+    >
+      <Gstr1ReconcileResultsContent />
+    </Suspense>
   );
 }
