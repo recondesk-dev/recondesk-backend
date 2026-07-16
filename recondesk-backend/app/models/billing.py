@@ -12,7 +12,7 @@ class PlanType(str, Enum):
     FREE = "free"
     STARTER = "starter"
     GROWTH = "growth"
-    SCALE = "scale"
+    PRO = "pro"
     ENTERPRISE = "enterprise"
 
 

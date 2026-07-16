@@ -60,6 +60,7 @@ def run_query(table: str, query_fn: Callable) -> Any:
 _USER_PROFILE_SELECT = (
     "id, email, full_name, firm_name, phone, role, is_active, "
     "plan, runs_used, runs_limit, created_at, free_runs_remaining, runs_balance, firm_city, "
+    "gstin_limit, subscription_ends_at, "
     "icai_membership_number, firm_gstin, onboarding_completed"
 )
 

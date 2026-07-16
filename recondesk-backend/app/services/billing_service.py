@@ -4,17 +4,21 @@ from app.config import settings
 
 _client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
-# TODO: update Razorpay plan IDs — legacy subscription pricing, update when new plans are created in Razorpay dashboard
+# Amounts in paise (INR). Matches billing_gate.PLAN_CONFIG base amounts.
 PLAN_PRICES = {
-    "starter":    {"monthly": 99900,  "yearly": 999900},   # amounts in paise (INR)
-    "growth":     {"monthly": 299900, "yearly": 2999900},
-    "enterprise": {"monthly": 999900, "yearly": 9999900},
+    "starter": {"monthly": 99_900},
+    "growth": {"yearly": 799_900},
+    "pro": {"yearly": 1_199_900},
 }
 
 
 def create_order(plan: str, billing_period: str = "monthly") -> dict:
     """Create a Razorpay order for a subscription plan."""
-    amount = PLAN_PRICES.get(plan, {}).get(billing_period, 99900)
+    amount = PLAN_PRICES.get(plan, {}).get(billing_period)
+    if amount is None:
+        # Fallback: first available period for the plan, else starter monthly
+        periods = PLAN_PRICES.get(plan) or PLAN_PRICES["starter"]
+        amount = next(iter(periods.values()), 99_900)
     order_data = {
         "amount": amount,
         "currency": "INR",

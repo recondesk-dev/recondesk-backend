@@ -76,15 +76,18 @@ export default function SettingsHubPage() {
     (!!authToken &&
       ((meKey !== null && meLoading) || (teamKey !== null && teamLoading) || (billingKey !== null && billingLoading)));
 
-  const activeBatch = billingStatus?.credit_batches?.find(
-    (b) => (b.runs_remaining ?? 0) > 0 && (b.status || "").toLowerCase() !== "expired"
-  );
-  const rawPlan = activeBatch?.plan?.trim() || me?.plan || "free";
+  const rawPlan =
+    (billingStatus?.subscription_active && billingStatus.plan?.trim()) ||
+    billingStatus?.credit_batches?.find(
+      (b) => (b.runs_remaining ?? 0) > 0 && (b.status || "").toLowerCase() !== "expired"
+    )?.plan?.trim() ||
+    me?.plan ||
+    "free";
   const planLabelStr = rawPlan.charAt(0).toUpperCase() + rawPlan.slice(1).toLowerCase();
 
-  const runsRemaining = billingStatus
-    ? (billingStatus.free_runs_remaining ?? 0) + (billingStatus.runs_balance ?? 0)
-    : 0;
+  const gstinCapacity = billingStatus
+    ? `${billingStatus.gstins_used ?? 0} / ${billingStatus.gstin_limit ?? 2}`
+    : "—";
 
   const teamSize = Array.isArray(teamMembers)
     ? (teamMembers as TeamMemberListItem[]).length
@@ -184,12 +187,8 @@ export default function SettingsHubPage() {
             </span>
             <span className="hidden text-[#E5E5E5] sm:inline">|</span>
             <span>
-              <span className="text-gray-500">
-                Runs remaining:
-              </span>{" "}
-              <span className="font-semibold text-[var(--ink)]">
-                {runsRemaining}
-              </span>
+              <span className="text-gray-500">GSTINs:</span>{" "}
+              <span className="font-semibold text-[var(--ink)]">{gstinCapacity}</span>
             </span>
             <span className="hidden text-[#E5E5E5] sm:inline">|</span>
             <span>

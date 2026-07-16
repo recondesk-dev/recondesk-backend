@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from app.auth import get_current_active_user, get_current_user, require_admin
 from app.database import get_supabase, get_user_profile
 from app.routers.reconciliation_api import _parse_uuid
+from app.services.billing_gate import assert_gstin_capacity
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.services.carry_forward import get_chronic_risks
 from app.services.gstin_verification import verify_gstin as _verify_gstin
@@ -178,6 +179,13 @@ async def create_client(
     sb = get_supabase()
     uid = str(current_user.get("id", ""))
     owner = _resolve_firm_owner(sb, uid)
+    try:
+        assert_gstin_capacity(sb, owner)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
     ins: dict[str, Any] = {
         "id": str(uuid4()),
         "gstin": g,

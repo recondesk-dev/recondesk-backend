@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import Razorpay from "razorpay";
 
-const PLANS: Record<string, { priceInr: number; runs: number }> = {
-  starter: { priceInr: 499, runs: 1 },
-  growth: { priceInr: 1699, runs: 5 },
-  pro: { priceInr: 3699, runs: 12 },
-  scale: { priceInr: 5699, runs: 30 },
+const PLANS: Record<
+  string,
+  { priceInr: number; gstinLimit: number; periodDays: number; billingPeriod: string }
+> = {
+  starter: { priceInr: 999, gstinLimit: 25, periodDays: 30, billingPeriod: "monthly" },
+  growth: { priceInr: 7999, gstinLimit: 50, periodDays: 365, billingPeriod: "yearly" },
+  pro: { priceInr: 11999, gstinLimit: 75, periodDays: 365, billingPeriod: "yearly" },
 };
 
 export async function POST(request: Request) {
@@ -39,13 +41,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid plan selected" }, { status: 400 });
     }
 
-    // Include 18% GST (if applicable, though prompt config was just the base numbers.
-    // The prompt says "starter: ₹499, 1 run". I will use the exact amount for the Razorpay order.)
-    // Wait, the frontend says "All prices exclude GST. 18% GST applicable."
-    // Let's add 18% GST to the final amount if that's what's expected, but the prompt says:
-    // "starter: ₹499, 1 run"
-    // So amount is 499 + 18% GST.
-    // Let's stick to base amount first, or I can add 18% GST. Let's add 18% GST because the frontend says it.
     const baseAmountPaise = planConfig.priceInr * 100;
     const gstPaise = Math.round(baseAmountPaise * 0.18);
     const totalAmountPaise = baseAmountPaise + gstPaise;
@@ -63,27 +58,31 @@ export async function POST(request: Request) {
       key_secret: process.env.RAZORPAY_KEY_SECRET,
     });
 
-    // Create Razorpay order
     const orderOptions = {
       amount: totalAmountPaise,
       currency: "INR",
       receipt: `receipt_${user.id}_${Date.now()}`.substring(0, 40),
+      notes: {
+        plan: planNameLower,
+        gstin_limit: String(planConfig.gstinLimit),
+        period_days: String(planConfig.periodDays),
+        billing_period: planConfig.billingPeriod,
+      },
     };
 
     let razorpayOrder;
     try {
       razorpayOrder = await razorpay.orders.create(orderOptions);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Razorpay order creation error:", error);
       return NextResponse.json({ error: "Failed to create order with payment gateway" }, { status: 500 });
     }
 
-    // Insert into payments table
     const { error: dbError } = await supabase.from("payments").insert({
       firm_owner_id: user.id,
       razorpay_order_id: razorpayOrder.id,
       plan: planNameLower,
-      runs_purchased: planConfig.runs,
+      runs_purchased: 0,
       base_amount_paise: baseAmountPaise,
       gst_paise: gstPaise,
       total_amount_paise: totalAmountPaise,
@@ -100,8 +99,11 @@ export async function POST(request: Request) {
       order_id: razorpayOrder.id,
       amount: razorpayOrder.amount,
       currency: razorpayOrder.currency,
+      plan: planNameLower,
+      gstin_limit: planConfig.gstinLimit,
+      billing_period: planConfig.billingPeriod,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Create order error:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }

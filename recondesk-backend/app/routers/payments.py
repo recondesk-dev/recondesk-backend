@@ -1,4 +1,4 @@
-"""Run-based billing: Razorpay orders, verify, webhooks, receipts, billing status."""
+"""GSTIN subscription billing: Razorpay orders, verify, webhooks, receipts, status."""
 
 from __future__ import annotations
 
@@ -23,9 +23,12 @@ from app.config import settings
 from app.database import get_user_profile, supabase_client
 from app.services.billing_gate import (
     PLAN_CONFIG,
-    add_run_credits,
+    activate_subscription,
     consume_run_credit,
+    count_active_gstins,
     forfeit_expired_credit_batches,
+    get_gstin_limit,
+    has_active_subscription,
     resolve_firm_owner_for_billing,
     sync_billing_credits,
 )
@@ -120,7 +123,7 @@ async def payments_create_order(
     try:
         order = _client.order.create(
             {
-                "amount": cfg["total_paise"],
+                "amount": int(cfg["total_paise"]),
                 "currency": "INR",
                 "payment_capture": 1,
                 "receipt": receipt[:8],
@@ -128,7 +131,8 @@ async def payments_create_order(
                     "user_id": firm_owner,
                     "run_id": run_id,
                     "plan": plan,
-                    "runs": str(cfg["runs"]),
+                    "gstin_limit": str(cfg["gstin_limit"]),
+                    "period_days": str(cfg["period_days"]),
                 },
             }
         )
@@ -144,19 +148,20 @@ async def payments_create_order(
         "PAYMENT_ORDER_CREATED",
         "razorpay_order",
         str(order.get("id")),
-        {"plan": plan, "amount": cfg["total_paise"], "run_id": run_id},
+        {"plan": plan, "amount": int(cfg["total_paise"]), "run_id": run_id},
         ip_address=(request.client.host if request.client else None),
     )
 
     return {
         "order_id": order["id"],
-        "amount": cfg["total_paise"],
+        "amount": int(cfg["total_paise"]),
         "currency": order.get("currency", "INR"),
         "key": settings.RAZORPAY_KEY_ID,
         "plan": plan,
-        "runs": cfg["runs"],
-        "base": cfg["base_paise"],
-        "gst": cfg["gst_paise"],
+        "gstin_limit": int(cfg["gstin_limit"]),
+        "period_days": int(cfg["period_days"]),
+        "base": int(cfg["base_paise"]),
+        "gst": int(cfg["gst_paise"]),
     }
 
 
@@ -199,8 +204,9 @@ async def payments_verify(
         prof = get_user_profile(owner_for_bal or resolve_firm_owner_for_billing(db, current_user)) or {}
         return {
             "success": True,
-            "runs_added": int(existing.data[0].get("runs_purchased") or 0),
-            "runs_balance": int(prof.get("runs_balance") or 0),
+            "plan": existing.data[0].get("plan") or plan,
+            "gstin_limit": int(prof.get("gstin_limit") or 0),
+            "subscription_ends_at": prof.get("subscription_ends_at"),
             "idempotent": True,
         }
 
@@ -218,19 +224,19 @@ async def payments_verify(
         "run_id": run_id,
         "razorpay_order_id": payload.order_id.strip(),
         "razorpay_payment_id": pay_id,
-        "amount_paise": cfg["total_paise"],
+        "amount_paise": int(cfg["total_paise"]),
         "status": "paid",
         "plan": plan,
-        "runs_purchased": cfg["runs"],
-        "base_amount_paise": cfg["base_paise"],
-        "gst_paise": cfg["gst_paise"],
-        "total_amount_paise": cfg["total_paise"],
+        "runs_purchased": 0,
+        "base_amount_paise": int(cfg["base_paise"]),
+        "gst_paise": int(cfg["gst_paise"]),
+        "total_amount_paise": int(cfg["total_paise"]),
     }
     ins = db.table("payments").insert(pay_row).execute()
     payment_rec = (ins.data or [{}])[0]
     payment_uuid = str(payment_rec.get("id", ""))
 
-    await add_run_credits(
+    sub = await activate_subscription(
         firm_owner,
         plan,
         payment_uuid if payment_uuid else None,
@@ -255,14 +261,13 @@ async def payments_verify(
                         owner_email,
                         owner_name,
                         plan,
-                        cfg["total_paise"],
+                        int(cfg["total_paise"]),
                         payment_uuid,
                     )
                 )
     except Exception as exc:
         _log.warning("Failed to trigger payment receipt email in backend: %s", exc)
 
-    prof2 = get_user_profile(firm_owner) or {}
     await log_action(
         str(current_user.get("id")),
         "PAYMENT_VERIFIED",
@@ -277,8 +282,9 @@ async def payments_verify(
         invalidate_user_dashboard(firm_owner)
     return {
         "success": True,
-        "runs_added": cfg["runs"],
-        "runs_balance": int(prof2.get("runs_balance") or 0),
+        "plan": sub["plan"],
+        "gstin_limit": sub["gstin_limit"],
+        "subscription_ends_at": sub["subscription_ends_at"],
     }
 
 
@@ -475,6 +481,10 @@ async def billing_status(
     plan_name = (prof.get("plan") or "free").strip() or "free"
     free_runs = synced["free_runs_remaining"]
     runs_balance = synced["runs_balance"]
+    sub_active = has_active_subscription(db, firm_owner)
+    gstin_limit = get_gstin_limit(db, firm_owner)
+    gstins_used = count_active_gstins(db, firm_owner)
+    subscription_ends_at = prof.get("subscription_ends_at")
 
     batches_res = (
         db.table("run_credits")
@@ -528,10 +538,14 @@ async def billing_status(
         "plan": plan_name,
         "free_runs_remaining": free_runs,
         "runs_balance": runs_balance,
+        "gstin_limit": gstin_limit,
+        "gstins_used": gstins_used,
+        "subscription_ends_at": subscription_ends_at,
+        "subscription_active": sub_active,
         "credit_batches": credit_batches,
         "expiring_soon": expiring_soon,
         "total_spent_paise": total_spent,
-        "suggested_upgrade": free_runs == 0 and runs_balance == 0,
+        "suggested_upgrade": free_runs == 0 and runs_balance == 0 and not sub_active,
     }
     cache_set(cache_key, out, ttl_seconds=30)
     return out

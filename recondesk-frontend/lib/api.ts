@@ -757,6 +757,10 @@ export interface BillingStatus {
   plan: string;
   free_runs_remaining: number;
   runs_balance: number;
+  gstin_limit?: number;
+  gstins_used?: number;
+  subscription_ends_at?: string | null;
+  subscription_active?: boolean;
   credit_batches: CreditBatchRow[];
   expiring_soon: CreditBatchRow[];
   total_spent_paise: number;

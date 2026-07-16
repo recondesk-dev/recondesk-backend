@@ -447,3 +447,122 @@
   filter: blur(16px);
   animation: rotate-gradient 3s linear infinite;
 }
+
+/* ── Liquid glass pricing cards ──────────────────────────────────────────── */
+@keyframes liquid-drift-a {
+  0%,
+  100% {
+    transform: translate(-8%, -6%) scale(1);
+  }
+  50% {
+    transform: translate(12%, 10%) scale(1.12);
+  }
+}
+
+@keyframes liquid-drift-b {
+  0%,
+  100% {
+    transform: translate(10%, 8%) scale(1.05);
+  }
+  50% {
+    transform: translate(-14%, -10%) scale(0.92);
+  }
+}
+
+.liquid-glass-card {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: 1.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(255, 255, 255, 0.38) 48%,
+    rgba(255, 255, 255, 0.55) 100%
+  );
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.65) inset,
+    0 12px 40px rgba(16, 24, 40, 0.08);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  transition:
+    transform 0.35s ease,
+    box-shadow 0.35s ease;
+}
+
+.liquid-glass-card--featured {
+  border-color: rgba(17, 17, 17, 0.18);
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.82) 0%,
+    rgba(245, 245, 246, 0.55) 45%,
+    rgba(255, 255, 255, 0.7) 100%
+  );
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.75) inset,
+    0 18px 48px rgba(16, 24, 40, 0.12);
+}
+
+@media (hover: hover) {
+  .liquid-glass-card:hover {
+    transform: translateY(-4px);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.7) inset,
+      0 20px 50px rgba(16, 24, 40, 0.12);
+  }
+}
+
+.liquid-glass-card__blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(36px);
+  opacity: 0.55;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.liquid-glass-card__blob--a {
+  width: 180px;
+  height: 180px;
+  top: -48px;
+  left: -40px;
+  background: radial-gradient(circle, rgba(17, 17, 17, 0.14), transparent 68%);
+  animation: liquid-drift-a 9s ease-in-out infinite;
+}
+
+.liquid-glass-card__blob--b {
+  width: 200px;
+  height: 200px;
+  right: -56px;
+  bottom: -64px;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.16), transparent 70%);
+  animation: liquid-drift-b 11s ease-in-out infinite;
+}
+
+.liquid-glass-card__content {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-glass-card__blob--a,
+  .liquid-glass-card__blob--b {
+    animation: none;
+  }
+
+  .liquid-glass-card {
+    transition: none;
+  }
+}
+
+.pricing-feature-pillar {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.5rem;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}

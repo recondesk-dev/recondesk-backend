@@ -1,4 +1,4 @@
-"""Run access, free runs, and FIFO purchased credits (6-month expiry per batch)."""
+"""Run access, free runs, GSTIN subscriptions, and legacy FIFO run credits."""
 
 from __future__ import annotations
 
@@ -13,34 +13,40 @@ from app.utils.audit import log_action
 
 _log = logging.getLogger(__name__)
 
-PLAN_CONFIG: dict[str, dict[str, int]] = {
-    "starter": {  # TODO: update Razorpay plan ID — display price changed ₹399 → ₹499
-        "base_paise": 29_900,
-        "runs": 1,
-        "gst_paise": 5_382,
-        "total_paise": 35_282,
+
+def _with_gst(base_paise: int) -> dict[str, int]:
+    gst_paise = round(base_paise * 0.18)
+    return {
+        "base_paise": base_paise,
+        "gst_paise": gst_paise,
+        "total_paise": base_paise + gst_paise,
+    }
+
+
+# GSTIN-based plans. Paid subscription = unlimited runs until subscription_ends_at.
+PLAN_CONFIG: dict[str, dict[str, int | str]] = {
+    "starter": {
+        **_with_gst(99_900),
+        "gstin_limit": 25,
+        "period_days": 30,
+        "billing_period": "monthly",
     },
-    "growth": {  # TODO: update Razorpay plan ID — per-run label updated to ₹340/run
-        "base_paise": 119_900,
-        "runs": 5,
-        "gst_paise": 21_582,
-        "total_paise": 141_482,
+    "growth": {
+        **_with_gst(799_900),
+        "gstin_limit": 50,
+        "period_days": 365,
+        "billing_period": "yearly",
     },
-    "pro": {  # TODO: update Razorpay plan ID — display price changed ₹3,499 → ₹3,699
-        "base_paise": 269_900,
-        "runs": 12,
-        "gst_paise": 48_582,
-        "total_paise": 318_482,
-    },
-    "scale": {  # TODO: update Razorpay plan ID — new plan ₹5,699/month, 30 runs
-        "base_paise": 0,      # TODO: set base_paise once Razorpay plan is created
-        "runs": 30,
-        "gst_paise": 0,       # TODO: set gst_paise once Razorpay plan is created
-        "total_paise": 0,     # TODO: set total_paise once Razorpay plan is created
+    "pro": {
+        **_with_gst(1_199_900),
+        "gstin_limit": 75,
+        "period_days": 365,
+        "billing_period": "yearly",
     },
 }
 
-BATCH_VALID_DAYS = 30  # 30 days
+FREE_GSTIN_LIMIT = 2
+BATCH_VALID_DAYS = 30  # legacy run-credit batches
 FREE_RUNS_ALLOCATION = 2
 _SUCCESSFUL_RUN_STATUSES = frozenset(
     {"COMPLETED", "FINAL", "COMPLETE", "FINALIZED"}
@@ -198,6 +204,21 @@ def _decrement_oldest_credit_batch(sb: Client, firm_owner_id: str) -> bool:
     return False
 
 
+def has_active_subscription(sb: Client, firm_owner_id: str) -> bool:
+    """True when subscription_ends_at is in the future."""
+    res = (
+        sb.table("user_profiles")
+        .select("subscription_ends_at")
+        .eq("id", firm_owner_id)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        return False
+    ends = _parse_ts(res.data[0].get("subscription_ends_at"))
+    return ends is not None and ends > _utcnow()
+
+
 async def sync_billing_credits(firm_owner_id: str) -> dict[str, int]:
     """Backfill billing for completed runs and align free-run counters."""
     sb = get_supabase()
@@ -224,6 +245,7 @@ async def sync_billing_credits(firm_owner_id: str) -> dict[str, int]:
 
     free_n = _profile_int(sb, firm_owner_id, "free_runs_remaining")
     balance = _profile_int(sb, firm_owner_id, "runs_balance")
+    sub_active = has_active_subscription(sb, firm_owner_id)
     now = _utcnow().isoformat()
     credits_touched = False
 
@@ -231,6 +253,8 @@ async def sync_billing_credits(firm_owner_id: str) -> dict[str, int]:
         rid = str(orphan["id"])
         if free_n > 0:
             free_n -= 1
+        elif sub_active:
+            pass  # subscription covers the run — no credit decrement
         elif balance > 0 and _decrement_oldest_credit_batch(sb, firm_owner_id):
             balance -= 1
             credits_touched = True
@@ -263,8 +287,111 @@ async def sync_billing_credits(firm_owner_id: str) -> dict[str, int]:
     }
 
 
+def count_active_gstins(sb: Client, firm_owner_id: str) -> int:
+    res = (
+        sb.table("client_gstins")
+        .select("id", count="exact")
+        .eq("firm_owner_id", firm_owner_id)
+        .eq("is_active", True)
+        .limit(0)
+        .execute()
+    )
+    return int(res.count or 0)
+
+
+def get_gstin_limit(sb: Client, firm_owner_id: str) -> int:
+    res = (
+        sb.table("user_profiles")
+        .select("gstin_limit, plan, subscription_ends_at")
+        .eq("id", firm_owner_id)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        return FREE_GSTIN_LIMIT
+    row = res.data[0]
+    ends = _parse_ts(row.get("subscription_ends_at"))
+    if ends is None or ends <= _utcnow():
+        # Expired / unpaid: enforce free cap even if stale gstin_limit remains.
+        return FREE_GSTIN_LIMIT
+    return max(int(row.get("gstin_limit") or FREE_GSTIN_LIMIT), FREE_GSTIN_LIMIT)
+
+
+def assert_gstin_capacity(sb: Client, firm_owner_id: str) -> dict[str, int]:
+    """Raise ValueError when firm is at GSTIN capacity."""
+    used = count_active_gstins(sb, firm_owner_id)
+    limit = get_gstin_limit(sb, firm_owner_id)
+    if used >= limit:
+        raise ValueError(
+            f"GSTIN limit reached ({used}/{limit}). Upgrade your plan to add more clients."
+        )
+    return {"gstins_used": used, "gstin_limit": limit}
+
+
+async def activate_subscription(
+    user_id: str,
+    plan: str,
+    payment_id: str | None,
+    *,
+    log_ip: str | None = None,
+) -> dict[str, Any]:
+    """Activate or extend a GSTIN subscription for the firm owner."""
+    if plan not in PLAN_CONFIG:
+        raise ValueError("invalid plan")
+    cfg = PLAN_CONFIG[plan]
+    sb = get_supabase()
+    period_days = int(cfg["period_days"])
+    gstin_limit = int(cfg["gstin_limit"])
+
+    prof = (
+        sb.table("user_profiles")
+        .select("subscription_ends_at, plan")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+    )
+    now = _utcnow()
+    base = now
+    if prof.data:
+        existing_end = _parse_ts(prof.data[0].get("subscription_ends_at"))
+        if existing_end is not None and existing_end > now:
+            base = existing_end
+
+    ends_at = base + timedelta(days=period_days)
+    ends_iso = ends_at.isoformat()
+
+    sb.table("user_profiles").update(
+        {
+            "plan": plan,
+            "gstin_limit": gstin_limit,
+            "subscription_ends_at": ends_iso,
+        }
+    ).eq("id", user_id).execute()
+
+    await log_action(
+        user_id,
+        "SUBSCRIPTION_ACTIVATED",
+        "user_profile",
+        payment_id or user_id,
+        {
+            "plan": plan,
+            "gstin_limit": gstin_limit,
+            "period_days": period_days,
+            "subscription_ends_at": ends_iso,
+            "payment_id": payment_id,
+        },
+        ip_address=log_ip,
+    )
+    return {
+        "plan": plan,
+        "gstin_limit": gstin_limit,
+        "subscription_ends_at": ends_iso,
+        "period_days": period_days,
+    }
+
+
 async def check_run_access(user_id: str) -> dict[str, Any]:
-    """user_id = firm_owner_id for credits."""
+    """user_id = firm_owner_id for credits / subscription."""
     synced = await sync_billing_credits(user_id)
     free_n = synced["free_runs_remaining"]
     if free_n > 0:
@@ -272,6 +399,13 @@ async def check_run_access(user_id: str) -> dict[str, Any]:
             "allowed": True,
             "reason": "free",
             "free_runs_remaining": free_n,
+        }
+
+    sb = get_supabase()
+    if has_active_subscription(sb, user_id):
+        return {
+            "allowed": True,
+            "reason": "subscription",
         }
 
     balance = synced["runs_balance"]
@@ -290,13 +424,13 @@ async def check_run_access(user_id: str) -> dict[str, Any]:
 
 
 async def consume_run_credit(user_id: str) -> dict[str, Any]:
-    """Decrement one free run or oldest-expiring credit batch (FIFO). user_id = firm_owner."""
+    """Consume free run, subscription entitlement, or legacy credit batch."""
     sb = get_supabase()
     forfeit_expired_credit_batches(sb, user_id)
 
     prof = (
         sb.table("user_profiles")
-        .select("free_runs_remaining, runs_balance")
+        .select("free_runs_remaining, runs_balance, subscription_ends_at")
         .eq("id", user_id)
         .limit(1)
         .execute()
@@ -320,6 +454,17 @@ async def consume_run_credit(user_id: str) -> dict[str, Any]:
             {"free_runs_remaining_after": new_free},
         )
         return {"consumed": "free"}
+
+    ends = _parse_ts(row0.get("subscription_ends_at"))
+    if ends is not None and ends > _utcnow():
+        await log_action(
+            user_id,
+            "SUBSCRIPTION_RUN_USED",
+            "user_profile",
+            user_id,
+            {"subscription_ends_at": ends.isoformat()},
+        )
+        return {"consumed": "subscription"}
 
     if balance <= 0:
         raise RuntimeError("no credits available")
@@ -361,40 +506,10 @@ async def consume_run_credit(user_id: str) -> dict[str, Any]:
 async def add_run_credits(
     user_id: str, plan: str, payment_id: str | None, *, log_ip: str | None = None
 ) -> dict[str, Any]:
+    """Legacy helper kept for old packs; new purchases should use activate_subscription."""
     if plan not in PLAN_CONFIG:
         raise ValueError("invalid plan")
-    cfg = PLAN_CONFIG[plan]
-    sb = get_supabase()
-    expires_at = _utcnow() + timedelta(days=BATCH_VALID_DAYS)
-    expires_iso = expires_at.isoformat()
-
-    ins = {
-        "firm_owner_id": user_id,
-        "payment_id": payment_id,
-        "plan": plan,
-        "runs_purchased": cfg["runs"],
-        "runs_remaining": cfg["runs"],
-        "expires_at": expires_iso,
-    }
-    ins_res = sb.table("run_credits").insert(ins).execute()
-    credit_row = (ins_res.data or [{}])[0]
-    credit_id = str(credit_row.get("id", ""))
-
-    bal = _profile_int(sb, user_id, "runs_balance")
-    new_bal = bal + cfg["runs"]
-    sb.table("user_profiles").update({"runs_balance": new_bal}).eq("id", user_id).execute()
-
-    await log_action(
-        user_id,
-        "CREDITS_ADDED",
-        "run_credit",
-        credit_id or payment_id,
-        {
-            "plan": plan,
-            "runs": cfg["runs"],
-            "expires_at": expires_iso,
-            "payment_id": payment_id,
-        },
-        ip_address=log_ip,
+    # New model does not sell run packs — activate subscription instead.
+    return await activate_subscription(
+        user_id, plan, payment_id, log_ip=log_ip
     )
-    return {"runs_added": cfg["runs"], "runs_balance": new_bal, "credit_id": credit_id}

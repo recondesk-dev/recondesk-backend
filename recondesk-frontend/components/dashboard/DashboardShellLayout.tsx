@@ -42,21 +42,28 @@ function capitalizePlanName(plan: string): string {
   return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
 }
 
-function planFromCreditBatches(batches: CreditBatchRow[]): string | null {
-  const active = batches.find(
-    (b) =>
+function planLabelFromBilling(status: BillingStatus): string {
+  if (status.subscription_active && status.plan) {
+    return capitalizePlanName(status.plan);
+  }
+  const active = status.credit_batches?.find(
+    (b: CreditBatchRow) =>
       (b.runs_remaining ?? 0) > 0 && (b.status || "").toLowerCase() !== "expired"
   );
   const plan = active?.plan?.trim();
-  return plan ? capitalizePlanName(plan) : null;
+  return plan ? capitalizePlanName(plan) : "Free";
 }
 
-function runsAvailableFromBilling(status: BillingStatus): number {
-  return (status.free_runs_remaining ?? 0) + (status.runs_balance ?? 0);
-}
-
-function runsRemainingLabel(count: number): string {
-  return count === 1 ? "1 run remaining" : `${count} runs remaining`;
+function billingCapacityLabel(status: BillingStatus): string {
+  if (status.subscription_active) {
+    return `${status.gstins_used ?? 0}/${status.gstin_limit ?? 0} GSTINs`;
+  }
+  const runs =
+    (status.free_runs_remaining ?? 0) + (status.runs_balance ?? 0);
+  if (runs > 0) {
+    return runs === 1 ? "1 run remaining" : `${runs} runs remaining`;
+  }
+  return `${status.gstins_used ?? 0}/${status.gstin_limit ?? 2} GSTINs`;
 }
 
 function ProfileBillingSkeleton() {
@@ -179,7 +186,7 @@ export default function DashboardShellLayout({
   const [profileBilling, setProfileBilling] = useState<
     | { status: "idle" }
     | { status: "loading" }
-    | { status: "ready"; planLabel: string; runsAvailable: number }
+    | { status: "ready"; planLabel: string; capacityLabel: string }
     | { status: "error" }
   >({ status: "idle" });
 
@@ -290,8 +297,8 @@ export default function DashboardShellLayout({
         if (cancelled) return;
         setProfileBilling({
           status: "ready",
-          planLabel: planFromCreditBatches(status.credit_batches) ?? "Free",
-          runsAvailable: runsAvailableFromBilling(status),
+          planLabel: planLabelFromBilling(status),
+          capacityLabel: billingCapacityLabel(status),
         });
       })
       .catch(() => {
@@ -411,7 +418,7 @@ export default function DashboardShellLayout({
                       {profileBilling.planLabel}
                     </span>
                     <p className="text-xs text-gray-500">
-                      {runsRemainingLabel(profileBilling.runsAvailable)}
+                      {profileBilling.capacityLabel}
                     </p>
                   </div>
                 )}

@@ -9,7 +9,44 @@ import {
   type BillingStatus,
   type PaymentHistoryRow,
 } from "@/lib/api";
+import { startPlanCheckout, type CheckoutPlan } from "@/lib/billing-checkout";
 import { subscribeAccessToken } from "@/lib/supabase/client";
+
+const PLANS: {
+  id: CheckoutPlan;
+  name: string;
+  priceInr: number;
+  periodLabel: string;
+  gstins: number;
+  blurb: string;
+  featured?: boolean;
+}[] = [
+  {
+    id: "starter",
+    name: "Starter",
+    priceInr: 999,
+    periodLabel: "/month",
+    gstins: 25,
+    blurb: "Monthly capacity for a focused desk.",
+  },
+  {
+    id: "growth",
+    name: "Growth",
+    priceInr: 7999,
+    periodLabel: "/year",
+    gstins: 50,
+    blurb: "Best value — full year for growing firms.",
+    featured: true,
+  },
+  {
+    id: "pro",
+    name: "Pro",
+    priceInr: 11999,
+    periodLabel: "/year",
+    gstins: 75,
+    blurb: "Larger portfolio, same full product.",
+  },
+];
 
 function formatInrPaise(paise: number | null | undefined): string {
   const p = Number(paise ?? 0);
@@ -19,6 +56,14 @@ function formatInrPaise(paise: number | null | undefined): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(p / 100);
+}
+
+function formatInr(n: number): string {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(n);
 }
 
 function fmtDateShort(iso: string | null | undefined): string {
@@ -37,7 +82,6 @@ function planBadgeClass(plan: string | null | undefined): string {
   if (p === "starter") return "bg-[#F0F0F0] text-gray-700";
   if (p === "growth") return "bg-[var(--ink)] text-white";
   if (p === "pro") return "bg-[#F0F0F0] text-[var(--ink)] ring-1 ring-black/10";
-  if (p === "scale") return "bg-[var(--ink)] text-white";
   return "bg-[#F0F0F0] text-gray-700";
 }
 
@@ -46,15 +90,33 @@ function TableSkeletonRows() {
     <>
       {[0, 1, 2].map((i) => (
         <tr key={i} className="animate-pulse border-b border-[var(--border)]">
-          <td className="py-3"><div className="h-4 w-24 rounded bg-gray-200" /></td>
-          <td className="py-3"><div className="h-4 w-16 rounded bg-gray-200" /></td>
-          <td className="py-3"><div className="h-4 w-8 rounded bg-gray-200" /></td>
-          <td className="py-3"><div className="h-4 w-28 rounded bg-gray-200" /></td>
-          <td className="py-3"><div className="h-4 w-12 rounded bg-gray-200" /></td>
-          <td className="py-3"><div className="h-4 w-16 rounded bg-gray-200" /></td>
-          <td className="py-3"><div className="h-4 w-14 rounded bg-gray-200" /></td>
-          <td className="py-3"><div className="h-4 w-16 rounded bg-gray-200" /></td>
-          <td className="py-3"><div className="h-4 w-20 rounded bg-gray-200" /></td>
+          <td className="py-3">
+            <div className="h-4 w-24 rounded bg-gray-200" />
+          </td>
+          <td className="py-3">
+            <div className="h-4 w-16 rounded bg-gray-200" />
+          </td>
+          <td className="py-3">
+            <div className="h-4 w-8 rounded bg-gray-200" />
+          </td>
+          <td className="py-3">
+            <div className="h-4 w-28 rounded bg-gray-200" />
+          </td>
+          <td className="py-3">
+            <div className="h-4 w-12 rounded bg-gray-200" />
+          </td>
+          <td className="py-3">
+            <div className="h-4 w-16 rounded bg-gray-200" />
+          </td>
+          <td className="py-3">
+            <div className="h-4 w-14 rounded bg-gray-200" />
+          </td>
+          <td className="py-3">
+            <div className="h-4 w-16 rounded bg-gray-200" />
+          </td>
+          <td className="py-3">
+            <div className="h-4 w-20 rounded bg-gray-200" />
+          </td>
         </tr>
       ))}
     </>
@@ -63,7 +125,8 @@ function TableSkeletonRows() {
 
 export default function BillingPage() {
   const [accessToken, setAccessToken] = useState<string | false | null>(null);
-  const [billingTier, setBillingTier] = useState<"solo" | "firm">("solo");
+  const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   useEffect(() => subscribeAccessToken(setAccessToken), []);
 
@@ -76,11 +139,10 @@ export default function BillingPage() {
     data: status,
     error: statusError,
     isLoading: statusLoading,
-  } = useSWR(
-    swrKey,
-    ([, token]) => billingApi.status(token),
-    { revalidateOnFocus: true }
-  );
+    mutate: mutateStatus,
+  } = useSWR(swrKey, ([, token]) => billingApi.status(token), {
+    revalidateOnFocus: true,
+  });
 
   const histKey =
     typeof accessToken === "string" && accessToken.length > 0
@@ -91,32 +153,64 @@ export default function BillingPage() {
     data: history,
     error: histError,
     isLoading: histLoading,
+    mutate: mutateHistory,
   } = useSWR(histKey, ([, token]) => billingApi.history(token), {
     revalidateOnFocus: true,
   });
 
-  function scrollBuyRuns() {
-    document.getElementById("buy-runs")?.scrollIntoView({ behavior: "smooth" });
+  function scrollChoosePlan() {
+    document.getElementById("choose-plan")?.scrollIntoView({ behavior: "smooth" });
   }
 
-  const banner = <BillingBanner status={status} loading={statusLoading} onBuyRuns={scrollBuyRuns} />;
+  async function onBuyPlan(plan: CheckoutPlan) {
+    setCheckoutError(null);
+    setCheckoutPlan(plan);
+    try {
+      await startPlanCheckout(plan, {
+        onSuccess: () => {
+          void mutateStatus();
+          void mutateHistory();
+        },
+      });
+    } catch (err) {
+      setCheckoutError(err instanceof Error ? err.message : "Checkout failed");
+    } finally {
+      setCheckoutPlan(null);
+    }
+  }
+
+  const banner = (
+    <BillingBanner status={status} loading={statusLoading} onChoosePlan={scrollChoosePlan} />
+  );
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 text-[var(--text-primary)]">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">Billing</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Credits, plans, and payment history for your workspace
+          GSTIN capacity, subscription, and payment history for your workspace
         </p>
       </div>
       {banner}
 
       <section className="grid gap-3 md:grid-cols-3">
         <div className="dashboard-card p-5">
-          <p className="text-sm font-medium text-gray-500">Runs available</p>
+          <p className="text-sm font-medium text-gray-500">GSTINs used</p>
           <p className="mt-2 text-[1.85rem] font-semibold tracking-tight tabular-nums text-[var(--ink)]">
-            {(status?.free_runs_remaining ?? 0) + (status?.runs_balance ?? 0)}
+            {status ? `${status.gstins_used ?? 0} / ${status.gstin_limit ?? 2}` : "—"}
           </p>
+        </div>
+        <div className="dashboard-card p-5">
+          <p className="text-sm font-medium text-gray-500">Subscription</p>
+          <p className="mt-2 text-[1.85rem] font-semibold tracking-tight capitalize text-[var(--ink)]">
+            {status?.subscription_active ? status.plan || "Active" : "Free"}
+          </p>
+          {status?.subscription_ends_at && (
+            <p className="mt-1 text-xs text-gray-500">
+              {status.subscription_active ? "Renews / ends" : "Ended"}{" "}
+              {fmtDateShort(status.subscription_ends_at)}
+            </p>
+          )}
         </div>
         <div className="dashboard-card p-5">
           <p className="text-sm font-medium text-gray-500">Free runs left</p>
@@ -126,12 +220,6 @@ export default function BillingPage() {
             }`}
           >
             {status?.free_runs_remaining ?? 0}
-          </p>
-        </div>
-        <div className="dashboard-card p-5">
-          <p className="text-sm font-medium text-gray-500">Total spent</p>
-          <p className="mt-2 text-[1.85rem] font-semibold tracking-tight tabular-nums text-[var(--ink)]">
-            {formatInrPaise(status?.total_spent_paise ?? 0)}
           </p>
         </div>
       </section>
@@ -145,8 +233,12 @@ export default function BillingPage() {
       {status && status.runs_balance > 0 && (
         <section className="dashboard-card space-y-4 p-6">
           <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
-            Your run credits
+            Legacy run credits
           </h2>
+          <p className="text-sm text-gray-500">
+            Older run packs still work until they expire. New purchases grant GSTIN subscription
+            capacity instead.
+          </p>
           <div className="overflow-x-auto rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
@@ -160,133 +252,120 @@ export default function BillingPage() {
               </thead>
               <tbody>
                 {status.credit_batches.map((b, idx) => {
-                    const exp = b.expires_at ? new Date(b.expires_at) : null;
-                    const now = Date.now();
-                    // Single source of truth: client-side 7-day window computed from expires_at.
-                    // Do NOT use b.status ("expiring soon" string) — it may be stale from a
-                    // cached API response made before the 30→7 day threshold fix was deployed.
-                    const useSoon =
-                      exp != null &&
-                      !Number.isNaN(exp.getTime()) &&
-                      exp.getTime() - now < 7 * 24 * 3600 * 1000 &&
-                      exp.getTime() > now;
-                    const expired =
-                      exp != null &&
-                      !Number.isNaN(exp.getTime()) &&
-                      exp.getTime() <= now;
-                    return (
-                      <tr key={`${b.purchased_at}-${idx}`} className="border-b border-[#F0F0F0] last:border-b-0">
-                        <td className="px-5 py-3.5 capitalize font-medium text-[var(--ink)]">{b.plan}</td>
-                        <td className="px-4 py-3.5 text-gray-500">
-                          {fmtDateShort(b.purchased_at)}
-                        </td>
-                        <td className="px-4 py-3.5 tabular-nums">{b.runs_remaining}</td>
-                        <td
-                          className={`px-4 py-3.5 tabular-nums ${
-                            useSoon
-                              ? "font-medium text-orange-600"
-                              : expired
-                                ? "text-gray-400"
-                                : ""
-                          }`}
+                  const exp = b.expires_at ? new Date(b.expires_at) : null;
+                  const now = Date.now();
+                  const useSoon =
+                    exp != null &&
+                    !Number.isNaN(exp.getTime()) &&
+                    exp.getTime() - now < 7 * 24 * 3600 * 1000 &&
+                    exp.getTime() > now;
+                  const expired =
+                    exp != null && !Number.isNaN(exp.getTime()) && exp.getTime() <= now;
+                  return (
+                    <tr
+                      key={`${b.purchased_at}-${idx}`}
+                      className="border-b border-[#F0F0F0] last:border-b-0"
+                    >
+                      <td className="px-5 py-3.5 capitalize font-medium text-[var(--ink)]">
+                        {b.plan}
+                      </td>
+                      <td className="px-4 py-3.5 text-gray-500">
+                        {fmtDateShort(b.purchased_at)}
+                      </td>
+                      <td className="px-4 py-3.5 tabular-nums">{b.runs_remaining}</td>
+                      <td
+                        className={`px-4 py-3.5 tabular-nums ${
+                          useSoon
+                            ? "font-medium text-orange-600"
+                            : expired
+                              ? "text-gray-400"
+                              : ""
+                        }`}
+                      >
+                        {fmtDateShort(b.expires_at)}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span
+                          className={
+                            expired
+                              ? "rounded-full bg-[#F0F0F0] px-3 py-1 text-xs text-gray-600"
+                              : useSoon
+                                ? "rounded-full bg-orange-100 px-3 py-1 text-xs font-medium text-orange-800"
+                                : "rounded-full bg-[var(--ink)] px-3 py-1 text-xs font-medium text-white"
+                          }
                         >
-                          {fmtDateShort(b.expires_at)}
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <span
-                            className={
-                              expired
-                                ? "rounded-full bg-[#F0F0F0] px-3 py-1 text-xs text-gray-600"
-                                : useSoon
-                                  ? "rounded-full bg-orange-100 px-3 py-1 text-xs font-medium text-orange-800"
-                                  : "rounded-full bg-[var(--ink)] px-3 py-1 text-xs font-medium text-white"
-                            }
-                          >
-                            {expired ? "Expired" : useSoon ? "Use soon" : "Active"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          {expired ? "Expired" : useSoon ? "Use soon" : "Active"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </section>
       )}
 
-      <section id="buy-runs" className="dashboard-card space-y-6 p-6">
+      <section id="choose-plan" className="dashboard-card space-y-6 p-6">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Buy more runs</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Choose a plan</h2>
           <p className="mt-1 max-w-3xl text-sm text-gray-500">
-            Monthly Solo and Firm plans. Carryover rules are noted on each card.
+            GSTIN-based plans. Every plan includes the full product — you only scale capacity.
+            Prices exclude 18% GST.
           </p>
         </div>
 
-        <div className="mx-auto flex w-full max-w-md justify-center lg:max-w-none">
-          <div
-            className="relative inline-flex w-full rounded-full bg-[#F5F5F6] p-1 sm:w-auto"
-            role="tablist"
-            aria-label="Plan type"
-          >
-            <span
-              className="pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full bg-[var(--ink)] shadow-sm transition-transform duration-300 ease-out"
-              style={{
-                transform: billingTier === "solo" ? "translateX(0)" : "translateX(100%)",
-              }}
-              aria-hidden
-            />
-            <button
-              id="billing-tab-solo"
-              type="button"
-              role="tab"
-              aria-selected={billingTier === "solo"}
-              aria-controls="billing-plans-panel"
-              className={`relative z-10 min-h-[44px] flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:flex-none sm:px-8 ${
-                billingTier === "solo" ? "text-white" : "text-gray-500 hover:text-[var(--ink)]"
-              }`}
-              onClick={() => setBillingTier("solo")}
-            >
-              Individual
-            </button>
-            <button
-              id="billing-tab-firm"
-              type="button"
-              role="tab"
-              aria-selected={billingTier === "firm"}
-              aria-controls="billing-plans-panel"
-              className={`relative z-10 min-h-[44px] flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:flex-none sm:px-8 ${
-                billingTier === "firm" ? "text-white" : "text-gray-500 hover:text-[var(--ink)]"
-              }`}
-              onClick={() => setBillingTier("firm")}
-            >
-              Enterprise
-            </button>
-          </div>
-        </div>
+        {checkoutError && <p className="text-sm text-red-600">{checkoutError}</p>}
 
-        <div
-          id="billing-plans-panel"
-          role="tabpanel"
-          aria-labelledby={billingTier === "solo" ? "billing-tab-solo" : "billing-tab-firm"}
-          className="mt-6"
-        >
-          {billingTier === "solo" ? (
-            <div key="solo" className="pricing-tier-enter grid gap-5 lg:grid-cols-4">
-              <PlanCard highlight={false} />
-              <PlanCard highlight="growth" />
-              <PlanCard highlight="pro" />
-              <PlanCard highlight="scale" />
-              <EnterpriseSoloCard />
+        <div className="grid gap-5 lg:grid-cols-3">
+          {PLANS.map((plan) => (
+            <div
+              key={plan.id}
+              className={`relative flex flex-col rounded-[1.5rem] p-6 transition duration-200 ${
+                plan.featured
+                  ? "bg-[var(--ink)] text-white shadow-[var(--shadow-lift)]"
+                  : "bg-[#F7F7F8] text-[var(--ink)]"
+              }`}
+            >
+              {plan.featured && (
+                <span className="absolute right-4 top-4 rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white">
+                  Best value
+                </span>
+              )}
+              <h3 className="text-lg font-semibold tracking-tight">{plan.name}</h3>
+              <p
+                className={`mt-1 text-sm ${plan.featured ? "text-white/70" : "text-gray-500"}`}
+              >
+                {plan.blurb}
+              </p>
+              <p className="mt-6 flex items-baseline gap-1">
+                <span className="text-3xl font-semibold tracking-tight tabular-nums">
+                  {formatInr(plan.priceInr)}
+                </span>
+                <span
+                  className={`text-sm ${plan.featured ? "text-white/70" : "text-gray-500"}`}
+                >
+                  {plan.periodLabel}
+                </span>
+              </p>
+              <p className={`mt-2 text-sm font-medium ${plan.featured ? "text-white" : ""}`}>
+                Up to {plan.gstins} GSTINs
+              </p>
+              <button
+                type="button"
+                disabled={checkoutPlan !== null}
+                onClick={() => void onBuyPlan(plan.id)}
+                className={`mt-8 inline-flex min-h-[44px] w-full items-center justify-center rounded-full px-5 text-sm font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-60 ${
+                  plan.featured
+                    ? "bg-white text-[var(--ink)] hover:opacity-90"
+                    : "bg-[var(--ink)] text-white hover:opacity-90"
+                }`}
+              >
+                {checkoutPlan === plan.id ? "Opening checkout…" : `Buy ${plan.name}`}
+              </button>
             </div>
-          ) : (
-            <div key="firm" className="pricing-tier-enter grid gap-5 lg:grid-cols-3">
-              <PlanCard highlight="growth" />
-              <PlanCard highlight="scale" />
-              <EnterpriseFirmCard />
-            </div>
-          )}
+          ))}
         </div>
-
       </section>
 
       <section className="dashboard-card space-y-4 p-6">
@@ -297,7 +376,7 @@ export default function BillingPage() {
               <tr>
                 <th className="px-5 py-4 font-medium">Date</th>
                 <th className="px-4 py-4 font-medium">Plan</th>
-                <th className="px-4 py-4 font-medium">Runs</th>
+                <th className="px-4 py-4 font-medium">GSTINs</th>
                 <th className="px-4 py-4 font-medium">Client</th>
                 <th className="px-4 py-4 font-medium">Period</th>
                 <th className="px-4 py-4 font-medium">Base</th>
@@ -316,19 +395,14 @@ export default function BillingPage() {
                   </td>
                 </tr>
               )}
-              {!histLoading &&
-                history &&
-                history.length === 0 && (
-                  <tr>
-                    <td colSpan={10} className="px-4 py-8 text-center text-[var(--text-secondary)]">
-                      {(status?.runs_balance ?? 0) > 0 ||
-                      (status?.total_spent_paise ?? 0) > 0 ||
-                      (status?.credit_batches?.length ?? 0) > 0
-                        ? "No payment history available."
-                        : "Your first 2 reconciliations are free — no payment needed yet. Your receipts will appear here after your first purchase."}
-                    </td>
-                  </tr>
-                )}
+              {!histLoading && history && history.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="px-4 py-8 text-center text-[var(--text-secondary)]">
+                    Your first 2 reconciliations are free — no payment needed yet. Receipts appear
+                    here after your first purchase.
+                  </td>
+                </tr>
+              )}
               {!histLoading &&
                 history?.map((row) => (
                   <HistoryRow
@@ -348,104 +422,71 @@ export default function BillingPage() {
 function BillingBanner({
   status,
   loading,
-  onBuyRuns,
+  onChoosePlan,
 }: {
   status: BillingStatus | undefined;
   loading: boolean;
-  onBuyRuns: () => void;
+  onChoosePlan: () => void;
 }) {
   if (loading && !status) {
     return <div className="h-14 animate-pulse rounded-[1.25rem] bg-white/70" aria-hidden />;
   }
   if (!status) return null;
 
-  const free = status.free_runs_remaining;
-  const bal = status.runs_balance;
-  const runsWord = (n: number) => (n === 1 ? "run" : "runs");
-
-  if (free > 0) {
+  if (status.subscription_active) {
     return (
       <div className="rounded-[1.25rem] bg-[var(--ink)] px-5 py-4 text-sm text-white">
-        You have {free} free reconciliation{free === 1 ? "" : "s"} remaining — no payment needed.
+        <span className="capitalize">{status.plan}</span> active — {status.gstins_used}/
+        {status.gstin_limit} GSTINs used
+        {status.subscription_ends_at
+          ? ` · access through ${fmtDateShort(status.subscription_ends_at)}`
+          : ""}
+        . Unlimited reconciliations during your subscription.
       </div>
     );
   }
 
-  if (bal > 0) {
+  if (status.free_runs_remaining > 0) {
+    return (
+      <div className="rounded-[1.25rem] bg-[var(--ink)] px-5 py-4 text-sm text-white">
+        You have {status.free_runs_remaining} free reconciliation
+        {status.free_runs_remaining === 1 ? "" : "s"} remaining — no payment needed. Free tier
+        allows up to {status.gstin_limit ?? 2} GSTINs.
+      </div>
+    );
+  }
+
+  if (status.runs_balance > 0) {
     return (
       <div className="dashboard-card px-5 py-4 text-sm text-gray-700">
         <p>
-          You have <strong className="text-[var(--ink)]">{bal}</strong> {runsWord(bal)} remaining.
+          You have <strong className="text-[var(--ink)]">{status.runs_balance}</strong> legacy run
+          credit{status.runs_balance === 1 ? "" : "s"} remaining.
         </p>
-        {status.expiring_soon && status.expiring_soon.length > 0 && (
-          <div className="mt-2 space-y-1">
-            {status.expiring_soon.map((b, idx) => {
-              const rem = b.runs_remaining ?? 0;
-              if (rem <= 0) return null;
-              const planName = b.plan ? b.plan.charAt(0).toUpperCase() + b.plan.slice(1) : "Starter";
-              const dateStr = b.expires_at ? fmtDateShort(b.expires_at) : "";
-              const verb = rem === 1 ? "expires" : "expire";
-              const pronoun = rem === 1 ? "it" : "them";
-              return (
-                <p key={idx} className="font-medium text-orange-600">
-                  Note: {rem} of your {bal} {runsWord(bal)} (from the {planName} pack) {verb} on {dateStr} — use {pronoun} before then.
-                </p>
-              );
-            })}
-          </div>
-        )}
       </div>
     );
   }
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-[1.25rem] bg-orange-50 px-5 py-4 text-sm text-orange-950">
-      <span>No runs remaining — purchase a plan to continue reconciling.</span>
+      <span>No active subscription — choose a plan to continue reconciling.</span>
       <button
         type="button"
-        onClick={onBuyRuns}
+        onClick={onChoosePlan}
         className="rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
       >
-        Buy runs
+        Choose a plan
       </button>
     </div>
   );
 }
 
-function EnterpriseSoloCard() {
-  return (
-    <div
-      className="min-h-[280px] rounded-[1.5rem] bg-[#F7F7F8] p-6 transition duration-200 hover:-translate-y-0.5"
-      aria-hidden
-    />
-  );
-}
-
-function EnterpriseFirmCard() {
-  return (
-    <div
-      className="min-h-[280px] rounded-[1.5rem] bg-[#F7F7F8] p-6 transition duration-200 hover:-translate-y-0.5"
-      aria-hidden
-    />
-  );
-}
-
-function PlanCard(props: {
-  highlight: false | "growth" | "pro" | "scale";
-}) {
-  const { highlight } = props;
-  const emphasized = highlight === "growth" || highlight === "scale";
-
-  return (
-    <div
-      className={`relative z-10 min-h-[280px] rounded-[1.5rem] p-6 transition duration-200 hover:-translate-y-0.5 ${
-        emphasized
-          ? "bg-[var(--ink)] shadow-[var(--shadow-lift)]"
-          : "bg-[#F7F7F8]"
-      }`}
-      aria-hidden
-    />
-  );
+function gstinsForPlan(plan: string | null | undefined): string {
+  const p = (plan || "").toLowerCase();
+  if (p === "starter") return "25";
+  if (p === "growth") return "50";
+  if (p === "pro") return "75";
+  return "—";
 }
 
 function HistoryRow({ row, token }: { row: PaymentHistoryRow; token: string }) {
@@ -462,7 +503,6 @@ function HistoryRow({ row, token }: { row: PaymentHistoryRow; token: string }) {
     try {
       await openPaymentReceipt(token, row.payment_id);
     } catch {
-      // Toast could be added via provider if needed
       window.alert("Could not download receipt.");
     }
   }
@@ -477,7 +517,7 @@ function HistoryRow({ row, token }: { row: PaymentHistoryRow; token: string }) {
           {row.plan || "—"}
         </span>
       </td>
-      <td className="px-4 py-3.5 tabular-nums">{row.runs_purchased ?? "—"}</td>
+      <td className="px-4 py-3.5 tabular-nums">{gstinsForPlan(row.plan)}</td>
       <td className="px-4 py-3.5">{row.trade_name?.trim() || "—"}</td>
       <td className="px-4 py-3.5 whitespace-nowrap">{row.period || "—"}</td>
       <td className="px-4 py-3.5 tabular-nums">{formatInrPaise(row.base_amount_paise)}</td>

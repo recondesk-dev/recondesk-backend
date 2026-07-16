@@ -24,12 +24,12 @@ const FAQ_ITEMS = [
     a: "Yes. Invite team members. Staff can run reconciliations; you review and finalize results.",
   },
   {
-    q: "What happens to unused runs?",
-    a: "Solo plans: runs expire monthly. Firm plans: unused runs carry over for up to 2 months.",
+    q: "How is pricing structured?",
+    a: "Plans are priced by GSTIN capacity — Starter ₹999/month (25 GSTINs), Growth ₹7,999/year (50), Pro ₹11,999/year (75). Every plan includes the full product.",
   },
   {
     q: "How does billing work?",
-    a: "Manual monthly payment via Razorpay. No auto-debit. You choose when to renew.",
+    a: "Manual payment via Razorpay. Starter is monthly; Growth and Pro are yearly. No auto-debit — you choose when to renew.",
   },
 ] as const;
 
