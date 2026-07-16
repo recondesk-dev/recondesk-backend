@@ -69,12 +69,35 @@ STANDARD_TO_CANONICAL: dict[str, str] = {
     "export_type": "export_type",
 }
 
+# Placeholder GSTIN tokens that mean "no GSTIN" (B2C / unregistered), not a
+# literal GSTIN string. Compared case-insensitively after strip.
+_ABSENT_GSTIN_TOKENS: frozenset[str] = frozenset(
+    {
+        "NA",
+        "N/A",
+        "N.A",
+        "N.A.",
+        "NONE",
+        "NULL",
+        "NIL",
+        "-",
+        "--",
+        ".",
+        "0",
+        "UNREGISTERED",
+        "URP",
+    }
+)
+
 COLUMN_ALIASES: dict[str, list[str]] = {
     "gstin": [
         "gstin", "recipient gstin", "party gstin", "buyer gstin",
         "customer gstin", "gst no", "gstn", "gst number",
         "buyer gst", "party gst no", "customer gst", "gstin uin",
         "gstin uin of recipient",
+        # Tally / books exports
+        "gst reg no", "gst reg. no", "gst registration no",
+        "gst registration number", "gstin/uin", "gstin / uin",
     ],
     "invoice_number": [
         "invoice no", "invoice number", "inv no", "bill no",
@@ -91,6 +114,7 @@ COLUMN_ALIASES: dict[str, list[str]] = {
         "taxable value", "taxable amount", "base amount", "taxable",
         "assessable value", "value", "net amount",
         "amount", "invoice value", "total amount",
+        "taxable amt",
     ],
     "igst": [
         "igst", "integrated tax", "igst amount", "igst tax", "i.g.s.t",
@@ -105,7 +129,8 @@ COLUMN_ALIASES: dict[str, list[str]] = {
     "total_tax": ["total tax", "gst amount", "tax amount", "total gst"],
     "total_amount": [
         "total invoice value", "total value", "invoice value", "invoice amount",
-        "total amount", "gross amount", "gross value", "bill amount", "bill value",
+        "total amount", "gross amount", "gross value", "gross total",
+        "bill amount", "bill value",
         "net amount", "net value", "total", "grand total",
     ],
     "recipient_name": [
@@ -113,6 +138,7 @@ COLUMN_ALIASES: dict[str, list[str]] = {
         "customer name", "customer", "party name", "party",
         "ledger name", "ledger", "sold to", "bill to",
         "consignee", "debtor name", "debtor", "to", "name",
+        "particulars",  # Tally sales register
     ],
     "place_of_supply": [
         "place of supply", "pos", "state", "state name",
@@ -486,14 +512,29 @@ def _parse_amount(raw_str: str) -> int | None:
         return None
 
 
+def _is_absent_gstin_token(val: str | None) -> bool:
+    """True when *val* is a placeholder meaning no GSTIN (B2C / unregistered)."""
+    if val is None:
+        return True
+    cleaned = val.strip().upper()
+    if not cleaned:
+        return True
+    # Collapse common punctuation variants: "N/A", "N.A.", "N A"
+    collapsed = re.sub(r"[\s./\\-]+", "", cleaned)
+    if cleaned in _ABSENT_GSTIN_TOKENS or collapsed in {"NA", "NIL", "NULL", "NONE", "URP"}:
+        return True
+    return False
+
+
 def _normalize_gstin_cell(val: Any) -> str | None:
-    """Upper-case GSTIN text, or ``None`` for blank / NaN cells.
+    """Upper-case GSTIN text, or ``None`` for blank / NaN / NA-placeholder cells.
 
     Never returns the literal ``\"NAN\"`` — pandas missing values must not
-    leak into matching as a fake GSTIN string.
+    leak into matching as a fake GSTIN string.  ``\"NA\"`` / ``\"N/A\"`` are
+    treated as absent (same as empty), not as a literal GSTIN to compare.
     """
     s = _safe_cell(val)
-    if s is None:
+    if s is None or _is_absent_gstin_token(s):
         return None
     return s.strip().upper()
 
@@ -943,7 +984,7 @@ def _process_sr_sheet_rows(
             # as missing — critical because ``is None`` is False for float nan,
             # and ``str(nan).upper()`` would otherwise become "NAN".
             raw_gstin = _safe_cell(row.get("gstin"))
-            if raw_gstin is None:
+            if raw_gstin is None or _is_absent_gstin_token(raw_gstin):
                 # GSTIN can be absent for B2C sales — not an error on its own
                 pass
             else:
@@ -951,8 +992,17 @@ def _process_sr_sheet_rows(
                     gstin_value = normalize_gstin(raw_gstin)
                     gstin_valid = True
                 except NormalizationError:
-                    gstin_value = raw_gstin.strip().upper() or None
+                    # Keep a cleaned upper-case form for display / soft match,
+                    # but never retain NA-style placeholders as literal GSTINs.
+                    cleaned = re.sub(
+                        r"[^0-9A-Z]", "", raw_gstin.strip().upper()
+                    )
+                    gstin_value = cleaned or None
                     gstin_valid = False
+                    if gstin_value is not None and _is_absent_gstin_token(
+                        gstin_value
+                    ):
+                        gstin_value = None
 
         # --- Invoice number ---
         inv_raw: str | None = None

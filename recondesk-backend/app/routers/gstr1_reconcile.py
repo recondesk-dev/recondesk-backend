@@ -113,15 +113,30 @@ def _build_gstin_index(
     records: list[dict[str, Any]],
     gstin_keys: tuple[str, ...],
 ) -> dict[str, list[dict[str, Any]]]:
-    """Group records by GSTIN into a lookup dict."""
+    """Group records by GSTIN into a lookup dict.
+
+    Blank / placeholder GSTINs (``NA``, ``N/A``, whitespace) are indexed under
+    ``\"\"`` so unregistered / B2C rows share one bucket.
+    """
+    _absent = {
+        "NA", "N/A", "N.A", "N.A.", "NONE", "NULL", "NIL", "-", "--", ".",
+        "0", "UNREGISTERED", "URP",
+    }
     index: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for rec in records:
         gstin = ""
         for key in gstin_keys:
             v = rec.get(key)
-            if v and str(v).strip():
-                gstin = str(v).strip().upper()
-                break
+            if v is None:
+                continue
+            s = str(v).strip().upper()
+            if not s:
+                continue
+            collapsed = "".join(ch for ch in s if ch.isalnum())
+            if s in _absent or collapsed in {"NA", "NIL", "NULL", "NONE", "URP"}:
+                continue
+            gstin = s
+            break
         index[gstin].append(rec)
     return dict(index)
 
@@ -225,9 +240,19 @@ def _run_pipeline(
         sr_gstin = ""
         for key in ("gstin",):
             v = sr_rec.get(key)
-            if v and str(v).strip():
-                sr_gstin = str(v).strip().upper()
-                break
+            if v is None:
+                continue
+            s = str(v).strip().upper()
+            if not s:
+                continue
+            collapsed = "".join(ch for ch in s if ch.isalnum())
+            if s in {
+                "NA", "N/A", "N.A", "N.A.", "NONE", "NULL", "NIL",
+                "-", "--", ".", "0", "UNREGISTERED", "URP",
+            } or collapsed in {"NA", "NIL", "NULL", "NONE", "URP"}:
+                continue
+            sr_gstin = s
+            break
 
         # Candidates: same GSTIN + all records with empty GSTIN (B2C)
         candidates = list(gstr1_by_gstin.get(sr_gstin, []))

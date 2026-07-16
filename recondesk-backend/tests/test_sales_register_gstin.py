@@ -131,3 +131,204 @@ def test_iterrows_nan_no_longer_becomes_string_nan():
         except NormalizationError:
             gstin_value = cleaned.strip().upper() or None
     assert gstin_value is None
+
+
+def test_na_placeholders_normalize_to_absent_gstin():
+    """NA / N/A / blank must become None — never a literal mismatch string."""
+    from app.parsers.sales_register_parser import (
+        _is_absent_gstin_token,
+        _normalize_gstin_cell,
+    )
+
+    for raw in ("NA", "N/A", "n/a", "N.A.", "nil", "  ", None, ""):
+        assert _is_absent_gstin_token(str(raw) if raw is not None else None) or raw in (
+            None,
+            "",
+            "  ",
+        )
+        assert _normalize_gstin_cell(raw) is None
+
+    assert _normalize_gstin_cell(" 27aaeco5678g1z2 ") == "27AAECO5678G1Z2"
+
+
+def test_tally_gst_reg_no_column_is_mapped():
+    """Tally 'GST Reg No' header must map to gstin (root cause of messy 1/8)."""
+    import pandas as pd
+    from app.parsers.sales_register_parser import detect_column_mapping
+
+    df = pd.DataFrame(
+        columns=[
+            "Date",
+            "Particulars",
+            "Vch Type",
+            "Vch No.",
+            "GST Reg No",
+            "Taxable Amt",
+            "CGST",
+            "SGST",
+            "IGST",
+            "Gross Total",
+        ]
+    )
+    mapping = detect_column_mapping(df)
+    assert mapping.get("gstin") == "GST Reg No"
+    assert mapping.get("invoice_number") == "Vch No."
+    assert mapping.get("recipient_name") == "Particulars"
+    assert mapping.get("total_amount") == "Gross Total"
+
+
+def test_messy_sales_register_normalizes_gstin_dates_amounts_invoices():
+    """Mixed formats from the stress-test Sales Register must parse cleanly."""
+    rows = [
+        [
+            "Date",
+            "Particulars",
+            "Vch Type",
+            "Vch No.",
+            "GST Reg No",
+            "Taxable Amt",
+            "CGST",
+            "SGST",
+            "IGST",
+            "Gross Total",
+        ],
+        # slash invoice, datetime date, clean GSTIN, ₹ taxable
+        [
+            "2026-04-01 00:00:00",
+            "Shree Balaji",
+            "Sales",
+            "RD/2026-27/3001",
+            "27AAECS4567P1Z9",
+            "₹117,882.04",
+            7072.92,
+            7072.92,
+            0,
+            132027.88,
+        ],
+        # dash invoice, DD/MM/YYYY, whitespace GSTIN
+        [
+            "24/06/2026",
+            "Om Enterprises",
+            "Sales",
+            "RD-3002",
+            " 27AAGFO7890Q1Z3 ",
+            44242.48,
+            1106.06,
+            1106.06,
+            0,
+            46454.6,
+        ],
+        # bare number invoice, DD-MM-YY, lowercase GSTIN
+        [
+            "07-07-26",
+            "Kavya Textiles",
+            "Sales",
+            "3003",
+            "24aabck3456r1z7",
+            152381.03,
+            0,
+            0,
+            7619.05,
+            160000.08,
+        ],
+        # DD.MM.YYYY + N/A GSTIN (B2C)
+        [
+            "15.04.2026",
+            "Cash Sale",
+            "Sales",
+            "RD-3008",
+            "N/A",
+            "₹123,656.03",
+            11129.05,
+            11129.05,
+            0,
+            145914.13,
+        ],
+        # NA GSTIN
+        [
+            "12/05/2026",
+            "Walk-in",
+            "Sales",
+            "3015",
+            "NA",
+            128488.59,
+            0,
+            0,
+            0,
+            128488.59,
+        ],
+    ]
+
+    result = parse_sales_register(_xlsx_bytes(rows), "messy_sr.xlsx")
+    assert result["success"] is True
+    assert result.get("detected_columns", {}).get("gstin") == "GST Reg No"
+    records = result["records"]
+    assert len(records) == 5
+
+    by_inv = {r["invoice_number_normalized"]: r for r in records}
+
+    r1 = by_inv["RD2026273001"]
+    assert r1["gstin"] == "27AAECS4567P1Z9"
+    assert r1["invoice_date"] == "2026-04-01"
+    assert r1["taxable_amount_paise"] == 11788204
+    assert r1["invoice_type"] == "B2B"
+
+    r2 = by_inv["RD3002"]
+    assert r2["gstin"] == "27AAGFO7890Q1Z3"
+    assert r2["invoice_date"] == "2026-06-24"
+
+    r3 = by_inv["3003"]
+    assert r3["gstin"] == "24AABCK3456R1Z7"
+    assert r3["invoice_date"] == "2026-07-07"
+
+    r8 = by_inv["RD3008"]
+    assert r8["gstin"] is None
+    assert r8["invoice_date"] == "2026-04-15"
+    assert r8["taxable_amount_paise"] == 12365603
+    assert r8["invoice_type"] == "B2C"
+
+    r15 = by_inv["3015"]
+    assert r15["gstin"] is None
+    assert r15["invoice_type"] == "B2C"
+
+
+def test_matcher_treats_na_gstin_as_both_absent():
+    """NA on SR + blank on GSTR-1 must pass the identity gate (B2C/B2CL)."""
+    from app.matching.generic_matcher import (
+        SALES_MATCH_CONFIG,
+        _gstin_both_absent,
+        _gstin_identity_ok,
+        generic_match_pair,
+    )
+
+    sr = {
+        "gstin": "N/A",
+        "recipient_name": "Cash",
+        "invoice_number": "RD2026273010",
+        "invoice_number_normalized": "RD2026273010",
+        "invoice_date": "2026-04-10",
+        "taxable_amount_paise": 28813559,
+        "igst_paise": 5186441,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "cess_paise": 0,
+        "total_tax_paise": 5186441,
+    }
+    g1 = {
+        "recipient_gstin": None,
+        "recipient_name": "",
+        "invoice_number": "RD2026273010",
+        "invoice_number_normalized": "RD2026273010",
+        "invoice_date": "2026-04-10",
+        "taxable_amount_paise": 28813559,
+        "igst_paise": 5186441,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "cess_paise": 0,
+        "total_tax_paise": 5186441,
+    }
+    assert _gstin_both_absent(sr, g1, SALES_MATCH_CONFIG)
+    assert _gstin_identity_ok(sr, g1, SALES_MATCH_CONFIG)
+    r = generic_match_pair(sr, g1, SALES_MATCH_CONFIG)
+    assert r.matched is True
+    assert r.level <= 2

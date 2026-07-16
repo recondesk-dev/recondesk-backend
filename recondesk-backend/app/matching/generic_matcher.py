@@ -185,11 +185,27 @@ SALES_MATCH_CONFIG = MatchFieldsConfig(
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _get_gstin(rec: Mapping[str, Any], fields: tuple[str, ...]) -> str:
-    """Extract GSTIN from *rec* by trying field names in *fields* order."""
+    """Extract GSTIN from *rec* by trying field names in *fields* order.
+
+    Always ``strip().upper()``.  Placeholder tokens (``NA``, ``N/A``, blank)
+    are treated as absent so B2C / unregistered rows share the same empty
+    identity key instead of comparing as literal mismatched strings.
+    """
+    _absent = {
+        "NA", "N/A", "N.A", "N.A.", "NONE", "NULL", "NIL", "-", "--", ".",
+        "0", "UNREGISTERED", "URP",
+    }
     for f in fields:
         v = rec.get(f)
-        if v is not None and str(v).strip():
-            return str(v).strip()
+        if v is None:
+            continue
+        s = str(v).strip().upper()
+        if not s:
+            continue
+        collapsed = "".join(ch for ch in s if ch.isalnum())
+        if s in _absent or collapsed in {"NA", "NIL", "NULL", "NONE", "URP"}:
+            continue
+        return s
     return ""
 
 
