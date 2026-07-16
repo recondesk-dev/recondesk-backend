@@ -194,7 +194,7 @@ export default function BillingPage() {
       </div>
       {banner}
 
-      <section className="grid gap-3 md:grid-cols-3">
+      <section className="grid gap-3 md:grid-cols-2">
         <div className="dashboard-card p-5">
           <p className="text-sm font-medium text-gray-500">GSTINs used</p>
           <p className="mt-2 text-[1.85rem] font-semibold tracking-tight tabular-nums text-[var(--ink)]">
@@ -212,16 +212,6 @@ export default function BillingPage() {
               {fmtDateShort(status.subscription_ends_at)}
             </p>
           )}
-        </div>
-        <div className="dashboard-card p-5">
-          <p className="text-sm font-medium text-gray-500">Free runs left</p>
-          <p
-            className={`mt-2 text-[1.85rem] font-semibold tracking-tight tabular-nums ${
-              (status?.free_runs_remaining ?? 0) === 0 ? "text-gray-300" : "text-[var(--ink)]"
-            }`}
-          >
-            {status?.free_runs_remaining ?? 0}
-          </p>
         </div>
       </section>
 
