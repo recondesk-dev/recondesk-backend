@@ -246,8 +246,13 @@ export async function downloadGstr1PdfReport(
   line(
     `Sales Register: ${s.sr_total_records} · GSTR-1: ${s.gstr1_total_records} · Matched: ${s.matched_count} · Review Required: ${review.length}`
   );
+  const fieldMismatches =
+    (counts.G1M3 || 0) +
+    (counts.G1M4 || 0) +
+    (counts.G1M5 || 0) +
+    (counts.G1M6 || 0);
   line(
-    `Missing in GSTR-1: ${s.unmatched_sr_count} · Extra in GSTR-1: ${s.unmatched_gstr1_count} · Mismatches: ${s.mismatch_count}`
+    `Missing in GSTR-1: ${s.unmatched_sr_count} · Extra in GSTR-1: ${s.unmatched_gstr1_count} · Field mismatches (G1M3–G1M6): ${fieldMismatches}`
   );
   line(
     `Tie-out: ${s.tie_out_clean ? "Clean" : "Variances"} (${s.tie_out_variance_count})`

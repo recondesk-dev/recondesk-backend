@@ -187,6 +187,17 @@ export function Gstr1ResultsView({
   );
 
   const summary = result.summary;
+  /** GSTR-1-only invoices (same number as the Extra in GSTR-1 tab). */
+  const extraInGstr1Count = summary.unmatched_gstr1_count;
+  /**
+   * Field issues on matched pairs only (G1M3–G1M6).
+   * Excludes G1M1/G1M2 — those already have dedicated Missing / Extra tiles.
+   */
+  const fieldMismatchCount =
+    (mismatchCounts.G1M3 || 0) +
+    (mismatchCounts.G1M4 || 0) +
+    (mismatchCounts.G1M5 || 0) +
+    (mismatchCounts.G1M6 || 0);
   const matchRate =
     summary.gstr1_total_records > 0
       ? Math.round(
@@ -307,13 +318,37 @@ export function Gstr1ResultsView({
             subtext="Under-reporting risk"
           />
           <StatCard
-            label="Extra / Mismatches"
+            label="Extra · Field issues"
             accent="risk"
             emphasis="danger"
-            value={(
-              summary.unmatched_gstr1_count + summary.mismatch_count
-            ).toLocaleString("en-IN")}
-            subtext={`${summary.tie_out_variance_count} tie-out variance${summary.tie_out_variance_count === 1 ? "" : "s"}`}
+            title={
+              `Extra in GSTR-1 (not in Sales Register): ${extraInGstr1Count}. ` +
+              `Field mismatches on matched pairs — amount/classification/rate/period ` +
+              `(G1M3–G1M6): ${fieldMismatchCount}. ` +
+              `Tie-out variances are on the Tie-out tab ` +
+              `(${summary.tie_out_variance_count}).`
+            }
+            value={
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <div className="flex min-w-0 items-baseline justify-between gap-2">
+                  <span className="truncate text-[10px] font-medium uppercase tracking-[0.06em] text-gray-400">
+                    Extra in GSTR-1
+                  </span>
+                  <span className="shrink-0 text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums tracking-tight text-amber-800">
+                    {extraInGstr1Count.toLocaleString("en-IN")}
+                  </span>
+                </div>
+                <div className="flex min-w-0 items-baseline justify-between gap-2">
+                  <span className="truncate text-[10px] font-medium uppercase tracking-[0.06em] text-gray-400">
+                    Field mismatches
+                  </span>
+                  <span className="shrink-0 text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums tracking-tight text-amber-800">
+                    {fieldMismatchCount.toLocaleString("en-IN")}
+                  </span>
+                </div>
+              </div>
+            }
+            subtext="Extra = not in books · Field = amount/rate/period"
           />
         </div>
 
