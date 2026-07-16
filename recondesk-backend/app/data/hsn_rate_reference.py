@@ -107,7 +107,19 @@ def normalise_hsn(raw: object) -> str | None:
     """Return digits-only HSN/SAC, or ``None`` if empty / non-numeric."""
     if raw is None:
         return None
-    s = str(raw).strip()
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        s = str(raw)
+    elif isinstance(raw, float):
+        if raw != raw:  # NaN
+            return None
+        if raw == int(raw):
+            s = str(int(raw))
+        else:
+            s = str(raw)
+    else:
+        s = str(raw).strip()
     if not s or s.lower() in {"nan", "none", "null", "na", "n/a", "-"}:
         return None
     # Keep digits only (drop spaces, slashes, dots from "8203.00" / "8203 ")
@@ -121,6 +133,20 @@ def normalise_hsn(raw: object) -> str | None:
             pass
     digits = "".join(ch for ch in s if ch.isdigit())
     return digits or None
+
+
+def hsn_raw_is_missing(raw: object) -> bool:
+    """True when *raw* represents an absent / placeholder HSN value."""
+    if raw is None:
+        return True
+    if isinstance(raw, bool):
+        return True
+    if isinstance(raw, float) and raw != raw:  # NaN
+        return True
+    s = str(raw).strip()
+    if not s:
+        return True
+    return s.lower() in {"nan", "none", "null", "na", "n/a", "-", "--"}
 
 
 def lookup_valid_rates(hsn: str) -> frozenset[float] | None:
@@ -152,6 +178,7 @@ __all__ = [
     "DEFAULT_TURNOVER_TIER",
     "STANDARD_GST_RATES",
     "normalise_hsn",
+    "hsn_raw_is_missing",
     "lookup_valid_rates",
     "required_hsn_digits",
 ]

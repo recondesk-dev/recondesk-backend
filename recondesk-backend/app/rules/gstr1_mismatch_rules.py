@@ -36,6 +36,7 @@ from typing import Any, Mapping
 
 from app.data.hsn_rate_reference import (
     DEFAULT_TURNOVER_TIER,
+    hsn_raw_is_missing,
     lookup_valid_rates,
     normalise_hsn,
     required_hsn_digits,
@@ -1193,6 +1194,10 @@ _MIN_SERIES_SIZE = 3
 # Cap gap reports per series so large ranges don't flood the output.
 _MAX_GAPS_PER_SERIES = 20
 
+# Skip gap detection when numeric tail span is absurd — mixed invoice formats
+# (e.g. RD2026273001 vs RD3002 sharing prefix "RD") can otherwise OOM.
+_MAX_SERIES_NUMERIC_SPAN = 10_000
+
 
 def _split_invoice_number(inv: str) -> tuple[str, int] | None:
     """Split an invoice number into ``(prefix, numeric_sequence)``.
@@ -1436,20 +1441,30 @@ def check_invoice_series_continuity(
         present = set(nums_sorted)
 
         # ── 3a: Gap detection ────────────────────────────────────────
-        expected_range = set(range(series_min, series_max + 1))
-        missing = sorted(expected_range - present)
-        if missing:
-            # Cap at _MAX_GAPS_PER_SERIES
-            reported_missing = missing[:_MAX_GAPS_PER_SERIES]
-            results.append(
-                _classify_series_gap(
-                    series_prefix=prefix,
-                    missing_numbers=reported_missing,
-                    series_min=series_min,
-                    series_max=series_max,
-                    series_count=len(entries),
-                )
+        span = series_max - series_min
+        if span > _MAX_SERIES_NUMERIC_SPAN:
+            _log.warning(
+                "check_invoice_series_continuity: series %r span %d exceeds "
+                "cap %d — skipping gap detection",
+                prefix or "(numeric)",
+                span,
+                _MAX_SERIES_NUMERIC_SPAN,
             )
+        else:
+            expected_range = set(range(series_min, series_max + 1))
+            missing = sorted(expected_range - present)
+            if missing:
+                # Cap at _MAX_GAPS_PER_SERIES
+                reported_missing = missing[:_MAX_GAPS_PER_SERIES]
+                results.append(
+                    _classify_series_gap(
+                        series_prefix=prefix,
+                        missing_numbers=reported_missing,
+                        series_min=series_min,
+                        series_max=series_max,
+                        series_count=len(entries),
+                    )
+                )
 
         # ── 3b: Out-of-order date detection ──────────────────────────
         # Walk the sorted-by-number list and flag where a later number
@@ -1499,6 +1514,93 @@ def check_invoice_series_continuity(
 
 # Rate tolerance (percentage points) when comparing applied vs schedule rates.
 _HSN_RATE_TOLERANCE_PP = 0.5
+
+
+def _classify_missing_hsn(
+    *,
+    invoice_number: str,
+    source: str,
+    applied_rate: float | None,
+) -> MismatchResult:
+    """G1M9 sub-type — invoice row has no HSN/SAC code."""
+    rate_note = (
+        f" Applied rate on the invoice: {applied_rate:.1f}%."
+        if applied_rate is not None
+        else ""
+    )
+    return MismatchResult(
+        mismatch_type=MismatchType.HSN_RATE_ISSUE,
+        severity=MismatchSeverity.LOW,
+        decision_what=(
+            f"Invoice {invoice_number}: HSN/SAC code is missing ({source})"
+        ),
+        decision_why=(
+            f"The invoice row does not carry an HSN/SAC code.{rate_note} "
+            f"Missing HSN on B2B invoices can attract scrutiny during GST "
+            f"audits; confirm whether the Sales Register export omitted "
+            f"the column or the value was never captured."
+        ),
+        decision_next=(
+            "Add the correct HSN/SAC code to the Sales Register / GSTR-1 "
+            "line item before filing. If the export dropped the column, "
+            "re-export with HSN included."
+        ),
+        rule_id="G1M_009",
+        gst_ref="Section 9 CGST Act / Notification 78/2020-CT",
+        details={
+            "issue_type": "missing_hsn",
+            "invoice_number": invoice_number,
+            "hsn": None,
+            "source": source,
+            "applied_rate": applied_rate,
+            "matched_fields": [],
+            "differed_fields": ["hsn"],
+        },
+    )
+
+
+def _classify_malformed_hsn(
+    *,
+    invoice_number: str,
+    raw_hsn: str,
+    source: str,
+    applied_rate: float | None,
+) -> MismatchResult:
+    """G1M9 sub-type — HSN/SAC present but not parseable as digits."""
+    rate_note = (
+        f" Applied rate on the invoice: {applied_rate:.1f}%."
+        if applied_rate is not None
+        else ""
+    )
+    return MismatchResult(
+        mismatch_type=MismatchType.HSN_RATE_ISSUE,
+        severity=MismatchSeverity.LOW,
+        decision_what=(
+            f"Invoice {invoice_number}: HSN/SAC value '{raw_hsn}' is "
+            f"malformed ({source})"
+        ),
+        decision_why=(
+            f"The HSN/SAC field could not be normalised to a numeric "
+            f"code (expected digits only).{rate_note} Common causes include "
+            f"Excel float artefacts, dashes/spaces, or placeholder text "
+            f"left in the column."
+        ),
+        decision_next=(
+            f"Correct HSN/SAC '{raw_hsn}' to a valid numeric code in the "
+            f"Sales Register / GSTR-1 before filing."
+        ),
+        rule_id="G1M_009",
+        gst_ref="Section 9 CGST Act / Notification 78/2020-CT",
+        details={
+            "issue_type": "malformed_hsn",
+            "invoice_number": invoice_number,
+            "hsn": raw_hsn,
+            "source": source,
+            "applied_rate": applied_rate,
+            "matched_fields": [],
+            "differed_fields": ["hsn"],
+        },
+    )
 
 
 def _classify_unknown_hsn(
@@ -1659,20 +1761,86 @@ def _hsn_matched_prefix(hsn: str, valid_rates: frozenset[float]) -> str:
 
 
 def _rate_in_schedule(applied: float, valid: frozenset[float]) -> bool:
+    if applied != applied or applied in (float("inf"), float("-inf")):  # NaN / inf
+        return False
     return any(abs(applied - v) <= _HSN_RATE_TOLERANCE_PP for v in valid)
+
+
+def _detect_rate_for_hsn(rec: Mapping[str, Any]) -> float | None:
+    """Best-effort GST rate for G1M9 — never raises on bad input."""
+    try:
+        for key in ("gst_rate", "rate", "tax_rate"):
+            v = rec.get(key)
+            if v is not None:
+                try:
+                    r = float(v)
+                    if r != r:  # NaN
+                        continue
+                    if 0.0 < r <= 100.0:
+                        return round(r, 2)
+                except (TypeError, ValueError):
+                    continue
+
+        taxable = _safe_int(rec.get("taxable_amount_paise"))
+        total_tax = _safe_int(rec.get("total_tax_paise"))
+        if total_tax <= 0:
+            total_tax = (
+                _safe_int(rec.get("igst_paise"))
+                + _safe_int(rec.get("cgst_paise"))
+                + _safe_int(rec.get("sgst_paise"))
+            )
+        if taxable > 0 and total_tax > 0:
+            computed = (total_tax / taxable) * 100
+            if computed != computed or computed in (float("inf"), float("-inf")):
+                return None
+            for std in (
+                0.0, 0.1, 0.25, 1.0, 1.5, 3.0, 5.0, 6.0, 7.5, 12.0, 14.0, 18.0, 28.0,
+            ):
+                if abs(computed - std) <= 0.5:
+                    return std
+            return round(computed, 2)
+    except Exception:  # noqa: BLE001 — defensive; caller logs per-record failures
+        return None
+    return None
+
+
+def _raw_hsn_display(raw: object) -> str:
+    s = str(raw).strip()
+    return s[:80] if len(s) > 80 else s
+
+
+def _append_hsn_candidate(
+    out: list[tuple[str, str | None, float | None, str, str | None, object]],
+    *,
+    inv: str,
+    raw_hsn: object,
+    applied_rate: float | None,
+    source: str,
+) -> None:
+    """Append one G1M9 validation target with issue hint."""
+    if hsn_raw_is_missing(raw_hsn):
+        out.append((inv, None, applied_rate, source, "missing", None))
+        return
+    normalised = normalise_hsn(raw_hsn)
+    if normalised:
+        out.append((inv, normalised, applied_rate, source, None, None))
+    else:
+        out.append((inv, None, applied_rate, source, "malformed", raw_hsn))
 
 
 def _iter_hsn_rate_candidates(
     records: list[Mapping[str, Any]] | None,
     *,
     source: str,
-) -> list[tuple[str, str, float | None, str]]:
-    """Yield ``(invoice_number, hsn, applied_rate, source)`` for validation.
+) -> list[tuple[str, str | None, float | None, str, str | None, object]]:
+    """Yield G1M9 validation targets.
 
-    Includes top-level ``hsn`` on the record and, for GSTR-1, any line
-    items that carry their own ``hsn`` / ``hsn_sc``.
+    Each tuple is
+    ``(invoice_number, hsn_normalised, applied_rate, source, issue_hint, raw_hsn)``.
+
+    *issue_hint* is ``None`` for normal rows, ``"missing"`` or ``"malformed"``.
     """
-    out: list[tuple[str, str, float | None, str]] = []
+    out: list[tuple[str, str | None, float | None, str, str | None, object]] = []
     if not records:
         return out
 
@@ -1686,33 +1854,135 @@ def _iter_hsn_rate_candidates(
             )
         ).strip() or "?"
 
-        top_hsn = normalise_hsn(
-            _get_field(rec, "hsn", "hsn_sc", "hsn_code", default=None)
+        raw_top = _get_field(rec, "hsn", "hsn_sc", "hsn_code", default=None)
+        top_rate = _detect_rate_for_hsn(rec)
+        _append_hsn_candidate(
+            out,
+            inv=inv,
+            raw_hsn=raw_top,
+            applied_rate=top_rate,
+            source=source,
         )
-        top_rate = _detect_rate(rec)
-        if top_hsn:
-            out.append((inv, top_hsn, top_rate, source))
 
         items = rec.get("items")
         if isinstance(items, list):
             for idx, item in enumerate(items):
                 if not isinstance(item, Mapping):
                     continue
-                item_hsn = normalise_hsn(
-                    item.get("hsn") or item.get("hsn_sc") or item.get("hsn_code")
-                )
-                if not item_hsn:
-                    continue
-                item_rate = _detect_rate(item)
+                item_inv = f"{inv}#item{idx + 1}"
+                raw_item = item.get("hsn") or item.get("hsn_sc") or item.get("hsn_code")
+                item_rate = _detect_rate_for_hsn(item)
                 if item_rate is None and item.get("tax_rate") is not None:
                     try:
-                        item_rate = float(item["tax_rate"])
+                        r = float(item["tax_rate"])
+                        if r == r and 0.0 < r <= 100.0:
+                            item_rate = round(r, 2)
                     except (TypeError, ValueError):
                         item_rate = None
-                item_inv = f"{inv}#item{idx + 1}"
-                out.append((item_inv, item_hsn, item_rate, f"{source}_item"))
+                _append_hsn_candidate(
+                    out,
+                    inv=item_inv,
+                    raw_hsn=raw_item,
+                    applied_rate=item_rate,
+                    source=f"{source}_item",
+                )
 
     return out
+
+
+def _validate_one_hsn_candidate(
+    *,
+    inv: str,
+    hsn: str | None,
+    applied_rate: float | None,
+    source: str,
+    issue_hint: str | None,
+    raw_hsn: object,
+    turnover_tier: str,
+    min_digits: int,
+    seen: set[tuple[str, str, str, str]],
+    results: list[MismatchResult],
+) -> None:
+    """Run G1M9 checks for a single candidate; append to *results*."""
+    if issue_hint == "missing":
+        key = (source, inv, "", "missing_hsn")
+        if key not in seen:
+            seen.add(key)
+            results.append(
+                _classify_missing_hsn(
+                    invoice_number=inv,
+                    source=source,
+                    applied_rate=applied_rate,
+                )
+            )
+        return
+
+    if issue_hint == "malformed":
+        raw_display = _raw_hsn_display(raw_hsn)
+        key = (source, inv, raw_display, "malformed_hsn")
+        if key not in seen:
+            seen.add(key)
+            results.append(
+                _classify_malformed_hsn(
+                    invoice_number=inv,
+                    raw_hsn=raw_display,
+                    source=source,
+                    applied_rate=applied_rate,
+                )
+            )
+        return
+
+    if not hsn:
+        return
+
+    digit_count = len(hsn)
+    if digit_count < min_digits:
+        key = (source, inv, hsn, "hsn_digit_length")
+        if key not in seen:
+            seen.add(key)
+            results.append(
+                _classify_hsn_digit_length(
+                    invoice_number=inv,
+                    hsn=hsn,
+                    source=source,
+                    digit_count=digit_count,
+                    required_digits=min_digits,
+                    turnover_tier=turnover_tier,
+                )
+            )
+
+    valid_rates = lookup_valid_rates(hsn)
+    if valid_rates is None:
+        key = (source, inv, hsn, "unknown_hsn")
+        if key not in seen:
+            seen.add(key)
+            results.append(
+                _classify_unknown_hsn(
+                    invoice_number=inv,
+                    hsn=hsn,
+                    source=source,
+                    applied_rate=applied_rate,
+                )
+            )
+        return
+
+    if applied_rate is None:
+        return
+
+    if not _rate_in_schedule(applied_rate, valid_rates):
+        key = (source, inv, hsn, "rate_mismatch")
+        if key not in seen:
+            seen.add(key)
+            results.append(
+                _classify_hsn_rate_mismatch(
+                    invoice_number=inv,
+                    hsn=hsn,
+                    source=source,
+                    applied_rate=applied_rate,
+                    valid_rates=valid_rates,
+                    matched_prefix=_hsn_matched_prefix(hsn, valid_rates),
+                )
+            )
 
 
 def validate_hsn_rate_mapping(
@@ -1750,60 +2020,32 @@ def validate_hsn_rate_mapping(
         + _iter_hsn_rate_candidates(gstr1_records, source="gstr1")
     )
 
-    # Deduplicate identical (source, invoice, hsn, issue) later via seen set
     seen: set[tuple[str, str, str, str]] = set()
 
-    for inv, hsn, applied_rate, source in candidates:
-        # ── Digit length ─────────────────────────────────────────────
-        digit_count = len(hsn)
-        if digit_count < min_digits:
-            key = (source, inv, hsn, "hsn_digit_length")
-            if key not in seen:
-                seen.add(key)
-                results.append(
-                    _classify_hsn_digit_length(
-                        invoice_number=inv,
-                        hsn=hsn,
-                        source=source,
-                        digit_count=digit_count,
-                        required_digits=min_digits,
-                        turnover_tier=turnover_tier,
-                    )
-                )
-
-        # ── Schedule lookup ──────────────────────────────────────────
-        valid_rates = lookup_valid_rates(hsn)
-        if valid_rates is None:
-            key = (source, inv, hsn, "unknown_hsn")
-            if key not in seen:
-                seen.add(key)
-                results.append(
-                    _classify_unknown_hsn(
-                        invoice_number=inv,
-                        hsn=hsn,
-                        source=source,
-                        applied_rate=applied_rate,
-                    )
-                )
-            continue
-
-        if applied_rate is None:
-            continue
-
-        if not _rate_in_schedule(applied_rate, valid_rates):
-            key = (source, inv, hsn, "rate_mismatch")
-            if key not in seen:
-                seen.add(key)
-                results.append(
-                    _classify_hsn_rate_mismatch(
-                        invoice_number=inv,
-                        hsn=hsn,
-                        source=source,
-                        applied_rate=applied_rate,
-                        valid_rates=valid_rates,
-                        matched_prefix=_hsn_matched_prefix(hsn, valid_rates),
-                    )
-                )
+    for inv, hsn, applied_rate, source, issue_hint, raw_hsn in candidates:
+        try:
+            _validate_one_hsn_candidate(
+                inv=inv,
+                hsn=hsn,
+                applied_rate=applied_rate,
+                source=source,
+                issue_hint=issue_hint,
+                raw_hsn=raw_hsn,
+                turnover_tier=turnover_tier,
+                min_digits=min_digits,
+                seen=seen,
+                results=results,
+            )
+        except Exception:  # noqa: BLE001 — one bad row must not crash the run
+            _log.exception(
+                "validate_hsn_rate_mapping: failed on inv=%r hsn=%r source=%s "
+                "issue_hint=%s raw_hsn=%r — skipping",
+                inv,
+                hsn,
+                source,
+                issue_hint,
+                raw_hsn,
+            )
 
     _sev_order = {
         MismatchSeverity.CRITICAL: 0,

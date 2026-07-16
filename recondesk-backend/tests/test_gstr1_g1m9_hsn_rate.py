@@ -215,7 +215,29 @@ class TestEdgeCases:
         records[0]["hsn"] = None
         g1 = [_g1(hsn=None, rate=18.0)]
         results = validate_hsn_rate_mapping(records, g1)
-        assert results == []
+        missing = [r for r in results if r.details.get("issue_type") == "missing_hsn"]
+        assert len(missing) >= 2
+        assert all(r.severity == MismatchSeverity.LOW for r in missing)
+
+    def test_malformed_hsn_is_low_severity(self):
+        records = [_sr(hsn="N/A-HSN", igst=18000)]
+        results = validate_hsn_rate_mapping(records, None)
+        bad = [r for r in results if r.details.get("issue_type") == "malformed_hsn"]
+        assert len(bad) == 1
+        assert bad[0].severity == MismatchSeverity.LOW
+
+    def test_zero_taxable_does_not_crash_rate_detection(self):
+        records = [_sr(hsn="3901", taxable=0, igst=0, cgst=0, sgst=0)]
+        results = validate_hsn_rate_mapping(records, None)
+        assert isinstance(results, list)
+
+    def test_numeric_hsn_type_normalised(self):
+        records = [{"invoice_number": "X1", "hsn": 8203, "taxable_amount_paise": 100000, "igst_paise": 18000, "total_tax_paise": 18000}]
+        results = validate_hsn_rate_mapping(records, None)
+        unknown = [r for r in results if r.details.get("issue_type") == "unknown_hsn"]
+        assert len(unknown) == 0
+        rate_issues = [r for r in results if r.details.get("issue_type") == "rate_mismatch"]
+        assert len(rate_issues) == 0
 
     def test_severity_sort_high_before_low(self):
         records = [
