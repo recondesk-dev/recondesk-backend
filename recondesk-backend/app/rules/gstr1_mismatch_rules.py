@@ -141,6 +141,21 @@ REGISTRY.register(RuleDefinition(
     tags=["gstr1", "gstin", "verification", "sandbox"],
 ))
 
+REGISTRY.register(RuleDefinition(
+    id="G1M_008",
+    name="GSTR-1 Invoice Series Continuity",
+    category=RuleCategory.REPORTING,
+    severity=RuleSeverity.MEDIUM,
+    description=(
+        "Invoice numbering in the Sales Register shows gaps, duplicates, "
+        "or out-of-order dates within a detected series. Rule 46 of CGST "
+        "Rules mandates consecutive serial numbering of tax invoices."
+    ),
+    gst_ref="Rule 46 CGST Rules",
+    applies_to=["sales_register"],
+    tags=["gstr1", "series", "continuity", "duplicate", "sequence"],
+))
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Result types
@@ -155,6 +170,7 @@ class MismatchType(str, Enum):
     RATE_MISMATCH = "G1M5_RATE_MISMATCH"
     PERIOD_MISMATCH = "G1M6_PERIOD_MISMATCH"
     INVALID_GSTIN = "G1M7_INVALID_GSTIN"
+    INVOICE_SERIES_ISSUE = "G1M8_INVOICE_SERIES_ISSUE"
 
 
 class MismatchSeverity(str, Enum):
@@ -1132,6 +1148,327 @@ def classify_all_mismatches(
     return results
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# G1M8 — Invoice series continuity & duplicate detection
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Regex to split an invoice number into (prefix, numeric_part).
+# Captures the *last* contiguous run of digits as the sequence number;
+# everything before it (including separators) is the series prefix.
+# Examples:
+#   "INV/2024/001"  → prefix="INV/2024/",  num="001"
+#   "B2B-0042"      → prefix="B2B-",       num="0042"
+#   "EXP/001"       → prefix="EXP/",       num="001"
+#   "12345"         → prefix="",            num="12345"
+_INVOICE_SERIES_RE = re.compile(r'^(.*?)(\d+)$')
+
+# Only analyse series with at least this many invoices — avoids false
+# positives from one-off or two-invoice "series".
+_MIN_SERIES_SIZE = 3
+
+# Cap gap reports per series so large ranges don't flood the output.
+_MAX_GAPS_PER_SERIES = 20
+
+
+def _split_invoice_number(inv: str) -> tuple[str, int] | None:
+    """Split an invoice number into ``(prefix, numeric_sequence)``.
+
+    Returns ``None`` if the invoice number contains no digits.
+    """
+    m = _INVOICE_SERIES_RE.match(inv.strip())
+    if not m:
+        return None
+    return m.group(1), int(m.group(2))
+
+
+def _classify_series_gap(
+    *,
+    series_prefix: str,
+    missing_numbers: list[int],
+    series_min: int,
+    series_max: int,
+    series_count: int,
+) -> MismatchResult:
+    """G1M8 sub-type — gaps (missing sequence numbers) in a series."""
+    prefix_label = series_prefix if series_prefix else "(numeric)"
+    # Show up to 10 individual numbers, then summarise
+    if len(missing_numbers) <= 10:
+        nums_str = ", ".join(f"{series_prefix}{n}" for n in missing_numbers)
+    else:
+        first_five = ", ".join(f"{series_prefix}{n}" for n in missing_numbers[:5])
+        nums_str = f"{first_five} … and {len(missing_numbers) - 5} more"
+
+    return MismatchResult(
+        mismatch_type=MismatchType.INVOICE_SERIES_ISSUE,
+        severity=MismatchSeverity.MEDIUM,
+        decision_what=(
+            f"Series '{prefix_label}': {len(missing_numbers)} missing invoice "
+            f"number(s) detected between {series_prefix}{series_min} and "
+            f"{series_prefix}{series_max}"
+        ),
+        decision_why=(
+            f"Rule 46 of CGST Rules mandates consecutive serial numbering of "
+            f"tax invoices. Gaps in the series '{prefix_label}' ({series_count} "
+            f"invoices found, {len(missing_numbers)} missing) may indicate "
+            f"cancelled invoices not recorded, or unreported sales that "
+            f"constitute under-reporting of output tax liability."
+        ),
+        decision_next=(
+            f"Verify the missing invoice number(s): {nums_str}. If cancelled, "
+            f"record cancellation entries. If the invoices exist but were not "
+            f"uploaded, add them to the Sales Register before filing GSTR-1."
+        ),
+        rule_id="G1M_008",
+        gst_ref="Rule 46 CGST Rules",
+        details={
+            "issue_type": "gap",
+            "series_prefix": series_prefix,
+            "missing_numbers": missing_numbers,
+            "missing_count": len(missing_numbers),
+            "series_min": series_min,
+            "series_max": series_max,
+            "series_invoice_count": series_count,
+            "matched_fields": [],
+            "differed_fields": ["invoice_sequence"],
+        },
+    )
+
+
+def _classify_duplicate_invoice(
+    *,
+    invoice_number: str,
+    occurrence_count: int,
+    invoice_dates: list[str],
+) -> MismatchResult:
+    """G1M8 sub-type — duplicate invoice numbers."""
+    dates_str = ", ".join(invoice_dates[:5])
+    if len(invoice_dates) > 5:
+        dates_str += f" … and {len(invoice_dates) - 5} more"
+
+    return MismatchResult(
+        mismatch_type=MismatchType.INVOICE_SERIES_ISSUE,
+        severity=MismatchSeverity.HIGH,
+        decision_what=(
+            f"Invoice number '{invoice_number}' appears {occurrence_count} "
+            f"times in the Sales Register"
+        ),
+        decision_why=(
+            f"Duplicate invoice numbers violate Rule 46 of CGST Rules which "
+            f"requires unique serial numbering. This may indicate duplicate "
+            f"data entry, double billing, or a numbering system error. "
+            f"Occurrences found on dates: {dates_str}."
+        ),
+        decision_next=(
+            f"Review all {occurrence_count} entries for invoice '{invoice_number}'. "
+            f"If duplicates are data-entry errors, remove the extras. If they "
+            f"are genuine separate transactions, assign unique invoice numbers "
+            f"before filing GSTR-1."
+        ),
+        rule_id="G1M_008",
+        gst_ref="Rule 46 CGST Rules",
+        details={
+            "issue_type": "duplicate",
+            "invoice_number": invoice_number,
+            "occurrence_count": occurrence_count,
+            "invoice_dates": invoice_dates,
+            "matched_fields": [],
+            "differed_fields": ["invoice_number"],
+        },
+    )
+
+
+def _classify_out_of_order_invoice(
+    *,
+    invoice_number: str,
+    invoice_date: str,
+    expected_after: str,
+    expected_after_date: str,
+    series_prefix: str,
+) -> MismatchResult:
+    """G1M8 sub-type — invoice date breaks chronological order within series."""
+    prefix_label = series_prefix if series_prefix else "(numeric)"
+    return MismatchResult(
+        mismatch_type=MismatchType.INVOICE_SERIES_ISSUE,
+        severity=MismatchSeverity.MEDIUM,
+        decision_what=(
+            f"Invoice '{invoice_number}' (dated {invoice_date}) is numbered "
+            f"after '{expected_after}' (dated {expected_after_date}) but has "
+            f"an earlier date"
+        ),
+        decision_why=(
+            f"In series '{prefix_label}', invoice dates should generally "
+            f"follow the numeric sequence. A later-numbered invoice with an "
+            f"earlier date may indicate backdating, late data entry, or an "
+            f"invoice numbering error. This can attract scrutiny during "
+            f"GST audits under Section 65."
+        ),
+        decision_next=(
+            f"Verify whether invoice '{invoice_number}' was genuinely issued "
+            f"on {invoice_date}. If the date is wrong, correct it in the "
+            f"Sales Register. If the invoice was backdated intentionally, "
+            f"document the business reason for audit trail purposes."
+        ),
+        rule_id="G1M_008",
+        gst_ref="Rule 46 CGST Rules",
+        details={
+            "issue_type": "out_of_order",
+            "invoice_number": invoice_number,
+            "invoice_date": invoice_date,
+            "expected_after": expected_after,
+            "expected_after_date": expected_after_date,
+            "series_prefix": series_prefix,
+            "matched_fields": [],
+            "differed_fields": ["invoice_date_order"],
+        },
+    )
+
+
+def check_invoice_series_continuity(
+    sr_records: list[Mapping[str, Any]],
+) -> list[MismatchResult]:
+    """G1M8 — Detect invoice series gaps, duplicates, and out-of-order dates.
+
+    Analyses the Sales Register's invoice numbering for data quality issues:
+
+    1. **Duplicates** — same invoice number appearing more than once.
+    2. **Gaps** — missing sequence numbers within a detected series.
+    3. **Out-of-order dates** — invoice dates that break chronological
+       order relative to the numeric sequence within a series.
+
+    Series are auto-detected by splitting each invoice number into
+    ``(prefix, numeric_part)`` via regex. Different prefixes form
+    independent series — gaps are never flagged across series.
+
+    Parameters
+    ----------
+    sr_records : list[Mapping]
+        Parsed Sales Register records (each must have ``invoice_number``
+        or ``invoice_number_normalized``, and optionally ``invoice_date``).
+
+    Returns
+    -------
+    list[MismatchResult]
+        Detected issues, sorted by severity.
+    """
+    results: list[MismatchResult] = []
+    if not sr_records:
+        return results
+
+    # ── Step 1: Detect duplicates (across ALL records, not per-series) ────
+    inv_occurrences: dict[str, list[str]] = {}  # inv_number → [dates]
+    for rec in sr_records:
+        inv_raw = str(
+            _get_field(rec, "invoice_number", "invoice_number_normalized",
+                       default="")
+        ).strip()
+        if not inv_raw:
+            continue
+        inv_date = _parse_date(
+            _get_field(rec, "invoice_date", default=None)
+        )
+        date_str = inv_date.isoformat() if inv_date else "unknown"
+        inv_occurrences.setdefault(inv_raw, []).append(date_str)
+
+    for inv_num, dates in inv_occurrences.items():
+        if len(dates) > 1:
+            results.append(
+                _classify_duplicate_invoice(
+                    invoice_number=inv_num,
+                    occurrence_count=len(dates),
+                    invoice_dates=dates,
+                )
+            )
+
+    # ── Step 2: Group invoices by series prefix ──────────────────────────
+    # series_prefix → list of (numeric_part, invoice_number_raw, date|None)
+    series: dict[str, list[tuple[int, str, date | None]]] = {}
+    for rec in sr_records:
+        inv_raw = str(
+            _get_field(rec, "invoice_number", "invoice_number_normalized",
+                       default="")
+        ).strip()
+        if not inv_raw:
+            continue
+        split = _split_invoice_number(inv_raw)
+        if split is None:
+            continue
+        prefix, num = split
+        inv_date = _parse_date(
+            _get_field(rec, "invoice_date", default=None)
+        )
+        series.setdefault(prefix, []).append((num, inv_raw, inv_date))
+
+    # ── Step 3: Analyse each series ──────────────────────────────────────
+    for prefix, entries in series.items():
+        if len(entries) < _MIN_SERIES_SIZE:
+            continue
+
+        # Sort by numeric part
+        entries_sorted = sorted(entries, key=lambda e: e[0])
+        nums_sorted = [e[0] for e in entries_sorted]
+
+        series_min = nums_sorted[0]
+        series_max = nums_sorted[-1]
+        present = set(nums_sorted)
+
+        # ── 3a: Gap detection ────────────────────────────────────────
+        expected_range = set(range(series_min, series_max + 1))
+        missing = sorted(expected_range - present)
+        if missing:
+            # Cap at _MAX_GAPS_PER_SERIES
+            reported_missing = missing[:_MAX_GAPS_PER_SERIES]
+            results.append(
+                _classify_series_gap(
+                    series_prefix=prefix,
+                    missing_numbers=reported_missing,
+                    series_min=series_min,
+                    series_max=series_max,
+                    series_count=len(entries),
+                )
+            )
+
+        # ── 3b: Out-of-order date detection ──────────────────────────
+        # Walk the sorted-by-number list and flag where a later number
+        # has a strictly earlier date than the previous number.
+        prev_date: date | None = None
+        prev_inv: str = ""
+        for num, inv_raw, inv_date in entries_sorted:
+            if inv_date is not None and prev_date is not None:
+                if inv_date < prev_date:
+                    results.append(
+                        _classify_out_of_order_invoice(
+                            invoice_number=inv_raw,
+                            invoice_date=inv_date.isoformat(),
+                            expected_after=prev_inv,
+                            expected_after_date=prev_date.isoformat(),
+                            series_prefix=prefix,
+                        )
+                    )
+            if inv_date is not None:
+                prev_date = inv_date
+                prev_inv = inv_raw
+
+    # Sort: HIGH → MEDIUM → LOW
+    _sev_order = {
+        MismatchSeverity.CRITICAL: 0,
+        MismatchSeverity.HIGH: 1,
+        MismatchSeverity.MEDIUM: 2,
+        MismatchSeverity.LOW: 3,
+    }
+    results.sort(key=lambda r: _sev_order.get(r.severity, 99))
+
+    _log.info(
+        "check_invoice_series_continuity: %d issues (%d duplicates, "
+        "%d gaps, %d out-of-order)",
+        len(results),
+        sum(1 for r in results if r.details.get("issue_type") == "duplicate"),
+        sum(1 for r in results if r.details.get("issue_type") == "gap"),
+        sum(1 for r in results if r.details.get("issue_type") == "out_of_order"),
+    )
+
+    return results
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1152,6 +1489,7 @@ __all__ = [
     "gstin_format_ok",
     "build_g1m7_mismatches",
     "classify_all_mismatches",
+    "check_invoice_series_continuity",
     # Tolerance constants (overridable by callers)
     "AMOUNT_TOLERANCE_PAISE",
     "AMOUNT_TOLERANCE_PCT",

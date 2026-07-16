@@ -8,6 +8,9 @@ Chains the five standalone GSTR-1 modules end-to-end:
 4. ``gstr1_mismatch_rules``    — classify mismatches (G1M1–G1M6)
 5. ``gstr1_vs_3b``             — GSTR-1 vs GSTR-3B tie-out
 
+Also runs per-run buyer GSTIN verification (G1M7) and invoice series
+continuity / duplicate detection (G1M8).
+
 Returns combined ``{WHAT, WHY, NEXT, confidence}`` results matching the
 purchase-side API response shape.
 
@@ -40,7 +43,11 @@ from app.parsers.sales_register_parser import parse_sales_register, ParseError
 from app.parsers.gstr1_parser import parse_gstr1
 from app.parsers.gstr3b_parser import parse_gstr3b
 from app.matching.generic_matcher import match_sales_register_to_gstr1
-from app.rules.gstr1_mismatch_rules import classify_all_mismatches, MismatchResult
+from app.rules.gstr1_mismatch_rules import (
+    classify_all_mismatches,
+    check_invoice_series_continuity,
+    MismatchResult,
+)
 from app.reconciliation.gstr1_vs_3b import reconcile_gstr1_vs_3b
 
 _log = logging.getLogger(__name__)
@@ -428,6 +435,15 @@ async def _run_pipeline(
     )
     if g1m7_results:
         mismatch_results = list(mismatch_results) + list(g1m7_results)
+
+    # ── Step 3c: G1M8 invoice series continuity / duplicate detection ────
+    g1m8_results = check_invoice_series_continuity(sr_records)
+    if g1m8_results:
+        mismatch_results = list(mismatch_results) + list(g1m8_results)
+        _log.info(
+            "gstr1_reconcile: G1M8 series continuity — %d issues found",
+            len(g1m8_results),
+        )
 
     # ── Step 4: GSTR-1 vs 3B tie-out ─────────────────────────────────────
     # Tie-out still sees all parsed rows; aggregate exclusions live inside
