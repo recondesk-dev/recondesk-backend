@@ -14,15 +14,47 @@ function getHttpStatus(err: unknown): number | null {
   return null;
 }
 
+function errorMessage(err: unknown): string {
+  if (err && typeof err === "object" && "message" in err) {
+    return String((err as { message: unknown }).message ?? "");
+  }
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object" && "detail" in err) {
+    return String((err as { detail: unknown }).detail ?? "");
+  }
+  return typeof err === "string" ? err : "";
+}
+
+/** Timeouts / navigation cancels — not an internet outage. */
+function isAbortOrTimeout(err: unknown): boolean {
+  const status = getHttpStatus(err);
+  if (status === 408) return true;
+  if (err && typeof err === "object" && "name" in err) {
+    const name = String((err as { name: unknown }).name ?? "");
+    if (name === "AbortError" || name === "TimeoutError") return true;
+  }
+  return /aborted|abort(ed)?|timed?\s*out|timeout/i.test(errorMessage(err));
+}
+
+/**
+ * True only for real transport failures (offline / DNS / CORS / unreachable host).
+ * Do NOT treat every TypeError or 503 as "no internet".
+ */
 function isLikelyNetworkError(err: unknown): boolean {
-  if (typeof TypeError !== "undefined" && err instanceof TypeError) return true;
-  const msg =
-    err && typeof err === "object" && "message" in err
-      ? String((err as { message: unknown }).message)
-      : err instanceof Error
-        ? err.message
-        : "";
-  return /failed to fetch|network|load failed|aborted|internet/i.test(msg);
+  if (isAbortOrTimeout(err)) return false;
+
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return true;
+  }
+
+  if (typeof DOMException !== "undefined" && err instanceof DOMException) {
+    if (err.name === "NetworkError") return true;
+  }
+
+  const msg = errorMessage(err);
+  return /failed to fetch|load failed|networkerror|network request failed|err_network|err_internet_disconnected|err_connection/i.test(
+    msg
+  );
 }
 
 export function AppSWRProvider({ children }: { children: ReactNode }) {
@@ -46,7 +78,12 @@ export function AppSWRProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (status === 503 || isLikelyNetworkError(err)) {
+      // Aborts / client timeouts / Railway cold-start 503s are not "no internet".
+      if (isAbortOrTimeout(err) || status === 503 || status === 502 || status === 504) {
+        return;
+      }
+
+      if (isLikelyNetworkError(err)) {
         setConnectionLost(true);
         return;
       }
@@ -62,10 +99,19 @@ export function AppSWRProvider({ children }: { children: ReactNode }) {
     [toast]
   );
 
+  const onSuccess = useCallback(() => {
+    setConnectionLost(false);
+  }, []);
+
   useEffect(() => {
     const onOnline = () => setConnectionLost(false);
+    const onOffline = () => setConnectionLost(true);
     window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
   }, []);
 
   return (
@@ -74,6 +120,7 @@ export function AppSWRProvider({ children }: { children: ReactNode }) {
         revalidateOnFocus: false,
         dedupingInterval: 30_000,
         onError,
+        onSuccess,
       }}
     >
       {connectionLost && (

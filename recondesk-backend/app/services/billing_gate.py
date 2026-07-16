@@ -206,13 +206,17 @@ def _decrement_oldest_credit_batch(sb: Client, firm_owner_id: str) -> bool:
 
 def has_active_subscription(sb: Client, firm_owner_id: str) -> bool:
     """True when subscription_ends_at is in the future."""
-    res = (
-        sb.table("user_profiles")
-        .select("subscription_ends_at")
-        .eq("id", firm_owner_id)
-        .limit(1)
-        .execute()
-    )
+    try:
+        res = (
+            sb.table("user_profiles")
+            .select("subscription_ends_at")
+            .eq("id", firm_owner_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("has_active_subscription select failed: %s", exc)
+        return False
     if not res.data:
         return False
     ends = _parse_ts(res.data[0].get("subscription_ends_at"))
@@ -288,25 +292,34 @@ async def sync_billing_credits(firm_owner_id: str) -> dict[str, int]:
 
 
 def count_active_gstins(sb: Client, firm_owner_id: str) -> int:
-    res = (
-        sb.table("client_gstins")
-        .select("id", count="exact")
-        .eq("firm_owner_id", firm_owner_id)
-        .eq("is_active", True)
-        .limit(0)
-        .execute()
-    )
-    return int(res.count or 0)
+    try:
+        res = (
+            sb.table("client_gstins")
+            .select("id", count="exact")
+            .eq("firm_owner_id", firm_owner_id)
+            .eq("is_active", True)
+            .limit(0)
+            .execute()
+        )
+        return int(res.count or 0)
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("count_active_gstins failed: %s", exc)
+        return 0
 
 
 def get_gstin_limit(sb: Client, firm_owner_id: str) -> int:
-    res = (
-        sb.table("user_profiles")
-        .select("gstin_limit, plan, subscription_ends_at")
-        .eq("id", firm_owner_id)
-        .limit(1)
-        .execute()
-    )
+    try:
+        res = (
+            sb.table("user_profiles")
+            .select("gstin_limit, plan, subscription_ends_at")
+            .eq("id", firm_owner_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Column may be missing until migration is applied.
+        _log.warning("get_gstin_limit select failed: %s", exc)
+        return FREE_GSTIN_LIMIT
     if not res.data:
         return FREE_GSTIN_LIMIT
     row = res.data[0]
@@ -343,30 +356,40 @@ async def activate_subscription(
     period_days = int(cfg["period_days"])
     gstin_limit = int(cfg["gstin_limit"])
 
-    prof = (
-        sb.table("user_profiles")
-        .select("subscription_ends_at, plan")
-        .eq("id", user_id)
-        .limit(1)
-        .execute()
-    )
+    existing_end = None
+    try:
+        prof = (
+            sb.table("user_profiles")
+            .select("subscription_ends_at, plan")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if prof.data:
+            existing_end = _parse_ts(prof.data[0].get("subscription_ends_at"))
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("activate_subscription read failed: %s", exc)
+
     now = _utcnow()
     base = now
-    if prof.data:
-        existing_end = _parse_ts(prof.data[0].get("subscription_ends_at"))
-        if existing_end is not None and existing_end > now:
-            base = existing_end
+    if existing_end is not None and existing_end > now:
+        base = existing_end
 
     ends_at = base + timedelta(days=period_days)
     ends_iso = ends_at.isoformat()
 
-    sb.table("user_profiles").update(
-        {
-            "plan": plan,
-            "gstin_limit": gstin_limit,
-            "subscription_ends_at": ends_iso,
-        }
-    ).eq("id", user_id).execute()
+    try:
+        sb.table("user_profiles").update(
+            {
+                "plan": plan,
+                "gstin_limit": gstin_limit,
+                "subscription_ends_at": ends_iso,
+            }
+        ).eq("id", user_id).execute()
+    except Exception as exc:  # noqa: BLE001
+        # Migration may not be applied yet — still mark plan so UI reflects purchase.
+        _log.warning("activate_subscription full update failed, falling back: %s", exc)
+        sb.table("user_profiles").update({"plan": plan}).eq("id", user_id).execute()
 
     await log_action(
         user_id,

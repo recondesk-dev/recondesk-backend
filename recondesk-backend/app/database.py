@@ -60,9 +60,11 @@ def run_query(table: str, query_fn: Callable) -> Any:
 _USER_PROFILE_SELECT = (
     "id, email, full_name, firm_name, phone, role, is_active, "
     "plan, runs_used, runs_limit, created_at, free_runs_remaining, runs_balance, firm_city, "
-    "gstin_limit, subscription_ends_at, "
     "icai_membership_number, firm_gstin, onboarding_completed"
 )
+
+# Optional billing columns — fetched separately so missing migrations cannot break auth.
+_USER_PROFILE_SUBSCRIPTION_SELECT = "gstin_limit, subscription_ends_at"
 
 
 def _is_invited_user(
@@ -168,6 +170,25 @@ def get_user_profile(user_id: str) -> Optional[dict]:
                 profile["auto_approve_confidence_threshold"] = 95
         except Exception:
             profile["auto_approve_confidence_threshold"] = 95
+
+        # Optional GSTIN subscription columns. Fail soft if migration not applied yet.
+        try:
+            sub = (
+                client.table("user_profiles")
+                .select(_USER_PROFILE_SUBSCRIPTION_SELECT)
+                .eq("id", user_id)
+                .limit(1)
+                .execute()
+            )
+            if sub.data:
+                row = sub.data[0]
+                if row.get("gstin_limit") is not None:
+                    profile["gstin_limit"] = int(row["gstin_limit"])
+                if "subscription_ends_at" in row:
+                    profile["subscription_ends_at"] = row.get("subscription_ends_at")
+        except Exception:
+            pass
+
         return profile
     except Exception:
         return None
