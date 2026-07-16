@@ -8,8 +8,9 @@ Chains the five standalone GSTR-1 modules end-to-end:
 4. ``gstr1_mismatch_rules``    — classify mismatches (G1M1–G1M6)
 5. ``gstr1_vs_3b``             — GSTR-1 vs GSTR-3B tie-out
 
-Also runs per-run buyer GSTIN verification (G1M7) and invoice series
-continuity / duplicate detection (G1M8).
+Also runs per-run buyer GSTIN verification (G1M7), invoice series
+continuity / duplicate detection (G1M8), and HSN/rate schedule
+validation (G1M9).
 
 Returns combined ``{WHAT, WHY, NEXT, confidence}`` results matching the
 purchase-side API response shape.
@@ -46,6 +47,7 @@ from app.matching.generic_matcher import match_sales_register_to_gstr1
 from app.rules.gstr1_mismatch_rules import (
     classify_all_mismatches,
     check_invoice_series_continuity,
+    validate_hsn_rate_mapping,
     MismatchResult,
 )
 from app.reconciliation.gstr1_vs_3b import reconcile_gstr1_vs_3b
@@ -443,6 +445,18 @@ async def _run_pipeline(
         _log.info(
             "gstr1_reconcile: G1M8 series continuity — %d issues found",
             len(g1m8_results),
+        )
+
+    # ── Step 3d: G1M9 HSN / tax rate schedule validation ────────────────
+    # Use full GSTR-1 parse (includes HSN summary rows that carry hsn+rate).
+    g1m9_results = validate_hsn_rate_mapping(
+        sr_records, gstr1_records_all,
+    )
+    if g1m9_results:
+        mismatch_results = list(mismatch_results) + list(g1m9_results)
+        _log.info(
+            "gstr1_reconcile: G1M9 HSN/rate validation — %d issues found",
+            len(g1m9_results),
         )
 
     # ── Step 4: GSTR-1 vs 3B tie-out ─────────────────────────────────────

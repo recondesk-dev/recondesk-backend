@@ -190,7 +190,7 @@ export function Gstr1ResultsView({
   /** GSTR-1-only invoices (same number as the Extra in GSTR-1 tab). */
   const extraInGstr1Count = summary.unmatched_gstr1_count;
   /**
-   * Field / compliance issues (G1M3–G1M8).
+   * Field / compliance issues (G1M3–G1M9).
    * Excludes G1M1/G1M2 — those already have dedicated Missing / Extra tiles.
    */
   const fieldMismatchCount =
@@ -199,7 +199,8 @@ export function Gstr1ResultsView({
     (mismatchCounts.G1M5 || 0) +
     (mismatchCounts.G1M6 || 0) +
     (mismatchCounts.G1M7 || 0) +
-    (mismatchCounts.G1M8 || 0);
+    (mismatchCounts.G1M8 || 0) +
+    (mismatchCounts.G1M9 || 0);
   const matchRate =
     summary.gstr1_total_records > 0
       ? Math.round(
@@ -325,8 +326,8 @@ export function Gstr1ResultsView({
             emphasis="danger"
             title={
               `Extra in GSTR-1 (not in Sales Register): ${extraInGstr1Count}. ` +
-              `Field mismatches — amount/classification/rate/period/GSTIN/series ` +
-              `(G1M3–G1M8): ${fieldMismatchCount}. ` +
+              `Field mismatches — amount/classification/rate/period/GSTIN/series/HSN ` +
+              `(G1M3–G1M9): ${fieldMismatchCount}. ` +
               `Tie-out variances are on the Tie-out tab ` +
               `(${summary.tie_out_variance_count}).`
             }
@@ -377,7 +378,7 @@ export function Gstr1ResultsView({
         {Object.keys(mismatchCounts).length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {(
-              ["G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8"] as const
+              ["G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8", "G1M9"] as const
             ).map(
               (code) =>
                 mismatchCounts[code] ? (

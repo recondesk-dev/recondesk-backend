@@ -15,6 +15,7 @@ export type Gstr1MismatchType =
   | "G1M6_PERIOD_MISMATCH"
   | "G1M7_INVALID_GSTIN"
   | "G1M8_INVOICE_SERIES_ISSUE"
+  | "G1M9_HSN_RATE_ISSUE"
   | string;
 
 export type Gstr1DecisionFields = {
@@ -202,6 +203,7 @@ export function mismatchTypeShort(type: string | undefined): string {
     "G1M6",
     "G1M7",
     "G1M8",
+    "G1M9",
   ] as const) {
     if (type.includes(code)) return code;
   }

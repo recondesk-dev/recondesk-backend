@@ -18,6 +18,8 @@ G1M4 Wrong classification (B2B/B2C) Compliance
 G1M5 Rate mismatch                  Tax shortfall
 G1M6 Filing period mismatch         Period risk
 G1M7 Invalid / inactive GSTIN       Compliance
+G1M8 Invoice series issue           Continuity
+G1M9 HSN / tax rate issue           Rate schedule
 ==== ============================== ===============
 
 This module is **standalone** — it does NOT modify any existing file.
@@ -32,6 +34,12 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Any, Mapping
 
+from app.data.hsn_rate_reference import (
+    DEFAULT_TURNOVER_TIER,
+    lookup_valid_rates,
+    normalise_hsn,
+    required_hsn_digits,
+)
 from app.rules.base import REGISTRY, RuleCategory, RuleDefinition, RuleSeverity
 from app.services.decision_templates import DecisionOutput
 from app.services.normalizer import GSTIN_REGEX, WHITELIST_PATTERN
@@ -156,6 +164,21 @@ REGISTRY.register(RuleDefinition(
     tags=["gstr1", "series", "continuity", "duplicate", "sequence"],
 ))
 
+REGISTRY.register(RuleDefinition(
+    id="G1M_009",
+    name="GSTR-1 HSN / Tax Rate Validation",
+    category=RuleCategory.REPORTING,
+    severity=RuleSeverity.HIGH,
+    description=(
+        "HSN/SAC code is unknown in the rate reference, the applied GST "
+        "rate is not valid for that HSN, or the HSN digit length is below "
+        "the turnover-slab reporting requirement."
+    ),
+    gst_ref="Section 9 CGST Act / Notification 78/2020-CT",
+    applies_to=["sales_register", "gstr1"],
+    tags=["gstr1", "hsn", "sac", "rate", "schedule"],
+))
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Result types
@@ -171,6 +194,7 @@ class MismatchType(str, Enum):
     PERIOD_MISMATCH = "G1M6_PERIOD_MISMATCH"
     INVALID_GSTIN = "G1M7_INVALID_GSTIN"
     INVOICE_SERIES_ISSUE = "G1M8_INVOICE_SERIES_ISSUE"
+    HSN_RATE_ISSUE = "G1M9_HSN_RATE_ISSUE"
 
 
 class MismatchSeverity(str, Enum):
@@ -1469,6 +1493,338 @@ def check_invoice_series_continuity(
     return results
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# G1M9 — HSN code & tax rate schedule validation
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Rate tolerance (percentage points) when comparing applied vs schedule rates.
+_HSN_RATE_TOLERANCE_PP = 0.5
+
+
+def _classify_unknown_hsn(
+    *,
+    invoice_number: str,
+    hsn: str,
+    source: str,
+    applied_rate: float | None,
+) -> MismatchResult:
+    """G1M9 sub-type — HSN not present in the local rate reference."""
+    rate_note = (
+        f" Applied rate on the invoice: {applied_rate:.1f}%."
+        if applied_rate is not None
+        else ""
+    )
+    return MismatchResult(
+        mismatch_type=MismatchType.HSN_RATE_ISSUE,
+        severity=MismatchSeverity.LOW,
+        decision_what=(
+            f"Invoice {invoice_number}: HSN/SAC '{hsn}' is not in the "
+            f"local GST rate reference ({source})"
+        ),
+        decision_why=(
+            f"The HSN/SAC could not be matched to any chapter or heading in "
+            f"ReconDesk's rate reference table.{rate_note} This is "
+            f"informational — the reference may be incomplete and should be "
+            f"periodically refreshed against official CBIC rate notifications. "
+            f"It does not by itself prove the HSN is invalid."
+        ),
+        decision_next=(
+            f"Confirm HSN/SAC '{hsn}' against the GST tariff / rate finder. "
+            f"If correct, no filing change is needed; consider adding the "
+            f"code to the local reference. If wrong, correct the HSN in the "
+            f"Sales Register / GSTR-1 before filing."
+        ),
+        rule_id="G1M_009",
+        gst_ref="Section 9 CGST Act / Notification 78/2020-CT",
+        details={
+            "issue_type": "unknown_hsn",
+            "invoice_number": invoice_number,
+            "hsn": hsn,
+            "source": source,
+            "applied_rate": applied_rate,
+            "matched_fields": [],
+            "differed_fields": ["hsn"],
+        },
+    )
+
+
+def _classify_hsn_rate_mismatch(
+    *,
+    invoice_number: str,
+    hsn: str,
+    source: str,
+    applied_rate: float,
+    valid_rates: frozenset[float],
+    matched_prefix: str,
+) -> MismatchResult:
+    """G1M9 sub-type — applied rate not valid for this HSN."""
+    valid_str = ", ".join(f"{r:g}%" for r in sorted(valid_rates))
+    return MismatchResult(
+        mismatch_type=MismatchType.HSN_RATE_ISSUE,
+        severity=MismatchSeverity.HIGH,
+        decision_what=(
+            f"Invoice {invoice_number}: HSN '{hsn}' charged at "
+            f"{applied_rate:.1f}% but valid rate(s) for this code are "
+            f"{valid_str} ({source})"
+        ),
+        decision_why=(
+            f"Per the local GST rate schedule (matched on prefix "
+            f"'{matched_prefix}'), HSN/SAC '{hsn}' does not attract "
+            f"{applied_rate:.1f}%. Charging an incorrect rate causes short "
+            f"payment of output tax (interest under Section 50, penalties "
+            f"under Section 122) or excess collection from customers. "
+            f"Refresh the reference against CBIC notifications if the "
+            f"schedule has recently changed."
+        ),
+        decision_next=(
+            f"Verify the correct GST rate for HSN '{hsn}' in the latest "
+            f"CBIC rate schedule. Correct the tax in the Sales Register "
+            f"and amend GSTR-1 / GSTR-3B if the filed rate is wrong."
+        ),
+        rule_id="G1M_009",
+        gst_ref="Section 9 CGST Act / Notification 78/2020-CT",
+        details={
+            "issue_type": "rate_mismatch",
+            "invoice_number": invoice_number,
+            "hsn": hsn,
+            "source": source,
+            "applied_rate": applied_rate,
+            "valid_rates": sorted(valid_rates),
+            "matched_prefix": matched_prefix,
+            "matched_fields": ["hsn"],
+            "differed_fields": ["gst_rate"],
+        },
+    )
+
+
+def _classify_hsn_digit_length(
+    *,
+    invoice_number: str,
+    hsn: str,
+    source: str,
+    digit_count: int,
+    required_digits: int,
+    turnover_tier: str,
+) -> MismatchResult:
+    """G1M9 sub-type — HSN shorter than turnover-slab reporting length."""
+    return MismatchResult(
+        mismatch_type=MismatchType.HSN_RATE_ISSUE,
+        severity=MismatchSeverity.MEDIUM,
+        decision_what=(
+            f"Invoice {invoice_number}: HSN '{hsn}' has {digit_count} digit(s); "
+            f"minimum {required_digits} expected for turnover tier "
+            f"'{turnover_tier}' ({source})"
+        ),
+        decision_why=(
+            f"Notification No. 78/2020-Central Tax (as amended) ties the "
+            f"mandatory HSN digit length to aggregate turnover. Tier "
+            f"'{turnover_tier}' is configured to require {required_digits} "
+            f"digits; this invoice reports {digit_count}. Confirm the "
+            f"client's actual preceding-FY turnover slab before treating "
+            f"this as a definitive compliance failure — the default tier "
+            f"may not match this taxpayer."
+        ),
+        decision_next=(
+            f"Confirm the client's aggregate turnover slab and the HSN "
+            f"digit length mandated for the relevant tax period. Update "
+            f"HSN '{hsn}' to at least {required_digits} digits in the "
+            f"Sales Register / GSTR-1 if required."
+        ),
+        rule_id="G1M_009",
+        gst_ref="Section 9 CGST Act / Notification 78/2020-CT",
+        details={
+            "issue_type": "hsn_digit_length",
+            "invoice_number": invoice_number,
+            "hsn": hsn,
+            "source": source,
+            "digit_count": digit_count,
+            "required_digits": required_digits,
+            "turnover_tier": turnover_tier,
+            "matched_fields": [],
+            "differed_fields": ["hsn_length"],
+        },
+    )
+
+
+def _hsn_matched_prefix(hsn: str, valid_rates: frozenset[float]) -> str:
+    """Best-effort prefix key that produced *valid_rates* (for messaging)."""
+    from app.data.hsn_rate_reference import HSN_RATE_MAP
+
+    code = normalise_hsn(hsn) or ""
+    for n in range(len(code), 1, -1):
+        key = code[:n]
+        if HSN_RATE_MAP.get(key) == valid_rates:
+            return key
+    return code[:2] if len(code) >= 2 else code
+
+
+def _rate_in_schedule(applied: float, valid: frozenset[float]) -> bool:
+    return any(abs(applied - v) <= _HSN_RATE_TOLERANCE_PP for v in valid)
+
+
+def _iter_hsn_rate_candidates(
+    records: list[Mapping[str, Any]] | None,
+    *,
+    source: str,
+) -> list[tuple[str, str, float | None, str]]:
+    """Yield ``(invoice_number, hsn, applied_rate, source)`` for validation.
+
+    Includes top-level ``hsn`` on the record and, for GSTR-1, any line
+    items that carry their own ``hsn`` / ``hsn_sc``.
+    """
+    out: list[tuple[str, str, float | None, str]] = []
+    if not records:
+        return out
+
+    for rec in records:
+        inv = str(
+            _get_field(
+                rec,
+                "invoice_number",
+                "invoice_number_normalized",
+                default="?",
+            )
+        ).strip() or "?"
+
+        top_hsn = normalise_hsn(
+            _get_field(rec, "hsn", "hsn_sc", "hsn_code", default=None)
+        )
+        top_rate = _detect_rate(rec)
+        if top_hsn:
+            out.append((inv, top_hsn, top_rate, source))
+
+        items = rec.get("items")
+        if isinstance(items, list):
+            for idx, item in enumerate(items):
+                if not isinstance(item, Mapping):
+                    continue
+                item_hsn = normalise_hsn(
+                    item.get("hsn") or item.get("hsn_sc") or item.get("hsn_code")
+                )
+                if not item_hsn:
+                    continue
+                item_rate = _detect_rate(item)
+                if item_rate is None and item.get("tax_rate") is not None:
+                    try:
+                        item_rate = float(item["tax_rate"])
+                    except (TypeError, ValueError):
+                        item_rate = None
+                item_inv = f"{inv}#item{idx + 1}"
+                out.append((item_inv, item_hsn, item_rate, f"{source}_item"))
+
+    return out
+
+
+def validate_hsn_rate_mapping(
+    sr_records: list[Mapping[str, Any]] | None = None,
+    gstr1_records: list[Mapping[str, Any]] | None = None,
+    *,
+    turnover_tier: str = DEFAULT_TURNOVER_TIER,
+) -> list[MismatchResult]:
+    """G1M9 — Validate HSN/SAC codes against the GST rate schedule.
+
+    For each Sales Register / GSTR-1 row (or line item) that carries an
+    HSN/SAC code, flags:
+
+    1. **unknown_hsn** (LOW) — code not found in the local reference
+       (informational; reference may be incomplete).
+    2. **rate_mismatch** (HIGH) — applied GST rate (derived from tax
+       amounts, or GSTR-1 ``rate`` / item ``tax_rate``) is not among the
+       valid rates for that HSN.
+    3. **hsn_digit_length** (MEDIUM) — digit count below the minimum for
+       ``turnover_tier`` (default ``upto_5cr`` → 4 digits). Confirm the
+       client's actual turnover slab before treating as definitive.
+
+    Parameters
+    ----------
+    sr_records, gstr1_records
+        Parsed invoice (or HSN-summary) records.
+    turnover_tier
+        ``"upto_5cr"`` or ``"above_5cr"`` — selects required HSN digits.
+    """
+    results: list[MismatchResult] = []
+    min_digits = required_hsn_digits(turnover_tier)
+
+    candidates = (
+        _iter_hsn_rate_candidates(sr_records, source="sales_register")
+        + _iter_hsn_rate_candidates(gstr1_records, source="gstr1")
+    )
+
+    # Deduplicate identical (source, invoice, hsn, issue) later via seen set
+    seen: set[tuple[str, str, str, str]] = set()
+
+    for inv, hsn, applied_rate, source in candidates:
+        # ── Digit length ─────────────────────────────────────────────
+        digit_count = len(hsn)
+        if digit_count < min_digits:
+            key = (source, inv, hsn, "hsn_digit_length")
+            if key not in seen:
+                seen.add(key)
+                results.append(
+                    _classify_hsn_digit_length(
+                        invoice_number=inv,
+                        hsn=hsn,
+                        source=source,
+                        digit_count=digit_count,
+                        required_digits=min_digits,
+                        turnover_tier=turnover_tier,
+                    )
+                )
+
+        # ── Schedule lookup ──────────────────────────────────────────
+        valid_rates = lookup_valid_rates(hsn)
+        if valid_rates is None:
+            key = (source, inv, hsn, "unknown_hsn")
+            if key not in seen:
+                seen.add(key)
+                results.append(
+                    _classify_unknown_hsn(
+                        invoice_number=inv,
+                        hsn=hsn,
+                        source=source,
+                        applied_rate=applied_rate,
+                    )
+                )
+            continue
+
+        if applied_rate is None:
+            continue
+
+        if not _rate_in_schedule(applied_rate, valid_rates):
+            key = (source, inv, hsn, "rate_mismatch")
+            if key not in seen:
+                seen.add(key)
+                results.append(
+                    _classify_hsn_rate_mismatch(
+                        invoice_number=inv,
+                        hsn=hsn,
+                        source=source,
+                        applied_rate=applied_rate,
+                        valid_rates=valid_rates,
+                        matched_prefix=_hsn_matched_prefix(hsn, valid_rates),
+                    )
+                )
+
+    _sev_order = {
+        MismatchSeverity.CRITICAL: 0,
+        MismatchSeverity.HIGH: 1,
+        MismatchSeverity.MEDIUM: 2,
+        MismatchSeverity.LOW: 3,
+    }
+    results.sort(key=lambda r: _sev_order.get(r.severity, 99))
+
+    _log.info(
+        "validate_hsn_rate_mapping: %d issues (%d rate, %d unknown, "
+        "%d digit-length) tier=%s",
+        len(results),
+        sum(1 for r in results if r.details.get("issue_type") == "rate_mismatch"),
+        sum(1 for r in results if r.details.get("issue_type") == "unknown_hsn"),
+        sum(1 for r in results if r.details.get("issue_type") == "hsn_digit_length"),
+        turnover_tier,
+    )
+    return results
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1490,6 +1846,7 @@ __all__ = [
     "build_g1m7_mismatches",
     "classify_all_mismatches",
     "check_invoice_series_continuity",
+    "validate_hsn_rate_mapping",
     # Tolerance constants (overridable by callers)
     "AMOUNT_TOLERANCE_PAISE",
     "AMOUNT_TOLERANCE_PCT",
