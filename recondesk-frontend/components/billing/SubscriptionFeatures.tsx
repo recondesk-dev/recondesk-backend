@@ -182,23 +182,23 @@ export function SubscriptionFeatures({ compact = false }: Props) {
       aria-labelledby="subscription-features-heading"
     >
       <div className={compact ? "text-left" : "text-center"}>
-        <p
-          className={`text-xs font-semibold uppercase tracking-[0.2em] ${
-            compact ? "text-gray-400" : "text-emerald-700/80"
-          }`}
-        >
-          Included in every subscription
-        </p>
         <h2
           id="subscription-features-heading"
-          className={`mt-3 font-semibold tracking-tight text-[var(--ink)] ${
-            compact ? "text-2xl" : "text-3xl sm:text-[2.35rem]"
+          className={`font-semibold tracking-tight text-[var(--ink)] ${
+            compact
+              ? "text-3xl leading-[1.1] sm:text-4xl"
+              : "text-4xl leading-[1.05] sm:text-5xl md:text-[3.5rem]"
           }`}
         >
-          Every plan. The entire desk.
+          Full desk. Every plan.
+          <br className="hidden sm:block" />
+          <span className={compact ? "text-gray-400" : "text-emerald-700/80"}>
+            {" "}
+            Nothing held back.
+          </span>
         </h2>
         <p
-          className={`mt-3 max-w-2xl text-base text-gray-600 ${
+          className={`mt-4 max-w-2xl text-base text-gray-600 ${
             compact ? "" : "mx-auto"
           }`}
         >

@@ -210,12 +210,24 @@ export default function BillingPage() {
           <p className="mt-2 text-[1.85rem] font-semibold tracking-tight capitalize text-[var(--ink)]">
             {status?.subscription_active ? status.plan || "Active" : "Free"}
           </p>
-          {status?.subscription_ends_at && (
+          {status?.subscription_active && status?.subscription_ends_at && (
             <p className="mt-1 text-xs text-gray-500">
-              {status.subscription_active ? "Renews / ends" : "Ended"}{" "}
-              {fmtDateShort(status.subscription_ends_at)}
+              Renews / ends {fmtDateShort(status.subscription_ends_at)}
             </p>
           )}
+          {!status?.subscription_active && (status?.runs_balance ?? 0) > 0 && (
+            <p className="mt-1 text-xs text-gray-500">
+              No GSTIN subscription — {status.runs_balance} legacy run
+              {status.runs_balance === 1 ? "" : "s"} still available below
+            </p>
+          )}
+          {!status?.subscription_active &&
+            (status?.runs_balance ?? 0) === 0 &&
+            status?.subscription_ends_at && (
+              <p className="mt-1 text-xs text-gray-500">
+                Ended {fmtDateShort(status.subscription_ends_at)}
+              </p>
+            )}
         </div>
       </section>
 
@@ -231,14 +243,14 @@ export default function BillingPage() {
             Legacy run credits
           </h2>
           <p className="text-sm text-gray-500">
-            Older run packs still work until they expire. New purchases grant GSTIN subscription
-            capacity instead.
+            These are prepaid run packs from the old pricing model — not a GSTIN subscription.
+            They still work until they expire. New purchases grant GSTIN capacity instead.
           </p>
           <div className="overflow-x-auto rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
                 <tr>
-                  <th className="px-5 py-4 font-medium">Plan</th>
+                  <th className="px-5 py-4 font-medium">Run pack</th>
                   <th className="px-4 py-4 font-medium">Purchased</th>
                   <th className="px-4 py-4 font-medium">Runs left</th>
                   <th className="px-4 py-4 font-medium">Expires on</th>
@@ -262,7 +274,8 @@ export default function BillingPage() {
                       className="border-b border-[#F0F0F0] last:border-b-0"
                     >
                       <td className="px-5 py-3.5 capitalize font-medium text-[var(--ink)]">
-                        {b.plan}
+                        {b.plan}{" "}
+                        <span className="font-normal text-gray-400">(legacy)</span>
                       </td>
                       <td className="px-4 py-3.5 text-gray-500">
                         {fmtDateShort(b.purchased_at)}
@@ -489,11 +502,22 @@ function BillingBanner({
   }
 
   if (status.runs_balance > 0) {
+    const activePack = status.credit_batches?.find(
+      (b) => (b.runs_remaining ?? 0) > 0 && (b.status || "").toLowerCase() !== "expired"
+    );
+    const packName = activePack?.plan?.trim();
     return (
       <div className="dashboard-card px-5 py-4 text-sm text-gray-700">
         <p>
           You have <strong className="text-[var(--ink)]">{status.runs_balance}</strong> legacy run
-          credit{status.runs_balance === 1 ? "" : "s"} remaining.
+          credit{status.runs_balance === 1 ? "" : "s"} remaining
+          {packName ? (
+            <>
+              {" "}
+              from a <span className="capitalize">{packName}</span> run pack
+            </>
+          ) : null}
+          . Your subscription is Free until you buy a GSTIN plan.
         </p>
       </div>
     );

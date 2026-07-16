@@ -12,7 +12,6 @@ import {
   isApiError,
   reconcileRunsApi,
   type BillingStatus,
-  type CreditBatchRow,
 } from "@/lib/api";
 import {
   fetchFreshAuthProfile,
@@ -43,15 +42,12 @@ function capitalizePlanName(plan: string): string {
 }
 
 function planLabelFromBilling(status: BillingStatus): string {
+  // Only show paid plan names for active GSTIN subscriptions.
+  // Legacy run packs must not surface as "Pro" / "Starter" in the shell.
   if (status.subscription_active && status.plan) {
     return capitalizePlanName(status.plan);
   }
-  const active = status.credit_batches?.find(
-    (b: CreditBatchRow) =>
-      (b.runs_remaining ?? 0) > 0 && (b.status || "").toLowerCase() !== "expired"
-  );
-  const plan = active?.plan?.trim();
-  return plan ? capitalizePlanName(plan) : "Free";
+  return "Free";
 }
 
 function billingCapacityLabel(status: BillingStatus): string {
