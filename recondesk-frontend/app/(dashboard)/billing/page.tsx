@@ -215,15 +215,18 @@ export default function BillingPage() {
               Renews / ends {fmtDateShort(status.subscription_ends_at)}
             </p>
           )}
-          {!status?.subscription_active && (status?.runs_balance ?? 0) > 0 && (
-            <p className="mt-1 text-xs text-gray-500">
-              No GSTIN subscription — {status.runs_balance} legacy run
-              {status.runs_balance === 1 ? "" : "s"} still available below
-            </p>
-          )}
-          {!status?.subscription_active &&
-            (status?.runs_balance ?? 0) === 0 &&
-            status?.subscription_ends_at && (
+          {status &&
+            !status.subscription_active &&
+            status.runs_balance > 0 && (
+              <p className="mt-1 text-xs text-gray-500">
+                No GSTIN subscription — {status.runs_balance} legacy run
+                {status.runs_balance === 1 ? "" : "s"} still available below
+              </p>
+            )}
+          {status &&
+            !status.subscription_active &&
+            status.runs_balance === 0 &&
+            status.subscription_ends_at && (
               <p className="mt-1 text-xs text-gray-500">
                 Ended {fmtDateShort(status.subscription_ends_at)}
               </p>
