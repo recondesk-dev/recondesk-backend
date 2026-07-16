@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR, { mutate } from "swr";
 import { useParams } from "next/navigation";
 
@@ -33,6 +33,7 @@ import {
   staffForAssignee,
 } from "@/lib/dashboard-portfolio";
 import { formatInrFull } from "@/lib/format";
+import { loadGstr1Result } from "@/lib/gstr1Reconcile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import type { ItcTrendPoint, ReconciliationRun } from "@/lib/types";
 
@@ -155,6 +156,7 @@ export default function ClientDetailPage() {
   const [histPage, setHistPage] = useState(1);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [connectGstnOpen, setConnectGstnOpen] = useState(false);
+  const [gstr1ResultsReady, setGstr1ResultsReady] = useState(false);
 
   const gstnConnected = isGstnConnected(rawClient as ClientGstin | undefined);
 
@@ -168,6 +170,11 @@ export default function ClientDetailPage() {
   const startTitle = runInProgress ? "Run in progress" : undefined;
 
   const reconcileNewHref = id ? `/reconcile/${id}/new` : "";
+
+  useEffect(() => {
+    const result = loadGstr1Result();
+    setGstr1ResultsReady(Boolean(result?.success));
+  }, []);
 
   const histTotal = sortedRuns.length;
   const histPages = Math.max(1, Math.ceil(histTotal / HISTORY_PAGE));
@@ -251,41 +258,63 @@ export default function ClientDetailPage() {
               Edit Client
             </Link>
           </div>
-          <div className="relative z-10 flex flex-col items-end gap-2">
+          <div className="relative z-10 flex w-full max-w-xl flex-col items-stretch gap-3 sm:items-end">
             {!gstnConnected && authToken && (
               <button
                 type="button"
                 onClick={() => setConnectGstnOpen(true)}
-                className="inline-flex items-center justify-center rounded-full bg-[#F5F5F6] px-4 py-2 text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-gray-200/70"
+                className="inline-flex items-center justify-center self-end rounded-full bg-[#F5F5F6] px-4 py-2 text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-gray-200/70"
               >
                 Connect GSTN
               </button>
             )}
-            {startDisabled || !reconcileNewHref ? (
-              <button
-                type="button"
-                disabled
-                title={startTitle}
-                className="inline-flex cursor-not-allowed items-center justify-center rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white opacity-50"
-              >
-                Start New Reconciliation
-              </button>
-            ) : (
-              <Link
-                href={reconcileNewHref}
-                title={startTitle}
-                className="inline-flex cursor-pointer items-center justify-center rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-              >
-                Start New Reconciliation
-              </Link>
-            )}
-            <Link
-              href="/reconcile/gstr1/new"
-              title="Sales Register ↔ GSTR-1 ↔ GSTR-3B tie-out"
-              className="inline-flex items-center justify-center rounded-full bg-[#F5F5F6] px-4 py-2 text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-gray-200/70"
-            >
-              GSTR-1 Check
-            </Link>
+            <div className="w-full">
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-widest text-gray-400 sm:text-right">
+                Reconciliations
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {startDisabled || !reconcileNewHref ? (
+                  <button
+                    type="button"
+                    disabled
+                    title={startTitle}
+                    className="flex cursor-not-allowed flex-col items-start gap-1 rounded-[1.25rem] bg-[var(--ink)] px-4 py-3 text-left opacity-50"
+                  >
+                    <span className="text-sm font-semibold text-white">
+                      GSTR-2B Reconciliation
+                    </span>
+                    <span className="text-[11px] font-medium leading-snug text-white/70">
+                      Purchase Register vs GSTR-2B — ITC matching and eligibility
+                    </span>
+                  </button>
+                ) : (
+                  <Link
+                    href={reconcileNewHref}
+                    title={startTitle}
+                    className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[var(--ink)] px-4 py-3 text-left transition-opacity hover:opacity-90"
+                  >
+                    <span className="text-sm font-semibold text-white">
+                      GSTR-2B Reconciliation
+                    </span>
+                    <span className="text-[11px] font-medium leading-snug text-white/70">
+                      Purchase Register vs GSTR-2B — ITC matching and eligibility
+                    </span>
+                  </Link>
+                )}
+                <Link
+                  href="/reconcile/gstr1/new"
+                  title="Sales Register ↔ GSTR-1 ↔ GSTR-3B tie-out"
+                  className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[#F5F5F6] px-4 py-3 text-left ring-1 ring-[#F0F0F0] transition-colors hover:bg-gray-200/70"
+                >
+                  <span className="text-sm font-semibold text-[var(--ink)]">
+                    GSTR-1 Reconciliation
+                  </span>
+                  <span className="text-[11px] font-medium leading-snug text-gray-500">
+                    Sales Register vs GSTR-1 vs GSTR-3B — outward supply tie-out
+                  </span>
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -306,16 +335,27 @@ export default function ClientDetailPage() {
 
       {latest?.status === "FAILED" && latest.errorMessage && (
         <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-900">
-          Last reconciliation failed. {latest.errorMessage}{" "}
+          Last GSTR-2B reconciliation failed. {latest.errorMessage}{" "}
           <Link href="#history" className="font-semibold text-[var(--ink)] underline">
             Retry →
           </Link>
         </div>
       )}
       {latest?.status === "COMPLETE" && (
-        <div className="rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm text-amber-950">
-          Results ready. Review and finalize →
-        </div>
+        <Link
+          href={`/reconcile/runs/${latest.id}/results`}
+          className="block rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm font-medium text-amber-950 transition-colors hover:bg-amber-100/80"
+        >
+          GSTR-2B results ready. Review and finalize →
+        </Link>
+      )}
+      {gstr1ResultsReady && (
+        <Link
+          href="/reconcile/gstr1/results"
+          className="block rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm font-medium text-amber-950 transition-colors hover:bg-amber-100/80"
+        >
+          GSTR-1 results ready. Review and finalize →
+        </Link>
       )}
 
       <section className="dashboard-card p-6">
