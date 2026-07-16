@@ -45,6 +45,28 @@ from app.reconciliation.gstr1_vs_3b import reconcile_gstr1_vs_3b
 
 _log = logging.getLogger(__name__)
 
+# Aggregate / informational GSTR-1 rows (HSN summary, nil, advances, etc.).
+# These are parsed for diagnostics / tie-out exclusions but must never enter
+# invoice-level matching or Extra-in-GSTR-1 (G1M2) classification.
+_NON_INVOICE_GSTR1_SECTIONS: frozenset[str] = frozenset({
+    "hsn", "nil", "doc_issue", "at", "ata", "atadj", "atadja",
+})
+_NON_INVOICE_GSTR1_TYPES: frozenset[str] = frozenset({
+    "HSN_SUMMARY", "NIL_RATED", "EXEMPT", "NON_GST", "NIL_EXEMPT", "ADVANCES",
+})
+
+
+def _is_invoice_level_gstr1_record(rec: dict[str, Any]) -> bool:
+    """True when *rec* is an invoice/note that can match a Sales Register row."""
+    section = str(rec.get("section") or "").strip().lower()
+    if section in _NON_INVOICE_GSTR1_SECTIONS:
+        return False
+    inv_type = str(rec.get("invoice_type") or rec.get("doc_type") or "").strip().upper()
+    if inv_type in _NON_INVOICE_GSTR1_TYPES:
+        return False
+    return True
+
+
 # Match app-wide redirect_slashes=False (main.py) and peer routers like
 # clients/gstin — register at "" so POST /api/gstr1-reconcile works without
 # a trailing slash (frontend normalizeApiPath strips trailing slashes).
@@ -186,10 +208,19 @@ def _run_pipeline(
                 "message": str(exc),
             },
         )
-    gstr1_records: list[dict[str, Any]] = gstr1_result.get("records", [])
+    gstr1_records_all: list[dict[str, Any]] = gstr1_result.get("records", [])
+    # HSN / nil / advance aggregates stay in parse diagnostics but are excluded
+    # from invoice matching and Extra-in-GSTR-1 (G1M2).
+    gstr1_records: list[dict[str, Any]] = [
+        r for r in gstr1_records_all if _is_invoice_level_gstr1_record(r)
+    ]
+    gstr1_metadata_count = len(gstr1_records_all) - len(gstr1_records)
     _log.info(
-        "gstr1_reconcile: GSTR-1 parsed — %d records, %d skipped",
-        len(gstr1_records), gstr1_result.get("total_skipped", 0),
+        "gstr1_reconcile: GSTR-1 parsed — %d invoice-level, %d metadata "
+        "(hsn/nil/advances), %d skipped",
+        len(gstr1_records),
+        gstr1_metadata_count,
+        gstr1_result.get("total_skipped", 0),
     )
 
     # 1c — GSTR-3B
@@ -315,7 +346,9 @@ def _run_pipeline(
     )
 
     # ── Step 4: GSTR-1 vs 3B tie-out ─────────────────────────────────────
-    tie_out = reconcile_gstr1_vs_3b(gstr1_records, parsed_gstr3b)
+    # Tie-out still sees all parsed rows; aggregate exclusions live inside
+    # reconcile_gstr1_vs_3b (hsn/nil/at are skipped there too).
+    tie_out = reconcile_gstr1_vs_3b(gstr1_records_all, parsed_gstr3b)
 
     _log.info(
         "gstr1_reconcile: tie-out period=%s clean=%s variances=%d",
@@ -379,6 +412,7 @@ def _run_pipeline(
         "summary": {
             "sr_total_records": len(sr_records),
             "gstr1_total_records": len(gstr1_records),
+            "gstr1_metadata_record_count": gstr1_metadata_count,
             "matched_count": len(matched_pairs),
             "unmatched_sr_count": len(unmatched_sr),
             "unmatched_gstr1_count": len(unmatched_gstr1),

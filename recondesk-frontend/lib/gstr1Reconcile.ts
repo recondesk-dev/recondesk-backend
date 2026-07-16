@@ -108,6 +108,8 @@ export type Gstr1ParseDiagnostics = {
 export type Gstr1ReconcileSummary = {
   sr_total_records: number;
   gstr1_total_records: number;
+  /** Aggregate rows (HSN/nil/advances) excluded from invoice matching. */
+  gstr1_metadata_record_count?: number;
   matched_count: number;
   unmatched_sr_count: number;
   unmatched_gstr1_count: number;
