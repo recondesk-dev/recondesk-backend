@@ -20,6 +20,7 @@ const PLANS: {
   periodLabel: string;
   gstins: number;
   blurb: string;
+  cta: string;
   featured?: boolean;
 }[] = [
   {
@@ -28,7 +29,8 @@ const PLANS: {
     priceInr: 999,
     periodLabel: "/month",
     gstins: 25,
-    blurb: "Monthly capacity for a focused desk.",
+    blurb: "For solo CAs building a steady client desk.",
+    cta: "Start with Starter",
   },
   {
     id: "growth",
@@ -36,7 +38,8 @@ const PLANS: {
     priceInr: 7999,
     periodLabel: "/year",
     gstins: 50,
-    blurb: "Best value — full year for growing firms.",
+    blurb: "Best value for growing firms — a full year of capacity.",
+    cta: "Go Growth",
     featured: true,
   },
   {
@@ -45,7 +48,8 @@ const PLANS: {
     priceInr: 11999,
     periodLabel: "/year",
     gstins: 75,
-    blurb: "Larger portfolio, same full product.",
+    blurb: "Room for a larger portfolio without changing how you work.",
+    cta: "Choose Pro",
   },
 ];
 
@@ -297,12 +301,12 @@ export default function BillingPage() {
         </section>
       )}
 
-      <section id="choose-plan" className="dashboard-card space-y-6 p-6">
+      <section id="choose-plan" className="space-y-6">
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Choose a plan</h2>
           <p className="mt-1 max-w-3xl text-sm text-gray-500">
-            GSTIN-based plans. Every plan includes the full product — you only scale capacity.
-            Prices exclude 18% GST.
+            One product. Three capacities. Every plan includes the full desk — you only scale
+            GSTINs. Prices exclude 18% GST.
           </p>
         </div>
 
@@ -310,51 +314,84 @@ export default function BillingPage() {
 
         <div className="grid gap-5 lg:grid-cols-3">
           {PLANS.map((plan) => (
-            <div
+            <article
               key={plan.id}
-              className={`relative flex flex-col rounded-[1.5rem] p-6 transition duration-200 ${
-                plan.featured
-                  ? "bg-[var(--ink)] text-white shadow-[var(--shadow-lift)]"
-                  : "bg-[#F7F7F8] text-[var(--ink)]"
-              }`}
+              className={`liquid-glass-card ${
+                plan.featured ? "liquid-glass-card--featured" : ""
+              } flex h-full flex-col p-6 sm:p-7`}
             >
-              {plan.featured && (
-                <span className="absolute right-4 top-4 rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white">
-                  Best value
-                </span>
-              )}
-              <h3 className="text-lg font-semibold tracking-tight">{plan.name}</h3>
-              <p
-                className={`mt-1 text-sm ${plan.featured ? "text-white/70" : "text-gray-500"}`}
-              >
-                {plan.blurb}
-              </p>
-              <p className="mt-6 flex items-baseline gap-1">
-                <span className="text-3xl font-semibold tracking-tight tabular-nums">
-                  {formatInr(plan.priceInr)}
-                </span>
-                <span
-                  className={`text-sm ${plan.featured ? "text-white/70" : "text-gray-500"}`}
-                >
-                  {plan.periodLabel}
-                </span>
-              </p>
-              <p className={`mt-2 text-sm font-medium ${plan.featured ? "text-white" : ""}`}>
-                Up to {plan.gstins} GSTINs
-              </p>
-              <button
-                type="button"
-                disabled={checkoutPlan !== null}
-                onClick={() => void onBuyPlan(plan.id)}
-                className={`mt-8 inline-flex min-h-[44px] w-full items-center justify-center rounded-full px-5 text-sm font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-60 ${
-                  plan.featured
-                    ? "bg-white text-[var(--ink)] hover:opacity-90"
-                    : "bg-[var(--ink)] text-white hover:opacity-90"
-                }`}
-              >
-                {checkoutPlan === plan.id ? "Opening checkout…" : `Buy ${plan.name}`}
-              </button>
-            </div>
+              <span className="liquid-glass-card__blob liquid-glass-card__blob--a" aria-hidden />
+              <span className="liquid-glass-card__blob liquid-glass-card__blob--b" aria-hidden />
+              <div className="liquid-glass-card__content flex h-full flex-col">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
+                      {plan.name}
+                    </h3>
+                    <p className="mt-1 text-sm text-gray-500">{plan.blurb}</p>
+                  </div>
+                  {plan.featured && (
+                    <span className="shrink-0 rounded-full bg-[var(--ink)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white">
+                      Best value
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-7">
+                  <p className="flex items-baseline gap-1">
+                    <span className="text-3xl font-semibold tracking-tight tabular-nums text-[var(--ink)]">
+                      {formatInr(plan.priceInr)}
+                    </span>
+                    <span className="text-sm text-gray-500">{plan.periodLabel}</span>
+                  </p>
+                  <p className="mt-2 text-sm font-medium text-[var(--ink)]">
+                    Up to {plan.gstins} GSTINs
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Excl. 18% GST · unlimited runs in period
+                  </p>
+                </div>
+
+                <ul className="mt-6 space-y-2.5 text-sm text-gray-600">
+                  <li className="flex gap-2">
+                    <span
+                      className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ink)]"
+                      aria-hidden
+                    />
+                    Full product on every plan
+                  </li>
+                  <li className="flex gap-2">
+                    <span
+                      className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ink)]"
+                      aria-hidden
+                    />
+                    GSTR-2B + GSTR-1 reconciliation
+                  </li>
+                  <li className="flex gap-2">
+                    <span
+                      className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ink)]"
+                      aria-hidden
+                    />
+                    Team, exports, and follow-ups included
+                  </li>
+                </ul>
+
+                <div className="mt-auto pt-7">
+                  <button
+                    type="button"
+                    disabled={checkoutPlan !== null}
+                    onClick={() => void onBuyPlan(plan.id)}
+                    className={`inline-flex w-full min-h-[44px] items-center justify-center rounded-full px-6 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 ${
+                      plan.featured
+                        ? "bg-[var(--ink)] text-white shadow-sm"
+                        : "bg-white/80 text-[var(--ink)] ring-1 ring-black/10"
+                    }`}
+                  >
+                    {checkoutPlan === plan.id ? "Opening checkout…" : plan.cta}
+                  </button>
+                </div>
+              </div>
+            </article>
           ))}
         </div>
       </section>
