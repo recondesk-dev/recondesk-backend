@@ -149,7 +149,7 @@ def _obtain_token(args: argparse.Namespace) -> str:
 
 
 def _mismatch_type_key(item: dict[str, Any]) -> str:
-    """Normalise mismatch type to G1M1…G1M10 (or full code if unknown)."""
+    """Normalise mismatch type to G1M1…G1M11 (or full code if unknown)."""
     raw = (
         item.get("mismatch_type")
         or item.get("decision_rule")
@@ -159,7 +159,7 @@ def _mismatch_type_key(item: dict[str, Any]) -> str:
     raw = str(raw)
     for code in (
         "G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6",
-        "G1M7", "G1M8", "G1M9", "G1M10",
+        "G1M7", "G1M8", "G1M9", "G1M10", "G1M11",
     ):
         if code in raw:
             return code
@@ -239,7 +239,7 @@ def _print_response(data: dict[str, Any]) -> None:
     print(f"  success: {data.get('success')}")
 
     counts = Counter(_mismatch_type_key(m) for m in mismatches)
-    _print_section("Mismatches (G1M1–G1M10)")
+    _print_section("Mismatches (G1M1–G1M11)")
     print(f"  Total mismatches found: {len(mismatches)}")
     if not counts:
         print("  (no invoice-level mismatches classified)")
@@ -247,11 +247,11 @@ def _print_response(data: dict[str, Any]) -> None:
         print("  Counts by type:")
         known = {
             "G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6",
-            "G1M7", "G1M8", "G1M9", "G1M10",
+            "G1M7", "G1M8", "G1M9", "G1M10", "G1M11",
         }
         for code in (
             "G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6",
-            "G1M7", "G1M8", "G1M9", "G1M10",
+            "G1M7", "G1M8", "G1M9", "G1M10", "G1M11",
         ):
             if code in counts:
                 print(f"    {code}: {counts[code]}")
@@ -395,11 +395,11 @@ def main() -> int:
         for key, val in summary.items():
             print(f"  {key}: {val}")
         counts = Counter(_mismatch_type_key(m) for m in mismatches)
-        _print_section("Mismatches (G1M1–G1M10)")
+        _print_section("Mismatches (G1M1–G1M11)")
         print(f"  Total mismatches found: {len(mismatches)}")
         for code in (
             "G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6",
-            "G1M7", "G1M8", "G1M9", "G1M10",
+            "G1M7", "G1M8", "G1M9", "G1M10", "G1M11",
         ):
             if code in counts:
                 print(f"    {code}: {counts[code]}")

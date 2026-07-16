@@ -10,7 +10,8 @@ Chains the five standalone GSTR-1 modules end-to-end:
 
 Also runs per-run buyer GSTIN verification (G1M7), invoice series
 continuity / duplicate detection (G1M8), HSN/rate schedule
-validation (G1M9), and Documents Issued / Table 13 summary (G1M10).
+validation (G1M9), Documents Issued / Table 13 summary (G1M10),
+and optional prior-period amendment detection Tables 9A/9B/9C (G1M11).
 
 Returns combined ``{WHAT, WHY, NEXT, confidence}`` results matching the
 purchase-side API response shape.
@@ -49,6 +50,7 @@ from app.rules.gstr1_mismatch_rules import (
     check_invoice_series_continuity,
     validate_hsn_rate_mapping,
     summarize_documents_issued,
+    detect_amendments,
     MismatchResult,
 )
 from app.reconciliation.gstr1_vs_3b import reconcile_gstr1_vs_3b
@@ -260,6 +262,7 @@ async def _run_pipeline(
     gstr1_file_content: bytes,
     gstr3b_file_content: bytes,
     gstr1_filing_period: str | None,
+    prior_gstr1_file_content: bytes | None = None,
 ) -> dict[str, Any]:
     """Execute the full GSTR-1 reconciliation pipeline.
 
@@ -484,6 +487,47 @@ async def _run_pipeline(
             len(g1m10_results),
         )
 
+    # ── Step 3f: G1M11 amendment detection (Tables 9A/9B/9C) ─────────────
+    prior_provided = bool(prior_gstr1_file_content)
+    prior_gstr1_records: list[dict[str, Any]] = []
+    prior_gstr1_diagnostics: dict[str, Any] | None = None
+    if prior_provided:
+        try:
+            prior_result = parse_gstr1(prior_gstr1_file_content)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": "prior_gstr1_parse_failed",
+                    "message": str(exc),
+                },
+            )
+        prior_gstr1_records = [
+            r for r in prior_result.get("records", [])
+            if _is_invoice_level_gstr1_record(r)
+        ]
+        prior_gstr1_diagnostics = {
+            "filing_gstin": prior_result.get("filing_gstin", ""),
+            "filing_period": prior_result.get("filing_period", ""),
+            "total_parsed": prior_result.get("total_parsed", 0),
+            "invoice_level_count": len(prior_gstr1_records),
+            "section_counts": prior_result.get("section_counts", {}),
+        }
+        g1m11_results = detect_amendments(
+            sr_records, prior_gstr1_records, prior_provided=True,
+        )
+    else:
+        g1m11_results = detect_amendments(
+            sr_records, None, prior_provided=False,
+        )
+    if g1m11_results:
+        mismatch_results = list(mismatch_results) + list(g1m11_results)
+        _log.info(
+            "gstr1_reconcile: G1M11 amendments — prior_provided=%s flags=%d",
+            prior_provided,
+            len(g1m11_results),
+        )
+
     # ── Step 4: GSTR-1 vs 3B tie-out ─────────────────────────────────────
     # Tie-out still sees all parsed rows; aggregate exclusions live inside
     # reconcile_gstr1_vs_3b (hsn/nil/at are skipped there too).
@@ -561,6 +605,11 @@ async def _run_pipeline(
             "documents_issued_series_count": documents_issued.get(
                 "total_series", 0
             ),
+            "amendment_detection_skipped": not prior_provided,
+            "amendment_count": sum(
+                1 for m in g1m11_results
+                if m.details.get("issue_type") == "amendment_required"
+            ),
         },
         "matched": matched_output,
         "unmatched_sr": unmatched_sr_output,
@@ -589,6 +638,7 @@ async def _run_pipeline(
                 "sections_present": gstr1_result.get("sections_present", []),
                 "skip_breakdown_labeled": gstr1_result.get("skip_breakdown_labeled", []),
             },
+            "prior_gstr1": prior_gstr1_diagnostics,
         },
     }
 
@@ -615,6 +665,13 @@ async def reconcile_gstr1(
     gstr3b_json: UploadFile = File(
         ..., description="GSTR-3B JSON file (portal download or API response)",
     ),
+    prior_gstr1_json: Optional[UploadFile] = File(
+        None,
+        description=(
+            "Optional prior-period GSTR-1 JSON for Tables 9A/9B/9C "
+            "amendment detection. When omitted, amendment checks are skipped."
+        ),
+    ),
     gstr1_filing_period: Optional[str] = Form(
         None,
         description=(
@@ -627,6 +684,7 @@ async def reconcile_gstr1(
     """Run end-to-end GSTR-1 sales-side reconciliation.
 
     Accepts a Sales Register file, GSTR-1 JSON, and GSTR-3B JSON.
+    Optionally accepts a prior-period GSTR-1 JSON for amendment detection.
     Parses, matches, classifies mismatches, and performs a GSTR-1 vs 3B tie-out.
 
     Returns combined ``{WHAT, WHY, NEXT, confidence}`` results in the same
@@ -634,11 +692,12 @@ async def reconcile_gstr1(
     """
     user_id = current_user.get("id", "?")
     _log.info(
-        "gstr1_reconcile: user=%s sr=%s gstr1=%s gstr3b=%s",
+        "gstr1_reconcile: user=%s sr=%s gstr1=%s gstr3b=%s prior_gstr1=%s",
         user_id,
         sales_register_file.filename,
         gstr1_json.filename,
         gstr3b_json.filename,
+        prior_gstr1_json.filename if prior_gstr1_json else None,
     )
 
     # ── Validate file types ──────────────────────────────────────────────
@@ -665,11 +724,27 @@ async def reconcile_gstr1(
                 detail=f"{label} file must be .json — got '.{fext}'",
             )
 
+    if prior_gstr1_json is not None and prior_gstr1_json.filename:
+        prior_fname = prior_gstr1_json.filename or ""
+        prior_ext = (
+            prior_fname.rsplit(".", 1)[-1].lower() if "." in prior_fname else ""
+        )
+        if prior_ext not in ("json",):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Prior period GSTR-1 file must be .json — got '.{prior_ext}'"
+                ),
+            )
+
     # ── Read file contents ───────────────────────────────────────────────
     try:
         sr_content = await sales_register_file.read()
         gstr1_content = await gstr1_json.read()
         gstr3b_content = await gstr3b_json.read()
+        prior_gstr1_content: bytes | None = None
+        if prior_gstr1_json is not None and prior_gstr1_json.filename:
+            prior_gstr1_content = await prior_gstr1_json.read()
     except Exception as exc:
         _log.exception("gstr1_reconcile: file read failed")
         raise HTTPException(
@@ -692,6 +767,11 @@ async def reconcile_gstr1(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="GSTR-3B JSON file is empty",
         )
+    if prior_gstr1_content is not None and not prior_gstr1_content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Prior period GSTR-1 JSON file is empty",
+        )
 
     # ── Run pipeline ─────────────────────────────────────────────────────
     try:
@@ -701,6 +781,7 @@ async def reconcile_gstr1(
             gstr1_file_content=gstr1_content,
             gstr3b_file_content=gstr3b_content,
             gstr1_filing_period=gstr1_filing_period,
+            prior_gstr1_file_content=prior_gstr1_content,
         )
     except HTTPException:
         raise

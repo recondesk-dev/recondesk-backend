@@ -191,8 +191,10 @@ export function Gstr1ResultsView({
   /** GSTR-1-only invoices (same number as the Extra in GSTR-1 tab). */
   const extraInGstr1Count = summary.unmatched_gstr1_count;
   /**
-   * Field / compliance issues (G1M3–G1M9).
+   * Field / compliance issues (G1M3–G1M9, G1M11).
    * Excludes G1M1/G1M2 (dedicated tiles) and G1M10 (Table 13 summary panel).
+   * G1M11 skip notes are informational; only amendment_required counts via
+   * the mismatch list (skip notes are LOW and still appear in the pill strip).
    */
   const fieldMismatchCount =
     (mismatchCounts.G1M3 || 0) +
@@ -201,7 +203,8 @@ export function Gstr1ResultsView({
     (mismatchCounts.G1M6 || 0) +
     (mismatchCounts.G1M7 || 0) +
     (mismatchCounts.G1M8 || 0) +
-    (mismatchCounts.G1M9 || 0);
+    (mismatchCounts.G1M9 || 0) +
+    (summary.amendment_count || 0);
   const matchRate =
     summary.gstr1_total_records > 0
       ? Math.round(
@@ -254,15 +257,32 @@ export function Gstr1ResultsView({
                 .filter(Boolean)
                 .join(" · ") || "Sales Register ↔ GSTR-1 ↔ GSTR-3B"}
             </p>
-            {!summary.tie_out_clean ? (
-              <span className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-200">
-                GSTR-1 vs 3B variances need review
-              </span>
-            ) : (
-              <span className="mt-2 inline-flex rounded-full bg-[var(--ink)] px-2.5 py-0.5 text-[11px] font-medium text-white">
-                Tie-out clean
-              </span>
-            )}
+            <div className="mt-2 flex flex-wrap gap-2">
+              {!summary.tie_out_clean ? (
+                <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-200">
+                  GSTR-1 vs 3B variances need review
+                </span>
+              ) : (
+                <span className="inline-flex rounded-full bg-[var(--ink)] px-2.5 py-0.5 text-[11px] font-medium text-white">
+                  Tie-out clean
+                </span>
+              )}
+              {summary.amendment_detection_skipped ? (
+                <span className="inline-flex rounded-full bg-[#F5F5F6] px-2.5 py-0.5 text-[11px] font-medium text-gray-600">
+                  Amendment detection skipped — prior GSTR-1 not provided
+                </span>
+              ) : (summary.amendment_count || 0) > 0 ? (
+                <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-200">
+                  {(summary.amendment_count || 0).toLocaleString("en-IN")}{" "}
+                  amendment{(summary.amendment_count || 0) === 1 ? "" : "s"}{" "}
+                  (9A/9B/9C)
+                </span>
+              ) : (
+                <span className="inline-flex rounded-full bg-green-50 px-2.5 py-0.5 text-[11px] font-medium text-green-700 ring-1 ring-green-200">
+                  No amendments vs prior GSTR-1
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
@@ -379,7 +399,7 @@ export function Gstr1ResultsView({
         {Object.keys(mismatchCounts).length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {(
-              ["G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8", "G1M9", "G1M10"] as const
+              ["G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8", "G1M9", "G1M10", "G1M11"] as const
             ).map(
               (code) =>
                 mismatchCounts[code] ? (

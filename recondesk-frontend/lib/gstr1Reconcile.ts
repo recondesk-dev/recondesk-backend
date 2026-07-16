@@ -17,6 +17,7 @@ export type Gstr1MismatchType =
   | "G1M8_INVOICE_SERIES_ISSUE"
   | "G1M9_HSN_RATE_ISSUE"
   | "G1M10_DOCUMENTS_ISSUED_SUMMARY"
+  | "G1M11_AMENDMENT_REQUIRED"
   | string;
 
 export type Gstr1DecisionFields = {
@@ -107,6 +108,13 @@ export type Gstr1ParseDiagnostics = {
     sections_present?: string[];
     skip_breakdown_labeled?: unknown[];
   };
+  prior_gstr1?: {
+    filing_gstin?: string;
+    filing_period?: string;
+    total_parsed?: number;
+    invoice_level_count?: number;
+    section_counts?: Record<string, number>;
+  } | null;
 };
 
 export type Gstr1ReconcileSummary = {
@@ -122,6 +130,10 @@ export type Gstr1ReconcileSummary = {
   tie_out_variance_count: number;
   /** G1M10 Table 13 series count. */
   documents_issued_series_count?: number;
+  /** True when prior-period GSTR-1 was not uploaded (G1M11 skipped). */
+  amendment_detection_skipped?: boolean;
+  /** Count of invoices requiring Tables 9A/9B/9C amendments. */
+  amendment_count?: number;
 };
 
 export type Gstr1DocumentsIssuedSeries = {
@@ -177,6 +189,7 @@ export type Gstr1ReconcileResult = {
     sales_register_filename?: string;
     gstr1_filename?: string;
     gstr3b_filename?: string;
+    prior_gstr1_filename?: string;
     filing_period?: string | null;
     client_name?: string | null;
   };
@@ -186,6 +199,8 @@ export type Gstr1ReconcileUploadInput = {
   salesRegisterFile: File;
   gstr1JsonFile: File;
   gstr3bJsonFile: File;
+  /** Optional prior-period GSTR-1 for Tables 9A/9B/9C amendment detection. */
+  priorGstr1JsonFile?: File | null;
   gstr1FilingPeriod?: string | null;
   token: string;
 };
@@ -245,6 +260,7 @@ export function mismatchTypeShort(type: string | undefined): string {
     "G1M8",
     "G1M9",
     "G1M10",
+    "G1M11",
   ] as const) {
     if (type.includes(code)) return code;
   }
@@ -269,6 +285,9 @@ export async function runGstr1Reconcile(
   form.append("sales_register_file", input.salesRegisterFile);
   form.append("gstr1_json", input.gstr1JsonFile);
   form.append("gstr3b_json", input.gstr3bJsonFile);
+  if (input.priorGstr1JsonFile) {
+    form.append("prior_gstr1_json", input.priorGstr1JsonFile);
+  }
   if (input.gstr1FilingPeriod?.trim()) {
     form.append("gstr1_filing_period", input.gstr1FilingPeriod.trim());
   }
@@ -288,6 +307,7 @@ export async function runGstr1Reconcile(
         sales_register_filename: input.salesRegisterFile.name,
         gstr1_filename: input.gstr1JsonFile.name,
         gstr3b_filename: input.gstr3bJsonFile.name,
+        prior_gstr1_filename: input.priorGstr1JsonFile?.name,
         filing_period: input.gstr1FilingPeriod ?? null,
       },
     };

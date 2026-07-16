@@ -195,6 +195,21 @@ REGISTRY.register(RuleDefinition(
     tags=["gstr1", "table13", "documents_issued", "series"],
 ))
 
+REGISTRY.register(RuleDefinition(
+    id="G1M_011",
+    name="GSTR-1 Amendment Required (Tables 9A/9B/9C)",
+    category=RuleCategory.REPORTING,
+    severity=RuleSeverity.HIGH,
+    description=(
+        "An invoice (or credit/debit note / export) filed in a prior period's "
+        "GSTR-1 now shows different values in the current Sales Register and "
+        "should be reported as a Table 9A/9B/9C amendment."
+    ),
+    gst_ref="Section 37 CGST Act / GSTR-1 Tables 9A, 9B, 9C",
+    applies_to=["sales_register", "gstr1"],
+    tags=["gstr1", "amendment", "9a", "9b", "9c", "b2ba", "cdnra", "expa"],
+))
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Result types
@@ -212,6 +227,7 @@ class MismatchType(str, Enum):
     INVOICE_SERIES_ISSUE = "G1M8_INVOICE_SERIES_ISSUE"
     HSN_RATE_ISSUE = "G1M9_HSN_RATE_ISSUE"
     DOCUMENTS_ISSUED_SUMMARY = "G1M10_DOCUMENTS_ISSUED_SUMMARY"
+    AMENDMENT_REQUIRED = "G1M11_AMENDMENT_REQUIRED"
 
 
 class MismatchSeverity(str, Enum):
@@ -2538,6 +2554,306 @@ def summarize_documents_issued(
     return summary, results
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# G1M11 — Amendment detection (GSTR-1 Tables 9A / 9B / 9C)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Aggregate rows never participate in amendment matching.
+_AMENDMENT_SKIP_SECTIONS: frozenset[str] = frozenset({
+    "hsn", "nil", "at", "ata", "txpd", "txpda", "doc_issue",
+})
+_AMENDMENT_SKIP_TYPES: frozenset[str] = frozenset({
+    "HSN_SUMMARY", "NIL_RATED", "EXEMPT", "NON_GST", "ADVANCES", "NIL_EXEMPT",
+})
+
+
+def _amendment_invoice_key(rec: Mapping[str, Any]) -> str:
+    """Stable invoice key using the same normalisation as matching elsewhere."""
+    from app.services.matcher import normalize_invoice
+
+    raw = (
+        rec.get("invoice_number_normalized")
+        or rec.get("invoice_number")
+        or ""
+    )
+    return normalize_invoice(str(raw).strip()) if raw else ""
+
+
+def _amendment_gstin(rec: Mapping[str, Any]) -> str:
+    return clean_buyer_gstin(
+        _get_field(rec, "gstin", "recipient_gstin", "ctin", default="")
+    ) or ""
+
+
+def _amendment_table_for(rec: Mapping[str, Any]) -> str:
+    """Map a record to GSTR-1 amendment table 9A / 9B / 9C."""
+    section = str(rec.get("section") or "").strip().lower()
+    inv_type = str(
+        rec.get("invoice_type") or rec.get("document_type") or rec.get("doc_type") or ""
+    ).strip().upper()
+
+    if section in {"exp", "expa"} or inv_type == "EXPORT":
+        return "9C"
+    if (
+        section in {"cdnr", "cdnra", "cdnur", "cdnura"}
+        or inv_type in {"CREDIT_NOTE", "DEBIT_NOTE"}
+        or "CREDIT" in inv_type
+        or "DEBIT" in inv_type
+    ):
+        return "9B"
+    return "9A"
+
+
+def _is_amendment_candidate(rec: Mapping[str, Any]) -> bool:
+    section = str(rec.get("section") or "").strip().lower()
+    if section in _AMENDMENT_SKIP_SECTIONS:
+        return False
+    inv_type = str(
+        rec.get("invoice_type") or rec.get("document_type") or ""
+    ).strip().upper()
+    if inv_type in _AMENDMENT_SKIP_TYPES:
+        return False
+    return bool(_amendment_invoice_key(rec))
+
+
+def _field_diffs_for_amendment(
+    current: Mapping[str, Any],
+    prior: Mapping[str, Any],
+    *,
+    tolerance_paise: int = AMOUNT_TOLERANCE_PAISE,
+) -> list[str]:
+    """Return differed field names when current books ≠ prior filed values."""
+    differed: list[str] = []
+
+    cur_taxable = _safe_int(current.get("taxable_amount_paise"))
+    prior_taxable = _safe_int(prior.get("taxable_amount_paise"))
+    if abs(cur_taxable - prior_taxable) > tolerance_paise:
+        differed.append("taxable_amount")
+
+    cur_tax = _safe_int(current.get("total_tax_paise"))
+    if cur_tax <= 0:
+        cur_tax = (
+            _safe_int(current.get("igst_paise"))
+            + _safe_int(current.get("cgst_paise"))
+            + _safe_int(current.get("sgst_paise"))
+        )
+    prior_tax = _safe_int(prior.get("total_tax_paise"))
+    if prior_tax <= 0:
+        prior_tax = (
+            _safe_int(prior.get("igst_paise"))
+            + _safe_int(prior.get("cgst_paise"))
+            + _safe_int(prior.get("sgst_paise"))
+        )
+    if abs(cur_tax - prior_tax) > tolerance_paise:
+        differed.append("total_tax")
+
+    cur_gstin = _amendment_gstin(current)
+    prior_gstin = _amendment_gstin(prior)
+    # Only flag GSTIN change when both sides have a comparable value
+    if cur_gstin and prior_gstin and cur_gstin != prior_gstin:
+        differed.append("gstin")
+
+    cur_rate = _detect_rate(current)
+    prior_rate = _detect_rate(prior)
+    if (
+        cur_rate is not None
+        and prior_rate is not None
+        and abs(cur_rate - prior_rate) > 0.5
+    ):
+        differed.append("gst_rate")
+
+    return differed
+
+
+def _classify_amendment_skipped() -> MismatchResult:
+    return MismatchResult(
+        mismatch_type=MismatchType.AMENDMENT_REQUIRED,
+        severity=MismatchSeverity.LOW,
+        decision_what=(
+            "Amendment detection skipped — prior period GSTR-1 not provided"
+        ),
+        decision_why=(
+            "Tables 9A/9B/9C amendments are detected by comparing the current "
+            "Sales Register against a previously filed GSTR-1. No prior-period "
+            "GSTR-1 JSON was uploaded for this run, so amendment checks were "
+            "not performed."
+        ),
+        decision_next=(
+            "Re-run reconciliation and optionally upload the prior period's "
+            "filed GSTR-1 JSON to surface invoices that need 9A/9B/9C "
+            "amendments this period."
+        ),
+        rule_id="G1M_011",
+        gst_ref="Section 37 CGST Act / GSTR-1 Tables 9A, 9B, 9C",
+        details={
+            "issue_type": "amendment_detection_skipped",
+            "matched_fields": [],
+            "differed_fields": [],
+        },
+    )
+
+
+def _classify_amendment_required(
+    *,
+    invoice_number: str,
+    amendment_table: str,
+    differed_fields: list[str],
+    current: Mapping[str, Any],
+    prior: Mapping[str, Any],
+) -> MismatchResult:
+    table_label = {
+        "9A": "Table 9A (B2B / B2CL invoice amendment)",
+        "9B": "Table 9B (credit / debit note amendment)",
+        "9C": "Table 9C (export invoice amendment)",
+    }.get(amendment_table, f"Table {amendment_table}")
+
+    fields_str = ", ".join(differed_fields)
+    cur_taxable = _safe_int(current.get("taxable_amount_paise"))
+    prior_taxable = _safe_int(prior.get("taxable_amount_paise"))
+
+    severity = (
+        MismatchSeverity.HIGH
+        if any(f in differed_fields for f in ("taxable_amount", "total_tax", "gstin"))
+        else MismatchSeverity.MEDIUM
+    )
+
+    return MismatchResult(
+        mismatch_type=MismatchType.AMENDMENT_REQUIRED,
+        severity=severity,
+        decision_what=(
+            f"Invoice {invoice_number}: values changed vs prior-period "
+            f"GSTR-1 — report as {table_label} ({fields_str})"
+        ),
+        decision_why=(
+            f"This invoice was filed in a prior GSTR-1, but the current "
+            f"Sales Register shows different {fields_str}. "
+            f"Prior filed taxable {_rs(prior_taxable)} vs books "
+            f"{_rs(cur_taxable)}. Without a {amendment_table} amendment, "
+            f"the portal will retain the previously filed figures and "
+            f"output tax / ITC may be misstated."
+        ),
+        decision_next=(
+            f"Report invoice {invoice_number} under GSTR-1 {table_label} "
+            f"for the current filing period with the corrected values, or "
+            f"correct the Sales Register if the books change was unintended."
+        ),
+        rule_id="G1M_011",
+        gst_ref="Section 37 CGST Act / GSTR-1 Tables 9A, 9B, 9C",
+        details={
+            "issue_type": "amendment_required",
+            "amendment_table": amendment_table,
+            "invoice_number": invoice_number,
+            "differed_fields": differed_fields,
+            "prior_taxable_paise": prior_taxable,
+            "current_taxable_paise": cur_taxable,
+            "prior_gstin": _amendment_gstin(prior) or None,
+            "current_gstin": _amendment_gstin(current) or None,
+            "prior_rate": _detect_rate(prior),
+            "current_rate": _detect_rate(current),
+            "matched_fields": ["invoice_number"],
+        },
+    )
+
+
+def detect_amendments(
+    sr_records: list[Mapping[str, Any]] | None = None,
+    prior_gstr1_records: list[Mapping[str, Any]] | None = None,
+    *,
+    prior_provided: bool = False,
+    tolerance_paise: int = AMOUNT_TOLERANCE_PAISE,
+) -> list[MismatchResult]:
+    """G1M11 — Detect invoices that need Tables 9A / 9B / 9C amendments.
+
+    Compares the **current** Sales Register against a **prior period**
+    filed GSTR-1 (uploaded manually). An amendment is flagged only when:
+
+    1. The invoice number (normalised) exists in the prior GSTR-1, AND
+    2. Taxable value, tax, GSTIN, or rate differs beyond tolerance.
+
+    Invoices absent from the prior period are ignored (normal new sales).
+    Identical values are ignored. Invoice dates are not used to decide
+    period membership.
+
+    When *prior_provided* is False, returns a single LOW INFO note and
+    performs no comparison.
+    """
+    if not prior_provided:
+        return [_classify_amendment_skipped()]
+
+    results: list[MismatchResult] = []
+
+    # Index prior GSTR-1 by normalised invoice number (first occurrence wins).
+    # Dict size is O(n) on record count — never built from numeric ranges.
+    prior_by_inv: dict[str, Mapping[str, Any]] = {}
+    for rec in prior_gstr1_records or []:
+        if not _is_amendment_candidate(rec):
+            continue
+        key = _amendment_invoice_key(rec)
+        if key and key not in prior_by_inv:
+            prior_by_inv[key] = rec
+
+    if not prior_by_inv:
+        _log.info("detect_amendments: prior GSTR-1 has no invoice-level rows")
+        return results
+
+    seen: set[str] = set()
+    for sr_rec in sr_records or []:
+        if not _is_amendment_candidate(sr_rec):
+            continue
+        key = _amendment_invoice_key(sr_rec)
+        if not key or key in seen:
+            continue
+        prior = prior_by_inv.get(key)
+        if prior is None:
+            continue  # not in prior period → not an amendment
+
+        differed = _field_diffs_for_amendment(
+            sr_rec, prior, tolerance_paise=tolerance_paise,
+        )
+        if not differed:
+            continue
+
+        seen.add(key)
+        inv_display = str(
+            _get_field(sr_rec, "invoice_number", "invoice_number_normalized",
+                       default=key)
+        ).strip() or key
+        # Prefer the more specific table from books vs what was previously filed.
+        tables = {_amendment_table_for(sr_rec), _amendment_table_for(prior)}
+        if "9C" in tables:
+            table = "9C"
+        elif "9B" in tables:
+            table = "9B"
+        else:
+            table = "9A"
+
+        results.append(
+            _classify_amendment_required(
+                invoice_number=inv_display,
+                amendment_table=table,
+                differed_fields=differed,
+                current=sr_rec,
+                prior=prior,
+            )
+        )
+
+    _sev_order = {
+        MismatchSeverity.CRITICAL: 0,
+        MismatchSeverity.HIGH: 1,
+        MismatchSeverity.MEDIUM: 2,
+        MismatchSeverity.LOW: 3,
+    }
+    results.sort(key=lambda r: _sev_order.get(r.severity, 99))
+
+    _log.info(
+        "detect_amendments: %d amendments from %d prior invoices vs %d SR rows",
+        len(results),
+        len(prior_by_inv),
+        len(sr_records or []),
+    )
+    return results
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2561,6 +2877,7 @@ __all__ = [
     "check_invoice_series_continuity",
     "validate_hsn_rate_mapping",
     "summarize_documents_issued",
+    "detect_amendments",
     # Tolerance constants (overridable by callers)
     "AMOUNT_TOLERANCE_PAISE",
     "AMOUNT_TOLERANCE_PCT",

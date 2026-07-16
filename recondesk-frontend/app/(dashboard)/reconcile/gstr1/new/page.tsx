@@ -55,6 +55,7 @@ export default function Gstr1ReconcileNewPage() {
   const [srFile, setSrFile] = useState<File | null>(null);
   const [gstr1File, setGstr1File] = useState<File | null>(null);
   const [gstr3bFile, setGstr3bFile] = useState<File | null>(null);
+  const [priorGstr1File, setPriorGstr1File] = useState<File | null>(null);
   const [filingPeriod, setFilingPeriod] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -73,7 +74,16 @@ export default function Gstr1ReconcileNewPage() {
       setError("GSTR-1 and GSTR-3B must be .json files");
       return;
     }
-    if (srFile.size > MAX_XLSX || gstr1File.size > MAX_JSON || gstr3bFile.size > MAX_JSON) {
+    if (priorGstr1File && !/\.json$/i.test(priorGstr1File.name)) {
+      setError("Prior period GSTR-1 must be a .json file");
+      return;
+    }
+    if (
+      srFile.size > MAX_XLSX ||
+      gstr1File.size > MAX_JSON ||
+      gstr3bFile.size > MAX_JSON ||
+      (priorGstr1File != null && priorGstr1File.size > MAX_JSON)
+    ) {
       setError("One or more files exceed the 20 MB limit");
       return;
     }
@@ -84,6 +94,7 @@ export default function Gstr1ReconcileNewPage() {
         salesRegisterFile: srFile,
         gstr1JsonFile: gstr1File,
         gstr3bJsonFile: gstr3bFile,
+        priorGstr1JsonFile: priorGstr1File,
         gstr1FilingPeriod: filingPeriod.trim() || null,
         token,
       });
@@ -100,7 +111,7 @@ export default function Gstr1ReconcileNewPage() {
     } finally {
       setRunning(false);
     }
-  }, [token, srFile, gstr1File, gstr3bFile, filingPeriod, router]);
+  }, [token, srFile, gstr1File, gstr3bFile, priorGstr1File, filingPeriod, router]);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-8 py-8">
@@ -113,8 +124,9 @@ export default function Gstr1ReconcileNewPage() {
         </h1>
         <p className="mt-2 text-[14px] leading-relaxed text-gray-500">
           Upload your Sales Register, GSTR-1 JSON, and GSTR-3B JSON. We match
-          invoices, classify G1M1–G1M10 mismatches, summarise Table 13 documents
-          issued, and tie out outward supplies against Table 3.1(a).
+          invoices, classify G1M1–G1M11 mismatches, summarise Table 13 documents
+          issued, detect Tables 9A/9B/9C amendments when a prior GSTR-1 is
+          provided, and tie out outward supplies against Table 3.1(a).
         </p>
       </div>
 
@@ -139,6 +151,13 @@ export default function Gstr1ReconcileNewPage() {
           accept=".json,application/json"
           file={gstr3bFile}
           onChange={setGstr3bFile}
+        />
+        <FileField
+          label="Prior Period GSTR-1 JSON (optional — for amendment detection)"
+          hint=".json — previously filed GSTR-1 used to detect Tables 9A / 9B / 9C amendments"
+          accept=".json,application/json"
+          file={priorGstr1File}
+          onChange={setPriorGstr1File}
         />
 
         <label className="block rounded-[1.25rem] bg-white p-5 shadow-[var(--shadow-soft)] ring-1 ring-[#F0F0F0]">
