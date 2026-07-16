@@ -236,18 +236,18 @@ def _print_response(data: dict[str, Any]) -> None:
     print(f"  success: {data.get('success')}")
 
     counts = Counter(_mismatch_type_key(m) for m in mismatches)
-    _print_section("Mismatches (G1M1–G1M6)")
+    _print_section("Mismatches (G1M1–G1M8)")
     print(f"  Total mismatches found: {len(mismatches)}")
     if not counts:
         print("  (no invoice-level mismatches classified)")
     else:
         print("  Counts by type:")
-        for code in ("G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6"):
+        for code in ("G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8"):
             if code in counts:
                 print(f"    {code}: {counts[code]}")
         # Any unexpected keys
         for code, n in sorted(counts.items()):
-            if code not in {"G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6"}:
+            if code not in {"G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8"}:
                 print(f"    {code}: {n}")
 
     # Short WHAT lines for each mismatch
@@ -370,9 +370,9 @@ def main() -> int:
         for key, val in summary.items():
             print(f"  {key}: {val}")
         counts = Counter(_mismatch_type_key(m) for m in mismatches)
-        _print_section("Mismatches (G1M1–G1M6)")
+        _print_section("Mismatches (G1M1–G1M8)")
         print(f"  Total mismatches found: {len(mismatches)}")
-        for code in ("G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6"):
+        for code in ("G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8"):
             if code in counts:
                 print(f"    {code}: {counts[code]}")
         for m in mismatches:
