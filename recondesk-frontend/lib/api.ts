@@ -938,11 +938,38 @@ export interface ClientImportMappingItem {
   target_field: ImportTargetField;
 }
 
+export interface RegisterValidationIssue {
+  severity: "error" | "warning" | "info";
+  code: string;
+  message: string;
+}
+
+export interface RegisterTypeDetection {
+  register_type: "purchase" | "sales" | "ambiguous";
+  confidence: "high" | "medium" | "low";
+  is_tally_export: boolean;
+  source_software: string;
+  purchase_score?: number;
+  sales_score?: number;
+  reasons: string[];
+  suggested_pipeline: "gstr2b" | "gstr1" | null;
+  requires_manual_choice: boolean;
+  headers?: string[];
+  sheet_names?: string[];
+  help_copy?: string | null;
+  validation_issues: RegisterValidationIssue[];
+  effective_type?: "purchase" | "sales" | null;
+  override_applied?: boolean;
+  pipeline_mismatch?: boolean;
+  context_help_copy?: string | null;
+}
+
 export interface PrDetectColumnsResponse {
   headers: string[];
   schema_ok: boolean;
   saved_mapping: ClientImportMappingRow[] | null;
   saved_mapping_covers: boolean;
+  register_type_detection?: RegisterTypeDetection | null;
 }
 
 export interface RunPollStatus {
@@ -1123,6 +1150,38 @@ export const prUploadApi = {
       method: "DELETE",
       token,
     }),
+};
+
+export const registerUploadApi = {
+  detectType: async (
+    token: string,
+    file: File,
+    opts?: {
+      expectedType?: "purchase" | "sales";
+      overrideType?: "purchase" | "sales";
+      clientGstinId?: string;
+    }
+  ): Promise<RegisterTypeDetection> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (opts?.expectedType) fd.append("expected_type", opts.expectedType);
+    if (opts?.overrideType) fd.append("override_type", opts.overrideType);
+    if (opts?.clientGstinId) fd.append("client_gstin_id", opts.clientGstinId);
+    return apiFetch<RegisterTypeDetection>("/api/register-upload/detect-type", {
+      method: "POST",
+      token,
+      body: fd,
+    });
+  },
+
+  help: (token: string, registerType?: "purchase" | "sales") => {
+    const q = registerType ? `?register_type=${registerType}` : "";
+    return apiFetch<{
+      purchase?: string;
+      sales?: string;
+      help_copy?: string;
+    }>(`/api/register-upload/help${q}`, { token });
+  },
 };
 
 export interface NotificationPreferences {

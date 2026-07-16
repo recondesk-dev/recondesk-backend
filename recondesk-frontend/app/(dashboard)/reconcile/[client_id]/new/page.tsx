@@ -14,9 +14,13 @@ import {
   type ColumnMappingRow,
   type ImportTargetField,
   type ImportWizardRun,
+  type RegisterTypeDetection,
   type SanityCheckItem,
 } from "@/lib/api";
 import { isGstnConnected } from "@/components/clients/ConnectGstnModal";
+import {
+  RegisterTypeDetectionBanner,
+} from "@/components/reconcile/TallyRegisterImportHints";
 import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 
 const MAX_UPLOAD = 20 * 1024 * 1024;
@@ -285,6 +289,11 @@ export default function NewReconcileWizardPage() {
   const [schemaOk, setSchemaOk] = useState(false);
   const [mappingSaveError, setMappingSaveError] = useState<string | null>(null);
   const [confirmSavedMapping, setConfirmSavedMapping] = useState(false);
+  const [registerTypeDetection, setRegisterTypeDetection] =
+    useState<RegisterTypeDetection | null>(null);
+  const [registerTypeOverride, setRegisterTypeOverride] = useState<
+    "purchase" | "sales" | null
+  >(null);
 
   const [startBusy, setStartBusy] = useState(false);
   const [start409, setStart409] = useState<string | null>(null);
@@ -628,6 +637,8 @@ export default function NewReconcileWizardPage() {
     setAllHeaders([]);
     setSavedMappingCovers(false);
     setSchemaOk(false);
+    setRegisterTypeDetection(null);
+    setRegisterTypeOverride(null);
     if (!file || typeof token !== "string" || !clientId) return;
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
     if (!["csv", "xlsx", "xls"].includes(ext)) {
@@ -645,6 +656,15 @@ export default function NewReconcileWizardPage() {
       setAllHeaders(res.headers);
       setSchemaOk(!!res.schema_ok);
       setSavedMappingCovers(!!res.saved_mapping_covers);
+      if (res.register_type_detection) {
+        setRegisterTypeDetection({
+          ...res.register_type_detection,
+          pipeline_mismatch:
+            res.register_type_detection.register_type === "sales" &&
+            (res.register_type_detection.confidence === "high" ||
+              res.register_type_detection.confidence === "medium"),
+        });
+      }
       const next: Record<string, ImportTargetField | ""> = {};
       for (const h of res.headers) next[h] = "";
       if (res.saved_mapping_covers && res.saved_mapping?.length) {
@@ -668,6 +688,17 @@ export default function NewReconcileWizardPage() {
     } finally {
       setPreDetectBusy(false);
     }
+  };
+
+  const onRegisterTypeOverride = (type: "purchase" | "sales") => {
+    if (type === "sales") {
+      const href = clientId
+        ? `/reconcile/gstr1/new?client_gstin_id=${encodeURIComponent(clientId)}`
+        : "/reconcile/gstr1/new";
+      router.push(href);
+      return;
+    }
+    setRegisterTypeOverride("purchase");
   };
 
   const buildMappingItems = (): ClientImportMappingItem[] | null => {
@@ -923,11 +954,19 @@ export default function NewReconcileWizardPage() {
 
   const preUploadMappingComplete =
     requiredTargetsMapped(headerToTarget) && isTaxMapped(headerToTarget);
+  const registerTypeBlocksUpload =
+    !!registerTypeDetection &&
+    registerTypeOverride !== "purchase" &&
+    (registerTypeDetection.requires_manual_choice ||
+      registerTypeDetection.register_type === "ambiguous" ||
+      (!!registerTypeDetection.pipeline_mismatch &&
+        registerTypeDetection.register_type === "sales"));
   const canConfirmAndUpload =
     !!prFile &&
     !busy &&
     !preDetectBusy &&
     allHeaders.length > 0 &&
+    !registerTypeBlocksUpload &&
     (savedMappingCovers
       ? confirmSavedMapping || preUploadMappingComplete
       : schemaOk || preUploadMappingComplete);
@@ -1599,9 +1638,37 @@ export default function NewReconcileWizardPage() {
                 onChange={(e) => void onPrFileSelected(e.target.files?.[0] ?? null)}
                 className="text-sm"
               />
+              <p className="text-[12px] text-[var(--text-secondary)]">
+                Accepts Tally Purchase Register exports (Excel/CSV) and other columnar
+                books exports. Sales Registers belong on GSTR-1 Check.
+              </p>
               {preDetectBusy ? (
                 <p className="text-sm text-[var(--text-secondary)]">Reading columns…</p>
               ) : null}
+              {registerTypeDetection ? (
+                <RegisterTypeDetectionBanner
+                  detection={registerTypeDetection}
+                  expectedType="purchase"
+                  clientId={clientId}
+                  overridden={registerTypeOverride === "purchase"}
+                  onOverride={onRegisterTypeOverride}
+                  onClearOverride={() => setRegisterTypeOverride(null)}
+                  busy={preDetectBusy}
+                />
+              ) : (
+                <details className="rounded-lg border border-[var(--border)] bg-[#FAFAFA] px-3 py-2 text-[12px] text-gray-600">
+                  <summary className="cursor-pointer font-medium text-[var(--ink)]">
+                    How to export from Tally (Purchase Register)
+                  </summary>
+                  <p className="mt-2 leading-relaxed">
+                    In TallyPrime: Gateway of Tally → Display More Reports → Statutory
+                    Reports → GST → GSTR-2 / Purchase Register → set period → Alt+E
+                    (Export) → Excel or CSV. In Tally ERP 9: Gateway of Tally → Display →
+                    Statutory Reports → GST → GSTR-2 → Export. Include GSTIN and tax
+                    columns in the export configuration.
+                  </p>
+                </details>
+              )}
               {prProgress > 0 && prProgress < 100 ? (
                 <div className="space-y-1">
                   <div className="h-2 w-full overflow-hidden rounded bg-[var(--border)]">

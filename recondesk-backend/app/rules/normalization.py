@@ -158,8 +158,11 @@ REGISTRY.register(RuleDefinition(
     name="Tally Detection",
     category=RuleCategory.NORMALIZATION,
     severity=RuleSeverity.LOW,
-    description="Detect Tally export format from column headers and apply Tally-specific column mapping.",
-    applies_to=["purchase_register"],
+    description=(
+        "Detect Tally Export format from column headers, classify Purchase vs Sales "
+        "register type, and apply Tally-specific column alias mapping."
+    ),
+    applies_to=["purchase_register", "sales_register"],
     tags=["normalisation", "parser", "tally"],
 ))
 

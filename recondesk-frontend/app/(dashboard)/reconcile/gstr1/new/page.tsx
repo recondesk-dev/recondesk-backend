@@ -5,7 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useState } from "react";
 import { Loader2 } from "lucide-react";
 
-import { isApiError } from "@/lib/api";
+import {
+  RegisterTypeDetectionBanner,
+} from "@/components/reconcile/TallyRegisterImportHints";
+import { isApiError, registerUploadApi, type RegisterTypeDetection } from "@/lib/api";
 import {
   persistGstr1Result,
   runGstr1Reconcile,
@@ -61,8 +64,80 @@ function Gstr1ReconcileNewContent() {
   const [filingPeriod, setFilingPeriod] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [detectBusy, setDetectBusy] = useState(false);
+  const [registerTypeDetection, setRegisterTypeDetection] =
+    useState<RegisterTypeDetection | null>(null);
+  const [registerTypeOverride, setRegisterTypeOverride] = useState<
+    "purchase" | "sales" | null
+  >(null);
 
-  const canSubmit = Boolean(token && srFile && gstr1File && gstr3bFile && !running);
+  const registerTypeBlocksSubmit =
+    !!registerTypeDetection &&
+    registerTypeOverride !== "sales" &&
+    (registerTypeDetection.requires_manual_choice ||
+      registerTypeDetection.register_type === "ambiguous" ||
+      (!!registerTypeDetection.pipeline_mismatch &&
+        registerTypeDetection.register_type === "purchase"));
+
+  const canSubmit = Boolean(
+    token &&
+      srFile &&
+      gstr1File &&
+      gstr3bFile &&
+      !running &&
+      !detectBusy &&
+      !registerTypeBlocksSubmit
+  );
+
+  const onSrFileChange = useCallback(
+    async (file: File | null) => {
+      setSrFile(file);
+      setRegisterTypeDetection(null);
+      setRegisterTypeOverride(null);
+      setError(null);
+      if (!file || !token) return;
+      if (!/\.(xlsx|xls|csv)$/i.test(file.name)) {
+        setError("Sales Register must be .xlsx, .xls, or .csv");
+        return;
+      }
+      if (file.size > MAX_XLSX) {
+        setError("Sales Register exceeds the 20 MB limit");
+        return;
+      }
+      setDetectBusy(true);
+      try {
+        const det = await registerUploadApi.detectType(token, file, {
+          expectedType: "sales",
+          clientGstinId: clientGstinId ?? undefined,
+        });
+        setRegisterTypeDetection({
+          ...det,
+          pipeline_mismatch:
+            det.register_type === "purchase" &&
+            (det.confidence === "high" || det.confidence === "medium"),
+        });
+      } catch (err) {
+        // Soft-fail: still allow upload; type banner just won't show.
+        if (isApiError(err)) {
+          console.warn("register detect-type failed:", err.detail);
+        }
+      } finally {
+        setDetectBusy(false);
+      }
+    },
+    [token, clientGstinId]
+  );
+
+  const onRegisterTypeOverride = (type: "purchase" | "sales") => {
+    if (type === "purchase") {
+      const href = clientGstinId
+        ? `/reconcile/${encodeURIComponent(clientGstinId)}/new`
+        : "/clients";
+      router.push(href);
+      return;
+    }
+    setRegisterTypeOverride("sales");
+  };
 
   const onSubmit = useCallback(async () => {
     if (!token || !srFile || !gstr1File || !gstr3bFile) return;
@@ -87,6 +162,12 @@ function Gstr1ReconcileNewContent() {
       (priorGstr1File != null && priorGstr1File.size > MAX_JSON)
     ) {
       setError("One or more files exceed the 20 MB limit");
+      return;
+    }
+    if (registerTypeBlocksSubmit) {
+      setError(
+        "Confirm this file is a Sales Register (or open the Purchase / GSTR-2B import) before running."
+      );
       return;
     }
 
@@ -130,6 +211,7 @@ function Gstr1ReconcileNewContent() {
     filingPeriod,
     clientGstinId,
     router,
+    registerTypeBlocksSubmit,
   ]);
 
   return (
@@ -152,11 +234,38 @@ function Gstr1ReconcileNewContent() {
       <div className="space-y-3">
         <FileField
           label="Sales Register"
-          hint=".xlsx / .xls / .csv — books of account (outward supplies)"
+          hint=".xlsx / .xls / .csv — Tally Sales Register or other books of account (outward supplies)"
           accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           file={srFile}
-          onChange={setSrFile}
+          onChange={(f) => void onSrFileChange(f)}
         />
+        {detectBusy ? (
+          <p className="px-1 text-[12px] text-gray-500">Detecting register type…</p>
+        ) : null}
+        {registerTypeDetection ? (
+          <RegisterTypeDetectionBanner
+            detection={registerTypeDetection}
+            expectedType="sales"
+            clientId={clientGstinId}
+            overridden={registerTypeOverride === "sales"}
+            onOverride={onRegisterTypeOverride}
+            onClearOverride={() => setRegisterTypeOverride(null)}
+            busy={detectBusy}
+          />
+        ) : (
+          <details className="rounded-[1.25rem] bg-white px-5 py-4 text-[12px] text-gray-600 shadow-[var(--shadow-soft)] ring-1 ring-[#F0F0F0]">
+            <summary className="cursor-pointer text-[13px] font-semibold text-[var(--ink)]">
+              How to export from Tally (Sales Register)
+            </summary>
+            <p className="mt-2 leading-relaxed">
+              In TallyPrime: Gateway of Tally → Display More Reports → Statutory
+              Reports → GST → GSTR-1 / Sales Register → set period → Alt+E (Export) →
+              Excel or CSV. In Tally ERP 9: Gateway of Tally → Display → Statutory
+              Reports → GST → GSTR-1 → Export. Prefer a columnar register that includes
+              GSTIN/UIN, Taxable Amt, and Invoice Type (B2B/B2C) when available.
+            </p>
+          </details>
+        )}
         <FileField
           label="GSTR-1 JSON"
           hint="Portal download or API response for the filing period"

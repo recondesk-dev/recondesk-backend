@@ -64,11 +64,19 @@ async def detect_columns(
         saved = cim.get_mappings_or_none(sb, client_gstin_id)
         if saved:
             covers = cim.mapping_covers_headers(saved, headers)
+
+    # Type detection + Tally Export profile hints (Purchase pipeline context).
+    from app.parsers.tally_register import inspect_register_file
+
+    detection = inspect_register_file(
+        content, filename, expected_type="purchase"
+    )
     return {
         "headers": headers,
         "schema_ok": schema_ok,
         "saved_mapping": saved,
         "saved_mapping_covers": covers,
+        "register_type_detection": detection.to_dict(),
     }
 
 

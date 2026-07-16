@@ -24,6 +24,15 @@ from app.services.normalizer import (
     normalize_gstin,
 )
 from app.services.matcher import normalize_invoice
+from app.parsers.tally_register import (
+    TALLY_PURCHASE_ALIASES,
+    detect_source_software_tally,
+    extract_gstin_from_party_cell,
+    is_multiline_party_name,
+    looks_like_tally_headers,
+    merge_aliases,
+    validate_tally_export,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +76,7 @@ STANDARD_TO_CANONICAL: dict[str, str] = {
     "hsn": "hsn",
 }
 
-COLUMN_ALIASES: dict[str, list[str]] = {
+_BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     "gstin": [
         "gstin", "supplier gstin", "party gstin", "vendor gstin", "gst no",
         "gstn", "gst number", "vendor gst", "party gst no", "buyer gst",
@@ -130,6 +139,11 @@ COLUMN_ALIASES: dict[str, list[str]] = {
     ],
 }
 
+# Includes the named "Tally Export" alias profile (Party's A/c Name, Vch No., …).
+COLUMN_ALIASES: dict[str, list[str]] = merge_aliases(
+    _BASE_COLUMN_ALIASES, TALLY_PURCHASE_ALIASES
+)
+
 # Sheets whose normalised name contains any of these words are skipped.
 _SKIP_SHEET_WORDS: frozenset[str] = frozenset(
     ["summary", "total", "instruction", "readme"]
@@ -164,9 +178,10 @@ def normalize_header(col: str) -> str:
 
 def detect_source_software(columns: list) -> str:
     """Heuristically identify the source accounting software."""
+    tally = detect_source_software_tally(columns)
+    if tally:
+        return tally
     norm_cols = {normalize_header(str(c)) for c in columns}
-    if "voucher type" in norm_cols:
-        return "Tally"
     if "narration" in norm_cols:
         return "Busy"
     return "Excel/Unknown"
@@ -747,12 +762,46 @@ def _process_pr_sheet_rows(
 
         row_errors: list[str] = []
 
+        # Tally quirk: GSTIN sometimes lives inside the party-name cell.
+        supplier_name = _safe_cell(row.get("supplier_name"))
+        party_raw_for_gstin: Any = None
+        if "supplier_name" in column_mapping:
+            party_raw_for_gstin = orig_row.get(column_mapping["supplier_name"])
+            if is_multiline_party_name(party_raw_for_gstin) and supplier_name:
+                # Keep first non-empty line as the display name.
+                first_line = next(
+                    (
+                        ln.strip()
+                        for ln in str(party_raw_for_gstin).replace("\r", "\n").split("\n")
+                        if ln.strip()
+                    ),
+                    supplier_name,
+                )
+                party_clean, embedded = extract_gstin_from_party_cell(first_line)
+                supplier_name = party_clean or first_line
+            else:
+                party_clean, embedded = extract_gstin_from_party_cell(
+                    party_raw_for_gstin if party_raw_for_gstin is not None else supplier_name
+                )
+                if party_clean:
+                    supplier_name = party_clean
+        else:
+            embedded = None
+
         gstin_value: str | None = None
         gstin_valid = False
         if "gstin" in column_mapping:
             raw_gstin = row.get("gstin")
             if raw_gstin is None:
-                row_errors.append("missing GSTIN")
+                if embedded:
+                    try:
+                        gstin_value = normalize_gstin(embedded)
+                        gstin_valid = True
+                    except NormalizationError:
+                        gstin_value = embedded
+                        gstin_valid = False
+                else:
+                    row_errors.append("missing GSTIN")
             else:
                 try:
                     gstin_value = normalize_gstin(str(raw_gstin).strip())
@@ -760,6 +809,14 @@ def _process_pr_sheet_rows(
                 except NormalizationError:
                     gstin_value = str(raw_gstin).strip().upper() or None
                     gstin_valid = False
+        elif embedded:
+            # No dedicated GSTIN column (common Tally quirk) — use embedded value.
+            try:
+                gstin_value = normalize_gstin(embedded)
+                gstin_valid = True
+            except NormalizationError:
+                gstin_value = embedded
+                gstin_valid = False
 
         inv_raw: str | None = None
         if "invoice_number" in column_mapping:
@@ -870,7 +927,7 @@ def _process_pr_sheet_rows(
             "invoice_date": date_value,
             "gstin": gstin_value,
             "gstin_valid": gstin_valid,
-            "supplier_name": _safe_cell(row.get("supplier_name")),
+            "supplier_name": supplier_name,
             "taxable_amount_paise": taxable_amount_paise,
             "igst_paise": igst_paise,
             "cgst_paise": cgst_paise,
@@ -1266,6 +1323,18 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
     result["skip_reasons"] = skip_reasons
     result["detected_columns"] = column_mapping
     result["unmapped_columns"] = unmapped_columns
+    if source_software == "Tally" or looks_like_tally_headers(
+        list(column_mapping.values()) if column_mapping else []
+    ):
+        result["export_profile"] = "Tally Export"
+        for issue in validate_tally_export(
+            register_type="purchase",
+            headers=list(column_mapping.values()) if column_mapping else [],
+            is_tally_export=True,
+        ):
+            msg = f"[Tally Export] {issue['message']}"
+            if msg not in warnings:
+                warnings.append(msg)
     result["warnings"] = warnings
     result["sheets_used"] = sheets_used
     result["sheets_skipped"] = sheets_skipped

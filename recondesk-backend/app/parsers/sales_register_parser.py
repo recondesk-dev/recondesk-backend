@@ -25,6 +25,15 @@ from app.services.normalizer import (
     normalize_gstin,
 )
 from app.services.matcher import normalize_invoice
+from app.parsers.tally_register import (
+    TALLY_SALES_ALIASES,
+    detect_source_software_tally,
+    extract_gstin_from_party_cell,
+    is_multiline_party_name,
+    looks_like_tally_headers,
+    merge_aliases,
+    validate_tally_export,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +98,7 @@ _ABSENT_GSTIN_TOKENS: frozenset[str] = frozenset(
     }
 )
 
-COLUMN_ALIASES: dict[str, list[str]] = {
+_BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     "gstin": [
         "gstin", "recipient gstin", "party gstin", "buyer gstin",
         "customer gstin", "gst no", "gstn", "gst number",
@@ -164,6 +173,11 @@ COLUMN_ALIASES: dict[str, list[str]] = {
     ],
 }
 
+# Includes the named "Tally Export" alias profile (Particulars, Party's A/c Name, …).
+COLUMN_ALIASES: dict[str, list[str]] = merge_aliases(
+    _BASE_COLUMN_ALIASES, TALLY_SALES_ALIASES
+)
+
 # Sheets whose normalised name contains any of these words are skipped.
 _SKIP_SHEET_WORDS: frozenset[str] = frozenset(
     ["summary", "total", "instruction", "readme"]
@@ -217,9 +231,10 @@ def normalize_header(col: str) -> str:
 
 def detect_source_software(columns: list) -> str:
     """Heuristically identify the source accounting software."""
+    tally = detect_source_software_tally(columns)
+    if tally:
+        return tally
     norm_cols = {normalize_header(str(c)) for c in columns}
-    if "voucher type" in norm_cols:
-        return "Tally"
     if "narration" in norm_cols:
         return "Busy"
     return "Excel/Unknown"
@@ -976,6 +991,29 @@ def _process_sr_sheet_rows(
 
         row_errors: list[str] = []
 
+        # Tally quirk: party name may be multiline or embed GSTIN.
+        recipient_name = _safe_cell(row.get("recipient_name"))
+        embedded: str | None = None
+        if "recipient_name" in column_mapping:
+            party_raw = orig_row.get(column_mapping["recipient_name"])
+            if is_multiline_party_name(party_raw) and recipient_name:
+                first_line = next(
+                    (
+                        ln.strip()
+                        for ln in str(party_raw).replace("\r", "\n").split("\n")
+                        if ln.strip()
+                    ),
+                    recipient_name,
+                )
+                party_clean, embedded = extract_gstin_from_party_cell(first_line)
+                recipient_name = party_clean or first_line
+            else:
+                party_clean, embedded = extract_gstin_from_party_cell(
+                    party_raw if party_raw is not None else recipient_name
+                )
+                if party_clean:
+                    recipient_name = party_clean
+
         # --- GSTIN of recipient ---
         gstin_value: str | None = None
         gstin_valid = False
@@ -985,8 +1023,14 @@ def _process_sr_sheet_rows(
             # and ``str(nan).upper()`` would otherwise become "NAN".
             raw_gstin = _safe_cell(row.get("gstin"))
             if raw_gstin is None or _is_absent_gstin_token(raw_gstin):
-                # GSTIN can be absent for B2C sales — not an error on its own
-                pass
+                # Fall back to GSTIN embedded in party name (Tally quirk).
+                if embedded and not _is_absent_gstin_token(embedded):
+                    try:
+                        gstin_value = normalize_gstin(embedded)
+                        gstin_valid = True
+                    except NormalizationError:
+                        gstin_value = embedded
+                        gstin_valid = False
             else:
                 try:
                     gstin_value = normalize_gstin(raw_gstin)
@@ -1003,6 +1047,13 @@ def _process_sr_sheet_rows(
                         gstin_value
                     ):
                         gstin_value = None
+        elif embedded and not _is_absent_gstin_token(embedded):
+            try:
+                gstin_value = normalize_gstin(embedded)
+                gstin_valid = True
+            except NormalizationError:
+                gstin_value = embedded
+                gstin_valid = False
 
         # --- Invoice number ---
         inv_raw: str | None = None
@@ -1109,7 +1160,7 @@ def _process_sr_sheet_rows(
             "invoice_date": date_value,
             "gstin": gstin_value,
             "gstin_valid": gstin_valid,
-            "recipient_name": _safe_cell(row.get("recipient_name")),
+            "recipient_name": recipient_name,
             "taxable_amount_paise": taxable_amount_paise,
             "igst_paise": igst_paise,
             "cgst_paise": cgst_paise,
@@ -1529,6 +1580,18 @@ def parse_sales_register(file_content: bytes, filename: str) -> dict:
     result["skip_reasons"] = skip_reasons
     result["detected_columns"] = column_mapping
     result["unmapped_columns"] = unmapped_columns
+    if source_software == "Tally" or looks_like_tally_headers(
+        list(column_mapping.values()) if column_mapping else []
+    ):
+        result["export_profile"] = "Tally Export"
+        for issue in validate_tally_export(
+            register_type="sales",
+            headers=list(column_mapping.values()) if column_mapping else [],
+            is_tally_export=True,
+        ):
+            msg = f"[Tally Export] {issue['message']}"
+            if msg not in warnings:
+                warnings.append(msg)
     result["warnings"] = warnings
     result["sheets_used"] = sheets_used
     result["sheets_skipped"] = sheets_skipped
