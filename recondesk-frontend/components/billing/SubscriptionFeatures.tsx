@@ -244,10 +244,6 @@ export function SubscriptionFeatures({ compact = false }: Props) {
               idx % 2 === 1 ? "sm:ml-6 lg:ml-12" : "sm:mr-6 lg:mr-12"
             }`}
           >
-            <div className="pointer-events-none absolute -right-6 -top-8 select-none text-[7rem] font-semibold leading-none tracking-tighter text-[var(--ink)]/[0.04] sm:text-[9rem]">
-              {chapter.index}
-            </div>
-
             <div className="relative grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] lg:gap-10">
               <header className="min-w-0">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">
@@ -256,7 +252,13 @@ export function SubscriptionFeatures({ compact = false }: Props) {
                 <h3 className="mt-2 text-2xl font-semibold tracking-tight text-[var(--ink)] sm:text-[1.75rem]">
                   {chapter.title}
                 </h3>
-                <p className="mt-2 max-w-sm text-sm leading-relaxed text-gray-600">
+                <p
+                  className="mt-1 text-4xl font-semibold leading-none tracking-tighter text-[var(--ink)]/10 sm:text-5xl"
+                  aria-hidden
+                >
+                  {chapter.index}
+                </p>
+                <p className="mt-3 max-w-sm text-sm leading-relaxed text-gray-600">
                   {chapter.kicker}
                 </p>
                 <div
