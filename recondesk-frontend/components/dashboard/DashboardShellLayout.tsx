@@ -97,6 +97,26 @@ function NavIconUsers({ className }: { className?: string }) {
   );
 }
 
+function NavIconVendors({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9 22V12h6v10"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function NavIconRefresh({ className }: { className?: string }) {
   return (
     <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -350,6 +370,7 @@ export default function DashboardShellLayout({
   const nav = [
     { href: "/dashboard", label: "Dashboard", Icon: NavIconDashboard },
     { href: "/clients", label: "Clients", Icon: NavIconUsers },
+    { href: "/vendors", label: "Vendors", Icon: NavIconVendors },
     { href: "/runs", label: "Runs", Icon: NavIconRefresh },
     ...(currentUser.role === "ADMIN"
       ? [{ href: "/manage-data", label: "Manage Data", Icon: NavIconDatabase }]

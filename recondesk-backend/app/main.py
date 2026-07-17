@@ -36,6 +36,7 @@ from app.routers import (
     reports,
     upload,
     users as users_router,
+    vendors,
     webhooks,
 )
 from app.routers import payments as payments_routes
@@ -117,6 +118,19 @@ async def stuck_job_detector() -> None:
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            if settings.SENTRY_DSN:
+                sentry_sdk.capture_exception(e)
+        # Vendor compliance scorecard full rebuild (throttled to 24h inside service).
+        try:
+            from app.services.supplier_compliance_scorecard import (
+                run_scorecard_daily_rebuild,
+            )
+
+            await run_scorecard_daily_rebuild()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            _log.exception("supplier_compliance_scorecard rebuild failed")
             if settings.SENTRY_DSN:
                 sentry_sdk.capture_exception(e)
 
@@ -237,6 +251,11 @@ app.include_router(
     intelligence.router,
     prefix="/api/intelligence",
     tags=["Intelligence"],
+)
+app.include_router(
+    vendors.router,
+    prefix="/api/vendors",
+    tags=["Vendors"],
 )
 app.include_router(upload.router, prefix="/api/v1/upload", tags=["Upload"])
 app.include_router(upload.public_router, prefix="/upload", tags=["Upload"])

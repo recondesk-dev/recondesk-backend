@@ -789,6 +789,88 @@ export const billingApi = {
     apiFetch<PaymentHistoryRow[]>("/api/payments/history", { token }),
 };
 
+// ─── Vendor compliance scorecard ─────────────────────────────────────────────
+
+export type VendorScorecardSort =
+  | "risk_score"
+  | "clients_touched_count"
+  | "mismatch_rate"
+  | "rule37_open_count"
+  | "late_filing_rate"
+  | "supplier_gstin_normalized"
+  | "total_invoices"
+  | "last_updated_at";
+
+export interface VendorScorecardRow {
+  supplier_gstin: string;
+  supplier_trade_name: string;
+  clients_touched_count: number;
+  client_gstin_ids: string[];
+  total_invoices: number;
+  mismatch_invoice_count: number;
+  mismatch_rate: number;
+  rule37_open_count: number;
+  rule37_at_risk_paise: number;
+  section_17_5_count: number;
+  late_filing_count: number;
+  late_filing_rate: number;
+  pr_only_count: number;
+  quarterly_filer_flag: boolean;
+  risk_score: number;
+  last_updated_at: string | null;
+}
+
+export interface VendorScorecardListResponse {
+  items: VendorScorecardRow[];
+  total: number;
+  limit: number;
+  offset: number;
+  signal_notes: Record<string, string>;
+}
+
+export interface VendorScorecardClientTouch {
+  client_gstin_id: string;
+  gstin: string;
+  trade_name: string;
+}
+
+export interface VendorScorecardDetailResponse {
+  supplier: VendorScorecardRow;
+  clients: VendorScorecardClientTouch[];
+  signal_notes: Record<string, string>;
+}
+
+export const vendorsApi = {
+  scorecard: (
+    token: string,
+    params?: {
+      limit?: number;
+      offset?: number;
+      sort?: VendorScorecardSort;
+      order?: "asc" | "desc";
+      q?: string;
+    }
+  ) => {
+    const sp = new URLSearchParams();
+    if (params?.limit != null) sp.set("limit", String(params.limit));
+    if (params?.offset != null) sp.set("offset", String(params.offset));
+    if (params?.sort) sp.set("sort", params.sort);
+    if (params?.order) sp.set("order", params.order);
+    if (params?.q?.trim()) sp.set("q", params.q.trim());
+    const qs = sp.toString();
+    return apiFetch<VendorScorecardListResponse>(
+      `/api/vendors/scorecard${qs ? `?${qs}` : ""}`,
+      { token }
+    );
+  },
+
+  scorecardDetail: (token: string, supplierGstin: string) =>
+    apiFetch<VendorScorecardDetailResponse>(
+      `/api/vendors/scorecard/${encodeURIComponent(supplierGstin)}`,
+      { token }
+    ),
+};
+
 /** Opens PDF in a new tab (Bearer token). */
 export async function openPaymentReceipt(
   token: string,

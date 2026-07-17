@@ -1472,6 +1472,16 @@ def execute_reconciliation(run_id: str) -> None:
                 "updated_at": _now_iso(),
             },
         )
+        try:
+            from app.services.supplier_compliance_scorecard import refresh_after_run
+
+            refresh_after_run(
+                client, run_id=run_id, client_gstin_id=client_gstin_id
+            )
+        except Exception:
+            _log.exception(
+                "supplier scorecard refresh failed run_id=%s", run_id
+            )
         match_rate = round(len(state.clean_matched) / n_gstr * 100, 2) if n_gstr else 0.0
 
         to_email = ""
