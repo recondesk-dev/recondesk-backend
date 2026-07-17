@@ -277,6 +277,8 @@ export default function NewReconcileWizardPage() {
   const [prFile, setPrFile] = useState<File | null>(null);
   const [prProgress, setPrProgress] = useState(0);
   const [prUploadFailed, setPrUploadFailed] = useState(false);
+  /** Optional GSTR-3B claim period for Rule 37(3) interest (YYYY-MM-01). Empty = unset. */
+  const [itcClaimedPeriod, setItcClaimedPeriod] = useState<string>("");
   const [detectBusy, setDetectBusy] = useState(false);
   const [preDetectBusy, setPreDetectBusy] = useState(false);
   const [allHeaders, setAllHeaders] = useState<string[]>([]);
@@ -392,6 +394,9 @@ export default function NewReconcileWizardPage() {
       const h = run.pr_column_headers;
       if (h && Array.isArray(h)) setAllHeaders(h as string[]);
     }
+    setItcClaimedPeriod(
+      run.itc_claimed_period ? String(run.itc_claimed_period).slice(0, 10) : ""
+    );
   }, [run?.id]);
 
   useEffect(() => {
@@ -787,6 +792,7 @@ export default function NewReconcileWizardPage() {
         file_name: prFile.name,
         file_size: prFile.size,
         file_hash: hash,
+        ...(itcClaimedPeriod ? { itc_claimed_period: itcClaimedPeriod } : {}),
       });
       setRun(updated);
       await runDetectWithRetry();
@@ -1626,6 +1632,47 @@ export default function NewReconcileWizardPage() {
               Back
             </button>
           </div>
+
+          <div className="space-y-1.5 rounded-lg border border-[var(--border)] bg-[#FAFAFA] p-3">
+            <label
+              htmlFor="itc-claimed-period"
+              className="block text-sm font-medium text-[var(--ink)]"
+            >
+              ITC claimed period{" "}
+              <span className="font-normal text-[var(--text-secondary)]">(optional)</span>
+            </label>
+            <p className="text-[12px] leading-relaxed text-[var(--text-secondary)]">
+              GSTR-3B month when ITC for this purchase register was claimed. Used to estimate Rule 37
+              interest from the following month&apos;s 20th (GSTR-3B due date), not from the invoice
+              date. Leave blank if unknown — interest will be shown as a lower bound from the 180-day
+              deadline.
+            </p>
+            <select
+              id="itc-claimed-period"
+              value={itcClaimedPeriod}
+              onChange={(e) => {
+                const v = e.target.value;
+                setItcClaimedPeriod(v);
+                if (typeof token === "string" && runId) {
+                  void importWizardApi
+                    .patchRun(token, runId, { itc_claimed_period: v })
+                    .then(setRun)
+                    .catch(() => {
+                      /* non-blocking; value still sent on PR upload / continue */
+                    });
+                }
+              }}
+              className="mt-1 max-w-xs rounded border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+            >
+              <option value="">— not set —</option>
+              {monthChoices.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {run?.pr_file_name && !prFile ? (
             <p className="text-sm text-[var(--text-secondary)]">
               Uploaded: <strong>{run.pr_file_name}</strong> ({formatBytes(run.pr_file_size)})
@@ -1981,6 +2028,16 @@ export default function NewReconcileWizardPage() {
                     }
                   }
                 }
+                if (typeof token === "string" && runId) {
+                  try {
+                    const updated = await importWizardApi.patchRun(token, runId, {
+                      itc_claimed_period: itcClaimedPeriod,
+                    });
+                    setRun(updated);
+                  } catch {
+                    /* non-fatal — value may already be saved on change / PR upload */
+                  }
+                }
                 setUiStep(4);
               })();
             }}
@@ -2029,6 +2086,14 @@ export default function NewReconcileWizardPage() {
               <span className="text-[var(--text-secondary)]">Purchase register:</span>{" "}
               {run?.pr_file_name ?? "—"} ({formatBytes(run?.pr_file_size)}) — {run?.pr_record_count ?? 0} records
             </div>
+            {(run?.itc_claimed_period || itcClaimedPeriod) ? (
+              <div className="mt-2">
+                <span className="text-[var(--text-secondary)]">ITC claimed period:</span>{" "}
+                <strong>
+                  {periodLabel(run?.itc_claimed_period || itcClaimedPeriod)}
+                </strong>
+              </div>
+            ) : null}
             <p className="mt-3 font-medium text-[var(--text-primary)]">
               {run?.gstr2b_record_count ?? 0} GSTR-2B records vs {run?.pr_record_count ?? 0} Purchase Register records
             </p>

@@ -139,10 +139,23 @@ def _payment_row_amount_paise(p: dict) -> int:
     return 0
 
 
+def _normalize_itc_claimed_period(raw: str | None) -> str | None:
+    """Return ``YYYY-MM`` or None. Accepts ``YYYY-MM`` or ``YYYY-MM-DD``."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    if len(s) >= 7 and s[4] == "-":
+        return s[:7]
+    return None
+
+
 def check_rule_37_compliance(
     pr_records: list[dict],
     payment_records: list[dict],
     today: date | None = None,
+    itc_claimed_period: str | None = None,
 ) -> list[dict]:
     """
     Assess Rule 37 payment timing and ITC at risk per purchase-register row.
@@ -153,6 +166,10 @@ def check_rule_37_compliance(
 
     Partial payments reduce unpaid balance; ITC at risk follows the unpaid
     proportion except for PAID_LATE (full ITC at risk).
+
+    When ``itc_claimed_period`` is set (batch-level GSTR-3B claim month), every
+    result row is stamped with ``itc_claimed_period`` (``YYYY-MM``) for Rule 37(3)
+    interest proxying in audit observations.
 
     BUG 1 FIX — ITC-claimed gate
     ─────────────────────────────
@@ -178,6 +195,8 @@ def check_rule_37_compliance(
     """
     if today is None:
         today = date.today()
+
+    claimed_period = _normalize_itc_claimed_period(itc_claimed_period)
 
     payment_index: dict[str, list[dict]] = defaultdict(list)
     for p in payment_records:
@@ -223,26 +242,27 @@ def check_rule_37_compliance(
             if days_remaining >= 0:
                 continue  # still within 180 days and status unknown — not yet due
             # Past deadline with unknown status → flag for verification, not risk
-            results.append(
-                {
-                    "pr_id": str(pr_rec["id"]),
-                    "supplier_gstin": pr_rec.get("supplier_gstin", ""),
-                    "invoice_number": pr_rec.get("invoice_number_normalized", ""),
-                    "invoice_date": invoice_date_str,
-                    "deadline": deadline.isoformat(),
-                    "days_remaining": days_remaining,
-                    "total_invoice_value_paise": 0,
-                    "total_paid_paise": 0,
-                    "unpaid_paise": 0,
-                    "itc_at_risk_paise": 0,  # NOT counted in at-risk total
-                    "status": PENDING_VERIFICATION,
-                    "urgency": MEDIUM,
-                    "action": (
-                        "Payment status unknown. Verify with supplier before "
-                        "determining ITC reversal obligation."
-                    ),
-                }
-            )
+            pending_row: dict = {
+                "pr_id": str(pr_rec["id"]),
+                "supplier_gstin": pr_rec.get("supplier_gstin", ""),
+                "invoice_number": pr_rec.get("invoice_number_normalized", ""),
+                "invoice_date": invoice_date_str,
+                "deadline": deadline.isoformat(),
+                "days_remaining": days_remaining,
+                "total_invoice_value_paise": 0,
+                "total_paid_paise": 0,
+                "unpaid_paise": 0,
+                "itc_at_risk_paise": 0,  # NOT counted in at-risk total
+                "status": PENDING_VERIFICATION,
+                "urgency": MEDIUM,
+                "action": (
+                    "Payment status unknown. Verify with supplier before "
+                    "determining ITC reversal obligation."
+                ),
+            }
+            if claimed_period:
+                pending_row["itc_claimed_period"] = claimed_period
+            results.append(pending_row)
             continue
 
         # Route "paid" / other non-applicable statuses out
@@ -274,8 +294,9 @@ def check_rule_37_compliance(
         unpaid_paise = total_invoice_value_paise - total_paid_paise
         unpaid_paise = max(unpaid_paise, 0)
 
-        # The Rule 37 trigger is: invoice_date + 180 days < today's date
-        if days_remaining >= 0:
+        # Outside the 60-day pre-deadline window and not overdue → no flag.
+        # Warning tiers (ITC_014): 31–60 days → WARNING_60; 0–30 → WARNING_30.
+        if days_remaining > 60:
             continue
 
         # ── BUG 3 FIX: Proportionate reversal for partial payments ────────────
@@ -294,29 +315,54 @@ def check_rule_37_compliance(
                 # No amount_paid data → fall back to 50% (conservative default)
                 itc_at_risk_paise = int(total_tax_paise * 0.5)
         else:
-            # Fully unpaid past deadline → full ITC reversal
+            # Fully unpaid → full ITC at risk (or pending if still in warning window)
             itc_at_risk_paise = total_tax_paise
 
-        status = OVERDUE_UNPAID
-        urgency = CRITICAL
-        action = "Reverse ITC immediately. Payment overdue beyond 180 days."
+        if days_remaining < 0:
+            status = OVERDUE_UNPAID
+            urgency = CRITICAL
+            action = "Reverse ITC immediately. Payment overdue beyond 180 days."
+            # Past deadline: ITC at risk counts toward reversal totals.
+            risk_paise = itc_at_risk_paise
+        elif days_remaining <= 30:
+            status = WARNING_30_DAYS
+            urgency = HIGH
+            action = (
+                f"Pay supplier within {days_remaining} days (by {deadline.isoformat()}) "
+                f"or reverse ITC under Rule 37."
+            )
+            # Pre-deadline: surface the warning but do not inflate at-risk totals.
+            risk_paise = 0
+        else:
+            # 31–60 days remaining
+            status = WARNING_60_DAYS
+            urgency = MEDIUM
+            action = (
+                f"Supplier payment due in {days_remaining} days "
+                f"({deadline.isoformat()}). Plan payment to retain ITC (Rule 37)."
+            )
+            risk_paise = 0
 
-        results.append(
-            {
-                "pr_id": pr_id,
-                "supplier_gstin": pr_rec.get("supplier_gstin", ""),
-                "invoice_number": pr_rec.get("invoice_number_normalized", ""),
-                "invoice_date": invoice_date_str,
-                "deadline": deadline.isoformat(),
-                "days_remaining": days_remaining,
-                "total_invoice_value_paise": total_invoice_value_paise,
-                "total_paid_paise": total_paid_paise,
-                "unpaid_paise": unpaid_paise,
-                "itc_at_risk_paise": itc_at_risk_paise,
-                "status": status,
-                "urgency": urgency,
-                "action": action,
-            }
-        )
+        out_row: dict = {
+            "pr_id": pr_id,
+            "supplier_gstin": pr_rec.get("supplier_gstin", ""),
+            "invoice_number": pr_rec.get("invoice_number_normalized", ""),
+            "invoice_date": invoice_date_str,
+            "deadline": deadline.isoformat(),
+            "days_remaining": days_remaining,
+            "total_invoice_value_paise": total_invoice_value_paise,
+            "total_paid_paise": total_paid_paise,
+            "unpaid_paise": unpaid_paise,
+            "itc_at_risk_paise": risk_paise,
+            # Full ITC stake for emails / UI even when not yet overdue.
+            "potential_itc_paise": itc_at_risk_paise,
+            "status": status,
+            "urgency": urgency,
+            "action": action,
+            "decision_rule": "ITC_014" if status != OVERDUE_UNPAID else "ITC_013",
+        }
+        if claimed_period:
+            out_row["itc_claimed_period"] = claimed_period
+        results.append(out_row)
 
     return results

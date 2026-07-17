@@ -77,12 +77,12 @@ class TestPaymentRowAmountPaise:
 class TestFullyPaidOnTime:
 
     def test_unpaid_within_180_days_not_overdue(self):
-        """Record that is still unpaid but within 180 days should NOT appear in results."""
+        """Unpaid with >60 days remaining is outside warning window — no result."""
         pr = make_pr(invoice_date="2024-01-01", taxable_amount_paise=100000, total_tax_paise=18000)
-        today = date(2024, 6, 1)  # day 152 — still within 180
+        # deadline ≈ 2024-06-29; today 2024-03-01 → ~120 days remaining
+        today = date(2024, 3, 1)
         results = check_rule_37_compliance([pr], [], today=today)
-        # Should not appear — not yet overdue
-        assert results == [], f"Within-deadline record must not appear. Got: {results}"
+        assert results == [], f"Outside 60-day warning window must not appear. Got: {results}"
 
 
 # ── paid late ─────────────────────────────────────────────────────────────────
@@ -152,39 +152,44 @@ class TestOverdueUnpaid:
 
 class TestWarningZones:
 
-    def skip_test_unpaid_29_days_remaining_is_WARNING_30(self):
+    def test_unpaid_29_days_remaining_is_WARNING_30(self):
         """29 days to deadline → WARNING_30_DAYS."""
-        invoice_date = (date.today() - timedelta(days=151)).isoformat()
+        today = date(2024, 6, 1)
+        # deadline = invoice + 180; want days_remaining == 29
+        invoice_date = (today - timedelta(days=151)).isoformat()
         pr = make_pr(invoice_date=invoice_date, taxable_amount_paise=100000, total_tax_paise=18000)
-        results = check_rule_37_compliance([pr], [])
+        results = check_rule_37_compliance([pr], [], today=today)
+        assert len(results) == 1
         r = results[0]
         assert r["status"] == WARNING_30_DAYS, (
             f"29 days remaining must be WARNING_30_DAYS. Got: {r['status']}, "
             f"days_remaining={r['days_remaining']}"
         )
         assert r["urgency"] == HIGH
+        assert r.get("decision_rule") == "ITC_014"
 
-    def skip_test_unpaid_45_days_remaining_is_WARNING_60(self):
+    def test_unpaid_45_days_remaining_is_WARNING_60(self):
         """45 days to deadline → WARNING_60_DAYS."""
-        invoice_date = (date.today() - timedelta(days=135)).isoformat()
+        today = date(2024, 6, 1)
+        invoice_date = (today - timedelta(days=135)).isoformat()
         pr = make_pr(invoice_date=invoice_date, taxable_amount_paise=100000, total_tax_paise=18000)
-        results = check_rule_37_compliance([pr], [])
+        results = check_rule_37_compliance([pr], [], today=today)
+        assert len(results) == 1
         r = results[0]
         assert r["status"] == WARNING_60_DAYS, (
             f"45 days remaining must be WARNING_60_DAYS. Got: {r['status']}, "
             f"days_remaining={r['days_remaining']}"
         )
         assert r["urgency"] == MEDIUM
+        assert r.get("decision_rule") == "ITC_014"
 
-    def skip_test_unpaid_90_days_remaining_is_OK(self):
-        """90 days remaining → well within limit → OK."""
-        invoice_date = (date.today() - timedelta(days=90)).isoformat()
+    def test_unpaid_90_days_remaining_not_flagged(self):
+        """90 days remaining → outside warning window → no result row."""
+        today = date(2024, 6, 1)
+        invoice_date = (today - timedelta(days=90)).isoformat()
         pr = make_pr(invoice_date=invoice_date, taxable_amount_paise=100000, total_tax_paise=18000)
-        results = check_rule_37_compliance([pr], [])
-        r = results[0]
-        assert r["status"] == OK, (
-            f"90 days remaining must be OK. Got: {r['status']}"
-        )
+        results = check_rule_37_compliance([pr], [], today=today)
+        assert results == [], f"90 days remaining must not be flagged. Got: {results}"
 
 
 # ── partial payments ──────────────────────────────────────────────────────────
@@ -337,3 +342,21 @@ class TestResultStructure:
             "Payment for wrong invoice must not be applied."
         )
         assert r["status"] == OVERDUE_UNPAID
+
+
+class TestItcClaimedPeriodStamp:
+
+    def test_stamps_yyyy_mm_on_overdue_rows(self):
+        pr = make_pr(invoice_date="2024-01-01", taxable_amount_paise=100000, total_tax_paise=18000)
+        today = date(2024, 8, 1)
+        results = check_rule_37_compliance(
+            [pr], [], today=today, itc_claimed_period="2024-03-01"
+        )
+        assert len(results) == 1
+        assert results[0]["itc_claimed_period"] == "2024-03"
+
+    def test_absent_when_not_provided(self):
+        pr = make_pr(invoice_date="2024-01-01", taxable_amount_paise=100000, total_tax_paise=18000)
+        today = date(2024, 8, 1)
+        results = check_rule_37_compliance([pr], [], today=today)
+        assert "itc_claimed_period" not in results[0]

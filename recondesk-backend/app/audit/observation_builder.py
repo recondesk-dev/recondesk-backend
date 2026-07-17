@@ -7,6 +7,7 @@ Read-only aggregation: loads existing GSTR-1 ``result_payload`` or purchase
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date
 from typing import Any
 
 from supabase import Client
@@ -251,12 +252,8 @@ def _itc_amount_rupees(row: dict[str, Any]) -> float | None:
 def _days_overdue(row: dict[str, Any]) -> int:
     """Days past the 180-day deadline. ``days_remaining`` is negative when overdue.
 
-    TODO(Rule 37(3)): This is a lower-bound proxy. Rule 37(3) interest should run
-    from the date ITC was availed/claimed until the date of reversal — not from
-    the day the 180-day payment deadline was crossed. ``compliance.rule37`` does
-    not currently carry an ITC availment/claim date; a proper fix requires adding
-    that field in ``app/services/rule37_tracker.py`` and computing interest days
-    from availment date (not ``deadline`` / ``days_remaining``).
+    Used only when ``itc_claimed_period`` is absent — a lower-bound proxy for
+    Rule 37(3) interest (which should run from ITC availment until reversal).
     """
     days_remaining = row.get("days_remaining")
     if days_remaining is not None:
@@ -267,19 +264,59 @@ def _days_overdue(row: dict[str, Any]) -> int:
     return 0
 
 
-# Surfaced on RULE37_UNPAID_180 observations so the ₹ figure is not mistaken
-# for full Rule 37(3) liability (see TODO on ``_days_overdue``).
+def _gstr3b_claim_date_proxy(itc_claimed_period: str) -> date | None:
+    """GSTR-3B due date proxy: 20th of the month following *itc_claimed_period*.
+
+    e.g. ``\"2026-06\"`` / ``\"2026-06-01\"`` → ``2026-07-20``.
+    """
+    s = str(itc_claimed_period or "").strip()
+    if len(s) < 7 or s[4] != "-":
+        return None
+    try:
+        y = int(s[0:4])
+        m = int(s[5:7])
+        if m < 1 or m > 12:
+            return None
+    except ValueError:
+        return None
+    if m == 12:
+        return date(y + 1, 1, 20)
+    return date(y, m + 1, 20)
+
+
+def _interest_days_and_source(
+    row: dict[str, Any], *, today: date | None = None
+) -> tuple[int, bool]:
+    """Return ``(days, used_claim_proxy)`` for Rule 37(3) interest.
+
+    When ``itc_claimed_period`` is present, days run from the GSTR-3B due-date
+    proxy (20th of following month) to *today*. Otherwise falls back to days past
+    the 180-day payment deadline (lower bound).
+    """
+    period = row.get("itc_claimed_period")
+    if period is not None and str(period).strip():
+        claim = _gstr3b_claim_date_proxy(str(period))
+        if claim is not None:
+            as_of = today if today is not None else date.today()
+            return max(0, (as_of - claim).days), True
+    return _days_overdue(row), False
+
+
+# Surfaced on RULE37_UNPAID_180 observations when claim period is unknown so the
+# ₹ figure is not mistaken for full Rule 37(3) liability.
 _RULE37_IMPACT_LOWER_BOUND_NOTE = (
     "Interest calculated from the 180-day due date, not full Rule 37(3) "
     "liability — treat as a lower bound."
 )
 
 
-def _itc_plus_interest_rupees(row: dict[str, Any]) -> float | None:
+def _itc_plus_interest_rupees(
+    row: dict[str, Any], *, today: date | None = None
+) -> float | None:
     itc = _itc_amount_rupees(row)
     if itc is None:
         return None
-    days = _days_overdue(row)
+    days, _ = _interest_days_and_source(row, today=today)
     interest = itc * RULE37_INTEREST_RATE_PA * (days / 365.0)
     return round(itc + interest, 2)
 
@@ -365,13 +402,18 @@ def _assemble(
         else:
             financial_impact = None
 
+        used_claim_proxy = False
         if source_rule == _SOURCE_RULE37:
-            # Honest labelling: interest days are deadline-based, not availment-based.
-            description = (
-                f"{description} {_RULE37_IMPACT_LOWER_BOUND_NOTE}".strip()
-                if description
-                else _RULE37_IMPACT_LOWER_BOUND_NOTE
+            used_claim_proxy = any(
+                _interest_days_and_source(item.get("row") or {})[1] for item in group
             )
+            if not used_claim_proxy:
+                # Honest labelling when claim period unknown: deadline-based lower bound.
+                description = (
+                    f"{description} {_RULE37_IMPACT_LOWER_BOUND_NOTE}".strip()
+                    if description
+                    else _RULE37_IMPACT_LOWER_BOUND_NOTE
+                )
 
         counts[severity] = counts.get(severity, 0) + 1
         obs: dict[str, Any] = {
@@ -385,7 +427,11 @@ def _assemble(
             "affected_count": len(group),
             "recommendation": recommendation,
         }
-        if source_rule == _SOURCE_RULE37 and financial_impact is not None:
+        if (
+            source_rule == _SOURCE_RULE37
+            and financial_impact is not None
+            and not used_claim_proxy
+        ):
             # Separate from financial_impact so UIs do not treat the ₹ as full liability.
             obs["financial_impact_note"] = _RULE37_IMPACT_LOWER_BOUND_NOTE
         if source_rule == _SOURCE_TIEOUT:

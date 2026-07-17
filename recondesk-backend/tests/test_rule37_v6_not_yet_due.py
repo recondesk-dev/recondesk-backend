@@ -49,6 +49,8 @@ from app.parsers.purchase_register_parser import parse_purchase_register
 from app.services.rule37_tracker import (
     OVERDUE_UNPAID,
     PENDING_VERIFICATION,
+    WARNING_30_DAYS,
+    WARNING_60_DAYS,
     _is_itc_claimed,
     check_rule_37_compliance,
 )
@@ -318,20 +320,31 @@ class TestXlsxFixtureParsed:
 class TestBug4NotYetDueExcluded:
     """Bug 4: 180-day threshold must be at period end, not wall-clock date."""
 
-    def test_not_yet_due_absent_from_results(self, rule37_results_correct):
-        leaked = [r for r in rule37_results_correct
-                  if (r.get("invoice_number") or "").startswith("NOTDUE-")]
-        assert len(leaked) == 0, (
-            f"Bug 4 still live: {len(leaked)} NOT_YET_DUE rows in results "
-            f"when today=PERIOD_END. Sample: {leaked[:2]}"
-        )
+    def test_not_yet_due_are_warnings_not_overdue(self, rule37_results_correct):
+        """NOT_YET_DUE (within 180 as of period end) may appear as WARNING_* only."""
+        # Parser normalises "NOTDUE-0001" → "NOTDUE0001" (hyphen stripped).
+        not_due = [
+            r
+            for r in rule37_results_correct
+            if (r.get("invoice_number") or "").startswith("NOTDUE")
+        ]
+        assert len(not_due) == NOT_YET_DUE_COUNT
+        for r in not_due:
+            assert r["status"] in (WARNING_30_DAYS, WARNING_60_DAYS), (
+                f"NOT_YET_DUE must be a warning, not overdue. Got {r['status']}"
+            )
+            assert r.get("itc_at_risk_paise", 0) == 0, (
+                "Pre-deadline warnings must not inflate itc_at_risk_paise"
+            )
 
     def test_not_yet_due_contributes_zero_at_risk(self, rule37_results_correct):
-        leaked_paise = sum(r.get("itc_at_risk_paise", 0) for r in rule37_results_correct
-                          if r.get("itc_at_risk_paise") == NOT_YET_DUE_TAX_PAISE)
+        leaked_paise = sum(
+            r.get("itc_at_risk_paise", 0)
+            for r in rule37_results_correct
+            if (r.get("invoice_number") or "").startswith("NOTDUE")
+        )
         assert leaked_paise == 0, (
-            f"NOT_YET_DUE tax amount ({NOT_YET_DUE_TAX_PAISE} p) leaked: "
-            f"{leaked_paise} p total."
+            f"NOT_YET_DUE at-risk must stay 0. Got {leaked_paise} p total."
         )
 
     def test_at_risk_record_count_is_290(self, rule37_results_correct):
@@ -340,12 +353,17 @@ class TestBug4NotYetDueExcluded:
         assert len(overdue) == expected, (
             f"Expected {expected} overdue records (230 unpaid + 60 partial). "
             f"Got {len(overdue)}. "
-            f"NOT_YET_DUE ({NOT_YET_DUE_COUNT}) must be excluded."
+            f"NOT_YET_DUE ({NOT_YET_DUE_COUNT}) must not be OVERDUE."
         )
 
     def test_total_result_count(self, rule37_results_correct):
-        # overdue (290) + pending_verification (40); safe/not-due/excluded absent
-        expected = TRUE_UNPAID_COUNT + PARTIAL_COUNT + MISSING_STATUS_COUNT
+        # overdue (290) + pending_verification (40) + warning NOT_YET_DUE (130)
+        expected = (
+            TRUE_UNPAID_COUNT
+            + PARTIAL_COUNT
+            + MISSING_STATUS_COUNT
+            + NOT_YET_DUE_COUNT
+        )
         assert len(rule37_results_correct) == expected, (
             f"Expected {expected} total results. Got {len(rule37_results_correct)}."
         )

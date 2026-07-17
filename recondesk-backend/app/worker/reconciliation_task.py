@@ -1057,6 +1057,25 @@ def execute_reconciliation(run_id: str) -> None:
         payment_records = build_payment_records_from_pr(
             pr_current, pr_raw_by_id
         )
+        # Batch-level ITC claim period from the import wizard (optional).
+        itc_claimed_period: str | None = None
+        try:
+            ir_res = (
+                client.table("reconciliation_import_runs")
+                .select("itc_claimed_period")
+                .eq("id", run_id)
+                .limit(1)
+                .execute()
+            )
+            if ir_res.data:
+                raw_icp = ir_res.data[0].get("itc_claimed_period")
+                if raw_icp:
+                    itc_claimed_period = str(raw_icp).strip()[:7] or None
+        except Exception:
+            _log.exception(
+                "execute_reconciliation: could not load itc_claimed_period for %s",
+                run_id,
+            )
         rule37_all = check_rule_37_compliance(
             pr_for_rule37,
             payment_records,
@@ -1065,6 +1084,7 @@ def execute_reconciliation(run_id: str) -> None:
             # had NOT yet expired as of the reconciliation period (e.g. Sep 2025)
             # but have since expired in wall-clock time are incorrectly flagged.
             today=gstr_end,
+            itc_claimed_period=itc_claimed_period,
         )
         # Split tracker output: at-risk rows go to rule37; pending-verification
         # rows are surfaced separately and excluded from itc_at_risk totals.

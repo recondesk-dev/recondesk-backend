@@ -134,6 +134,7 @@ _RULE37_DECISION_KEYS = (
     "status",
     "days_remaining",
     "deadline",
+    "itc_claimed_period",
     "decision_what",
     "decision_why",
     "decision_next",

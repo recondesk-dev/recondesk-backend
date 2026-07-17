@@ -846,6 +846,8 @@ export interface ImportWizardRun {
   client_id: string;
   firm_owner_id: string | null;
   period: string;
+  /** Optional GSTR-3B period when ITC for this PR batch was claimed (YYYY-MM-01). */
+  itc_claimed_period: string | null;
   status: ImportRunStatus;
   current_step: number;
   gstr2b_r2_key: string | null;
@@ -999,6 +1001,8 @@ export const importWizardApi = {
       current_step?: number;
       column_mapping?: ColumnMappingRow[];
       sanity_check_results?: SanityCheckItem[];
+      /** YYYY-MM / YYYY-MM-01; empty string clears. */
+      itc_claimed_period?: string;
     }
   ) =>
     apiFetch<ImportWizardRun>(`/api/runs/${runId}`, {
@@ -1034,7 +1038,13 @@ export const importWizardApi = {
   prUploadComplete: (
     token: string,
     runId: string,
-    body: { r2_key: string; file_name: string; file_size: number; file_hash: string }
+    body: {
+      r2_key: string;
+      file_name: string;
+      file_size: number;
+      file_hash: string;
+      itc_claimed_period?: string | null;
+    }
   ) =>
     apiFetch<ImportWizardRun>(`/api/runs/${runId}/uploads/purchase-register/complete`, {
       method: "POST",
@@ -1188,6 +1198,7 @@ export interface NotificationPreferences {
   run_completed: boolean;
   runs_expiring_soon: boolean;
   payment_receipts: boolean;
+  rule37_alerts: boolean;
 }
 
 export const notificationsApi = {

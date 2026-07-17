@@ -56,6 +56,8 @@ class PrCompleteBody(BaseModel):
     file_name: str
     file_size: int
     file_hash: str
+    # Optional GSTR-3B claim period for this PR batch (YYYY-MM or YYYY-MM-01).
+    itc_claimed_period: Optional[str] = None
 
 
 class WarningAckBody(BaseModel):
@@ -74,6 +76,7 @@ class PatchRunBody(BaseModel):
     current_step: Optional[int] = None
     column_mapping: Optional[list[dict[str, Any]]] = None
     sanity_check_results: Optional[list[dict[str, Any]]] = None
+    itc_claimed_period: Optional[str] = None  # YYYY-MM / YYYY-MM-01; empty string clears
 
 
 def _parse_period(p: str) -> str:
@@ -88,6 +91,16 @@ def _parse_period(p: str) -> str:
 
 def _period_date_iso(period: str) -> str:
     return _parse_period(period)
+
+
+def _optional_period_or_clear(raw: Optional[str]) -> str | None:
+    """Parse optional period; empty/whitespace clears the column (returns None)."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    return _period_date_iso(s)
 
 
 def _pg_unique_violation(exc: BaseException) -> bool:
@@ -171,6 +184,14 @@ async def patch_run(
         patch["column_mapping"] = body.column_mapping
     if body.sanity_check_results is not None:
         patch["sanity_check_results"] = body.sanity_check_results
+    if body.itc_claimed_period is not None:
+        # Explicit empty string clears; non-empty must be a valid period.
+        if str(body.itc_claimed_period).strip() == "":
+            patch["itc_claimed_period"] = None
+        else:
+            patch["itc_claimed_period"] = _optional_period_or_clear(
+                body.itc_claimed_period
+            )
     sb.table(ws.T_RUNS).update(patch).eq("id", str(run_id)).execute()
     ws.audit(sb, str(run_id), user_id, "run_updated", patch)
     return ws.fetch_run(sb, str(run_id))
@@ -302,18 +323,26 @@ async def pr_upload_complete(
     if body.file_size > ws.MAX_UPLOAD_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File too large")
     size = ws.verify_r2_sha256(body.r2_key, body.file_hash)
+    extra: dict[str, Any] = {
+        "pr_r2_key": body.r2_key,
+        "pr_file_name": body.file_name,
+        "pr_file_size": size,
+        "pr_file_hash": body.file_hash.lower(),
+        "pr_uploaded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if body.itc_claimed_period is not None:
+        if str(body.itc_claimed_period).strip() == "":
+            extra["itc_claimed_period"] = None
+        else:
+            extra["itc_claimed_period"] = _optional_period_or_clear(
+                body.itc_claimed_period
+            )
     ws.transition_run(
         sb,
         str(run_id),
         user_id,
         "pr_uploaded",
-        extra_patch={
-            "pr_r2_key": body.r2_key,
-            "pr_file_name": body.file_name,
-            "pr_file_size": size,
-            "pr_file_hash": body.file_hash.lower(),
-            "pr_uploaded_at": datetime.now(timezone.utc).isoformat(),
-        },
+        extra_patch=extra,
         audit_event="pr_uploaded",
         audit_detail={"file_size": size, "file_hash": body.file_hash},
     )

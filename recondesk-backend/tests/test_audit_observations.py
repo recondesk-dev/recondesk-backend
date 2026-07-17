@@ -40,6 +40,32 @@ def test_itc_plus_interest_formula():
     assert impact == pytest.approx(1000.0 + 1000.0 * RULE37_INTEREST_RATE_PA, abs=0.01)
 
 
+def test_itc_plus_interest_from_claim_period_proxy():
+    """Claim period 2026-06 → GSTR-3B due 2026-07-20; 365 days later → full year interest."""
+    from datetime import date
+
+    from app.audit.observation_builder import _itc_plus_interest_rupees
+
+    row = {
+        "itc_at_risk_paise": 100_000,
+        "itc_claimed_period": "2026-06",
+        # Deadline-based days would understate — claim proxy must win.
+        "days_remaining": -10,
+    }
+    impact = _itc_plus_interest_rupees(row, today=date(2027, 7, 20))
+    assert impact == pytest.approx(1000.0 + 1000.0 * RULE37_INTEREST_RATE_PA, abs=0.01)
+
+
+def test_gstr3b_claim_date_proxy():
+    from datetime import date
+
+    from app.audit.observation_builder import _gstr3b_claim_date_proxy
+
+    assert _gstr3b_claim_date_proxy("2026-06") == date(2026, 7, 20)
+    assert _gstr3b_claim_date_proxy("2026-06-01") == date(2026, 7, 20)
+    assert _gstr3b_claim_date_proxy("2025-12") == date(2026, 1, 20)
+
+
 def test_tax_differential_from_mismatch_fields():
     row = {"tax_diff_paise": 18_000}
     assert compute_financial_impact("G1M3_AMOUNT_MISMATCH", row) == 180.0
@@ -213,6 +239,64 @@ def test_build_observations_from_purchase_payload():
     assert by_rule["BLOCKED_ITC_17_5"]["financial_impact"] == 250.0
     assert out["summary"]["critical_count"] == 2
     assert out["summary"]["total_financial_impact"] == round(expected_r37 + 250.0, 2)
+
+
+def test_build_observations_rule37_with_claim_period_skips_lower_bound_note():
+    """When itc_claimed_period is stamped, no deadline lower-bound caveat."""
+    from datetime import date as real_date
+
+    purchase_payload = {
+        "success": True,
+        "compliance": {
+            "rule37": [
+                {
+                    "pr_id": "pr-1",
+                    "invoice_number": "P-100",
+                    "status": "OVERDUE_UNPAID",
+                    "days_remaining": -100,
+                    "itc_at_risk_paise": 10_000,
+                    "itc_claimed_period": "2026-06",
+                },
+            ],
+            "section_17_5": [],
+        },
+        "decisions": {
+            "rule37": [
+                {
+                    "pr_id": "pr-1",
+                    "decision_why": "Payment overdue beyond 180 days.",
+                    "decision_next": "Reverse ITC under Rule 37.",
+                }
+            ],
+            "section_175": [],
+        },
+    }
+
+    class _PinnedDate(real_date):
+        @classmethod
+        def today(cls):  # type: ignore[override]
+            return real_date(2026, 8, 20)
+
+    with (
+        patch(
+            "app.audit.observation_builder.get_gstr1_run",
+            return_value=None,
+        ),
+        patch(
+            "app.audit.observation_builder.ro.load_payload",
+            return_value=purchase_payload,
+        ),
+        patch("app.audit.observation_builder.date", _PinnedDate),
+    ):
+        out = build_observations("purchase-run-claim", sb=object())  # type: ignore[arg-type]
+
+    assert out is not None
+    r37 = next(o for o in out["observations"] if o["source_rule"] == "RULE37_UNPAID_180")
+    assert "lower bound" not in r37["description"]
+    assert "financial_impact_note" not in r37
+    # claim 2026-07-20 → today 2026-08-20 = 31 days
+    expected = round(100.0 + 100.0 * 0.18 * (31 / 365.0), 2)
+    assert r37["financial_impact"] == expected
 
 
 def test_build_observations_missing_run_returns_none():
