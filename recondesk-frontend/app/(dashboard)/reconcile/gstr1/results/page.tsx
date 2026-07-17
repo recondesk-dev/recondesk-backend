@@ -84,6 +84,8 @@ function Gstr1ReconcileResultsContent() {
     <Gstr1ResultsView
       result={result}
       onRunAgain={() => router.push(runAgainHref)}
+      authToken={token}
+      runId={runId ?? result.run_id ?? null}
     />
   );
 }

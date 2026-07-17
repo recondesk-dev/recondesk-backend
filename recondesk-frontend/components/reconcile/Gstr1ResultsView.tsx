@@ -13,6 +13,7 @@ import {
   DecisionInvoiceCard,
   DecisionInvoiceList,
 } from "@/components/reconcile/DecisionInvoiceCard";
+import { AuditObservationsPanel } from "@/components/AuditObservationsPanel";
 import { Gstr1DocumentsIssuedPanel } from "@/components/reconcile/Gstr1DocumentsIssuedPanel";
 import { Gstr1aWindowBadge } from "@/components/reconcile/Gstr1aWindowBadge";
 import { Gstr1TieOutPanel } from "@/components/reconcile/Gstr1TieOutPanel";
@@ -182,9 +183,15 @@ function UnmatchedCards({
 export function Gstr1ResultsView({
   result,
   onRunAgain,
+  authToken,
+  runId: runIdProp,
 }: {
   result: Gstr1ReconcileResult;
   onRunAgain?: () => void;
+  /** Bearer token for GET /api/audit-observations/{run_id}. */
+  authToken?: string | null;
+  /** Prefer query-param run id; falls back to ``result.run_id``. */
+  runId?: string | null;
 }) {
   const [tab, setTab] = useState<ResultsBucketTabId>("matched");
   const [excelBusy, setExcelBusy] = useState(false);
@@ -555,7 +562,18 @@ export function Gstr1ResultsView({
           </section>
         )}
 
-        {tab === "tie_out" && <Gstr1TieOutPanel tieOut={result.tie_out || {}} />}
+        {tab === "tie_out" && (
+          <>
+            <Gstr1TieOutPanel tieOut={result.tie_out || {}} />
+            {authToken && (runIdProp || result.run_id) ? (
+              <AuditObservationsPanel
+                runId={String(runIdProp || result.run_id)}
+                authToken={authToken}
+                refreshKey={0}
+              />
+            ) : null}
+          </>
+        )}
 
         {tab === "documents_issued" && (
           <Gstr1DocumentsIssuedPanel

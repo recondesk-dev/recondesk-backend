@@ -19,6 +19,7 @@ from app.database import get_supabase
 from app.routers import (
     admin,
     audit_logs,
+    audit_observations,
     auth,
     billing,
     export as export_router,
@@ -266,6 +267,11 @@ app.include_router(
 )
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(audit_logs.router, prefix="/api/audit-logs", tags=["Audit Logs"])
+app.include_router(
+    audit_observations.router,
+    prefix="/api/audit-observations",
+    tags=["Audit Observations"],
+)
 app.include_router(
     manage_data.router,
     prefix="/api/v1/manage-data",

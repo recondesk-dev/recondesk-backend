@@ -6,6 +6,7 @@ import {
   type Rule37MarkPaidTarget,
 } from "@/components/reconcile/Rule37MarkPaidModal";
 import { ReconcilePaginationFooter } from "@/components/reconcile/ReconcilePaginationFooter";
+import { AuditObservationsPanel } from "@/components/AuditObservationsPanel";
 import { Rule37SummarySection } from "@/components/reconcile/Rule37SummarySection";
 import type { Rule37SummaryResponse } from "@/lib/rule37Summary";
 import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
@@ -4713,6 +4714,14 @@ export default function ReconcileResultsPage() {
 
         {/* Rule 37 */}
         {resultsTab === "rule37" && (
+        <>
+        {authToken ? (
+          <AuditObservationsPanel
+            runId={runId}
+            authToken={authToken}
+            refreshKey={rule37SummaryRefreshKey}
+          />
+        ) : null}
         <div className={sectionContainerClass}>
           <button
             type="button"
@@ -4919,10 +4928,20 @@ export default function ReconcileResultsPage() {
             </div>
           )}
         </div>
+        </>
         )}
 
         {/* Section 17(5) */}
         {resultsTab === "section17" && (
+        <>
+        {authToken ? (
+          <AuditObservationsPanel
+            runId={runId}
+            authToken={authToken}
+            refreshKey={rule37SummaryRefreshKey}
+            filterSourceRule="BLOCKED_ITC_17_5"
+          />
+        ) : null}
         <div className={sectionContainerClass}>
           <button
             type="button"
@@ -5029,6 +5048,7 @@ export default function ReconcileResultsPage() {
             </div>
           )}
         </div>
+        </>
         )}
       </div>
 
