@@ -1,9 +1,10 @@
 import Link from "next/link";
 
+import { DecisionLayerSection } from "@/components/public/DecisionLayerSection";
 import { FaqAccordion } from "@/components/public/FaqAccordion";
-import { FeatureStatsStrip } from "@/components/public/FeatureStatsStrip";
 import { HowItWorksSteps } from "@/components/public/HowItWorksSteps";
 import { LandingDashboardPreview } from "@/components/public/LandingDashboardPreview";
+import { LandingHero } from "@/components/public/LandingHero";
 import { SecurityTrustStrip } from "@/components/public/SecurityTrustStrip";
 
 function Section({
@@ -25,50 +26,11 @@ function Section({
 export default function LandingPage() {
   return (
     <>
-      {/* Hero */}
-      <Section className="pb-12 pt-10 sm:pb-16 sm:pt-14">
-        <div className="text-center">
-          <h1 className="mx-auto max-w-4xl text-[1.75rem] font-semibold leading-tight tracking-tight text-[var(--ink)] sm:text-4xl sm:leading-tight lg:text-5xl">
-            Find the ITC Your Clients Are Missing Every Month
-          </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-gray-600 sm:mt-5 sm:text-xl">
-            GSTR-2B reconciliation for CA firms. Upload 2 files. Result in minutes.
-          </p>
-          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
-            <Link
-              href="/auth/signup"
-              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-[var(--ink)] px-6 text-sm font-semibold text-white shadow-[var(--shadow-soft)] transition-opacity hover:opacity-90 sm:w-auto"
-            >
-              Start Free — First 2 Runs Free
-            </Link>
-            <a
-              href="#how-it-works"
-              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-white px-6 text-sm font-semibold text-[var(--ink)] shadow-[var(--shadow-soft)] transition hover:bg-[#F7F7F8] sm:w-auto"
-            >
-              See How It Works
-            </a>
-          </div>
-          <p className="mt-6 px-1 text-sm leading-relaxed text-gray-500">
-            No credit card to start
-          </p>
-          <div className="mx-auto mt-8 max-w-3xl rounded-[1.25rem] bg-white px-4 py-4 text-sm text-gray-600 shadow-[var(--shadow-soft)] sm:px-6">
-            <p className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-6 sm:gap-y-2">
-              <span>✓ No credit card required</span>
-              <span className="hidden text-[#E5E5E5] sm:inline" aria-hidden>
-                ·
-              </span>
-              <span>✓ Works with Tally, Busy &amp; Excel</span>
-              <span className="hidden text-[#E5E5E5] sm:inline" aria-hidden>
-                ·
-              </span>
-              <span>✓ First 2 runs completely free</span>
-            </p>
-          </div>
-          <FeatureStatsStrip />
-        </div>
-      </Section>
+      <LandingHero />
 
       <SecurityTrustStrip />
+
+      <DecisionLayerSection />
 
       {/* Product showcase */}
       <Section className="py-12 sm:py-16">
