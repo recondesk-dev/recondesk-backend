@@ -291,7 +291,7 @@ export function VendorsPageContent() {
                           order={order}
                           onSort={handleSort}
                         />
-                        <th className="px-4 py-4">§17(5)</th>
+                        <th className="px-4 py-4">17(5)</th>
                         <SortHeader
                           label="Late filing"
                           sortKey="late_filing_rate"
