@@ -101,13 +101,20 @@ function NavIconVendors({ className }: { className?: string }) {
   return (
     <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
-        d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+        d="M3 9l1.5-6h15L21 9"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3 9v11a1 1 0 001 1h16a1 1 0 001-1V9"
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinejoin="round"
       />
       <path
-        d="M9 22V12h6v10"
+        d="M9 21V12h6v9"
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"
@@ -157,10 +164,13 @@ function NavIconGear({ className }: { className?: string }) {
   return (
     <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
-        d="M12 15.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM19.4 15a7.96 7.96 0 00.1-1 7.96 7.96 0 00-.1-1l2.1-1.65a.5.5 0 00.12-.64l-2-3.46a.5.5 0 00-.6-.22l-2.48 1a7.7 7.7 0 00-1.73-1l-.38-2.65A.5.5 0 0014.5 2h-5a.5.5 0 00-.49.42L8.63 5.07a7.7 7.7 0 00-1.73 1l-2.48-1a.5.5 0 00-.6.22l-2 3.46a.5.5 0 00.12.64L4.59 13a7.96 7.96 0 000 2l-2.1 1.65a.5.5 0 00-.12.64l2 3.46a.5.5 0 00.6.22l2.48-1c.53.43 1.12.78 1.73 1l.38 2.65a.5.5 0 00.49.42h5a.5.5 0 00.49-.42l.38-2.65c.61-.22 1.2-.57 1.73-1l2.48 1a.5.5 0 00.6-.22l2-3.46a.5.5 0 00-.12-.64L19.4 15z"
+        d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z"
         stroke="currentColor"
-        strokeWidth="1.2"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   );
 }
