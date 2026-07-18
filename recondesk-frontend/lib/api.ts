@@ -694,6 +694,70 @@ export const gstr3bApi = {
     ),
 };
 
+// ─── GSTR-9C ITC FY rollup (practical internal view) ──────────────────────────
+
+export type Gstr9cItcMonthStatus = "both" | "run_only" | "missing";
+
+export type Gstr9cItcMonthRow = {
+  period: string;
+  month_label: string;
+  status: Gstr9cItcMonthStatus;
+  run_id: string | null;
+  run_status: string | null;
+  matched_itc_paise: number | null;
+  matched_itc_rupees: number | null;
+  claimed_itc_rupees: number | null;
+  claimed_igst_rupees: number | null;
+  claimed_cgst_rupees: number | null;
+  claimed_sgst_rupees: number | null;
+  variance_rupees: number | null;
+  included_in_variance: boolean;
+  missed_itc_paise: number | null;
+  itc_at_risk_paise: number | null;
+  wrongful_itc_paise: number | null;
+};
+
+export type Gstr9cItcFyTotals = {
+  matched_itc_paise: number;
+  matched_itc_rupees: number;
+  claimed_itc_rupees: number;
+  variance_matched_itc_rupees: number;
+  variance_claimed_itc_rupees: number;
+  variance_rupees: number | null;
+  months_in_variance: number;
+  partial_label: string;
+};
+
+export type Gstr9cItcFyRollup = {
+  client_gstin_id: string;
+  gstin: string;
+  trade_name: string | null;
+  fy: string;
+  disclaimer: string;
+  is_complete: boolean;
+  variance_available: boolean;
+  months_with_both: number;
+  months_with_run: number;
+  months_run_only: number;
+  months_missing: number;
+  months: Gstr9cItcMonthRow[];
+  totals: Gstr9cItcFyTotals;
+};
+
+export const gstr9cItcApi = {
+  fyRollup: (token: string, clientGstinId: string, fy?: string) => {
+    const sp = new URLSearchParams();
+    if (fy) sp.set("fy", fy);
+    const q = sp.toString();
+    return apiFetch<Gstr9cItcFyRollup>(
+      `/api/reconcile/clients/${encodeURIComponent(clientGstinId)}/gstr9c-itc-fy${
+        q ? `?${q}` : ""
+      }`,
+      { token }
+    );
+  },
+};
+
 /** Subset of reconciliation run summary for celebrate / widgets. */
 export interface ReconcileRunSummaryDto {
   run_id: string;

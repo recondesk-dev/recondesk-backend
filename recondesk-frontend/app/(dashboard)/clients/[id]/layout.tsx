@@ -14,6 +14,7 @@ export default function ClientWorkspaceLayout({
 
   const tabs = [
     { label: "Overview", href: `/clients/${id}` },
+    { label: "GSTR-9C (ITC)", href: `/clients/${id}/gstr9c` },
     { label: "Follow-up History", href: `/clients/${id}/follow-up` },
     { label: "Communication", href: `/clients/${id}/communication` },
     { label: "Import Mapping", href: `/clients/${id}/import-mapping` },

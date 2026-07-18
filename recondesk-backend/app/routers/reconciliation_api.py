@@ -40,6 +40,11 @@ from app.services.firm_access import (
 )
 from app.services.reconciliation_display import get_display_type
 from app.services.followup_audit_export import build_followup_history_xlsx_bytes
+from app.services.gstr9c_itc_fy_rollup import (
+    build_gstr9c_itc_fy_rollup,
+    default_fy_label,
+    parse_fy_label,
+)
 from app.services.reconcile_export_workbook import build_excel_workbook_bytes
 from app.utils.audit import client_display_label, log_action, log_audit
 from app.utils.supabase_errors import supabase_error_message
@@ -4671,6 +4676,41 @@ async def export_client_supplier_followup_audit(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers,
     )
+
+
+@reconcile_runs_router.get("/clients/{client_gstin_id}/gstr9c-itc-fy")
+async def get_gstr9c_itc_fy_rollup(
+    client_gstin_id: str,
+    fy: Optional[str] = Query(
+        None,
+        description="Indian financial year as YYYY-YY (e.g. 2025-26). Defaults to current FY.",
+    ),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Annual ITC rollup for GSTR-9C (practical internal view, not official Table 8)."""
+    cid = _parse_uuid(client_gstin_id, "client_gstin_id")
+    sb = get_supabase()
+    accessible = list_accessible_client_gstin_ids(sb, current_user)
+    if cid not in accessible:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="not allowed for this client",
+        )
+    fy_raw = (fy or "").strip() or default_fy_label()
+    try:
+        parse_fy_label(fy_raw)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    try:
+        return build_gstr9c_itc_fy_rollup(sb, client_gstin_id=cid, fy=fy_raw)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
 
 
 @reconcile_runs_router.patch(

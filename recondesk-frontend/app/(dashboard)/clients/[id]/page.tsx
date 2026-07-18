@@ -382,12 +382,24 @@ export default function ClientDetailPage() {
       )}
 
       <section className="dashboard-card p-6">
-        <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
-          ITC trend (missed)
-        </h2>
-        <p className="mt-1 text-sm text-gray-500">
-          Missed ITC across recent reconciliations for this client
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
+              ITC trend (missed)
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Missed ITC across recent reconciliations for this client
+            </p>
+          </div>
+          {id ? (
+            <Link
+              href={`/clients/${id}/gstr9c`}
+              className="text-sm font-semibold text-[var(--ink)] underline"
+            >
+              GSTR-9C (ITC) FY rollup →
+            </Link>
+          ) : null}
+        </div>
         <div className="mt-4">
           {rLoad ? (
             <div className="h-[200px] animate-pulse rounded-2xl bg-gray-100" />
