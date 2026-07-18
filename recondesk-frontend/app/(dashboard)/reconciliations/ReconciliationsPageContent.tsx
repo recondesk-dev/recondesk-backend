@@ -124,7 +124,7 @@ export function ReconciliationsPageContent() {
     mutate: mutateRuns,
   } = useSWR(
     listKey,
-    ([, t]) => reconcileRunsApi.list(t, { limit: 50 }),
+    ([, t]) => reconcileRunsApi.list(t, { limit: 50, light: true }),
     { keepPreviousData: true }
   );
 

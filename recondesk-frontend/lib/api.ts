@@ -527,6 +527,8 @@ export const reconcileRunsApi = {
       status?: string;
       limit?: number;
       client_gstin_id?: string;
+      /** Skip expensive matched_itc payload backfill on the server. */
+      light?: boolean;
     }
   ) => {
     const sp = new URLSearchParams();
@@ -534,6 +536,7 @@ export const reconcileRunsApi = {
     if (params?.limit != null) sp.set("limit", String(params.limit));
     if (params?.client_gstin_id)
       sp.set("client_gstin_id", params.client_gstin_id);
+    if (params?.light) sp.set("light", "true");
     const q = sp.toString();
     return apiFetch<ReconcileRunListRow[]>(
       `/api/reconcile/runs${q ? `?${q}` : ""}`,

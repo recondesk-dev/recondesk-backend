@@ -113,7 +113,7 @@ export default function ClientDetailPage() {
   } = useSWR(
     runsKey,
     ([, , t, cid]) =>
-      reconcileRunsApi.list(t, { client_gstin_id: cid, limit: 200 }),
+      reconcileRunsApi.list(t, { client_gstin_id: cid, limit: 200, light: true }),
     { revalidateOnFocus: false }
   );
 

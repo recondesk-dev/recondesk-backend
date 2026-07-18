@@ -3665,11 +3665,18 @@ async def list_reconcile_runs(
     status: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     client_gstin_id: Optional[str] = Query(None),
+    light: bool = Query(
+        False,
+        description="Skip matched_itc payload backfill (faster list for shells/tables).",
+    ),
     current_user: dict = Depends(get_current_active_user),
 ):
     user_id = str(current_user.get("id", "")).strip()
-    # v3: list rows hydrate money + computed display_type (not stored)
-    cache_key = f"cache:runs:v3:{user_id}:{status or ''}:{limit}:{client_gstin_id or ''}"
+    # v4: list rows hydrate money + computed display_type; light skips payload backfill
+    cache_key = (
+        f"cache:runs:v4:{user_id}:{status or ''}:{limit}:{client_gstin_id or ''}:"
+        f"{'1' if light else '0'}"
+    )
     cached_val = cache_get(cache_key)
     if cached_val is not None:
         return cached_val
@@ -3753,19 +3760,20 @@ async def list_reconcile_runs(
         row_out["finalized_by_name"] = finalized_name
         row_out["display_type"] = get_display_type(row_out)
         _hydrate_run_list_money_fields(row_out)
-        rs = row_out.get("run_summary")
-        needs_matched = (
-            not isinstance(rs, dict)
-            or rs.get("matched_itc_paise") is None
-        )
-        st = str(row_out.get("status") or "").strip().upper()
-        if (
-            needs_matched
-            and st in (RunStatus.FINAL, RunStatus.COMPLETED)
-            and backfills < _MATCHED_ITC_BACKFILL_CAP
-        ):
-            _backfill_matched_itc_paise(sb, row_out, persist=True)
-            backfills += 1
+        if not light:
+            rs = row_out.get("run_summary")
+            needs_matched = (
+                not isinstance(rs, dict)
+                or rs.get("matched_itc_paise") is None
+            )
+            st = str(row_out.get("status") or "").strip().upper()
+            if (
+                needs_matched
+                and st in (RunStatus.FINAL, RunStatus.COMPLETED)
+                and backfills < _MATCHED_ITC_BACKFILL_CAP
+            ):
+                _backfill_matched_itc_paise(sb, row_out, persist=True)
+                backfills += 1
         out.append(row_out)
     cache_set(cache_key, out, ttl_seconds=30)
     return out

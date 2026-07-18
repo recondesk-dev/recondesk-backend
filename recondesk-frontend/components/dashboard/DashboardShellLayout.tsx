@@ -353,6 +353,7 @@ export default function DashboardShellLayout({
       const rows = await reconcileRunsApi.list(token, {
         status: "failed",
         limit: 500,
+        light: true,
       });
       const items = rows.slice(0, 5).map((r) => ({
         runId: r.id,
@@ -634,7 +635,7 @@ export default function DashboardShellLayout({
                 </h2>
                 {failedCount > 0 && (
                   <p className="mt-0.5 text-sm text-gray-500">
-                    {failedCount} run{failedCount === 1 ? "" : "s"} need a retry
+                    {failedCount} reconciliation{failedCount === 1 ? "" : "s"} need a retry
                   </p>
                 )}
               </div>
