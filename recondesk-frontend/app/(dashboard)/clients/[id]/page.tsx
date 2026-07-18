@@ -281,7 +281,7 @@ export default function ClientDetailPage() {
               Edit Client
             </Link>
           </div>
-          <div className="relative z-10 flex w-full max-w-xl flex-col items-stretch gap-3 sm:items-end">
+          <div className="relative z-10 flex w-full max-w-3xl flex-col items-stretch gap-3 sm:items-end">
             {!gstnConnected && authToken && (
               <button
                 type="button"
@@ -295,7 +295,7 @@ export default function ClientDetailPage() {
               <p className="mb-2 text-[11px] font-medium uppercase tracking-widest text-gray-400 sm:text-right">
                 Reconciliations
               </p>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {startDisabled || !reconcileNewHref ? (
                   <button
                     type="button"
@@ -334,6 +334,18 @@ export default function ClientDetailPage() {
                   </span>
                   <span className="text-[11px] font-medium leading-snug text-gray-500">
                     Sales Register vs GSTR-1 vs GSTR-3B — outward supply tie-out
+                  </span>
+                </Link>
+                <Link
+                  href={id ? `/clients/${id}/gstr9c` : "#"}
+                  title="Annual FY ITC rollup — matched (2B) vs claimed (3B)"
+                  className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[#F5F5F6] px-4 py-3 text-left ring-1 ring-[#F0F0F0] transition-colors hover:bg-gray-200/70"
+                >
+                  <span className="text-sm font-semibold text-[var(--ink)]">
+                    GSTR-9C (ITC)
+                  </span>
+                  <span className="text-[11px] font-medium leading-snug text-gray-500">
+                    Annual FY rollup — matched (2B) vs claimed (3B) ITC
                   </span>
                 </Link>
               </div>
