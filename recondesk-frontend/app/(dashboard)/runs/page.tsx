@@ -1,5 +1,5 @@
-import { RunsPageContent } from "./RunsPageContent";
+import { redirect } from "next/navigation";
 
-export default function RunsPage() {
-  return <RunsPageContent />;
+export default function RunsRedirectPage() {
+  redirect("/reconciliations");
 }

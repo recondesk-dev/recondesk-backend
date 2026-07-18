@@ -381,7 +381,7 @@ export default function DashboardShellLayout({
     { href: "/dashboard", label: "Dashboard", Icon: NavIconDashboard },
     { href: "/clients", label: "Clients", Icon: NavIconUsers },
     { href: "/vendors", label: "Vendors", Icon: NavIconVendors },
-    { href: "/runs", label: "Runs", Icon: NavIconRefresh },
+    { href: "/reconciliations", label: "Reconciliations", Icon: NavIconRefresh },
     ...(currentUser.role === "ADMIN"
       ? [{ href: "/manage-data", label: "Manage Data", Icon: NavIconDatabase }]
       : []),
@@ -674,7 +674,7 @@ export default function DashboardShellLayout({
                 failures &&
                 failures.items.length === 0 && (
                   <div className="rounded-2xl bg-[#F7F7F8] px-4 py-10 text-center">
-                    <p className="text-sm font-medium text-[var(--ink)]">No failed runs</p>
+                    <p className="text-sm font-medium text-[var(--ink)]">No failed reconciliations</p>
                     <p className="mt-1 text-xs text-gray-400">You’re all clear for now</p>
                   </div>
                 )}

@@ -407,7 +407,7 @@ export default function ClientDetailPage() {
             Reconciliation history
           </h2>
           <p className="mt-1 text-sm text-gray-500">
-            Past runs for this GSTIN — expand failed rows for error details
+            Past reconciliations for this GSTIN — expand failed rows for error details
           </p>
         </div>
         {runsError && (

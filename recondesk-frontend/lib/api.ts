@@ -496,6 +496,8 @@ export interface ReconcileRunListRow {
   client_gstin_id: string;
   period: string;
   status: string;
+  /** Computed label from the API (not a DB column). Currently always "GSTR-2B". */
+  display_type?: string | null;
   progress_percent?: number | null;
   status_message?: string | null;
   gstr_records_imported?: number | null;

@@ -38,6 +38,7 @@ from app.services.firm_access import (
     assert_run_accessible,
     list_accessible_client_gstin_ids,
 )
+from app.services.reconciliation_display import get_display_type
 from app.services.followup_audit_export import build_followup_history_xlsx_bytes
 from app.services.reconcile_export_workbook import build_excel_workbook_bytes
 from app.utils.audit import client_display_label, log_action, log_audit
@@ -3667,8 +3668,8 @@ async def list_reconcile_runs(
     current_user: dict = Depends(get_current_active_user),
 ):
     user_id = str(current_user.get("id", "")).strip()
-    # v2: list rows hydrate money from run_summary + matched_itc_paise backfill
-    cache_key = f"cache:runs:v2:{user_id}:{status or ''}:{limit}:{client_gstin_id or ''}"
+    # v3: list rows hydrate money + computed display_type (not stored)
+    cache_key = f"cache:runs:v3:{user_id}:{status or ''}:{limit}:{client_gstin_id or ''}"
     cached_val = cache_get(cache_key)
     if cached_val is not None:
         return cached_val
@@ -3750,6 +3751,7 @@ async def list_reconcile_runs(
         row_out["trade_name"] = tn.get("trade_name")
         row_out["client_gstin"] = tn.get("gstin")
         row_out["finalized_by_name"] = finalized_name
+        row_out["display_type"] = get_display_type(row_out)
         _hydrate_run_list_money_fields(row_out)
         rs = row_out.get("run_summary")
         needs_matched = (

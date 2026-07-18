@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
 
 import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
@@ -12,9 +13,18 @@ import { paiseToRupee } from "@/lib/dashboard-portfolio";
 import { formatInrFull } from "@/lib/format";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
-const RUNS_KEY = "backend-runs-list";
+const LIST_KEY = "backend-reconciliations-list";
 
-function RunsSkeleton() {
+type TypeFilter = "all" | "GSTR-2B" | "GSTR-1" | "GSTR-3B";
+
+const TYPE_FILTERS: { id: TypeFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "GSTR-2B", label: "GSTR-2B" },
+  { id: "GSTR-1", label: "GSTR-1" },
+  { id: "GSTR-3B", label: "GSTR-3B" },
+];
+
+function ReconciliationsSkeleton() {
   return (
     <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
       <div className="animate-pulse space-y-0">
@@ -94,12 +104,18 @@ function itcAtRiskRupee(row: ReconcileRunListRow): number | null {
   return paiseToRupee(row.itc_at_risk);
 }
 
-export function RunsPageContent() {
+function displayTypeOf(row: ReconcileRunListRow): string {
+  const t = (row.display_type || "").trim();
+  return t || "GSTR-2B";
+}
+
+export function ReconciliationsPageContent() {
   const tokenState = useAccessToken();
   const authToken =
     typeof tokenState === "string" && tokenState.length > 0 ? tokenState : null;
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
 
-  const runsKey = authToken ? ([RUNS_KEY, authToken] as const) : null;
+  const listKey = authToken ? ([LIST_KEY, authToken] as const) : null;
 
   const {
     data: runs,
@@ -107,7 +123,7 @@ export function RunsPageContent() {
     isLoading: runsLoading,
     mutate: mutateRuns,
   } = useSWR(
-    runsKey,
+    listKey,
     ([, t]) => reconcileRunsApi.list(t, { limit: 50 }),
     { keepPreviousData: true }
   );
@@ -115,14 +131,30 @@ export function RunsPageContent() {
   const resolvingToken = tokenState === null;
   const showSkeleton = resolvingToken || (!!authToken && runsLoading && !runs);
 
+  const showsPurchaseRows = typeFilter === "all" || typeFilter === "GSTR-2B";
+  const upcomingEmptyLabel =
+    typeFilter === "GSTR-1"
+      ? "No GSTR-1 reconciliations yet"
+      : typeFilter === "GSTR-3B"
+        ? "No GSTR-3B reconciliations yet"
+        : null;
+
+  const visibleRows = useMemo(() => {
+    if (!showsPurchaseRows) return [];
+    const rows = runs ?? [];
+    if (typeFilter === "all") return rows;
+    return rows.filter((row) => displayTypeOf(row) === "GSTR-2B");
+  }, [runs, showsPurchaseRows, typeFilter]);
+
   const showEmpty =
     !showSkeleton &&
     !runsError &&
     authToken &&
+    showsPurchaseRows &&
     Array.isArray(runs) &&
-    runs.length === 0;
+    visibleRows.length === 0;
 
-  const totalRuns = runs?.length ?? 0;
+  const totalCount = showsPurchaseRows ? (runs?.length ?? 0) : 0;
 
   return (
     <div className="space-y-6">
@@ -130,11 +162,11 @@ export function RunsPageContent() {
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
-              Runs
+              Reconciliations
             </h1>
-            {!showSkeleton && authToken && !runsError && (
+            {!showSkeleton && authToken && !runsError && showsPurchaseRows && (
               <span className="rounded-full bg-[#F0F0F0] px-2.5 py-1 text-xs font-semibold text-gray-600">
-                {totalRuns}
+                {totalCount}
               </span>
             )}
           </div>
@@ -144,9 +176,35 @@ export function RunsPageContent() {
         </div>
       </div>
 
-      {runsError && (
+      <div
+        className="flex flex-wrap gap-2"
+        role="tablist"
+        aria-label="Filter by reconciliation type"
+      >
+        {TYPE_FILTERS.map(({ id, label }) => {
+          const active = typeFilter === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setTypeFilter(id)}
+              className={`min-h-[36px] rounded-full px-4 text-sm font-medium transition-colors ${
+                active
+                  ? "bg-[var(--ink)] text-white"
+                  : "bg-[#F0F0F0] text-gray-600 hover:bg-[#E8E8EA]"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {runsError && showsPurchaseRows && (
         <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
-          Could not load runs.{" "}
+          Could not load reconciliations.{" "}
           <button
             type="button"
             className="font-semibold text-[var(--ink)] underline"
@@ -159,16 +217,28 @@ export function RunsPageContent() {
 
       {!authToken && tokenState === false && (
         <div className="rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm text-amber-950">
-          Sign in to load reconciliation runs.
+          Sign in to load reconciliations.
         </div>
       )}
 
-      {showEmpty ? (
+      {upcomingEmptyLabel ? (
         <div className="dashboard-card flex min-h-[320px] flex-col items-center justify-center px-6 py-16 text-center">
           <div className="mx-auto w-full max-w-[400px]">
             <EmptyStateIllustration className="mx-auto text-gray-300" />
             <h3 className="mt-4 text-lg font-semibold text-[var(--ink)]">
-              No reconciliation runs yet
+              {upcomingEmptyLabel}
+            </h3>
+            <p className="mt-1 text-sm text-gray-500">
+              This type will appear here once its reconciliation flow is available.
+            </p>
+          </div>
+        </div>
+      ) : showEmpty ? (
+        <div className="dashboard-card flex min-h-[320px] flex-col items-center justify-center px-6 py-16 text-center">
+          <div className="mx-auto w-full max-w-[400px]">
+            <EmptyStateIllustration className="mx-auto text-gray-300" />
+            <h3 className="mt-4 text-lg font-semibold text-[var(--ink)]">
+              No reconciliations yet
             </h3>
             <p className="mt-1 text-sm text-gray-500">
               Start from a client profile.
@@ -184,7 +254,7 @@ export function RunsPageContent() {
       ) : (
         <section className="dashboard-card p-6">
           {showSkeleton ? (
-            <RunsSkeleton />
+            <ReconciliationsSkeleton />
           ) : (
             <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
               <div className="overflow-x-auto">
@@ -200,10 +270,11 @@ export function RunsPageContent() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(runs ?? []).map((row) => {
+                    {visibleRows.map((row) => {
                       const status = runListStatus(row.status);
                       const matched = matchedCountFromRow(row);
                       const itcRisk = itcAtRiskRupee(row);
+                      const typeLabel = displayTypeOf(row);
 
                       return (
                         <tr
@@ -214,8 +285,13 @@ export function RunsPageContent() {
                             <div className="font-medium text-[var(--ink)]">
                               {row.trade_name ?? "—"}
                             </div>
-                            <div className="mt-0.5 font-mono text-xs text-gray-400">
-                              {row.client_gstin ?? "—"}
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              <span className="inline-flex rounded-full bg-[#F0F0F0] px-2 py-0.5 text-[11px] font-semibold tracking-wide text-gray-600">
+                                {typeLabel}
+                              </span>
+                              <span className="font-mono text-xs text-gray-400">
+                                {row.client_gstin ?? "—"}
+                              </span>
                             </div>
                           </td>
                           <td className="px-4 py-3.5">

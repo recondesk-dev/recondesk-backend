@@ -373,7 +373,7 @@ export default function PortfolioDashboardPage() {
     if (!authToken || !row.latestRun || row.latestRun.status !== "COMPLETE") return;
     try {
       await reconcileRunsApi.finalizeRun(authToken, row.latestRun.id);
-      toast("Run finalized", "success");
+      toast("Reconciliation finalized", "success");
       await invalidateDw();
     } catch (e: unknown) {
       toast(isApiError(e) ? e.detail : "Finalization failed", "error");
@@ -411,7 +411,7 @@ export default function PortfolioDashboardPage() {
           await reconcileRunsApi.finalizeRun(authToken, run.id);
         }
       }
-      toast("Selected runs finalized", "success");
+      toast("Selected reconciliations finalized", "success");
       setSelectedIds(new Set());
       await invalidateDw();
     } catch (e: unknown) {
@@ -428,7 +428,7 @@ export default function PortfolioDashboardPage() {
           await reconcileRunsApi.retryFailed(authToken, run.id);
         }
       }
-      toast("Retry queued for selected runs", "success");
+      toast("Retry queued for selected reconciliations", "success");
       setSelectedIds(new Set());
       await invalidateDw();
     } catch (e: unknown) {
@@ -562,7 +562,7 @@ export default function PortfolioDashboardPage() {
           />
           <StatCard
             label="Ready for Review"
-            hint="Completed runs waiting for review"
+            hint="Completed reconciliations waiting for review"
             icon={<IconReview />}
             value={
               portfolioLoading ? (
@@ -588,7 +588,7 @@ export default function PortfolioDashboardPage() {
           />
           <StatCard
             label="ITC at Risk"
-            hint="Missed ITC across latest client runs"
+            hint="Missed ITC across latest client reconciliations"
             icon={<IconFail />}
             value={
               portfolioLoading ? (
