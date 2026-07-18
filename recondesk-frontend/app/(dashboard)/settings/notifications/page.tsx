@@ -146,6 +146,27 @@ export default function NotificationsSettingsPage() {
                 />
               </div>
             </div>
+
+            <div className="flex items-start justify-between gap-6 p-5 transition duration-150 hover:bg-[#F7F7F8] md:p-6">
+              <div className="space-y-1">
+                <label
+                  htmlFor="toggle-rule37-alerts"
+                  className="cursor-pointer text-sm font-semibold text-[var(--ink)]"
+                >
+                  Rule 37 Payment Deadline Alerts
+                </label>
+                <p className="text-xs leading-relaxed text-gray-500 md:text-sm">
+                  Get emailed when unpaid invoices approach the 180-day Rule 37 payment deadline (60-day and 30-day warnings) or become overdue.
+                </p>
+              </div>
+              <div className="flex-shrink-0 pt-0.5">
+                <Toggle
+                  id="toggle-rule37-alerts"
+                  checked={preferences.rule37_alerts !== false}
+                  onChange={(checked) => handleToggle("rule37_alerts", checked)}
+                />
+              </div>
+            </div>
           </div>
         )}
       </div>

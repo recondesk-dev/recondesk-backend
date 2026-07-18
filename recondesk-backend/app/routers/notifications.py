@@ -18,6 +18,16 @@ class NotificationPreferencesModel(BaseModel):
     run_completed: bool
     runs_expiring_soon: bool
     payment_receipts: bool
+    rule37_alerts: bool = True
+
+
+def _prefs_from_row(pref: dict) -> NotificationPreferencesModel:
+    return NotificationPreferencesModel(
+        run_completed=pref.get("run_completed", True),
+        runs_expiring_soon=pref.get("runs_expiring_soon", True),
+        payment_receipts=pref.get("payment_receipts", True),
+        rule37_alerts=pref.get("rule37_alerts", True),
+    )
 
 
 @router.get("/preferences", response_model=NotificationPreferencesModel)
@@ -45,12 +55,7 @@ async def get_preferences(
             .execute()
         )
         if res.data and len(res.data) > 0:
-            pref = res.data[0]
-            return NotificationPreferencesModel(
-                run_completed=pref.get("run_completed", True),
-                runs_expiring_soon=pref.get("runs_expiring_soon", True),
-                payment_receipts=pref.get("payment_receipts", True),
-            )
+            return _prefs_from_row(res.data[0])
 
         # Create defaults
         now_str = datetime.now(timezone.utc).isoformat()
@@ -59,6 +64,7 @@ async def get_preferences(
             "run_completed": True,
             "runs_expiring_soon": True,
             "payment_receipts": True,
+            "rule37_alerts": True,
             "created_at": now_str,
             "updated_at": now_str,
         }
@@ -67,6 +73,7 @@ async def get_preferences(
             run_completed=True,
             runs_expiring_soon=True,
             payment_receipts=True,
+            rule37_alerts=True,
         )
     except Exception as exc:
         _log.exception(
@@ -99,6 +106,7 @@ async def update_preferences(
             "run_completed": payload.run_completed,
             "runs_expiring_soon": payload.runs_expiring_soon,
             "payment_receipts": payload.payment_receipts,
+            "rule37_alerts": payload.rule37_alerts,
             "updated_at": now_str,
         }
         res = (
@@ -107,12 +115,7 @@ async def update_preferences(
             .execute()
         )
         if res.data and len(res.data) > 0:
-            pref = res.data[0]
-            return NotificationPreferencesModel(
-                run_completed=pref.get("run_completed", True),
-                runs_expiring_soon=pref.get("runs_expiring_soon", True),
-                payment_receipts=pref.get("payment_receipts", True),
-            )
+            return _prefs_from_row(res.data[0])
 
         return payload
     except Exception as exc:

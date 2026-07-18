@@ -8,9 +8,20 @@ def should_send_notification(user_id: str, category: str) -> bool:
     """Check if email notifications for a specific category are enabled for a user.
 
     If the user has no preferences row, defaults to True.
-    Categories: 'run_completed', 'runs_expiring_soon', 'payment_receipts'.
+    Categories: 'run_completed', 'runs_expiring_soon', 'payment_receipts',
+    'rule37_alerts'.
     """
     if not user_id:
+        return True
+
+    allowed = {
+        "run_completed",
+        "runs_expiring_soon",
+        "payment_receipts",
+        "rule37_alerts",
+    }
+    if category not in allowed:
+        logger.warning("Unknown notification category %s — defaulting to True", category)
         return True
 
     try:

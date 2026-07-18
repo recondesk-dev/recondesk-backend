@@ -120,6 +120,17 @@ async def stuck_job_detector() -> None:
         except Exception as e:
             if settings.SENTRY_DSN:
                 sentry_sdk.capture_exception(e)
+        # Rule 37 pre-deadline / overdue email scan (throttled inside the service).
+        try:
+            from app.services.rule37_alert_scan import run_rule37_alert_scan
+
+            await run_rule37_alert_scan()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            _log.exception("rule37_alert_scan failed")
+            if settings.SENTRY_DSN:
+                sentry_sdk.capture_exception(e)
         # Vendor compliance scorecard full rebuild (throttled to 24h inside service).
         try:
             from app.services.supplier_compliance_scorecard import (
