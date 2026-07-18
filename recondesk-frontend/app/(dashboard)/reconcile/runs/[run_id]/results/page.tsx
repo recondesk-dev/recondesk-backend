@@ -1852,7 +1852,7 @@ export default function ReconcileResultsPage() {
     mutate: mutateDrawerNotes,
   } = useSWR<Note[]>(
     notesKey,
-    async ([path, token]) => {
+    async ([path, token]: FetcherKey) => {
       const rows = await apiFetch<Record<string, unknown>[]>(path, { token });
       return (rows ?? []).map(mapApiNote);
     },
