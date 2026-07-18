@@ -291,7 +291,7 @@ async def _run_pipeline(
     sr_result = parse_sales_register(sr_file_content, sr_filename)
     if not sr_result.get("success"):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "error": "sales_register_parse_failed",
                 "errors": sr_result.get("errors", []),
@@ -308,7 +308,7 @@ async def _run_pipeline(
         gstr1_result = parse_gstr1(gstr1_file_content)
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "error": "gstr1_parse_failed",
                 "message": str(exc),
@@ -334,7 +334,7 @@ async def _run_pipeline(
         gstr3b_data = json.loads(gstr3b_file_content)
     except json.JSONDecodeError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "error": "gstr3b_parse_failed",
                 "message": f"Invalid JSON: {exc.msg}",
@@ -345,7 +345,7 @@ async def _run_pipeline(
         parsed_gstr3b = parse_gstr3b(gstr3b_data)
     except Exception as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "error": "gstr3b_parse_failed",
                 "message": str(exc),
@@ -512,7 +512,7 @@ async def _run_pipeline(
             prior_result = parse_gstr1(prior_gstr1_file_content)
         except ValueError as exc:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={
                     "error": "prior_gstr1_parse_failed",
                     "message": str(exc),
@@ -748,13 +748,13 @@ async def mark_gstr1a_filed_for_period(
 ):
     if not body.confirmed:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Confirmation required to mark GSTR-1A as filed",
         )
     period_norm = normalise_action_period(body.period)
     if not period_norm:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="period is required",
         )
 
@@ -779,7 +779,7 @@ async def mark_gstr1a_filed_for_period(
         )
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
     except Exception:
@@ -978,12 +978,18 @@ async def reconcile_gstr1(
             gstr1_filing_period=gstr1_filing_period,
             prior_gstr1_file_content=prior_gstr1_content,
         )
-    except HTTPException:
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT:
+            _log.warning(
+                "gstr1_reconcile: validation failed user=%s detail=%s",
+                user_id,
+                exc.detail,
+            )
         raise
     except ParseError as exc:
         _log.warning("gstr1_reconcile: parse error — %s", exc)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"error": "parse_error", "message": str(exc)},
         )
     except Exception:

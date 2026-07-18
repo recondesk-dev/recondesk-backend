@@ -1,5 +1,4 @@
-import pytest
-from app.parsers.gstr3b_parser import parse_gstr3b, ParseError
+from app.parsers.gstr3b_parser import parse_gstr3b
 
 def test_parse_gstr3b_empty_string_itc_section():
     """Regression test: if GST portal returns empty strings instead of lists for ITC,
@@ -64,18 +63,50 @@ def test_parse_gstr3b_dict_itc_section():
     assert parsed["itc_avl_by_source"]["OTH"]["igst"] == 100.0
 
 
-def test_parse_gstr3b_unsupported_schema():
-    """Test that missing ITC section entirely raises ParseError."""
+def test_parse_gstr3b_missing_itc_defaults_to_zero():
+    """Missing itcElg is valid — ITC heads default to zeros (GSTR-1 tie-out uploads)."""
     raw = {
         "gstin": "27AABCM4162G1ZM",
         "ret_period": "052026",
         "data": {
-            "sup_details": {}
-        }
+            "sup_details": {
+                "osup_det": {
+                    "txval": 1000,
+                    "iamt": 180,
+                    "camt": 0,
+                    "samt": 0,
+                    "csamt": 0,
+                }
+            }
+        },
     }
-    with pytest.raises(ParseError) as exc_info:
-        parse_gstr3b(raw)
-    assert "Unsupported schema" in str(exc_info.value)
+    parsed = parse_gstr3b(raw)
+    assert parsed["outward_supply"]["taxable_value"] == 1000.0
+    assert parsed["outward_supply"]["igst"] == 180.0
+    assert parsed["itc_avl"] == {"igst": 0.0, "cgst": 0.0, "sgst": 0.0, "cess": 0.0}
+    assert parsed["itc_net"] == {"igst": 0.0, "cgst": 0.0, "sgst": 0.0, "cess": 0.0}
+
+
+def test_parse_gstr3b_top_level_sup_details_only():
+    """Portal-style slice with top-level sup_details and no data/itcElg wrapper."""
+    raw = {
+        "gstin": "27ODNLV7602A5ZL",
+        "ret_period": "042025",
+        "sup_details": {
+            "osup_det": {
+                "txval": 437091848.82,
+                "iamt": 24053615.55,
+                "camt": 18040211.66,
+                "samt": 18040211.66,
+                "csamt": 0,
+            }
+        },
+    }
+    parsed = parse_gstr3b(raw)
+    assert parsed["gstin"] == "27ODNLV7602A5ZL"
+    assert parsed["ret_period"] == "2025-04"
+    assert parsed["outward_supply"]["taxable_value"] == 437091848.82
+    assert parsed["outward_supply"]["cgst"] == 18040211.66
 
 
 def test_omitted_optional_tables_default_to_zero():

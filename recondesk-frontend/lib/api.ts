@@ -154,6 +154,31 @@ function formatApiErrorDetail(raw: unknown, fallback: string): string {
       )
       .join("; ");
   }
+  if (typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    const errorKey =
+      typeof obj.error === "string" && obj.error.trim() ? obj.error.trim() : "";
+    if (typeof obj.message === "string" && obj.message.trim()) {
+      return errorKey ? `${errorKey}: ${obj.message}` : obj.message;
+    }
+    if (Array.isArray(obj.errors) && obj.errors.length > 0) {
+      const errs = obj.errors
+        .map((item) =>
+          typeof item === "string"
+            ? item
+            : typeof item === "object" && item && "msg" in item
+              ? String((item as { msg: unknown }).msg)
+              : JSON.stringify(item)
+        )
+        .join("; ");
+      return errorKey ? `${errorKey}: ${errs}` : errs;
+    }
+    try {
+      return JSON.stringify(raw);
+    } catch {
+      return fallback;
+    }
+  }
   return String(raw);
 }
 

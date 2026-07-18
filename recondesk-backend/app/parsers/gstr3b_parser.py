@@ -32,7 +32,9 @@ Expected top-level shape::
       }
     }
 
-Missing optional blocks/keys default to zeros — never a parse failure.
+Missing optional blocks/keys (including ``itcElg``) default to zeros — never a
+parse failure. Sales-side GSTR-1 reconciliation often uploads a 3B slice that
+only contains ``sup_details`` (Table 3.1); that is valid.
 ``outward_supply`` (3.1(a)) and lump ``itc_net`` / ``itc_avl`` sums keep their
 existing semantics; newer fields are additive.
 """
@@ -272,10 +274,7 @@ def parse_gstr3b(raw: Any) -> dict:
     else:
         source = raw
 
-    # ── ITC eligible section ──────────────────────────────────────────────────
-    if "itcElg" not in source and "itc_elg" not in source:
-        raise ParseError("Missing required ITC section (itcElg or itc_elg). Unsupported schema.")
-
+    # ── ITC eligible section (optional — absent → zeros) ─────────────────────
     itc_elg = _get_any(source, "itcElg", "itc_elg") or {}
     if not isinstance(itc_elg, dict):
         itc_elg = {}
