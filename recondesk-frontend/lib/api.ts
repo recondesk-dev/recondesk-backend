@@ -602,6 +602,9 @@ export type Gstr3bOutwardSupply = {
   taxable_value: number;
   igst: number;
   total: number;
+  cgst?: number;
+  sgst?: number;
+  cess?: number;
 };
 
 /** Additive Rule 88D / DRC-01C check (does not change overall_status). */
@@ -612,6 +615,44 @@ export type Gstr3bDrc01cResult = {
   pct_threshold: number;
   amount_threshold: number;
   triggers_drc01c: boolean;
+};
+
+export type Gstr3bTaxHeads = {
+  igst: number;
+  cgst: number;
+  sgst: number;
+  cess: number;
+};
+
+export type Gstr3bSupplyRow = {
+  taxable_value: number;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  cess: number;
+};
+
+export type Gstr3bInwardSupRow = {
+  ty: string;
+  inter: number;
+  intra: number;
+};
+
+/** Full filed GSTR-3B as parsed (additive; may be null if raw unparseable). */
+export type Gstr3bFiledSummary = {
+  outward_supply: Gstr3bOutwardSupply;
+  osup_zero: Gstr3bSupplyRow;
+  osup_nil_exmp: Gstr3bSupplyRow;
+  isup_rev: Gstr3bSupplyRow;
+  osup_nongst: Gstr3bSupplyRow;
+  itc_avl: Gstr3bTaxHeads;
+  itc_rev: Gstr3bTaxHeads;
+  itc_net: Gstr3bTaxHeads;
+  itc_inelg: Gstr3bTaxHeads;
+  itc_avl_by_source: Record<string, Gstr3bTaxHeads>;
+  inward_sup: Gstr3bInwardSupRow[];
+  interest_late_fee: Gstr3bTaxHeads;
+  late_fee: Gstr3bTaxHeads;
 };
 
 export type Gstr3bReconciliationResult = {
@@ -627,6 +668,8 @@ export type Gstr3bReconciliationResult = {
   outward_supply: Gstr3bOutwardSupply;
   uploaded_at: string;
   drc01c?: Gstr3bDrc01cResult | null;
+  filed?: Gstr3bFiledSummary | null;
+  client_gstin_id?: string | null;
 };
 
 export const gstr3bApi = {

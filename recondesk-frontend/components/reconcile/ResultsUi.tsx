@@ -645,7 +645,7 @@ const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "itc", label: "Missed ITC" },
   { id: "rule37", label: "Rule 37" },
   { id: "section17", label: "Section 17(5)" },
-  { id: "gstr3b", label: "GSTR-3B Check" },
+  { id: "gstr3b", label: "GSTR-3B" },
   { id: "followup", label: "Follow-up Log" },
 ];
 

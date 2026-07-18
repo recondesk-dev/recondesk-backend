@@ -11,7 +11,7 @@ import math
 import re
 from collections import Counter
 from datetime import date, datetime, timezone
-from typing import Any, Literal, Optional, TypeVar
+from typing import Any, Literal, Mapping, Optional, TypeVar
 from urllib.parse import unquote
 
 TSeq = TypeVar("TSeq")
@@ -5308,6 +5308,9 @@ class Gstr3bOutwardSupply(BaseModel):
     taxable_value: float
     igst: float
     total: float
+    cgst: float = 0.0
+    sgst: float = 0.0
+    cess: float = 0.0
 
 
 class Gstr3bDrc01cResult(BaseModel):
@@ -5318,6 +5321,44 @@ class Gstr3bDrc01cResult(BaseModel):
     pct_threshold: float
     amount_threshold: float
     triggers_drc01c: bool
+
+
+class Gstr3bTaxHeads(BaseModel):
+    igst: float = 0.0
+    cgst: float = 0.0
+    sgst: float = 0.0
+    cess: float = 0.0
+
+
+class Gstr3bSupplyRow(BaseModel):
+    taxable_value: float = 0.0
+    igst: float = 0.0
+    cgst: float = 0.0
+    sgst: float = 0.0
+    cess: float = 0.0
+
+
+class Gstr3bInwardSupRow(BaseModel):
+    ty: str = "GST"
+    inter: float = 0.0
+    intra: float = 0.0
+
+
+class Gstr3bFiledSummary(BaseModel):
+    """Full filed GSTR-3B as parsed — additive; independent of ITC check heads."""
+    outward_supply: Gstr3bOutwardSupply
+    osup_zero: Gstr3bSupplyRow
+    osup_nil_exmp: Gstr3bSupplyRow
+    isup_rev: Gstr3bSupplyRow
+    osup_nongst: Gstr3bSupplyRow
+    itc_avl: Gstr3bTaxHeads
+    itc_rev: Gstr3bTaxHeads
+    itc_net: Gstr3bTaxHeads
+    itc_inelg: Gstr3bTaxHeads
+    itc_avl_by_source: dict[str, Gstr3bTaxHeads]
+    inward_sup: list[Gstr3bInwardSupRow]
+    interest_late_fee: Gstr3bTaxHeads
+    late_fee: Gstr3bTaxHeads
 
 
 class Gstr3bReconciliationResult(BaseModel):
@@ -5333,6 +5374,8 @@ class Gstr3bReconciliationResult(BaseModel):
     outward_supply: Gstr3bOutwardSupply
     uploaded_at: str
     drc01c: Gstr3bDrc01cResult | None = None
+    filed: Gstr3bFiledSummary | None = None
+    client_gstin_id: str | None = None
 
 
 @reconcile_runs_router.post(
@@ -5479,7 +5522,11 @@ async def upload_and_reconcile_gstr3b(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to persist GSTR-3B reconciliation result",
         )
-    return _gstr3b_row_to_response(ins.data[0])
+    return _gstr3b_row_to_response(
+        ins.data[0],
+        filed_parsed=parsed,
+        client_gstin_id=client_gstin_id or None,
+    )
 
 
 @reconcile_runs_router.get(
@@ -5493,7 +5540,7 @@ async def get_gstr3b_reconciliation(
     """Return stored GSTR-3B reconciliation result for a run."""
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
+    run_row = assert_run_accessible(sb, rid, current_user)
 
     try:
         res = (
@@ -5504,7 +5551,7 @@ async def get_gstr3b_reconciliation(
                 "gstr2b_igst_available, gstr2b_cgst_available, gstr2b_sgst_available, "
                 "igst_difference, cgst_difference, sgst_difference, "
                 "igst_status, cgst_status, sgst_status, "
-                "outward_supply_total, uploaded_at"
+                "outward_supply_total, uploaded_at, raw_gstr3b"
             )
             .eq("run_id", rid)
             .order("uploaded_at", desc=True)
@@ -5520,10 +5567,128 @@ async def get_gstr3b_reconciliation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No GSTR-3B reconciliation found for this run",
         )
-    return _gstr3b_row_to_response(res.data[0])
+    return _gstr3b_row_to_response(
+        res.data[0],
+        client_gstin_id=str(run_row.get("client_gstin_id") or "") or None,
+    )
 
 
-def _gstr3b_row_to_response(row: dict) -> Gstr3bReconciliationResult:
+def _gstr3b_tax_heads(d: Any) -> Gstr3bTaxHeads:
+    if not isinstance(d, dict):
+        return Gstr3bTaxHeads()
+    def _n(k: str) -> float:
+        try:
+            return round(float(d.get(k) or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+    return Gstr3bTaxHeads(igst=_n("igst"), cgst=_n("cgst"), sgst=_n("sgst"), cess=_n("cess"))
+
+
+def _gstr3b_supply_row(d: Any) -> Gstr3bSupplyRow:
+    if not isinstance(d, dict):
+        return Gstr3bSupplyRow()
+    def _n(k: str) -> float:
+        try:
+            return round(float(d.get(k) or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+    return Gstr3bSupplyRow(
+        taxable_value=_n("taxable_value"),
+        igst=_n("igst"),
+        cgst=_n("cgst"),
+        sgst=_n("sgst"),
+        cess=_n("cess"),
+    )
+
+
+def _filed_from_parsed(parsed: Mapping[str, Any] | None) -> Gstr3bFiledSummary | None:
+    if not isinstance(parsed, dict):
+        return None
+    osup = parsed.get("outward_supply") if isinstance(parsed.get("outward_supply"), dict) else {}
+    by_src_raw = parsed.get("itc_avl_by_source")
+    by_src: dict[str, Gstr3bTaxHeads] = {}
+    if isinstance(by_src_raw, dict):
+        for ty, heads in by_src_raw.items():
+            by_src[str(ty)] = _gstr3b_tax_heads(heads)
+    for ty in ("IMPG", "IMPS", "ISRC", "ISD", "OTH"):
+        by_src.setdefault(ty, Gstr3bTaxHeads())
+
+    inward_rows: list[Gstr3bInwardSupRow] = []
+    for row in parsed.get("inward_sup") or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            inter = round(float(row.get("inter") or 0), 2)
+            intra = round(float(row.get("intra") or 0), 2)
+        except (TypeError, ValueError):
+            inter, intra = 0.0, 0.0
+        inward_rows.append(
+            Gstr3bInwardSupRow(
+                ty=str(row.get("ty") or "GST"),
+                inter=inter,
+                intra=intra,
+            )
+        )
+
+    try:
+        txval = round(float(osup.get("taxable_value") or 0), 2)
+        oigst = round(float(osup.get("igst") or 0), 2)
+        ocgst = round(float(osup.get("cgst") or 0), 2)
+        osgst = round(float(osup.get("sgst") or 0), 2)
+        ocess = round(float(osup.get("cess") or 0), 2)
+        total = round(float(osup.get("total") or (txval + oigst)), 2)
+    except (TypeError, ValueError):
+        txval = oigst = ocgst = osgst = ocess = total = 0.0
+
+    return Gstr3bFiledSummary(
+        outward_supply=Gstr3bOutwardSupply(
+            taxable_value=txval,
+            igst=oigst,
+            cgst=ocgst,
+            sgst=osgst,
+            cess=ocess,
+            total=total,
+        ),
+        osup_zero=_gstr3b_supply_row(parsed.get("osup_zero")),
+        osup_nil_exmp=_gstr3b_supply_row(parsed.get("osup_nil_exmp")),
+        isup_rev=_gstr3b_supply_row(parsed.get("isup_rev")),
+        osup_nongst=_gstr3b_supply_row(parsed.get("osup_nongst")),
+        itc_avl=_gstr3b_tax_heads(parsed.get("itc_avl")),
+        itc_rev=_gstr3b_tax_heads(parsed.get("itc_rev")),
+        itc_net=_gstr3b_tax_heads(parsed.get("itc_net")),
+        itc_inelg=_gstr3b_tax_heads(parsed.get("itc_inelg")),
+        itc_avl_by_source=by_src,
+        inward_sup=inward_rows,
+        interest_late_fee=_gstr3b_tax_heads(parsed.get("interest_late_fee")),
+        late_fee=_gstr3b_tax_heads(parsed.get("late_fee")),
+    )
+
+
+def _parse_filed_from_raw(raw: Any) -> Gstr3bFiledSummary | None:
+    """Re-parse stored raw_gstr3b. Cheap (~sub-ms); no cache needed."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        try:
+            raw = _json.loads(raw)
+        except _json.JSONDecodeError:
+            return None
+    if not isinstance(raw, dict):
+        return None
+    try:
+        from app.parsers.gstr3b_parser import ParseError, parse_gstr3b
+        return _filed_from_parsed(parse_gstr3b(raw))
+    except (ParseError, TypeError, ValueError):
+        _log.warning("gstr3b filed re-parse failed", exc_info=True)
+        return None
+
+
+def _gstr3b_row_to_response(
+    row: dict,
+    *,
+    filed_parsed: Mapping[str, Any] | None = None,
+    client_gstin_id: str | None = None,
+) -> Gstr3bReconciliationResult:
     from app.services.gstr3b_reconciliation import compute_drc01c_threshold
 
     def _f(key: str) -> float:
@@ -5545,6 +5710,20 @@ def _gstr3b_row_to_response(row: dict) -> Gstr3bReconciliationResult:
     g2b_total = round(g2b_igst + g2b_cgst + g2b_sgst, 2)
     g3b_total = round(g3b_igst + g3b_cgst + g3b_sgst, 2)
     drc = compute_drc01c_threshold(g3b_total, g2b_total)
+
+    filed: Gstr3bFiledSummary | None
+    if filed_parsed is not None:
+        filed = _filed_from_parsed(filed_parsed)
+    else:
+        filed = _parse_filed_from_raw(row.get("raw_gstr3b"))
+
+    # Prefer full 3.1(a) from filed when available; else stored total only
+    if filed is not None:
+        osup_out = filed.outward_supply
+    else:
+        osup_out = Gstr3bOutwardSupply(
+            taxable_value=0.0, igst=0.0, total=_f("outward_supply_total"),
+        )
 
     return Gstr3bReconciliationResult(
         id=str(row.get("id") or ""),
@@ -5570,9 +5749,9 @@ def _gstr3b_row_to_response(row: dict) -> Gstr3bReconciliationResult:
             difference=round(igst_diff + cgst_diff + sgst_diff, 2),
             status=str(row.get("overall_status") or "MATCHED"),
         ),
-        outward_supply=Gstr3bOutwardSupply(
-            taxable_value=0.0, igst=0.0, total=_f("outward_supply_total"),
-        ),
+        outward_supply=osup_out,
         uploaded_at=str(row.get("uploaded_at") or ""),
         drc01c=Gstr3bDrc01cResult(**drc),
+        filed=filed,
+        client_gstin_id=client_gstin_id,
     )

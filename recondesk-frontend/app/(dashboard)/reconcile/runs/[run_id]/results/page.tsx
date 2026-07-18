@@ -10,7 +10,7 @@ import { AuditObservationsPanel } from "@/components/AuditObservationsPanel";
 import { Rule37SummarySection } from "@/components/reconcile/Rule37SummarySection";
 import type { Rule37SummaryResponse } from "@/lib/rule37Summary";
 import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
-import { Gstr3bCheckPanel } from "@/components/reconcile/Gstr3bCheckPanel";
+import { Gstr3bSummaryView } from "@/components/reconcile/Gstr3bSummaryView";
 import { AdvancedExportPanel } from "@/components/reconcile/AdvancedExportPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
 import { SupplierGroupView } from "@/components/reconcile/SupplierGroupView";
@@ -4274,7 +4274,11 @@ export default function ReconcileResultsPage() {
         )}
 
         {resultsTab === "gstr3b" && authToken && (
-          <Gstr3bCheckPanel runId={runId} authToken={authToken} />
+          <Gstr3bSummaryView
+            runId={runId}
+            authToken={authToken}
+            variant="embedded"
+          />
         )}
 
         {resultsTab === "followup" && authToken && (
