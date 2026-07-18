@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import { MarketingPageLayout } from "@/components/layout/MarketingPageLayout";
 
 export const metadata: Metadata = {
-  title: "ReconDesk — GST reconciliation with a Decision Layer for CA firms",
+  title: "ReconDesk — GSTR-2B reconciliation for CA firms",
   description:
-    "Upload two files. Get five-level matching plus WHAT / WHY / NEXT on every invoice — Rule 37, Section 17(5), and Audit Observations included. No Tally bridge required.",
+    "Find missed ITC every month. Upload GSTR-2B + purchase register. 5-level matching, decision-ready results for CA firms.",
 };
 
 export default function LandingLayout({ children }: { children: React.ReactNode }) {
