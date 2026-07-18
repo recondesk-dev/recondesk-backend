@@ -362,7 +362,19 @@ export function AuditObservationsPanel({
     );
   }
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <section
+        className={sectionContainerClass}
+        aria-label="Audit observations"
+      >
+        <SectionHeader title="Audit Observations" dotColor="#111111" />
+        <p className="mt-1 text-[13px] text-gray-500">
+          Audit observations are unavailable for this run.
+        </p>
+      </section>
+    );
+  }
 
   const isEmpty = sorted.length === 0;
 

@@ -23,6 +23,7 @@ import {
   ResultsBucketTabs,
   resultsSummaryGridClass,
   SALES_RESULTS_BUCKET_TABS,
+  SectionHeader,
   sectionContainerClass,
   StatCard,
   type ResultsBucketTabId,
@@ -207,6 +208,10 @@ export function Gstr1ResultsView({
   );
 
   const summary = result.summary;
+  const resolvedRunId =
+    runIdProp || result.run_id
+      ? String(runIdProp || result.run_id)
+      : null;
   const gstr1aWindow =
     result.gstr1a_window ?? summary.gstr1a_window ?? null;
   const gstr1aEligible = useMemo(
@@ -565,13 +570,25 @@ export function Gstr1ResultsView({
         {tab === "tie_out" && (
           <>
             <Gstr1TieOutPanel tieOut={result.tie_out || {}} />
-            {authToken && (runIdProp || result.run_id) ? (
+            {resolvedRunId && authToken ? (
               <AuditObservationsPanel
-                runId={String(runIdProp || result.run_id)}
+                runId={resolvedRunId}
                 authToken={authToken}
                 refreshKey={0}
               />
-            ) : null}
+            ) : (
+              <section
+                className={sectionContainerClass}
+                aria-label="Audit observations"
+              >
+                <SectionHeader title="Audit Observations" dotColor="#111111" />
+                <p className="mt-1 text-[13px] text-gray-500">
+                  {resolvedRunId
+                    ? "Sign in to load audit observations."
+                    : "Audit observations require this run to be linked to a client. Re-run the reconciliation with a client selected to see this."}
+                </p>
+              </section>
+            )}
           </>
         )}
 
