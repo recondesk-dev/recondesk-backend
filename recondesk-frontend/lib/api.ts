@@ -64,6 +64,8 @@ export interface AuthMeProfile {
   runs_limit?: number | null;
   free_runs_remaining?: number | null;
   runs_balance?: number | null;
+  gstin_limit?: number | null;
+  subscription_ends_at?: string | null;
   firm_city?: string | null;
   icai_membership_number?: string | null;
   firm_gstin?: string | null;

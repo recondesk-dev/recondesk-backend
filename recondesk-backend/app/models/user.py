@@ -84,6 +84,8 @@ class UserProfileResponse(StrictModel):
     runs_limit: Optional[int] = None
     free_runs_remaining: Optional[int] = None
     runs_balance: Optional[int] = None
+    gstin_limit: Optional[int] = None
+    subscription_ends_at: Optional[datetime] = None
     firm_city: Optional[str] = Field(default=None, max_length=128)
     icai_membership_number: Optional[str] = Field(default=None, max_length=64)
     firm_gstin: Optional[str] = Field(default=None, max_length=15)
