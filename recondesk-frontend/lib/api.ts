@@ -167,16 +167,23 @@ export function backendApiUrl(path: string): string {
   return `${API_URL}${normalizeApiPath(path)}`;
 }
 
-/** Resolve fetch URL — browser reconcile calls go through same-origin Next.js proxy. */
+/** Browser paths that have a Next.js same-origin proxy (avoids CORS / Failed to fetch). */
+function usesSameOriginProxy(path: string): boolean {
+  return (
+    path.startsWith("/api/reconcile") ||
+    path.startsWith("/api/notes") ||
+    path.startsWith("/api/audit-observations") ||
+    path.startsWith("/api/reconciliation")
+  );
+}
+
+/** Resolve fetch URL — browser reconcile/notes/etc. go through same-origin Next.js proxy. */
 function resolveApiUrl(path: string, directBackend = false): string {
   const normalized = normalizeApiPath(path);
   if (directBackend) {
     return backendApiUrl(normalized);
   }
-  if (
-    typeof window !== "undefined" &&
-    normalized.startsWith("/api/reconcile")
-  ) {
+  if (typeof window !== "undefined" && usesSameOriginProxy(normalized)) {
     return normalized;
   }
   return backendApiUrl(normalized);

@@ -482,6 +482,18 @@ type Note = {
   note_text: string;
 };
 
+/** Backend returns `note` / `author_full_name`; UI uses `note_text` / `author_name`. */
+function mapApiNote(raw: Record<string, unknown>): Note {
+  return {
+    id: String(raw.id ?? ""),
+    author_name: String(
+      raw.author_name ?? raw.author_full_name ?? "Unknown"
+    ),
+    created_at: String(raw.created_at ?? ""),
+    note_text: String(raw.note_text ?? raw.note ?? ""),
+  };
+}
+
 type Toast = { id: string; message: string; type: "success" | "error" };
 
 type LateMatchRow = {
@@ -1838,9 +1850,16 @@ export default function ReconcileResultsPage() {
     data: drawerNotes = [],
     isLoading: drawerNotesLoading,
     mutate: mutateDrawerNotes,
-  } = useSWR<Note[]>(notesKey, authJsonFetcher, {
-    revalidateOnFocus: false,
-  });
+  } = useSWR<Note[]>(
+    notesKey,
+    async ([path, token]) => {
+      const rows = await apiFetch<Record<string, unknown>[]>(path, { token });
+      return (rows ?? []).map(mapApiNote);
+    },
+    {
+      revalidateOnFocus: false,
+    }
+  );
 
   const effectiveStatus = useCallback(
     (row: ReconcileRow): DecisionStatus =>
@@ -1971,7 +1990,7 @@ export default function ReconcileResultsPage() {
 
   const submitNote = useCallback(async () => {
     const text = newNoteText.trim();
-    if (!text || !activeRecord || !authToken) return;
+    if (!text || !activeRecord || !authToken || !runId) return;
     setNotePostError(null);
     setNotePosting(true);
     const tempId = `temp-${Date.now()}`;
@@ -1986,11 +2005,19 @@ export default function ReconcileResultsPage() {
     });
     setNewNoteText("");
     try {
-      const created = await apiFetch<Note>(`/api/notes/${activeRecord.id}`, {
-        method: "POST",
-        token: authToken,
-        body: JSON.stringify({ note_text: text }),
-      });
+      const createdRaw = await apiFetch<Record<string, unknown>>(
+        `/api/notes/${activeRecord.id}`,
+        {
+          method: "POST",
+          token: authToken,
+          body: JSON.stringify({
+            note: text,
+            run_id: runId,
+            record_type: "matched",
+          }),
+        }
+      );
+      const created = mapApiNote(createdRaw);
       await mutateDrawerNotes(
         (prev) => (prev ?? []).map((n) => (n.id === tempId ? created : n)),
         { revalidate: false }
@@ -2005,7 +2032,14 @@ export default function ReconcileResultsPage() {
     } finally {
       setNotePosting(false);
     }
-  }, [activeRecord, authToken, mutateDrawerNotes, mutateMatched, newNoteText]);
+  }, [
+    activeRecord,
+    authToken,
+    mutateDrawerNotes,
+    mutateMatched,
+    newNoteText,
+    runId,
+  ]);
 
   const itcHeaderRef = useRef<HTMLInputElement>(null);
   const riskHeaderRef = useRef<HTMLInputElement>(null);

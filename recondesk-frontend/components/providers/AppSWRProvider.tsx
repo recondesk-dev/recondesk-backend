@@ -57,11 +57,39 @@ function isLikelyNetworkError(err: unknown): boolean {
   );
 }
 
+const CLEAR_BANNER_AFTER_MS = 2_500;
+
 export function AppSWRProvider({ children }: { children: ReactNode }) {
   const toast = useToast();
   const [connectionLost, setConnectionLost] = useState(false);
   const redirect401Ref = useRef(false);
   const lastServerErrorToastRef = useRef(0);
+  const clearBannerTimerRef = useRef<number | null>(null);
+  const connectionLostRef = useRef(false);
+
+  const cancelClearTimer = useCallback(() => {
+    if (clearBannerTimerRef.current != null) {
+      window.clearTimeout(clearBannerTimerRef.current);
+      clearBannerTimerRef.current = null;
+    }
+  }, []);
+
+  const showConnectionLost = useCallback(() => {
+    cancelClearTimer();
+    connectionLostRef.current = true;
+    setConnectionLost(true);
+  }, [cancelClearTimer]);
+
+  const scheduleClearConnectionLost = useCallback(() => {
+    if (!connectionLostRef.current) return;
+    cancelClearTimer();
+    // Wait so a failing sibling/retry cannot flicker the banner off then on.
+    clearBannerTimerRef.current = window.setTimeout(() => {
+      clearBannerTimerRef.current = null;
+      connectionLostRef.current = false;
+      setConnectionLost(false);
+    }, CLEAR_BANNER_AFTER_MS);
+  }, [cancelClearTimer]);
 
   const onError = useCallback(
     (err: unknown) => {
@@ -84,7 +112,7 @@ export function AppSWRProvider({ children }: { children: ReactNode }) {
       }
 
       if (isLikelyNetworkError(err)) {
-        setConnectionLost(true);
+        showConnectionLost();
         return;
       }
 
@@ -96,23 +124,28 @@ export function AppSWRProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [toast]
+    [showConnectionLost, toast]
   );
 
   const onSuccess = useCallback(() => {
-    setConnectionLost(false);
-  }, []);
+    scheduleClearConnectionLost();
+  }, [scheduleClearConnectionLost]);
 
   useEffect(() => {
-    const onOnline = () => setConnectionLost(false);
-    const onOffline = () => setConnectionLost(true);
+    const onOnline = () => {
+      cancelClearTimer();
+      connectionLostRef.current = false;
+      setConnectionLost(false);
+    };
+    const onOffline = () => showConnectionLost();
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
     return () => {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
+      cancelClearTimer();
     };
-  }, []);
+  }, [cancelClearTimer, showConnectionLost]);
 
   return (
     <SWRConfig
@@ -135,7 +168,11 @@ export function AppSWRProvider({ children }: { children: ReactNode }) {
             type="button"
             aria-label="Dismiss"
             className="inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-full px-3 text-xs font-semibold text-amber-900 underline hover:bg-amber-100"
-            onClick={() => setConnectionLost(false)}
+            onClick={() => {
+              cancelClearTimer();
+              connectionLostRef.current = false;
+              setConnectionLost(false);
+            }}
           >
             Dismiss
           </button>
