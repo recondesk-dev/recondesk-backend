@@ -123,23 +123,24 @@ class TestAggregateGSTR1:
         assert agg.taxable_value_paise == 100000  # CDN not subtracted
         assert agg.record_count == 1
 
-    def test_exports_included_by_default(self):
+    def test_exports_excluded_by_default(self):
+        """Zero-rated (exp) must be excluded so G1 matches Table 3.1(a) scope."""
         records = [
             _g1_rec(section="b2b", taxable=100000, igst=18000),
             _g1_rec(section="exp", taxable=50000, igst=0, inv="EXP-001"),
         ]
         agg = aggregate_gstr1(records)
-        assert agg.taxable_value_paise == 150000
-        assert agg.record_count == 2
+        assert agg.taxable_value_paise == 100000
+        assert agg.record_count == 1
 
-    def test_exports_excluded_when_flag_false(self):
+    def test_exports_included_when_flag_true(self):
         records = [
             _g1_rec(section="b2b", taxable=100000, igst=18000),
             _g1_rec(section="exp", taxable=50000, igst=0, inv="EXP-001"),
         ]
-        agg = aggregate_gstr1(records, include_zero_rated=False)
-        assert agg.taxable_value_paise == 100000
-        assert agg.record_count == 1
+        agg = aggregate_gstr1(records, include_zero_rated=True)
+        assert agg.taxable_value_paise == 150000
+        assert agg.record_count == 2
 
     def test_nil_hsn_excluded(self):
         """Informational sections are never included."""
@@ -328,6 +329,26 @@ class TestReconcileGSTR1vs3B:
         p3b = _parsed_3b(taxable_value=1000.0, igst=180.0)
         result = reconcile_gstr1_vs_3b(records, p3b)
         assert result.is_clean is True
+
+    def test_exports_do_not_create_false_variance_against_3_1a(self):
+        """Exports/zero-rated in GSTR-1 must not skew Table 3.1(a) tie-out.
+
+        Previously include_zero_rated=True inflated G1 taxable value while
+        GSTR-3B only exposes osup_det (3.1a), causing a false variance for
+        businesses with genuine zero-rated sales.
+        """
+        records = [
+            _g1_rec(section="b2b", taxable=100000, igst=18000),
+            _g1_rec(section="exp", taxable=50000, igst=0, inv="EXP-001"),
+            _g1_rec(section="expa", taxable=25000, igst=0, inv="EXP-002"),
+        ]
+        # 3.1(a) matches B2B only — zero-rated lives in 3.1(b), not compared here
+        p3b = _parsed_3b(taxable_value=1000.0, igst=180.0)
+        result = reconcile_gstr1_vs_3b(records, p3b)
+        assert result.is_clean is True
+        assert result.variances == []
+        assert result.gstr1_aggregate.taxable_value_paise == 100000
+        assert result.gstr1_aggregate.record_count == 1
 
     def test_summary_dict(self):
         records = [_g1_rec(section="b2b", taxable=100000, igst=18000, rate=18.0)]

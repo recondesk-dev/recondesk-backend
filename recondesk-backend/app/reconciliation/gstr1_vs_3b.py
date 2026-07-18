@@ -2,9 +2,11 @@
 GSTR-1 vs GSTR-3B tie-out reconciliation.
 
 Aggregates invoice-level GSTR-1 records by tax-type and rate, then compares
-the totals against the summary figures declared in GSTR-3B Table 3.1
-(outward supply details).  Flags any variance that exceeds a configurable
-tolerance (₹1 rounding by default).
+the totals against GSTR-3B Table 3.1(a) (``osup_det`` — outward taxable
+supplies other than zero-rated, nil-rated and exempted). Export/zero-rated
+GSTR-1 sections are excluded by default so both sides share the same scope.
+Flags any variance that exceeds a configurable tolerance (₹1 rounding by
+default).
 
 Output uses the same ``MismatchResult`` / WHAT-WHY-NEXT contract as
 ``app.rules.gstr1_mismatch_rules`` for seamless Decision Layer integration.
@@ -147,7 +149,7 @@ def aggregate_gstr1(
     records: Sequence[Mapping[str, Any]],
     *,
     include_cdn: bool = True,
-    include_zero_rated: bool = True,
+    include_zero_rated: bool = False,
 ) -> GSTR1Aggregate:
     """Sum GSTR-1 invoice-level records into an aggregate total.
 
@@ -159,7 +161,9 @@ def aggregate_gstr1(
         If True (default), credit/debit note sections (cdnr/cdnur) are
         subtracted from the total. Set to False to compare invoices only.
     include_zero_rated : bool
-        If True (default), export/zero-rated sections are included.
+        If True, export/zero-rated sections (exp/expa) are included.
+        Default False so the aggregate matches GSTR-3B Table 3.1(a)
+        (``osup_det``), which excludes zero-rated supplies.
 
     Returns
     -------
@@ -467,11 +471,14 @@ def reconcile_gstr1_vs_3b(
     *,
     tolerance_paise: int = DEFAULT_TOLERANCE_PAISE,
     include_cdn: bool = True,
-    include_zero_rated: bool = True,
+    include_zero_rated: bool = False,
 ) -> TieOutResult:
     """Compare GSTR-1 invoice-level records against GSTR-3B summary.
 
     This is the primary entry point for the GSTR-1 vs GSTR-3B tie-out.
+    Both sides are scoped to GSTR-3B Table 3.1(a) (regular taxable outward
+    supplies). Export/zero-rated GSTR-1 sections are excluded by default so
+    they are not compared against ``osup_det``.
 
     Parameters
     ----------
@@ -485,7 +492,7 @@ def reconcile_gstr1_vs_3b(
     include_cdn : bool
         Include credit/debit notes in the GSTR-1 aggregate (default True).
     include_zero_rated : bool
-        Include exports/zero-rated in the GSTR-1 aggregate (default True).
+        Include exports/zero-rated in the GSTR-1 aggregate (default False).
 
     Returns
     -------

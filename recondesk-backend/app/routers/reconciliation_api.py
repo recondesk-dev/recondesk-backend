@@ -5310,6 +5310,16 @@ class Gstr3bOutwardSupply(BaseModel):
     total: float
 
 
+class Gstr3bDrc01cResult(BaseModel):
+    """Additive Rule 88D / DRC-01C dual-threshold check (does not alter overall_status)."""
+    threshold_status: str
+    excess_amount: float
+    excess_pct: float | None = None
+    pct_threshold: float
+    amount_threshold: float
+    triggers_drc01c: bool
+
+
 class Gstr3bReconciliationResult(BaseModel):
     id: str
     run_id: str
@@ -5322,6 +5332,7 @@ class Gstr3bReconciliationResult(BaseModel):
     total: Gstr3bHeadResult
     outward_supply: Gstr3bOutwardSupply
     uploaded_at: str
+    drc01c: Gstr3bDrc01cResult | None = None
 
 
 @reconcile_runs_router.post(
@@ -5513,6 +5524,8 @@ async def get_gstr3b_reconciliation(
 
 
 def _gstr3b_row_to_response(row: dict) -> Gstr3bReconciliationResult:
+    from app.services.gstr3b_reconciliation import compute_drc01c_threshold
+
     def _f(key: str) -> float:
         try:
             return round(float(row.get(key) or 0), 2)
@@ -5528,6 +5541,10 @@ def _gstr3b_row_to_response(row: dict) -> Gstr3bReconciliationResult:
     g2b_igst  = _f("gstr2b_igst_available")
     g2b_cgst  = _f("gstr2b_cgst_available")
     g2b_sgst  = _f("gstr2b_sgst_available")
+
+    g2b_total = round(g2b_igst + g2b_cgst + g2b_sgst, 2)
+    g3b_total = round(g3b_igst + g3b_cgst + g3b_sgst, 2)
+    drc = compute_drc01c_threshold(g3b_total, g2b_total)
 
     return Gstr3bReconciliationResult(
         id=str(row.get("id") or ""),
@@ -5548,8 +5565,8 @@ def _gstr3b_row_to_response(row: dict) -> Gstr3bReconciliationResult:
             status=str(row.get("sgst_status") or "MATCHED"),
         ),
         total=Gstr3bHeadResult(
-            gstr2b=round(g2b_igst + g2b_cgst + g2b_sgst, 2),
-            gstr3b=round(g3b_igst + g3b_cgst + g3b_sgst, 2),
+            gstr2b=g2b_total,
+            gstr3b=g3b_total,
             difference=round(igst_diff + cgst_diff + sgst_diff, 2),
             status=str(row.get("overall_status") or "MATCHED"),
         ),
@@ -5557,4 +5574,5 @@ def _gstr3b_row_to_response(row: dict) -> Gstr3bReconciliationResult:
             taxable_value=0.0, igst=0.0, total=_f("outward_supply_total"),
         ),
         uploaded_at=str(row.get("uploaded_at") or ""),
+        drc01c=Gstr3bDrc01cResult(**drc),
     )

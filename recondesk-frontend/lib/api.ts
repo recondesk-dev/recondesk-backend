@@ -604,6 +604,16 @@ export type Gstr3bOutwardSupply = {
   total: number;
 };
 
+/** Additive Rule 88D / DRC-01C check (does not change overall_status). */
+export type Gstr3bDrc01cResult = {
+  threshold_status: "CLEAR" | "BELOW_THRESHOLD" | "DRC01C_TRIGGER" | string;
+  excess_amount: number;
+  excess_pct: number | null;
+  pct_threshold: number;
+  amount_threshold: number;
+  triggers_drc01c: boolean;
+};
+
 export type Gstr3bReconciliationResult = {
   id: string;
   run_id: string;
@@ -616,6 +626,7 @@ export type Gstr3bReconciliationResult = {
   total: Gstr3bHeadResult;
   outward_supply: Gstr3bOutwardSupply;
   uploaded_at: string;
+  drc01c?: Gstr3bDrc01cResult | null;
 };
 
 export const gstr3bApi = {

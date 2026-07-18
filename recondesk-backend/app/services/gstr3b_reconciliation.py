@@ -3,6 +3,10 @@
 Compares ITC available in GSTR-2B (from a completed reconciliation run)
 against ITC actually claimed in the uploaded GSTR-3B, and flags
 over-claiming or under-claiming per tax head.
+
+Also computes an additive DRC-01C (Rule 88D) threshold check when claimed
+ITC exceeds available ITC by both the Council-recommended percentage and
+absolute amount.
 """
 
 from __future__ import annotations
@@ -19,6 +23,19 @@ _log = logging.getLogger(__name__)
 MATCHED     = "MATCHED"
 OVERCLAIMED = "OVERCLAIMED"
 UNDERCLAIMED = "UNDERCLAIMED"
+
+# DRC-01C / Rule 88D — 50th GST Council (para 4.35): intimation where the
+# difference (ITC availed in GSTR-3B − ITC available in GSTR-2B) is
+# **more than 20% as well as more than ₹25 lakh**. Both conditions required.
+# Rule 88D says "such amount and such percentage as may be recommended by
+# the Council"; these figures are not separately notified (no "prescribed"
+# language) but are the Council recommendation the portal follows.
+DRC01C_EXCESS_PCT_THRESHOLD: float = 20.0
+DRC01C_EXCESS_AMOUNT_THRESHOLD: float = 2_500_000.0  # ₹25 lakh
+
+DRC01C_CLEAR = "CLEAR"                 # not overclaimed
+DRC01C_BELOW_THRESHOLD = "BELOW_THRESHOLD"  # overclaimed but under dual threshold
+DRC01C_TRIGGER = "DRC01C_TRIGGER"      # both % and ₹ thresholds exceeded
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +79,57 @@ def _safe_float(val: Any) -> float:
         return 0.0
 
 
+def compute_drc01c_threshold(
+    claimed_total: float,
+    available_total: float,
+    *,
+    pct_threshold: float = DRC01C_EXCESS_PCT_THRESHOLD,
+    amount_threshold: float = DRC01C_EXCESS_AMOUNT_THRESHOLD,
+) -> dict[str, Any]:
+    """Rule 88D / DRC-01C dual-threshold check (additive; does not alter head status).
+
+    excess_amount = claimed − available (positive = overclaim).
+    excess_pct    = (excess_amount / available) × 100 when available > 0.
+
+    Trigger when excess_amount > amount_threshold **and** excess_pct > pct_threshold.
+    When available is 0 and claimed > 0, percentage is treated as exceeding the
+    pct threshold (division by zero); the absolute ₹ gate still applies.
+    """
+    claimed = _safe_float(claimed_total)
+    available = _safe_float(available_total)
+    excess_amount = round(claimed - available, 2)
+
+    if excess_amount <= 0:
+        return {
+            "threshold_status": DRC01C_CLEAR,
+            "excess_amount": excess_amount,
+            "excess_pct": 0.0 if available > 0 else None,
+            "pct_threshold": pct_threshold,
+            "amount_threshold": amount_threshold,
+            "triggers_drc01c": False,
+        }
+
+    if available > 0:
+        excess_pct = round((excess_amount / available) * 100.0, 4)
+        pct_exceeded = excess_pct > pct_threshold
+    else:
+        # Available ITC is zero but something was claimed — % is unbounded.
+        excess_pct = None
+        pct_exceeded = True
+
+    amount_exceeded = excess_amount > amount_threshold
+    triggers = bool(pct_exceeded and amount_exceeded)
+
+    return {
+        "threshold_status": DRC01C_TRIGGER if triggers else DRC01C_BELOW_THRESHOLD,
+        "excess_amount": excess_amount,
+        "excess_pct": excess_pct,
+        "pct_threshold": pct_threshold,
+        "amount_threshold": amount_threshold,
+        "triggers_drc01c": triggers,
+    }
+
+
 from app.services.reconciliation_outcomes import load_payload
 
 # ---------------------------------------------------------------------------
@@ -74,7 +142,7 @@ def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
     offset = 0
     chunk_size = 1000
     has_data = False
-    
+
     while True:
         try:
             recs = (
@@ -87,11 +155,11 @@ def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
         except Exception:
             _log.exception("gstr3b_recon: gstr_records fetch failed run_id=%s", run_id)
             break
-            
+
         rows = recs.data or []
         if not rows:
             break
-            
+
         has_data = True
         for row in rows:
             if not isinstance(row, dict):
@@ -99,7 +167,7 @@ def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
             rd = row.get("record_data")
             if not isinstance(rd, dict):
                 continue
-                
+
             items = rd.get("items")
             if isinstance(items, list):
                 for item in items:
@@ -107,7 +175,7 @@ def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
                         igst_total += _paise_to_rupees(item.get("igst_paise") or 0)
                         cgst_total += _paise_to_rupees(item.get("cgst_paise") or 0)
                         sgst_total += _paise_to_rupees(item.get("sgst_paise") or 0)
-                        
+
         if len(rows) < chunk_size:
             break
         offset += chunk_size
@@ -156,6 +224,14 @@ def reconcile_gstr3b(
           "outward_supply": {"taxable_value": float, "igst": float, "total": float},
           "tax_period":      str,   # YYYY-MM
           "overall_status":  str,
+          "drc01c": {
+            "threshold_status": str,
+            "excess_amount": float,
+            "excess_pct": float | None,
+            "pct_threshold": float,
+            "amount_threshold": float,
+            "triggers_drc01c": bool,
+          },
         }
     """
     # -- GSTR-2B side: extract from run payload
@@ -169,7 +245,7 @@ def reconcile_gstr3b(
     if not isinstance(itc_net, dict):
         itc_net = {}
     g3b_has_data = bool(itc_net)
-        
+
     g3b_igst = _safe_float(itc_net.get("igst"))
     g3b_cgst = _safe_float(itc_net.get("cgst"))
     g3b_sgst = _safe_float(itc_net.get("sgst"))
@@ -183,7 +259,7 @@ def reconcile_gstr3b(
     status_cgst = _head_status(g2b_cgst, g3b_cgst)
     status_sgst = _head_status(g2b_sgst, g3b_sgst)
     overall = _overall_status(status_igst, status_cgst, status_sgst)
-    
+
     if overall == "MATCHED" and not gstr2b_itc.get("_has_data") and not g3b_has_data:
         overall = "UNSUPPORTED_SCHEMA_OR_NO_DATA"
 
@@ -195,6 +271,8 @@ def reconcile_gstr3b(
     outward = gstr3b_data.get("outward_supply")
     if not isinstance(outward, dict):
         outward = {}
+
+    drc01c = compute_drc01c_threshold(g3b_total, g2b_total)
 
     return {
         "igst": {
@@ -228,4 +306,5 @@ def reconcile_gstr3b(
         },
         "tax_period":    gstr3b_data.get("ret_period", ""),
         "overall_status": overall,
+        "drc01c": drc01c,
     }

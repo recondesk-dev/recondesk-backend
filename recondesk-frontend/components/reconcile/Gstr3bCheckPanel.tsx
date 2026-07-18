@@ -3,7 +3,11 @@
 import { useCallback, useRef, useState } from "react";
 import useSWR from "swr";
 
-import type { Gstr3bReconciliationResult, Gstr3bHeadResult } from "@/lib/api";
+import type {
+  Gstr3bReconciliationResult,
+  Gstr3bHeadResult,
+  Gstr3bDrc01cResult,
+} from "@/lib/api";
 import { gstr3bApi, isApiError } from "@/lib/api";
 import { formatINR } from "@/lib/format";
 import {
@@ -355,9 +359,59 @@ function Gstr3bLoaded({
       {/* Status explanation */}
       <StatusExplanation status={result.overall_status} />
 
+      {/* Additive DRC-01C (Rule 88D) threshold — does not change overall_status */}
+      {result.drc01c && <Drc01cThresholdBanner drc={result.drc01c} />}
+
       {/* Disclaimer */}
       <p className="mt-6 text-[11px] italic text-gray-300">
         This comparison is based on data uploaded by the CA. ReconDesk does not connect to the GST portal directly. Verify figures before filing amendments.
+      </p>
+    </div>
+  );
+}
+
+function Drc01cThresholdBanner({ drc }: { drc: Gstr3bDrc01cResult }) {
+  const pctLabel =
+    drc.excess_pct == null
+      ? "n/a (2B available is ₹0)"
+      : `${drc.excess_pct.toLocaleString("en-IN", { maximumFractionDigits: 2 })}%`;
+
+  if (drc.threshold_status === "CLEAR") {
+    return (
+      <div className="mt-5 rounded-xl border border-[#E5E7EB] bg-[#FAFAFA] px-4 py-3">
+        <p className="text-[12px] font-semibold text-gray-700">DRC-01C threshold</p>
+        <p className="mt-1 text-[12px] text-gray-500 leading-relaxed">
+          No overclaim vs GSTR-2B. Rule 88D intimation (excess &gt; {drc.pct_threshold}%{" "}
+          <span className="font-medium">and</span> &gt; {formatINR(drc.amount_threshold)}) does
+          not apply.
+        </p>
+      </div>
+    );
+  }
+
+  if (drc.triggers_drc01c) {
+    return (
+      <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+        <p className="text-[12px] font-semibold text-red-800">DRC-01C risk — threshold crossed</p>
+        <p className="mt-1 text-[12px] text-red-700/90 leading-relaxed">
+          Excess ITC claimed is {formatINR(drc.excess_amount)} ({pctLabel} of 2B available).
+          Both Rule 88D gates are exceeded (&gt; {drc.pct_threshold}% and &gt;{" "}
+          {formatINR(drc.amount_threshold)}). The GST portal may issue Form GST DRC-01C Part A.
+          Reply-draft tooling is not built yet — reconcile or pay excess via DRC-03 before the
+          next GSTR-1 window.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+      <p className="text-[12px] font-semibold text-amber-900">DRC-01C threshold — below trigger</p>
+      <p className="mt-1 text-[12px] text-amber-800/90 leading-relaxed">
+        Overclaim of {formatINR(drc.excess_amount)} ({pctLabel}) is below the dual Rule 88D
+        threshold (&gt; {drc.pct_threshold}% <span className="font-medium">and</span> &gt;{" "}
+        {formatINR(drc.amount_threshold)}). Still review before filing; portal intimation is
+        unlikely at these levels.
       </p>
     </div>
   );
