@@ -314,6 +314,9 @@ class TestReconcileGSTR1vs3B:
             assert m.decision_why
             assert m.decision_next
             assert m.rule_id == "G1_3B_TIEOUT"
+            # Liability mismatch → DRC-01B (not DRC-01C ITC intimation)
+            assert "DRC-01B" in m.decision_why
+            assert "DRC-01C" not in m.decision_why
 
     def test_cdn_affects_tieout(self):
         """CDN reducing GSTR-1 total should reduce variance."""

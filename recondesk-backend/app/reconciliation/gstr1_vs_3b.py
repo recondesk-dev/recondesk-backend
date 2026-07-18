@@ -361,7 +361,7 @@ def _variance_to_mismatch(
             f"GSTR-3B declares {_rs(v.gstr3b_paise)}, a difference of "
             f"{_rs(abs_diff)}. This indicates the tax liability declared in "
             f"GSTR-3B does not match the invoices filed in GSTR-1, which may "
-            f"trigger a DRC-01C notice from the department."
+            f"trigger a DRC-01B intimation (liability mismatch) from the department."
         ),
         decision_next=(
             f"Reconcile the {_rs(abs_diff)} {field_label.lower()} difference. "

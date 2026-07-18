@@ -569,7 +569,13 @@ export function Gstr1ResultsView({
 
         {tab === "tie_out" && (
           <>
-            <Gstr1TieOutPanel tieOut={result.tie_out || {}} />
+            <Gstr1TieOutPanel
+              tieOut={result.tie_out || {}}
+              clientName={result.meta?.client_name?.trim() || ""}
+              clientGstin={
+                result.parse_diagnostics?.gstr1?.filing_gstin?.trim() || ""
+              }
+            />
             {resolvedRunId && authToken ? (
               <AuditObservationsPanel
                 runId={resolvedRunId}

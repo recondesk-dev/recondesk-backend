@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+
+import { Drc01bReplyDraftModal } from "@/components/reconcile/Drc01bReplyDraftModal";
 import type { Gstr1TieOut } from "@/lib/gstr1Reconcile";
 import { formatINR } from "@/lib/format";
 import {
@@ -108,9 +111,16 @@ function AggregateCompare({
 
 export function Gstr1TieOutPanel({
   tieOut,
+  clientName = "",
+  clientGstin = "",
 }: {
   tieOut: Gstr1TieOut;
+  /** Taxpayer legal / trade name for DRC-01B draft header. */
+  clientName?: string;
+  /** Filing GSTIN for DRC-01B draft header. */
+  clientGstin?: string;
 }) {
+  const [drc01bOpen, setDrc01bOpen] = useState(false);
   const isClean = Boolean(tieOut.is_clean);
   const variances = tieOut.variances || [];
   const decisions = tieOut.mismatch_decisions || [];
@@ -131,7 +141,20 @@ export function Gstr1TieOutPanel({
       <SectionHeader
         title="GSTR-1 vs GSTR-3B"
         dotColor={isClean ? "#22C55E" : "#F59E0B"}
-        actions={<CleanBadge clean={isClean} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {!isClean ? (
+              <button
+                type="button"
+                onClick={() => setDrc01bOpen(true)}
+                className="rounded-full border border-[#E5E7EB] bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--ink)] transition-colors hover:bg-[#F7F7F8]"
+              >
+                Draft DRC-01B reply
+              </button>
+            ) : null}
+            <CleanBadge clean={isClean} />
+          </div>
+        }
       />
       <p className="mt-1 text-[13px] text-gray-500">
         Table 3.1(a) outward taxable supplies — period{" "}
@@ -291,6 +314,14 @@ export function Gstr1TieOutPanel({
           ))}
         </div>
       ) : null}
+
+      <Drc01bReplyDraftModal
+        open={drc01bOpen}
+        onClose={() => setDrc01bOpen(false)}
+        tieOut={tieOut}
+        clientName={clientName}
+        clientGstin={clientGstin}
+      />
     </section>
   );
 }
