@@ -8,32 +8,54 @@ import { Gstr1aPeriodSummaryView } from "@/components/reconcile/Gstr1aPeriodSumm
 import {
   loadGstr1Result,
   loadGstr1ResultByRunId,
+  loadGstr1RunId,
   type Gstr1ReconcileResult,
 } from "@/lib/gstr1Reconcile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 function Gstr1aSummaryContent() {
   const searchParams = useSearchParams();
-  const runId = searchParams.get("run_id")?.trim() || null;
+  const queryRunId = searchParams.get("run_id")?.trim() || null;
   const tokenState = useAccessToken();
   const token =
     typeof tokenState === "string" && tokenState.length > 0 ? tokenState : null;
+  /** `null` until the first auth callback; `false` means signed out. */
+  const tokenPending = tokenState === null;
 
   const [result, setResult] = useState<Gstr1ReconcileResult | null | undefined>(
     undefined
   );
+  const [resolvedRunId, setResolvedRunId] = useState<string | null>(queryRunId);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      if (runId && token) {
-        const fromDb = await loadGstr1ResultByRunId(token, runId);
-        if (!cancelled) {
-          setResult(fromDb ?? loadGstr1Result());
+      const runId = queryRunId || loadGstr1RunId();
+      if (!cancelled) setResolvedRunId(runId);
+
+      if (runId) {
+        if (tokenPending) return;
+        if (!token) {
+          if (!cancelled) setResult(null);
+          return;
         }
+        const mem = loadGstr1Result();
+        const memMatches =
+          !!mem && (!mem.run_id || String(mem.run_id) === runId);
+        if (memMatches && !cancelled) {
+          setResult(mem);
+        }
+        const fromDb = await loadGstr1ResultByRunId(token, runId);
+        if (cancelled) return;
+        if (fromDb) {
+          setResult(fromDb);
+          return;
+        }
+        if (!memMatches) setResult(null);
         return;
       }
+
       if (!cancelled) {
         setResult(loadGstr1Result());
       }
@@ -43,9 +65,9 @@ function Gstr1aSummaryContent() {
     return () => {
       cancelled = true;
     };
-  }, [runId, token]);
+  }, [queryRunId, token, tokenPending]);
 
-  if (result === undefined) {
+  if (result === undefined || (queryRunId && tokenPending)) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center px-8">
         <p className="text-[13px] text-gray-500">Loading GSTR-1A summary…</p>
@@ -72,11 +94,10 @@ function Gstr1aSummaryContent() {
     );
   }
 
-  const backHref = runId
-    ? `/reconcile/gstr1/results?run_id=${encodeURIComponent(runId)}`
-    : result.run_id
-      ? `/reconcile/gstr1/results?run_id=${encodeURIComponent(result.run_id)}`
-      : "/reconcile/gstr1/results";
+  const effectiveRunId = resolvedRunId ?? result.run_id ?? null;
+  const backHref = effectiveRunId
+    ? `/reconcile/gstr1/results?run_id=${encodeURIComponent(effectiveRunId)}`
+    : "/reconcile/gstr1/results";
 
   return (
     <Gstr1aPeriodSummaryView

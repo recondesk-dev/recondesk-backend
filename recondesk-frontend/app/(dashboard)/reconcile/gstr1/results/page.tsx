@@ -8,6 +8,7 @@ import { Gstr1ResultsView } from "@/components/reconcile/Gstr1ResultsView";
 import {
   loadGstr1Result,
   loadGstr1ResultByRunId,
+  loadGstr1RunId,
   type Gstr1ReconcileResult,
 } from "@/lib/gstr1Reconcile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
@@ -15,28 +16,50 @@ import { useAccessToken } from "@/lib/hooks/useAccessToken";
 function Gstr1ReconcileResultsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const runId = searchParams.get("run_id")?.trim() || null;
+  const queryRunId = searchParams.get("run_id")?.trim() || null;
   const tokenState = useAccessToken();
   const token =
     typeof tokenState === "string" && tokenState.length > 0 ? tokenState : null;
+  /** `null` until the first auth callback; `false` means signed out. */
+  const tokenPending = tokenState === null;
 
   const [result, setResult] = useState<Gstr1ReconcileResult | null | undefined>(
     undefined
   );
+  const [resolvedRunId, setResolvedRunId] = useState<string | null>(queryRunId);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      // Prefer persisted run when run_id is present (survives new sessions).
-      if (runId && token) {
-        const fromDb = await loadGstr1ResultByRunId(token, runId);
-        if (!cancelled) {
-          setResult(fromDb ?? loadGstr1Result());
+      const runId = queryRunId || loadGstr1RunId();
+      if (!cancelled) setResolvedRunId(runId);
+
+      // Persisted runs: wait for auth, then fetch from the backend.
+      if (runId) {
+        if (tokenPending) return;
+        if (!token) {
+          if (!cancelled) setResult(null);
+          return;
         }
+        // Same-tab upload already has the payload — show it while GET runs.
+        const mem = loadGstr1Result();
+        const memMatches =
+          !!mem && (!mem.run_id || String(mem.run_id) === runId);
+        if (memMatches && !cancelled) {
+          setResult(mem);
+        }
+        const fromDb = await loadGstr1ResultByRunId(token, runId);
+        if (cancelled) return;
+        if (fromDb) {
+          setResult(fromDb);
+          return;
+        }
+        if (!memMatches) setResult(null);
         return;
       }
-      // Fast-path fallback: session storage from the just-completed upload.
+
+      // Ad-hoc run without client_gstin_id / run_id: in-memory only.
       if (!cancelled) {
         setResult(loadGstr1Result());
       }
@@ -46,9 +69,9 @@ function Gstr1ReconcileResultsContent() {
     return () => {
       cancelled = true;
     };
-  }, [runId, token]);
+  }, [queryRunId, token, tokenPending]);
 
-  if (result === undefined) {
+  if (result === undefined || (queryRunId && tokenPending)) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center px-8">
         <p className="text-[13px] text-gray-500">Loading results…</p>
@@ -85,7 +108,7 @@ function Gstr1ReconcileResultsContent() {
       result={result}
       onRunAgain={() => router.push(runAgainHref)}
       authToken={token}
-      runId={runId ?? result.run_id ?? null}
+      runId={resolvedRunId ?? result.run_id ?? null}
     />
   );
 }

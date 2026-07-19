@@ -218,8 +218,8 @@ export function Gstr1ResultsView({
     () => filterGstr1aEligibleMismatches(result.mismatches || []),
     [result.mismatches]
   );
-  const gstr1aSummaryHref = result.run_id
-    ? `/reconcile/gstr1/gstr1a?run_id=${encodeURIComponent(result.run_id)}`
+  const gstr1aSummaryHref = resolvedRunId
+    ? `/reconcile/gstr1/gstr1a?run_id=${encodeURIComponent(resolvedRunId)}`
     : "/reconcile/gstr1/gstr1a";
   /** GSTR-1-only invoices (same number as the Extra in GSTR-1 tab). */
   const extraInGstr1Count = summary.unmatched_gstr1_count;

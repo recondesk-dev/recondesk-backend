@@ -182,13 +182,15 @@ function Gstr1ReconcileNewContent() {
         clientGstinId,
         token,
       });
-      // Session storage = fast path for immediate redirect; DB is source of truth.
+      // Persist run_id only (never the full payload — browser storage quota).
+      // Results page loads by run_id from the backend when client_gstin_id was set.
       persistGstr1Result(result);
       if (result.run_id) {
         router.push(
           `/reconcile/gstr1/results?run_id=${encodeURIComponent(result.run_id)}`
         );
       } else {
+        // Ad-hoc run without persistence: in-memory handoff for this tab only.
         router.push("/reconcile/gstr1/results");
       }
     } catch (err) {

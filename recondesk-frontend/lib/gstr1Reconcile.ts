@@ -4,7 +4,10 @@
 
 import { apiFetch, isApiError } from "@/lib/api";
 
+/** @deprecated Full payloads must never be written here — kept only to clear legacy data. */
 export const GSTR1_RECONCILE_STORAGE_KEY = "recondesk.gstr1_reconcile.result";
+/** Short run id only — safe under browser storage quotas. */
+export const GSTR1_RECONCILE_RUN_ID_KEY = "recondesk.gstr1_reconcile.run_id";
 
 export type Gstr1MismatchType =
   | "G1M1_MISSING_INVOICE"
@@ -521,6 +524,23 @@ export async function markGstr1aPeriodFiled(
   );
 }
 
+/**
+ * In-memory handoff for the immediate SPA redirect after upload when the
+ * backend did not persist a run (no client_gstin_id). Never written to
+ * localStorage/sessionStorage — large results exceed the ~5–10 MB quota.
+ */
+let _ephemeralGstr1Result: Gstr1ReconcileResult | null = null;
+
+function clearLegacyGstr1ResultStorage(): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(GSTR1_RECONCILE_STORAGE_KEY);
+    localStorage.removeItem(GSTR1_RECONCILE_STORAGE_KEY);
+  } catch {
+    // ignore quota / access errors while cleaning up
+  }
+}
+
 export async function loadGstr1ResultByRunId(
   token: string,
   runId: string
@@ -545,23 +565,50 @@ export async function loadGstr1ResultByRunId(
   }
 }
 
+/**
+ * After a successful reconcile: keep the payload in memory for same-tab
+ * navigation, and persist only ``run_id`` (when present) for continuity.
+ * Never serialises the full result into browser storage.
+ */
 export function persistGstr1Result(result: Gstr1ReconcileResult): void {
+  _ephemeralGstr1Result = result;
   if (typeof window === "undefined") return;
-  sessionStorage.setItem(GSTR1_RECONCILE_STORAGE_KEY, JSON.stringify(result));
+  clearLegacyGstr1ResultStorage();
+  const runId = String(result.run_id || "").trim();
+  try {
+    if (runId) {
+      sessionStorage.setItem(GSTR1_RECONCILE_RUN_ID_KEY, runId);
+    } else {
+      sessionStorage.removeItem(GSTR1_RECONCILE_RUN_ID_KEY);
+    }
+  } catch {
+    // run_id is a short string; if this still fails, URL ?run_id= is enough
+  }
 }
 
+/** Ephemeral in-memory result from the just-completed upload (same tab only). */
 export function loadGstr1Result(): Gstr1ReconcileResult | null {
+  return _ephemeralGstr1Result;
+}
+
+export function loadGstr1RunId(): string | null {
   if (typeof window === "undefined") return null;
+  clearLegacyGstr1ResultStorage();
   try {
-    const raw = sessionStorage.getItem(GSTR1_RECONCILE_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as Gstr1ReconcileResult;
+    const raw = sessionStorage.getItem(GSTR1_RECONCILE_RUN_ID_KEY)?.trim();
+    return raw || null;
   } catch {
     return null;
   }
 }
 
 export function clearGstr1Result(): void {
+  _ephemeralGstr1Result = null;
   if (typeof window === "undefined") return;
-  sessionStorage.removeItem(GSTR1_RECONCILE_STORAGE_KEY);
+  clearLegacyGstr1ResultStorage();
+  try {
+    sessionStorage.removeItem(GSTR1_RECONCILE_RUN_ID_KEY);
+  } catch {
+    // ignore
+  }
 }
