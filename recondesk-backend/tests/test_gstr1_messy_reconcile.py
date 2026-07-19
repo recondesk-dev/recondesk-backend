@@ -58,6 +58,6 @@ def test_messy_g1m9_does_not_raise():
 
     results = validate_hsn_rate_mapping(sr.get("records", []), g1.get("records", []))
     assert isinstance(results, list)
-    # Messy SR has no HSN column — expect missing_hsn flags, not a crash.
+    # Messy SR has no HSN column — must not crash; missing_hsn is no longer flooded.
     missing = [r for r in results if r.details.get("issue_type") == "missing_hsn"]
-    assert len(missing) >= 1
+    assert missing == []

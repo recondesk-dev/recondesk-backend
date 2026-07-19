@@ -58,6 +58,7 @@ def _g1(
     hsn: str | None = None,
     rate: float = 18.0,
     taxable: int = 100000,
+    section: str = "hsn",
 ) -> dict:
     tax = int(round(taxable * rate / 100))
     return {
@@ -70,7 +71,8 @@ def _g1(
         "cgst_paise": 0,
         "sgst_paise": 0,
         "total_tax_paise": tax,
-        "section": "b2b",
+        "section": section,
+        "invoice_type": "HSN_SUMMARY" if section == "hsn" else "B2B",
     }
 
 
@@ -106,14 +108,11 @@ class TestReferenceHelpers:
 class TestUnknownHsn:
 
     def test_unknown_hsn_is_low_severity(self):
+        """Incomplete local schedule must not flood unknown_hsn flags."""
         records = [_sr(hsn="88888888", igst=18000)]
         results = validate_hsn_rate_mapping(records, None)
         unknown = [r for r in results if r.details.get("issue_type") == "unknown_hsn"]
-        assert len(unknown) == 1
-        assert unknown[0].severity == MismatchSeverity.LOW
-        assert unknown[0].mismatch_type == MismatchType.HSN_RATE_ISSUE
-        assert unknown[0].rule_id == "G1M_009"
-        assert unknown[0].details["hsn"] == "88888888"
+        assert unknown == []
 
     def test_known_hsn_not_flagged_unknown(self):
         records = [_sr(hsn="3901", igst=18000)]
@@ -129,10 +128,9 @@ class TestUnknownHsn:
 class TestRateMismatch:
 
     def test_wrong_rate_for_known_hsn_is_high(self):
-        """3901 is 18% in the reference; charging 5% must flag HIGH."""
-        # 5% of 100000 paise = 5000
-        records = [_sr(hsn="3901", taxable=100000, igst=5000)]
-        results = validate_hsn_rate_mapping(records, None)
+        """GSTR-1 HSN summary: 3901 at 5% (schedule 18%) must flag HIGH."""
+        g1 = [_g1(inv="HSN-ROW", hsn="3901", rate=5.0)]
+        results = validate_hsn_rate_mapping(None, g1)
         rate_issues = [
             r for r in results if r.details.get("issue_type") == "rate_mismatch"
         ]
@@ -211,13 +209,13 @@ class TestEdgeCases:
         assert validate_hsn_rate_mapping(None, None) == []
 
     def test_skip_records_without_hsn(self):
+        """Invoice-level rows without HSN are skipped (portal schema)."""
         records = [_sr(hsn="")]
         records[0]["hsn"] = None
         g1 = [_g1(hsn=None, rate=18.0)]
         results = validate_hsn_rate_mapping(records, g1)
         missing = [r for r in results if r.details.get("issue_type") == "missing_hsn"]
-        assert len(missing) >= 2
-        assert all(r.severity == MismatchSeverity.LOW for r in missing)
+        assert missing == []
 
     def test_malformed_hsn_is_low_severity(self):
         records = [_sr(hsn="N/A-HSN", igst=18000)]
@@ -240,17 +238,17 @@ class TestEdgeCases:
         assert len(rate_issues) == 0
 
     def test_severity_sort_high_before_low(self):
-        records = [
-            _sr(inv="A", hsn="3901", taxable=100000, igst=5000),  # wrong rate HIGH
-            _sr(inv="B", hsn="88888888", taxable=100000, igst=18000),  # unknown LOW
+        g1 = [
+            _g1(inv="A", hsn="3901", rate=5.0),  # wrong rate HIGH
+            _g1(inv="B", hsn="39", rate=18.0),  # digit-length MEDIUM on short HSN
         ]
-        results = validate_hsn_rate_mapping(records, None)
+        results = validate_hsn_rate_mapping(None, g1)
         assert len(results) >= 2
         assert results[0].severity == MismatchSeverity.HIGH
 
     def test_to_dict_serialisation(self):
-        records = [_sr(hsn="88888888", igst=18000)]
-        results = validate_hsn_rate_mapping(records, None)
+        g1 = [_g1(inv="HSN-ROW", hsn="3901", rate=5.0)]
+        results = validate_hsn_rate_mapping(None, g1)
         assert results
         d = results[0].to_dict()
         assert d["mismatch_type"] == "G1M9_HSN_RATE_ISSUE"
@@ -293,17 +291,10 @@ class TestSampleDataIntegration:
         assert len(with_hsn) > 0
 
     def test_inject_wrong_rate_detected(self, parsed_sr_records):
-        """Force HSN 3901 at 5% — must fire HIGH rate_mismatch."""
-        records = [copy.deepcopy(r) for r in parsed_sr_records]
-        target = records[0]
-        target["hsn"] = "3901"
-        target["taxable_amount_paise"] = 100000
-        target["igst_paise"] = 5000
-        target["cgst_paise"] = 0
-        target["sgst_paise"] = 0
-        target["total_tax_paise"] = 5000
-
-        results = validate_hsn_rate_mapping(records[:1], None)
+        """GSTR-1 HSN summary at wrong rate — must fire HIGH rate_mismatch."""
+        del parsed_sr_records  # SR schedule checks are intentionally quiet
+        g1 = [_g1(inv="HSN-3901", hsn="3901", rate=5.0)]
+        results = validate_hsn_rate_mapping(None, g1)
         rate_issues = [
             r for r in results if r.details.get("issue_type") == "rate_mismatch"
         ]
@@ -312,39 +303,24 @@ class TestSampleDataIntegration:
         assert rate_issues[0].details["hsn"] == "3901"
 
     def test_inject_unknown_hsn_detected(self, parsed_sr_records):
-        """Force an HSN absent from the reference — must fire LOW unknown_hsn."""
-        records = [copy.deepcopy(r) for r in parsed_sr_records]
-        target = records[0]
-        target["hsn"] = "77777777"
-        target["taxable_amount_paise"] = 100000
-        target["igst_paise"] = 18000
-        target["total_tax_paise"] = 18000
-
-        results = validate_hsn_rate_mapping(records[:1], None)
+        """Unknown HSN is not flooded from the incomplete local schedule."""
+        del parsed_sr_records
+        g1 = [_g1(inv="HSN-UNK", hsn="77777777", rate=18.0)]
+        results = validate_hsn_rate_mapping(None, g1)
         unknown = [r for r in results if r.details.get("issue_type") == "unknown_hsn"]
-        assert len(unknown) == 1
-        assert unknown[0].severity == MismatchSeverity.LOW
-        assert unknown[0].details["hsn"] == "77777777"
+        assert unknown == []
 
     def test_both_severities_fire_together(self, parsed_sr_records, parsed_gstr1_records):
-        """Inject one wrong-rate and one unknown-HSN row; both severities present."""
-        records = [copy.deepcopy(r) for r in parsed_sr_records[:2]]
-        records[0]["hsn"] = "3901"
-        records[0]["taxable_amount_paise"] = 200000
-        records[0]["igst_paise"] = 10000  # 5%
-        records[0]["cgst_paise"] = 0
-        records[0]["sgst_paise"] = 0
-        records[0]["total_tax_paise"] = 10000
-
-        records[1]["hsn"] = "66666666"
-        records[1]["taxable_amount_paise"] = 200000
-        records[1]["igst_paise"] = 36000
-        records[1]["total_tax_paise"] = 36000
-
-        results = validate_hsn_rate_mapping(records, parsed_gstr1_records)
+        """Wrong-rate HSN summary + short HSN digit-length both fire."""
+        del parsed_sr_records, parsed_gstr1_records
+        g1 = [
+            _g1(inv="HSN-A", hsn="3901", rate=5.0),
+            _g1(inv="HSN-B", hsn="39", rate=18.0),
+        ]
+        results = validate_hsn_rate_mapping(None, g1)
         types = {r.details.get("issue_type") for r in results}
         severities = {r.severity for r in results}
         assert "rate_mismatch" in types
-        assert "unknown_hsn" in types
+        assert "hsn_digit_length" in types
         assert MismatchSeverity.HIGH in severities
-        assert MismatchSeverity.LOW in severities
+        assert MismatchSeverity.MEDIUM in severities

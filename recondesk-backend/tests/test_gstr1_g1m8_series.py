@@ -59,11 +59,11 @@ def _sr(
 class TestGapDetection:
 
     def test_basic_gap(self):
-        """INV/001, INV/002, INV/004 → gap at INV/003."""
+        """INV/001–002, INV/006 → contiguous gap 003–005 (min run length 3)."""
         records = [
             _sr(inv="INV/001", inv_date="2026-05-01"),
             _sr(inv="INV/002", inv_date="2026-05-02"),
-            _sr(inv="INV/004", inv_date="2026-05-04"),
+            _sr(inv="INV/006", inv_date="2026-05-06"),
         ]
         results = check_invoice_series_continuity(records)
         gap_results = [r for r in results if r.details.get("issue_type") == "gap"]
@@ -71,20 +71,32 @@ class TestGapDetection:
         assert gap_results[0].mismatch_type == MismatchType.INVOICE_SERIES_ISSUE
         assert gap_results[0].severity == MismatchSeverity.MEDIUM
         assert gap_results[0].rule_id == "G1M_008"
-        assert gap_results[0].details["missing_numbers"] == [3]
+        assert gap_results[0].details["missing_numbers"] == [3, 4, 5]
         assert gap_results[0].details["series_prefix"] == "INV/"
 
     def test_multiple_gaps(self):
-        """INV/001, INV/005 → gaps at 002, 003, 004."""
+        """Two contiguous runs of 3+ missing numbers → two gap flags."""
         records = [
             _sr(inv="INV/001", inv_date="2026-05-01"),
-            _sr(inv="INV/005", inv_date="2026-05-05"),
-            _sr(inv="INV/007", inv_date="2026-05-07"),
+            _sr(inv="INV/005", inv_date="2026-05-05"),  # missing 2–4
+            _sr(inv="INV/010", inv_date="2026-05-10"),  # missing 6–9
         ]
         results = check_invoice_series_continuity(records)
         gap_results = [r for r in results if r.details.get("issue_type") == "gap"]
-        assert len(gap_results) == 1
-        assert set(gap_results[0].details["missing_numbers"]) == {2, 3, 4, 6}
+        assert len(gap_results) == 2
+        missing_sets = {tuple(r.details["missing_numbers"]) for r in gap_results}
+        assert missing_sets == {(2, 3, 4), (6, 7, 8, 9)}
+
+    def test_singleton_hole_not_flagged(self):
+        """A single missing number is ignored (often a cancellation)."""
+        records = [
+            _sr(inv="INV/001", inv_date="2026-05-01"),
+            _sr(inv="INV/002", inv_date="2026-05-02"),
+            _sr(inv="INV/004", inv_date="2026-05-04"),
+        ]
+        results = check_invoice_series_continuity(records)
+        gap_results = [r for r in results if r.details.get("issue_type") == "gap"]
+        assert gap_results == []
 
     def test_no_gap_when_complete(self):
         """INV/001 through INV/005 complete → no gap flagged."""
@@ -157,7 +169,7 @@ class TestDuplicateDetection:
         records = [
             _sr(inv="INV/001", inv_date="2026-05-01"),
             _sr(inv="INV/001", inv_date="2026-05-02"),
-            _sr(inv="INV/004", inv_date="2026-05-04"),
+            _sr(inv="INV/005", inv_date="2026-05-05"),  # gap 2–4
         ]
         results = check_invoice_series_continuity(records)
         assert len(results) >= 2
@@ -172,7 +184,7 @@ class TestDuplicateDetection:
 class TestOutOfOrderDetection:
 
     def test_basic_out_of_order(self):
-        """INV/002 dated before INV/001 → flagged."""
+        """Out-of-order dates are no longer flagged (too noisy on real filings)."""
         records = [
             _sr(inv="INV/001", inv_date="2026-05-10"),
             _sr(inv="INV/002", inv_date="2026-05-05"),  # Earlier date, later number
@@ -180,9 +192,7 @@ class TestOutOfOrderDetection:
         ]
         results = check_invoice_series_continuity(records)
         ooo_results = [r for r in results if r.details.get("issue_type") == "out_of_order"]
-        assert len(ooo_results) == 1
-        assert ooo_results[0].details["invoice_number"] == "INV/002"
-        assert ooo_results[0].details["expected_after"] == "INV/001"
+        assert ooo_results == []
 
     def test_no_out_of_order_when_chronological(self):
         """Dates follow numeric order → no out-of-order flag."""
@@ -231,8 +241,8 @@ class TestMultipleSeries:
         """Gap in INV/ series but EXP/ is complete → only INV/ flagged."""
         records = [
             _sr(inv="INV/001", inv_date="2026-05-01"),
-            _sr(inv="INV/003", inv_date="2026-05-03"),
-            _sr(inv="INV/004", inv_date="2026-05-04"),
+            _sr(inv="INV/005", inv_date="2026-05-05"),  # missing 2–4
+            _sr(inv="INV/006", inv_date="2026-05-06"),
             _sr(inv="EXP/001", inv_date="2026-05-01"),
             _sr(inv="EXP/002", inv_date="2026-05-02"),
             _sr(inv="EXP/003", inv_date="2026-05-03"),
@@ -287,17 +297,17 @@ class TestSmallSeriesThreshold:
 class TestPureNumericInvoices:
 
     def test_numeric_gap(self):
-        """Pure numeric series: '001', '002', '004' → gap at '003'."""
+        """Pure numeric series: '001', '002', '006' → gap at 3–5."""
         records = [
             _sr(inv="001", inv_date="2026-05-01"),
             _sr(inv="002", inv_date="2026-05-02"),
-            _sr(inv="004", inv_date="2026-05-04"),
+            _sr(inv="006", inv_date="2026-05-06"),
         ]
         results = check_invoice_series_continuity(records)
         gap_results = [r for r in results if r.details.get("issue_type") == "gap"]
         assert len(gap_results) == 1
         assert gap_results[0].details["series_prefix"] == ""
-        assert gap_results[0].details["missing_numbers"] == [3]
+        assert gap_results[0].details["missing_numbers"] == [3, 4, 5]
 
     def test_numeric_complete(self):
         """Complete numeric series → no flags."""
@@ -409,22 +419,19 @@ class TestSampleDataIntegration:
         """
         records = [copy.deepcopy(r) for r in parsed_sr_records]
 
-        # Create a controlled series with a gap
-        for i, rec in enumerate(records[:4]):
-            rec["invoice_number"] = f"TEST/00{i + 1}"
-            rec["invoice_number_normalized"] = f"TEST/00{i + 1}"
+        # Create a controlled series with a contiguous gap of 3
+        for i, rec in enumerate(records[:3]):
             rec["invoice_date"] = f"2026-05-{i + 1:02d}"
-        # Remove the 3rd record to create a gap (TEST/001, TEST/002, TEST/004)
-        records[2]["invoice_number"] = "TEST/004"
-        records[2]["invoice_number_normalized"] = "TEST/004"
+        records[0]["invoice_number"] = records[0]["invoice_number_normalized"] = "TEST/001"
+        records[1]["invoice_number"] = records[1]["invoice_number_normalized"] = "TEST/002"
+        records[2]["invoice_number"] = records[2]["invoice_number_normalized"] = "TEST/006"
 
-        # Only keep the first 4 for controlled testing
-        test_records = records[:3]  # TEST/001, TEST/002, TEST/004 → gap at 003
+        test_records = records[:3]  # TEST/001, TEST/002, TEST/006 → gap 3–5
 
         results = check_invoice_series_continuity(test_records)
         gap_results = [r for r in results if r.details.get("issue_type") == "gap"]
         assert len(gap_results) == 1
-        assert 3 in gap_results[0].details["missing_numbers"]
+        assert gap_results[0].details["missing_numbers"] == [3, 4, 5]
 
     def test_inject_duplicate_detected(self, parsed_sr_records):
         """Inject a duplicate invoice number and confirm detection."""

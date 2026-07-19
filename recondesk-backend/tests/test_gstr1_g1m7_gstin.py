@@ -124,7 +124,7 @@ async def test_verify_caches_one_api_call_per_unique_gstin():
     mock_verify = AsyncMock(
         return_value={
             "valid": False,
-            "status": "Not Found",
+            "status": "Cancelled",
             "legal_name": None,
             "trade_name": None,
             "taxpayer_type": None,
@@ -141,7 +141,34 @@ async def test_verify_caches_one_api_call_per_unique_gstin():
         )
     mock_verify.assert_called_once_with(good)
     assert len(results) == 2
-    assert all(r.details["reason"] == "not_found" for r in results)
+    assert all(r.details["reason"] == "cancelled" for r in results)
+
+
+@pytest.mark.asyncio
+async def test_verify_ignores_not_found_api_results():
+    """Sandbox 'Not Found' must not flood G1M7 for every synthetic GSTIN."""
+    good = "27AAPFU0939F1ZV"
+    sr = [{"invoice_number": "Y1", "gstin": good}]
+    mock_verify = AsyncMock(
+        return_value={
+            "valid": False,
+            "status": "Not Found",
+            "legal_name": None,
+            "trade_name": None,
+            "taxpayer_type": None,
+            "registration_date": None,
+            "raw_response": {},
+        }
+    )
+    with patch(
+        "app.services.gstin_verification.verify_gstin",
+        mock_verify,
+    ):
+        results = await _verify_buyer_gstins_for_g1m7(
+            sr, [], rate_limit_seconds=0,
+        )
+    mock_verify.assert_called_once_with(good)
+    assert results == []
 
 
 @pytest.mark.asyncio

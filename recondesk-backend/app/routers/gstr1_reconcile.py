@@ -25,7 +25,7 @@ import json
 import logging
 import time
 from collections import defaultdict
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from fastapi import (
     APIRouter,
@@ -268,6 +268,38 @@ def _build_gstin_index(
     return dict(index)
 
 
+def _invoice_index_key(rec: Mapping[str, Any]) -> str:
+    """Normalized invoice key used for sales-side candidate lookup."""
+    from app.services.matcher import invoice_match_key_for_record
+
+    try:
+        key = invoice_match_key_for_record(rec)
+    except Exception:  # noqa: BLE001 — never break matching on key helpers
+        key = ""
+    if key:
+        return str(key).strip().upper()
+    for field in ("invoice_number_normalized", "invoice_number"):
+        raw = rec.get(field)
+        if raw is None:
+            continue
+        s = str(raw).strip().upper()
+        if s:
+            return s
+    return ""
+
+
+def _build_invoice_index(
+    records: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Group records by normalized invoice number for O(1) candidate lookup."""
+    index: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for rec in records:
+        key = _invoice_index_key(rec)
+        if key:
+            index[key].append(rec)
+    return dict(index)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Core pipeline
 # ══════════════════════════════════════════════════════════════════════════════
@@ -364,7 +396,10 @@ async def _run_pipeline(
                 pass
 
     # ── Step 2: Match ─────────────────────────────────────────────────────
-    # Group GSTR-1 candidates by recipient GSTIN for O(n·m/k) matching
+    # Primary key = invoice number (not GSTIN+invoice). GSTIN typos then
+    # surface as G1M7 on matched pairs instead of missing+extra doubles.
+    gstr1_by_invoice = _build_invoice_index(gstr1_records)
+    # Fallback bucket for format-variant / fuzzy invoice matching.
     gstr1_by_gstin = _build_gstin_index(
         gstr1_records, ("recipient_gstin", "gstin"),
     )
@@ -373,38 +408,48 @@ async def _run_pipeline(
     unmatched_sr: list[dict[str, Any]] = []
     used_gstr1_ids: set[int] = set()
 
+    from app.matching.generic_matcher import (
+        generic_match_pair,
+        SALES_MATCH_CONFIG,
+    )
+
+    def _unused(cands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [c for c in cands if id(c) not in used_gstr1_ids]
+
     for sr_rec in sr_records:
-        sr_gstin = ""
-        for key in ("gstin",):
-            v = sr_rec.get(key)
-            if v is None:
-                continue
-            s = str(v).strip().upper()
-            if not s:
-                continue
-            collapsed = "".join(ch for ch in s if ch.isalnum())
-            if s in {
-                "NA", "N/A", "N.A", "N.A.", "NONE", "NULL", "NIL",
-                "-", "--", ".", "0", "UNREGISTERED", "URP",
-            } or collapsed in {"NA", "NIL", "NULL", "NONE", "URP"}:
-                continue
-            sr_gstin = s
-            break
+        inv_key = _invoice_index_key(sr_rec)
+        candidates = _unused(gstr1_by_invoice.get(inv_key, []))
 
-        # Candidates: same GSTIN + all records with empty GSTIN (B2C)
-        candidates = list(gstr1_by_gstin.get(sr_gstin, []))
-        if sr_gstin:
-            candidates.extend(gstr1_by_gstin.get("", []))
+        # Secondary pool: same/blank GSTIN (covers invoice format variants).
+        if not candidates:
+            sr_gstin = ""
+            for key in ("gstin",):
+                v = sr_rec.get(key)
+                if v is None:
+                    continue
+                s = str(v).strip().upper()
+                if not s:
+                    continue
+                collapsed = "".join(ch for ch in s if ch.isalnum())
+                if s in {
+                    "NA", "N/A", "N.A", "N.A.", "NONE", "NULL", "NIL",
+                    "-", "--", ".", "0", "UNREGISTERED", "URP",
+                } or collapsed in {"NA", "NIL", "NULL", "NONE", "URP"}:
+                    continue
+                sr_gstin = s
+                break
+            gstin_pool = list(gstr1_by_gstin.get(sr_gstin, []))
+            if sr_gstin:
+                gstin_pool.extend(gstr1_by_gstin.get("", []))
+            candidates = _unused(gstin_pool)
 
-        match_result = match_sales_register_to_gstr1(sr_rec, candidates)
+        match_result = (
+            match_sales_register_to_gstr1(sr_rec, candidates)
+            if candidates
+            else None
+        )
 
         if match_result is not None and match_result.matched:
-            # Find the actual GSTR-1 record that was matched
-            # Re-run pair matching to identify which candidate won
-            from app.matching.generic_matcher import (
-                generic_match_pair,
-                SALES_MATCH_CONFIG,
-            )
             best_candidate = None
             best_level = 999
             for cand in candidates:
@@ -422,7 +467,6 @@ async def _run_pipeline(
                     (sr_rec, best_candidate, _match_result_to_dict(match_result))
                 )
             else:
-                # Match found by one-to-many but all candidates already used
                 matched_pairs.append(
                     (sr_rec, {}, _match_result_to_dict(match_result))
                 )
@@ -459,7 +503,9 @@ async def _run_pipeline(
         mismatch_results = list(mismatch_results) + list(g1m7_results)
 
     # ── Step 3c: G1M8 invoice series continuity / duplicate detection ────
-    g1m8_results = check_invoice_series_continuity(sr_records)
+    g1m8_results = check_invoice_series_continuity(
+        sr_records, gstr1_records,
+    )
     if g1m8_results:
         mismatch_results = list(mismatch_results) + list(g1m8_results)
         _log.info(

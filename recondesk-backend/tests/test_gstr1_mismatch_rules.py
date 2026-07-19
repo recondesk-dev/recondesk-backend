@@ -184,14 +184,14 @@ class TestAmountMismatch:
         assert "total_tax" in r.details["differed_fields"]
 
     def test_pct_tolerance(self):
-        """Within pct tolerance even though > abs tolerance → None."""
-        # 0.5% of 10,00,000 = 5,000 paise (₹50)
-        # 200 paise diff > 100 abs tol but 0.02% < 1% pct tol
+        """Absolute ₹ tolerance is authoritative — material paise diffs flag."""
+        # 200 paise (₹2) exceeds ₹1 absolute tolerance even if % is tiny.
         r = classify_amount_mismatch(
             _sr(taxable=1000000, tax=180000),
             _g1(taxable=1000200, tax=180000),
         )
-        assert r is None
+        assert r is not None
+        assert "taxable_amount" in r.details["differed_fields"]
 
     def test_custom_tolerance(self):
         """Custom tolerances can widen the acceptance band."""

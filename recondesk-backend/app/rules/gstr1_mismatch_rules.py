@@ -535,6 +535,16 @@ def classify_extra_invoice(
     )
 
 
+def _record_has_tax_amount(rec: Mapping[str, Any]) -> bool:
+    """True when the record carries an explicit tax total or component."""
+    if rec.get("total_tax_paise") is not None:
+        return True
+    return any(
+        rec.get(k) is not None
+        for k in ("igst_paise", "cgst_paise", "sgst_paise", "cess_paise")
+    )
+
+
 def classify_amount_mismatch(
     sr_rec: Mapping[str, Any],
     gstr1_rec: Mapping[str, Any],
@@ -564,31 +574,32 @@ def classify_amount_mismatch(
 
     sr_tax = _safe_int(sr_rec.get("total_tax_paise"))
     g1_tax = _safe_int(gstr1_rec.get("total_tax_paise"))
-    tax_diff = abs(sr_tax - g1_tax)
+    # Only compare tax when both sides actually carry tax amounts. A missing
+    # tax column (None→0) must not look like a 100% shortfall.
+    compare_tax = _record_has_tax_amount(sr_rec) and _record_has_tax_amount(
+        gstr1_rec
+    )
+    tax_diff = abs(sr_tax - g1_tax) if compare_tax else 0
 
-    # Within absolute tolerance → not a mismatch
+    # Within absolute tolerance → not a mismatch (round-off only).
+    # Do not suppress material ₹ diffs via a % gate — on large invoices a
+    # planted ~0.5–1% taxable error is still a real G1M3.
     if taxable_diff <= tolerance_paise and tax_diff <= tolerance_paise:
         return None
 
-    # Check percentage tolerance (use the larger base for percentage calc)
     base_taxable = max(abs(sr_taxable), abs(g1_taxable), 1)
     base_tax = max(abs(sr_tax), abs(g1_tax), 1)
-    taxable_pct = taxable_diff / base_taxable
-    tax_pct = tax_diff / base_tax
-
-    if taxable_pct <= tolerance_pct and tax_pct <= tolerance_pct:
-        return None
 
     # Determine which field(s) differ
     differed: list[str] = []
     diff_parts: list[str] = []
-    if taxable_diff > tolerance_paise and taxable_pct > tolerance_pct:
+    if taxable_diff > tolerance_paise:
         differed.append("taxable_amount")
         diff_parts.append(
             f"taxable value differs by {_rs(taxable_diff)} "
             f"({_pct(taxable_diff, base_taxable)})"
         )
-    if tax_diff > tolerance_paise and tax_pct > tolerance_pct:
+    if compare_tax and tax_diff > tolerance_paise:
         differed.append("total_tax")
         diff_parts.append(
             f"tax amount differs by {_rs(tax_diff)} "
@@ -716,6 +727,72 @@ def classify_wrong_classification(
             "gstr1_gstin": g1_gstin_raw,
             "matched_fields": ["invoice_number"],
             "differed_fields": ["classification"],
+        },
+    )
+
+
+def classify_tax_structure_mismatch(
+    sr_rec: Mapping[str, Any],
+    gstr1_rec: Mapping[str, Any],
+) -> MismatchResult | None:
+    """G1M3 — IGST vs CGST+SGST structure disagrees (place-of-supply nature).
+
+    Flags when one side is clearly interstate (IGST-only) and the other is
+    intrastate (CGST+SGST), which usually means a place-of-supply / interstate
+    flag error even when the PoS code string matches.
+    """
+    def _structure(rec: Mapping[str, Any]) -> str | None:
+        igst = _safe_int(rec.get("igst_paise"))
+        cgst = _safe_int(rec.get("cgst_paise"))
+        sgst = _safe_int(rec.get("sgst_paise"))
+        if igst > 0 and cgst == 0 and sgst == 0:
+            return "interstate"
+        if (cgst > 0 or sgst > 0) and igst == 0:
+            return "intrastate"
+        # Explicit interstate flag when tax components were derived from rate
+        flag = rec.get("is_interstate")
+        if flag is True:
+            return "interstate"
+        if flag is False:
+            return "intrastate"
+        return None
+
+    sr_struct = _structure(sr_rec)
+    g1_struct = _structure(gstr1_rec)
+    if not sr_struct or not g1_struct or sr_struct == g1_struct:
+        return None
+
+    inv = str(_get_field(sr_rec, "invoice_number") or "?")
+    sr_pos = _get_field(sr_rec, "place_of_supply", default=None)
+    g1_pos = _get_field(gstr1_rec, "place_of_supply", default=None)
+    return MismatchResult(
+        mismatch_type=MismatchType.AMOUNT_MISMATCH,
+        severity=MismatchSeverity.HIGH,
+        decision_what=(
+            f"Invoice {inv}: tax structure is {sr_struct} in Sales Register "
+            f"but {g1_struct} in GSTR-1 (place-of-supply / interstate nature)"
+        ),
+        decision_why=(
+            "IGST applies to interstate supplies while CGST+SGST apply to "
+            "intrastate supplies. A mismatch here usually means the place of "
+            "supply or interstate flag is wrong on one side, even when the "
+            "state-code text looks the same."
+        ),
+        decision_next=(
+            f"Verify place of supply for invoice {inv} "
+            f"(SR={sr_pos or '—'}, GSTR-1={g1_pos or '—'}) and whether the "
+            f"supply is interstate. Correct the tax split and amend GSTR-1 "
+            f"if filed incorrectly."
+        ),
+        rule_id="G1M_003",
+        details={
+            "invoice_number": inv,
+            "sr_tax_structure": sr_struct,
+            "gstr1_tax_structure": g1_struct,
+            "sr_place_of_supply": sr_pos,
+            "gstr1_place_of_supply": g1_pos,
+            "matched_fields": ["invoice_number"],
+            "differed_fields": ["tax_structure", "place_of_supply"],
         },
     )
 
@@ -1078,6 +1155,16 @@ def build_g1m7_mismatches(
     *verification_by_gstin* values should look like ``verify_gstin`` results,
     or ``{\"valid\": False, \"status\": \"Invalid Format\", \"reason\":
     \"invalid_format\"}`` for regex failures that never hit the API.
+
+    Only definitive compliance failures are flagged:
+
+    * ``invalid_format`` (local regex)
+    * ``cancelled`` / ``inactive`` / ``suspended`` (explicit Sandbox status)
+
+    ``Not Found`` / API / auth / unknown-status results are ignored here —
+    synthetic and newly-issued GSTINs otherwise flood every invoice. Pairwise
+    SR↔GSTR-1 GSTIN mismatches are handled by
+    :func:`classify_gstin_mismatch` on matched pairs.
     """
     results: list[MismatchResult] = []
     for gstin, refs in gstin_refs.items():
@@ -1086,18 +1173,16 @@ def build_g1m7_mismatches(
             continue
         reason = str(ver.get("reason") or "").strip().lower()
         status = str(ver.get("status") or "").strip()
+        status_l = status.lower()
         valid = bool(ver.get("valid"))
 
-        if reason == "invalid_format" or status.lower() == "invalid format":
+        if reason == "invalid_format" or status_l == "invalid format":
             fail_reason = "invalid_format"
-        elif not valid and status.lower() in ("not found",):
-            fail_reason = "not_found"
-        elif not valid and status.lower() in ("cancelled", "inactive", "suspended"):
+        elif not valid and status_l in ("cancelled", "inactive", "suspended"):
             fail_reason = "cancelled"
-        elif not valid:
-            fail_reason = "inactive" if status else "unknown_status"
         else:
-            continue  # Active / valid — no G1M7
+            # Active, Not Found, API Error, Auth Error, unknown → no G1M7 flood
+            continue
 
         for ref in refs:
             results.append(
@@ -1112,6 +1197,66 @@ def build_g1m7_mismatches(
                 )
             )
     return results
+
+
+def classify_gstin_mismatch(
+    sr_rec: Mapping[str, Any],
+    gstr1_rec: Mapping[str, Any],
+) -> MismatchResult | None:
+    """G1M7 — Buyer GSTIN differs between Sales Register and GSTR-1 on a match.
+
+    Used when invoices match on invoice number but the recipient GSTIN does
+    not. Returns ``None`` when GSTINs are equal, both absent, or either side
+    lacks an invoice identity.
+    """
+    sr_gstin = clean_buyer_gstin(
+        _get_field(sr_rec, "gstin", "recipient_gstin", default=None)
+    )
+    g1_gstin = clean_buyer_gstin(
+        _get_field(gstr1_rec, "recipient_gstin", "gstin", default=None)
+    )
+    if not sr_gstin and not g1_gstin:
+        return None
+    if sr_gstin == g1_gstin:
+        return None
+
+    inv = str(
+        _get_field(sr_rec, "invoice_number", "invoice_number_normalized")
+        or _get_field(gstr1_rec, "invoice_number", "invoice_number_normalized")
+        or "?"
+    )
+    sr_label = sr_gstin or "(blank)"
+    g1_label = g1_gstin or "(blank)"
+    return MismatchResult(
+        mismatch_type=MismatchType.INVALID_GSTIN,
+        severity=MismatchSeverity.HIGH,
+        decision_what=(
+            f"Invoice {inv}: buyer GSTIN is {sr_label} in Sales Register "
+            f"but {g1_label} in GSTR-1"
+        ),
+        decision_why=(
+            "Invoice numbers match, but the recipient GSTIN differs between "
+            "books and the return. This is usually a typo or amendment that "
+            "was not mirrored on both sides. Filing the wrong GSTIN blocks "
+            "the buyer's ITC and can trigger notices."
+        ),
+        decision_next=(
+            f"Confirm the correct GSTIN for invoice {inv} with the buyer. "
+            f"Amend GSTR-1 and/or correct the Sales Register so both sides "
+            f"carry the same 15-character GSTIN."
+        ),
+        rule_id="G1M_007",
+        details={
+            "invoice_number": inv,
+            "sr_gstin": sr_gstin,
+            "gstr1_gstin": g1_gstin,
+            "recipient_gstin": sr_gstin or g1_gstin,
+            "source": "matched_pair",
+            "reason": "gstin_mismatch",
+            "matched_fields": ["invoice_number"],
+            "differed_fields": ["gstin"],
+        },
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1160,8 +1305,18 @@ def classify_all_mismatches(
     for g1_rec in unmatched_gstr1 or []:
         results.append(classify_extra_invoice(g1_rec))
 
-    # G1M3–G1M6 — Matched-pair rules
+    # G1M3–G1M7 — Matched-pair rules
     for sr_rec, g1_rec in matched_pairs or []:
+        # G1M7 — GSTIN mismatch on an otherwise-matched invoice
+        gstin_mm = classify_gstin_mismatch(sr_rec, g1_rec)
+        if gstin_mm is not None:
+            results.append(gstin_mm)
+
+        # G1M5 — Rate mismatch (before amount, so tax-only diffs can be suppressed)
+        rate = classify_rate_mismatch(sr_rec, g1_rec)
+        if rate is not None:
+            results.append(rate)
+
         # G1M3 — Amount mismatch
         amt = classify_amount_mismatch(
             sr_rec, g1_rec,
@@ -1169,17 +1324,22 @@ def classify_all_mismatches(
             tolerance_pct=amount_tolerance_pct,
         )
         if amt is not None:
+            differed = list(amt.details.get("differed_fields") or [])
+            # Tax-only diff is explained by a rate mismatch — don't double-count.
+            if rate is not None and differed == ["total_tax"]:
+                amt = None
+        if amt is not None:
             results.append(amt)
+
+        # Tax structure / place-of-supply nature (IGST vs CGST+SGST)
+        tax_struct = classify_tax_structure_mismatch(sr_rec, g1_rec)
+        if tax_struct is not None:
+            results.append(tax_struct)
 
         # G1M4 — Wrong classification
         cls = classify_wrong_classification(sr_rec, g1_rec)
         if cls is not None:
             results.append(cls)
-
-        # G1M5 — Rate mismatch
-        rate = classify_rate_mismatch(sr_rec, g1_rec)
-        if rate is not None:
-            results.append(rate)
 
         # G1M6 — Filing period mismatch
         period = classify_period_mismatch(
@@ -1233,9 +1393,26 @@ _MIN_SERIES_SIZE = 3
 # Cap gap reports per series so large ranges don't flood the output.
 _MAX_GAPS_PER_SERIES = 20
 
+# Only report contiguous missing runs at least this long. Singleton holes are
+# usually cancelled invoices or one-off skips, not a series continuity issue.
+_MIN_GAP_RUN_LENGTH = 3
+
 # Skip gap detection when numeric tail span is absurd — mixed invoice formats
 # (e.g. RD2026273001 vs RD3002 sharing prefix "RD") can otherwise OOM.
 _MAX_SERIES_NUMERIC_SPAN = 10_000
+
+
+def _contiguous_missing_runs(missing: list[int]) -> list[list[int]]:
+    """Split a sorted list of missing numbers into contiguous runs."""
+    if not missing:
+        return []
+    runs: list[list[int]] = [[missing[0]]]
+    for n in missing[1:]:
+        if n == runs[-1][-1] + 1:
+            runs[-1].append(n)
+        else:
+            runs.append([n])
+    return runs
 
 
 def _split_invoice_number(inv: str) -> tuple[str, int] | None:
@@ -1391,40 +1568,20 @@ def _classify_out_of_order_invoice(
     )
 
 
-def check_invoice_series_continuity(
-    sr_records: list[Mapping[str, Any]],
+def _analyse_series_gaps_and_duplicates(
+    records: list[Mapping[str, Any]],
+    *,
+    source_label: str,
 ) -> list[MismatchResult]:
-    """G1M8 — Detect invoice series gaps, duplicates, and out-of-order dates.
-
-    Analyses the Sales Register's invoice numbering for data quality issues:
-
-    1. **Duplicates** — same invoice number appearing more than once.
-    2. **Gaps** — missing sequence numbers within a detected series.
-    3. **Out-of-order dates** — invoice dates that break chronological
-       order relative to the numeric sequence within a series.
-
-    Series are auto-detected by splitting each invoice number into
-    ``(prefix, numeric_part)`` via regex. Different prefixes form
-    independent series — gaps are never flagged across series.
-
-    Parameters
-    ----------
-    sr_records : list[Mapping]
-        Parsed Sales Register records (each must have ``invoice_number``
-        or ``invoice_number_normalized``, and optionally ``invoice_date``).
-
-    Returns
-    -------
-    list[MismatchResult]
-        Detected issues, sorted by severity.
-    """
+    """Gap + duplicate detection for one source (SR or GSTR-1)."""
     results: list[MismatchResult] = []
-    if not sr_records:
+    if not records:
         return results
 
-    # ── Step 1: Detect duplicates (across ALL records, not per-series) ────
-    inv_occurrences: dict[str, list[str]] = {}  # inv_number → [dates]
-    for rec in sr_records:
+    inv_occurrences: dict[str, list[str]] = {}
+    series: dict[str, list[tuple[int, str, date | None]]] = {}
+
+    for rec in records:
         inv_raw = str(
             _get_field(rec, "invoice_number", "invoice_number_normalized",
                        default="")
@@ -1437,6 +1594,12 @@ def check_invoice_series_continuity(
         date_str = inv_date.isoformat() if inv_date else "unknown"
         inv_occurrences.setdefault(inv_raw, []).append(date_str)
 
+        split = _split_invoice_number(inv_raw)
+        if split is None:
+            continue
+        prefix, num = split
+        series.setdefault(prefix, []).append((num, inv_raw, inv_date))
+
     for inv_num, dates in inv_occurrences.items():
         if len(dates) > 1:
             results.append(
@@ -1447,86 +1610,92 @@ def check_invoice_series_continuity(
                 )
             )
 
-    # ── Step 2: Group invoices by series prefix ──────────────────────────
-    # series_prefix → list of (numeric_part, invoice_number_raw, date|None)
-    series: dict[str, list[tuple[int, str, date | None]]] = {}
-    for rec in sr_records:
-        inv_raw = str(
-            _get_field(rec, "invoice_number", "invoice_number_normalized",
-                       default="")
-        ).strip()
-        if not inv_raw:
-            continue
-        split = _split_invoice_number(inv_raw)
-        if split is None:
-            continue
-        prefix, num = split
-        inv_date = _parse_date(
-            _get_field(rec, "invoice_date", default=None)
-        )
-        series.setdefault(prefix, []).append((num, inv_raw, inv_date))
-
-    # ── Step 3: Analyse each series ──────────────────────────────────────
     for prefix, entries in series.items():
         if len(entries) < _MIN_SERIES_SIZE:
             continue
-
-        # Sort by numeric part
         entries_sorted = sorted(entries, key=lambda e: e[0])
         nums_sorted = [e[0] for e in entries_sorted]
-
         series_min = nums_sorted[0]
         series_max = nums_sorted[-1]
         present = set(nums_sorted)
-
-        # ── 3a: Gap detection ────────────────────────────────────────
         span = series_max - series_min
         if span > _MAX_SERIES_NUMERIC_SPAN:
             _log.warning(
-                "check_invoice_series_continuity: series %r span %d exceeds "
-                "cap %d — skipping gap detection",
+                "check_invoice_series_continuity: %s series %r span %d "
+                "exceeds cap %d — skipping gap detection",
+                source_label,
                 prefix or "(numeric)",
                 span,
                 _MAX_SERIES_NUMERIC_SPAN,
             )
-        else:
-            expected_range = set(range(series_min, series_max + 1))
-            missing = sorted(expected_range - present)
-            if missing:
-                # Cap at _MAX_GAPS_PER_SERIES
-                reported_missing = missing[:_MAX_GAPS_PER_SERIES]
-                results.append(
-                    _classify_series_gap(
-                        series_prefix=prefix,
-                        missing_numbers=reported_missing,
-                        series_min=series_min,
-                        series_max=series_max,
-                        series_count=len(entries),
-                    )
+            continue
+        missing = sorted(set(range(series_min, series_max + 1)) - present)
+        for run in _contiguous_missing_runs(missing):
+            if len(run) < _MIN_GAP_RUN_LENGTH:
+                continue
+            results.append(
+                _classify_series_gap(
+                    series_prefix=prefix,
+                    missing_numbers=run[:_MAX_GAPS_PER_SERIES],
+                    series_min=series_min,
+                    series_max=series_max,
+                    series_count=len(entries),
                 )
+            )
+    return results
 
-        # ── 3b: Out-of-order date detection ──────────────────────────
-        # Walk the sorted-by-number list and flag where a later number
-        # has a strictly earlier date than the previous number.
-        prev_date: date | None = None
-        prev_inv: str = ""
-        for num, inv_raw, inv_date in entries_sorted:
-            if inv_date is not None and prev_date is not None:
-                if inv_date < prev_date:
-                    results.append(
-                        _classify_out_of_order_invoice(
-                            invoice_number=inv_raw,
-                            invoice_date=inv_date.isoformat(),
-                            expected_after=prev_inv,
-                            expected_after_date=prev_date.isoformat(),
-                            series_prefix=prefix,
-                        )
-                    )
-            if inv_date is not None:
-                prev_date = inv_date
-                prev_inv = inv_raw
 
-    # Sort: HIGH → MEDIUM → LOW
+def check_invoice_series_continuity(
+    sr_records: list[Mapping[str, Any]],
+    gstr1_records: list[Mapping[str, Any]] | None = None,
+) -> list[MismatchResult]:
+    """G1M8 — Detect invoice series gaps and duplicates.
+
+    Analyses Sales Register and (optionally) GSTR-1 invoice numbering:
+
+    1. **Duplicates** — same invoice number appearing more than once.
+    2. **Gaps** — missing sequence numbers within a detected series.
+
+    Out-of-order date checks are intentionally omitted: real filings often
+    have non-monotonic dates within a series and that path previously
+    flooded results with thousands of false positives.
+
+    Series are auto-detected by splitting each invoice number into
+    ``(prefix, numeric_part)`` via regex. Different prefixes form
+    independent series — gaps are never flagged across series.
+    """
+    results: list[MismatchResult] = []
+    results.extend(
+        _analyse_series_gaps_and_duplicates(
+            sr_records or [], source_label="sales_register",
+        )
+    )
+    # GSTR-1 gap detection catches unfiled consecutive blocks (e.g. INV1500–1504)
+    # that are still present in the Sales Register.
+    g1_gaps = _analyse_series_gaps_and_duplicates(
+        gstr1_records or [], source_label="gstr1",
+    )
+    # Prefer GSTR-1 gap reports when the same prefix already appeared from SR
+    # with an identical missing set (dedupe). Keep unique gaps from either side.
+    seen_gap_keys: set[tuple[str, tuple[int, ...]]] = set()
+    for r in results:
+        if r.details.get("issue_type") == "gap":
+            key = (
+                str(r.details.get("series_prefix") or ""),
+                tuple(r.details.get("missing_numbers") or ()),
+            )
+            seen_gap_keys.add(key)
+    for r in g1_gaps:
+        if r.details.get("issue_type") == "gap":
+            key = (
+                str(r.details.get("series_prefix") or ""),
+                tuple(r.details.get("missing_numbers") or ()),
+            )
+            if key in seen_gap_keys:
+                continue
+            seen_gap_keys.add(key)
+        results.append(r)
+
     _sev_order = {
         MismatchSeverity.CRITICAL: 0,
         MismatchSeverity.HIGH: 1,
@@ -1536,12 +1705,10 @@ def check_invoice_series_continuity(
     results.sort(key=lambda r: _sev_order.get(r.severity, 99))
 
     _log.info(
-        "check_invoice_series_continuity: %d issues (%d duplicates, "
-        "%d gaps, %d out-of-order)",
+        "check_invoice_series_continuity: %d issues (%d duplicates, %d gaps)",
         len(results),
         sum(1 for r in results if r.details.get("issue_type") == "duplicate"),
         sum(1 for r in results if r.details.get("issue_type") == "gap"),
-        sum(1 for r in results if r.details.get("issue_type") == "out_of_order"),
     )
 
     return results
@@ -1867,6 +2034,28 @@ def _append_hsn_candidate(
         out.append((inv, None, applied_rate, source, "malformed", raw_hsn))
 
 
+def _gstr1_section_carries_hsn(rec: Mapping[str, Any]) -> bool:
+    """True when this GSTR-1 row actually carries an HSN value to validate.
+
+    Portal JSON only reports HSN on Table 12. Invoice sections (b2b/b2cl/…)
+    never include per-invoice HSN — flagging those as ``missing_hsn`` doubles
+    the mismatch count for every filed invoice. Empty HSN-summary stubs are
+    also skipped.
+    """
+    raw = _get_field(rec, "hsn", "hsn_sc", "hsn_code", default=None)
+    if raw is not None and not hsn_raw_is_missing(raw):
+        return True
+    items = rec.get("items")
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, Mapping):
+                continue
+            raw_item = item.get("hsn") or item.get("hsn_sc") or item.get("hsn_code")
+            if raw_item is not None and not hsn_raw_is_missing(raw_item):
+                return True
+    return False
+
+
 def _iter_hsn_rate_candidates(
     records: list[Mapping[str, Any]] | None,
     *,
@@ -1884,6 +2073,10 @@ def _iter_hsn_rate_candidates(
         return out
 
     for rec in records:
+        # GSTR-1 invoice-level sections never carry HSN in the portal schema.
+        if source == "gstr1" and not _gstr1_section_carries_hsn(rec):
+            continue
+
         inv = str(
             _get_field(
                 rec,
@@ -1895,13 +2088,21 @@ def _iter_hsn_rate_candidates(
 
         raw_top = _get_field(rec, "hsn", "hsn_sc", "hsn_code", default=None)
         top_rate = _detect_rate_for_hsn(rec)
-        _append_hsn_candidate(
-            out,
-            inv=inv,
-            raw_hsn=raw_top,
-            applied_rate=top_rate,
-            source=source,
-        )
+        # Skip top-level missing_hsn noise:
+        # - Sales Register: pairwise rate issues are G1M5
+        # - GSTR-1: HSN often lives on items (Table 12), not the parent row
+        if hsn_raw_is_missing(raw_top) and (
+            source == "sales_register" or source == "gstr1"
+        ):
+            pass
+        else:
+            _append_hsn_candidate(
+                out,
+                inv=inv,
+                raw_hsn=raw_top,
+                applied_rate=top_rate,
+                source=source,
+            )
 
         items = rec.get("items")
         if isinstance(items, list):
@@ -1910,6 +2111,9 @@ def _iter_hsn_rate_candidates(
                     continue
                 item_inv = f"{inv}#item{idx + 1}"
                 raw_item = item.get("hsn") or item.get("hsn_sc") or item.get("hsn_code")
+                # Skip item-level missing HSN noise (same schema limitation).
+                if hsn_raw_is_missing(raw_item):
+                    continue
                 item_rate = _detect_rate_for_hsn(item)
                 if item_rate is None and item.get("tax_rate") is not None:
                     try:
@@ -1992,20 +2196,17 @@ def _validate_one_hsn_candidate(
 
     valid_rates = lookup_valid_rates(hsn)
     if valid_rates is None:
-        key = (source, inv, hsn, "unknown_hsn")
-        if key not in seen:
-            seen.add(key)
-            results.append(
-                _classify_unknown_hsn(
-                    invoice_number=inv,
-                    hsn=hsn,
-                    source=source,
-                    applied_rate=applied_rate,
-                )
-            )
+        # Local schedule is incomplete — do not flood unknown_hsn for every
+        # unlisted heading. Pairwise SR↔GSTR-1 rate issues are G1M5.
         return
 
     if applied_rate is None:
+        return
+
+    # Sales Register rate-vs-schedule checks are too noisy against a partial
+    # reference map (hundreds of false G1M9s). Keep schedule rate checks for
+    # GSTR-1 HSN summary rows only; invoice-level rate diffs use G1M5.
+    if source.startswith("sales_register"):
         return
 
     if not _rate_in_schedule(applied_rate, valid_rates):
@@ -2876,6 +3077,8 @@ __all__ = [
     "classify_rate_mismatch",
     "classify_period_mismatch",
     "classify_invalid_gstin",
+    "classify_gstin_mismatch",
+    "classify_tax_structure_mismatch",
     "collect_unique_buyer_gstins",
     "clean_buyer_gstin",
     "gstin_format_ok",

@@ -63,8 +63,10 @@ async def test_messy_gstr1_extra_excludes_hsn_row():
     summary = out["summary"]
     assert summary["gstr1_total_records"] == 7
     assert summary.get("gstr1_metadata_record_count") == 1
-    assert summary["matched_count"] == 2
-    assert summary["unmatched_gstr1_count"] == 5  # 7 − 2 matched
+    # Invoice-primary matching can pair GSTIN-typo / blank-GSTIN rows that
+    # the old GSTIN+invoice key left unmatched.
+    assert summary["matched_count"] == 3
+    assert summary["unmatched_gstr1_count"] == 4  # 7 − 3 matched
 
     extras = out["unmatched_gstr1"]
     invs = [

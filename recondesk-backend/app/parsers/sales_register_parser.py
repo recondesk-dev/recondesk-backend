@@ -71,6 +71,8 @@ STANDARD_TO_CANONICAL: dict[str, str] = {
     "place_of_supply": "place_of_supply",
     "invoice_type": "invoice_type",
     "hsn": "hsn",
+    "tax_rate": "tax_rate",
+    "is_interstate": "is_interstate",
     "reverse_charge": "reverse_charge",
     "shipping_port_code": "shipping_port_code",
     "shipping_bill_number": "shipping_bill_number",
@@ -150,12 +152,21 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "particulars",  # Tally sales register
     ],
     "place_of_supply": [
-        "place of supply", "pos", "state", "state name",
-        "destination state", "supply state",
+        "place of supply", "place of supply state code", "pos", "state",
+        "state name", "destination state", "supply state",
     ],
     "invoice_type": [
         "invoice type", "document type", "doc type", "type",
         "voucher type name", "transaction type", "supply type",
+    ],
+    "tax_rate": [
+        "tax rate", "gst rate", "rate of tax", "gst %", "tax %",
+        "tax rate percent", "tax rate percentage", "tax rate (%)",
+        "gst rate (%)",
+    ],
+    "is_interstate": [
+        "is interstate", "interstate", "inter state", "igst applicable",
+        "supply type interstate",
     ],
     "reverse_charge": ["reverse charge", "rcm", "reverse charge applicable"],
     "hsn": [
@@ -287,6 +298,8 @@ _FIELD_MATCH_PRIORITY: dict[str, int] = {
     "cess": 50,
     "place_of_supply": 50,
     "invoice_type": 50,
+    "tax_rate": 45,
+    "is_interstate": 40,
     "reverse_charge": 50,
     "hsn": 45,
     "shipping_port_code": 40,
@@ -645,6 +658,41 @@ def _amount_int_unsigned(val: Any) -> int | None:
     return int(abs(r))
 
 
+def _normalize_tax_rate_cell(val: Any) -> float | None:
+    """Parse a GST rate percentage (e.g. ``18``, ``18%``, ``0.18``)."""
+    s = _safe_cell(val)
+    if s is None:
+        return None
+    cleaned = s.replace("%", "").replace(",", "").strip()
+    if not cleaned:
+        return None
+    try:
+        rate = float(cleaned)
+    except (TypeError, ValueError):
+        return None
+    if rate != rate or rate in (float("inf"), float("-inf")):
+        return None
+    # Some exports store 0.18 instead of 18
+    if 0.0 < rate <= 1.0:
+        rate *= 100.0
+    if 0.0 <= rate <= 100.0:
+        return round(rate, 2)
+    return None
+
+
+def _is_truthy_flag(val: Any) -> bool | None:
+    """Interpret Yes/No / true/false style interstate flags."""
+    s = _safe_cell(val)
+    if s is None:
+        return None
+    token = s.strip().lower()
+    if token in {"yes", "y", "true", "1", "interstate", "igst"}:
+        return True
+    if token in {"no", "n", "false", "0", "intrastate", "local"}:
+        return False
+    return None
+
+
 def normalize_dataframe_to_canonical_schema(
     df: pd.DataFrame, column_mapping: dict[str, str]
 ) -> pd.DataFrame:
@@ -681,9 +729,11 @@ def normalize_dataframe_to_canonical_schema(
             out_cols[canon] = ser.map(_amount_int_unsigned)
         elif canon in (
             "recipient_name", "place_of_supply", "invoice_type",
-            "shipping_port_code", "export_type",
+            "shipping_port_code", "export_type", "is_interstate",
         ):
             out_cols[canon] = ser.map(_safe_cell)
+        elif canon == "tax_rate":
+            out_cols[canon] = ser.map(_normalize_tax_rate_cell)
         elif canon == "reverse_charge":
             out_cols[canon] = ser.map(_normalize_reverse_charge)
         elif canon in ("shipping_bill_number", "shipping_bill_date"):
@@ -1128,6 +1178,22 @@ def _process_sr_sheet_rows(
         sgst_paise = _df_cell_int(row.get("sgst_paise"))
         cess_paise = _df_cell_int(row.get("cess_paise"))
         total_tax_paise = _df_cell_int(row.get("total_tax_paise"))
+        tax_rate_val = row.get("tax_rate")
+        if isinstance(tax_rate_val, float) and pd.isna(tax_rate_val):
+            tax_rate_val = None
+        try:
+            tax_rate: float | None = (
+                float(tax_rate_val) if tax_rate_val is not None else None
+            )
+        except (TypeError, ValueError):
+            tax_rate = None
+        if tax_rate is not None and (
+            tax_rate != tax_rate or tax_rate < 0.0 or tax_rate > 100.0
+        ):
+            tax_rate = None
+
+        is_interstate = _is_truthy_flag(row.get("is_interstate"))
+
         if total_tax_paise is None and (
             igst_paise is not None
             or cgst_paise is not None
@@ -1140,6 +1206,31 @@ def _process_sr_sheet_rows(
                 + (sgst_paise or 0)
                 + (cess_paise or 0)
             )
+
+        # Derive tax from Tax Rate (%) when component columns are absent.
+        if (
+            total_tax_paise is None
+            and tax_rate is not None
+            and taxable_amount_paise is not None
+        ):
+            total_tax_paise = int(
+                round(abs(taxable_amount_paise) * float(tax_rate) / 100.0)
+            )
+            if taxable_amount_paise < 0:
+                total_tax_paise = -total_tax_paise
+            if is_interstate:
+                igst_paise = total_tax_paise
+                cgst_paise = 0
+                sgst_paise = 0
+            else:
+                half = abs(total_tax_paise) // 2
+                other = abs(total_tax_paise) - half
+                if total_tax_paise < 0:
+                    half, other = -half, -other
+                igst_paise = 0
+                cgst_paise = half
+                sgst_paise = other
+
         if invoice_type == "CREDIT_NOTE" and total_tax_paise is not None and total_tax_paise > 0:
             total_tax_paise = -total_tax_paise
 
@@ -1172,6 +1263,11 @@ def _process_sr_sheet_rows(
             "reverse_charge": reverse_out,
             "source_file": filename,
         }
+        if tax_rate is not None:
+            out["tax_rate"] = tax_rate
+            out["gst_rate"] = tax_rate
+        if is_interstate is not None:
+            out["is_interstate"] = is_interstate
         if sheet_name:
             out["source_sheet"] = sheet_name
         if "hsn" in column_mapping:

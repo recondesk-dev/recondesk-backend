@@ -120,6 +120,11 @@ class MatchFieldsConfig:
     period_mismatch_why: str
     financial_mismatch_next: str
 
+    # When True, invoice identity does not require GSTIN equality. GSTIN
+    # differences are reported as discrepancies / G1M7 on matched pairs
+    # instead of forcing missing+extra double-counts.
+    allow_gstin_mismatch: bool = False
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Pre-built configs
@@ -177,6 +182,7 @@ SALES_MATCH_CONFIG = MatchFieldsConfig(
     financial_mismatch_next=(
         "Review invoice details and amend GSTR-1 filing if needed"
     ),
+    allow_gstin_mismatch=True,
 )
 
 
@@ -241,7 +247,12 @@ def _gstin_identity_ok(
     When GSTIN is present on at least one side it remains the primary key
     (both must match). When both sides are empty/null — legitimate for
     B2CL and Export — identity falls through to invoice + amount + date.
+
+    Sales-side matching sets ``allow_gstin_mismatch`` so invoice number is
+    the primary key; GSTIN diffs are classified separately (G1M7).
     """
+    if config.allow_gstin_mismatch:
+        return True
     return _gstin_match(rec_a, rec_b, config) or _gstin_both_absent(
         rec_a, rec_b, config
     )
