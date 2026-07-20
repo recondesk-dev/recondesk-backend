@@ -2908,6 +2908,8 @@ def _classify_amendment_required(
     differed_fields: list[str],
     current: Mapping[str, Any],
     prior: Mapping[str, Any],
+    issue_type: str = "amendment_required",
+    filed_amendment: Mapping[str, Any] | None = None,
 ) -> MismatchResult:
     table_label = {
         "9A": "Table 9A (B2B / B2CL invoice amendment)",
@@ -2918,6 +2920,11 @@ def _classify_amendment_required(
     fields_str = ", ".join(differed_fields)
     cur_taxable = _safe_int(current.get("taxable_amount_paise"))
     prior_taxable = _safe_int(prior.get("taxable_amount_paise"))
+    filed_taxable = (
+        _safe_int(filed_amendment.get("taxable_amount_paise"))
+        if filed_amendment is not None
+        else None
+    )
 
     severity = (
         MismatchSeverity.HIGH
@@ -2925,35 +2932,74 @@ def _classify_amendment_required(
         else MismatchSeverity.MEDIUM
     )
 
-    return MismatchResult(
-        mismatch_type=MismatchType.AMENDMENT_REQUIRED,
-        severity=severity,
-        decision_what=(
+    if issue_type == "amendment_missing":
+        decision_what = (
+            f"Invoice {invoice_number}: books differ from prior-period GSTR-1 "
+            f"but no {amendment_table} amendment was filed ({fields_str})"
+        )
+        decision_why = (
+            f"This invoice was filed in a prior GSTR-1, and the current Sales "
+            f"Register shows different {fields_str} "
+            f"(prior {_rs(prior_taxable)} → books {_rs(cur_taxable)}). "
+            f"No matching entry was found in the current period's "
+            f"b2ba/cdnra/expa tables, so the portal still holds the old figures."
+        )
+        decision_next = (
+            f"File invoice {invoice_number} under GSTR-1 {table_label} for the "
+            f"current period with the corrected Sales Register values."
+        )
+    elif issue_type == "amendment_still_wrong":
+        decision_what = (
+            f"Invoice {invoice_number}: {amendment_table} amendment filed but "
+            f"still does not match books ({fields_str})"
+        )
+        decision_why = (
+            f"Prior GSTR-1 taxable {_rs(prior_taxable)}, current books "
+            f"{_rs(cur_taxable)}, filed amendment "
+            f"{_rs(filed_taxable) if filed_taxable is not None else '—'}. "
+            f"The amendment is present but {fields_str} still differ from the "
+            f"Sales Register, so output tax remains misstated."
+        )
+        decision_next = (
+            f"Correct the {table_label} entry for invoice {invoice_number} to "
+            f"match the Sales Register, or fix the books if the amendment is "
+            f"the intended figure."
+        )
+    else:
+        decision_what = (
             f"Invoice {invoice_number}: values changed vs prior-period "
             f"GSTR-1 — report as {table_label} ({fields_str})"
-        ),
-        decision_why=(
+        )
+        decision_why = (
             f"This invoice was filed in a prior GSTR-1, but the current "
             f"Sales Register shows different {fields_str}. "
             f"Prior filed taxable {_rs(prior_taxable)} vs books "
             f"{_rs(cur_taxable)}. Without a {amendment_table} amendment, "
             f"the portal will retain the previously filed figures and "
             f"output tax / ITC may be misstated."
-        ),
-        decision_next=(
+        )
+        decision_next = (
             f"Report invoice {invoice_number} under GSTR-1 {table_label} "
             f"for the current filing period with the corrected values, or "
             f"correct the Sales Register if the books change was unintended."
-        ),
+        )
+
+    return MismatchResult(
+        mismatch_type=MismatchType.AMENDMENT_REQUIRED,
+        severity=severity,
+        decision_what=decision_what,
+        decision_why=decision_why,
+        decision_next=decision_next,
         rule_id="G1M_011",
         gst_ref="Section 37 CGST Act / GSTR-1 Tables 9A, 9B, 9C",
         details={
-            "issue_type": "amendment_required",
+            "issue_type": issue_type,
             "amendment_table": amendment_table,
             "invoice_number": invoice_number,
             "differed_fields": differed_fields,
             "prior_taxable_paise": prior_taxable,
             "current_taxable_paise": cur_taxable,
+            "filed_amendment_taxable_paise": filed_taxable,
             "prior_gstin": _amendment_gstin(prior) or None,
             "current_gstin": _amendment_gstin(current) or None,
             "prior_rate": _detect_rate(prior),
@@ -2963,24 +3009,72 @@ def _classify_amendment_required(
     )
 
 
+def _index_amendment_records(
+    records: list[Mapping[str, Any]] | None,
+) -> dict[str, Mapping[str, Any]]:
+    """Index current-period amendment rows by invoice / original invoice key."""
+    by_inv: dict[str, Mapping[str, Any]] = {}
+    for rec in records or []:
+        if not _is_amendment_candidate(rec):
+            continue
+        keys: list[str] = []
+        primary = _amendment_invoice_key(rec)
+        if primary:
+            keys.append(primary)
+        oinum = (
+            rec.get("original_invoice_number")
+            or rec.get("original_invoice_number_raw")
+            or rec.get("oinum")
+            or ""
+        )
+        if oinum:
+            from app.services.matcher import normalize_invoice
+
+            okey = normalize_invoice(str(oinum).strip())
+            if okey:
+                keys.append(okey)
+        for key in keys:
+            if key and key not in by_inv:
+                by_inv[key] = rec
+    return by_inv
+
+
+def _amendment_table_choice(
+    sr_rec: Mapping[str, Any],
+    prior: Mapping[str, Any],
+    filed: Mapping[str, Any] | None = None,
+) -> str:
+    tables = {_amendment_table_for(sr_rec), _amendment_table_for(prior)}
+    if filed is not None:
+        tables.add(_amendment_table_for(filed))
+    if "9C" in tables:
+        return "9C"
+    if "9B" in tables:
+        return "9B"
+    return "9A"
+
+
 def detect_amendments(
     sr_records: list[Mapping[str, Any]] | None = None,
     prior_gstr1_records: list[Mapping[str, Any]] | None = None,
     *,
     prior_provided: bool = False,
+    current_amendment_records: list[Mapping[str, Any]] | None = None,
     tolerance_paise: int = AMOUNT_TOLERANCE_PAISE,
 ) -> list[MismatchResult]:
     """G1M11 — Detect invoices that need Tables 9A / 9B / 9C amendments.
 
     Compares the **current** Sales Register against a **prior period**
-    filed GSTR-1 (uploaded manually). An amendment is flagged only when:
+    filed GSTR-1. When books differ from the prior filing:
 
-    1. The invoice number (normalised) exists in the prior GSTR-1, AND
-    2. Taxable value, tax, GSTIN, or rate differs beyond tolerance.
+    - No matching current-period amendment (b2ba/cdnra/expa) → flag
+      ``amendment_missing``
+    - Amendment filed and matches books → silent (correctly amended)
+    - Amendment filed but still differs from books → flag
+      ``amendment_still_wrong``
 
     Invoices absent from the prior period are ignored (normal new sales).
-    Identical values are ignored. Invoice dates are not used to decide
-    period membership.
+    Identical books vs prior values are ignored (no amendment needed).
 
     When *prior_provided* is False, returns a single LOW INFO note and
     performs no comparison.
@@ -3004,6 +3098,8 @@ def detect_amendments(
         _log.info("detect_amendments: prior GSTR-1 has no invoice-level rows")
         return results
 
+    filed_by_inv = _index_amendment_records(current_amendment_records)
+
     seen: set[str] = set()
     for sr_rec in sr_records or []:
         if not _is_amendment_candidate(sr_rec):
@@ -3015,33 +3111,47 @@ def detect_amendments(
         if prior is None:
             continue  # not in prior period → not an amendment
 
-        differed = _field_diffs_for_amendment(
+        differed_vs_prior = _field_diffs_for_amendment(
             sr_rec, prior, tolerance_paise=tolerance_paise,
         )
-        if not differed:
-            continue
+        if not differed_vs_prior:
+            continue  # books still match prior — no amendment needed
 
         seen.add(key)
         inv_display = str(
             _get_field(sr_rec, "invoice_number", "invoice_number_normalized",
                        default=key)
         ).strip() or key
-        # Prefer the more specific table from books vs what was previously filed.
-        tables = {_amendment_table_for(sr_rec), _amendment_table_for(prior)}
-        if "9C" in tables:
-            table = "9C"
-        elif "9B" in tables:
-            table = "9B"
-        else:
-            table = "9A"
+
+        filed = filed_by_inv.get(key)
+        if filed is None:
+            results.append(
+                _classify_amendment_required(
+                    invoice_number=inv_display,
+                    amendment_table=_amendment_table_choice(sr_rec, prior),
+                    differed_fields=differed_vs_prior,
+                    current=sr_rec,
+                    prior=prior,
+                    issue_type="amendment_missing",
+                )
+            )
+            continue
+
+        differed_vs_filed = _field_diffs_for_amendment(
+            sr_rec, filed, tolerance_paise=tolerance_paise,
+        )
+        if not differed_vs_filed:
+            continue  # correctly amended — silent
 
         results.append(
             _classify_amendment_required(
                 invoice_number=inv_display,
-                amendment_table=table,
-                differed_fields=differed,
+                amendment_table=_amendment_table_choice(sr_rec, prior, filed),
+                differed_fields=differed_vs_filed,
                 current=sr_rec,
                 prior=prior,
+                issue_type="amendment_still_wrong",
+                filed_amendment=filed,
             )
         )
 
@@ -3054,10 +3164,12 @@ def detect_amendments(
     results.sort(key=lambda r: _sev_order.get(r.severity, 99))
 
     _log.info(
-        "detect_amendments: %d amendments from %d prior invoices vs %d SR rows",
+        "detect_amendments: %d flags from %d prior invoices vs %d SR rows "
+        "(%d current amendments indexed)",
         len(results),
         len(prior_by_inv),
         len(sr_records or []),
+        len(filed_by_inv),
     )
     return results
 

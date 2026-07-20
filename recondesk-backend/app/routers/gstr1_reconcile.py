@@ -67,6 +67,7 @@ from app.rules.gstr1_mismatch_rules import (
     validate_hsn_rate_mapping,
     summarize_documents_issued,
     detect_amendments,
+    _amendment_invoice_key,
     MismatchResult,
 )
 from app.reconciliation.gstr1_vs_3b import reconcile_gstr1_vs_3b
@@ -395,13 +396,79 @@ async def _run_pipeline(
             except (IndexError, ValueError):
                 pass
 
-    # ── Step 2: Match ─────────────────────────────────────────────────────
+    # ── Step 1d: Prior-period GSTR-1 (amendment context) ──────────────────
+    # Parsed before matching so prior-linked SR rows can be excluded from
+    # current-period G1M1/G1M2 matching and routed to G1M11 only.
+    prior_provided = bool(prior_gstr1_file_content)
+    prior_gstr1_records: list[dict[str, Any]] = []
+    prior_gstr1_diagnostics: dict[str, Any] | None = None
+    prior_invoice_keys: set[str] = set()
+    if prior_provided:
+        try:
+            prior_result = parse_gstr1(prior_gstr1_file_content)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "error": "prior_gstr1_parse_failed",
+                    "message": str(exc),
+                },
+            )
+        prior_gstr1_records = [
+            r for r in prior_result.get("records", [])
+            if _is_invoice_level_gstr1_record(r)
+        ]
+        prior_invoice_keys = {
+            k for k in (_amendment_invoice_key(r) for r in prior_gstr1_records) if k
+        }
+        prior_gstr1_diagnostics = {
+            "filing_gstin": prior_result.get("filing_gstin", ""),
+            "filing_period": prior_result.get("filing_period", ""),
+            "total_parsed": prior_result.get("total_parsed", 0),
+            "invoice_level_count": len(prior_gstr1_records),
+            "section_counts": prior_result.get("section_counts", {}),
+        }
+
+    # Current-period originals vs amendment tables (b2ba/cdnra/expa/…).
+    gstr1_amendment_records = [
+        r for r in gstr1_records if bool(r.get("is_amendment"))
+    ]
+    gstr1_current_records = [
+        r for r in gstr1_records if not bool(r.get("is_amendment"))
+    ]
+
+    # SR rows whose invoice# exists in prior GSTR-1 belong to amendment flow.
+    sr_current_records: list[dict[str, Any]] = []
+    sr_amendment_records: list[dict[str, Any]] = []
+    if prior_invoice_keys:
+        for rec in sr_records:
+            key = _amendment_invoice_key(rec)
+            if key and key in prior_invoice_keys:
+                sr_amendment_records.append(rec)
+            else:
+                sr_current_records.append(rec)
+    else:
+        sr_current_records = list(sr_records)
+
+    _log.info(
+        "gstr1_reconcile: period split — SR current=%d amendment-linked=%d; "
+        "GSTR-1 current=%d amendments=%d; prior_keys=%d",
+        len(sr_current_records),
+        len(sr_amendment_records),
+        len(gstr1_current_records),
+        len(gstr1_amendment_records),
+        len(prior_invoice_keys),
+    )
+
+    # ── Step 2: Match (current-period originals only) ─────────────────────
     # Primary key = invoice number (not GSTIN+invoice). GSTIN typos then
     # surface as G1M7 on matched pairs instead of missing+extra doubles.
-    gstr1_by_invoice = _build_invoice_index(gstr1_records)
+    # Amendment-linked SR rows and current b2ba/cdnra rows are excluded —
+    # they are handled solely by G1M11.
+    gstr1_by_invoice = _build_invoice_index(gstr1_current_records)
     # Fallback bucket for format-variant / fuzzy invoice matching.
     gstr1_by_gstin = _build_gstin_index(
-        gstr1_records, ("recipient_gstin", "gstin"),
+        gstr1_current_records, ("recipient_gstin", "gstin"),
     )
 
     matched_pairs: list[tuple[dict, dict, dict]] = []  # (sr, gstr1, match_result_dict)
@@ -416,7 +483,7 @@ async def _run_pipeline(
     def _unused(cands: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [c for c in cands if id(c) not in used_gstr1_ids]
 
-    for sr_rec in sr_records:
+    for sr_rec in sr_current_records:
         inv_key = _invoice_index_key(sr_rec)
         candidates = _unused(gstr1_by_invoice.get(inv_key, []))
 
@@ -473,9 +540,10 @@ async def _run_pipeline(
         else:
             unmatched_sr.append(sr_rec)
 
-    # Unmatched GSTR-1: records not consumed by any SR match
+    # Unmatched GSTR-1: current-period originals not consumed by any SR match.
+    # Amendment-table rows (b2ba etc.) are intentionally omitted from G1M2.
     unmatched_gstr1: list[dict[str, Any]] = [
-        rec for rec in gstr1_records if id(rec) not in used_gstr1_ids
+        rec for rec in gstr1_current_records if id(rec) not in used_gstr1_ids
     ]
 
     _log.info(
@@ -550,33 +618,12 @@ async def _run_pipeline(
         )
 
     # ── Step 3f: G1M11 amendment detection (Tables 9A/9B/9C) ─────────────
-    prior_provided = bool(prior_gstr1_file_content)
-    prior_gstr1_records: list[dict[str, Any]] = []
-    prior_gstr1_diagnostics: dict[str, Any] | None = None
     if prior_provided:
-        try:
-            prior_result = parse_gstr1(prior_gstr1_file_content)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail={
-                    "error": "prior_gstr1_parse_failed",
-                    "message": str(exc),
-                },
-            )
-        prior_gstr1_records = [
-            r for r in prior_result.get("records", [])
-            if _is_invoice_level_gstr1_record(r)
-        ]
-        prior_gstr1_diagnostics = {
-            "filing_gstin": prior_result.get("filing_gstin", ""),
-            "filing_period": prior_result.get("filing_period", ""),
-            "total_parsed": prior_result.get("total_parsed", 0),
-            "invoice_level_count": len(prior_gstr1_records),
-            "section_counts": prior_result.get("section_counts", {}),
-        }
         g1m11_results = detect_amendments(
-            sr_records, prior_gstr1_records, prior_provided=True,
+            sr_records,
+            prior_gstr1_records,
+            prior_provided=True,
+            current_amendment_records=gstr1_amendment_records,
         )
     else:
         g1m11_results = detect_amendments(
@@ -669,9 +716,16 @@ async def _run_pipeline(
             ),
             "amendment_detection_skipped": not prior_provided,
             "amendment_count": sum(
-                1 for m in g1m11_results
-                if m.details.get("issue_type") == "amendment_required"
+                1
+                for m in g1m11_results
+                if m.details.get("issue_type") in {
+                    "amendment_required",
+                    "amendment_missing",
+                    "amendment_still_wrong",
+                }
             ),
+            "amendment_linked_sr_count": len(sr_amendment_records),
+            "gstr1_amendment_record_count": len(gstr1_amendment_records),
         },
         "matched": matched_output,
         "unmatched_sr": unmatched_sr_output,

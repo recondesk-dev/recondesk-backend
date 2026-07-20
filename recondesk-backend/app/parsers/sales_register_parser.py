@@ -1208,6 +1208,9 @@ def _process_sr_sheet_rows(
             )
 
         # Derive tax from Tax Rate (%) when component columns are absent.
+        # Only split into IGST vs CGST+SGST when is_interstate is explicit.
+        # Defaulting to CGST+SGST for unknown nature floods G1M3 tax-structure
+        # flags against GSTR-1 JSON that correctly files IGST for interstate.
         if (
             total_tax_paise is None
             and tax_rate is not None
@@ -1218,11 +1221,11 @@ def _process_sr_sheet_rows(
             )
             if taxable_amount_paise < 0:
                 total_tax_paise = -total_tax_paise
-            if is_interstate:
+            if is_interstate is True:
                 igst_paise = total_tax_paise
                 cgst_paise = 0
                 sgst_paise = 0
-            else:
+            elif is_interstate is False:
                 half = abs(total_tax_paise) // 2
                 other = abs(total_tax_paise) - half
                 if total_tax_paise < 0:
@@ -1230,6 +1233,7 @@ def _process_sr_sheet_rows(
                 igst_paise = 0
                 cgst_paise = half
                 sgst_paise = other
+            # else: leave component columns unset — total_tax_paise is enough
 
         if invoice_type == "CREDIT_NOTE" and total_tax_paise is not None and total_tax_paise > 0:
             total_tax_paise = -total_tax_paise

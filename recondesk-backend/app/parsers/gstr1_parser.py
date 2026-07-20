@@ -1390,13 +1390,23 @@ def _process_gstin_grouped_section(
         if not isinstance(recipient, dict):
             continue
 
-        # Invoice/note list key
+        # Invoice/note list key.
+        # Portal exports usually nest invoices under {ctin, inv:[...]}.
+        # Some test / simplified payloads place a flat invoice object in the
+        # section array itself (inum + ctin on the same dict, no inv[]).
         if is_cdnr:
             inv_list = recipient.get("nt") or recipient.get("inv", [])
         else:
             inv_list = recipient.get("inv", [])
         if not isinstance(inv_list, list):
             inv_list = []
+        if (
+            not inv_list
+            and not is_cdnr
+            and recipient.get("inum") is not None
+            and recipient.get("ctin") is not None
+        ):
+            inv_list = [recipient]
 
         raw_ctin = recipient.get("ctin")
         recipient_name = str(recipient.get("trdnm") or "").strip()

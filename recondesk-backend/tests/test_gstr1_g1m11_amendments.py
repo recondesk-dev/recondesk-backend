@@ -90,7 +90,7 @@ class TestDetectAmendments:
         prior = [_g1(inv="RD/001", taxable=100000, igst=18000)]
         results = detect_amendments(sr, prior, prior_provided=True)
         assert len(results) == 1
-        assert results[0].details["issue_type"] == "amendment_required"
+        assert results[0].details["issue_type"] == "amendment_missing"
         assert results[0].details["amendment_table"] == "9A"
         assert "taxable_amount" in results[0].details["differed_fields"]
         assert results[0].severity == MismatchSeverity.HIGH
@@ -101,6 +101,48 @@ class TestDetectAmendments:
         prior = [_g1(inv="RD/001", taxable=100000, igst=18000)]
         results = detect_amendments(sr, prior, prior_provided=True)
         assert results == []
+
+    def test_correctly_amended_silent_when_b2ba_matches_books(self):
+        sr = [_sr(inv="RD/001", taxable=200000, igst=36000)]
+        prior = [_g1(inv="RD/001", taxable=100000, igst=18000)]
+        filed = [
+            _g1(
+                inv="RD/001",
+                taxable=200000,
+                igst=36000,
+                section="b2ba",
+            )
+        ]
+        filed[0]["is_amendment"] = True
+        results = detect_amendments(
+            sr,
+            prior,
+            prior_provided=True,
+            current_amendment_records=filed,
+        )
+        assert results == []
+
+    def test_amendment_still_wrong_when_b2ba_differs(self):
+        sr = [_sr(inv="RD/001", taxable=200000, igst=36000)]
+        prior = [_g1(inv="RD/001", taxable=100000, igst=18000)]
+        filed = [
+            _g1(
+                inv="RD/001",
+                taxable=150000,
+                igst=27000,
+                section="b2ba",
+            )
+        ]
+        filed[0]["is_amendment"] = True
+        results = detect_amendments(
+            sr,
+            prior,
+            prior_provided=True,
+            current_amendment_records=filed,
+        )
+        assert len(results) == 1
+        assert results[0].details["issue_type"] == "amendment_still_wrong"
+        assert "taxable_amount" in results[0].details["differed_fields"]
 
     def test_new_invoice_not_in_prior_ignored(self):
         sr = [_sr(inv="NEW/999", taxable=100000)]
@@ -180,7 +222,12 @@ class TestSampleDataAmendments:
             sr["records"], prior, prior_provided=True,
         )
         amendments = [
-            r for r in results if r.details.get("issue_type") == "amendment_required"
+            r for r in results
+            if r.details.get("issue_type") in {
+                "amendment_required",
+                "amendment_missing",
+                "amendment_still_wrong",
+            }
         ]
         assert len(amendments) >= 1
         assert amendments[0].details["amendment_table"] == "9A"
@@ -224,12 +271,22 @@ class TestSampleDataAmendments:
         if not (SAMPLE_SR.exists() and SAMPLE_GSTR1.exists() and SAMPLE_GSTR3B.exists()):
             pytest.skip("Sample fixtures missing")
 
-        # Build a prior JSON: clone sample GSTR-1 and alter one invoice amount
+        # Build a minimal prior JSON containing only one invoice with a
+        # different taxable value so that invoice is amendment-linked.
+        # (A full clone of current GSTR-1 would mark every invoice as prior-
+        # linked and exclude them all from current-period matching.)
         raw = json.loads(SAMPLE_GSTR1.read_text())
-        inv = raw["b2b"][0]["inv"][0]
+        party = copy.deepcopy(raw["b2b"][0])
+        inv = party["inv"][0]
         inv["itms"][0]["itm_det"]["txval"] = float(inv["itms"][0]["itm_det"]["txval"]) * 0.5
         inv["itms"][0]["itm_det"]["iamt"] = float(inv["itms"][0]["itm_det"].get("iamt") or 0) * 0.5
-        prior_bytes = json.dumps(raw).encode()
+        party["inv"] = [inv]
+        prior_payload = {
+            "gstin": raw.get("gstin"),
+            "fp": raw.get("fp"),
+            "b2b": [party],
+        }
+        prior_bytes = json.dumps(prior_payload).encode()
 
         # Sanity: parse confirms invoice-level rows
         assert parse_gstr1(prior_bytes).get("records")
@@ -254,7 +311,11 @@ class TestSampleDataAmendments:
         g1m11 = [
             m for m in out["mismatches"]
             if "G1M11" in str(m.get("mismatch_type", ""))
-            and m.get("issue_type") == "amendment_required"
+            and m.get("issue_type") in {
+                "amendment_required",
+                "amendment_missing",
+                "amendment_still_wrong",
+            }
         ]
         assert len(g1m11) >= 1
         assert g1m11[0].get("amendment_table") == "9A"
