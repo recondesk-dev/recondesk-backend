@@ -198,14 +198,17 @@ export function Gstr1ResultsView({
   const [excelBusy, setExcelBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
 
-  const reviewRows = useMemo(
-    () => filterReviewRequired(result.matched || []),
-    [result.matched]
-  );
   const mismatchCounts = useMemo(
     () => countMismatchesByType(result.mismatches || []),
     [result.mismatches]
   );
+  /** Same G1M3 set as the rule pill — taxable / tax / PoS / structure. */
+  const reviewRows = useMemo(
+    () =>
+      filterReviewRequired(result.matched || [], result.mismatches || []),
+    [result.matched, result.mismatches]
+  );
+  const g1m3Count = mismatchCounts.G1M3 || 0;
 
   const summary = result.summary;
   const resolvedRunId =
@@ -224,20 +227,10 @@ export function Gstr1ResultsView({
   /** GSTR-1-only invoices (same number as the Extra in GSTR-1 tab). */
   const extraInGstr1Count = summary.unmatched_gstr1_count;
   /**
-   * Field / compliance issues (G1M3–G1M9, G1M11).
-   * Excludes G1M1/G1M2 (dedicated tiles) and G1M10 (Table 13 summary panel).
-   * G1M11 skip notes are informational; only amendment_required counts via
-   * the mismatch list (skip notes are LOW and still appear in the pill strip).
+   * Field mismatches = G1M3 only (taxable value + PoS / tax-structure).
+   * Rate/GSTIN/series/HSN (G1M5–G1M9) stay on their own rule pills.
    */
-  const fieldMismatchCount =
-    (mismatchCounts.G1M3 || 0) +
-    (mismatchCounts.G1M4 || 0) +
-    (mismatchCounts.G1M5 || 0) +
-    (mismatchCounts.G1M6 || 0) +
-    (mismatchCounts.G1M7 || 0) +
-    (mismatchCounts.G1M8 || 0) +
-    (mismatchCounts.G1M9 || 0) +
-    (summary.amendment_count || 0);
+  const fieldMismatchCount = g1m3Count;
   const matchRate =
     summary.gstr1_total_records > 0
       ? Math.round(
@@ -372,25 +365,26 @@ export function Gstr1ResultsView({
           <StatCard
             label="Review Required"
             accent="review_required"
-            value={reviewRows.length.toLocaleString("en-IN")}
-            subtext="Needs verification"
+            value={g1m3Count.toLocaleString("en-IN")}
+            subtext="G1M3 · taxable / PoS"
             emphasis="attention"
           />
           <StatCard
             label="Missing in GSTR-1"
             accent="missed"
             emphasis="danger"
-            value={summary.unmatched_sr_count.toLocaleString("en-IN")}
-            subtext="Under-reporting risk"
+            value={(mismatchCounts.G1M1 || summary.unmatched_sr_count).toLocaleString(
+              "en-IN"
+            )}
+            subtext="G1M1 · under-reporting"
           />
           <StatCard
             label="Extra · Field issues"
             accent="risk"
             emphasis="danger"
             title={
-              `Extra in GSTR-1 (not in Sales Register): ${extraInGstr1Count}. ` +
-              `Field mismatches — amount/classification/rate/period/GSTIN/series/HSN ` +
-              `(G1M3–G1M9): ${fieldMismatchCount}. ` +
+              `Extra in GSTR-1 (not in Sales Register / G1M2): ${extraInGstr1Count}. ` +
+              `Field mismatches (G1M3 taxable value / PoS / tax-structure): ${fieldMismatchCount}. ` +
               `Tie-out variances are on the Tie-out tab ` +
               `(${summary.tie_out_variance_count}).`
             }
@@ -414,7 +408,7 @@ export function Gstr1ResultsView({
                 </div>
               </div>
             }
-            subtext="Extra = not in books · Field = amount/rate/series"
+            subtext="Extra = G1M2 · Field = G1M3"
           />
         </div>
 
@@ -466,9 +460,9 @@ export function Gstr1ResultsView({
           ariaLabel="GSTR-1 sales reconciliation results"
           tabCounts={{
             matched: summary.matched_count,
-            review_required: reviewRows.length,
-            unmatched_sr: summary.unmatched_sr_count,
-            unmatched_gstr1: summary.unmatched_gstr1_count,
+            review_required: g1m3Count,
+            unmatched_sr: mismatchCounts.G1M1 || summary.unmatched_sr_count,
+            unmatched_gstr1: mismatchCounts.G1M2 || summary.unmatched_gstr1_count,
             tie_out: summary.tie_out_variance_count,
             documents_issued:
               summary.documents_issued_series_count ??
@@ -516,13 +510,17 @@ export function Gstr1ResultsView({
             <h2 className="mb-4 text-[15px] font-semibold tracking-tight text-[var(--ink)]">
               Review Required{" "}
               <span className="text-gray-400">
-                ({reviewRows.length.toLocaleString("en-IN")})
+                ({g1m3Count.toLocaleString("en-IN")})
               </span>
             </h2>
+            <p className="mb-4 text-[13px] text-gray-500">
+              Matched invoices with taxable value, tax amount, PoS, or tax-structure
+              differences (G1M3).
+            </p>
             <MatchedCards
               rows={reviewRows}
               emptyTitle="Nothing needs review"
-              emptyDescription="All matched pairs look clean — no discrepancies or low-confidence links."
+              emptyDescription="No G1M3 amount or PoS mismatches for this period."
             />
           </section>
         )}
@@ -532,7 +530,11 @@ export function Gstr1ResultsView({
             <h2 className="mb-4 text-[15px] font-semibold tracking-tight text-[var(--ink)]">
               Missing in GSTR-1{" "}
               <span className="text-gray-400">
-                ({summary.unmatched_sr_count.toLocaleString("en-IN")})
+                (
+                {(
+                  mismatchCounts.G1M1 || summary.unmatched_sr_count
+                ).toLocaleString("en-IN")}
+                )
               </span>
             </h2>
             <p className="mb-4 text-[13px] text-gray-500">
@@ -552,7 +554,11 @@ export function Gstr1ResultsView({
             <h2 className="mb-4 text-[15px] font-semibold tracking-tight text-[var(--ink)]">
               Extra in GSTR-1{" "}
               <span className="text-gray-400">
-                ({summary.unmatched_gstr1_count.toLocaleString("en-IN")})
+                (
+                {(
+                  mismatchCounts.G1M2 || summary.unmatched_gstr1_count
+                ).toLocaleString("en-IN")}
+                )
               </span>
             </h2>
             <p className="mb-4 text-[13px] text-gray-500">

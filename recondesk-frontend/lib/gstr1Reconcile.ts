@@ -292,35 +292,39 @@ export function recordAmountRupees(
   return paiseToRupees(paise);
 }
 
-/** Matched rows that need human review → Review Required tab. */
-export function filterReviewRequired(matched: Gstr1MatchedRow[]): Gstr1MatchedRow[] {
+/**
+ * Matched rows with G1M3 field mismatches (taxable value / tax / PoS /
+ * tax-structure) → Review Required headline + tab.
+ *
+ * Driven by rule-engine mismatch output — not soft matcher heuristics
+ * (confidence / any discrepancy), which over-count GSTIN/rate noise.
+ */
+export function filterReviewRequired(
+  matched: Gstr1MatchedRow[],
+  mismatches: Gstr1DecisionFields[] = []
+): Gstr1MatchedRow[] {
+  const invs = new Set(
+    mismatches
+      .filter((m) => mismatchTypeShort(m.mismatch_type) === "G1M3")
+      .map((m) => String(m.invoice_number || "").trim().toUpperCase())
+      .filter(Boolean)
+  );
+  if (invs.size === 0) return [];
   return matched.filter((row) => {
-    if (row.requires_human_review) return true;
-    const conf = row.confidence;
-    if (typeof conf === "number" && conf < 90) return true;
-    const label = String(row.decision_confidence || "").toUpperCase();
-    if (label === "MEDIUM" || label === "LOW") return true;
-    return Boolean(row.discrepancies && row.discrepancies.length > 0);
+    const srInv = recordInvoiceNumber(row.sr_record).toUpperCase();
+    const g1Inv = recordInvoiceNumber(row.gstr1_record).toUpperCase();
+    return (srInv !== "?" && invs.has(srInv)) || (g1Inv !== "?" && invs.has(g1Inv));
   });
 }
 
+/**
+ * Map full mismatch_type (e.g. G1M10_DOCUMENTS_ISSUED_SUMMARY) → short code.
+ * Uses digit capture so G1M10/G1M11 are not misread as G1M1.
+ */
 export function mismatchTypeShort(type: string | undefined): string {
   if (!type) return "—";
-  for (const code of [
-    "G1M1",
-    "G1M2",
-    "G1M3",
-    "G1M4",
-    "G1M5",
-    "G1M6",
-    "G1M7",
-    "G1M8",
-    "G1M9",
-    "G1M10",
-    "G1M11",
-  ] as const) {
-    if (type.includes(code)) return code;
-  }
+  const m = String(type).match(/G1M(\d+)/i);
+  if (m) return `G1M${m[1]}`;
   return type;
 }
 

@@ -129,7 +129,9 @@ export function downloadGstr1ExcelReport(result: Gstr1ReconcileResult): void {
         "why",
         "next",
       ],
-      matchedCsvRows(filterReviewRequired(result.matched || []))
+      matchedCsvRows(
+        filterReviewRequired(result.matched || [], result.mismatches || [])
+      )
     )
   );
 
@@ -304,7 +306,11 @@ export async function downloadGstr1PdfReport(
 
   const s = result.summary;
   const counts = countMismatchesByType(result.mismatches || []);
-  const review = filterReviewRequired(result.matched || []);
+  const review = filterReviewRequired(
+    result.matched || [],
+    result.mismatches || []
+  );
+  const g1m3 = counts.G1M3 || 0;
 
   line("ReconDesk — GSTR-1 Sales Reconciliation", { bold: true, size: 14 });
   y += 6;
@@ -320,18 +326,11 @@ export async function downloadGstr1PdfReport(
 
   line("Summary", { bold: true, size: 12 });
   line(
-    `Sales Register: ${s.sr_total_records} · GSTR-1: ${s.gstr1_total_records} · Matched: ${s.matched_count} · Review Required: ${review.length}`
+    `Sales Register: ${s.sr_total_records} · GSTR-1: ${s.gstr1_total_records} · Matched: ${s.matched_count} · Review Required (G1M3): ${g1m3}`
   );
-  const fieldMismatches =
-    (counts.G1M3 || 0) +
-    (counts.G1M4 || 0) +
-    (counts.G1M5 || 0) +
-    (counts.G1M6 || 0) +
-    (counts.G1M7 || 0) +
-    (counts.G1M8 || 0) +
-    (counts.G1M9 || 0);
+  const fieldMismatches = g1m3;
   line(
-    `Missing in GSTR-1: ${s.unmatched_sr_count} · Extra in GSTR-1: ${s.unmatched_gstr1_count} · Field mismatches (G1M3–G1M9): ${fieldMismatches}`
+    `Missing in GSTR-1 (G1M1): ${counts.G1M1 || s.unmatched_sr_count} · Extra in GSTR-1 (G1M2): ${counts.G1M2 || s.unmatched_gstr1_count} · Field mismatches (G1M3): ${fieldMismatches}`
   );
   line(
     `Tie-out: ${s.tie_out_clean ? "Clean" : "Variances"} (${s.tie_out_variance_count})`
