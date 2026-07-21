@@ -202,3 +202,53 @@ class TestAssemble:
         assert out["totals"]["variance_matched_itc_rupees"] == 100.0
         assert out["totals"]["variance_claimed_itc_rupees"] == 100.0
         assert out["totals"]["variance_rupees"] == 0.0
+
+    def test_period_fallback_attaches_3b_from_older_run(self):
+        """May: latest 2B run has no 3B, but an older May run does — must count as both."""
+        runs = {
+            "2026-04": _run("2026-04", 186_311_13, "apr-latest"),  # ₹186,311.13
+            "2026-05": _run("2026-05", 193_329_29, "may-latest"),  # ₹193,329.29
+            "2026-06": _run("2026-06", 184_403_83, "jun-latest"),
+        }
+        # 3B only on older May run id — not on may-latest
+        g3b_by_run = {
+            "apr-latest": _g3b("apr-latest", (62226.8, 62226.8, 62226.79)),  # 186680.39
+            "jun-latest": _g3b("jun-latest", (73021.53, 54766.15, 54766.15)),  # 182553.83
+        }
+        g3b_by_period = {
+            "2026-05": {
+                "run_id": "may-old",
+                "tax_period": "2026-05",
+                "gstr3b_igst_claimed": 1_100_000.0,
+                "gstr3b_cgst_claimed": 825_000.0,
+                "gstr3b_sgst_claimed": 825_000.0,
+            },
+        }
+        out = assemble_fy_rollup(
+            client_gstin_id="c1",
+            gstin="27ISKPK1273H1ZF",
+            trade_name="Acme",
+            fy="2026-27",
+            runs_by_period=runs,
+            g3b_by_run_id=g3b_by_run,
+            g3b_by_period=g3b_by_period,
+        )
+        by_period = {m["period"]: m for m in out["months"]}
+        assert by_period["2026-05"]["status"] == "both"
+        assert by_period["2026-05"]["claimed_itc_rupees"] == 2_750_000.0
+        assert by_period["2026-05"]["included_in_variance"] is True
+        assert out["months_with_both"] == 3
+        # Without fallback May would be excluded and annual ≈ Apr+Jun only.
+        assert out["totals"]["months_in_variance"] == 3
+        assert out["totals"]["claimed_itc_rupees"] == round(
+            186680.39 + 2_750_000.0 + 182553.83, 2
+        )
+
+    def test_normalize_period_yyyy_mm(self):
+        from app.services.gstr9c_itc_fy_rollup import normalize_period_yyyy_mm
+
+        assert normalize_period_yyyy_mm("2026-05") == "2026-05"
+        assert normalize_period_yyyy_mm("2026-05-01") == "2026-05"
+        assert normalize_period_yyyy_mm("052026") == "2026-05"
+        assert normalize_period_yyyy_mm("202605") == "2026-05"
+        assert normalize_period_yyyy_mm("") == ""

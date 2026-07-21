@@ -780,7 +780,14 @@ export const gstr9cItcApi = {
       `/api/reconcile/clients/${encodeURIComponent(clientGstinId)}/gstr9c-itc-fy${
         q ? `?${q}` : ""
       }`,
-      { token }
+      {
+        token,
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      }
     );
   },
 };

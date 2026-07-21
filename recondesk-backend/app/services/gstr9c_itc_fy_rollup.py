@@ -95,6 +95,36 @@ def period_month_label(period: str) -> str:
     return f"{_MONTH_SHORT[month - 1]} {year}"
 
 
+def normalize_period_yyyy_mm(raw: Any) -> str:
+    """Normalize run/3B period strings to ``YYYY-MM``.
+
+    Accepts ``YYYY-MM``, ``YYYY-MM-DD``, and portal ``MMYYYY`` / ``YYYYMM``.
+    Returns ``""`` when unparseable.
+    """
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    if len(s) >= 7 and s[4] == "-":
+        # YYYY-MM or YYYY-MM-DD
+        try:
+            year = int(s[0:4])
+            month = int(s[5:7])
+        except ValueError:
+            return ""
+        if 1 <= month <= 12:
+            return f"{year:04d}-{month:02d}"
+        return ""
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if len(digits) == 6:
+        yyyy, mm = int(digits[:4]), int(digits[4:6])
+        if yyyy >= 2000 and 1 <= mm <= 12:
+            return f"{yyyy:04d}-{mm:02d}"
+        mm2, yyyy2 = int(digits[:2]), int(digits[2:])
+        if 1 <= mm2 <= 12 and yyyy2 >= 2000:
+            return f"{yyyy2:04d}-{mm2:02d}"
+    return ""
+
+
 def _safe_int(val: Any, default: int = 0) -> int:
     if val is None or val == "":
         return default
@@ -177,10 +207,21 @@ def assemble_fy_rollup(
     fy: str,
     runs_by_period: dict[str, dict[str, Any]],
     g3b_by_run_id: dict[str, dict[str, Any]],
+    g3b_by_period: Optional[dict[str, dict[str, Any]]] = None,
 ) -> dict[str, Any]:
-    """Pure assembly of the FY rollup response from prefetched rows."""
+    """Pure assembly of the FY rollup response from prefetched rows.
+
+    Claimed ITC resolution order per month:
+    1. ``gstr3b_reconciliation`` row for the selected run_id (preferred)
+    2. Else latest 3B upload for the same ``YYYY-MM`` tax period (fallback)
+
+    The fallback matters when a newer COMPLETED run exists for the period but
+    GSTR-3B was uploaded against an earlier run — without it, May-style months
+    incorrectly show as ``run_only`` and drop out of annual variance.
+    """
     start_year, _end = parse_fy_label(fy)
     periods = fy_periods(start_year)
+    by_period = g3b_by_period or {}
 
     months: list[dict[str, Any]] = []
     matched_total_paise = 0
@@ -196,7 +237,11 @@ def assemble_fy_rollup(
         run = runs_by_period.get(period)
         has_run = run is not None
         run_id = str(run.get("id") or "").strip() if run else ""
-        g3b = g3b_by_run_id.get(run_id) if run_id else None
+        g3b = None
+        if run_id:
+            g3b = g3b_by_run_id.get(run_id)
+        if g3b is None:
+            g3b = by_period.get(period)
         has_gstr3b = g3b is not None
         status = classify_month(has_run=has_run, has_gstr3b=has_gstr3b)
 
@@ -313,9 +358,12 @@ def select_latest_runs_with_summary(
     )
     best: dict[str, dict[str, Any]] = {}
     for row in r.data or []:
-        period = str(row.get("period") or "").strip() or "_none_"
-        if period in best:
+        period = normalize_period_yyyy_mm(row.get("period"))
+        if not period or period in best:
             continue
+        # Store with normalized period so FY month keys always match.
+        row = dict(row)
+        row["period"] = period
         best[period] = row
     return list(best.values())
 
@@ -344,6 +392,40 @@ def fetch_gstr3b_for_run_ids(
             if not rid or rid in out:
                 continue
             out[rid] = row
+    return out
+
+
+def fetch_gstr3b_by_period_for_gstin(
+    sb: Client,
+    *,
+    gstin: str,
+    periods: set[str],
+) -> dict[str, dict[str, Any]]:
+    """Latest GSTR-3B upload per ``YYYY-MM`` tax period for a client GSTIN.
+
+    Used as a fallback when the selected latest 2B run for a month does not
+    itself have a ``gstr3b_reconciliation`` row (3B uploaded on an older run).
+    """
+    out: dict[str, dict[str, Any]] = {}
+    gstin_n = (gstin or "").strip().upper()
+    if not gstin_n or not periods:
+        return out
+    res = (
+        sb.table("gstr3b_reconciliation")
+        .select(
+            "id, run_id, tax_period, uploaded_at, "
+            "gstr3b_igst_claimed, gstr3b_cgst_claimed, gstr3b_sgst_claimed"
+        )
+        .eq("client_gstin", gstin_n)
+        .order("uploaded_at", desc=True)
+        .limit(200)
+        .execute()
+    )
+    for row in res.data or []:
+        period = normalize_period_yyyy_mm(row.get("tax_period"))
+        if not period or period not in periods or period in out:
+            continue
+        out[period] = row
     return out
 
 
@@ -378,7 +460,7 @@ def build_gstr9c_itc_fy_rollup(
     runs = select_latest_runs_with_summary(sb, client_gstin_id)
     runs_by_period: dict[str, dict[str, Any]] = {}
     for run in runs:
-        period = str(run.get("period") or "").strip()
+        period = normalize_period_yyyy_mm(run.get("period"))
         if period in periods:
             runs_by_period[period] = run
 
@@ -388,6 +470,9 @@ def build_gstr9c_itc_fy_rollup(
         if r.get("id")
     ]
     g3b_by_run_id = fetch_gstr3b_for_run_ids(sb, run_ids)
+    g3b_by_period = fetch_gstr3b_by_period_for_gstin(
+        sb, gstin=gstin, periods=periods
+    )
 
     return assemble_fy_rollup(
         client_gstin_id=client_gstin_id,
@@ -396,4 +481,5 @@ def build_gstr9c_itc_fy_rollup(
         fy=fy_label,
         runs_by_period=runs_by_period,
         g3b_by_run_id=g3b_by_run_id,
+        g3b_by_period=g3b_by_period,
     )

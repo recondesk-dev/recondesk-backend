@@ -204,10 +204,14 @@ export function Gstr9cItcFyRollupPanel({
       ? (["gstr9c-itc-fy", clientId, authToken, fy] as const)
       : null;
 
-  const { data, error, isLoading } = useSWR(
+  const { data, error, isLoading, mutate, isValidating } = useSWR(
     swrKey,
     ([, cid, token, fyLabel]) => gstr9cItcApi.fyRollup(token, cid, fyLabel),
-    { revalidateOnFocus: false }
+    {
+      revalidateOnFocus: true,
+      revalidateOnMount: true,
+      dedupingInterval: 5_000,
+    }
   );
 
   if (isLoading && !data) {
@@ -257,17 +261,27 @@ export function Gstr9cItcFyRollupPanel({
             <span className="text-[11px] font-medium uppercase tracking-widest text-gray-400">
               Financial year
             </span>
-            <select
-              className={filterDropdownClass}
-              value={fy}
-              onChange={(e) => setFy(e.target.value)}
-            >
-              {options.map((opt) => (
-                <option key={opt} value={opt}>
-                  FY {opt}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2">
+              <select
+                className={filterDropdownClass}
+                value={fy}
+                onChange={(e) => setFy(e.target.value)}
+              >
+                {options.map((opt) => (
+                  <option key={opt} value={opt}>
+                    FY {opt}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => void mutate()}
+                disabled={isValidating}
+                className="rounded-full border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--ink)] hover:bg-[#F7F7F8] disabled:opacity-50"
+              >
+                {isValidating ? "Refreshing…" : "Refresh"}
+              </button>
+            </div>
           </label>
         </div>
 
