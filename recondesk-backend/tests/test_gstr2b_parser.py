@@ -17,6 +17,10 @@ import pytest
 from pathlib import Path
 
 from app.parsers.gstr2b_parser import (
+    ALT_2B_PLACEHOLDER_BUYER_GSTIN,
+    BUYER_GSTIN_MISSING_WARNING,
+    BUYER_GSTIN_SOURCE_CLIENT,
+    BUYER_GSTIN_SOURCE_PLACEHOLDER,
     SKIP_INVALID_AMOUNT,
     SKIP_INVALID_GSTIN,
     SKIP_INVALID_INVOICE_DATE,
@@ -578,6 +582,7 @@ def test_normalize_alt_2b_schema_maps_fields_and_skips_blank_sr():
 
     assert root["gstin"] == "27ARLPM8253B1ZO"
     assert root["rtnprd"] == "062026"
+    assert normalized["_alt_buyer_gstin_source"] == "file"
     assert len(root["b2b"]) == 2
 
     by_ctin = {s["ctin"]: s for s in root["b2b"]}
@@ -632,6 +637,42 @@ def test_parse_gstr2b_accepts_alt_flat_invoice_schema():
     assert croma["cgst_paise"] == 68248
     assert croma["sgst_paise"] == 68248
     assert croma["igst_paise"] == 0
+
+
+def test_alt_schema_uses_client_gstin_fallback_when_file_has_none():
+    """Alt exports omit top-level gstin; use client_gstins.gstin for unique_key."""
+    payload = json.loads(_ALT_FIXTURE.read_text(encoding="utf-8"))
+    payload.pop("gstin", None)
+    client_gstin = "27ARLPM8253B1ZO"
+
+    normalized = normalize_alt_2b_schema(
+        payload, fallback_buyer_gstin=client_gstin
+    )
+    assert normalized["data"]["gstin"] == client_gstin
+    assert normalized["_alt_buyer_gstin_source"] == BUYER_GSTIN_SOURCE_CLIENT
+
+    result = parse_gstr2b(payload, fallback_buyer_gstin=client_gstin)
+    assert result["buyer_gstin"] == client_gstin
+    assert result["buyer_gstin_source"] == BUYER_GSTIN_SOURCE_CLIENT
+    assert "warnings" not in result
+    assert all(r["buyer_gstin"] == client_gstin for r in result["records"])
+    assert all(
+        r["unique_key"].startswith(f"{client_gstin}|") for r in result["records"]
+    )
+
+
+def test_alt_schema_placeholder_when_no_file_or_client_gstin():
+    payload = json.loads(_ALT_FIXTURE.read_text(encoding="utf-8"))
+    payload.pop("gstin", None)
+
+    normalized = normalize_alt_2b_schema(payload)
+    assert normalized["data"]["gstin"] == ALT_2B_PLACEHOLDER_BUYER_GSTIN
+    assert normalized["_alt_buyer_gstin_source"] == BUYER_GSTIN_SOURCE_PLACEHOLDER
+
+    result = parse_gstr2b(payload)
+    assert result["buyer_gstin_source"] == BUYER_GSTIN_SOURCE_PLACEHOLDER
+    assert result["warnings"] == [BUYER_GSTIN_MISSING_WARNING]
+    assert result["records"][0]["buyer_gstin"] == ALT_2B_PLACEHOLDER_BUYER_GSTIN
 
 
 def test_b2b_not_a_list_treated_as_empty_no_crash():

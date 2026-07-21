@@ -161,7 +161,11 @@ def _gstr_records_for_sanity(records: list[dict]) -> list[dict]:
     return out
 
 
-def _load_and_normalize_gstr2b_body_for_parse(body: bytes) -> dict[str, Any]:
+def _load_and_normalize_gstr2b_body_for_parse(
+    body: bytes,
+    *,
+    fallback_buyer_gstin: str | None = None,
+) -> dict[str, Any]:
     from app.parsers.gstr2b_parser import (
         _UNSUPPORTED_GSTR2B_SCHEMA,
         is_alt_gstr2b_schema,
@@ -181,7 +185,9 @@ def _load_and_normalize_gstr2b_body_for_parse(body: bytes) -> dict[str, Any]:
         raise ValueError("invalid_data_structure")
     if "data" not in data:
         if is_alt_gstr2b_schema(data):
-            data = normalize_alt_2b_schema(data)
+            data = normalize_alt_2b_schema(
+                data, fallback_buyer_gstin=fallback_buyer_gstin
+            )
         else:
             raise ValueError(_UNSUPPORTED_GSTR2B_SCHEMA)
     data = normalize_gstr2b_payload(data)
@@ -265,7 +271,20 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
         pr_sheet_meta: dict[str, Any] | None = None
 
         if file_type == "gstr2b":
-            gstr_payload = _load_and_normalize_gstr2b_body_for_parse(body)
+            client_gstin_fallback = ""
+            if client_gstin_id:
+                cg_res = (
+                    client.table("client_gstins")
+                    .select("gstin")
+                    .eq("id", str(client_gstin_id))
+                    .limit(1)
+                    .execute()
+                )
+                if cg_res.data and cg_res.data[0].get("gstin") is not None:
+                    client_gstin_fallback = str(cg_res.data[0]["gstin"]).strip()
+            gstr_payload = _load_and_normalize_gstr2b_body_for_parse(
+                body, fallback_buyer_gstin=client_gstin_fallback or None
+            )
             parsed = parse_gstr2b(gstr_payload)
             records = list(parsed.get("records") or [])
             for_sanity = _gstr_records_for_sanity(records)
@@ -277,6 +296,12 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
                     _log.info("Updating run %s period from %s to %s based on GSTR-2B", run_id, period, new_period)
                     period = new_period
                     _update_run(client, run_id, {"period": period})
+            if parsed.get("buyer_gstin_source") == "placeholder":
+                _log.warning(
+                    "GSTR-2B alt schema for run %s has no buyer GSTIN in file or "
+                    "client_gstins record — using placeholder unique_key buyer",
+                    run_id,
+                )
         elif file_type == "purchase_register":
             name = os.path.basename(r2_key) or "purchase.xlsx"
             parse_body = body

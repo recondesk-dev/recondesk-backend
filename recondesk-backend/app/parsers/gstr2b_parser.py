@@ -1029,6 +1029,19 @@ _UNSUPPORTED_GSTR2B_SCHEMA = (
     "IMS-only sheets (invoice_ims / note_ims) are not imported yet."
 )
 
+# Used when alt-schema JSON has no extractable buyer GSTIN and no client fallback.
+ALT_2B_PLACEHOLDER_BUYER_GSTIN = "000000000000000"
+
+BUYER_GSTIN_SOURCE_FILE = "file"
+BUYER_GSTIN_SOURCE_CLIENT = "client"
+BUYER_GSTIN_SOURCE_PLACEHOLDER = "placeholder"
+BUYER_GSTIN_SOURCE_PORTAL = "portal"
+
+BUYER_GSTIN_MISSING_WARNING = (
+    "Buyer GSTIN not found in file or client record — matching may be inaccurate"
+)
+
+
 _GSTIN_IN_TEXT_RE = re.compile(
     r"\b([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]Z[A-Z0-9])\b",
     re.IGNORECASE,
@@ -1330,7 +1343,11 @@ def _alt_group_by_supplier(mapped_rows: list[dict[str, Any]]) -> list[dict[str, 
     return [buckets[k] for k in order]
 
 
-def normalize_alt_2b_schema(data: dict) -> dict:
+def normalize_alt_2b_schema(
+    data: dict,
+    *,
+    fallback_buyer_gstin: str | None = None,
+) -> dict:
     """Convert third-party flat GSTR-2B JSON into portal-shaped ``{"data": ...}``.
 
     Accepts::
@@ -1339,6 +1356,11 @@ def normalize_alt_2b_schema(data: dict) -> dict:
 
     Skips blank-``Sr`` totals rows. Ignores ``invoice_ims`` / ``note_ims``.
     Output is accepted by the existing portal ``parse_gstr2b`` path.
+
+    When the export has no usable buyer GSTIN, ``fallback_buyer_gstin`` (typically
+    ``client_gstins.gstin`` for the run's client) is used. If that is also empty,
+    ``ALT_2B_PLACEHOLDER_BUYER_GSTIN`` is used and
+    ``_alt_buyer_gstin_source`` is ``"placeholder"``.
     """
     if not isinstance(data, dict):
         raise ValueError("invalid_data_structure")
@@ -1384,9 +1406,16 @@ def normalize_alt_2b_schema(data: dict) -> dict:
         )
 
     buyer = _alt_extract_buyer_gstin(data)
-    if not buyer:
-        # Still parseable — unique_key uses buyer; wizard/run supplies client GSTIN.
-        buyer = "000000000000000"
+    if buyer:
+        buyer_source = BUYER_GSTIN_SOURCE_FILE
+    else:
+        fb = str(fallback_buyer_gstin or "").strip()
+        if fb:
+            buyer = fb.upper()
+            buyer_source = BUYER_GSTIN_SOURCE_CLIENT
+        else:
+            buyer = ALT_2B_PLACEHOLDER_BUYER_GSTIN
+            buyer_source = BUYER_GSTIN_SOURCE_PLACEHOLDER
 
     root: dict[str, Any] = {
         "gstin": buyer,
@@ -1396,7 +1425,10 @@ def normalize_alt_2b_schema(data: dict) -> dict:
     if mapped_notes:
         root["cdnr"] = _alt_group_by_supplier(mapped_notes)
 
-    return {"data": root}
+    return {
+        "data": root,
+        "_alt_buyer_gstin_source": buyer_source,
+    }
 
 
 def _parse_rtnprd(rtnprd: str) -> datetime.date:
@@ -1420,10 +1452,17 @@ def _parse_rtnprd(rtnprd: str) -> datetime.date:
 # Public API
 # ---------------------------------------------------------------------------
 
-def parse_gstr2b(file_content) -> dict:
+def parse_gstr2b(
+    file_content,
+    *,
+    fallback_buyer_gstin: str | None = None,
+) -> dict:
     """Parse GSTR-2B JSON file content into structured records.
 
     Accepts bytes, str, or a pre-parsed dict.
+
+    ``fallback_buyer_gstin`` is used only for the alt flat-export schema when the
+    JSON has no extractable buyer GSTIN (typically ``client_gstins.gstin``).
 
     Raises:
         ValueError: For top-level structural errors (invalid JSON, missing
@@ -1451,11 +1490,22 @@ def parse_gstr2b(file_content) -> dict:
     if not isinstance(data, dict):
         raise ValueError("invalid_data_structure")
 
+    buyer_gstin_source = BUYER_GSTIN_SOURCE_PORTAL
     if "data" not in data:
         if is_alt_gstr2b_schema(data):
-            data = normalize_alt_2b_schema(data)
+            data = normalize_alt_2b_schema(
+                data, fallback_buyer_gstin=fallback_buyer_gstin
+            )
+            buyer_gstin_source = str(
+                data.pop("_alt_buyer_gstin_source", BUYER_GSTIN_SOURCE_FILE)
+            )
         else:
             raise ValueError(_UNSUPPORTED_GSTR2B_SCHEMA)
+    elif "_alt_buyer_gstin_source" in data:
+        # Pre-normalized by worker loader — preserve source for unique_key / UI.
+        buyer_gstin_source = str(
+            data.pop("_alt_buyer_gstin_source", BUYER_GSTIN_SOURCE_FILE)
+        )
 
     data = normalize_gstr2b_payload(data)
     root = data["data"]
@@ -1587,11 +1637,13 @@ def parse_gstr2b(file_content) -> dict:
         "sections_empty": sections_empty,
         "normalization_note_frequency": normalization_note_frequency,
         "gstin_format_invalid_count": gstin_format_invalid_count,
+        "buyer_gstin_source": buyer_gstin_source,
     }
 
     result = {
         "schema_version": SCHEMA_VERSION,
         "buyer_gstin": buyer_gstin,
+        "buyer_gstin_source": buyer_gstin_source,
         "period": period.isoformat() if isinstance(period, datetime.date) else str(period),
         "generated_on": str(generated_on),
         "records": records,
@@ -1602,10 +1654,13 @@ def parse_gstr2b(file_content) -> dict:
         "gstin_format_invalid_count": gstin_format_invalid_count,
         "metrics": metrics,
     }
+    if buyer_gstin_source == BUYER_GSTIN_SOURCE_PLACEHOLDER:
+        result["warnings"] = [BUYER_GSTIN_MISSING_WARNING]
     logger.debug(
-        "gstr2b parse result: parsed=%s skipped=%s sections=%s",
+        "gstr2b parse result: parsed=%s skipped=%s sections=%s buyer_source=%s",
         total_parsed,
         total_skipped,
         sections_present,
+        buyer_gstin_source,
     )
     return result

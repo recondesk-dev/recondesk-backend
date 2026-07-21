@@ -410,7 +410,19 @@ async def sanity_check_gstr2b(
     c = ws._r2()
     obj = c.get_object(Bucket=settings.R2_BUCKET_NAME, Key=key)
     raw = obj["Body"].read()
-    checks, record_count = ws.run_sanity_gstr2b_json(raw)
+    cg_res = (
+        sb.table("client_gstins")
+        .select("gstin")
+        .eq("id", str(r["client_id"]))
+        .limit(1)
+        .execute()
+    )
+    client_gstin_fallback = ""
+    if cg_res.data and cg_res.data[0].get("gstin") is not None:
+        client_gstin_fallback = str(cg_res.data[0]["gstin"]).strip()
+    checks, record_count = ws.run_sanity_gstr2b_json(
+        raw, fallback_buyer_gstin=client_gstin_fallback or None
+    )
     checks = ws.preserve_check_acknowledgments(
         r.get("sanity_check_results"), checks
     )

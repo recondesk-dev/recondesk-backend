@@ -232,9 +232,17 @@ def another_processing_run(sb: Client, client_id: str, period_iso: str, exclude_
     return bool(q.data)
 
 
-def run_sanity_gstr2b_json(raw: bytes) -> tuple[list[dict[str, Any]], int]:
+def run_sanity_gstr2b_json(
+    raw: bytes,
+    *,
+    fallback_buyer_gstin: str | None = None,
+) -> tuple[list[dict[str, Any]], int]:
     """Return checks list per API contract and parsed invoice record count."""
-    from app.parsers.gstr2b_parser import parse_gstr2b
+    from app.parsers.gstr2b_parser import (
+        BUYER_GSTIN_MISSING_WARNING,
+        BUYER_GSTIN_SOURCE_PLACEHOLDER,
+        parse_gstr2b,
+    )
 
     checks: list[dict[str, Any]] = []
     try:
@@ -262,7 +270,7 @@ def run_sanity_gstr2b_json(raw: bytes) -> tuple[list[dict[str, Any]], int]:
     )
 
     try:
-        parsed = parse_gstr2b(raw)
+        parsed = parse_gstr2b(raw, fallback_buyer_gstin=fallback_buyer_gstin)
     except ValueError as exc:
         checks.append(
             {
@@ -317,6 +325,17 @@ def run_sanity_gstr2b_json(raw: bytes) -> tuple[list[dict[str, Any]], int]:
                 "status": "pass",
                 "detail": detail,
                 "affected_records": affected,
+            }
+        )
+
+    if parsed.get("buyer_gstin_source") == BUYER_GSTIN_SOURCE_PLACEHOLDER:
+        checks.append(
+            {
+                "id": "buyer_gstin",
+                "label": "Buyer GSTIN",
+                "status": "warning",
+                "detail": BUYER_GSTIN_MISSING_WARNING,
+                "affected_records": [],
             }
         )
 
