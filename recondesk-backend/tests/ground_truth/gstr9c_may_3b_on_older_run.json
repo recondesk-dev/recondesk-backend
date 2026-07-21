@@ -1,0 +1,63 @@
+{
+  "id": "gstr9c_may_3b_on_older_run",
+  "bug_class": "latest_run_sparse_join_silent_drop",
+  "module": "gstr9c_itc_fy_rollup",
+  "description": "Latest May 2B run has no gstr3b_reconciliation row; 3B was uploaded on an older May run. Without period fallback, May becomes run_only and a real overclaim disappears from the annual rollup while the per-run page still shows it.",
+  "input": {
+    "client_gstin_id": "c1",
+    "gstin": "27ISKPK1273H1ZF",
+    "trade_name": "Acme",
+    "fy": "2026-27",
+    "runs_by_period": {
+      "2026-04": {
+        "id": "apr-latest",
+        "period": "2026-04",
+        "status": "FINAL",
+        "run_summary": { "matched_itc_paise": 18631113 }
+      },
+      "2026-05": {
+        "id": "may-latest",
+        "period": "2026-05",
+        "status": "FINAL",
+        "run_summary": { "matched_itc_paise": 19332929 }
+      },
+      "2026-06": {
+        "id": "jun-latest",
+        "period": "2026-06",
+        "status": "FINAL",
+        "run_summary": { "matched_itc_paise": 18440383 }
+      }
+    },
+    "g3b_by_run_id": {
+      "apr-latest": {
+        "run_id": "apr-latest",
+        "gstr3b_igst_claimed": 62226.8,
+        "gstr3b_cgst_claimed": 62226.8,
+        "gstr3b_sgst_claimed": 62226.79
+      },
+      "jun-latest": {
+        "run_id": "jun-latest",
+        "gstr3b_igst_claimed": 73021.53,
+        "gstr3b_cgst_claimed": 54766.15,
+        "gstr3b_sgst_claimed": 54766.15
+      }
+    },
+    "g3b_by_period": {
+      "2026-05": {
+        "run_id": "may-old",
+        "tax_period": "2026-05",
+        "gstr3b_igst_claimed": 1100000.0,
+        "gstr3b_cgst_claimed": 825000.0,
+        "gstr3b_sgst_claimed": 825000.0
+      }
+    }
+  },
+  "expect": {
+    "months_with_both": 3,
+    "months_in_variance": 3,
+    "may_status": "both",
+    "may_claimed_itc_rupees": 2750000.0,
+    "may_included_in_variance": true,
+    "claimed_itc_rupees": 3119234.22
+  }
+}
