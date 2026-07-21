@@ -25,6 +25,11 @@ import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 
 const MAX_UPLOAD = 20 * 1024 * 1024;
 const ACTIVE_STATUSES = ["draft", "gstr_uploaded", "pr_uploaded", "pending", "processing"] as const;
+const TERMINAL_STATUSES = ["complete", "cancelled", "error"] as const;
+
+function isTerminalWizardStatus(status: string | null | undefined): boolean {
+  return (TERMINAL_STATUSES as readonly string[]).includes(String(status || ""));
+}
 
 const REQUIRED_MAPPING_FIELDS = [
   "gstin",
@@ -135,6 +140,7 @@ function yearMonthFromPeriod(iso: string | null | undefined): { year: string; mo
 
 function initialUiStep(run: ImportWizardRun | null): number {
   if (!run) return 1;
+  if (isTerminalWizardStatus(run.status)) return 1;
   if (run.status === "pending" || run.status === "processing") return 4;
   if (run.status === "error") return 4;
   if (run.status === "pr_uploaded") {
@@ -350,6 +356,16 @@ export default function NewReconcileWizardPage() {
             setErr("This run does not belong to this client.");
             return;
           }
+          // Cancelled/complete/error runs cannot accept uploads — drop the dead
+          // run_id so Continue creates/resumes an active draft instead of 409s.
+          if (isTerminalWizardStatus(r.status)) {
+            if (!cancelled) {
+              setRun(null);
+              setUiStep(1);
+              router.replace(`/reconcile/${clientId}/new`);
+            }
+            return;
+          }
           if (!cancelled) {
             setRun(r);
             setUiStep(initialUiStep(r));
@@ -384,7 +400,7 @@ export default function NewReconcileWizardPage() {
     return () => {
       cancelled = true;
     };
-  }, [token, clientId, searchParams]);
+  }, [token, clientId, searchParams, router]);
 
   useEffect(() => {
     if (!run?.id) return;
@@ -474,7 +490,7 @@ export default function NewReconcileWizardPage() {
     }
   };
 
-  const runId = run?.id ?? searchParams.get("run_id");
+  const runId = run?.id ?? null;
 
   const runSanityWithRetry = async () => {
     if (typeof token !== "string" || !runId) return;
@@ -548,9 +564,14 @@ export default function NewReconcileWizardPage() {
       setRun(updated);
       await runSanityWithRetry();
       return true;
-    } catch {
+    } catch (e) {
       setGstrUploadFailed(true);
-      setErr("Upload failed. Check your connection and try again.");
+      setErr(
+        extractErrorMessage(
+          e,
+          "Upload failed. Check your connection and try again."
+        )
+      );
       return false;
     } finally {
       setBusy(false);
@@ -796,9 +817,14 @@ export default function NewReconcileWizardPage() {
       });
       setRun(updated);
       await runDetectWithRetry();
-    } catch {
+    } catch (e) {
       setPrUploadFailed(true);
-      setErr("Upload failed. Check your connection and try again.");
+      setErr(
+        extractErrorMessage(
+          e,
+          "Upload failed. Check your connection and try again."
+        )
+      );
     } finally {
       setBusy(false);
     }

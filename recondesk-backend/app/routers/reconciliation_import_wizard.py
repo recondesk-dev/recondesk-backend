@@ -139,11 +139,25 @@ async def create_run(
         res = sb.table(ws.T_RUNS).insert(row).execute()
     except Exception as exc:  # noqa: BLE001
         if _pg_unique_violation(exc):
+            # Partial unique index only covers active statuses. Never return a
+            # cancelled/complete/error row here — that trapped the wizard on a
+            # dead run_id and made GSTR-2B signed-url return 409.
             existing_q = (
                 sb.table(ws.T_RUNS)
                 .select("*")
                 .eq("client_id", str(body.client_id))
                 .eq("period", period_iso)
+                .in_(
+                    "status",
+                    [
+                        "draft",
+                        "gstr_uploaded",
+                        "pr_uploaded",
+                        "pending",
+                        "processing",
+                    ],
+                )
+                .order("updated_at", desc=True)
                 .limit(1)
                 .execute()
             )
@@ -151,7 +165,10 @@ async def create_run(
                 ex = existing_q.data[0]
                 ws.assert_client_access(sb, ex["client_id"], user_id)
                 return ex
-        raise
+            # Active row raced to terminal — retry once so a fresh draft is created.
+            res = sb.table(ws.T_RUNS).insert(row).execute()
+        else:
+            raise
     data = res.data[0]
     ws.audit(sb, data["id"], user_id, "run_created", {"period": period_iso})
     invalidate_user_dashboard(user_id)
