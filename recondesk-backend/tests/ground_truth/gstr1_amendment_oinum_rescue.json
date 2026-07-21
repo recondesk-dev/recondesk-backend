@@ -1,0 +1,58 @@
+{
+  "id": "gstr1_amendment_oinum_rescue",
+  "bug_class": "amendment_oinum_link",
+  "module": "gstr1_amendment_detect",
+  "description": "Filed b2ba may change invoice number while keeping oinum = original. Detection must treat that as a matching amendment (silent), not amendment_missing.",
+  "input": {
+    "sr": [
+      {
+        "invoice_number": "RD/001",
+        "invoice_number_normalized": "RD001",
+        "invoice_type": "B2B",
+        "gstin": "27AAECS4567P1Z9",
+        "taxable_amount_paise": 200000,
+        "igst_paise": 36000,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "total_tax_paise": 36000,
+        "rate": 18.0
+      }
+    ],
+    "prior": [
+      {
+        "invoice_number": "RD/001",
+        "invoice_number_normalized": "RD001",
+        "invoice_type": "B2B",
+        "section": "b2b",
+        "gstin": "27AAECS4567P1Z9",
+        "taxable_amount_paise": 100000,
+        "igst_paise": 18000,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "total_tax_paise": 18000,
+        "rate": 18.0
+      }
+    ],
+    "filed": [
+      {
+        "invoice_number": "RD/001-A",
+        "invoice_number_normalized": "RD001A",
+        "invoice_type": "B2B",
+        "section": "b2ba",
+        "is_amendment": true,
+        "original_invoice_number": "RD/001",
+        "oinum": "RD/001",
+        "gstin": "27AAECS4567P1Z9",
+        "taxable_amount_paise": 200000,
+        "igst_paise": 36000,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "total_tax_paise": 36000,
+        "rate": 18.0
+      }
+    ]
+  },
+  "expect": {
+    "flag_count": 0
+  }
+}

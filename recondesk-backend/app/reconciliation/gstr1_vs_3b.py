@@ -64,6 +64,68 @@ _EXCLUDED_SECTIONS: frozenset[str] = frozenset({
     "nil", "hsn", "doc_issue", "at", "ata", "atadj", "atadja",
 })
 
+# Amendment table sections — when present for a logical invoice, supersede the
+# original-row amount in the same GSTR-1 payload (portal Table 9* carries the
+# revised full value; summing b2b+b2ba for the same invoice double-counts).
+_AMENDMENT_SECTIONS: frozenset[str] = frozenset({
+    "b2ba", "b2cla", "b2csa", "expa", "cdnra", "cdnura",
+})
+
+
+def _logical_invoice_key(rec: Mapping[str, Any]) -> str:
+    """Key for original↔amendment dedupe. Prefer ``oinum`` when present."""
+    from app.services.matcher import normalize_invoice
+
+    oinum = (
+        rec.get("original_invoice_number")
+        or rec.get("original_invoice_number_raw")
+        or rec.get("oinum")
+        or rec.get("ont_num")
+        or ""
+    )
+    if oinum:
+        return normalize_invoice(str(oinum).strip())
+    raw = rec.get("invoice_number_normalized") or rec.get("invoice_number") or ""
+    return normalize_invoice(str(raw).strip()) if raw else ""
+
+
+def _is_amendment_row(rec: Mapping[str, Any]) -> bool:
+    section = str(rec.get("section") or "").lower().strip()
+    if section in _AMENDMENT_SECTIONS:
+        return True
+    return bool(rec.get("is_amendment"))
+
+
+def _records_preferring_amendments(
+    records: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    """Drop original rows when an amendment row exists for the same invoice key.
+
+    Adversarial / messy exports sometimes include both the prior ``b2b`` and the
+    current ``b2ba`` for one invoice. Table 9A carries the revised full value —
+    summing both inflates GSTR-1 vs 3B liability.
+    """
+    keys_with_amendment: set[str] = set()
+    for rec in records:
+        section = str(rec.get("section") or "").lower().strip()
+        if section in _EXCLUDED_SECTIONS:
+            continue
+        if not _is_amendment_row(rec):
+            continue
+        key = _logical_invoice_key(rec)
+        if key:
+            keys_with_amendment.add(key)
+
+    if not keys_with_amendment:
+        return list(records)
+
+    out: list[Mapping[str, Any]] = []
+    for rec in records:
+        key = _logical_invoice_key(rec)
+        if key and key in keys_with_amendment and not _is_amendment_row(rec):
+            continue
+        out.append(rec)
+    return out
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Mismatch type for tie-out variances
@@ -172,7 +234,7 @@ def aggregate_gstr1(
     """
     agg = GSTR1Aggregate()
 
-    for rec in records:
+    for rec in _records_preferring_amendments(records):
         section = str(rec.get("section", "")).lower().strip()
 
         # Skip informational-only sections
@@ -218,7 +280,7 @@ def aggregate_gstr1_by_rate(
     """
     by_rate: dict[float | None, GSTR1Aggregate] = {}
 
-    for rec in records:
+    for rec in _records_preferring_amendments(records):
         section = str(rec.get("section", "")).lower().strip()
         if section in _EXCLUDED_SECTIONS:
             continue

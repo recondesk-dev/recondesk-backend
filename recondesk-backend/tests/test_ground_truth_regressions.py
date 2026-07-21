@@ -21,6 +21,8 @@ from typing import Any
 import pytest
 
 from app.routers.dashboard import _sum_itc_at_risk_across_periods
+from app.reconciliation.gstr1_vs_3b import aggregate_gstr1
+from app.rules.gstr1_mismatch_rules import detect_amendments
 from app.services.gstr3b_reconciliation import (
     accumulate_gstr2b_available_itc,
     compute_drc01c_threshold,
@@ -67,6 +69,10 @@ def test_ground_truth_case(filename: str, fixture: dict[str, Any]):
         _assert_gstr3b_period(fixture)
     elif module == "gstr3b_available_itc":
         _assert_gstr3b_available(fixture)
+    elif module == "gstr1_vs_3b_aggregate":
+        _assert_gstr1_aggregate(fixture)
+    elif module == "gstr1_amendment_detect":
+        _assert_gstr1_amendment(fixture)
     else:
         raise AssertionError(
             f"{filename}: unknown module {module!r} — extend test_ground_truth_regressions.py"
@@ -140,3 +146,24 @@ def _assert_gstr3b_available(fixture: dict[str, Any]) -> None:
         expect["wrong_available_if_cn_positive_and_itcavl_included"],
     )
     assert wrong["triggers_drc01c"] is expect["wrong_would_trigger_drc01c"]
+
+
+def _assert_gstr1_aggregate(fixture: dict[str, Any]) -> None:
+    inp = fixture["input"]
+    expect = fixture["expect"]
+    agg = aggregate_gstr1(inp["records"])
+    assert agg.taxable_value_paise == expect["taxable_value_paise"]
+    assert agg.igst_paise == expect["igst_paise"]
+    assert agg.record_count == expect["record_count"]
+
+
+def _assert_gstr1_amendment(fixture: dict[str, Any]) -> None:
+    inp = fixture["input"]
+    expect = fixture["expect"]
+    results = detect_amendments(
+        inp.get("sr") or [],
+        inp.get("prior") or [],
+        prior_provided=True,
+        current_amendment_records=inp.get("filed"),
+    )
+    assert len(results) == expect["flag_count"]
