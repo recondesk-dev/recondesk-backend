@@ -47,6 +47,7 @@ from app.services.gstr9c_itc_fy_rollup import (
     build_gstr9c_itc_fy_rollup,
     default_fy_label,
     parse_fy_label,
+    periods_match_yyyy_mm,
 )
 from app.services.reconcile_export_workbook import build_excel_workbook_bytes
 from app.utils.audit import client_display_label, log_action, log_audit
@@ -5628,10 +5629,15 @@ async def upload_and_reconcile_gstr3b(
         )
 
     expected_period = str(run_row.get("period") or "").strip()
-    if parsed.get("ret_period") and parsed.get("ret_period") != expected_period:
+    file_period = str(parsed.get("ret_period") or "").strip()
+    # Runs are often stored as YYYY-MM-DD (wizard); portal 3B is YYYY-MM / MMYYYY.
+    if file_period and not periods_match_yyyy_mm(file_period, expected_period):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Period mismatch: file is for {parsed.get('ret_period')}, but run is for {expected_period}",
+            detail=(
+                f"Period mismatch: file is for {file_period}, "
+                f"but run is for {expected_period}"
+            ),
         )
 
     try:

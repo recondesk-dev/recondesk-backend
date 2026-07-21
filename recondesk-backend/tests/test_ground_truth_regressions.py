@@ -21,7 +21,11 @@ from typing import Any
 import pytest
 
 from app.routers.dashboard import _sum_itc_at_risk_across_periods
-from app.services.gstr9c_itc_fy_rollup import assemble_fy_rollup
+from app.services.gstr3b_reconciliation import (
+    accumulate_gstr2b_available_itc,
+    compute_drc01c_threshold,
+)
+from app.services.gstr9c_itc_fy_rollup import assemble_fy_rollup, periods_match_yyyy_mm
 from app.services.rule37_alert_scan import select_alert_run_ids_by_period
 
 _GROUND_TRUTH_DIR = Path(__file__).resolve().parent / "ground_truth"
@@ -59,6 +63,10 @@ def test_ground_truth_case(filename: str, fixture: dict[str, Any]):
         _assert_rule37(fixture)
     elif module == "dashboard":
         _assert_dashboard(fixture)
+    elif module == "gstr3b_period_match":
+        _assert_gstr3b_period(fixture)
+    elif module == "gstr3b_available_itc":
+        _assert_gstr3b_available(fixture)
     else:
         raise AssertionError(
             f"{filename}: unknown module {module!r} — extend test_ground_truth_regressions.py"
@@ -106,3 +114,29 @@ def _assert_dashboard(fixture: dict[str, Any]) -> None:
     inp = fixture["input"]
     expect = fixture["expect"]
     assert _sum_itc_at_risk_across_periods(inp["runs"]) == expect["itc_at_risk"]
+
+
+def _assert_gstr3b_period(fixture: dict[str, Any]) -> None:
+    cases = fixture["input"]["cases"]
+    expected = fixture["expect"]["matches"]
+    assert len(cases) == len(expected)
+    for case, want in zip(cases, expected):
+        got = periods_match_yyyy_mm(case["file_period"], case["run_period"])
+        assert got is want, case
+
+
+def _assert_gstr3b_available(fixture: dict[str, Any]) -> None:
+    inp = fixture["input"]
+    expect = fixture["expect"]
+    avail = accumulate_gstr2b_available_itc(inp["records"])
+    assert avail["igst"] == expect["available_igst"]
+    total = round(avail["igst"] + avail["cgst"] + avail["sgst"], 2)
+    assert total == expect["available_total"]
+    drc = compute_drc01c_threshold(inp["claimed_total"], total)
+    assert drc["triggers_drc01c"] is expect["triggers_drc01c"]
+
+    wrong = compute_drc01c_threshold(
+        inp["claimed_total"],
+        expect["wrong_available_if_cn_positive_and_itcavl_included"],
+    )
+    assert wrong["triggers_drc01c"] is expect["wrong_would_trigger_drc01c"]

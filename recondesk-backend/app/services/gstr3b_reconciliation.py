@@ -146,18 +146,64 @@ def compute_drc01c_threshold(
     }
 
 
-from app.services.reconciliation_outcomes import load_payload
-
 # ---------------------------------------------------------------------------
 # GSTR-2B ITC extraction from run payload
 # ---------------------------------------------------------------------------
 
+def _record_tax_heads_rupees(rd: dict[str, Any]) -> tuple[float, float, float]:
+    """Sum IGST/CGST/SGST from line items, else invoice-level paise on the record."""
+    items = rd.get("items")
+    if isinstance(items, list) and items:
+        igst = cgst = sgst = 0.0
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            igst += _paise_to_rupees(item.get("igst_paise") or 0)
+            cgst += _paise_to_rupees(item.get("cgst_paise") or 0)
+            sgst += _paise_to_rupees(item.get("sgst_paise") or 0)
+        return igst, cgst, sgst
+    return (
+        _paise_to_rupees(rd.get("igst_paise") or 0),
+        _paise_to_rupees(rd.get("cgst_paise") or 0),
+        _paise_to_rupees(rd.get("sgst_paise") or 0),
+    )
+
+
+def accumulate_gstr2b_available_itc(
+    records: list[dict[str, Any]],
+) -> dict[str, float]:
+    """Pure aggregation of GSTR-2B *available* ITC from parsed ``record_data`` rows.
+
+    Rules (adversarial / compliance-correct):
+    - Skip invoices with ``itc_available is False`` (``itcavl=N``).
+    - Missing ``itc_available`` is treated as eligible (legacy rows).
+    - ``CREDIT_NOTE`` taxes reduce available ITC (portal stores positive amounts).
+    - Prefer line-item taxes; fall back to invoice-level ``*_paise`` on the record.
+    """
+    igst_total = cgst_total = sgst_total = 0.0
+    for rd in records:
+        if not isinstance(rd, dict):
+            continue
+        if rd.get("itc_available") is False:
+            continue
+        sign = -1.0 if str(rd.get("doc_type") or "").strip().upper() == "CREDIT_NOTE" else 1.0
+        igst, cgst, sgst = _record_tax_heads_rupees(rd)
+        igst_total += sign * igst
+        cgst_total += sign * cgst
+        sgst_total += sign * sgst
+    return {
+        "igst": round(igst_total, 2),
+        "cgst": round(cgst_total, 2),
+        "sgst": round(sgst_total, 2),
+    }
+
+
 def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
     """Derive total GSTR-2B available ITC directly from the database rows."""
-    igst_total = cgst_total = sgst_total = 0.0
     offset = 0
     chunk_size = 1000
     has_data = False
+    record_datas: list[dict[str, Any]] = []
 
     while True:
         try:
@@ -181,27 +227,16 @@ def _extract_gstr2b_itc(sb, run_id: str) -> dict[str, float]:
             if not isinstance(row, dict):
                 continue
             rd = row.get("record_data")
-            if not isinstance(rd, dict):
-                continue
-
-            items = rd.get("items")
-            if isinstance(items, list):
-                for item in items:
-                    if isinstance(item, dict):
-                        igst_total += _paise_to_rupees(item.get("igst_paise") or 0)
-                        cgst_total += _paise_to_rupees(item.get("cgst_paise") or 0)
-                        sgst_total += _paise_to_rupees(item.get("sgst_paise") or 0)
+            if isinstance(rd, dict):
+                record_datas.append(rd)
 
         if len(rows) < chunk_size:
             break
         offset += chunk_size
 
-    return {
-        "igst": round(igst_total, 2),
-        "cgst": round(cgst_total, 2),
-        "sgst": round(sgst_total, 2),
-        "_has_data": has_data
-    }
+    totals = accumulate_gstr2b_available_itc(record_datas)
+    totals["_has_data"] = has_data
+    return totals
 
 
 # ---------------------------------------------------------------------------

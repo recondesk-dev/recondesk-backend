@@ -125,6 +125,19 @@ def normalize_period_yyyy_mm(raw: Any) -> str:
     return ""
 
 
+def periods_match_yyyy_mm(a: Any, b: Any) -> bool:
+    """True when both values normalize to the same ``YYYY-MM`` tax period.
+
+    Used by GSTR-3B upload to accept run periods stored as ``YYYY-MM-DD``
+    against portal ``ret_period`` values like ``YYYY-MM`` / ``MMYYYY``.
+    """
+    na = normalize_period_yyyy_mm(a)
+    nb = normalize_period_yyyy_mm(b)
+    if na and nb:
+        return na == nb
+    return str(a or "").strip() == str(b or "").strip()
+
+
 def _safe_int(val: Any, default: int = 0) -> int:
     if val is None or val == "":
         return default
