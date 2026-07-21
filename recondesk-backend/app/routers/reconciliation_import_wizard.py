@@ -210,7 +210,8 @@ async def signed_upload_url(
     ws.assert_client_access(sb, r["client_id"], user_id)
     t = type.lower().strip()
     if t == "gstr2b":
-        if r["status"] != "draft":
+        # Allow replace while still on the GSTR-2B step (failed sanity / wrong file).
+        if r["status"] not in ("draft", "gstr_uploaded"):
             raise HTTPException(status.HTTP_409_CONFLICT, "GSTR-2B upload not allowed in this state")
         ext = ".json"
         key = f"import-wizard/{run_id}/gstr2b{ext}"
@@ -243,7 +244,7 @@ async def gstr2b_upload_complete(
     sb = get_supabase()
     r = ws.fetch_run(sb, str(run_id))
     ws.assert_client_access(sb, r["client_id"], user_id)
-    if r["status"] != "draft":
+    if r["status"] not in ("draft", "gstr_uploaded"):
         raise HTTPException(status.HTTP_409_CONFLICT, "Run is not awaiting GSTR-2B upload")
     if body.file_size > ws.MAX_UPLOAD_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File too large")
@@ -282,21 +283,39 @@ async def gstr2b_upload_complete(
                 },
             )
 
-    ws.transition_run(
-        sb,
-        str(run_id),
-        user_id,
-        "gstr_uploaded",
-        extra_patch={
-            "gstr2b_r2_key": body.r2_key,
-            "gstr2b_file_name": body.file_name,
-            "gstr2b_file_size": size,
-            "gstr2b_file_hash": body.file_hash.lower(),
-            "gstr2b_uploaded_at": datetime.now(timezone.utc).isoformat(),
-        },
-        audit_event="gstr2b_uploaded",
-        audit_detail={"file_size": size, "file_hash": body.file_hash},
-    )
+    file_patch = {
+        "gstr2b_r2_key": body.r2_key,
+        "gstr2b_file_name": body.file_name,
+        "gstr2b_file_size": size,
+        "gstr2b_file_hash": body.file_hash.lower(),
+        "gstr2b_uploaded_at": datetime.now(timezone.utc).isoformat(),
+        # Clear prior sanity so re-upload re-runs checks on the new bytes.
+        "sanity_check_results": None,
+        "gstr2b_record_count": 0,
+        "current_step": 2,
+    }
+    if r["status"] == "draft":
+        ws.transition_run(
+            sb,
+            str(run_id),
+            user_id,
+            "gstr_uploaded",
+            extra_patch=file_patch,
+            audit_event="gstr2b_uploaded",
+            audit_detail={"file_size": size, "file_hash": body.file_hash},
+        )
+    else:
+        # Already on GSTR-2B step — replace file in place (no status transition).
+        sb.table(ws.T_RUNS).update(
+            {**file_patch, "updated_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", str(run_id)).execute()
+        ws.audit(
+            sb,
+            str(run_id),
+            user_id,
+            "gstr2b_replaced",
+            {"file_size": size, "file_hash": body.file_hash},
+        )
     await log_audit(
         sb,
         _actor(user_id),
@@ -304,7 +323,7 @@ async def gstr2b_upload_complete(
         "file",
         str(run_id),
         body.file_name,
-        {"file_type": "gstr2b"},
+        {"file_type": "gstr2b", "replaced": r["status"] == "gstr_uploaded"},
     )
     return ws.fetch_run(sb, str(run_id))
 

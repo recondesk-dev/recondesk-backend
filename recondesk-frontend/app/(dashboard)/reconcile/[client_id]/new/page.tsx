@@ -1422,12 +1422,18 @@ export default function NewReconcileWizardPage() {
 
           {(!gstnConnected || showManualGstrUpload || !!run?.gstr2b_file_name) && (
             <>
-              {run?.gstr2b_file_name && !gstrFile ? (
+              {run?.gstr2b_file_name && !gstrFile && sanityErrors.length === 0 ? (
                 <p className="text-sm text-[var(--text-secondary)]">
                   Uploaded: <strong>{run.gstr2b_file_name}</strong> ({formatBytes(run.gstr2b_file_size)})
                 </p>
               ) : (
                 <>
+                  {run?.gstr2b_file_name && sanityErrors.length > 0 && !gstrFile ? (
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      Previous upload: <strong>{run.gstr2b_file_name}</strong> (
+                      {formatBytes(run.gstr2b_file_size)}). Choose a different file and upload again.
+                    </p>
+                  ) : null}
                   {gstnConnected && showManualGstrUpload ? (
                     <div className="flex items-center justify-between gap-2">
                       <h3 className="text-sm font-medium text-[var(--text-primary)]">
@@ -1451,6 +1457,16 @@ export default function NewReconcileWizardPage() {
                     onChange={(e) => setGstrFile(e.target.files?.[0] ?? null)}
                     className="text-sm"
                   />
+                  {gstrFile ? (
+                    <p className="font-mono text-xs text-[var(--text-secondary)]">
+                      Selected: {gstrFile.name} ({formatBytes(gstrFile.size)})
+                      {gstrFile.size < 10000 ? (
+                        <span className="ml-1 text-amber-800">
+                          — expected GSTN export is usually larger; confirm this is not the test-set copy
+                        </span>
+                      ) : null}
+                    </p>
+                  ) : null}
                   {gstrProgress > 0 && gstrProgress < 100 ? (
                     <div className="space-y-1">
                       <div className="h-2 w-full overflow-hidden rounded bg-[var(--border)]">
