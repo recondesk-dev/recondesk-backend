@@ -1363,11 +1363,15 @@ function buildGstr3bSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfD
       ? "OVERCLAIMED"
       : g3b.overall_status === "UNDERCLAIMED"
       ? "UNDERCLAIMED"
+      : g3b.overall_status === "MIXED"
+      ? "MIXED"
       : "MATCHED";
   const statusDot: [number, number, number] =
     g3b.overall_status === "OVERCLAIMED"
       ? RED_DOT
       : g3b.overall_status === "UNDERCLAIMED"
+      ? ORANGE_DOT
+      : g3b.overall_status === "MIXED"
       ? ORANGE_DOT
       : GREEN_DOT;
 
@@ -1396,6 +1400,7 @@ function buildGstr3bSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfD
   function statusStr(s: string): string {
     if (s === "OVERCLAIMED") return "Overclaimed";
     if (s === "UNDERCLAIMED") return "Underclaimed";
+    if (s === "MIXED") return "Mixed";
     return "Matched";
   }
 
@@ -1456,6 +1461,9 @@ function buildGstr3bSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPdfD
   } else if (g3b.overall_status === "UNDERCLAIMED") {
     noteText =
       "ITC available in GSTR-2B has not been fully claimed. You may amend GSTR-3B to recover the remaining ITC before the due date.";
+  } else if (g3b.overall_status === "MIXED") {
+    noteText =
+      "Tax heads disagree: some are overclaimed and others underclaimed. Review the net difference (3B claimed − all 2B available) and each head before amending.";
   } else {
     noteText = "ITC claimed in GSTR-3B matches GSTR-2B available ITC. No action required.";
   }

@@ -96,7 +96,7 @@ function VarianceTotal({ data }: { data: Gstr9cItcFyRollup }) {
     return (
       <div className="rounded-[1.25rem] bg-[#F7F7F8] px-5 py-4">
         <p className="text-[11px] font-medium uppercase tracking-widest text-gray-400">
-          Annual variance (2B matched − 3B claimed)
+          Annual variance (matched 2B − 3B claimed)
         </p>
         <p className="mt-2 text-lg font-semibold tracking-tight text-[var(--ink)]">
           No variance available
@@ -106,7 +106,8 @@ function VarianceTotal({ data }: { data: Gstr9cItcFyRollup }) {
         </p>
         <p className="mt-1 text-sm text-gray-500">
           Upload GSTR-3B against monthly purchase reconciliations to compute
-          variance for those months.
+          variance for those months. Uses clean-matched 2B ITC only — not all
+          GSTR-2B available (see GSTR-3B tab for that net difference).
         </p>
       </div>
     );
@@ -125,7 +126,7 @@ function VarianceTotal({ data }: { data: Gstr9cItcFyRollup }) {
       }
     >
       <p className="text-[11px] font-medium uppercase tracking-widest text-gray-400">
-        Annual variance (2B matched − 3B claimed)
+        Annual variance (matched 2B − 3B claimed)
       </p>
       <p className="mt-2 text-2xl font-semibold tracking-tight text-[var(--ink)]">
         {moneyCell(totals.variance_rupees)}
@@ -134,8 +135,9 @@ function VarianceTotal({ data }: { data: Gstr9cItcFyRollup }) {
         </span>
       </p>
       <p className="mt-1 text-sm text-gray-500">
-        On months in variance: matched {moneyCell(totals.variance_matched_itc_rupees)}{" "}
-        vs claimed {moneyCell(totals.variance_claimed_itc_rupees)}
+        On months in variance: clean-matched {moneyCell(totals.variance_matched_itc_rupees)}{" "}
+        vs claimed {moneyCell(totals.variance_claimed_itc_rupees)}. Differs from the GSTR-3B
+        tab&apos;s net difference (all 2B available − claimed).
       </p>
     </div>
   );
@@ -306,7 +308,8 @@ export function Gstr9cItcFyRollupPanel({
           </h2>
           <p className="mt-1 text-sm text-gray-500">
             Gaps are flagged — missing months are never treated as zero for
-            variance.
+            variance. Monthly variance = clean-matched 2B ITC − 3B claimed (not
+            all GSTR-2B available).
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -317,7 +320,12 @@ export function Gstr9cItcFyRollupPanel({
                 <th className="px-4 py-4">Coverage</th>
                 <th className="px-4 py-4">Matched ITC (2B)</th>
                 <th className="px-4 py-4">Claimed ITC (3B)</th>
-                <th className="px-4 py-4">Variance</th>
+                <th className="px-4 py-4">
+                  Variance
+                  <span className="mt-0.5 block normal-case tracking-normal text-gray-400 font-normal">
+                    matched − claimed
+                  </span>
+                </th>
                 <th className="px-5 py-4">Run</th>
               </tr>
             </thead>

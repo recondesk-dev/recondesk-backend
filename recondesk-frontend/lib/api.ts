@@ -692,7 +692,7 @@ export type Gstr3bReconciliationResult = {
   run_id: string;
   client_gstin: string;
   tax_period: string;
-  overall_status: "MATCHED" | "OVERCLAIMED" | "UNDERCLAIMED";
+  overall_status: "MATCHED" | "OVERCLAIMED" | "UNDERCLAIMED" | "MIXED";
   igst: Gstr3bHeadResult;
   cgst: Gstr3bHeadResult;
   sgst: Gstr3bHeadResult;

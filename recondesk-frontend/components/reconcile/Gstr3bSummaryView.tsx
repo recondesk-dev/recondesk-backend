@@ -56,6 +56,17 @@ function StatusBadge({ status }: { status: string }) {
       </span>
     );
   }
+  if (status === "MIXED") {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-3 py-1 text-[12px] font-semibold text-violet-800 ring-1 ring-violet-200"
+        title="Some tax heads are overclaimed and others underclaimed — see Net difference for the overall position"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+        MIXED
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-[12px] font-semibold text-amber-700 ring-1 ring-amber-200">
       <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
@@ -688,9 +699,16 @@ export function Gstr3bSummaryView({
 
           {/* 2. 2B vs 3B ITC check */}
           <div>
-            <p className="mb-3 text-[13px] font-semibold text-gray-800">
-              ITC claimed vs GSTR-2B available
-            </p>
+            <div className="mb-3">
+              <p className="text-[13px] font-semibold text-gray-800">
+                ITC claimed vs GSTR-2B available
+              </p>
+              <p className="mt-1 text-[12px] text-gray-500 leading-relaxed">
+                Net difference = GSTR-3B claimed (Table 4C net) − all GSTR-2B available ITC
+                (positive = overclaimed, negative = underclaimed). Not the same as GSTR-9C FY
+                Rollup variance, which uses clean-matched 2B ITC only.
+              </p>
+            </div>
             <div className={statCardsGridClass}>
               <StatCard
                 label="GSTR-2B ITC Available"
@@ -707,7 +725,7 @@ export function Gstr3bSummaryView({
                 }
               />
               <StatCard
-                label="Net Difference"
+                label="Net difference (3B claimed − all 2B)"
                 accent={
                   data.total.difference === 0
                     ? "matched"
@@ -728,6 +746,12 @@ export function Gstr3bSummaryView({
                 }
               />
             </div>
+            {data.overall_status === "MIXED" ? (
+              <p className="mt-3 text-[12px] text-violet-800/90 leading-relaxed">
+                Mixed by tax head — some heads are overclaimed and others underclaimed.
+                Use the net difference above for the overall position.
+              </p>
+            ) : null}
             <div className="mt-4">
               <ComparisonTable result={data} />
             </div>

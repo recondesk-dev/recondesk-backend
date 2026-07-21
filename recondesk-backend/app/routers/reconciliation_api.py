@@ -5740,7 +5740,11 @@ def _gstr3b_row_to_response(
     filed_parsed: Mapping[str, Any] | None = None,
     client_gstin_id: str | None = None,
 ) -> Gstr3bReconciliationResult:
-    from app.services.gstr3b_reconciliation import compute_drc01c_threshold
+    from app.services.gstr3b_reconciliation import (
+        _head_status,
+        _overall_status,
+        compute_drc01c_threshold,
+    )
 
     def _f(key: str) -> float:
         try:
@@ -5762,6 +5766,13 @@ def _gstr3b_row_to_response(
     g3b_total = round(g3b_igst + g3b_cgst + g3b_sgst, 2)
     drc = compute_drc01c_threshold(g3b_total, g2b_total)
 
+    igst_status = str(row.get("igst_status") or _head_status(g2b_igst, g3b_igst))
+    cgst_status = str(row.get("cgst_status") or _head_status(g2b_cgst, g3b_cgst))
+    sgst_status = str(row.get("sgst_status") or _head_status(g2b_sgst, g3b_sgst))
+    # Recompute so older rows (any-overclaim badge) and Total-row status stay honest.
+    overall = _overall_status(igst_status, cgst_status, sgst_status)
+    total_status = _head_status(g2b_total, g3b_total)
+
     filed: Gstr3bFiledSummary | None
     if filed_parsed is not None:
         filed = _filed_from_parsed(filed_parsed)
@@ -5781,24 +5792,24 @@ def _gstr3b_row_to_response(
         run_id=str(row.get("run_id") or ""),
         client_gstin=str(row.get("client_gstin") or ""),
         tax_period=str(row.get("tax_period") or ""),
-        overall_status=str(row.get("overall_status") or "MATCHED"),
+        overall_status=overall,
         igst=Gstr3bHeadResult(
             gstr2b=g2b_igst, gstr3b=g3b_igst, difference=igst_diff,
-            status=str(row.get("igst_status") or "MATCHED"),
+            status=igst_status,
         ),
         cgst=Gstr3bHeadResult(
             gstr2b=g2b_cgst, gstr3b=g3b_cgst, difference=cgst_diff,
-            status=str(row.get("cgst_status") or "MATCHED"),
+            status=cgst_status,
         ),
         sgst=Gstr3bHeadResult(
             gstr2b=g2b_sgst, gstr3b=g3b_sgst, difference=sgst_diff,
-            status=str(row.get("sgst_status") or "MATCHED"),
+            status=sgst_status,
         ),
         total=Gstr3bHeadResult(
             gstr2b=g2b_total,
             gstr3b=g3b_total,
             difference=round(igst_diff + cgst_diff + sgst_diff, 2),
-            status=str(row.get("overall_status") or "MATCHED"),
+            status=total_status,
         ),
         outward_supply=osup_out,
         uploaded_at=str(row.get("uploaded_at") or ""),

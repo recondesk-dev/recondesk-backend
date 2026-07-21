@@ -23,6 +23,7 @@ _log = logging.getLogger(__name__)
 MATCHED     = "MATCHED"
 OVERCLAIMED = "OVERCLAIMED"
 UNDERCLAIMED = "UNDERCLAIMED"
+MIXED       = "MIXED"  # some heads overclaimed, others underclaimed
 
 # DRC-01C / Rule 88D — 50th GST Council (para 4.35): intimation where the
 # difference (ITC availed in GSTR-3B − ITC available in GSTR-2B) is
@@ -52,7 +53,22 @@ def _head_status(gstr2b_val: float, gstr3b_val: float) -> str:
 
 
 def _overall_status(igst_s: str, cgst_s: str, sgst_s: str) -> str:
-    statuses = {igst_s, cgst_s, sgst_s}
+    """Badge for the GSTR-3B summary header.
+
+    Uses per-head direction, not "any overclaim wins". When IGST/CGST/SGST
+    disagree (some overclaimed, some underclaimed), return MIXED so the badge
+    does not contradict a net underclaim / overclaim on the total row.
+    """
+    statuses = {igst_s, cgst_s, sgst_s} - {MATCHED}
+    if not statuses:
+        return MATCHED
+    if statuses == {OVERCLAIMED}:
+        return OVERCLAIMED
+    if statuses == {UNDERCLAIMED}:
+        return UNDERCLAIMED
+    if OVERCLAIMED in statuses and UNDERCLAIMED in statuses:
+        return MIXED
+    # Unknown / legacy head statuses — fall back conservatively.
     if OVERCLAIMED in statuses:
         return OVERCLAIMED
     if UNDERCLAIMED in statuses:
