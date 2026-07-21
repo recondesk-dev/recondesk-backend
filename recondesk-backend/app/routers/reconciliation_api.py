@@ -4179,7 +4179,8 @@ async def reconcile_run_confidence_summary(
     sb = get_supabase()
     assert_run_accessible(sb, rid, current_user)
     p = _payload_or_404(sb, rid)
-    outcome_rows, _ = ro.build_outcome_rows(sb, rid, p)
+    # build_outcome_rows returns (rows, category_counts, money_stats)
+    outcome_rows, _cc, _stats = ro.build_outcome_rows(sb, rid, p)
     return ConfidenceSummaryResponse(
         **ro.build_confidence_summary(rid, outcome_rows)
     )
