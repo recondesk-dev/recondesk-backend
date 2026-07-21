@@ -272,3 +272,39 @@ def test_different_invoices_near_amounts_not_collapsed_as_duplicates():
     assert stats.get("duplicate_entry_count", 0) == 0
     assert stats["wrongful_risk_count"] == 0
     assert stats["clean_matched_count"] + stats["review_required_count"] == 2
+
+
+def test_high_sim_neighbor_with_divergent_tax_is_itc_at_risk_not_duplicate():
+    """May tame-pack regression: INV53169 must not clone linked INV53161.
+
+    Same GSTIN, invoice sim ≥ 0.85, taxable within ~1%, dates within 30d — but
+    total tax differs by >50% (different rate). That is a genuine PR-only /
+    missing-from-2B invoice → ITC at Risk, not Duplicate Entry.
+
+    Prior bug: ``tax_ok = … or sim >= 0.85`` waived the tax gate on similarity
+    alone and swallowed the planted missing_from_2b row.
+    """
+    # Mirrors May-26: linked INV-05-3161 vs planted INV-05-3169 (Delhi Traders).
+    linked_inv, orphan_inv = "INV53161", "INV53169"
+    assert invoice_similarity(linked_inv, orphan_inv) >= 0.85
+
+    linked_taxable = 7_502_609  # ₹75,026.09
+    orphan_taxable = 7_562_793  # ₹75,627.93 (~0.8%)
+    linked_tax = 900_313  # ₹9,003.13
+    orphan_tax = 378_140  # ₹3,781.40 — far from linked
+
+    gstr = [
+        _g("g1", "INV-05-3161", linked_taxable, linked_tax, inv_date="2026-05-03")
+    ]
+    pr = [
+        _p("p-linked", linked_inv, linked_taxable, linked_tax, inv_date="2026-05-03"),
+        _p("p-orphan", orphan_inv, orphan_taxable, orphan_tax, inv_date="2026-05-19"),
+    ]
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=date(2026, 5, 1))
+    stats = res["stats"]
+
+    assert stats["clean_matched_count"] + stats["review_required_count"] == 1
+    assert stats.get("duplicate_entry_count", 0) == 0
+    assert stats["wrongful_risk_count"] == 1
+    assert {w["id"] for w in res["wrongful_itc_risk"]} == {"p-orphan"}
+    assert res["wrongful_itc_risk"][0]["total_tax_paise"] == orphan_tax

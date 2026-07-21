@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 EXACT_INVOICE_DUP_TAXABLE_PCT = 0.05  # 5%
 EXACT_INVOICE_DUP_TAX_PCT = 0.05  # 5%
 EXACT_INVOICE_DUP_DATE_DAYS = 60
+# Fuzzy invoice clones (sim ≥ 0.85): both taxable AND total tax must stay within
+# this band. Never waive the tax gate on similarity alone — that mis-labeled
+# distinct PR-only invoices (e.g. May INV53169 vs linked INV53161) as Duplicate
+# instead of ITC at Risk when taxable happened to land within ~2%.
+FUZZY_INVOICE_DUP_AMOUNT_PCT = 0.02  # 2%
 
 
 def normalize_invoice_number(s: str | None) -> str:
@@ -660,8 +665,11 @@ def flag_fuzzy_duplicates_of_linked_prs(
     2. **Mangled invoice extras** — e.g. ``NIV455325`` vs linked ``INV455325``
        with identical GSTIN + taxable + total tax + date.
 
-    Requires same GSTIN, taxable/total-tax within tolerance, invoice similarity
-    ≥ ``invoice_sim_min`` (or exact norm), and date within ``date_tolerance_days``.
+    Requires same GSTIN, invoice similarity ≥ ``invoice_sim_min`` (or exact
+    norm), date within ``date_tolerance_days``, and amount proximity:
+    exact-invoice pairs use the wider exact-invoice gates; fuzzy pairs need
+    taxable *and* total tax within ₹1 or ``FUZZY_INVOICE_DUP_AMOUNT_PCT``
+    (high-sim alone must not waive the tax check).
     Routes to Duplicate Entry (never ITC at Risk). Returns extras flagged.
     """
     from app.services.matcher import _parse_invoice_date
@@ -750,7 +758,8 @@ def flag_fuzzy_duplicates_of_linked_prs(
                 if not ok_digit:
                     continue
             # Exact invoice: allow wider amount/date drift (double-booking
-            # typos). Fuzzy invoice: keep the stricter 2%/₹1 + 30d gates.
+            # typos). Fuzzy invoice: keep the stricter 2%/₹1 + 30d gates on
+            # *both* taxable and total tax (do not waive tax on sim alone).
             if exact_inv:
                 if not _exact_invoice_amounts_near(
                     c_tax,
@@ -763,11 +772,15 @@ def flag_fuzzy_duplicates_of_linked_prs(
                 max_date_days = EXACT_INVOICE_DUP_DATE_DAYS
             else:
                 taxable_ok = abs(c_tax - abs(tax)) <= amount_tolerance_paise or (
-                    sim >= 0.85 and _pct_within(c_tax, abs(tax), 0.02)
+                    sim >= 0.85
+                    and _pct_within(c_tax, abs(tax), FUZZY_INVOICE_DUP_AMOUNT_PCT)
                 )
                 if not taxable_ok:
                     continue
-                tax_ok = abs(c_tot - tot) <= amount_tolerance_paise or sim >= 0.85
+                tax_ok = abs(c_tot - tot) <= amount_tolerance_paise or (
+                    sim >= 0.85
+                    and _pct_within(c_tot, tot, FUZZY_INVOICE_DUP_AMOUNT_PCT)
+                )
                 if not tax_ok:
                     continue
                 max_date_days = date_tolerance_days
@@ -871,6 +884,13 @@ def flag_fuzzy_pr_peer_duplicates(
                     if not (
                         abs(c_tax - e_tax) <= TOTAL_TOLERANCE_PAISE
                         or _pct_within(c_tax, e_tax, taxable_pct)
+                    ):
+                        continue
+                    # Mirror linked-fuzzy: total tax must also be near, or
+                    # distinct invoices with coincidental taxable collapse.
+                    if not (
+                        abs(c_tot - e_tot) <= TOTAL_TOLERANCE_PAISE
+                        or _pct_within(c_tot, e_tot, taxable_pct)
                     ):
                         continue
                     max_date_days = date_tolerance_days
