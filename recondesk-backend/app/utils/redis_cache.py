@@ -99,7 +99,13 @@ def bucket_cache_key(run_id: str, bucket: str) -> str:
 
 
 def invalidate_run_bucket_cache(run_id: str) -> None:
-    """Drop cached ITC/risk/matched/rule37 row lists after mutations."""
+    """Drop cached ITC/risk/matched/rule37/summary row lists after mutations."""
     rid = str(run_id).strip()
     if rid:
         cache_delete_pattern(f"cache:bucket:{rid}:*")
+        try:
+            from app.services.reconciliation_outcomes import clear_process_maps_for_run
+
+            clear_process_maps_for_run(rid)
+        except Exception as exc:
+            _log.warning("Failed to clear process maps for run %s: %s", rid, exc)

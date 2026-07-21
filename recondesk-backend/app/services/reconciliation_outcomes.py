@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -22,6 +24,14 @@ _request_load_cache: ContextVar[dict[str, Any] | None] = ContextVar(
     "recon_request_load_cache", default=None
 )
 
+# Short process-level memo so parallel /summary + /matched on the same worker
+# share one GSTR/PR page scan instead of two. Bounded + TTL to limit RAM.
+_process_map_cache: dict[str, tuple[float, Any]] = {}
+_process_map_locks: dict[str, threading.Lock] = {}
+_process_map_guard = threading.Lock()
+_PROCESS_MAP_TTL_SECONDS = 90.0
+_PROCESS_MAP_MAX_ENTRIES = 6
+
 
 def _req_cache() -> dict[str, Any]:
     c = _request_load_cache.get()
@@ -34,6 +44,48 @@ def _req_cache() -> dict[str, Any]:
 def clear_request_load_cache() -> None:
     """Reset memo (tests / long-lived workers)."""
     _request_load_cache.set(None)
+
+
+def clear_process_maps_for_run(run_id: str) -> None:
+    """Drop process-level GSTR/PR maps after mutations / re-import."""
+    rid = str(run_id).strip()
+    if not rid:
+        return
+    with _process_map_guard:
+        _process_map_cache.pop(f"gstr:{rid}", None)
+        _process_map_cache.pop(f"pr:{rid}", None)
+
+
+def _process_map_lock(key: str) -> threading.Lock:
+    with _process_map_guard:
+        lock = _process_map_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _process_map_locks[key] = lock
+        return lock
+
+
+def _process_map_get(key: str) -> Any | None:
+    now = time.monotonic()
+    with _process_map_guard:
+        hit = _process_map_cache.get(key)
+        if hit is None:
+            return None
+        ts, value = hit
+        if now - ts > _PROCESS_MAP_TTL_SECONDS:
+            _process_map_cache.pop(key, None)
+            return None
+        return value
+
+
+def _process_map_set(key: str, value: Any) -> None:
+    now = time.monotonic()
+    with _process_map_guard:
+        _process_map_cache[key] = (now, value)
+        if len(_process_map_cache) <= _PROCESS_MAP_MAX_ENTRIES:
+            return
+        oldest_key = min(_process_map_cache.items(), key=lambda kv: kv[1][0])[0]
+        _process_map_cache.pop(oldest_key, None)
 
 # Rule 37 statuses that surface as “warnings / flag”
 RULE37_CONCERNS = frozenset(
@@ -105,35 +157,47 @@ def _load_gstr_map(sb: Client, run_id: str) -> dict[str, dict[str, Any]]:
     if hit is not None:
         return hit
 
-    out: dict[str, dict[str, Any]] = {}
-    count_res = (
-        sb.table("gstr_records")
-        .select("id", count="exact")
-        .eq("run_id", run_id)
-        .limit(1)
-        .execute()
-    )
-    total = count_res.count or 0
-    off = 0
-    while len(out) < total:
-        r = (
+    proc_hit = _process_map_get(ck)
+    if proc_hit is not None:
+        cache[ck] = proc_hit
+        return proc_hit
+
+    with _process_map_lock(ck):
+        proc_hit = _process_map_get(ck)
+        if proc_hit is not None:
+            cache[ck] = proc_hit
+            return proc_hit
+
+        out: dict[str, dict[str, Any]] = {}
+        count_res = (
             sb.table("gstr_records")
-            .select("id, record_data")
+            .select("id", count="exact")
             .eq("run_id", run_id)
-            .range(off, off + _DB_PAGE_SIZE - 1)
+            .limit(1)
             .execute()
         )
-        rows = r.data or []
-        if not rows:
-            break
-        for row in rows:
-            out[str(row["id"])] = {
-                "matcher": rec_adapt.gstr_db_row_to_matcher_row(row),
-                "record_data": row.get("record_data") or {},
-            }
-        off += len(rows)
-    cache[ck] = out
-    return out
+        total = count_res.count or 0
+        off = 0
+        while len(out) < total:
+            r = (
+                sb.table("gstr_records")
+                .select("id, record_data")
+                .eq("run_id", run_id)
+                .range(off, off + _DB_PAGE_SIZE - 1)
+                .execute()
+            )
+            rows = r.data or []
+            if not rows:
+                break
+            for row in rows:
+                out[str(row["id"])] = {
+                    "matcher": rec_adapt.gstr_db_row_to_matcher_row(row),
+                    "record_data": row.get("record_data") or {},
+                }
+            off += len(rows)
+        _process_map_set(ck, out)
+        cache[ck] = out
+        return out
 
 
 def _load_pr_map(sb: Client, run_id: str) -> dict[str, dict[str, Any]]:
@@ -143,35 +207,47 @@ def _load_pr_map(sb: Client, run_id: str) -> dict[str, dict[str, Any]]:
     if hit is not None:
         return hit
 
-    out: dict[str, dict[str, Any]] = {}
-    count_res = (
-        sb.table("pr_records")
-        .select("id", count="exact")
-        .eq("run_id", run_id)
-        .limit(1)
-        .execute()
-    )
-    total = count_res.count or 0
-    off = 0
-    while len(out) < total:
-        r = (
+    proc_hit = _process_map_get(ck)
+    if proc_hit is not None:
+        cache[ck] = proc_hit
+        return proc_hit
+
+    with _process_map_lock(ck):
+        proc_hit = _process_map_get(ck)
+        if proc_hit is not None:
+            cache[ck] = proc_hit
+            return proc_hit
+
+        out: dict[str, dict[str, Any]] = {}
+        count_res = (
             sb.table("pr_records")
-            .select("id, record_data")
+            .select("id", count="exact")
             .eq("run_id", run_id)
-            .range(off, off + _DB_PAGE_SIZE - 1)
+            .limit(1)
             .execute()
         )
-        rows = r.data or []
-        if not rows:
-            break
-        for row in rows:
-            out[str(row["id"])] = {
-                "matcher": rec_adapt.pr_db_row_to_matcher_row(row),
-                "record_data": row.get("record_data") or {},
-            }
-        off += len(rows)
-    cache[ck] = out
-    return out
+        total = count_res.count or 0
+        off = 0
+        while len(out) < total:
+            r = (
+                sb.table("pr_records")
+                .select("id, record_data")
+                .eq("run_id", run_id)
+                .range(off, off + _DB_PAGE_SIZE - 1)
+                .execute()
+            )
+            rows = r.data or []
+            if not rows:
+                break
+            for row in rows:
+                out[str(row["id"])] = {
+                    "matcher": rec_adapt.pr_db_row_to_matcher_row(row),
+                    "record_data": row.get("record_data") or {},
+                }
+            off += len(rows)
+        _process_map_set(ck, out)
+        cache[ck] = out
+        return out
 
 
 @dataclass(kw_only=True)

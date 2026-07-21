@@ -5,6 +5,9 @@ const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").rep
   ""
 );
 
+/** Fail GETs that hang behind a stuck Railway worker instead of skeleton forever. */
+const PROXY_GET_TIMEOUT_MS = 90_000;
+
 /**
  * Same-origin proxy to the FastAPI backend.
  * Browser calls hit Next.js first so cold-start / transport failures become
@@ -27,7 +30,8 @@ export async function proxyToBackend(
   if (accept) headers.set("Accept", accept);
 
   let body: string | undefined;
-  if (request.method !== "GET" && request.method !== "HEAD") {
+  const isGet = request.method === "GET" || request.method === "HEAD";
+  if (!isGet) {
     body = await request.text();
   }
 
@@ -38,12 +42,21 @@ export async function proxyToBackend(
       headers,
       body,
       cache: "no-store",
+      // Uploads / long POSTs stay uncapped; only GETs get a hard deadline.
+      ...(isGet ? { signal: AbortSignal.timeout(PROXY_GET_TIMEOUT_MS) } : {}),
     });
   } catch (err) {
+    const aborted =
+      err instanceof Error &&
+      (err.name === "TimeoutError" || err.name === "AbortError");
     console.error("[backend proxy] fetch failed:", url.toString(), err);
     return NextResponse.json(
-      { detail: "Backend unreachable" },
-      { status: 502 }
+      {
+        detail: aborted
+          ? "Backend timeout — the server took too long to respond"
+          : "Backend unreachable",
+      },
+      { status: aborted ? 504 : 502 }
     );
   }
 

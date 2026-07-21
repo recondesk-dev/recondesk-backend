@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import hashlib
 import io
@@ -9,12 +10,14 @@ import json as _json
 import logging
 import math
 import re
+import threading
 from collections import Counter
 from datetime import date, datetime, timezone
-from typing import Any, Literal, Mapping, Optional, TypeVar
+from typing import Any, Callable, Literal, Mapping, Optional, TypeVar
 from urllib.parse import unquote
 
 TSeq = TypeVar("TSeq")
+TRet = TypeVar("TRet")
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -58,6 +61,31 @@ from app.services.invoice_results_sync import (
 
 _log = logging.getLogger(__name__)
 router = APIRouter()
+
+# Singleflight locks so parallel /summary + /matched (etc.) do not rebuild the
+# same Redis bucket twice when the cache is cold.
+_bucket_build_locks: dict[str, threading.Lock] = {}
+_bucket_build_locks_guard = threading.Lock()
+
+
+def _bucket_build_lock(key: str) -> threading.Lock:
+    with _bucket_build_locks_guard:
+        lock = _bucket_build_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _bucket_build_locks[key] = lock
+        return lock
+
+
+async def _run_sync(fn: Callable[..., TRet], /, *args: Any, **kwargs: Any) -> TRet:
+    """Run blocking Supabase/outcome work off the uvicorn event loop.
+
+    One sync results rebuild must not freeze every other page on the single
+    worker. HTTPException raised inside ``fn`` propagates to the caller.
+    """
+    if kwargs:
+        return await asyncio.to_thread(lambda: fn(*args, **kwargs))
+    return await asyncio.to_thread(fn, *args)
 
 
 def _run_entity_label(sb, run_row: dict) -> str:
@@ -3022,15 +3050,51 @@ def _cached_bucket_dict_rows(
     bucket: str,
     builder,
 ) -> list[dict[str, Any]]:
-    """Redis-memoize full unfiltered bucket lists (TTL); rebuild on miss."""
+    """Redis-memoize full unfiltered bucket lists (TTL); rebuild on miss.
+
+    Uses a per-key lock so concurrent cold requests for the same bucket
+    (e.g. duplicate SWR/tab fetches) share one rebuild instead of N.
+    """
     key = bucket_cache_key(rid, bucket)
     cached = cache_get(key)
     if isinstance(cached, list):
         return cached
-    rows = builder()
-    if isinstance(rows, list):
-        cache_set(key, rows, ttl_seconds=BUCKET_CACHE_TTL_SECONDS)
-    return rows
+    with _bucket_build_lock(key):
+        cached = cache_get(key)
+        if isinstance(cached, list):
+            return cached
+        rows = builder()
+        if isinstance(rows, list):
+            cache_set(key, rows, ttl_seconds=BUCKET_CACHE_TTL_SECONDS)
+        return rows
+
+
+def _cached_reconcile_summary(
+    sb,
+    *,
+    rid: str,
+    run_row: dict[str, Any],
+    payload: dict[str, Any],
+    current_user_id: str,
+) -> dict[str, Any]:
+    """Redis-memoize the summary JSON so parallel tab loads share one rebuild."""
+    key = bucket_cache_key(rid, "summary_v1")
+    cached = cache_get(key)
+    if isinstance(cached, dict) and cached.get("run_id") == rid:
+        return cached
+    with _bucket_build_lock(key):
+        cached = cache_get(key)
+        if isinstance(cached, dict) and cached.get("run_id") == rid:
+            return cached
+        out = _build_reconcile_summary(
+            sb,
+            run_row=run_row,
+            payload=payload,
+            current_user_id=current_user_id,
+        )
+        if isinstance(out, dict):
+            cache_set(key, out, ttl_seconds=BUCKET_CACHE_TTL_SECONDS)
+        return out
 
 
 def _cached_matched_pairs(
@@ -4125,8 +4189,11 @@ async def reconcile_run_summary(
     current_user: dict = Depends(get_current_active_user),
 ):
     import traceback
-    try:
-        rid = _parse_uuid(run_id, "run_id")
+
+    rid = _parse_uuid(run_id, "run_id")
+    uid = str(current_user.get("id", ""))
+
+    def _work() -> dict[str, Any]:
         sb = get_supabase()
         run_row = assert_run_accessible(sb, rid, current_user)
         p = ro.load_payload(sb, rid)
@@ -4151,10 +4218,16 @@ async def reconcile_run_summary(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="no reconciliation payload for this run",
             )
-        uid = str(current_user.get("id", ""))
-        return _build_reconcile_summary(
-            sb, run_row=run_row, payload=p, current_user_id=uid
+        return _cached_reconcile_summary(
+            sb,
+            rid=rid,
+            run_row=run_row,
+            payload=p,
+            current_user_id=uid,
         )
+
+    try:
+        return await _run_sync(_work)
     except HTTPException:
         raise
     except Exception as e:
@@ -4176,14 +4249,18 @@ async def reconcile_run_confidence_summary(
     the same thresholds as the per-invoice confidence badge (≥90% / ≥75%).
     """
     rid = _parse_uuid(run_id, "run_id")
-    sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
-    p = _payload_or_404(sb, rid)
-    # build_outcome_rows returns (rows, category_counts, money_stats)
-    outcome_rows, _cc, _stats = ro.build_outcome_rows(sb, rid, p)
-    return ConfidenceSummaryResponse(
-        **ro.build_confidence_summary(rid, outcome_rows)
-    )
+
+    def _work() -> ConfidenceSummaryResponse:
+        sb = get_supabase()
+        assert_run_accessible(sb, rid, current_user)
+        p = _payload_or_404(sb, rid)
+        # build_outcome_rows returns (rows, category_counts, money_stats)
+        outcome_rows, _cc, _stats = ro.build_outcome_rows(sb, rid, p)
+        return ConfidenceSummaryResponse(
+            **ro.build_confidence_summary(rid, outcome_rows)
+        )
+
+    return await _run_sync(_work)
 
 
 def _payload_or_404(sb, rid: str) -> dict[str, Any]:
@@ -4344,41 +4421,45 @@ async def reconcile_run_itc_bucket(
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
-    sb = get_supabase()
-    run_row = assert_run_accessible(sb, rid, current_user)
-    p = _payload_or_404(sb, rid)
-    notes = _notes_count_for_run(sb, rid)
-    rows = _cached_bucket_dict_rows(
-        rid,
-        "itc",
-        lambda: _build_missed_itc_records(
-            sb,
-            rid=rid,
-            payload=p,
-            note_counts=notes,
-            source_software="your accounting software",
-        ),
-    )
-    amin = _parse_money_query(amount_min)
-    amax = _parse_money_query(amount_max)
-    dfrom = _parse_iso_date_query(date_from)
-    dto = _parse_iso_date_query(date_to)
-    rows = _filter_bucket_amount_gstin(
-        rows,
-        amount_min_val=amin,
-        amount_max_val=amax,
-        supplier_gstin_q=supplier_gstin,
-    )
-    rows = _filter_itc_date_range(rows, date_from=dfrom, date_to=dto)
-    if ims_status and str(ims_status).strip():
-        want = str(ims_status).strip().lower()
-        rows = [
-            r
-            for r in rows
-            if str(r.get("ims_status") or "no_action_taken").strip().lower() == want
-        ]
-    _sort_reconcile_bucket_rows(rows, sort)
-    return _paginated_body(rows, page, limit)
+
+    def _work() -> dict[str, Any]:
+        sb = get_supabase()
+        assert_run_accessible(sb, rid, current_user)
+        p = _payload_or_404(sb, rid)
+        notes = _notes_count_for_run(sb, rid)
+        rows = _cached_bucket_dict_rows(
+            rid,
+            "itc",
+            lambda: _build_missed_itc_records(
+                sb,
+                rid=rid,
+                payload=p,
+                note_counts=notes,
+                source_software="your accounting software",
+            ),
+        )
+        amin = _parse_money_query(amount_min)
+        amax = _parse_money_query(amount_max)
+        dfrom = _parse_iso_date_query(date_from)
+        dto = _parse_iso_date_query(date_to)
+        rows = _filter_bucket_amount_gstin(
+            rows,
+            amount_min_val=amin,
+            amount_max_val=amax,
+            supplier_gstin_q=supplier_gstin,
+        )
+        rows = _filter_itc_date_range(rows, date_from=dfrom, date_to=dto)
+        if ims_status and str(ims_status).strip():
+            want = str(ims_status).strip().lower()
+            rows = [
+                r
+                for r in rows
+                if str(r.get("ims_status") or "no_action_taken").strip().lower() == want
+            ]
+        _sort_reconcile_bucket_rows(rows, sort)
+        return _paginated_body(rows, page, limit)
+
+    return await _run_sync(_work)
 
 
 @reconcile_runs_router.get("/runs/{run_id}/risk")
@@ -4394,28 +4475,32 @@ async def reconcile_run_risk_bucket(
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
-    sb = get_supabase()
-    run_row = assert_run_accessible(sb, rid, current_user)
-    p = _payload_or_404(sb, rid)
-    notes = _notes_count_for_run(sb, rid)
-    rows = _cached_bucket_dict_rows(
-        rid,
-        "risk",
-        lambda: _build_wrongful_risk_records(
-            sb, rid=rid, payload=p, note_counts=notes
-        ),
-    )
-    amin = _parse_money_query(amount_min)
-    amax = _parse_money_query(amount_max)
-    rows = _filter_bucket_amount_gstin(
-        rows,
-        amount_min_val=amin,
-        amount_max_val=amax,
-        supplier_gstin_q=supplier_gstin,
-    )
-    rows = _filter_risk_by_level(rows, risk_level)
-    _sort_reconcile_bucket_rows(rows, sort)
-    return _paginated_body(rows, page, limit)
+
+    def _work() -> dict[str, Any]:
+        sb = get_supabase()
+        assert_run_accessible(sb, rid, current_user)
+        p = _payload_or_404(sb, rid)
+        notes = _notes_count_for_run(sb, rid)
+        rows = _cached_bucket_dict_rows(
+            rid,
+            "risk",
+            lambda: _build_wrongful_risk_records(
+                sb, rid=rid, payload=p, note_counts=notes
+            ),
+        )
+        amin = _parse_money_query(amount_min)
+        amax = _parse_money_query(amount_max)
+        rows = _filter_bucket_amount_gstin(
+            rows,
+            amount_min_val=amin,
+            amount_max_val=amax,
+            supplier_gstin_q=supplier_gstin,
+        )
+        rows = _filter_risk_by_level(rows, risk_level)
+        _sort_reconcile_bucket_rows(rows, sort)
+        return _paginated_body(rows, page, limit)
+
+    return await _run_sync(_work)
 
 
 @reconcile_runs_router.post(
@@ -4762,21 +4847,27 @@ async def reconcile_run_late_matches(
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
-    sb = get_supabase()
-    run_row = assert_run_accessible(sb, rid, current_user)
-    p = _payload_or_404(sb, rid)
-    run_row = (
-        sb.table("reconciliation_run")
-        .select("period")
-        .eq("id", rid)
-        .limit(1)
-        .execute()
-    )
-    period_label = ""
-    if run_row.data:
-        period_label = str((run_row.data[0] or {}).get("period") or "")
-    rows = _build_late_match_rows(sb, rid=rid, payload=p, gstr2b_period_label=period_label)
-    return {"data": rows, "total": len(rows)}
+
+    def _work() -> dict[str, Any]:
+        sb = get_supabase()
+        assert_run_accessible(sb, rid, current_user)
+        p = _payload_or_404(sb, rid)
+        period_res = (
+            sb.table("reconciliation_run")
+            .select("period")
+            .eq("id", rid)
+            .limit(1)
+            .execute()
+        )
+        period_label = ""
+        if period_res.data:
+            period_label = str((period_res.data[0] or {}).get("period") or "")
+        rows = _build_late_match_rows(
+            sb, rid=rid, payload=p, gstr2b_period_label=period_label
+        )
+        return {"data": rows, "total": len(rows)}
+
+    return await _run_sync(_work)
 
 
 @reconcile_runs_router.get("/runs/{run_id}/matched")
@@ -4796,43 +4887,52 @@ async def reconcile_run_matched_bucket(
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
-    sb = get_supabase()
-    run_row = assert_run_accessible(sb, rid, current_user)
-    p = _payload_or_404(sb, rid)
-    notes = _notes_count_for_run(sb, rid)
 
-    def _parse_money(s: Optional[str]) -> Optional[float]:
-        if s is None or not str(s).strip():
-            return None
-        try:
-            return float(str(s).replace(",", "").strip())
-        except ValueError:
-            return None
+    def _work() -> dict[str, Any]:
+        sb = get_supabase()
+        assert_run_accessible(sb, rid, current_user)
+        p = _payload_or_404(sb, rid)
+        notes = _notes_count_for_run(sb, rid)
 
-    rr_req = bool(review_required and review_required.strip().lower() in ("true", "1", "yes", "review_required"))
-    pairs = _cached_matched_pairs(
-        sb,
-        rid=rid,
-        payload=p,
-        note_counts=notes,
-        fetch_review_required=rr_req,
-    )
-    hn = bool(has_notes and has_notes.strip().lower() in ("true", "1", "yes"))
-    s174 = bool(section_17_5 and section_17_5.strip().lower() in ("true", "1", "yes"))
-    filtered_pairs = _filter_matched(
-        pairs,
-        search_q=search,
-        match_level_filter=match_level,
-        amount_min_val=_parse_money(amount_min),
-        amount_max_val=_parse_money(amount_max),
-        require_notes=hn,
-        review_required=rr_req,
-        section174=s174,
-        ims_status_filter=ims_status,
-    )
-    extracted = [pair[0] for pair in filtered_pairs]
-    _sort_reconcile_bucket_rows(extracted, sort)
-    return _paginated_body(extracted, page, limit)
+        def _parse_money(s: Optional[str]) -> Optional[float]:
+            if s is None or not str(s).strip():
+                return None
+            try:
+                return float(str(s).replace(",", "").strip())
+            except ValueError:
+                return None
+
+        rr_req = bool(
+            review_required
+            and review_required.strip().lower() in ("true", "1", "yes", "review_required")
+        )
+        pairs = _cached_matched_pairs(
+            sb,
+            rid=rid,
+            payload=p,
+            note_counts=notes,
+            fetch_review_required=rr_req,
+        )
+        hn = bool(has_notes and has_notes.strip().lower() in ("true", "1", "yes"))
+        s174 = bool(
+            section_17_5 and section_17_5.strip().lower() in ("true", "1", "yes")
+        )
+        filtered_pairs = _filter_matched(
+            pairs,
+            search_q=search,
+            match_level_filter=match_level,
+            amount_min_val=_parse_money(amount_min),
+            amount_max_val=_parse_money(amount_max),
+            require_notes=hn,
+            review_required=rr_req,
+            section174=s174,
+            ims_status_filter=ims_status,
+        )
+        extracted = [pair[0] for pair in filtered_pairs]
+        _sort_reconcile_bucket_rows(extracted, sort)
+        return _paginated_body(extracted, page, limit)
+
+    return await _run_sync(_work)
 
 
 @reconcile_runs_router.get(
@@ -4844,12 +4944,16 @@ async def reconcile_run_rule37_summary(
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
-    sb = get_supabase()
-    run_row = assert_run_accessible(sb, rid, current_user)
-    p = _payload_or_404(sb, rid)
-    notes = _notes_count_for_run(sb, rid)
-    body = _build_rule37_summary_payload(sb, rid, p, notes)
-    return Rule37SummaryResponse(**body)
+
+    def _work() -> Rule37SummaryResponse:
+        sb = get_supabase()
+        assert_run_accessible(sb, rid, current_user)
+        p = _payload_or_404(sb, rid)
+        notes = _notes_count_for_run(sb, rid)
+        body = _build_rule37_summary_payload(sb, rid, p, notes)
+        return Rule37SummaryResponse(**body)
+
+    return await _run_sync(_work)
 
 
 @reconcile_runs_router.get("/runs/{run_id}/rule37")
@@ -4860,19 +4964,23 @@ async def reconcile_run_rule37(
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
-    sb = get_supabase()
-    run_row = assert_run_accessible(sb, rid, current_user)
-    p = _payload_or_404(sb, rid)
-    via = _try_rule37_via_table(sb, rid, page, limit)
-    if via is not None:
-        return via
-    notes = _notes_count_for_run(sb, rid)
-    rows = _cached_bucket_dict_rows(
-        rid,
-        "rule37",
-        lambda: _build_rule37_rows(sb, rid, p, notes),
-    )
-    return _paginated_body(rows, page, limit)
+
+    def _work() -> dict[str, Any]:
+        sb = get_supabase()
+        assert_run_accessible(sb, rid, current_user)
+        p = _payload_or_404(sb, rid)
+        via = _try_rule37_via_table(sb, rid, page, limit)
+        if via is not None:
+            return via
+        notes = _notes_count_for_run(sb, rid)
+        rows = _cached_bucket_dict_rows(
+            rid,
+            "rule37",
+            lambda: _build_rule37_rows(sb, rid, p, notes),
+        )
+        return _paginated_body(rows, page, limit)
+
+    return await _run_sync(_work)
 
 
 @reconcile_runs_router.patch(
@@ -5038,19 +5146,23 @@ async def reconcile_run_section175(
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
-    sb = get_supabase()
-    run_row = assert_run_accessible(sb, rid, current_user)
-    p = _payload_or_404(sb, rid)
-    via = _try_section175_via_table(sb, rid, page, limit)
-    if via is not None:
-        return via
-    notes = _notes_count_for_run(sb, rid)
-    rows = _cached_bucket_dict_rows(
-        rid,
-        "section17",
-        lambda: _build_section175_rows(sb, rid, p, notes),
-    )
-    return _paginated_body(rows, page, limit)
+
+    def _work() -> dict[str, Any]:
+        sb = get_supabase()
+        assert_run_accessible(sb, rid, current_user)
+        p = _payload_or_404(sb, rid)
+        via = _try_section175_via_table(sb, rid, page, limit)
+        if via is not None:
+            return via
+        notes = _notes_count_for_run(sb, rid)
+        rows = _cached_bucket_dict_rows(
+            rid,
+            "section17",
+            lambda: _build_section175_rows(sb, rid, p, notes),
+        )
+        return _paginated_body(rows, page, limit)
+
+    return await _run_sync(_work)
 
 
 class ReconcileFinalizeBody(BaseModel):
@@ -5141,31 +5253,36 @@ async def reconcile_export_itc(
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
-    sb = get_supabase()
-    run_row = assert_run_accessible(sb, rid, current_user)
-    p = _payload_or_404(sb, rid)
-    notes = _notes_count_for_run(sb, rid)
-    rows = _build_missed_itc_records(
-        sb,
-        rid=rid,
-        payload=p,
-        note_counts=notes,
-        source_software="your accounting software",
-    )
-    amin = _parse_money_query(amount_min)
-    amax = _parse_money_query(amount_max)
-    dfrom = _parse_iso_date_query(date_from)
-    dto = _parse_iso_date_query(date_to)
-    rows = _filter_bucket_amount_gstin(
-        rows,
-        amount_min_val=amin,
-        amount_max_val=amax,
-        supplier_gstin_q=supplier_gstin,
-    )
-    rows = _filter_itc_date_range(rows, date_from=dfrom, date_to=dto)
-    _sort_reconcile_bucket_rows(rows, sort)
-    blob, fn = _csv_missed_bytes(rows, rid)
-    await _log_result_export(sb, current_user, run_row, rid, "itc_csv")
+
+    def _work() -> tuple[bytes, str, dict[str, Any]]:
+        sb = get_supabase()
+        run_row = assert_run_accessible(sb, rid, current_user)
+        p = _payload_or_404(sb, rid)
+        notes = _notes_count_for_run(sb, rid)
+        rows = _build_missed_itc_records(
+            sb,
+            rid=rid,
+            payload=p,
+            note_counts=notes,
+            source_software="your accounting software",
+        )
+        amin = _parse_money_query(amount_min)
+        amax = _parse_money_query(amount_max)
+        dfrom = _parse_iso_date_query(date_from)
+        dto = _parse_iso_date_query(date_to)
+        rows = _filter_bucket_amount_gstin(
+            rows,
+            amount_min_val=amin,
+            amount_max_val=amax,
+            supplier_gstin_q=supplier_gstin,
+        )
+        rows = _filter_itc_date_range(rows, date_from=dfrom, date_to=dto)
+        _sort_reconcile_bucket_rows(rows, sort)
+        blob, fn = _csv_missed_bytes(rows, rid)
+        return blob, fn, run_row
+
+    blob, fn, run_row = await _run_sync(_work)
+    await _log_result_export(get_supabase(), current_user, run_row, rid, "itc_csv")
     headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
     return StreamingResponse(io.BytesIO(blob), media_type="text/csv", headers=headers)
 
@@ -5181,23 +5298,28 @@ async def reconcile_export_risk(
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
-    sb = get_supabase()
-    run_row = assert_run_accessible(sb, rid, current_user)
-    p = _payload_or_404(sb, rid)
-    notes = _notes_count_for_run(sb, rid)
-    rows = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
-    amin = _parse_money_query(amount_min)
-    amax = _parse_money_query(amount_max)
-    rows = _filter_bucket_amount_gstin(
-        rows,
-        amount_min_val=amin,
-        amount_max_val=amax,
-        supplier_gstin_q=supplier_gstin,
-    )
-    rows = _filter_risk_by_level(rows, risk_level)
-    _sort_reconcile_bucket_rows(rows, sort)
-    blob, fn = _csv_risk_bytes(rows, rid)
-    await _log_result_export(sb, current_user, run_row, rid, "risk_csv")
+
+    def _work() -> tuple[bytes, str, dict[str, Any]]:
+        sb = get_supabase()
+        run_row = assert_run_accessible(sb, rid, current_user)
+        p = _payload_or_404(sb, rid)
+        notes = _notes_count_for_run(sb, rid)
+        rows = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
+        amin = _parse_money_query(amount_min)
+        amax = _parse_money_query(amount_max)
+        rows = _filter_bucket_amount_gstin(
+            rows,
+            amount_min_val=amin,
+            amount_max_val=amax,
+            supplier_gstin_q=supplier_gstin,
+        )
+        rows = _filter_risk_by_level(rows, risk_level)
+        _sort_reconcile_bucket_rows(rows, sort)
+        blob, fn = _csv_risk_bytes(rows, rid)
+        return blob, fn, run_row
+
+    blob, fn, run_row = await _run_sync(_work)
+    await _log_result_export(get_supabase(), current_user, run_row, rid, "risk_csv")
     headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
     return StreamingResponse(io.BytesIO(blob), media_type="text/csv", headers=headers)
 
@@ -5227,112 +5349,117 @@ async def reconcile_export_excel_workbook(
     Per-bucket CSV downloads remain available for filtered single-section exports.
     """
     rid = _parse_uuid(run_id, "run_id")
-    sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
-    p = _payload_or_404(sb, rid)
     uid = str(current_user.get("id", ""))
-    run_ex = (
-        sb.table("reconciliation_run")
-        .select("id, period, status, client_gstin_id, finalized_at, finalized_by")
-        .eq("id", rid)
-        .limit(1)
-        .execute()
-    )
-    run_row = (run_ex.data or [{}])[0]
-    summ_outcome_rows = ro.build_outcome_rows(sb, rid, p)[0]
-    summ = _build_reconcile_summary(
-        sb,
-        run_row=run_row,
-        payload=p,
-        current_user_id=uid,
-        precomputed_outcome_rows=summ_outcome_rows,
-    )
-    prof = get_user_profile(uid) or {}
-    firm_name = str(prof.get("firm_name") or "")
-    gen_name = str(prof.get("full_name") or "")
-    notes = _notes_count_for_run(sb, rid)
 
-    # Each section is loaded independently for the full run — never gated by UI tab.
-    matched_pairs = _build_matched_pair_records(
-        sb,
-        rid=rid,
-        payload=p,
-        note_counts=notes,
-        precomputed_outcome_rows=summ_outcome_rows,
-    )
-    review_pairs = _build_matched_pair_records(
-        sb,
-        rid=rid,
-        payload=p,
-        note_counts=notes,
-        fetch_review_required=True,
-        precomputed_outcome_rows=summ_outcome_rows,
-    )
-    review_rows = [pair[0] for pair in review_pairs]
-    missed = _build_missed_itc_records(
-        sb,
-        rid=rid,
-        payload=p,
-        note_counts=notes,
-        source_software="your accounting software",
-    )
-    risk = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
-    r37 = _build_rule37_rows(sb, rid, p, notes)
-    s17 = _build_section175_rows(sb, rid, p, notes)
-    duplicate_rows = [
-        x.as_dict() for x in summ_outcome_rows if x.category == "duplicate_entry"
-    ]
-
-    gstr3b_result: Optional[dict[str, Any]] = None
-    try:
-        g3b_ex = (
-            sb.table("gstr3b_reconciliation")
-            .select(
-                "id, run_id, client_gstin, tax_period, overall_status, "
-                "gstr3b_igst_claimed, gstr3b_cgst_claimed, gstr3b_sgst_claimed, "
-                "gstr2b_igst_available, gstr2b_cgst_available, gstr2b_sgst_available, "
-                "igst_difference, cgst_difference, sgst_difference, "
-                "igst_status, cgst_status, sgst_status, "
-                "outward_supply_total, uploaded_at"
-            )
-            .eq("run_id", rid)
-            .order("uploaded_at", desc=True)
+    def _work() -> tuple[bytes, str, dict[str, Any]]:
+        sb = get_supabase()
+        assert_run_accessible(sb, rid, current_user)
+        p = _payload_or_404(sb, rid)
+        run_ex = (
+            sb.table("reconciliation_run")
+            .select("id, period, status, client_gstin_id, finalized_at, finalized_by")
+            .eq("id", rid)
             .limit(1)
             .execute()
         )
-        if g3b_ex.data:
-            gstr3b_result = dict(g3b_ex.data[0])
-    except Exception:
-        _log.exception("excel export: gstr3b fetch failed run=%s", rid)
+        run_row = (run_ex.data or [{}])[0]
+        summ_outcome_rows = ro.build_outcome_rows(sb, rid, p)[0]
+        summ = _build_reconcile_summary(
+            sb,
+            run_row=run_row,
+            payload=p,
+            current_user_id=uid,
+            precomputed_outcome_rows=summ_outcome_rows,
+        )
+        prof = get_user_profile(uid) or {}
+        firm_name = str(prof.get("firm_name") or "")
+        gen_name = str(prof.get("full_name") or "")
+        notes = _notes_count_for_run(sb, rid)
 
-    followup_rows: list[dict[str, Any]] = []
-    try:
-        followup_raw = _followup_audit_query(sb, run_id=rid)
-        followup_rows = [
-            x.model_dump() for x in _followup_audit_list_response(followup_raw)
+        # Each section is loaded independently for the full run — never gated by UI tab.
+        matched_pairs = _build_matched_pair_records(
+            sb,
+            rid=rid,
+            payload=p,
+            note_counts=notes,
+            precomputed_outcome_rows=summ_outcome_rows,
+        )
+        review_pairs = _build_matched_pair_records(
+            sb,
+            rid=rid,
+            payload=p,
+            note_counts=notes,
+            fetch_review_required=True,
+            precomputed_outcome_rows=summ_outcome_rows,
+        )
+        review_rows = [pair[0] for pair in review_pairs]
+        missed = _build_missed_itc_records(
+            sb,
+            rid=rid,
+            payload=p,
+            note_counts=notes,
+            source_software="your accounting software",
+        )
+        risk = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
+        r37 = _build_rule37_rows(sb, rid, p, notes)
+        s17 = _build_section175_rows(sb, rid, p, notes)
+        duplicate_rows = [
+            x.as_dict() for x in summ_outcome_rows if x.category == "duplicate_entry"
         ]
-    except Exception:
-        _log.exception("excel export: followup fetch failed run=%s", rid)
 
-    blob, fn = build_excel_workbook_bytes(
-        run_id=rid,
-        firm_name=firm_name,
-        client_trade_name=str(summ.get("client_name") or ""),
-        period_raw=str(run_row.get("period") or ""),
-        summary=summ,
-        matched_pairs=matched_pairs,
-        missed_rows=missed,
-        risk_rows=risk,
-        rule37_rows=r37,
-        section17_rows=s17,
-        review_required_rows=review_rows,
-        duplicate_rows=duplicate_rows,
-        gstr3b_result=gstr3b_result,
-        followup_rows=followup_rows,
-        generated_at=datetime.now(timezone.utc),
-        generated_by_name=gen_name,
-    )
-    await _log_result_export(sb, current_user, run_row, rid, "excel")
+        gstr3b_result: Optional[dict[str, Any]] = None
+        try:
+            g3b_ex = (
+                sb.table("gstr3b_reconciliation")
+                .select(
+                    "id, run_id, client_gstin, tax_period, overall_status, "
+                    "gstr3b_igst_claimed, gstr3b_cgst_claimed, gstr3b_sgst_claimed, "
+                    "gstr2b_igst_available, gstr2b_cgst_available, gstr2b_sgst_available, "
+                    "igst_difference, cgst_difference, sgst_difference, "
+                    "igst_status, cgst_status, sgst_status, "
+                    "outward_supply_total, uploaded_at"
+                )
+                .eq("run_id", rid)
+                .order("uploaded_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if g3b_ex.data:
+                gstr3b_result = dict(g3b_ex.data[0])
+        except Exception:
+            _log.exception("excel export: gstr3b fetch failed run=%s", rid)
+
+        followup_rows: list[dict[str, Any]] = []
+        try:
+            followup_raw = _followup_audit_query(sb, run_id=rid)
+            followup_rows = [
+                x.model_dump() for x in _followup_audit_list_response(followup_raw)
+            ]
+        except Exception:
+            _log.exception("excel export: followup fetch failed run=%s", rid)
+
+        blob, fn = build_excel_workbook_bytes(
+            run_id=rid,
+            firm_name=firm_name,
+            client_trade_name=str(summ.get("client_name") or ""),
+            period_raw=str(run_row.get("period") or ""),
+            summary=summ,
+            matched_pairs=matched_pairs,
+            missed_rows=missed,
+            risk_rows=risk,
+            rule37_rows=r37,
+            section17_rows=s17,
+            review_required_rows=review_rows,
+            duplicate_rows=duplicate_rows,
+            gstr3b_result=gstr3b_result,
+            followup_rows=followup_rows,
+            generated_at=datetime.now(timezone.utc),
+            generated_by_name=gen_name,
+        )
+        return blob, fn, run_row
+
+    blob, fn, run_row = await _run_sync(_work)
+    await _log_result_export(get_supabase(), current_user, run_row, rid, "excel")
     headers = {"Content-Disposition": f'attachment; filename="{fn}"'}
     return StreamingResponse(
         io.BytesIO(blob),
