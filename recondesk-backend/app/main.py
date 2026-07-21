@@ -48,7 +48,6 @@ from app.routers.team import router as team_router
 from app.routers.rules import router as rules_router
 from app.routers.gstr1_reconcile import router as gstr1_reconcile_router
 from app.utils.rate_limit import limiter
-from app.utils.storage import file_exists
 
 _log = logging.getLogger(__name__)
 
@@ -121,30 +120,37 @@ async def stuck_job_detector() -> None:
         except Exception as e:
             if settings.SENTRY_DSN:
                 sentry_sdk.capture_exception(e)
-        # Rule 37 pre-deadline / overdue email scan (throttled inside the service).
+        # Heavy sync Supabase work — must not run on the event loop or /health
+        # and all API requests hang until Railway returns 499.
         try:
             from app.services.rule37_alert_scan import run_rule37_alert_scan
 
-            await run_rule37_alert_scan()
+            await asyncio.to_thread(_run_async_job_sync, run_rule37_alert_scan)
         except asyncio.CancelledError:
             raise
         except Exception as e:
             _log.exception("rule37_alert_scan failed")
             if settings.SENTRY_DSN:
                 sentry_sdk.capture_exception(e)
-        # Vendor compliance scorecard full rebuild (throttled to 24h inside service).
         try:
             from app.services.supplier_compliance_scorecard import (
                 run_scorecard_daily_rebuild,
             )
 
-            await run_scorecard_daily_rebuild()
+            await asyncio.to_thread(_run_async_job_sync, run_scorecard_daily_rebuild)
         except asyncio.CancelledError:
             raise
         except Exception as e:
             _log.exception("supplier_compliance_scorecard rebuild failed")
             if settings.SENTRY_DSN:
                 sentry_sdk.capture_exception(e)
+
+
+def _run_async_job_sync(coro_fn) -> None:
+    """Run an ``async def`` job that only does sync I/O, from a worker thread."""
+    import asyncio as _asyncio
+
+    _asyncio.run(coro_fn())
 
 
 @asynccontextmanager
@@ -318,25 +324,51 @@ app.include_router(
 
 
 # ── Core endpoints ────────────────────────────────────────────────────────────
+_HEALTH_PROBE_TIMEOUT_S = 2.0
+
+
 @app.get("/health", tags=["System"])
 async def health_check():
-    supabase_state = "error"
-    try:
+    """Liveness/readiness probe — must stay fast even when deps are slow.
 
-        def _ping_supabase() -> None:
-            get_supabase().table("user_profiles").select("id").limit(1).execute()
+    Supabase/R2 checks are hard-capped so a hung dependency cannot wedge
+    Railway health checks into 499 / multi-minute stalls.
+    """
 
-        await asyncio.to_thread(_ping_supabase)
-        supabase_state = "ok"
-    except Exception:
-        pass
+    async def _timed_state(label: str, factory) -> str:
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(factory), timeout=_HEALTH_PROBE_TIMEOUT_S
+            )
+            return "ok"
+        except asyncio.TimeoutError:
+            _log.warning("health probe %s timed out after %.1fs", label, _HEALTH_PROBE_TIMEOUT_S)
+            return "error"
+        except Exception:
+            _log.warning("health probe %s failed", label, exc_info=True)
+            return "error"
 
-    r2_state = "error"
-    try:
-        await file_exists(_HEALTH_PROBE_KEY)
-        r2_state = "ok"
-    except Exception:
-        pass
+    def _ping_supabase() -> None:
+        get_supabase().table("user_profiles").select("id").limit(1).execute()
+
+    def _ping_r2_soft() -> None:
+        from botocore.exceptions import ClientError
+        from app.utils.storage import _get_client
+
+        try:
+            _get_client().head_object(
+                Bucket=settings.R2_BUCKET_NAME, Key=_HEALTH_PROBE_KEY
+            )
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code", ""))
+            if code in ("404", "NoSuchKey", "NotFound"):
+                return
+            raise
+
+    supabase_state, r2_state = await asyncio.gather(
+        _timed_state("supabase", _ping_supabase),
+        _timed_state("r2", _ping_r2_soft),
+    )
 
     env = "production" if (settings.APP_ENV or "").lower() == "production" else "development"
     now = datetime.now(timezone.utc)
