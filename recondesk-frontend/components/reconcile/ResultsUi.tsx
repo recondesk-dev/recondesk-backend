@@ -624,6 +624,7 @@ export type ResultsBucketTabId =
   | "matched"
   | "review_required"
   | "duplicate_entry"
+  | "unmatched_notes"
   | "risk"
   | "itc"
   | "rule37"
@@ -641,6 +642,7 @@ const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "matched", label: "Matched" },
   { id: "review_required", label: "Review Required" },
   { id: "duplicate_entry", label: "Duplicate Entries" },
+  { id: "unmatched_notes", label: "Notes — Not Matched" },
   { id: "risk", label: "ITC at Risk" },
   { id: "itc", label: "Missed ITC" },
   { id: "rule37", label: "Rule 37" },

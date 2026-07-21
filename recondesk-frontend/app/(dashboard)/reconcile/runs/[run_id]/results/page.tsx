@@ -368,6 +368,7 @@ type RunSummary = {
   wrongful_risk_amount_paise?: number;
   wrongful_risk_purchase_total_amount?: number;
   duplicate_entry_count?: number;
+  unmatched_notes_count?: number;
   purchase_value_at_risk_paise?: number;
   late_match_count?: number | null;
   match_rate_percent: number;
@@ -1666,6 +1667,21 @@ export default function ReconcileResultsPage() {
     ] as const;
   }, [authReady, runId, summary, authToken, resultsTab]);
 
+  const unmatchedNotesListKey = useMemo(() => {
+    if (
+      !authReady ||
+      !runId ||
+      !summary ||
+      resultsTab !== "unmatched_notes" ||
+      (summary.unmatched_notes_count ?? 0) <= 0
+    )
+      return null;
+    return [
+      `/api/reconciliation/results/${runId}/invoices?category=unmatched_notes&page=1&page_size=200`,
+      authToken,
+    ] as const;
+  }, [authReady, runId, summary, authToken, resultsTab]);
+
   const {
     data: duplicateEntryData,
     error: duplicateEntryError,
@@ -1694,6 +1710,26 @@ export default function ReconcileResultsPage() {
       ),
     [duplicateEntryData?.invoices, duplicateEntrySort]
   );
+
+  const {
+    data: unmatchedNotesData,
+    error: unmatchedNotesError,
+    isLoading: unmatchedNotesLoading,
+  } = useSWR<{
+    invoices: Array<{
+      id: string;
+      supplier_gstin: string;
+      supplier_name?: string | null;
+      invoice_number: string;
+      invoice_date: string | null;
+      amount: number | null;
+      match_status?: string | null;
+      decision_what: string;
+      decision_why: string;
+      decision_next: string;
+    }>;
+    total: number;
+  }>(unmatchedNotesListKey, authJsonFetcher, { revalidateOnFocus: false });
 
   const lateMatchesKey = useMemo(
     () =>
@@ -2735,6 +2771,7 @@ export default function ReconcileResultsPage() {
               matched: summary.clean_matched_count ?? summary.matched_count,
               review_required: summary.review_required_count ?? 0,
               duplicate_entry: summary.duplicate_entry_count ?? 0,
+              unmatched_notes: summary.unmatched_notes_count ?? 0,
               risk: summary.wrongful_risk_count ?? 0,
               itc: summary.missed_itc_count ?? 0,
               ...(section17Data != null
@@ -4367,6 +4404,88 @@ export default function ReconcileResultsPage() {
                         </td>
                         <td className="px-3 py-2 text-gray-600">
                           {row.decision_next || "Remove or mark the extra booking."}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Notes — Not Matched (credit/debit notes quarantined from invoice matching) */}
+        {resultsTab === "unmatched_notes" && (
+          <div className={sectionContainerClass}>
+            <h2 className="mb-1 text-[15px] font-semibold tracking-tight text-gray-900">
+              Notes — Not Matched{" "}
+              {summary != null && (
+                <span className="font-normal text-gray-500">
+                  ({(summary.unmatched_notes_count ?? 0).toLocaleString("en-IN")})
+                </span>
+              )}
+            </h2>
+            <p className="mb-5 text-[12px] leading-relaxed text-gray-500">
+              Credit and debit notes from the purchase register. These are value
+              adjustments, not invoices — they are kept out of Matched, Review
+              Required, and ITC at Risk. Full matching against GSTR-2B note[] is
+              not implemented yet.
+            </p>
+            {(summary?.unmatched_notes_count ?? 0) <= 0 ? (
+              <p className="text-sm text-gray-500">
+                No credit/debit note rows in this run.
+              </p>
+            ) : unmatchedNotesLoading ? (
+              <p className="text-sm text-gray-500">Loading…</p>
+            ) : unmatchedNotesError ? (
+              <p className="text-sm text-red-600">
+                Failed to load notes
+                {typeof (unmatchedNotesError as { detail?: unknown }).detail ===
+                "string"
+                  ? `: ${(unmatchedNotesError as { detail: string }).detail}`
+                  : "."}
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-[#E8E8EC]">
+                <table className="min-w-full text-left text-[13px]">
+                  <thead className="bg-[#FAFAFB] text-[11px] uppercase tracking-wide text-gray-500">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Type</th>
+                      <th className="px-3 py-2 font-medium">Supplier GSTIN</th>
+                      <th className="px-3 py-2 font-medium">Note No</th>
+                      <th className="px-3 py-2 font-medium">Date</th>
+                      <th className="px-3 py-2 font-medium text-right">
+                        Amount (₹)
+                      </th>
+                      <th className="px-3 py-2 font-medium">Note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(unmatchedNotesData?.invoices ?? []).map((row) => (
+                      <tr key={row.id} className="border-t border-[#EFEFF2]">
+                        <td className="px-3 py-2 text-gray-700">
+                          {row.match_status === "CREDIT_NOTE"
+                            ? "Credit Note"
+                            : row.match_status === "DEBIT_NOTE"
+                              ? "Debit Note"
+                              : row.match_status || "Note"}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[12px]">
+                          {row.supplier_gstin || "—"}
+                        </td>
+                        <td className="px-3 py-2">{row.invoice_number || "—"}</td>
+                        <td className="px-3 py-2">{row.invoice_date || "—"}</td>
+                        <td className="px-3 py-2 text-right">
+                          {row.amount != null
+                            ? (row.amount / 100).toLocaleString("en-IN", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })
+                            : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-gray-600">
+                          {row.decision_why ||
+                            "CDN↔GSTR-2B note matching not implemented yet."}
                         </td>
                       </tr>
                     ))}

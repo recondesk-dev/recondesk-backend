@@ -267,9 +267,10 @@ def test_build_pr_index_paginates_until_empty():
             assert name == "pr_records"
             return _Query(self)
 
-    index, loaded, skipped = _build_pr_index_for_matching(_Client(), "run-1")
+    index, loaded, skipped, notes = _build_pr_index_for_matching(_Client(), "run-1")
     assert loaded == 1
     assert skipped == 0
+    assert notes == []
     assert len(index["27ABCDE1234F1Z0"]) == 1
     assert offsets == [0]
 
@@ -327,9 +328,10 @@ def test_build_pr_index_advances_offset_by_db_rows_not_matcher_rows():
         def table(self, name):
             return _Query()
 
-    index, loaded, skipped = _build_pr_index_for_matching(_Client(), "run-1")
+    index, loaded, skipped, notes = _build_pr_index_for_matching(_Client(), "run-1")
     assert loaded == 2
     assert skipped == 499
+    assert notes == []
     assert len(index["27ABCDE1234F1Z0"]) == 2
     assert offsets == [0, 500]
 

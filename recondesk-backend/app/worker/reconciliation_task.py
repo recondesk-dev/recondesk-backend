@@ -33,6 +33,8 @@ from app.services.reconciliation import (
     prepass_duplicate_ambiguity,
     process_gstr_records_chunk,
     execute_phase2_and_3,
+    quarantine_pr_notes,
+    is_pr_note_quarantine,
     _finalize_reconciliation_result,
 )
 from app.services.reconciliation_payload_store import (
@@ -178,9 +180,24 @@ def _load_pr_matcher_and_raw(
 
 
 def _pr_record_data_missing_invoice_number(record_data: object) -> bool:
-    """True when ``record_data`` lacks both invoice number fields."""
+    """True when ``record_data`` lacks both invoice number fields.
+
+    Quarantined credit/debit note rows are not treated as missing-invoice skips —
+    they are routed to the Notes bucket instead.
+    """
     if not isinstance(record_data, dict):
         return True
+    if record_data.get("pr_note_quarantine") or record_data.get("note_number"):
+        doc = str(
+            record_data.get("document_type")
+            or record_data.get("invoice_type")
+            or ""
+        ).strip().upper()
+        if record_data.get("pr_note_quarantine") or doc in {
+            "CREDIT_NOTE",
+            "DEBIT_NOTE",
+        }:
+            return False
     return not (
         record_data.get("invoice_number")
         or record_data.get("invoice_number_normalized")
@@ -224,12 +241,14 @@ def _load_pr_matcher_and_raw_page(
 
 def _build_pr_index_for_matching(
     client: Client, run_id: str
-) -> tuple[dict[str, list[dict[str, Any]]], int, int]:
+) -> tuple[dict[str, list[dict[str, Any]]], int, int, list[dict[str, Any]]]:
     """Load every PR matcher row for this run (paginate until DB returns no rows).
 
-    Returns ``(pr_index, loaded_matcher_rows, skipped_missing_invoice_count)``.
+    Returns
+    ``(pr_index, loaded_invoice_matcher_rows, skipped_missing_invoice_count, note_rows)``.
     """
     pr_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    note_rows: list[dict[str, Any]] = []
     offset = 0
     loaded = 0
     skipped_total = 0
@@ -241,6 +260,9 @@ def _build_pr_index_for_matching(
             break
         skipped_total += len(skipped)
         for pr_rec in pr_chunk:
+            if is_pr_note_quarantine(pr_rec):
+                note_rows.append(pr_rec)
+                continue
             pr_index[str(pr_rec.get("supplier_gstin") or "")].append(pr_rec)
             loaded += 1
         offset += fetched
@@ -252,7 +274,13 @@ def _build_pr_index_for_matching(
             skipped_total,
             run_id,
         )
-    return (dict(pr_index), loaded, skipped_total)
+    if note_rows:
+        _log.info(
+            "PR note quarantine candidates: %d row(s) (run_id=%s)",
+            len(note_rows),
+            run_id,
+        )
+    return (dict(pr_index), loaded, skipped_total, note_rows)
 
 
 def _write_pr_match_status_chunk(
@@ -802,13 +830,15 @@ def execute_reconciliation(run_id: str) -> None:
         gstr_by_invoice = build_gstr_by_invoice(gstr_matcher)
         gstr_by_id: dict[str, dict] = {str(x.get("id")): x for x in gstr_matcher}
 
-        pr_index_current, pr_index_loaded, _pr_skipped_at_index = (
+        pr_index_current, pr_index_loaded, _pr_skipped_at_index, pr_note_rows = (
             _build_pr_index_for_matching(client, run_id)
         )
-        if n_pr and pr_index_loaded < n_pr:
+        quarantine_pr_notes(state, pr_note_rows)
+        if n_pr and pr_index_loaded + len(pr_note_rows) < n_pr:
             _log.warning(
-                "PR index load shortfall: matcher_rows=%d pr_records_imported=%d run_id=%s",
+                "PR index load shortfall: matcher_rows=%d notes=%d pr_records_imported=%d run_id=%s",
                 pr_index_loaded,
+                len(pr_note_rows),
                 n_pr,
                 run_id,
             )
@@ -978,6 +1008,12 @@ def execute_reconciliation(run_id: str) -> None:
 
         _phase("matching")
         pr_current, pr_raw_by_id = _load_pr_matcher_and_raw(client, run_id)
+        # Catch note rows that weren't in the matching index (e.g. loaded via
+        # the full PR scan) and keep them out of ITC at Risk.
+        quarantine_pr_notes(state, pr_current)
+        invoice_pr_current = [
+            p for p in pr_current if not is_pr_note_quarantine(p)
+        ]
         late_itc = sum(
             1
             for m in state.clean_matched
@@ -991,12 +1027,12 @@ def execute_reconciliation(run_id: str) -> None:
         # no invoice is counted in both Missed ITC and ITC at Risk (double counting).
         execute_phase2_and_3(
             gstr_matcher,
-            pr_current,
+            invoice_pr_current,
             state,
             candidate_indices,
         )
         
-        wrongful_itc = build_wrongful_itc_risk(pr_current, state.consumed_pr_ids)
+        wrongful_itc = build_wrongful_itc_risk(invoice_pr_current, state.consumed_pr_ids)
 
         
         # Calculate financial risk
@@ -1338,15 +1374,23 @@ def execute_reconciliation(run_id: str) -> None:
         review_gstr_count = sum(1 for r in state.review_required if r.get("gstr_id"))
         review_pr_count = len(state.consumed_pr_ids) - matched_count
         skipped_count = sum(1 for r in pr_current if r.get("match_status") == "skipped")
+        unmatched_notes_count = len(state.unmatched_notes)
 
         assert matched_count + missed_itc_count + review_gstr_count == n_gstr, (
             f"GSTR Data Loss! Matched:{matched_count} Missed:{missed_itc_count} "
             f"Review:{review_gstr_count} Total:{n_gstr}"
         )
         
-        assert matched_count + wrongful_count + review_pr_count + skipped_count == n_pr, (
+        assert (
+            matched_count
+            + wrongful_count
+            + review_pr_count
+            + skipped_count
+            == n_pr
+        ), (
             f"PR Data Loss! Matched:{matched_count} Risk:{wrongful_count} "
-            f"Review PRs:{review_pr_count} Skipped:{skipped_count} Total:{n_pr}"
+            f"Review PRs:{review_pr_count} Skipped:{skipped_count} "
+            f"Notes:{unmatched_notes_count} Total:{n_pr}"
         )
 
         matched_itc_paise = 0
@@ -1377,6 +1421,7 @@ def execute_reconciliation(run_id: str) -> None:
             skipped_count=skipped_count,
             review_required_count=review_gstr_count,
             duplicate_entry_count=len(state.duplicate_entries),
+            unmatched_notes_count=len(state.unmatched_notes),
             matched_itc_paise=matched_itc_paise,
         )
 
@@ -1434,6 +1479,7 @@ def execute_reconciliation(run_id: str) -> None:
                 gstin_mismatch=[],
                 duplicates=valid_review_required,
                 duplicate_entries=list(state.duplicate_entries),
+                unmatched_notes=list(state.unmatched_notes),
                 rule37_pending_verification=rule37_pending_verification,
                 review_required_typo=[],
             )

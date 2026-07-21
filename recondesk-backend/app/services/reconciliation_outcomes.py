@@ -442,8 +442,13 @@ def build_outcome_rows(
 
     rows: list[OutcomeRow] = []
 
+    # Exclude quarantined PR notes from the legacy credit_notes category —
+    # they belong in unmatched_notes only.
     for pid, pr in pr_m.items():
         m = pr["matcher"]
+        rd = pr.get("record_data") or {}
+        if m.get("pr_note_quarantine") or rd.get("pr_note_quarantine"):
+            continue
         is_cn = (
             classify_document(
                 {
@@ -760,6 +765,69 @@ def build_outcome_rows(
             )
         )
 
+    for note in list(engine.get("unmatched_notes") or []):
+        pid = str(note.get("id") or "")
+        pcell = pr_m.get(pid) or {}
+        m_rec = pcell.get("matcher") or {}
+        rd = pcell.get("record_data") or {}
+        note_no = str(
+            note.get("note_number")
+            or m_rec.get("note_number")
+            or rd.get("note_number")
+            or ""
+        )
+        invd = note.get("invoice_date") or m_rec.get("invoice_date")
+        doc = str(
+            note.get("document_type")
+            or m_rec.get("doc_type")
+            or rd.get("document_type")
+            or "DEBIT_NOTE"
+        ).strip().upper()
+        amt = _opt_int(note.get("note_amount_paise"))
+        if amt is None:
+            amt = _opt_int(m_rec.get("note_amount_paise"))
+        if amt is None:
+            amt = _opt_int(rd.get("note_amount_paise"))
+        rows.append(
+            OutcomeRow(
+                id=f"un:{pid}",
+                category="unmatched_notes",
+                supplier_gstin=str(
+                    note.get("supplier_gstin")
+                    or m_rec.get("supplier_gstin")
+                    or ""
+                ),
+                supplier_name=(
+                    str(note.get("supplier_name") or "").strip()
+                    or str(rd.get("supplier_name") or "").strip()
+                    or None
+                ),
+                invoice_number=note_no,
+                invoice_date=str(invd) if invd else None,
+                match_status=doc if doc in {"CREDIT_NOTE", "DEBIT_NOTE"} else "NOTE_NOT_MATCHED",
+                taxable_value_diff=0,
+                igst_diff=0,
+                cgst_diff=0,
+                sgst_diff=0,
+                total_tax_diff_paise=0,
+                decision_what="Notes — Not Matched",
+                decision_why=(
+                    f"{doc.replace('_', ' ').title()} from purchase register "
+                    "(value adjustment). Full credit/debit note matching against "
+                    "GSTR-2B note[] is not implemented yet."
+                ),
+                decision_next=(
+                    "Review manually if needed. Do not treat as unclaimed ITC "
+                    "or reverse ITC for this row."
+                ),
+                rule37_flag=False,
+                blocked_credit_flag=False,
+                late_filing_flag=False,
+                is_credit_note=(doc == "CREDIT_NOTE"),
+                amount=amt,
+            )
+        )
+
     for typo in list(engine.get("review_required_typo") or []):
         rid = str(typo.get("pr_id", ""))
         gstr_id = str(typo.get("gstr_id", ""))
@@ -892,6 +960,7 @@ def build_outcome_rows(
         "gstin_mismatch",
         "review_required",
         "duplicate_entry",
+        "unmatched_notes",
     ]}
     for r in rows:
         ccounts[r.category] = ccounts.get(r.category, 0) + 1

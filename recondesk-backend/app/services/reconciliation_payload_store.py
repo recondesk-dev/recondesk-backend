@@ -114,6 +114,20 @@ _DUPLICATE_KEYS = (
     "ims_status",
 )
 
+_UNMATCHED_NOTE_KEYS = (
+    "id",
+    "supplier_gstin",
+    "supplier_name",
+    "note_number",
+    "note_amount_paise",
+    "document_type",
+    "invoice_date",
+    "reason",
+    "classification",
+    "match_status",
+    "side",
+)
+
 _DECISION_ROW_KEYS = (
     "gstr_id",
     "pr_id",
@@ -185,6 +199,10 @@ def slim_duplicates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [_pick(r, _DUPLICATE_KEYS) for r in rows]
 
 
+def slim_unmatched_notes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_pick(r, _UNMATCHED_NOTE_KEYS) for r in rows]
+
+
 def slim_decision_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [_pick(r, _DECISION_ROW_KEYS) for r in rows]
 
@@ -222,6 +240,7 @@ def build_run_summary_metrics(
     skipped_count: int = 0,
     review_required_count: int = 0,
     duplicate_entry_count: int = 0,
+    unmatched_notes_count: int = 0,
     matched_itc_paise: int = 0,
 ) -> dict[str, Any]:
     """Scalar run_summary only — no decisions/compliance blobs (kept in results payload)."""
@@ -252,6 +271,7 @@ def build_run_summary_metrics(
         "pr_skipped_missing_invoice_count": skipped_count,
         "pr_skipped_detail": skip_detail,
         "duplicate_entry_count": duplicate_entry_count,
+        "unmatched_notes_count": unmatched_notes_count,
     }
 
 
@@ -271,6 +291,7 @@ def build_stored_results_payload(
     gstin_mismatch: list[dict[str, Any]] | None = None,
     duplicates: list[dict[str, Any]] | None = None,
     duplicate_entries: list[dict[str, Any]] | None = None,
+    unmatched_notes: list[dict[str, Any]] | None = None,
     rule37_pending_verification: list[dict[str, Any]] | None = None,
     review_required_typo: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -283,6 +304,7 @@ def build_stored_results_payload(
             "gstin_mismatch": slim_gstin_mismatch(gstin_mismatch or []),
             "duplicates": slim_duplicates(duplicates or []),
             "duplicate_entries": slim_duplicates(duplicate_entries or []),
+            "unmatched_notes": slim_unmatched_notes(unmatched_notes or []),
             "review_required_typo": review_required_typo or [],
         },
         "compliance": {

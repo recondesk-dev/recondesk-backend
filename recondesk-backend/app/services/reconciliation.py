@@ -307,6 +307,9 @@ class ReconState:
     # Extra PR bookings of an already-matched invoice (identical full-value
     # duplicates). Separate from review_required and wrongful_itc_risk.
     duplicate_entries: list[dict] = field(default_factory=list)
+    # PR credit/debit note rows quarantined from invoice matching (no CDN↔2B
+    # note matching yet). Kept visible but out of ITC at Risk / Matched.
+    unmatched_notes: list[dict] = field(default_factory=list)
 
     consumed_pr_ids: set[str] = field(default_factory=set)
     consumed_gstr_ids: set[str] = field(default_factory=set)
@@ -315,6 +318,81 @@ class ReconState:
     duplicate_pr_ids: set[str] = field(default_factory=set)
 
     metrics: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+
+
+def is_pr_note_quarantine(pr_rec: dict) -> bool:
+    """True when a PR row was tagged as a credit/debit note during import."""
+    if pr_rec.get("pr_note_quarantine"):
+        return True
+    # Adapter / matcher rows may only carry note_number + doc_type.
+    note_no = str(pr_rec.get("note_number") or "").strip()
+    if not note_no:
+        return False
+    doc = str(
+        pr_rec.get("doc_type")
+        or pr_rec.get("document_type")
+        or pr_rec.get("invoice_type")
+        or ""
+    ).strip().upper()
+    return doc in {"CREDIT_NOTE", "DEBIT_NOTE"}
+
+
+def quarantine_pr_notes(state: ReconState, pr_records: list[dict]) -> list[dict]:
+    """Move note rows out of the invoice matching pool into unmatched_notes.
+
+    Consumes their PR ids so they never appear in ITC at Risk. Returns the
+    remaining invoice PR records for matching. Safe to call more than once.
+    """
+    already_noted = {str(n.get("id") or "") for n in state.unmatched_notes}
+    invoice_prs: list[dict] = []
+    for p in pr_records:
+        if not is_pr_note_quarantine(p):
+            invoice_prs.append(p)
+            continue
+        pid = str(p.get("id") or "")
+        if not pid:
+            continue
+        state.consumed_pr_ids.add(pid)
+        if pid in already_noted:
+            continue
+        doc = str(
+            p.get("doc_type")
+            or p.get("document_type")
+            or p.get("invoice_type")
+            or "DEBIT_NOTE"
+        ).strip().upper()
+        if doc not in {"CREDIT_NOTE", "DEBIT_NOTE"}:
+            doc = "DEBIT_NOTE"
+        note_no = str(p.get("note_number") or "").strip()
+        note_amt = p.get("note_amount_paise")
+        if note_amt is None:
+            note_amt = p.get("taxable_amount_paise")
+        try:
+            note_amt_i = int(note_amt) if note_amt is not None else None
+        except (TypeError, ValueError):
+            note_amt_i = None
+        state.unmatched_notes.append(
+            {
+                "id": pid,
+                "side": "PR",
+                "reason": "PR_NOTE_NOT_MATCHED",
+                "classification": "Notes — Not Matched",
+                "document_type": doc,
+                "note_number": note_no,
+                "note_amount_paise": note_amt_i,
+                "supplier_gstin": str(p.get("supplier_gstin") or ""),
+                "supplier_name": p.get("vendor_name") or p.get("supplier_name"),
+                "invoice_date": p.get("invoice_date"),
+                "match_status": "NOTE_NOT_MATCHED",
+            }
+        )
+        already_noted.add(pid)
+    if state.unmatched_notes:
+        logger.info(
+            "[PR_NOTES] Quarantined %d credit/debit note row(s) from invoice matching",
+            len(state.unmatched_notes),
+        )
+    return invoice_prs
 
 
 
@@ -2556,6 +2634,7 @@ def _finalize_reconciliation_result(
         "missed_itc": state.missed_itc,
         "wrongful_itc_risk": wrongful_itc_risk,
         "duplicate_entries": list(state.duplicate_entries),
+        "unmatched_notes": list(state.unmatched_notes),
         "gstin_mismatch": [], # deprecated
         "duplicates": [], # deprecated
         "stats": {
@@ -2573,6 +2652,7 @@ def _finalize_reconciliation_result(
             "itc_at_risk_total": wrongful_risk_amount_paise,
             "purchase_value_at_risk_paise": 0, # Placeholder, depends on line item calculation
             "duplicate_entry_count": len(state.duplicate_entries),
+            "unmatched_notes_count": len(state.unmatched_notes),
             
             # Legacy stats (optional, but keep for now if UI needs it)
             "gstin_mismatch_count": gstin_mismatch_count,

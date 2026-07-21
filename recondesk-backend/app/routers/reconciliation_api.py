@@ -274,6 +274,7 @@ async def get_reconciliation_invoices(
         "gstin_mismatch",
         "review_required",
         "duplicate_entry",
+        "unmatched_notes",
     ] = Query(..., description="Invoice bucket"),
     supplier_gstin: Optional[str] = None,
     invoice_search: Optional[str] = None,
@@ -2027,6 +2028,9 @@ def _build_reconcile_summary(
         "pr_skipped_detail": pr_skipped_detail,
         "duplicate_entry_count": sum(
             1 for r in outcome_rows if r.category == "duplicate_entry"
+        ),
+        "unmatched_notes_count": sum(
+            1 for r in outcome_rows if r.category == "unmatched_notes"
         ),
     }
 

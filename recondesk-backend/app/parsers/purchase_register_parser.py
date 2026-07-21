@@ -74,6 +74,11 @@ STANDARD_TO_CANONICAL: dict[str, str] = {
     "amount_paid": "amount_paid_paise",
     "itc_eligibility": "itc_eligibility",
     "hsn": "hsn",
+    # Credit/debit note sheets (quarantined from invoice matching).
+    "note_number": "note_number",
+    "note_amount": "note_amount_paise",
+    "note_type": "note_type",
+    "note_reason": "note_reason",
 }
 
 _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
@@ -136,6 +141,21 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     ],
     "hsn": [
         "hsn", "hsn code", "hsn/sac", "sac", "sac code", "hsn code/sac code",
+    ],
+    # Distinct from Invoice No / Voucher No / Bill No — note sheets only.
+    "note_number": [
+        "note no", "note number", "note #", "note num",
+        "credit note no", "credit note number", "debit note no",
+        "debit note number", "cn no", "dn no", "cdn no",
+    ],
+    "note_amount": [
+        "note amount", "note value", "cdn amount",
+    ],
+    "note_type": [
+        "note type", "cn dn", "cndn",
+    ],
+    "note_reason": [
+        "reason", "note reason", "remarks", "remark",
     ],
 }
 
@@ -238,7 +258,27 @@ _FIELD_MATCH_PRIORITY: dict[str, int] = {
     "payment_date": 50,
     "amount_paid": 45,
     "hsn": 45,
+    "note_number": 55,
+    "note_amount": 45,
+    "note_type": 50,
+    "note_reason": 30,
 }
+
+# Sheet / header signals that a PR sheet is credit/debit notes, not invoices.
+_NOTE_SHEET_NAME_RE = re.compile(
+    r"credit\s*notes?|debit\s*notes?|\bcdn\b",
+    re.IGNORECASE,
+)
+_NOTE_NUMBER_HEADER_RE = re.compile(
+    r"^(note\s*no|note\s*number|credit\s*note\s*no|credit\s*note\s*number|"
+    r"debit\s*note\s*no|debit\s*note\s*number|cn\s*no|dn\s*no|cdn\s*no)"
+    r"(\s|$)",
+    re.IGNORECASE,
+)
+_NOTE_TYPE_HEADER_RE = re.compile(
+    r"^(note\s*type|cn\s*dn|cndn)(\s|$)",
+    re.IGNORECASE,
+)
 
 def _uniqueify_header_labels(headers: list[Any]) -> list[str]:
     """Make column labels unique the same way pandas does for duplicate headers."""
@@ -385,10 +425,84 @@ def detect_column_mapping(df: pd.DataFrame) -> dict[str, str]:
 
     mapping = {std: orig for std, (_, _, _, orig) in column_matches.items()}
 
-    if "gstin" not in mapping and "invoice_number" not in mapping:
-        raise ParseError("Cannot identify GSTIN or invoice number columns")
+    if (
+        "gstin" not in mapping
+        and "invoice_number" not in mapping
+        and "note_number" not in mapping
+    ):
+        raise ParseError(
+            "Cannot identify GSTIN, invoice number, or note number columns"
+        )
 
     return mapping
+
+
+def is_note_sheet_name(sheet_name: str | None) -> bool:
+    """True when the Excel sheet name looks like a credit/debit notes tab."""
+    if not sheet_name:
+        return False
+    return bool(_NOTE_SHEET_NAME_RE.search(str(sheet_name)))
+
+
+def headers_indicate_notes(columns: list[Any]) -> bool:
+    """True when headers include Note No / Note Type (not Invoice/Bill/Voucher No)."""
+    for col in columns:
+        col_norm = normalize_header(str(col))
+        if not col_norm:
+            continue
+        if _NOTE_NUMBER_HEADER_RE.match(col_norm) or _NOTE_TYPE_HEADER_RE.match(
+            col_norm
+        ):
+            return True
+        # Alias-backed note_number / note_type also count.
+        for alias in COLUMN_ALIASES.get("note_number", []):
+            if _alias_matches(col_norm, normalize_header(alias)):
+                return True
+        for alias in COLUMN_ALIASES.get("note_type", []):
+            if _alias_matches(col_norm, normalize_header(alias)):
+                return True
+    return False
+
+
+def infer_note_document_type(
+    *,
+    sheet_name: str | None = None,
+    note_type_value: str | None = None,
+    column_headers: list[Any] | None = None,
+) -> str:
+    """Return CREDIT_NOTE or DEBIT_NOTE; default DEBIT_NOTE (common purchase-side case)."""
+    blobs: list[str] = []
+    if sheet_name:
+        blobs.append(str(sheet_name))
+    if note_type_value:
+        blobs.append(str(note_type_value))
+    if column_headers:
+        blobs.extend(str(c) for c in column_headers)
+    joined = " ".join(blobs).lower()
+    if re.search(r"credit|\bcn\b", joined) and not re.search(
+        r"debit|\bdn\b", joined
+    ):
+        return "CREDIT_NOTE"
+    if re.search(r"debit|\bdn\b", joined):
+        return "DEBIT_NOTE"
+    if re.search(r"credit|\bcn\b", joined):
+        return "CREDIT_NOTE"
+    return "DEBIT_NOTE"
+
+
+def apply_note_mode_column_mapping(mapping: dict[str, str]) -> dict[str, str]:
+    """Remap bare Amount → note_amount when a sheet is in note quarantine mode.
+
+    Note files often have a single ``Amount`` column (no CGST/SGST/IGST). On
+    invoice sheets that alias maps to ``taxable_amount``; for notes we want
+    ``note_amount`` instead so tax/ITC fields stay empty rather than forced ₹0.
+    """
+    out = dict(mapping)
+    if "note_amount" not in out and "taxable_amount" in out:
+        out["note_amount"] = out.pop("taxable_amount")
+    if "note_amount" not in out and "total_amount" in out:
+        out["note_amount"] = out.pop("total_amount")
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -597,6 +711,14 @@ def normalize_dataframe_to_canonical_schema(
             out_cols[canon] = ser.map(_safe_cell)
         elif canon == "hsn":
             out_cols[canon] = ser.map(_safe_cell)
+        elif canon == "note_number":
+            out_cols[canon] = ser.map(
+                lambda v: (s.upper() if (s := _safe_cell(v)) else None)
+            )
+        elif canon == "note_amount_paise":
+            out_cols[canon] = ser.map(_amount_int_signed)
+        elif canon in ("note_type", "note_reason"):
+            out_cols[canon] = ser.map(_safe_cell)
 
     if not out_cols:
         return pd.DataFrame(index=df.index)
@@ -724,8 +846,16 @@ def _process_pr_sheet_rows(
     selected_header_row: int,
     filename: str,
     sheet_name: str | None,
+    note_mode: bool = False,
+    default_note_type: str = "DEBIT_NOTE",
 ) -> dict[str, Any]:
-    """Parse one mapped DataFrame into PR records (no cross-sheet dedupe)."""
+    """Parse one mapped DataFrame into PR records (no cross-sheet dedupe).
+
+    When *note_mode* is True the sheet is treated as credit/debit notes: rows
+    get ``document_type`` CREDIT_NOTE/DEBIT_NOTE, ``note_number`` /
+    ``note_amount_paise``, and ``pr_note_quarantine=True`` so reconciliation
+    keeps them out of invoice matching and ITC at Risk.
+    """
     records: list[dict] = []
     warnings: list[str] = []
     errors: list[str] = []
@@ -741,7 +871,10 @@ def _process_pr_sheet_rows(
         stripped = s.strip().lower()
         return not stripped or stripped in ("nan", "none", "nat")
 
-    df_canon = normalize_dataframe_to_canonical_schema(df, column_mapping)
+    mapping = (
+        apply_note_mode_column_mapping(column_mapping) if note_mode else column_mapping
+    )
+    df_canon = normalize_dataframe_to_canonical_schema(df, mapping)
 
     for df_idx, row in df_canon.iterrows():
         total_rows += 1
@@ -765,8 +898,8 @@ def _process_pr_sheet_rows(
         # Tally quirk: GSTIN sometimes lives inside the party-name cell.
         supplier_name = _safe_cell(row.get("supplier_name"))
         party_raw_for_gstin: Any = None
-        if "supplier_name" in column_mapping:
-            party_raw_for_gstin = orig_row.get(column_mapping["supplier_name"])
+        if "supplier_name" in mapping:
+            party_raw_for_gstin = orig_row.get(mapping["supplier_name"])
             if is_multiline_party_name(party_raw_for_gstin) and supplier_name:
                 # Keep first non-empty line as the display name.
                 first_line = next(
@@ -790,7 +923,7 @@ def _process_pr_sheet_rows(
 
         gstin_value: str | None = None
         gstin_valid = False
-        if "gstin" in column_mapping:
+        if "gstin" in mapping:
             raw_gstin = row.get("gstin")
             if raw_gstin is None:
                 if embedded:
@@ -818,8 +951,18 @@ def _process_pr_sheet_rows(
                 gstin_value = embedded
                 gstin_valid = False
 
+        note_raw: str | None = None
+        if note_mode and "note_number" in mapping:
+            cell = row.get("note_number")
+            if cell is None or (isinstance(cell, float) and pd.isna(cell)):
+                note_raw = None
+            else:
+                note_raw = str(cell).strip().upper() if str(cell).strip() else None
+            if note_raw is None:
+                row_errors.append("missing note number")
+
         inv_raw: str | None = None
-        if "invoice_number" in column_mapping:
+        if (not note_mode) and "invoice_number" in mapping:
             cell = row.get("invoice_number_normalized")
             if cell is None or (isinstance(cell, float) and pd.isna(cell)):
                 inv_raw = None
@@ -829,8 +972,8 @@ def _process_pr_sheet_rows(
                 row_errors.append("missing invoice number")
 
         date_value: str | None = None
-        if "invoice_date" in column_mapping:
-            raw_date = _safe_cell(orig_row.get(column_mapping["invoice_date"]))
+        if "invoice_date" in mapping:
+            raw_date = _safe_cell(orig_row.get(mapping["invoice_date"]))
             if raw_date is not None:
                 try:
                     norm_date = normalize_date(raw_date)
@@ -838,10 +981,37 @@ def _process_pr_sheet_rows(
                 except NormalizationError:
                     row_errors.append("invalid date")
 
+        note_type_cell = _safe_cell(row.get("note_type")) if note_mode else None
+        if note_mode:
+            invoice_type = infer_note_document_type(
+                sheet_name=sheet_name,
+                note_type_value=note_type_cell,
+                column_headers=list(df.columns),
+            )
+            # Prefer explicit default when nothing in sheet/headers/cells is decisive.
+            if invoice_type == "DEBIT_NOTE" and default_note_type == "CREDIT_NOTE":
+                if not (
+                    (sheet_name and re.search(r"credit|debit|cn|dn", str(sheet_name), re.I))
+                    or note_type_cell
+                ):
+                    invoice_type = default_note_type
+        else:
+            original_taxable_peek: int | None = None
+            if "taxable_amount" in mapping:
+                original_taxable_peek = _df_cell_int(row.get("taxable_amount_paise"))
+            invoice_type = _classify_invoice_type(inv_raw, original_taxable_peek)
+
         original_taxable: int | None = None
         taxable_amount_paise: int | None = None
-        if "taxable_amount" in column_mapping:
-            raw_tax = _safe_cell(orig_row.get(column_mapping["taxable_amount"]))
+        note_amount_paise: int | None = None
+        if note_mode:
+            if "note_amount" in mapping:
+                raw_amt = _safe_cell(orig_row.get(mapping["note_amount"]))
+                note_amount_paise = _df_cell_int(row.get("note_amount_paise"))
+                if raw_amt is not None and note_amount_paise is None:
+                    row_errors.append("invalid value")
+        elif "taxable_amount" in mapping:
+            raw_tax = _safe_cell(orig_row.get(mapping["taxable_amount"]))
             taxable_amount_paise = _df_cell_int(row.get("taxable_amount_paise"))
             if raw_tax is not None:
                 if taxable_amount_paise is None:
@@ -849,13 +1019,16 @@ def _process_pr_sheet_rows(
                 else:
                     original_taxable = taxable_amount_paise
 
-        invoice_type = _classify_invoice_type(inv_raw, original_taxable)
-        row_errors.extend(
-            _invoice_type_consistency_errors(invoice_type, original_taxable)
-        )
+        if not note_mode:
+            row_errors.extend(
+                _invoice_type_consistency_errors(invoice_type, original_taxable)
+            )
 
         if row_errors:
-            if "missing GSTIN" in row_errors and "missing invoice number" in row_errors:
+            if "missing GSTIN" in row_errors and (
+                "missing invoice number" in row_errors
+                or "missing note number" in row_errors
+            ):
                 skipped_rows += 1
                 _bump_skip("truly_unparseable_row")
             else:
@@ -866,12 +1039,12 @@ def _process_pr_sheet_rows(
                 _bump_skip("invalid_row")
                 continue
 
-        igst_paise = _df_cell_int(row.get("igst_paise"))
-        cgst_paise = _df_cell_int(row.get("cgst_paise"))
-        sgst_paise = _df_cell_int(row.get("sgst_paise"))
-        cess_paise = _df_cell_int(row.get("cess_paise"))
-        total_tax_paise = _df_cell_int(row.get("total_tax_paise"))
-        if total_tax_paise is None and (
+        igst_paise = None if note_mode else _df_cell_int(row.get("igst_paise"))
+        cgst_paise = None if note_mode else _df_cell_int(row.get("cgst_paise"))
+        sgst_paise = None if note_mode else _df_cell_int(row.get("sgst_paise"))
+        cess_paise = None if note_mode else _df_cell_int(row.get("cess_paise"))
+        total_tax_paise = None if note_mode else _df_cell_int(row.get("total_tax_paise"))
+        if not note_mode and total_tax_paise is None and (
             igst_paise is not None
             or cgst_paise is not None
             or sgst_paise is not None
@@ -883,7 +1056,12 @@ def _process_pr_sheet_rows(
                 + (sgst_paise or 0)
                 + (cess_paise or 0)
             )
-        if invoice_type == "CREDIT_NOTE" and total_tax_paise is not None and total_tax_paise > 0:
+        if (
+            not note_mode
+            and invoice_type == "CREDIT_NOTE"
+            and total_tax_paise is not None
+            and total_tax_paise > 0
+        ):
             total_tax_paise = -total_tax_paise
 
         _rcell = row.get("reverse_charge")
@@ -893,7 +1071,7 @@ def _process_pr_sheet_rows(
             reverse_out = _rcell  # type: ignore[assignment]
 
         payment_status: str | None = None
-        if "payment_status" in column_mapping:
+        if "payment_status" in mapping:
             _ps = row.get("payment_status")
             if _ps is None or (isinstance(_ps, float) and pd.isna(_ps)):
                 payment_status = None
@@ -901,9 +1079,9 @@ def _process_pr_sheet_rows(
                 payment_status = str(_ps)
 
         payment_date: str | None = None
-        if "payment_date" in column_mapping:
+        if "payment_date" in mapping:
             raw_pay_date = _safe_cell(
-                orig_row.get(column_mapping["payment_date"])
+                orig_row.get(mapping["payment_date"])
             )
             if raw_pay_date is not None:
                 try:
@@ -915,30 +1093,41 @@ def _process_pr_sheet_rows(
                     )
 
         amount_paid_paise: int | None = None
-        if "amount_paid" in column_mapping:
+        if "amount_paid" in mapping:
             amount_paid_paise = _df_cell_int(row.get("amount_paid_paise"))
 
         out: dict[str, Any] = {
             "row_number": row_number,
-            "invoice_number_normalized": inv_raw,
-            "invoice_number": inv_raw,
+            "invoice_number_normalized": None if note_mode else inv_raw,
+            "invoice_number": None if note_mode else inv_raw,
             "document_type": invoice_type,
             "invoice_type": invoice_type,
             "invoice_date": date_value,
             "gstin": gstin_value,
             "gstin_valid": gstin_valid,
             "supplier_name": supplier_name,
-            "taxable_amount_paise": taxable_amount_paise,
+            "taxable_amount_paise": None if note_mode else taxable_amount_paise,
             "igst_paise": igst_paise,
             "cgst_paise": cgst_paise,
             "sgst_paise": sgst_paise,
             "cess_paise": cess_paise,
             "total_tax_paise": total_tax_paise,
-            "total_amount_paise": _df_cell_int(row.get("total_amount_paise")),
+            "total_amount_paise": (
+                None if note_mode else _df_cell_int(row.get("total_amount_paise"))
+            ),
             "place_of_supply": _safe_cell(row.get("place_of_supply")),
             "reverse_charge": reverse_out,
             "source_file": filename,
         }
+        if note_mode:
+            out["note_number"] = note_raw
+            out["note_amount_paise"] = note_amount_paise
+            out["pr_note_quarantine"] = True
+            note_reason = _safe_cell(row.get("note_reason"))
+            if note_reason:
+                out["note_reason"] = note_reason
+            if note_type_cell:
+                out["note_type"] = note_type_cell
         if sheet_name:
             out["source_sheet"] = sheet_name
         if payment_status is not None:
@@ -947,11 +1136,11 @@ def _process_pr_sheet_rows(
             out["payment_date"] = payment_date
         if amount_paid_paise is not None:
             out["amount_paid_paise"] = amount_paid_paise
-        if "itc_eligibility" in column_mapping:
+        if "itc_eligibility" in mapping:
             _itc = row.get("itc_eligibility")
             if _itc is not None and not (isinstance(_itc, float) and pd.isna(_itc)):
                 out["itc_eligibility"] = str(_itc)
-        if "hsn" in column_mapping:
+        if "hsn" in mapping:
             _hsn = row.get("hsn")
             if _hsn is not None and not (isinstance(_hsn, float) and pd.isna(_hsn)):
                 out["hsn"] = str(_hsn).strip()
@@ -966,6 +1155,7 @@ def _process_pr_sheet_rows(
         "skipped_rows": skipped_rows,
         "skip_reasons": skip_reasons,
         "df_canon": df_canon,
+        "note_mode": note_mode,
     }
 
 
@@ -1190,12 +1380,31 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 column_mapping = mapping
                 unmapped_columns = sheet_unmapped
 
-            if "invoice_number" not in mapping:
+            if "invoice_number" not in mapping and "note_number" not in mapping:
                 sheet_label = sheet_name or "(csv)"
                 warnings.append(
                     f"[{sheet_label}] No invoice number column detected "
                     f"(expected headers like Invoice Number / Bill No / Vch No.). "
                     f"Rows from this sheet will be skipped during matching."
+                )
+
+            note_mode = is_note_sheet_name(sheet_name) or headers_indicate_notes(
+                source_cols
+            )
+            # Mapping may already carry note_number from alias detection.
+            if "note_number" in mapping and "invoice_number" not in mapping:
+                note_mode = True
+            default_note_type = infer_note_document_type(
+                sheet_name=sheet_name,
+                column_headers=source_cols,
+            )
+            if note_mode:
+                sheet_label = sheet_name or "(csv)"
+                warnings.append(
+                    f"[{sheet_label}] Detected credit/debit note sheet — "
+                    f"rows quarantined from invoice matching "
+                    f"(document_type={default_note_type}). Full CDN↔GSTR-2B "
+                    f"note matching is not implemented yet."
                 )
 
             part = _process_pr_sheet_rows(
@@ -1204,6 +1413,8 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                 selected_header_row=header_row,
                 filename=filename,
                 sheet_name=sheet_name,
+                note_mode=note_mode,
+                default_note_type=default_note_type,
             )
             sheet_rec_count = len(part["records"])
             sheets_used.append(
@@ -1211,8 +1422,15 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     "sheet": sheet_name or "(csv)",
                     "records": sheet_rec_count,
                     "total_rows": part["total_rows"],
-                    "mapped_fields": sorted(mapping.keys()),
+                    "mapped_fields": sorted(
+                        (
+                            apply_note_mode_column_mapping(mapping)
+                            if note_mode
+                            else mapping
+                        ).keys()
+                    ),
                     "has_invoice_number": "invoice_number" in mapping,
+                    "note_mode": note_mode,
                 }
             )
             records.extend(part["records"])
@@ -1276,7 +1494,8 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
         missing_invoice = [
             rec
             for rec in records
-            if not (
+            if not rec.get("pr_note_quarantine")
+            and not (
                 rec.get("invoice_number")
                 or rec.get("invoice_number_normalized")
             )

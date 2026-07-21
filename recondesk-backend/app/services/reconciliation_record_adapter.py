@@ -177,4 +177,13 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
             .upper()
             or None
         ),
+        "note_number": (
+            str(rd.get("note_number") or "").strip().upper() or None
+        ),
+        "note_amount_paise": (
+            _pr_stored_paise(rd.get("note_amount_paise"))
+            if rd.get("note_amount_paise") is not None
+            else None
+        ),
+        "pr_note_quarantine": bool(rd.get("pr_note_quarantine")),
     }
