@@ -1,6 +1,11 @@
 """Unit tests for dashboard summary aggregation (no DB)."""
 
-from app.routers.dashboard import _build_summary, _map_ui_status, _priority_score
+from app.routers.dashboard import (
+    _build_summary,
+    _map_ui_status,
+    _priority_score,
+    _sum_itc_at_risk_across_periods,
+)
 
 
 def test_map_ui_status():
@@ -71,7 +76,8 @@ def test_build_summary_stats_and_attention():
     assert s["failed_client_count"] == 1
     assert s["total_itc_protected"] == 500.0
     assert s["itc_protected_has_data"] is True
-    assert s["itc_at_risk"] == 300.0  # 100 + 200 from latest of c1/c2
+    # Latest run per client+period: c1 Apr 100 + c2 Apr 200 (+ c3 periods 0)
+    assert s["itc_at_risk"] == 300.0
     assert s["team_members"] == 4
     assert s["attention"][0]["client_id"] == "c1"
     assert s["attention"][0]["status"] == "FAILED"
@@ -79,3 +85,64 @@ def test_build_summary_stats_and_attention():
     ids = {a["client_id"] for a in s["attention"]}
     assert "c3" not in ids
     assert "c2" in ids
+
+
+def test_itc_at_risk_sums_older_period_when_newer_period_is_clean():
+    """Newer May ₹0 must not erase April risk for the same client."""
+    runs = [
+        {
+            "id": "apr",
+            "client_gstin_id": "c1",
+            "period": "2026-04",
+            "status": "COMPLETED",
+            "created_at": "2026-05-01T00:00:00Z",
+            "itc_at_risk": 500_00,  # ₹500
+            "wrongful_itc": 0,
+            "run_summary": {},
+        },
+        {
+            "id": "may",
+            "client_gstin_id": "c1",
+            "period": "2026-05",
+            "status": "COMPLETED",
+            "created_at": "2026-06-01T00:00:00Z",
+            "itc_at_risk": 0,
+            "wrongful_itc": 0,
+            "run_summary": {},
+        },
+    ]
+    # Old latest-per-client logic would report 0 (May wins). Per-period sum keeps Apr.
+    assert _sum_itc_at_risk_across_periods(runs) == 500.0
+
+    clients = [{"id": "c1", "trade_name": "Acme", "gstin": "27A"}]
+    s = _build_summary(clients, runs, team_members=1)
+    assert s["itc_at_risk"] == 500.0
+    # Attention still reflects the absolute latest run (May, clean).
+    assert s["attention"][0]["period"] == "May 2026"
+    assert s["attention"][0]["missed_itc"] == 0.0
+
+
+def test_same_period_prefers_newest_run_only():
+    runs = [
+        {
+            "id": "old",
+            "client_gstin_id": "c1",
+            "period": "2026-04-01",
+            "status": "COMPLETED",
+            "created_at": "2026-05-01T00:00:00Z",
+            "itc_at_risk": 500_00,
+            "wrongful_itc": 0,
+            "run_summary": {},
+        },
+        {
+            "id": "new",
+            "client_gstin_id": "c1",
+            "period": "2026-04",
+            "status": "COMPLETED",
+            "created_at": "2026-05-20T00:00:00Z",
+            "itc_at_risk": 100_00,
+            "wrongful_itc": 0,
+            "run_summary": {},
+        },
+    ]
+    assert _sum_itc_at_risk_across_periods(runs) == 100.0

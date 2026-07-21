@@ -8,9 +8,9 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends
 
 from app.auth import get_current_active_user
-from app.constants import RunStatus
 from app.database import get_supabase, get_user_profile
 from app.services.firm_access import list_accessible_client_gstin_ids
+from app.services.gstr9c_itc_fy_rollup import normalize_period_yyyy_mm
 from app.utils.redis_cache import cache_get, cache_set
 
 router = APIRouter()
@@ -253,6 +253,44 @@ def _list_slim_runs(sb, client_ids: list[str], cap: int) -> list[dict[str, Any]]
     return rows_out[:cap]
 
 
+def _missed_itc_rupee(row: dict[str, Any]) -> Optional[float]:
+    missed_paise = _money_paise_from_row(
+        row, row.get("itc_at_risk"), ("itc_at_risk", "missed_itc_paise")
+    )
+    return _paise_to_rupee(missed_paise)
+
+
+def _latest_run_per_client_period(
+    runs: list[dict[str, Any]],
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Newest run for each ``(client_gstin_id, YYYY-MM)`` pair."""
+    best: dict[tuple[str, str], dict[str, Any]] = {}
+    for r in runs:
+        cid = str(r.get("client_gstin_id") or "").strip()
+        if not cid:
+            continue
+        period = normalize_period_yyyy_mm(r.get("period")) or "_none_"
+        key = (cid, period)
+        prev = best.get(key)
+        if not prev or str(r.get("created_at") or "") > str(prev.get("created_at") or ""):
+            best[key] = r
+    return best
+
+
+def _sum_itc_at_risk_across_periods(runs: list[dict[str, Any]]) -> float:
+    """Firm-wide ITC at risk: sum latest run per client+period (not latest-per-client).
+
+    A newer May run with ₹0 must not erase an older April period that still
+    has open risk — same silent-undercount class as the GSTR-9C rollup bug.
+    """
+    total = 0.0
+    for row in _latest_run_per_client_period(runs).values():
+        missed = _missed_itc_rupee(row)
+        if missed is not None:
+            total += missed
+    return total
+
+
 def _build_summary(
     clients: list[dict[str, Any]],
     runs: list[dict[str, Any]],
@@ -283,10 +321,12 @@ def _build_summary(
         if not prev or str(r.get("created_at") or "") > str(prev.get("created_at") or ""):
             latest_by_client[cid] = r
 
+    # Portfolio total: open risk across all periods (latest run per period).
+    itc_at_risk = _sum_itc_at_risk_across_periods(runs)
+
     failed_client_count = 0
     complete_ready_count = 0
     finalized_count = 0
-    itc_at_risk = 0.0
     attention_candidates: list[dict[str, Any]] = []
 
     for c in clients:
@@ -305,13 +345,10 @@ def _build_summary(
 
         if lr:
             ui_status = _map_ui_status(str(lr.get("status") or ""))
-            missed_paise = _money_paise_from_row(
-                lr, lr.get("itc_at_risk"), ("itc_at_risk", "missed_itc_paise")
-            )
+            missed_rupee = _missed_itc_rupee(lr)
             wrongful_paise = _money_paise_from_row(
                 lr, lr.get("wrongful_itc"), ("wrongful_itc",)
             )
-            missed_rupee = _paise_to_rupee(missed_paise)
             wrongful_rupee = _paise_to_rupee(wrongful_paise)
             compliance_risk = _infer_compliance_risk(
                 missed_rupee, wrongful_rupee, ui_status
@@ -325,9 +362,6 @@ def _build_summary(
                 complete_ready_count += 1
             elif ui_status == "FINALIZED":
                 finalized_count += 1
-
-            if missed_rupee is not None:
-                itc_at_risk += missed_rupee
 
         score = _priority_score(ui_status, missed_rupee, compliance_risk)
         include = (
@@ -383,7 +417,8 @@ async def dashboard_summary(
     Never backfills matched ITC from full payloads — uses stored run_summary only.
     """
     user_id = str(current_user.get("id", "")).strip()
-    cache_key = f"cache:dashboard:summary:v1:{user_id}"
+    # v2: itc_at_risk sums latest run per client+period (not latest-per-client).
+    cache_key = f"cache:dashboard:summary:v2:{user_id}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
