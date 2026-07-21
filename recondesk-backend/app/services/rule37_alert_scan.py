@@ -1,19 +1,26 @@
 """Periodic Rule 37 pre-deadline / overdue email alerts.
 
-Scans latest completed purchase runs per client (wall-clock ``date.today()``),
-respects ``notification_preferences.rule37_alerts``, and dedups via
-``rule37_alert_dedup`` so the same invoice+tier is not re-mailed every cycle.
+Scans latest completed purchase runs **per tax period** per client (wall-clock
+``date.today()``), respects ``notification_preferences.rule37_alerts``, and
+dedups via ``rule37_alert_dedup`` so the same invoice+tier is not re-mailed
+every cycle.
+
+When the newest completed run for a period has no ``pr_records`` (thin re-run),
+falls back to an older completed run for that same period — same class of fix
+as the GSTR-9C FY rollup claimed-ITC period fallback.
 """
 
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 from supabase import Client
 
 from app.database import get_supabase, get_user_profile
+from app.services.gstr9c_itc_fy_rollup import normalize_period_yyyy_mm
 from app.services.rule37_tracker import (
     OVERDUE_UNPAID,
     WARNING_30_DAYS,
@@ -80,20 +87,78 @@ def _should_send_for_dedup(
     return (now - sent) >= _SAME_TIER_COOLDOWN
 
 
-def _load_latest_run_id(sb: Client, client_gstin_id: str) -> str | None:
+def select_alert_run_ids_by_period(
+    runs: list[dict[str, Any]],
+    *,
+    has_pr_records: Callable[[str], bool],
+) -> list[str]:
+    """Pick one completed run_id per tax period for Rule 37 alert scanning.
+
+    *runs* must already be completed-status rows. Within each period, prefer the
+    newest run that has ``pr_records``; if the newest is empty (thin re-run),
+    fall back to older completed runs for that same period. Periods with no
+    PR-bearing run are skipped.
+
+    Returns run_ids ordered by period descending (newest period first) so
+    within-scan invoice-key collisions prefer the newer period.
+    """
+    by_period: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in runs:
+        rid = str(row.get("id") or "").strip()
+        if not rid:
+            continue
+        period = normalize_period_yyyy_mm(row.get("period")) or "_none_"
+        by_period[period].append(row)
+
+    for period_rows in by_period.values():
+        period_rows.sort(
+            key=lambda r: str(r.get("created_at") or ""),
+            reverse=True,
+        )
+
+    selected: list[tuple[str, str]] = []  # (period, run_id)
+    for period, period_rows in by_period.items():
+        chosen: str | None = None
+        for row in period_rows:
+            rid = str(row.get("id") or "").strip()
+            if not rid:
+                continue
+            if has_pr_records(rid):
+                chosen = rid
+                break
+        if chosen:
+            selected.append((period, chosen))
+
+    selected.sort(key=lambda t: t[0], reverse=True)
+    return [rid for _period, rid in selected]
+
+
+def _load_completed_runs_for_client(
+    sb: Client, client_gstin_id: str
+) -> list[dict[str, Any]]:
+    """All completed purchase runs for a client (newest first, capped)."""
     res = (
         sb.table("reconciliation_run")
-        .select("id, status, created_at")
+        .select("id, period, status, created_at")
         .eq("client_gstin_id", client_gstin_id)
         .in_("status", list(_COMPLETED_STATUSES))
         .order("created_at", desc=True)
+        .limit(500)
+        .execute()
+    )
+    return list(res.data or [])
+
+
+def _run_has_pr_records(sb: Client, run_id: str) -> bool:
+    """True when at least one ``pr_records`` row exists for *run_id*."""
+    res = (
+        sb.table("pr_records")
+        .select("id")
+        .eq("run_id", run_id)
         .limit(1)
         .execute()
     )
-    rows = res.data or []
-    if not rows:
-        return None
-    return str(rows[0].get("id") or "") or None
+    return bool(res.data)
 
 
 def _load_pr_bundle(sb: Client, run_id: str) -> tuple[list[dict], dict[str, dict]]:
@@ -266,37 +331,57 @@ async def run_rule37_alert_scan(
         if not client_id or not firm_owner_id:
             continue
 
-        run_id = _load_latest_run_id(client, client_id)
-        if not run_id:
+        try:
+            completed_runs = _load_completed_runs_for_client(client, client_id)
+            run_ids = select_alert_run_ids_by_period(
+                completed_runs,
+                has_pr_records=lambda rid: _run_has_pr_records(client, rid),
+            )
+        except Exception:
+            _log.exception(
+                "rule37_alert_scan: client=%s run selection failed", client_id
+            )
+            continue
+
+        if not run_ids:
             continue
 
         stats["clients_scanned"] += 1
         try:
-            matcher_rows, raw_by_id = _load_pr_bundle(client, run_id)
-            pr_for_r37 = _build_pr_for_rule37(matcher_rows, raw_by_id)
-            payments = build_payment_records_from_pr(matcher_rows, raw_by_id)
-            flagged = check_rule_37_compliance(
-                pr_for_r37, payments, today=eval_day
-            )
-            alert_rows = [
-                r for r in flagged if str(r.get("status") or "") in ALERT_TIERS
-            ]
-            if not alert_rows:
-                continue
-
             dedup_map = _load_dedup_map(client, client_id)
             client_name = (
                 str(cg.get("trade_name") or cg.get("legal_name") or cg.get("gstin") or "")
                 .strip()
                 or "Client"
             )
+            # invoice_key -> best row when the same invoice appears across periods
+            seen_keys: dict[str, dict[str, Any]] = {}
 
-            for row in alert_rows:
+            for run_id in run_ids:
+                matcher_rows, raw_by_id = _load_pr_bundle(client, run_id)
+                if not matcher_rows:
+                    continue
+                pr_for_r37 = _build_pr_for_rule37(matcher_rows, raw_by_id)
+                payments = build_payment_records_from_pr(matcher_rows, raw_by_id)
+                flagged = check_rule_37_compliance(
+                    pr_for_r37, payments, today=eval_day
+                )
+                for row in flagged:
+                    if str(row.get("status") or "") not in ALERT_TIERS:
+                        continue
+                    key = _invoice_key(row)
+                    if not key or key.startswith("||"):
+                        continue
+                    # Prefer first occurrence (newer period — run_ids are period-desc).
+                    if key not in seen_keys:
+                        seen_keys[key] = row
+
+            if not seen_keys:
+                continue
+
+            for key, row in seen_keys.items():
                 stats["invoices_flagged"] += 1
                 tier = str(row.get("status") or "")
-                key = _invoice_key(row)
-                if not key or key.startswith("||"):
-                    continue
                 prior = dedup_map.get(key)
                 if not _should_send_for_dedup(prior, tier, now=now):
                     stats["emails_skipped_dedup"] += 1
