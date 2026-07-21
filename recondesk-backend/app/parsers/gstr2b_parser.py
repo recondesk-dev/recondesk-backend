@@ -1,6 +1,9 @@
 """GSTR-2B JSON parser.
 
 Parses the official GSTN GSTR-2B JSON format into structured records.
+Also accepts a common third-party flat export (top-level ``invoice`` / ``note``
+arrays) via ``normalize_alt_2b_schema``, which rewrites into the portal shape
+before the same parse path runs.
 
 Supported sections: b2b, b2ba (amendments), cdnr (credit/debit notes),
 cdnra (credit/debit note amendments).
@@ -12,7 +15,7 @@ import datetime
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -1014,6 +1017,388 @@ def normalize_gstr2b_payload(data: dict) -> dict:
     return data
 
 
+# ---------------------------------------------------------------------------
+# Alternate third-party GSTR-2B JSON (flat ``invoice`` / ``note`` lists)
+# ---------------------------------------------------------------------------
+
+_UNSUPPORTED_GSTR2B_SCHEMA = (
+    "unsupported_gstr2b_schema: expected either official GST portal JSON "
+    '(top-level "data" with b2b/docdata) or third-party export JSON '
+    '(top-level "invoice" array of flat records with GSTIN / Invoice No / '
+    "Invoice Date). "
+    "IMS-only sheets (invoice_ims / note_ims) are not imported yet."
+)
+
+_GSTIN_IN_TEXT_RE = re.compile(
+    r"\b([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]Z[A-Z0-9])\b",
+    re.IGNORECASE,
+)
+
+_MONTH_ABBR_TO_NUM: dict[str, int] = {
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "sept": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
+}
+
+# Portal POS is a 2-digit state code; third-party exports often use names.
+_POS_NAME_TO_CODE: dict[str, str] = {
+    "jammu and kashmir": "01",
+    "jammu & kashmir": "01",
+    "himachal pradesh": "02",
+    "punjab": "03",
+    "chandigarh": "04",
+    "uttarakhand": "05",
+    "haryana": "06",
+    "delhi": "07",
+    "rajasthan": "08",
+    "uttar pradesh": "09",
+    "bihar": "10",
+    "sikkim": "11",
+    "arunachal pradesh": "12",
+    "nagaland": "13",
+    "manipur": "14",
+    "mizoram": "15",
+    "tripura": "16",
+    "meghalaya": "17",
+    "assam": "18",
+    "west bengal": "19",
+    "jharkhand": "20",
+    "odisha": "21",
+    "orissa": "21",
+    "chhattisgarh": "22",
+    "madhya pradesh": "23",
+    "gujarat": "24",
+    "dadra and nagar haveli and daman and diu": "26",
+    "maharashtra": "27",
+    "karnataka": "29",
+    "goa": "30",
+    "lakshadweep": "31",
+    "kerala": "32",
+    "tamil nadu": "33",
+    "puducherry": "34",
+    "pondicherry": "34",
+    "andaman and nicobar islands": "35",
+    "telangana": "36",
+    "andhra pradesh": "37",
+    "ladakh": "38",
+    "other territory": "97",
+}
+
+
+def is_alt_gstr2b_schema(data: dict) -> bool:
+    """True when payload is a flat third-party ``invoice`` list export."""
+    if not isinstance(data, dict):
+        return False
+    if "data" in data and isinstance(data.get("data"), dict):
+        return False
+    invoices = data.get("invoice")
+    if not isinstance(invoices, list) or not invoices:
+        return False
+    for row in invoices[:20]:
+        if not isinstance(row, dict):
+            continue
+        keys = {_alt_key_norm(k) for k in row.keys()}
+        if "gstin" in keys or "invoice no" in keys or "invoice number" in keys:
+            return True
+    return False
+
+
+def _alt_key_norm(key: Any) -> str:
+    return re.sub(r"\s+", " ", str(key or "").strip().lower())
+
+
+def _alt_row_get(row: Mapping[str, Any], *names: str) -> Any:
+    """Case/space-insensitive field lookup (handles ``Invoice Value ``)."""
+    wanted = {_alt_key_norm(n) for n in names}
+    for k, v in row.items():
+        if _alt_key_norm(k) in wanted:
+            return v
+    return None
+
+
+def _alt_blank(val: Any) -> bool:
+    if val is None:
+        return True
+    if isinstance(val, float) and val != val:  # NaN
+        return True
+    s = str(val).strip()
+    return s == "" or s.lower() in {"nan", "none", "null"}
+
+
+def _alt_parse_period_to_rtnprd(raw: Any) -> str | None:
+    """Convert ``Jun,2026`` / ``Jun 2026`` / ``06-2026`` → ``MMYYYY``."""
+    if _alt_blank(raw):
+        return None
+    s = str(raw).strip()
+    m = re.match(r"^([A-Za-z]{3,9})\s*,?\s*(\d{4})$", s)
+    if m:
+        token = m.group(1).lower()
+        mon = _MONTH_ABBR_TO_NUM.get(
+            "sept" if token.startswith("sept") else token[:3]
+        )
+        if mon:
+            return f"{mon:02d}{m.group(2)}"
+    m2 = re.match(r"^(\d{1,2})[-/](\d{4})$", s)
+    if m2:
+        mon = int(m2.group(1))
+        if 1 <= mon <= 12:
+            return f"{mon:02d}{m2.group(2)}"
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if len(digits) == 6:
+        return digits
+    return None
+
+
+def _alt_pos_code(raw: Any) -> str:
+    if _alt_blank(raw):
+        return ""
+    s = str(raw).strip()
+    if re.fullmatch(r"\d{1,2}", s):
+        return s.zfill(2)
+    return _POS_NAME_TO_CODE.get(s.lower(), s)
+
+
+def _alt_rc_to_rev(raw: Any) -> str:
+    if _alt_blank(raw):
+        return "N"
+    s = str(raw).strip().lower()
+    if s in {"y", "yes", "true", "1"}:
+        return "Y"
+    return "N"
+
+
+def _alt_num(raw: Any) -> float:
+    if _alt_blank(raw):
+        return 0.0
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return float(raw)
+    s = str(raw).strip().replace(",", "")
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+
+def _alt_invoice_date_portal(raw: Any) -> str:
+    """Return portal ``dt`` string DD-MM-YYYY when parseable, else original text."""
+    if _alt_blank(raw):
+        return ""
+    try:
+        result = normalize_date(raw)
+        d = result.value
+        if isinstance(d, datetime.date):
+            return d.strftime("%d-%m-%Y")
+    except NormalizationError:
+        pass
+    return str(raw).strip()
+
+
+def _alt_extract_buyer_gstin(data: dict) -> str:
+    for key in ("gstin", "gstnId", "buyer_gstin", "recipient_gstin", "client_gstin"):
+        val = data.get(key)
+        if not _alt_blank(val):
+            return str(val).strip().upper()
+    for key in ("title", "header", "client", "taxpayer", "trade_name"):
+        val = data.get(key)
+        if isinstance(val, str):
+            m = _GSTIN_IN_TEXT_RE.search(val)
+            if m:
+                return m.group(1).upper()
+    # Excel→JSON dumps sometimes put the title (with GSTIN) as a row *key*.
+    for key in list(data.keys()):
+        if isinstance(key, str):
+            m = _GSTIN_IN_TEXT_RE.search(key)
+            if m:
+                return m.group(1).upper()
+    for section in ("invoice", "note"):
+        rows = data.get(section)
+        if not isinstance(rows, list):
+            continue
+        for row in rows[:5]:
+            if not isinstance(row, dict):
+                continue
+            for key in row.keys():
+                if isinstance(key, str):
+                    m = _GSTIN_IN_TEXT_RE.search(key)
+                    if m:
+                        return m.group(1).upper()
+    return ""
+
+
+def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Map one flat third-party invoice row → portal-ish inv object.
+
+    Returns ``None`` for blank-Sr totals/summary rows.
+    """
+    sr = _alt_row_get(row, "Sr", "sr", "S.No", "S No")
+    if _alt_blank(sr):
+        return None
+
+    gstin = str(_alt_row_get(row, "GSTIN", "gstin") or "").strip().upper()
+    inum = str(
+        _alt_row_get(row, "Invoice No", "Invoice Number", "invoice_no", "inum") or ""
+    ).strip()
+    if not gstin and not inum:
+        return None
+
+    party = str(_alt_row_get(row, "Party", "Supplier", "supplier_name") or "").strip()
+    return {
+        "_supplier_gstin": gstin,
+        "_supplier_name": party,
+        "_rtnprd": _alt_parse_period_to_rtnprd(_alt_row_get(row, "Period", "period")),
+        "inum": inum,
+        "dt": _alt_invoice_date_portal(
+            _alt_row_get(row, "Invoice Date", "invoice_date", "idt")
+        ),
+        "val": _alt_num(_alt_row_get(row, "Invoice Value", "invoice_value", "val")),
+        "txval": _alt_num(_alt_row_get(row, "Taxable Value", "taxable_value", "txval")),
+        "igst": _alt_num(_alt_row_get(row, "IGST", "igst", "iamt")),
+        "cgst": _alt_num(_alt_row_get(row, "CGST", "cgst", "camt")),
+        "sgst": _alt_num(_alt_row_get(row, "SGST", "sgst", "samt")),
+        "cess": _alt_num(_alt_row_get(row, "CESS", "cess", "csamt")),
+        "pos": _alt_pos_code(_alt_row_get(row, "POS", "pos")),
+        "rev": _alt_rc_to_rev(_alt_row_get(row, "RC", "rev", "rchrg")),
+        "itcavl": "Y",
+    }
+
+
+def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Map one flat credit/debit note row → portal cdnr note object."""
+    sr = _alt_row_get(row, "Sr", "sr", "S.No", "S No")
+    if _alt_blank(sr):
+        return None
+
+    gstin = str(_alt_row_get(row, "GSTIN", "gstin") or "").strip().upper()
+    nt_num = str(
+        _alt_row_get(row, "Note No", "Note Number", "nt_num", "ntnum") or ""
+    ).strip()
+    if not gstin and not nt_num:
+        return None
+
+    ntty_raw = str(_alt_row_get(row, "Note Type", "ntty", "type") or "").strip().upper()
+    if ntty_raw.startswith("C") or "CREDIT" in ntty_raw:
+        ntty = "C"
+    elif ntty_raw.startswith("D") or "DEBIT" in ntty_raw:
+        ntty = "D"
+    else:
+        ntty = "C"
+
+    party = str(_alt_row_get(row, "Party", "Supplier", "supplier_name") or "").strip()
+    return {
+        "_supplier_gstin": gstin,
+        "_supplier_name": party,
+        "_rtnprd": _alt_parse_period_to_rtnprd(_alt_row_get(row, "Period", "period")),
+        "nt_num": nt_num,
+        "ntty": ntty,
+        "dt": _alt_invoice_date_portal(_alt_row_get(row, "Note Date", "note_date", "idt")),
+        "val": _alt_num(_alt_row_get(row, "Note Value", "note_value", "val")),
+        "txval": _alt_num(_alt_row_get(row, "Taxable Value", "taxable_value", "txval")),
+        "igst": _alt_num(_alt_row_get(row, "IGST", "igst", "iamt")),
+        "cgst": _alt_num(_alt_row_get(row, "CGST", "cgst", "camt")),
+        "sgst": _alt_num(_alt_row_get(row, "SGST", "sgst", "samt")),
+        "cess": _alt_num(_alt_row_get(row, "CESS", "cess", "csamt")),
+        "pos": _alt_pos_code(_alt_row_get(row, "POS", "pos")),
+        "rev": _alt_rc_to_rev(_alt_row_get(row, "RC", "rev", "rchrg")),
+        "itcavl": "Y",
+    }
+
+
+def _alt_group_by_supplier(mapped_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build portal ``[{ctin, trdnm, inv: [...]}, ...]`` from mapped flat rows."""
+    order: list[str] = []
+    buckets: dict[str, dict[str, Any]] = {}
+    for row in mapped_rows:
+        ctin = str(row.pop("_supplier_gstin", "") or "").strip().upper() or "UNKNOWN"
+        name = str(row.pop("_supplier_name", "") or "").strip()
+        row.pop("_rtnprd", None)
+        if ctin not in buckets:
+            order.append(ctin)
+            buckets[ctin] = {"ctin": ctin, "trdnm": name, "inv": []}
+        elif name and not buckets[ctin].get("trdnm"):
+            buckets[ctin]["trdnm"] = name
+        buckets[ctin]["inv"].append(row)
+    return [buckets[k] for k in order]
+
+
+def normalize_alt_2b_schema(data: dict) -> dict:
+    """Convert third-party flat GSTR-2B JSON into portal-shaped ``{"data": ...}``.
+
+    Accepts::
+
+        {"invoice": [{Sr, Party, GSTIN, Invoice No, ...}, ...], "note": [...], ...}
+
+    Skips blank-``Sr`` totals rows. Ignores ``invoice_ims`` / ``note_ims``.
+    Output is accepted by the existing portal ``parse_gstr2b`` path.
+    """
+    if not isinstance(data, dict):
+        raise ValueError("invalid_data_structure")
+
+    invoice_rows_raw = data.get("invoice") if isinstance(data.get("invoice"), list) else []
+    note_rows_raw = data.get("note") if isinstance(data.get("note"), list) else []
+
+    mapped_inv: list[dict[str, Any]] = []
+    rtnprd_votes: list[str] = []
+    for row in invoice_rows_raw:
+        if not isinstance(row, dict):
+            continue
+        mapped = _alt_map_invoice_row(row)
+        if mapped is None:
+            continue
+        if mapped.get("_rtnprd"):
+            rtnprd_votes.append(str(mapped["_rtnprd"]))
+        mapped_inv.append(mapped)
+
+    mapped_notes: list[dict[str, Any]] = []
+    for row in note_rows_raw:
+        if not isinstance(row, dict):
+            continue
+        mapped = _alt_map_note_row(row)
+        if mapped is None:
+            continue
+        if mapped.get("_rtnprd"):
+            rtnprd_votes.append(str(mapped["_rtnprd"]))
+        mapped_notes.append(mapped)
+
+    if not mapped_inv and not mapped_notes:
+        raise ValueError(
+            "alt_gstr2b_empty: no invoice/note rows with a non-blank Sr "
+            "(totals-only or empty export)"
+        )
+
+    rtnprd = ""
+    if rtnprd_votes:
+        rtnprd = max(set(rtnprd_votes), key=rtnprd_votes.count)
+    if not rtnprd:
+        rtnprd = (
+            _alt_parse_period_to_rtnprd(data.get("period") or data.get("rtnprd")) or ""
+        )
+
+    buyer = _alt_extract_buyer_gstin(data)
+    if not buyer:
+        # Still parseable — unique_key uses buyer; wizard/run supplies client GSTIN.
+        buyer = "000000000000000"
+
+    root: dict[str, Any] = {
+        "gstin": buyer,
+        "rtnprd": rtnprd or "012000",
+        "b2b": _alt_group_by_supplier(mapped_inv) if mapped_inv else [],
+    }
+    if mapped_notes:
+        root["cdnr"] = _alt_group_by_supplier(mapped_notes)
+
+    return {"data": root}
+
+
 def _parse_rtnprd(rtnprd: str) -> datetime.date:
     """Parse GST filing period string to the first day of that month.
 
@@ -1067,7 +1452,10 @@ def parse_gstr2b(file_content) -> dict:
         raise ValueError("invalid_data_structure")
 
     if "data" not in data:
-        raise ValueError("missing_data_key")
+        if is_alt_gstr2b_schema(data):
+            data = normalize_alt_2b_schema(data)
+        else:
+            raise ValueError(_UNSUPPORTED_GSTR2B_SCHEMA)
 
     data = normalize_gstr2b_payload(data)
     root = data["data"]

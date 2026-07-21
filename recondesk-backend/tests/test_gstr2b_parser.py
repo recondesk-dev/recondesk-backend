@@ -14,6 +14,8 @@ import time
 
 import pytest
 
+from pathlib import Path
+
 from app.parsers.gstr2b_parser import (
     SKIP_INVALID_AMOUNT,
     SKIP_INVALID_GSTIN,
@@ -24,7 +26,16 @@ from app.parsers.gstr2b_parser import (
     SKIP_MISSING_INVOICE_NUMBER,
     SKIP_UNSUPPORTED_SCHEMA,
     _make_skip_entry,
+    is_alt_gstr2b_schema,
+    normalize_alt_2b_schema,
     parse_gstr2b,
+)
+
+_ALT_FIXTURE = (
+    Path(__file__).resolve().parents[1]
+    / "test_fixtures"
+    / "sandbox"
+    / "sample_alt_gstr2b.json"
 )
 
 # ---------------------------------------------------------------------------
@@ -548,9 +559,79 @@ def test_invalid_json_raises_value_error():
         parse_gstr2b(b"not json {{{")
 
 
-def test_missing_data_key_raises_value_error():
-    with pytest.raises(ValueError, match="missing_data_key"):
+def test_unsupported_schema_lists_accepted_formats():
+    with pytest.raises(ValueError, match="unsupported_gstr2b_schema"):
         parse_gstr2b(_enc({"wrong": {}}))
+
+
+def test_is_alt_gstr2b_schema_detects_flat_invoice_export():
+    payload = json.loads(_ALT_FIXTURE.read_text(encoding="utf-8"))
+    assert is_alt_gstr2b_schema(payload) is True
+    assert is_alt_gstr2b_schema({"data": {"gstin": BUYER_GSTIN, "rtnprd": "062026"}}) is False
+    assert is_alt_gstr2b_schema({"invoice": []}) is False
+
+
+def test_normalize_alt_2b_schema_maps_fields_and_skips_blank_sr():
+    payload = json.loads(_ALT_FIXTURE.read_text(encoding="utf-8"))
+    normalized = normalize_alt_2b_schema(payload)
+    root = normalized["data"]
+
+    assert root["gstin"] == "27ARLPM8253B1ZO"
+    assert root["rtnprd"] == "062026"
+    assert len(root["b2b"]) == 2
+
+    by_ctin = {s["ctin"]: s for s in root["b2b"]}
+    croma = by_ctin["27AACCV1726H1ZE"]["inv"][0]
+    assert croma["inum"] == "SLA243379976690"
+    assert croma["dt"] == "25-04-2026"
+    assert croma["val"] == 8948.01
+    assert croma["txval"] == 7583.05
+    assert croma["igst"] == 0
+    assert croma["cgst"] == 682.48
+    assert croma["sgst"] == 682.48
+    assert croma["cess"] == 0
+    assert croma["pos"] == "27"
+    assert croma["rev"] == "N"
+    assert "_supplier_gstin" not in croma
+
+    tuljai = by_ctin["27AJVPC4476C1Z1"]["inv"][0]
+    assert tuljai["inum"] == "TSC/FY26-27/997"
+    assert by_ctin["27AACCV1726H1ZE"]["trdnm"] == "INFINITI  RETAIL LIMITED (Croma)"
+
+    # Blank-Sr totals row must not become an invoice.
+    all_inums = [inv["inum"] for s in root["b2b"] for inv in s["inv"]]
+    assert all_inums == ["SLA243379976690", "TSC/FY26-27/997"]
+
+    assert "cdnr" in root
+    note_suppliers = root["cdnr"]
+    assert len(note_suppliers) == 1
+    note = note_suppliers[0]["inv"][0]
+    assert note["nt_num"] == "CN-1001"
+    assert note["ntty"] == "C"
+    assert note["igst"] == 180.0
+    assert note["pos"] == "29"
+
+
+def test_parse_gstr2b_accepts_alt_flat_invoice_schema():
+    payload = json.loads(_ALT_FIXTURE.read_text(encoding="utf-8"))
+    result = parse_gstr2b(payload)
+    assert result["total_parsed"] == 3  # 2 invoices + 1 credit note
+    assert result["total_skipped"] == 0
+
+    invoices = [r for r in result["records"] if r["doc_type"] == "INVOICE"]
+    notes = [r for r in result["records"] if r["doc_type"] != "INVOICE"]
+    assert len(invoices) == 2
+    assert len(notes) == 1
+
+    croma = next(r for r in invoices if r["invoice_number_raw"] == "SLA243379976690")
+    assert croma["supplier_gstin"] == "27AACCV1726H1ZE"
+    assert croma["supplier_name"] == "INFINITI  RETAIL LIMITED (Croma)"
+    assert croma["invoice_date_norm"] == "2026-04-25"
+    assert croma["invoice_value_paise"] == 894801
+    assert croma["taxable_value_paise"] == 758305
+    assert croma["cgst_paise"] == 68248
+    assert croma["sgst_paise"] == 68248
+    assert croma["igst_paise"] == 0
 
 
 def test_b2b_not_a_list_treated_as_empty_no_crash():

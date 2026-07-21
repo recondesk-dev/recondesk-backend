@@ -116,6 +116,14 @@ def _gstr2b_buyer_gstin_from_raw(raw: bytes) -> str | None:
     else:
         gst = data.get("gstnId") or data.get("gstin")
     if gst is None:
+        from app.parsers.gstr2b_parser import (
+            _alt_extract_buyer_gstin,
+            is_alt_gstr2b_schema,
+        )
+
+        if is_alt_gstr2b_schema(data):
+            alt = _alt_extract_buyer_gstin(data)
+            return alt or None
         return None
     s = str(gst).strip()
     return s or None
