@@ -80,10 +80,13 @@ def cache_delete_pattern(pattern: str) -> bool:
 
 
 def invalidate_user_dashboard(user_id: str) -> None:
-    """Clear cached dashboard runs and billing status for a specific user."""
+    """Clear cached dashboard runs, summary, and billing status for a specific user."""
     uid = str(user_id).strip()
     if uid:
+        # List cache keys use cache:runs:v4:{uid}:… — match both legacy and current.
         cache_delete_pattern(f"cache:runs:{uid}:*")
+        cache_delete_pattern(f"cache:runs:v4:{uid}:*")
+        cache_delete_pattern(f"cache:dashboard:*:{uid}")
         cache_delete(f"cache:billing_status:{uid}")
 
 

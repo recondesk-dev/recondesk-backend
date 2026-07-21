@@ -36,10 +36,12 @@ import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
   clientsApi,
+  dashboardApi,
   isApiError,
   reconcileRunsApi,
   teamApi,
   type ClientGstin,
+  type DashboardAttentionItem,
   type ReconcileRunListRow,
 } from "@/lib/api";
 import {
@@ -50,8 +52,6 @@ import {
   DW,
   buildPortfolioRows,
   buildStaffRoster,
-  computeDashboardSignals,
-  computeDashboardStats,
   derivePeriodLabels,
   paginatePortfolio,
   type PortfolioQuery,
@@ -63,6 +63,7 @@ import type {
   ComplianceRisk,
   PortfolioFilters,
   PortfolioSortKey,
+  ReconciliationStatus,
   SortDirection,
 } from "@/lib/types";
 
@@ -80,15 +81,71 @@ function formatMissedSnippet(n: number): string {
   return `${formatInrFull(n)} missed ITC`;
 }
 
-function complianceRiskWords(r: ComplianceRisk | null | undefined): string {
-  const level = r ?? "LOW";
+function complianceRiskWords(r: ComplianceRisk | string | null | undefined): string {
+  const level = (r ?? "LOW") as ComplianceRisk;
   const map: Record<ComplianceRisk, string> = {
     LOW: "Low risk",
     MEDIUM: "Medium risk",
     HIGH: "High risk",
     CRITICAL: "Critical risk",
   };
-  return map[level];
+  return map[level] ?? "Low risk";
+}
+
+const UI_STATUSES = new Set<string>([
+  "PENDING",
+  "IMPORTING",
+  "MATCHING",
+  "COMPLETE",
+  "FINALIZED",
+  "FAILED",
+]);
+
+function asUiStatus(raw: string | null | undefined): ReconciliationStatus | null {
+  if (!raw) return null;
+  const u = raw.trim().toUpperCase();
+  return UI_STATUSES.has(u) ? (u as ReconciliationStatus) : null;
+}
+
+/** Minimal portfolio row so Needs Attention can open the retry modal. */
+function attentionToPortfolioRow(item: DashboardAttentionItem): ClientPortfolioRow {
+  const status = asUiStatus(item.status);
+  return {
+    client: {
+      id: item.client_id,
+      tradeName: item.trade_name,
+      gstin: item.gstin,
+      registrationType: "Regular",
+      assignedStaffId: "",
+      createdAt: "",
+    },
+    latestRun: item.run_id
+      ? {
+          id: item.run_id,
+          clientId: item.client_id,
+          period: item.period || "",
+          runNumber: 1,
+          status: status ?? "FAILED",
+          matchRate: null,
+          itcClaimed: null,
+          missedItc: item.missed_itc,
+          complianceRisk: (item.compliance_risk as ComplianceRisk | null) ?? null,
+          errorMessage: null,
+          finalizedBy: null,
+          finalizedAt: null,
+          createdAt: "",
+          updatedAt: "",
+        }
+      : null,
+    priorityScore: item.priority_score,
+    assignedStaff: {
+      id: "unknown",
+      name: "Unassigned",
+      email: "",
+      role: "STAFF",
+      avatarInitials: "?",
+    },
+  };
 }
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -214,6 +271,17 @@ export default function PortfolioDashboardPage() {
   const runsKey = authToken ? ([DW, "runs", authToken] as const) : null;
   const teamKey = authToken ? ([DW, "team", authToken] as const) : null;
   const meKey = authToken ? ([DW, "me", authToken] as const) : null;
+  const summaryKey = authToken ? ([DW, "summary", authToken] as const) : null;
+
+  const {
+    data: summary,
+    error: summaryError,
+    isLoading: summaryLoading,
+  } = useSWR(
+    summaryKey,
+    ([, , t]) => dashboardApi.summary(t),
+    { revalidateOnFocus: false }
+  );
 
   const {
     data: clients,
@@ -234,6 +302,7 @@ export default function PortfolioDashboardPage() {
     ([, , t]) =>
       reconcileRunsApi.list(t, {
         limit: 500,
+        light: true,
       }),
     { revalidateOnFocus: false }
   );
@@ -276,31 +345,21 @@ export default function PortfolioDashboardPage() {
     [baseRows, portfolioQuery]
   );
 
-  const stats = useMemo(
-    () =>
-      computeDashboardStats(
-        clients?.length ?? 0,
-        (runs ?? []) as ReconcileRunListRow[],
-        staff.length
-      ),
-    [clients?.length, runs, staff.length]
-  );
+  const statsLoading = summaryLoading;
+  const portfolioLoading = clientsLoading || runsLoading;
+  const directoryLoading = teamLoading || meLoading;
+  const loadError = summaryError || clientsError || runsError;
 
-  const signals = useMemo(() => computeDashboardSignals(baseRows), [baseRows]);
-
-  const attentionRows = useMemo(() => {
-    return [...baseRows]
-      .filter((r) => {
-        const s = r.latestRun?.status;
-        return !s || s === "FAILED" || s === "COMPLETE" || s === "PENDING";
-      })
-      .sort((a, b) => b.priorityScore - a.priorityScore)
-      .slice(0, 5);
-  }, [baseRows]);
-
-  const itcAtRiskTotal = useMemo(() => {
-    return baseRows.reduce((sum, r) => sum + (r.latestRun?.missedItc ?? 0), 0);
-  }, [baseRows]);
+  const totalClients = summary?.total_clients ?? clients?.length ?? 0;
+  const pendingThisMonth = summary?.pending_this_month ?? 0;
+  const readyForReview = summary?.ready_for_review ?? 0;
+  const failedClientCount = summary?.failed_client_count ?? 0;
+  const showAllFinalizedBanner = summary?.show_all_finalized_banner ?? false;
+  const totalItcProtected = summary?.total_itc_protected ?? 0;
+  const itcProtectedHasData = summary?.itc_protected_has_data ?? false;
+  const itcAtRiskTotal = summary?.itc_at_risk ?? 0;
+  const teamMembersCount = summary?.team_members ?? staff.length;
+  const attentionItems = summary?.attention ?? [];
 
   const rowByClientId = useMemo(() => {
     const m = new Map<string, ClientPortfolioRow>();
@@ -309,10 +368,6 @@ export default function PortfolioDashboardPage() {
     }
     return m;
   }, [baseRows]);
-
-  const portfolioLoading = clientsLoading || runsLoading;
-  const directoryLoading = teamLoading || meLoading;
-  const loadError = clientsError || runsError;
 
   const showReset = useMemo(() => {
     return (
@@ -436,8 +491,7 @@ export default function PortfolioDashboardPage() {
     }
   };
 
-  const totalClients = stats.totalClients;
-  const isEmptyPortfolio = !portfolioLoading && totalClients === 0;
+  const isEmptyPortfolio = !statsLoading && !portfolioLoading && totalClients === 0;
 
   if (tokenState === null) {
     return (
@@ -486,10 +540,10 @@ export default function PortfolioDashboardPage() {
 
   return (
     <div className="space-y-7">
-      {!portfolioLoading && signals.failedClientCount > 0 && (
+      {!statsLoading && failedClientCount > 0 && (
         <div className="flex items-center justify-between rounded-[1.25rem] bg-red-50/90 px-5 py-4 text-sm text-red-900">
           <span>
-            <strong>{signals.failedClientCount}</strong> client(s) have failed reconciliations.{" "}
+            <strong>{failedClientCount}</strong> client(s) have failed reconciliations.{" "}
             <button
               type="button"
               className="font-semibold text-[var(--ink)] underline decoration-black/30 underline-offset-2"
@@ -503,19 +557,17 @@ export default function PortfolioDashboardPage() {
           </span>
         </div>
       )}
-      {!portfolioLoading &&
-        signals.failedClientCount === 0 &&
-        signals.completeReadyCount > 0 && (
+      {!statsLoading && failedClientCount === 0 && readyForReview > 0 && (
           <div className="rounded-[1.25rem] bg-white px-5 py-4 text-sm text-gray-700 shadow-[var(--shadow-soft)]">
             <strong className="font-semibold text-[var(--ink)]">
-              {signals.completeReadyCount}
+              {readyForReview}
             </strong>{" "}
-            {signals.completeReadyCount === 1
+            {readyForReview === 1
               ? "reconciliation is ready for your review."
               : "reconciliations are ready for your review."}
           </div>
         )}
-      {!portfolioLoading && signals.showAllFinalizedBanner && (
+      {!statsLoading && showAllFinalizedBanner && (
         <div className="rounded-[1.25rem] bg-[var(--ink)] px-5 py-4 text-sm font-medium text-white">
           All clients reconciled for this period
         </div>
@@ -536,10 +588,10 @@ export default function PortfolioDashboardPage() {
             hint="Clients in your firm portfolio"
             icon={<IconUsers />}
             value={
-              portfolioLoading ? (
+              statsLoading ? (
                 <span className="inline-block h-8 w-14 animate-pulse rounded bg-gray-100" />
               ) : (
-                String(stats.totalClients)
+                String(totalClients)
               )
             }
           />
@@ -547,16 +599,16 @@ export default function PortfolioDashboardPage() {
             label="Needs Attention"
             hint="Pending or in-progress reconciliations"
             icon={<IconAlert />}
-            empty={!portfolioLoading && stats.pendingThisMonth === 0}
+            empty={!statsLoading && pendingThisMonth === 0}
             emptyIcon="check"
             emptyCaption="All caught up"
-            tone={!portfolioLoading && stats.pendingThisMonth > 0 ? "emphasis" : "default"}
-            trend={!portfolioLoading && stats.pendingThisMonth > 0 ? "up" : "none"}
+            tone={!statsLoading && pendingThisMonth > 0 ? "emphasis" : "default"}
+            trend={!statsLoading && pendingThisMonth > 0 ? "up" : "none"}
             value={
-              portfolioLoading ? (
+              statsLoading ? (
                 <span className="inline-block h-8 w-12 animate-pulse rounded bg-white/20" />
               ) : (
-                String(stats.pendingThisMonth)
+                String(pendingThisMonth)
               )
             }
           />
@@ -565,10 +617,10 @@ export default function PortfolioDashboardPage() {
             hint="Completed reconciliations waiting for review"
             icon={<IconReview />}
             value={
-              portfolioLoading ? (
+              statsLoading ? (
                 <span className="inline-block h-8 w-12 animate-pulse rounded bg-gray-100" />
               ) : (
-                String(signals.completeReadyCount)
+                String(readyForReview)
               )
             }
           />
@@ -576,13 +628,13 @@ export default function PortfolioDashboardPage() {
             label="ITC Protected"
             hint="Matched ITC from finalized reconciliations"
             icon={<IconShield />}
-            empty={!portfolioLoading && !stats.itcProtectedHasData}
+            empty={!statsLoading && !itcProtectedHasData}
             emptyCaption="No data yet"
             value={
-              portfolioLoading ? (
+              statsLoading ? (
                 <span className="inline-block h-8 w-20 animate-pulse rounded bg-gray-100" />
               ) : (
-                formatInrCompact(stats.totalItcProtected)
+                formatInrCompact(totalItcProtected)
               )
             }
           />
@@ -591,7 +643,7 @@ export default function PortfolioDashboardPage() {
             hint="Missed ITC across latest client reconciliations"
             icon={<IconFail />}
             value={
-              portfolioLoading ? (
+              statsLoading ? (
                 <span className="inline-block h-8 w-20 animate-pulse rounded bg-gray-100" />
               ) : (
                 formatInrCompact(itcAtRiskTotal)
@@ -603,10 +655,10 @@ export default function PortfolioDashboardPage() {
             hint="People who can be assigned reconciliations"
             icon={<IconTeam />}
             value={
-              portfolioLoading || directoryLoading ? (
+              statsLoading ? (
                 <span className="inline-block h-8 w-10 animate-pulse rounded bg-gray-100" />
               ) : (
-                String(stats.teamMembers)
+                String(teamMembersCount)
               )
             }
           />
@@ -648,56 +700,56 @@ export default function PortfolioDashboardPage() {
             </Link>
           </div>
 
-          {portfolioLoading ? (
+          {statsLoading ? (
             <div className="space-y-3">
               {Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="h-16 animate-pulse rounded-2xl bg-gray-100" />
               ))}
             </div>
-          ) : attentionRows.length === 0 ? (
+          ) : attentionItems.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center rounded-2xl bg-[#F7F7F8] px-4 py-10 text-center">
               <p className="text-sm font-medium text-gray-700">Nothing waiting</p>
               <p className="mt-1 text-xs text-gray-400">Your portfolio is clear for now</p>
             </div>
           ) : (
             <ul className="flex flex-1 flex-col gap-2.5">
-              {attentionRows.map((row) => {
-                const status = row.latestRun?.status;
+              {attentionItems.map((item) => {
+                const status = asUiStatus(item.status);
                 return (
-                  <li key={row.client.id}>
+                  <li key={item.client_id}>
                     <button
                       type="button"
                       onClick={() => {
                         if (status === "FAILED") {
-                          setRetryRow(row);
+                          setRetryRow(attentionToPortfolioRow(item));
                           return;
                         }
-                        router.push(`/clients/${row.client.id}`);
+                        router.push(`/clients/${item.client_id}`);
                       }}
                       className="flex w-full items-center gap-3 rounded-2xl bg-[#F7F7F8] px-3.5 py-3 text-left transition-colors hover:bg-[#F0F0F0]"
                     >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-[var(--ink)] shadow-sm">
-                        {row.client.tradeName.slice(0, 2).toUpperCase()}
+                        {item.trade_name.slice(0, 2).toUpperCase()}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-semibold text-[var(--ink)]">
-                          {row.client.tradeName}
+                          {item.trade_name}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-gray-400">
-                          {row.latestRun
-                            ? row.latestRun.status === "FAILED"
+                          {status
+                            ? status === "FAILED"
                               ? "Failed — needs retry"
-                              : row.latestRun.missedItc != null
-                                ? formatMissedSnippet(row.latestRun.missedItc)
-                                : row.latestRun.period
+                              : item.missed_itc != null
+                                ? formatMissedSnippet(item.missed_itc)
+                                : item.period
                             : "No reconciliations yet"}
-                          {row.latestRun?.complianceRisk
-                            ? ` · ${complianceRiskWords(row.latestRun.complianceRisk)}`
+                          {item.compliance_risk
+                            ? ` · ${complianceRiskWords(item.compliance_risk)}`
                             : ""}
                         </span>
                       </span>
-                      {row.latestRun ? (
-                        <StatusBadge status={row.latestRun.status} />
+                      {status ? (
+                        <StatusBadge status={status} />
                       ) : (
                         <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-500">
                           Pending

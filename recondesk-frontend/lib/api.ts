@@ -901,6 +901,38 @@ export const teamApi = {
     }),
 };
 
+/** Lightweight dashboard Quick Stats + Needs Attention (no payload backfill). */
+export type DashboardAttentionItem = {
+  client_id: string;
+  trade_name: string;
+  gstin: string;
+  run_id: string | null;
+  /** UI status: PENDING | IMPORTING | MATCHING | COMPLETE | FINALIZED | FAILED */
+  status: string | null;
+  period: string | null;
+  missed_itc: number | null;
+  compliance_risk: string | null;
+  priority_score: number;
+};
+
+export type DashboardSummary = {
+  total_clients: number;
+  pending_this_month: number;
+  ready_for_review: number;
+  failed_client_count: number;
+  show_all_finalized_banner: boolean;
+  total_itc_protected: number;
+  itc_protected_has_data: boolean;
+  itc_at_risk: number;
+  team_members: number;
+  attention: DashboardAttentionItem[];
+};
+
+export const dashboardApi = {
+  summary: (token: string) =>
+    apiFetch<DashboardSummary>("/api/dashboard/summary", { token }),
+};
+
 export interface CreditBatchRow {
   plan: string | null;
   runs_purchased: number | null;

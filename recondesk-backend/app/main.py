@@ -22,6 +22,7 @@ from app.routers import (
     audit_observations,
     auth,
     billing,
+    dashboard,
     export as export_router,
     import_router,
     intelligence,
@@ -245,6 +246,8 @@ app.include_router(
 app.include_router(notes.router, prefix="/api/notes", tags=["Notes"])
 app.include_router(clients_router, prefix="/api/clients", tags=["Clients"])
 app.include_router(clients_router, prefix="/api/v1/clients", tags=["Clients v1"])
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
+app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
 app.include_router(
     gstr2b_autofetch_router,
     prefix="/api/clients",
