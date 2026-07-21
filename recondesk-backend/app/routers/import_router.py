@@ -99,8 +99,30 @@ def _assigned_client_gstin_id(sb: Client, current_user: dict) -> str:
     return str(res.data[0]["id"]).strip()
 
 
-def _gstr2b_buyer_gstin_from_raw(raw: bytes) -> str | None:
-    """Best-effort buyer GSTIN from GSTR-2B JSON (portal layouts vary)."""
+def _gstr2b_buyer_gstin_from_raw(
+    raw: bytes, filename: str | None = None
+) -> str | None:
+    """Best-effort buyer GSTIN from GSTR-2B JSON or alt Excel export."""
+    from app.parsers.gstr2b_excel import (
+        excel_to_alt_2b_dict,
+        is_gstr2b_excel_bytes,
+        is_gstr2b_excel_filename,
+    )
+
+    name = filename or ""
+    if is_gstr2b_excel_filename(name) or (
+        not name.lower().endswith(".json") and is_gstr2b_excel_bytes(raw)
+    ):
+        try:
+            alt = excel_to_alt_2b_dict(raw, name or "gstr2b.xlsx")
+        except ValueError:
+            return None
+        gst = alt.get("gstin")
+        if gst is None:
+            return None
+        s = str(gst).strip()
+        return s or None
+
     try:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -144,10 +166,12 @@ async def import_gstr2b(
     period: str = Form(...),
     current_user: dict = Depends(get_current_active_user),
 ):
-    if not file.filename or not file.filename.lower().endswith(".json"):
+    if not file.filename or not file.filename.lower().endswith(
+        (".json", ".xlsx", ".xls")
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="file must have .json extension",
+            detail="file must have .json, .xlsx, or .xls extension",
         )
     if not PERIOD_RE.match(period.strip()):
         raise HTTPException(
@@ -180,7 +204,25 @@ async def import_gstr2b(
         )
 
     file_hash = hashlib.sha256(raw).hexdigest()
-    if raw[0:1] not in (b"{", b"["):
+    fname_lower = (file.filename or "").lower()
+    is_excel = fname_lower.endswith((".xlsx", ".xls"))
+    if is_excel:
+        from app.parsers.gstr2b_excel import is_gstr2b_excel_bytes
+
+        if not is_gstr2b_excel_bytes(raw):
+            await log_action(
+                str(current_user.get("id")),
+                "UPLOAD_REJECTED",
+                "gstr2b",
+                cg,
+                {"reason": "not_excel_bytes"},
+                ip_address=(request.client.host if request.client else None),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Excel file is not a valid .xls/.xlsx workbook",
+            )
+    elif raw[0:1] not in (b"{", b"["):
         await log_action(
             str(current_user.get("id")),
             "UPLOAD_REJECTED",
@@ -218,7 +260,7 @@ async def import_gstr2b(
         client_gstin_raw = ""
         if cg_res.data and cg_res.data[0].get("gstin") is not None:
             client_gstin_raw = str(cg_res.data[0]["gstin"]).strip()
-        file_gstin_raw = _gstr2b_buyer_gstin_from_raw(raw) or ""
+        file_gstin_raw = _gstr2b_buyer_gstin_from_raw(raw, filename=file.filename) or ""
         if client_gstin_raw and file_gstin_raw:
             n_file = _gstin_norm_for_compare(file_gstin_raw)
             n_client = _gstin_norm_for_compare(client_gstin_raw)
@@ -277,7 +319,10 @@ async def import_gstr2b(
         # Previous init failed or stuck in uploading — retry full init on same run.
         run_id = row["id"]
         ts = int(datetime.now(timezone.utc).timestamp())
-        r2_key = f"uploads/{cg}/{period_norm}/gstr2b_{ts}.json"
+        upload_ext = "xlsx" if fname_lower.endswith(".xlsx") else (
+            "xls" if fname_lower.endswith(".xls") else "json"
+        )
+        r2_key = f"uploads/{cg}/{period_norm}/gstr2b_{ts}.{upload_ext}"
         now = datetime.now(timezone.utc).isoformat()
         sb.table("reconciliation_run").update(
             {
@@ -292,7 +337,10 @@ async def import_gstr2b(
     else:
         run_id = str(uuid4())
         ts = int(datetime.now(timezone.utc).timestamp())
-        r2_key = f"uploads/{cg}/{period_norm}/gstr2b_{ts}.json"
+        upload_ext = "xlsx" if fname_lower.endswith(".xlsx") else (
+            "xls" if fname_lower.endswith(".xls") else "json"
+        )
+        r2_key = f"uploads/{cg}/{period_norm}/gstr2b_{ts}.{upload_ext}"
         now = datetime.now(timezone.utc).isoformat()
         insert_row = {
             "id": run_id,
@@ -311,11 +359,18 @@ async def import_gstr2b(
     bucket = get_settings().R2_BUCKET_NAME
     ran_import_sync = False
     try:
+        content_type = (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            if upload_ext == "xlsx"
+            else "application/vnd.ms-excel"
+            if upload_ext == "xls"
+            else "application/json"
+        )
         _s3().put_object(
             Bucket=bucket,
             Key=r2_key,
             Body=raw,
-            ContentType="application/json",
+            ContentType=content_type,
         )
         queued_at = datetime.now(timezone.utc).isoformat()
         sb.table("reconciliation_run").update(

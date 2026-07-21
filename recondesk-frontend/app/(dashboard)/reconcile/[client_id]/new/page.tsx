@@ -517,39 +517,52 @@ export default function NewReconcileWizardPage() {
     if (typeof token !== "string" || !runId) return false;
     setErr(null);
     setGstrUploadFailed(false);
-    if (!file.name.toLowerCase().endsWith(".json")) {
-      setErr("File must be a .json export.");
+    const lower = file.name.toLowerCase();
+    const isJson = lower.endsWith(".json");
+    const isExcel = lower.endsWith(".xlsx") || lower.endsWith(".xls");
+    if (!isJson && !isExcel) {
+      setErr("File must be a .json, .xlsx, or .xls export.");
       return false;
     }
     if (file.size > MAX_UPLOAD) {
       setErr("File must be under 20 MB.");
       return false;
     }
-    const text = await file.text();
-    try {
-      JSON.parse(text);
-    } catch {
-      setErr("This file is not valid JSON. Export again from the GST portal.");
-      return false;
+    let uploadFile = file;
+    let contentType = file.type || "application/octet-stream";
+    if (isJson) {
+      const text = await file.text();
+      try {
+        JSON.parse(text);
+      } catch {
+        setErr("This file is not valid JSON. Export again from the GST portal.");
+        return false;
+      }
+      uploadFile = new File([text], file.name, { type: "application/json" });
+      contentType = "application/json";
+    } else if (lower.endsWith(".xlsx")) {
+      contentType =
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    } else {
+      contentType = "application/vnd.ms-excel";
     }
-    const normalized = new File([text], file.name, { type: "application/json" });
-    const hash = await sha256Hex(normalized);
+    const hash = await sha256Hex(uploadFile);
     setBusy(true);
     setGstrProgress(0);
     try {
       const su = await importWizardApi.signedUrl(token, {
         type: "gstr2b",
         run_id: runId,
-        file_name: normalized.name,
-        content_type: "application/json",
+        file_name: uploadFile.name,
+        content_type: contentType,
       });
       await withRetries(
         () =>
           putWithProgress(
             su.upload_url,
-            normalized,
+            uploadFile,
             hash,
-            su.headers["Content-Type"] ?? "application/json",
+            su.headers["Content-Type"] ?? contentType,
             setGstrProgress
           ),
         3,
@@ -557,8 +570,8 @@ export default function NewReconcileWizardPage() {
       );
       const updated = await importWizardApi.gstr2bUploadComplete(token, runId, {
         r2_key: su.key,
-        file_name: normalized.name,
-        file_size: normalized.size,
+        file_name: uploadFile.name,
+        file_size: uploadFile.size,
         file_hash: hash,
       });
       setRun(updated);
@@ -1352,7 +1365,7 @@ export default function NewReconcileWizardPage() {
             <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
               {gstnConnected && !showManualGstrUpload && !run?.gstr2b_file_name
                 ? "GSTR-2B"
-                : "Upload GSTR-2B JSON"}
+                : "Upload GSTR-2B"}
             </h2>
             <button type="button" onClick={onBack} className="text-sm text-[var(--ink)] hover:underline">
               Back
@@ -1463,7 +1476,7 @@ export default function NewReconcileWizardPage() {
                   {gstnConnected && showManualGstrUpload ? (
                     <div className="flex items-center justify-between gap-2">
                       <h3 className="text-sm font-medium text-[var(--text-primary)]">
-                        Upload GSTR-2B JSON
+                        Upload GSTR-2B
                       </h3>
                       <button
                         type="button"
@@ -1479,7 +1492,7 @@ export default function NewReconcileWizardPage() {
                   ) : null}
                   <input
                     type="file"
-                    accept=".json,application/json"
+                    accept=".json,.xlsx,.xls,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     onChange={(e) => setGstrFile(e.target.files?.[0] ?? null)}
                     className="text-sm"
                   />

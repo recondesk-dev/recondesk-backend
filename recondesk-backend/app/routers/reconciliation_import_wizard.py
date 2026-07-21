@@ -230,9 +230,20 @@ async def signed_upload_url(
         # Allow replace while still on the GSTR-2B step (failed sanity / wrong file).
         if r["status"] not in ("draft", "gstr_uploaded"):
             raise HTTPException(status.HTTP_409_CONFLICT, "GSTR-2B upload not allowed in this state")
-        ext = ".json"
+        raw_ext = (file_name.rsplit(".", 1)[-1] if "." in file_name else "json").lower()
+        if raw_ext not in ("json", "xlsx", "xls"):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "GSTR-2B file must be .json, .xlsx, or .xls",
+            )
+        ext = f".{raw_ext}"
         key = f"import-wizard/{run_id}/gstr2b{ext}"
-        ct = "application/json"
+        if raw_ext == "json":
+            ct = "application/json"
+        elif raw_ext == "xlsx":
+            ct = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        else:
+            ct = "application/vnd.ms-excel"
     elif t in ("purchase_register", "pr"):
         if r["status"] != "gstr_uploaded":
             raise HTTPException(
@@ -269,7 +280,9 @@ async def gstr2b_upload_complete(
 
     _gstr2_obj = ws._r2().get_object(Bucket=settings.R2_BUCKET_NAME, Key=body.r2_key)
     gstr2_raw = _gstr2_obj["Body"].read()
-    file_gstin_raw = _gstr2b_buyer_gstin_from_raw(gstr2_raw) or ""
+    file_gstin_raw = (
+        _gstr2b_buyer_gstin_from_raw(gstr2_raw, filename=body.file_name) or ""
+    )
     cg_res = (
         sb.table("client_gstins")
         .select("gstin")
@@ -421,7 +434,9 @@ async def sanity_check_gstr2b(
     if cg_res.data and cg_res.data[0].get("gstin") is not None:
         client_gstin_fallback = str(cg_res.data[0]["gstin"]).strip()
     checks, record_count = ws.run_sanity_gstr2b_json(
-        raw, fallback_buyer_gstin=client_gstin_fallback or None
+        raw,
+        filename=r.get("gstr2b_file_name") or key,
+        fallback_buyer_gstin=client_gstin_fallback or None,
     )
     checks = ws.preserve_check_acknowledgments(
         r.get("sanity_check_results"), checks

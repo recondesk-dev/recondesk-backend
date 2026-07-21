@@ -510,8 +510,8 @@ export default function OnboardingPage() {
             </div>
 
             <FileDropZone
-              label="Drop GSTR-2B JSON here or click to browse"
-              accept=".json,application/json"
+              label="Drop GSTR-2B JSON or Excel here or click to browse"
+              accept=".json,.xlsx,.xls,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               file={gstrFile}
               onFile={setGstrFile}
             />

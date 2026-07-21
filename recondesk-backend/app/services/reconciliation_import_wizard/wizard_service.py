@@ -235,9 +235,18 @@ def another_processing_run(sb: Client, client_id: str, period_iso: str, exclude_
 def run_sanity_gstr2b_json(
     raw: bytes,
     *,
+    filename: str | None = None,
     fallback_buyer_gstin: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Return checks list per API contract and parsed invoice record count."""
+    """Return checks list per API contract and parsed invoice record count.
+
+    Accepts portal/alt JSON or third-party ``.xls`` / ``.xlsx`` (same flat schema).
+    """
+    from app.parsers.gstr2b_excel import (
+        is_gstr2b_excel_bytes,
+        is_gstr2b_excel_filename,
+        load_gstr2b_upload_payload,
+    )
     from app.parsers.gstr2b_parser import (
         BUYER_GSTIN_MISSING_WARNING,
         BUYER_GSTIN_SOURCE_PLACEHOLDER,
@@ -245,15 +254,27 @@ def run_sanity_gstr2b_json(
     )
 
     checks: list[dict[str, Any]] = []
+    name = filename or ""
+    is_excel = is_gstr2b_excel_filename(name) or (
+        not name.lower().endswith(".json") and is_gstr2b_excel_bytes(raw)
+    )
+
     try:
-        json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+        payload = load_gstr2b_upload_payload(
+            raw, name, fallback_buyer_gstin=fallback_buyer_gstin
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if is_excel:
+            detail = f"File is not a readable GSTR-2B Excel export. ({exc})"
+        elif "invalid_json" in detail or "invalid_utf8" in detail:
+            detail = "File is not valid JSON or GSTR-2B Excel."
         checks.append(
             {
-                "id": "json_parse",
-                "label": "Valid JSON",
+                "id": "file_parse",
+                "label": "Valid file",
                 "status": "error",
-                "detail": "File is not valid JSON.",
+                "detail": detail,
                 "affected_records": [],
             }
         )
@@ -261,16 +282,16 @@ def run_sanity_gstr2b_json(
 
     checks.append(
         {
-            "id": "json_parse",
-            "label": "Valid JSON",
+            "id": "file_parse",
+            "label": "Valid file",
             "status": "pass",
-            "detail": "",
+            "detail": "Excel GSTR-2B export" if is_excel else "JSON GSTR-2B export",
             "affected_records": [],
         }
     )
 
     try:
-        parsed = parse_gstr2b(raw, fallback_buyer_gstin=fallback_buyer_gstin)
+        parsed = parse_gstr2b(payload, fallback_buyer_gstin=fallback_buyer_gstin)
     except ValueError as exc:
         checks.append(
             {

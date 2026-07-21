@@ -164,8 +164,10 @@ def _gstr_records_for_sanity(records: list[dict]) -> list[dict]:
 def _load_and_normalize_gstr2b_body_for_parse(
     body: bytes,
     *,
+    filename: str | None = None,
     fallback_buyer_gstin: str | None = None,
 ) -> dict[str, Any]:
+    from app.parsers.gstr2b_excel import load_gstr2b_upload_payload
     from app.parsers.gstr2b_parser import (
         _UNSUPPORTED_GSTR2B_SCHEMA,
         is_alt_gstr2b_schema,
@@ -173,16 +175,9 @@ def _load_and_normalize_gstr2b_body_for_parse(
         normalize_gstr2b_payload,
     )
 
-    try:
-        data: Any = json.loads(body.decode("utf-8"))
-    except json.JSONDecodeError as e:
-        raise ValueError(
-            f"invalid_json at line {e.lineno}, column {e.colno}: {e.msg}"
-        ) from e
-    except UnicodeDecodeError as e:
-        raise ValueError(f"invalid_utf8: {e}") from e
-    if not isinstance(data, dict):
-        raise ValueError("invalid_data_structure")
+    data = load_gstr2b_upload_payload(
+        body, filename, fallback_buyer_gstin=fallback_buyer_gstin
+    )
     if "data" not in data:
         if is_alt_gstr2b_schema(data):
             data = normalize_alt_2b_schema(
@@ -283,7 +278,9 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
                 if cg_res.data and cg_res.data[0].get("gstin") is not None:
                     client_gstin_fallback = str(cg_res.data[0]["gstin"]).strip()
             gstr_payload = _load_and_normalize_gstr2b_body_for_parse(
-                body, fallback_buyer_gstin=client_gstin_fallback or None
+                body,
+                filename=os.path.basename(r2_key) if r2_key else None,
+                fallback_buyer_gstin=client_gstin_fallback or None,
             )
             parsed = parse_gstr2b(gstr_payload)
             records = list(parsed.get("records") or [])
