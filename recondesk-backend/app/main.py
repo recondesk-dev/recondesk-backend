@@ -43,6 +43,7 @@ from app.routers import (
 from app.routers import payments as payments_routes
 from app.routers.clients import clients_router
 from app.routers.gstr2b_autofetch_routes import router as gstr2b_autofetch_router
+from app.routers.gst_fetch_routes import router as gst_fetch_router
 from app.routers.gstin import router as gstin_router
 from app.routers.team import router as team_router
 from app.routers.rules import router as rules_router
@@ -263,6 +264,11 @@ app.include_router(
     gstr2b_autofetch_router,
     prefix="/api/v1/clients",
     tags=["GSTR-2B Autofetch"],
+)
+app.include_router(
+    gst_fetch_router,
+    prefix="/api/fetch",
+    tags=["GST Fetch"],
 )
 app.include_router(gstin_router, prefix="/api/gstin", tags=["GSTIN"])
 app.include_router(team_router, prefix="/api/team", tags=["Team"])
