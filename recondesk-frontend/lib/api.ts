@@ -99,6 +99,8 @@ export type Payment =
 export interface ApiError {
   detail: string;
   status: number;
+  /** Original FastAPI ``detail`` (object or string) when the body was JSON. */
+  rawDetail?: unknown;
 }
 
 export function isApiError(e: unknown): e is ApiError {
@@ -289,13 +291,15 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
+    let rawDetail: unknown;
     try {
       const json = (await res.json()) as { detail?: unknown };
+      rawDetail = json.detail;
       detail = formatApiErrorDetail(json.detail, detail);
     } catch {
       // Response body was not JSON
     }
-    throw { detail, status: res.status } satisfies ApiError;
+    throw { detail, status: res.status, rawDetail } satisfies ApiError;
   }
 
   if (res.status === 204) return undefined as unknown as T;
@@ -1755,6 +1759,291 @@ export const filingApi = {
       "/api/filing/session/otp/verify",
       { method: "POST", body: JSON.stringify(body), token }
     ),
+};
+
+// ─── GSTR-3B filing (Sandbox / GSTN) ──────────────────────────────────────────
+
+export type Gstr3bPdcashRow = {
+  liab_ldg_id: number;
+  trans_typ: number;
+  ipd: number;
+  cpd: number;
+  spd: number;
+  cspd: number;
+  i_intrpd?: number;
+  c_intrpd?: number;
+  s_intrpd?: number;
+  cs_intrpd?: number;
+  c_lfeepd?: number;
+  s_lfeepd?: number;
+  [key: string]: unknown;
+};
+
+export type Gstr3bPditc = {
+  liab_ldg_id: number;
+  trans_typ: number;
+  i_pdi: number;
+  i_pdc: number;
+  i_pds: number;
+  c_pdi: number;
+  c_pdc: number;
+  s_pdi: number;
+  s_pds: number;
+  cs_pdcs: number;
+  [key: string]: unknown;
+};
+
+export type Gstr3bOffsetPreviewResponse = {
+  period: string;
+  gstin: string;
+  pdcash: Gstr3bPdcashRow[];
+  pditc: Gstr3bPditc;
+  details: Record<string, unknown>;
+  ledger: Record<string, unknown>;
+};
+
+export type Gstr3bSaveResponse = {
+  run_id: string;
+  reference_id: string | null;
+  status: string;
+  period: string;
+  outer_status_cd?: string | null;
+  gstn_status_cd?: string | null;
+  message?: string;
+};
+
+export type Gstr3bOffsetResponse = {
+  period: string;
+  run_id: string;
+  reference_id: string | null;
+  status: string;
+  offset_payload: { pdcash: Gstr3bPdcashRow[]; pditc: Gstr3bPditc };
+  outer_status_cd?: string | null;
+  gstn_status_cd?: string | null;
+  gstn_success?: boolean;
+  message?: string;
+};
+
+export type Gstr3bStatusResponse = FilingStatusResponse & {
+  action?: string | null;
+};
+
+export type Gstr3bPeriodLockedDetail = {
+  code: "GSTR3B_PERIOD_LOCKED";
+  action: string;
+  message: string;
+  gstin: string;
+  period: string;
+  locking_run: {
+    run_id: string | null;
+    status: string | null;
+    offset_completed_at: string | null;
+    reference_id: string | null;
+    offset_payload: unknown;
+    tx_pmt_snapshot: unknown;
+  };
+};
+
+export type Gstr3bOffsetStaleDetail = {
+  code: "GSTR3B_OFFSET_STALE";
+  message: string;
+  period: string;
+  posted: { pdcash: Gstr3bPdcashRow[]; pditc: Gstr3bPditc };
+  current: { pdcash: Gstr3bPdcashRow[]; pditc: Gstr3bPditc };
+};
+
+function gstr3bPeriodPath(period: string): string {
+  return `/api/filing/gstr-3b/${encodeURIComponent(period.trim())}`;
+}
+
+export function parseGstr3bPeriodLocked(
+  err: unknown
+): Gstr3bPeriodLockedDetail | null {
+  if (!isApiError(err) || err.status !== 409) return null;
+  const raw = err.rawDetail;
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  if (obj.code !== "GSTR3B_PERIOD_LOCKED") return null;
+  const lr =
+    obj.locking_run && typeof obj.locking_run === "object"
+      ? (obj.locking_run as Record<string, unknown>)
+      : {};
+  return {
+    code: "GSTR3B_PERIOD_LOCKED",
+    action: String(obj.action || ""),
+    message: String(obj.message || err.detail),
+    gstin: String(obj.gstin || ""),
+    period: String(obj.period || ""),
+    locking_run: {
+      run_id: lr.run_id != null ? String(lr.run_id) : null,
+      status: lr.status != null ? String(lr.status) : null,
+      offset_completed_at:
+        lr.offset_completed_at != null ? String(lr.offset_completed_at) : null,
+      reference_id:
+        lr.reference_id != null ? String(lr.reference_id) : null,
+      offset_payload: lr.offset_payload ?? null,
+      tx_pmt_snapshot: lr.tx_pmt_snapshot ?? null,
+    },
+  };
+}
+
+export function parseGstr3bOffsetStale(
+  err: unknown
+): Gstr3bOffsetStaleDetail | null {
+  if (!isApiError(err) || err.status !== 409) return null;
+  const raw = err.rawDetail;
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  if (obj.code !== "GSTR3B_OFFSET_STALE") return null;
+  const posted =
+    obj.posted && typeof obj.posted === "object"
+      ? (obj.posted as Gstr3bOffsetStaleDetail["posted"])
+      : { pdcash: [], pditc: {} as Gstr3bPditc };
+  const current =
+    obj.current && typeof obj.current === "object"
+      ? (obj.current as Gstr3bOffsetStaleDetail["current"])
+      : { pdcash: [], pditc: {} as Gstr3bPditc };
+  return {
+    code: "GSTR3B_OFFSET_STALE",
+    message: String(obj.message || err.detail),
+    period: String(obj.period || ""),
+    posted,
+    current,
+  };
+}
+
+export const gstr3bFilingApi = {
+  details: (
+    token: string,
+    period: string,
+    params: { client_gstin_id: string; session_id?: string | null }
+  ) => {
+    const sp = new URLSearchParams();
+    sp.set("client_gstin_id", params.client_gstin_id);
+    if (params.session_id) sp.set("session_id", params.session_id);
+    return apiFetch<{
+      period: string;
+      gstin: string;
+      details: Record<string, unknown>;
+    }>(`${gstr3bPeriodPath(period)}/details?${sp.toString()}`, { token });
+  },
+
+  ledgerBalance: (
+    token: string,
+    period: string,
+    params: { client_gstin_id: string; session_id?: string | null }
+  ) => {
+    const sp = new URLSearchParams();
+    sp.set("client_gstin_id", params.client_gstin_id);
+    if (params.session_id) sp.set("session_id", params.session_id);
+    return apiFetch<{
+      period: string;
+      gstin: string;
+      ledger: Record<string, unknown>;
+    }>(`${gstr3bPeriodPath(period)}/ledger-balance?${sp.toString()}`, {
+      token,
+    });
+  },
+
+  offsetPreview: (
+    token: string,
+    period: string,
+    params: { client_gstin_id: string; session_id?: string | null }
+  ) => {
+    const sp = new URLSearchParams();
+    sp.set("client_gstin_id", params.client_gstin_id);
+    if (params.session_id) sp.set("session_id", params.session_id);
+    return apiFetch<Gstr3bOffsetPreviewResponse>(
+      `${gstr3bPeriodPath(period)}/offset-preview?${sp.toString()}`,
+      { token, directBackend: true, cache: "no-store" }
+    );
+  },
+
+  save: (
+    token: string,
+    period: string,
+    body: {
+      client_gstin_id: string;
+      period: string;
+      session_id?: string | null;
+      run_id?: string | null;
+      save_body: Record<string, unknown>;
+    }
+  ) =>
+    apiFetch<Gstr3bSaveResponse>(`${gstr3bPeriodPath(period)}/save`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  status: (
+    token: string,
+    period: string,
+    params: {
+      reference_id: string;
+      session_id?: string | null;
+      run_id?: string | null;
+    }
+  ) => {
+    const sp = new URLSearchParams();
+    sp.set("reference_id", params.reference_id);
+    if (params.session_id) sp.set("session_id", params.session_id);
+    if (params.run_id) sp.set("run_id", params.run_id);
+    return apiFetch<Gstr3bStatusResponse>(
+      `${gstr3bPeriodPath(period)}/status?${sp.toString()}`,
+      {
+        token,
+        directBackend: true,
+        timeoutMs: STATUS_POLL_REQUEST_TIMEOUT_MS,
+        cache: "no-store",
+      }
+    );
+  },
+
+  offset: (
+    token: string,
+    period: string,
+    body: {
+      client_gstin_id: string;
+      session_id?: string | null;
+      run_id: string;
+      pdcash: Gstr3bPdcashRow[];
+      pditc: Gstr3bPditc;
+    }
+  ) =>
+    apiFetch<Gstr3bOffsetResponse>(`${gstr3bPeriodPath(period)}/offset`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  evcOtp: (
+    token: string,
+    period: string,
+    body: { pan: string; session_id?: string | null; run_id?: string | null }
+  ) =>
+    apiFetch<FilingEvcOtpResponse>(`${gstr3bPeriodPath(period)}/evc-otp`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  file: (
+    token: string,
+    period: string,
+    body: {
+      pan: string;
+      otp: string;
+      session_id?: string | null;
+      run_id?: string | null;
+      file_body?: Record<string, unknown> | null;
+    }
+  ) =>
+    apiFetch<FilingFileResponse>(`${gstr3bPeriodPath(period)}/file`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
 };
 
 // ─── Manage Data (admin raw file storage) ─────────────────────────────────────

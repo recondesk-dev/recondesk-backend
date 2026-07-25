@@ -126,6 +126,12 @@ export default function SettingsHubPage() {
       Icon: ClipboardList,
     },
     {
+      href: "/filing/gstr-3b",
+      title: "GSTR-3B Filing",
+      description: "Confirm figures, Save, Offset liability, EVC, File.",
+      Icon: ClipboardList,
+    },
+    {
       href: "/settings/billing",
       title: "Billing",
       description: "Plans, invoices, and payment methods.",

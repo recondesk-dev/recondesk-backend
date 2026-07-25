@@ -67,3 +67,33 @@ export function isSaveTerminalFailure(
 ): boolean {
   return runStatus === "save_failed" || runStatus === "failed";
 }
+
+/** GSTR-3B: Save confirmed (before Offset). */
+export function isGstr3bSaveConfirmed(
+  runStatus: string | null | undefined
+): boolean {
+  return (
+    runStatus === "saved" ||
+    runStatus === "offset_pending" ||
+    runStatus === "offset_complete" ||
+    runStatus === "offset_failed" ||
+    runStatus === "evc_pending" ||
+    runStatus === "filed"
+  );
+}
+
+export function isGstr3bSaveFailed(
+  runStatus: string | null | undefined
+): boolean {
+  return runStatus === "save_failed" || runStatus === "failed";
+}
+
+export function isGstr3bOffsetComplete(
+  runStatus: string | null | undefined
+): boolean {
+  return (
+    runStatus === "offset_complete" ||
+    runStatus === "evc_pending" ||
+    runStatus === "filed"
+  );
+}
