@@ -619,6 +619,32 @@ def _normalize_invoice_number_cell(val: Any) -> str | None:
     return normalize_invoice(str(s))
 
 
+def _invoice_number_raw_from_cell(val: Any) -> str | None:
+    """Original invoice-number cell text, before ``normalize_invoice``.
+
+    Preserves case and punctuation from the workbook. Only coerces whole-number
+    Excel floats (``1234.0`` → ``\"1234\"``) so filing ``inum`` stays readable.
+    """
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(val, bool):
+        return None
+    if isinstance(val, int):
+        return str(val)
+    if isinstance(val, float):
+        if val == int(val):
+            return str(int(val))
+        s = str(val).strip()
+        return s or None
+    s = str(val).strip()
+    return s or None
+
+
 def normalize_amount(value: Any) -> int:
     """Convert input to integer paise safely.
 
@@ -1106,8 +1132,14 @@ def _process_sr_sheet_rows(
                 gstin_valid = False
 
         # --- Invoice number ---
+        # Preserve the original cell as invoice_number_raw for GSTR-1 filing
+        # (inum). Matching continues to use the normalized/uppercased form.
+        invoice_number_raw: str | None = None
         inv_raw: str | None = None
         if "invoice_number" in column_mapping:
+            invoice_number_raw = _invoice_number_raw_from_cell(
+                orig_row.get(column_mapping["invoice_number"])
+            )
             cell = row.get("invoice_number_normalized")
             if cell is None or (isinstance(cell, float) and pd.isna(cell)):
                 inv_raw = None
@@ -1143,8 +1175,13 @@ def _process_sr_sheet_rows(
         pos_raw = _safe_cell(row.get("place_of_supply"))
         place_of_supply = _normalize_place_of_supply(pos_raw)
 
-        # --- Explicit invoice type from column ---
+        # --- Explicit invoice / supply type text (kept raw for filing inv_typ) ---
         explicit_invoice_type = _safe_cell(row.get("invoice_type"))
+        export_type_raw = (
+            _safe_cell(row.get("export_type"))
+            if "export_type" in column_mapping
+            else None
+        )
 
         # --- Classify invoice type ---
         invoice_type = _classify_invoice_type(
@@ -1250,8 +1287,13 @@ def _process_sr_sheet_rows(
             "row_number": row_number,
             "invoice_number_normalized": inv_raw,
             "invoice_number": inv_raw,
+            # Original cell for GSTR-1 Save ``inum`` — never re-normalize for filing.
+            "invoice_number_raw": invoice_number_raw if invoice_number_raw is not None else inv_raw,
             "document_type": invoice_type,
+            # Derived recon category (B2B / B2C / EXPORT / …).
             "invoice_type": invoice_type,
+            # Raw workbook text from invoice type / supply type column (pre-classify).
+            "invoice_type_raw": explicit_invoice_type,
             "invoice_date": date_value,
             "gstin": gstin_value,
             "gstin_valid": gstin_valid,
@@ -1278,7 +1320,7 @@ def _process_sr_sheet_rows(
             _hsn = row.get("hsn")
             if _hsn is not None and not (isinstance(_hsn, float) and pd.isna(_hsn)):
                 out["hsn"] = str(_hsn).strip()
-        # Export-specific fields
+        # Export-specific fields (raw text — not a derived WPAY/WOPAY enum).
         if "shipping_port_code" in column_mapping:
             _spc = _safe_cell(row.get("shipping_port_code"))
             if _spc is not None:
@@ -1291,10 +1333,9 @@ def _process_sr_sheet_rows(
             _sbd = _safe_cell(row.get("shipping_bill_date"))
             if _sbd is not None:
                 out["shipping_bill_date"] = _sbd
-        if "export_type" in column_mapping:
-            _et = _safe_cell(row.get("export_type"))
-            if _et is not None:
-                out["export_type"] = _et
+        if export_type_raw is not None:
+            out["export_type"] = export_type_raw
+            out["export_type_raw"] = export_type_raw
 
         records.append(out)
 

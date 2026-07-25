@@ -332,3 +332,68 @@ def test_matcher_treats_na_gstin_as_both_absent():
     r = generic_match_pair(sr, g1, SALES_MATCH_CONFIG)
     assert r.matched is True
     assert r.level <= 2
+
+
+def test_sr_preserves_invoice_number_raw_and_type_raw_for_filing():
+    """Filing needs original inum / type text, not only recon categories."""
+    rows = [
+        [
+            "Invoice Date",
+            "Invoice No",
+            "Customer Name",
+            "GSTIN",
+            "Place of Supply",
+            "Invoice Type",
+            "Export Type",
+            "Taxable Value (₹)",
+            "CGST (₹)",
+            "SGST (₹)",
+            "IGST (₹)",
+            "Invoice Value (₹)",
+        ],
+        [
+            "2025-04-01",
+            "RD/2025-26/1034",
+            "Om Sai",
+            "27AAECO5678G1Z2",
+            "Maharashtra",
+            "Tax Invoice",
+            None,
+            1000,
+            90,
+            90,
+            0,
+            1180,
+        ],
+        [
+            "2025-04-02",
+            "SEZ-001",
+            "SEZ Buyer",
+            "27AABCS2345L1Z7",
+            "Maharashtra",
+            "SEZ with payment",
+            "WPAY",
+            2000,
+            0,
+            0,
+            0,
+            2000,
+        ],
+    ]
+    result = parse_sales_register(_xlsx_bytes(rows), "filing_raw.xlsx")
+    assert result["success"] is True
+    by_norm = {r["invoice_number_normalized"]: r for r in result["records"]}
+
+    r1 = by_norm["RD2025261034"]
+    assert r1["invoice_number_raw"] == "RD/2025-26/1034"
+    assert r1["invoice_type"] == "B2B"
+    assert r1["invoice_type_raw"] == "Tax Invoice"
+    assert r1.get("export_type") is None
+
+    r2 = by_norm["SEZ1"]
+    assert r2["invoice_number_raw"] == "SEZ-001"
+    # Recon category collapses SEZ into EXPORT; raw text is kept for inv_typ.
+    assert r2["invoice_type"] == "EXPORT"
+    assert r2["invoice_type_raw"] == "SEZ with payment"
+    assert r2["export_type"] == "WPAY"
+    assert r2["export_type_raw"] == "WPAY"
