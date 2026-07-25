@@ -148,6 +148,26 @@ def assert_gstr3b_offset_allowed(sb, *, gstin: str, period: str) -> None:
     )
 
 
+def gstr3b_period_locked_detail(exc: Gstr3bPeriodLockedError) -> dict[str, Any]:
+    """Structured ``409`` body for FE / CA: which run holds the lock + proof."""
+    run = exc.locking_run if isinstance(exc.locking_run, dict) else {}
+    return {
+        "code": "GSTR3B_PERIOD_LOCKED",
+        "action": exc.action,
+        "message": str(exc),
+        "gstin": exc.gstin,
+        "period": exc.period,
+        "locking_run": {
+            "run_id": run.get("id"),
+            "status": run.get("status"),
+            "offset_completed_at": run.get("offset_completed_at"),
+            "reference_id": run.get("reference_id"),
+            "offset_payload": run.get("offset_payload"),
+            "tx_pmt_snapshot": run.get("tx_pmt_snapshot"),
+        },
+    }
+
+
 def _iso(dt: datetime | None) -> str | None:
     if dt is None:
         return None

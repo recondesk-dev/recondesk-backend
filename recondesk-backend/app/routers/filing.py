@@ -1,4 +1,4 @@
-"""GSTR-1 filing API: taxpayer OTP session + Save→File chain."""
+"""GSTR-1 / GSTR-3B filing API: taxpayer OTP session + Save→File chain."""
 
 from __future__ import annotations
 
@@ -15,6 +15,12 @@ from app.filing.gstr1_orchestrator import (
     map_sales_register_to_gstr1,
     serialize_gstr1_readiness,
 )
+from app.filing.gstr3b_offset import (
+    Gstr3bOffsetBuildError,
+    build_gstr3b_offset_body,
+    extract_offset_pair,
+    offset_bodies_equal,
+)
 from app.filing.sandbox_filing_client import (
     FilingApiError,
     FilingAuthError,
@@ -28,6 +34,10 @@ from app.filing.sandbox_filing_client import (
 # File / EVC require a GSTN-confirmed Save (inner status_cd P) or later.
 _EVC_OR_FILE_STATUSES = frozenset({"saved", "proceeded", "evc_pending"})
 _PROCEED_STATUSES = frozenset({"saved"})
+# GSTR-3B: Offset after confirmed Save; EVC/File after Offset complete.
+_GSTR3B_OFFSET_STATUSES = frozenset({"saved"})
+_GSTR3B_EVC_OR_FILE_STATUSES = frozenset({"offset_complete", "evc_pending"})
+_GSTR3B_OFFSET_STATUS_ACTIONS = frozenset({"RETOFFSET", "OFFSET", "OFFLIAB"})
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.utils.audit import resolve_firm_id
 
@@ -158,6 +168,63 @@ class FileGstr1Body(_StripModel):
         return v
 
 
+class SaveGstr3bBody(_StripModel):
+    """CA-confirmed GSTR-3B Save body (product does not invent Rule 42/43 figures)."""
+
+    client_gstin_id: str
+    period: str
+    session_id: Optional[str] = None
+    save_body: dict[str, Any] = Field(default_factory=dict)
+    run_id: Optional[str] = None
+
+    @field_validator("client_gstin_id", "period")
+    @classmethod
+    def _req(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
+
+
+class OffsetGstr3bBody(_StripModel):
+    """Exact ``{pdcash, pditc}`` the CA confirmed — not an empty go-trigger."""
+
+    client_gstin_id: str
+    session_id: Optional[str] = None
+    run_id: str
+    pdcash: list[dict[str, Any]] = Field(default_factory=list)
+    pditc: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("client_gstin_id", "run_id")
+    @classmethod
+    def _req(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
+
+
+class EvcOtpGstr3bBody(EvcOtpBody):
+    """Same shape as GSTR-1 EVC; client passes ``gstr=gstr-3b``."""
+
+
+class FileGstr3bBody(_StripModel):
+    pan: str
+    otp: str
+    session_id: Optional[str] = None
+    run_id: Optional[str] = None
+    # Must include post-Offset ``tx_pmt``; when omitted, re-fetched from Get Details.
+    file_body: Optional[dict[str, Any]] = None
+
+    @field_validator("pan", "otp")
+    @classmethod
+    def _req(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -246,6 +313,31 @@ def _map_client_error(exc: FilingClientError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
 
+def _raise_gstr3b_locked(exc: filing_store.Gstr3bPeriodLockedError) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=filing_store.gstr3b_period_locked_detail(exc),
+    ) from exc
+
+
+def _gstr3b_offset_stale_detail(
+    *,
+    period: str,
+    posted: dict[str, Any],
+    current: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "code": "GSTR3B_OFFSET_STALE",
+        "message": (
+            "Confirmed offset no longer matches current Get Details + ledger "
+            "balance. Refresh the confirmation screen."
+        ),
+        "period": period,
+        "posted": extract_offset_pair(posted),
+        "current": extract_offset_pair(current),
+    }
+
+
 def _load_run_for_firm(sb, firm_id: str, run_id: str) -> dict[str, Any]:
     run = filing_store.get_run(sb, run_id)
     if not run or str(run.get("firm_id")) != firm_id:
@@ -278,8 +370,8 @@ def _require_run_status(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "message": (
-                    f"{action} requires a GSTN-confirmed Save "
-                    f"(run status in {sorted(allowed)}); current={st!r}"
+                    f"{action} requires run status in {sorted(allowed)}; "
+                    f"current={st!r}"
                 ),
                 "run_id": run_id,
                 "run_status": st,
@@ -880,6 +972,486 @@ def file_gstr1(
     try:
         with get_filing_client() as client:
             result = client.file_gstr1(
+                token,
+                period=period,
+                pan=body.pan,
+                otp=body.otp,
+                file_body=file_body,
+            )
+    except FilingClientError as exc:
+        if body.run_id:
+            filing_store.mark_run_failed(
+                sb,
+                body.run_id,
+                error_code=getattr(exc, "error_cd", None),
+                error_message=str(exc),
+                raw_response=getattr(exc, "envelope", None),
+            )
+        raise _map_client_error(exc) from exc
+
+    if body.run_id:
+        filing_store.update_run(
+            sb,
+            body.run_id,
+            status="filed",
+            ack_number=result.ack_number,
+            raw_response=result.envelope,
+            clear_error=True,
+        )
+    info = result.return_status
+    return {
+        "period": period,
+        "status": "filed",
+        "ack_number": result.ack_number,
+        "gstn_status_cd": info.gstn_status_cd if info else None,
+        "outer_status_cd": info.outer_status_cd if info else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GSTR-3B filing chain (no Proceed — Offset replaces it)
+# ---------------------------------------------------------------------------
+
+
+def _fetch_gstr3b_details_and_ledger(client, token: str, *, period: str):
+    details = client.get_gstr3b_details(token, period=period)
+    ledger = client.get_ledger_balance(token, period=period)
+    return details, ledger
+
+
+def _compute_current_offset_body(client, token: str, *, period: str) -> dict[str, Any]:
+    details, ledger = _fetch_gstr3b_details_and_ledger(client, token, period=period)
+    try:
+        return build_gstr3b_offset_body(details.data, ledger.data)
+    except Gstr3bOffsetBuildError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "GSTR3B_OFFSET_BUILD_FAILED", "message": str(exc)},
+        ) from exc
+
+
+@router.get("/gstr-3b/{period}/details")
+def get_gstr3b_details(
+    period: str,
+    client_gstin_id: str,
+    session_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_active_user),
+):
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+    token, _ = _resolve_token(sb, firm_id, session_id=session_id, gstin=gstin)
+    try:
+        with get_filing_client() as client:
+            result = client.get_gstr3b_details(token, period=period)
+    except FilingClientError as exc:
+        raise _map_client_error(exc) from exc
+    info = result.return_status
+    return {
+        "period": period,
+        "gstin": gstin,
+        "details": result.data,
+        "gstn_status_cd": info.gstn_status_cd if info else None,
+        "outer_status_cd": info.outer_status_cd if info else None,
+    }
+
+
+@router.get("/gstr-3b/{period}/ledger-balance")
+def get_gstr3b_ledger_balance(
+    period: str,
+    client_gstin_id: str,
+    session_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_active_user),
+):
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+    token, _ = _resolve_token(sb, firm_id, session_id=session_id, gstin=gstin)
+    try:
+        with get_filing_client() as client:
+            result = client.get_ledger_balance(token, period=period)
+    except FilingClientError as exc:
+        raise _map_client_error(exc) from exc
+    info = result.return_status
+    return {
+        "period": period,
+        "gstin": gstin,
+        "ledger": result.data,
+        "gstn_status_cd": info.gstn_status_cd if info else None,
+        "outer_status_cd": info.outer_status_cd if info else None,
+    }
+
+
+@router.get("/gstr-3b/{period}/offset-preview")
+def gstr3b_offset_preview(
+    period: str,
+    client_gstin_id: str,
+    session_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Authoritative ``{pdcash, pditc}`` for the confirmation UI.
+
+    Uses the same :func:`build_gstr3b_offset_body` helper as the Offset
+    stale-check — what the CA sees is what Offset will accept.
+    """
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+    token, _ = _resolve_token(sb, firm_id, session_id=session_id, gstin=gstin)
+    try:
+        with get_filing_client() as client:
+            details, ledger = _fetch_gstr3b_details_and_ledger(
+                client, token, period=period,
+            )
+            try:
+                offset_body = build_gstr3b_offset_body(details.data, ledger.data)
+            except Gstr3bOffsetBuildError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "code": "GSTR3B_OFFSET_BUILD_FAILED",
+                        "message": str(exc),
+                    },
+                ) from exc
+    except FilingClientError as exc:
+        raise _map_client_error(exc) from exc
+    return {
+        "period": period,
+        "gstin": gstin,
+        "pdcash": offset_body["pdcash"],
+        "pditc": offset_body["pditc"],
+        "details": details.data,
+        "ledger": ledger.data,
+    }
+
+
+@router.post("/gstr-3b/{period}/save")
+def save_gstr3b(
+    period: str,
+    body: SaveGstr3bBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    period = _assert_period_yyyy_mm(period)
+    if body.period != period:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="period path and body must match",
+        )
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, body.client_gstin_id)
+    gstin = str(client_row["gstin"]).strip().upper()
+
+    try:
+        filing_store.assert_gstr3b_save_allowed(sb, gstin=gstin, period=period)
+    except filing_store.Gstr3bPeriodLockedError as exc:
+        _raise_gstr3b_locked(exc)
+
+    token, session_row = _resolve_token(
+        sb, firm_id, session_id=body.session_id, gstin=gstin,
+    )
+    save_body = dict(body.save_body)
+    save_body.setdefault("gstin", gstin)
+    save_body.setdefault("ret_period", period_to_fp(period))
+
+    run = None
+    if body.run_id:
+        run = _load_run_for_firm(sb, firm_id, body.run_id)
+        filing_store.update_run(
+            sb, body.run_id, save_payload=save_body, clear_error=True,
+        )
+        run_id = body.run_id
+    else:
+        run = filing_store.create_run(
+            sb,
+            firm_id=firm_id,
+            gstin=gstin,
+            period=period,
+            return_type=filing_store.RETURN_TYPE_GSTR3B,
+            filing_session_id=str(session_row["id"]),
+            client_gstin_id=body.client_gstin_id,
+            save_payload=save_body,
+            status="draft",
+        )
+        run_id = run["id"]
+
+    try:
+        with get_filing_client() as client:
+            result = client.save_gstr3b(
+                token, period=period, save_body=save_body, sb=sb,
+            )
+    except filing_store.Gstr3bPeriodLockedError as exc:
+        _raise_gstr3b_locked(exc)
+    except FilingClientError as exc:
+        filing_store.mark_run_failed(
+            sb,
+            run_id,
+            error_code=getattr(exc, "error_cd", None),
+            error_message=str(exc),
+            raw_response=getattr(exc, "envelope", None),
+        )
+        raise _map_client_error(exc) from exc
+
+    filing_store.update_run(
+        sb,
+        run_id,
+        status="save_pending",
+        reference_id=result.reference_id,
+        raw_response=result.envelope,
+        clear_error=True,
+    )
+    info = result.return_status
+    return {
+        "run_id": run_id,
+        "reference_id": result.reference_id,
+        "status": "save_pending",
+        "period": period,
+        "outer_status_cd": info.outer_status_cd if info else None,
+        "gstn_status_cd": info.gstn_status_cd if info else None,
+        "message": "Save accepted for processing; poll status until inner P",
+    }
+
+
+@router.get("/gstr-3b/{period}/status")
+def gstr3b_return_status(
+    period: str,
+    reference_id: str,
+    session_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Return Status poll — advances Save **or** Offset from inner action."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    token, _ = _resolve_token(sb, firm_id, session_id=session_id)
+    try:
+        with get_filing_client() as client:
+            result = client.get_return_status(
+                token, period=period, reference_id=reference_id,
+            )
+    except FilingClientError as exc:
+        raise _map_client_error(exc) from exc
+
+    info = result.return_status
+    run_status = None
+    if run_id and info is not None:
+        action = (info.action or "SAVE").upper()
+        if action in _GSTR3B_OFFSET_STATUS_ACTIONS:
+            updated = filing_store.apply_offset_status_to_run(
+                sb,
+                run_id,
+                return_status=info,
+                envelope=result.envelope,
+            )
+            run_status = updated.get("status")
+            # After Offset P, snapshot tx_pmt for File / CA proof.
+            if run_status == "offset_complete":
+                try:
+                    with get_filing_client() as client:
+                        details = client.get_gstr3b_details(token, period=period)
+                    tx_pmt = None
+                    if isinstance(details.data, dict):
+                        tx_pmt = details.data.get("tx_pmt") or details.data
+                    if tx_pmt is not None:
+                        filing_store.update_run(
+                            sb, run_id, tx_pmt_snapshot=tx_pmt,
+                        )
+                except FilingClientError:
+                    _log.warning(
+                        "post-offset Get Details failed for run_id=%s; "
+                        "tx_pmt_snapshot not stored",
+                        run_id,
+                    )
+        elif action == "SAVE":
+            updated = filing_store.apply_save_status_to_run(
+                sb,
+                run_id,
+                return_status=info,
+                envelope=result.envelope,
+            )
+            run_status = updated.get("status")
+        else:
+            filing_store.update_run(
+                sb, run_id, raw_response=result.envelope,
+            )
+
+    return {
+        "period": period,
+        "reference_id": reference_id,
+        "data": result.data,
+        "gstn_status_cd": info.gstn_status_cd if info else None,
+        "outer_status_cd": info.outer_status_cd if info else None,
+        "gstn_success": bool(info and info.is_success),
+        "gstn_failed": bool(info and info.is_failed),
+        "run_status": run_status,
+        "action": info.action if info else None,
+        "error_cd": info.error_cd if info else None,
+        "error_message": info.error_message if info else None,
+    }
+
+
+@router.post("/gstr-3b/{period}/offset")
+def offset_gstr3b(
+    period: str,
+    body: OffsetGstr3bBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Offset Liability — CA must POST the exact confirmed ``{pdcash, pditc}``.
+
+    Recomputes from live Get Details + ledger via the shared builder; rejects
+    with ``GSTR3B_OFFSET_STALE`` when the confirmation is out of date.
+    """
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, body.client_gstin_id)
+    gstin = str(client_row["gstin"]).strip().upper()
+
+    _require_run_status(
+        sb,
+        firm_id,
+        body.run_id,
+        allowed=_GSTR3B_OFFSET_STATUSES,
+        action="Offset",
+    )
+
+    try:
+        filing_store.assert_gstr3b_offset_allowed(sb, gstin=gstin, period=period)
+    except filing_store.Gstr3bPeriodLockedError as exc:
+        _raise_gstr3b_locked(exc)
+
+    posted = extract_offset_pair({"pdcash": body.pdcash, "pditc": body.pditc})
+    token, _ = _resolve_token(
+        sb, firm_id, session_id=body.session_id, gstin=gstin,
+    )
+
+    try:
+        with get_filing_client() as client:
+            current = _compute_current_offset_body(client, token, period=period)
+            if not offset_bodies_equal(posted, current):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=_gstr3b_offset_stale_detail(
+                        period=period, posted=posted, current=current,
+                    ),
+                )
+            result = client.offset_gstr3b_liability(
+                token,
+                period=period,
+                gstin=gstin,
+                offset_body=posted,
+                sb=sb,
+            )
+    except filing_store.Gstr3bPeriodLockedError as exc:
+        _raise_gstr3b_locked(exc)
+    except FilingClientError as exc:
+        filing_store.mark_run_failed(
+            sb,
+            body.run_id,
+            error_code=getattr(exc, "error_cd", None),
+            error_message=str(exc),
+            raw_response=getattr(exc, "envelope", None),
+        )
+        raise _map_client_error(exc) from exc
+
+    filing_store.update_run(
+        sb,
+        body.run_id,
+        status="offset_pending",
+        reference_id=result.reference_id,
+        raw_response=result.envelope,
+        offset_payload=posted,
+        clear_error=True,
+    )
+    info = result.return_status
+    return {
+        "period": period,
+        "run_id": body.run_id,
+        "reference_id": result.reference_id,
+        "status": "offset_pending",
+        "offset_payload": posted,
+        "outer_status_cd": info.outer_status_cd if info else None,
+        "gstn_status_cd": info.gstn_status_cd if info else None,
+        "gstn_success": False,
+        "message": "Offset accepted for processing; poll status until inner P",
+    }
+
+
+@router.post("/gstr-3b/{period}/evc-otp")
+def generate_evc_otp_gstr3b(
+    period: str,
+    body: EvcOtpGstr3bBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    _require_run_status(
+        sb,
+        firm_id,
+        body.run_id,
+        allowed=_GSTR3B_EVC_OR_FILE_STATUSES,
+        action="EVC OTP",
+    )
+    token, _ = _resolve_token(sb, firm_id, session_id=body.session_id)
+    try:
+        with get_filing_client() as client:
+            result = client.generate_evc_otp_gstr3b(token, pan=body.pan)
+    except FilingClientError as exc:
+        raise _map_client_error(exc) from exc
+    if body.run_id:
+        filing_store.update_run(
+            sb, body.run_id, status="evc_pending", clear_error=True,
+        )
+    info = result.return_status
+    data = result.data if isinstance(result.data, dict) else {}
+    return {
+        "period": period,
+        "message": "EVC OTP sent to authorized signatory",
+        "status_cd": data.get("status_cd"),
+        "gstn_status_cd": info.gstn_status_cd if info else None,
+        "outer_status_cd": info.outer_status_cd if info else None,
+    }
+
+
+@router.post("/gstr-3b/{period}/file")
+def file_gstr3b(
+    period: str,
+    body: FileGstr3bBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """File GSTR-3B. EVC OTP in JSON body only (never as query to our API)."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    _require_run_status(
+        sb,
+        firm_id,
+        body.run_id,
+        allowed=_GSTR3B_EVC_OR_FILE_STATUSES,
+        action="File",
+    )
+    token, _ = _resolve_token(sb, firm_id, session_id=body.session_id)
+
+    file_body = body.file_body
+    if file_body is None:
+        try:
+            with get_filing_client() as client:
+                details = client.get_gstr3b_details(token, period=period)
+        except FilingClientError as exc:
+            raise _map_client_error(exc) from exc
+        file_body = dict(details.data) if isinstance(details.data, dict) else {}
+
+    try:
+        with get_filing_client() as client:
+            result = client.file_gstr3b(
                 token,
                 period=period,
                 pan=body.pan,
