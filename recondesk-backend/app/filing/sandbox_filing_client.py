@@ -1,7 +1,7 @@
-"""Sandbox.co.in taxpayer filing client (OTP session + GSTR-1 Save→File).
+"""Sandbox.co.in taxpayer filing client (OTP session + GSTR-1 / GSTR-3B).
 
 Separate from ``sandbox_gst_client.py`` (stateless IMS/2B). This client owns
-the stateful taxpayer session and the GSTR-1 filing chain.
+the stateful taxpayer session and return filing chains.
 
 Auth (confirmed live 2026-07): generate OTP → verify OTP → refresh.
 Logout may return GSTN ``TEC4002`` (HTTP 200, status_cd 0) — treated as
@@ -10,13 +10,19 @@ Session safety net is ``token_expires_at`` (~6h), not logout success.
 
 Dual ``status_cd`` (critical):
   - Outer ``data.status_cd == "1"`` means Sandbox/GSTN *accepted the request*
-    for processing (Save/Proceed/Reset), **not** that GSTN accepted the data.
+    for processing (Save / Offset / Proceed / Reset), **not** that GSTN
+    finished successfully.
   - Inner ``data.data.status_cd`` on Return Status is the real outcome:
     ``P`` = processed/success, ``ER`` = error, ``PE`` = processed with error,
     ``REC`` = still received/in progress.
-  Save must stay ``save_pending`` until Status shows ``P``; ``ER``/``PE`` →
-  ``save_failed``. Never trust the outer ``status_cd`` alone when an inner
-  one is present.
+  Save stays ``save_pending`` until Status shows ``P``; Offset stays
+  ``offset_pending`` until Status shows ``P``. ``ER``/``PE`` →
+  ``save_failed`` / ``offset_failed``. Never trust the outer ``status_cd``
+  alone when an inner one is present.
+
+GSTR-3B Save / Offset Liability call :func:`assert_gstr3b_save_allowed` /
+:func:`assert_gstr3b_offset_allowed` **inside** those methods (require
+``sb``) so no caller can skip the period Offset gate.
 
 EVC OTP on File is a query param (``?pan=&otp=``). Never log or persist it;
 use ``log_safety`` scrubbers for any URL/params that touch that call.
@@ -277,19 +283,54 @@ def parse_return_status(envelope: Mapping[str, Any] | None) -> ReturnStatusInfo:
     )
 
 
-def filing_run_status_after_save_poll(
+def filing_run_status_after_async_poll(
     info: ReturnStatusInfo,
+    *,
+    on_success: str,
+    on_failure: str,
+    on_pending: str,
+    pending_label: str = "operation",
 ) -> tuple[str, str | None, str | None]:
-    """Map a Save Return Status poll → ``filing_runs.status`` (+ error fields).
+    """Map a Return Status poll → ``filing_runs.status`` (+ error fields).
 
+    Shared by GSTR-1 Save and GSTR-3B Offset (and any future async GSTN step).
     Returns ``(status, error_code, error_message)``.
     """
     if info.is_success:
-        return "saved", None, None
+        return on_success, None, None
     if info.is_failed:
-        msg = info.error_message or f"GSTN save status_cd={info.gstn_status_cd}"
-        return "save_failed", info.error_cd or info.gstn_status_cd, msg
-    return "save_pending", None, None
+        msg = (
+            info.error_message
+            or f"GSTN {pending_label} status_cd={info.gstn_status_cd}"
+        )
+        return on_failure, info.error_cd or info.gstn_status_cd, msg
+    return on_pending, None, None
+
+
+def filing_run_status_after_save_poll(
+    info: ReturnStatusInfo,
+) -> tuple[str, str | None, str | None]:
+    """Map a Save Return Status poll → ``saved`` / ``save_failed`` / ``save_pending``."""
+    return filing_run_status_after_async_poll(
+        info,
+        on_success="saved",
+        on_failure="save_failed",
+        on_pending="save_pending",
+        pending_label="save",
+    )
+
+
+def filing_run_status_after_offset_poll(
+    info: ReturnStatusInfo,
+) -> tuple[str, str | None, str | None]:
+    """Map an Offset Return Status poll → ``offset_complete`` / ``offset_failed`` / ``offset_pending``."""
+    return filing_run_status_after_async_poll(
+        info,
+        on_success="offset_complete",
+        on_failure="offset_failed",
+        on_pending="offset_pending",
+        pending_label="offset",
+    )
 
 
 def _raise_if_inner_gstn_failure(
@@ -309,8 +350,16 @@ def _raise_if_inner_gstn_failure(
     )
 
 
+def _gstin_from_save_body(save_body: Mapping[str, Any]) -> str:
+    raw = save_body.get("gstin") if isinstance(save_body, Mapping) else None
+    g = str(raw or "").strip().upper()
+    if not g:
+        raise FilingClientError("GSTR-3B save_body missing gstin (required for Offset gate)")
+    return g
+
+
 class SandboxFilingClient:
-    """HTTP client for Sandbox taxpayer session + GSTR-1 filing APIs."""
+    """HTTP client for Sandbox taxpayer session + GSTR-1 / GSTR-3B filing APIs."""
 
     def __init__(
         self,
@@ -701,6 +750,196 @@ class SandboxFilingClient:
             sensitive_params=True,
         )
         _raise_if_inner_gstn_failure(envelope, context="File GSTR-1")
+        data = envelope.get("data") if isinstance(envelope, dict) else None
+        nested = _nested_payload(data if isinstance(data, dict) else None)
+        ack = nested.get("ack_num") or nested.get("ack_number")
+        return FilingApiResult(
+            envelope=envelope,
+            ack_number=str(ack) if ack else None,
+            data=nested,
+            return_status=parse_return_status(envelope),
+        )
+
+    # ----------------------------------------------------------- GSTR-3B chain
+    def get_gstr3b_details(
+        self,
+        taxpayer_token: str,
+        *,
+        period: str,
+    ) -> FilingApiResult:
+        """``GET /gst/compliance/tax-payer/gstrs/gstr-3b/{year}/{month}``.
+
+        After a successful Offset, re-fetch to obtain ``tx_pmt`` (required for File).
+        """
+        year, month = period_to_year_month(period)
+        path = f"/gst/compliance/tax-payer/gstrs/gstr-3b/{year}/{month}"
+        envelope = self._request(
+            "GET",
+            path,
+            authorization=taxpayer_token,
+            require_gstn_success=True,
+        )
+        _raise_if_inner_gstn_failure(envelope, context="Get GSTR-3B Details")
+        data = envelope.get("data") if isinstance(envelope, dict) else None
+        nested = _nested_payload(data if isinstance(data, dict) else None)
+        # Details payload may sit at data.data or directly under data.
+        details = nested if nested else (data if isinstance(data, dict) else {})
+        return FilingApiResult(
+            envelope=envelope,
+            data=details if isinstance(details, dict) else {},
+            return_status=parse_return_status(envelope),
+        )
+
+    def get_ledger_balance(
+        self,
+        taxpayer_token: str,
+        *,
+        period: str,
+    ) -> FilingApiResult:
+        """``GET /gst/compliance/tax-payer/ledgers/bal/{year}/{month}``."""
+        year, month = period_to_year_month(period)
+        path = f"/gst/compliance/tax-payer/ledgers/bal/{year}/{month}"
+        envelope = self._request(
+            "GET",
+            path,
+            authorization=taxpayer_token,
+            require_gstn_success=True,
+        )
+        _raise_if_inner_gstn_failure(envelope, context="Get ledger balance")
+        data = envelope.get("data") if isinstance(envelope, dict) else None
+        nested = _nested_payload(data if isinstance(data, dict) else None)
+        return FilingApiResult(
+            envelope=envelope,
+            data=nested or (data if isinstance(data, dict) else {}),
+            return_status=parse_return_status(envelope),
+        )
+
+    def save_gstr3b(
+        self,
+        taxpayer_token: str,
+        *,
+        period: str,
+        save_body: Mapping[str, Any],
+        sb,
+    ) -> FilingApiResult:
+        """``POST .../gstrs/gstr-3b/{year}/{month}``.
+
+        Calls :func:`assert_gstr3b_save_allowed` **before** the HTTP request so
+        a period that already completed Offset cannot Save again (any run_id).
+
+        Outer ``status_cd == "1"`` + ``reference_id`` only means accepted for
+        processing — poll :meth:`wait_for_return_status` for inner ``P``.
+        """
+        from app.filing.filing_store import assert_gstr3b_save_allowed
+
+        gstin = _gstin_from_save_body(save_body)
+        assert_gstr3b_save_allowed(sb, gstin=gstin, period=period)
+
+        year, month = period_to_year_month(period)
+        path = f"/gst/compliance/tax-payer/gstrs/gstr-3b/{year}/{month}"
+        envelope = self._request(
+            "POST",
+            path,
+            authorization=taxpayer_token,
+            json_body=dict(save_body),
+            require_gstn_success=True,
+        )
+        _raise_if_inner_gstn_failure(envelope, context="Save GSTR-3B")
+        data = envelope.get("data") if isinstance(envelope, dict) else None
+        nested = _nested_payload(data if isinstance(data, dict) else None)
+        ref = nested.get("reference_id")
+        return FilingApiResult(
+            envelope=envelope,
+            reference_id=str(ref) if ref else None,
+            data=nested,
+            return_status=parse_return_status(envelope),
+        )
+
+    def offset_gstr3b_liability(
+        self,
+        taxpayer_token: str,
+        *,
+        period: str,
+        gstin: str,
+        offset_body: Mapping[str, Any],
+        sb,
+    ) -> FilingApiResult:
+        """``POST .../gstr-3b/{year}/{month}/offset-liability``.
+
+        Calls :func:`assert_gstr3b_offset_allowed` **before** the HTTP request.
+        Outer success / \"Payment of tax successfully done\" is **not** enough —
+        poll Return Status for inner ``P`` before marking ``offset_complete``.
+
+        ``RT-3BAS1070`` (partial/excess) raises :class:`FilingGstnError` and does
+        **not** set the permanent Offset gate.
+        """
+        from app.filing.filing_store import assert_gstr3b_offset_allowed
+
+        assert_gstr3b_offset_allowed(
+            sb, gstin=gstin.strip().upper(), period=period,
+        )
+
+        year, month = period_to_year_month(period)
+        path = (
+            f"/gst/compliance/tax-payer/gstrs/gstr-3b/{year}/{month}/offset-liability"
+        )
+        envelope = self._request(
+            "POST",
+            path,
+            authorization=taxpayer_token,
+            json_body=dict(offset_body),
+            require_gstn_success=True,
+        )
+        _raise_if_inner_gstn_failure(envelope, context="Offset GSTR-3B liability")
+        data = envelope.get("data") if isinstance(envelope, dict) else None
+        nested = _nested_payload(data if isinstance(data, dict) else None)
+        ref = nested.get("reference_id") if nested else None
+        if not ref and isinstance(data, dict):
+            # Some envelopes put reference_id beside Message under data.data
+            ref = data.get("reference_id")
+        return FilingApiResult(
+            envelope=envelope,
+            reference_id=str(ref) if ref else None,
+            data=nested or (data if isinstance(data, dict) else {}),
+            return_status=parse_return_status(envelope),
+        )
+
+    def generate_evc_otp_gstr3b(
+        self,
+        taxpayer_token: str,
+        *,
+        pan: str,
+    ) -> FilingApiResult:
+        """EVC OTP for GSTR-3B (``?gstr=gstr-3b``)."""
+        return self.generate_evc_otp(
+            taxpayer_token, pan=pan, gstr="gstr-3b",
+        )
+
+    def file_gstr3b(
+        self,
+        taxpayer_token: str,
+        *,
+        period: str,
+        pan: str,
+        otp: str,
+        file_body: Mapping[str, Any],
+    ) -> FilingApiResult:
+        """``POST .../gstr-3b/{year}/{month}/file?pan=&otp=`` — OTP never logged.
+
+        ``file_body`` must include post-Offset ``tx_pmt`` from Get Details.
+        """
+        year, month = period_to_year_month(period)
+        path = f"/gst/compliance/tax-payer/gstrs/gstr-3b/{year}/{month}/file"
+        envelope = self._request(
+            "POST",
+            path,
+            authorization=taxpayer_token,
+            params={"pan": pan.strip().upper(), "otp": otp.strip()},
+            json_body=dict(file_body),
+            require_gstn_success=True,
+            sensitive_params=True,
+        )
+        _raise_if_inner_gstn_failure(envelope, context="File GSTR-3B")
         data = envelope.get("data") if isinstance(envelope, dict) else None
         nested = _nested_payload(data if isinstance(data, dict) else None)
         ack = nested.get("ack_num") or nested.get("ack_number")
