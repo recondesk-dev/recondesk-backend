@@ -89,3 +89,4 @@ supabase/.temp/
 /app/scripts/test_live_sandbox.py
 /app/scripts/test_live_sandbox.py.save
 recon_result_*.json
+scratch/

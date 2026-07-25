@@ -56,6 +56,8 @@ START_TIME = datetime.now(timezone.utc)
 
 # ── Sentry ────────────────────────────────────────────────────────────────────
 if settings.SENTRY_DSN:
+    from app.filing.log_safety import sentry_scrub_event
+
     sentry_sdk.init(
         dsn=settings.SENTRY_DSN,
         environment=settings.APP_ENV,
@@ -66,6 +68,9 @@ if settings.SENTRY_DSN:
         traces_sample_rate=0.2,
         profiles_sample_rate=0.1,
         send_default_pii=False,
+        # File GSTR-1 puts EVC OTP on Sandbox query string (?otp=&pan=).
+        # Scrub those keys from any captured request URL / exception text.
+        before_send=sentry_scrub_event,
     )
 
 _HEALTH_PROBE_KEY = "__recondesk/health_probe__"
