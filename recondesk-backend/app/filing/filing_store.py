@@ -13,6 +13,140 @@ logger = logging.getLogger(__name__)
 SESSIONS = "filing_sessions"
 RUNS = "filing_runs"
 
+# GSTR-3B: Offset succeeded (or later). Blocks Save + Offset for the period
+# across ALL run_ids for (gstin, period, return_type=gstr-3b).
+GSTR3B_OFFSET_LOCKED_STATUSES: frozenset[str] = frozenset({
+    "offset_complete",
+    "evc_pending",
+    "filed",
+})
+
+RETURN_TYPE_GSTR3B = "gstr-3b"
+
+
+class Gstr3bPeriodLockedError(Exception):
+    """Save/Offset refused because Offset already completed for this period.
+
+    Raised before any Sandbox call. Carries the locking run so callers can
+    surface tx_pmt_snapshot / offset_completed_at as proof.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        action: str,
+        gstin: str,
+        period: str,
+        locking_run: dict[str, Any],
+    ) -> None:
+        super().__init__(message)
+        self.action = action
+        self.gstin = gstin
+        self.period = period
+        self.locking_run = locking_run
+
+
+def find_gstr3b_offset_lock(
+    sb,
+    *,
+    gstin: str,
+    period: str,
+) -> dict[str, Any] | None:
+    """Return any GSTR-3B run that has permanently completed Offset for period.
+
+    Queries by ``(gstin, period, return_type)`` across **all** runs — not the
+    current ``run_id``. Used to hard-block a second Save or Offset attempt.
+    """
+    g = (gstin or "").strip().upper()
+    p = (period or "").strip()
+    if not g or not p:
+        return None
+    res = (
+        sb.table(RUNS)
+        .select(
+            "id, status, offset_completed_at, tx_pmt_snapshot, "
+            "offset_payload, reference_id, created_at, updated_at"
+        )
+        .eq("return_type", RETURN_TYPE_GSTR3B)
+        .eq("gstin", g)
+        .eq("period", p)
+        .in_("status", sorted(GSTR3B_OFFSET_LOCKED_STATUSES))
+        .order("offset_completed_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def assert_gstr3b_period_unlocked(
+    sb,
+    *,
+    gstin: str,
+    period: str,
+    action: str,
+) -> None:
+    """Hard-block Save or Offset when Offset already completed for the period.
+
+    ``action`` is ``\"save\"`` or ``\"offset\"`` (used in the error message).
+    Corrections after Offset must go in a **future** period's return — there
+    is no read-only Save path for a locked period.
+    """
+    action_key = (action or "").strip().lower()
+    if action_key not in ("save", "offset"):
+        raise ValueError(f"action must be 'save' or 'offset'; got {action!r}")
+
+    locking = find_gstr3b_offset_lock(sb, gstin=gstin, period=period)
+    if locking is None:
+        return
+
+    g = (gstin or "").strip().upper()
+    p = (period or "").strip()
+    lock_id = locking.get("id")
+    lock_status = locking.get("status")
+    completed_at = locking.get("offset_completed_at")
+    has_tx_pmt = locking.get("tx_pmt_snapshot") is not None
+
+    if action_key == "save":
+        detail = (
+            f"GSTR-3B Save is blocked for {g} period {p}: Offset Liability "
+            f"already completed (run_id={lock_id}, status={lock_status!r}"
+            f"{f', offset_completed_at={completed_at}' if completed_at else ''}). "
+            "The return for this period is locked after Offset. Correct any "
+            "figures in a future period's GSTR-3B — do not Save again here."
+        )
+    else:
+        detail = (
+            f"GSTR-3B Offset Liability is blocked for {g} period {p}: Offset "
+            f"already completed (run_id={lock_id}, status={lock_status!r}"
+            f"{f', offset_completed_at={completed_at}' if completed_at else ''}). "
+            "A second Offset must not be attempted. Proof: post-Offset Get "
+            f"Details tx_pmt "
+            f"{'is stored on that run' if has_tx_pmt else 'should be re-fetched from GSTN for that run'}. "
+            "Handle corrections in a future period's return."
+        )
+    raise Gstr3bPeriodLockedError(
+        detail,
+        action=action_key,
+        gstin=g,
+        period=p,
+        locking_run=locking,
+    )
+
+
+def assert_gstr3b_save_allowed(sb, *, gstin: str, period: str) -> None:
+    """Refuse a new Save when Offset already completed for (gstin, period)."""
+    assert_gstr3b_period_unlocked(
+        sb, gstin=gstin, period=period, action="save",
+    )
+
+
+def assert_gstr3b_offset_allowed(sb, *, gstin: str, period: str) -> None:
+    """Refuse Offset when any run already reached offset_complete (or later)."""
+    assert_gstr3b_period_unlocked(
+        sb, gstin=gstin, period=period, action="offset",
+    )
+
 
 def _iso(dt: datetime | None) -> str | None:
     if dt is None:
@@ -149,6 +283,9 @@ def update_run(
     error_code: str | None = None,
     error_message: str | None = None,
     clear_error: bool = False,
+    offset_payload: dict[str, Any] | None = None,
+    offset_completed_at: str | None = None,
+    tx_pmt_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "updated_at": _iso(datetime.now(timezone.utc)),
@@ -170,6 +307,12 @@ def update_run(
         payload["error_code"] = error_code
     if error_message is not None:
         payload["error_message"] = error_message
+    if offset_payload is not None:
+        payload["offset_payload"] = offset_payload
+    if offset_completed_at is not None:
+        payload["offset_completed_at"] = offset_completed_at
+    if tx_pmt_snapshot is not None:
+        payload["tx_pmt_snapshot"] = tx_pmt_snapshot
     res = sb.table(RUNS).update(payload).eq("id", run_id).execute()
     return (res.data or [payload])[0]
 
@@ -233,5 +376,51 @@ def apply_save_status_to_run(
         sb,
         run_id,
         status="save_pending",
+        raw_response=envelope,
+    )
+
+
+def apply_offset_status_to_run(
+    sb,
+    run_id: str,
+    *,
+    return_status,
+    envelope: Any = None,
+    offset_payload: dict[str, Any] | None = None,
+    tx_pmt_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Apply an Offset Return Status poll to ``filing_runs``.
+
+    ``P`` → ``offset_complete`` (+ ``offset_completed_at``, optional snapshots);
+    ``ER``/``PE`` → ``offset_failed`` (gate stays off — CA may retry);
+    otherwise ``offset_pending``.
+    """
+    from app.filing.sandbox_filing_client import filing_run_status_after_offset_poll
+
+    status, err_cd, err_msg = filing_run_status_after_offset_poll(return_status)
+    if status == "offset_complete":
+        return update_run(
+            sb,
+            run_id,
+            status="offset_complete",
+            raw_response=envelope,
+            clear_error=True,
+            offset_payload=offset_payload,
+            offset_completed_at=_iso(datetime.now(timezone.utc)),
+            tx_pmt_snapshot=tx_pmt_snapshot,
+        )
+    if status == "offset_failed":
+        return update_run(
+            sb,
+            run_id,
+            status="offset_failed",
+            error_code=err_cd,
+            error_message=(err_msg or "GSTN offset failed")[:2000],
+            raw_response=envelope,
+        )
+    return update_run(
+        sb,
+        run_id,
+        status="offset_pending",
         raw_response=envelope,
     )
