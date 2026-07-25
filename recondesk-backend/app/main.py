@@ -48,6 +48,7 @@ from app.routers.gstin import router as gstin_router
 from app.routers.team import router as team_router
 from app.routers.rules import router as rules_router
 from app.routers.gstr1_reconcile import router as gstr1_reconcile_router
+from app.routers.filing import router as filing_router
 from app.utils.rate_limit import limiter
 
 _log = logging.getLogger(__name__)
@@ -331,6 +332,11 @@ app.include_router(
     gstr1_reconcile_router,
     prefix="/api/gstr1-reconcile",
     tags=["GSTR-1 Reconciliation"],
+)
+app.include_router(
+    filing_router,
+    prefix="/api/filing",
+    tags=["GST Filing"],
 )
 
 

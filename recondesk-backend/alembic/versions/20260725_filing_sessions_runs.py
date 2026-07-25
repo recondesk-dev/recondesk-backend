@@ -109,7 +109,9 @@ def upgrade() -> None:
                     CONSTRAINT filing_runs_status_chk
                         CHECK (status IN (
                             'draft',
+                            'save_pending',
                             'saved',
+                            'save_failed',
                             'proceeded',
                             'evc_pending',
                             'filed',

@@ -30,7 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.filing.gstr1_external_input import FilingDataGaps
+from app.filing.gstr1_external_input import FilingDataGaps, NeedsExternalInput
 from app.filing.gstr1_filing_mapper import (
     PendingReviewInvoice,
     apply_b2cs_netting,
@@ -45,8 +45,9 @@ from app.filing.gstr1_filing_mapper import (
     map_sales_register_to_gstr1_hsn,
     map_sales_register_to_gstr1_nil,
     resolve_nil_amount_column_from_sr_raw,
-    _GSTIN_RE,
+    _counterparty_gstin_ok,
     _coalesce_str,
+    _gstn_finalize_amounts,
     _is_advances_class_row,
     _is_b2c_candidate,
     _looks_like_exp_invoice,
@@ -239,12 +240,12 @@ def map_sales_register_to_gstr1(
         payload["nil"] = nil.nil
     # doc_issue / at / txpd: never invent — omitted when external
 
-    result.save_payload = payload
+    result.save_payload = _gstn_finalize_amounts(payload)
     result.pending_review = pending
     result.external_input_gaps = gaps
     result.row_accounting = accounting
     result.filing_readiness = _compute_filing_readiness(
-        payload=payload,
+        payload=result.save_payload,
         gaps=gaps,
         b2b_count=b2b_count,
         pending_count=len(pending),
@@ -253,8 +254,8 @@ def map_sales_register_to_gstr1(
 
 
 def _gstin_ok(rec: dict[str, Any]) -> bool:
-    gstin = str(rec.get("gstin") or "").strip().upper()
-    return bool(rec.get("gstin_valid")) and bool(_GSTIN_RE.match(gstin))
+    """Checksum-valid counterparty GSTIN (not format-regex alone)."""
+    return _counterparty_gstin_ok(rec)
 
 
 def _primary_lane(rec: dict[str, Any]) -> str:
@@ -452,3 +453,114 @@ def _compute_filing_readiness(
         advisory=advisory,
         summary=summary,
     )
+
+
+# ---------------------------------------------------------------------------
+# API serialization (readiness / save responses)
+# ---------------------------------------------------------------------------
+
+_PENDING_CONTEXT_KEYS = (
+    "row_number",
+    "invoice_number",
+    "invoice_number_raw",
+    "invoice_number_normalized",
+    "invoice_date",
+    "gstin",
+    "place_of_supply",
+    "invoice_type",
+    "invoice_type_raw",
+    "export_type_raw",
+    "note_type",
+    "note_type_raw",
+    "taxable_amount_paise",
+    "igst_paise",
+    "cgst_paise",
+    "sgst_paise",
+    "cess_paise",
+    "total_tax_paise",
+    "total_amount_paise",
+    "tax_rate",
+)
+
+
+def _decision_needed_for_pending(item: PendingReviewInvoice) -> str:
+    """What the CA must choose — worded for UI grouping, not GSTN codes alone."""
+    table = (item.suggested_table or "").lower()
+    reason = (item.reason or "").lower()
+    if table in ("cdnr", "cdnur") or "ntty" in reason:
+        return "ntty"
+    if table == "exp" or "exp_typ" in reason:
+        return "exp_typ"
+    if "unclassified" in reason or table in ("", "unclassified"):
+        return "table_classification"
+    return "inv_typ"
+
+
+def serialize_pending_review_item(item: PendingReviewInvoice) -> dict[str, Any]:
+    rec = item.record if isinstance(item.record, dict) else {}
+    context = {k: rec.get(k) for k in _PENDING_CONTEXT_KEYS if k in rec}
+    return {
+        "suggested_table": item.suggested_table,
+        "reason": item.reason,
+        "proposed_inv_typ": item.proposed_inv_typ,
+        "decision_needed": _decision_needed_for_pending(item),
+        "context": context,
+    }
+
+
+def serialize_external_input_gap(gap: NeedsExternalInput) -> dict[str, Any]:
+    return {
+        "table": gap.table,
+        "filing_period": gap.filing_period,
+        "reason": gap.reason,
+        "message": gap.message,
+        "missing_fields": list(gap.missing_fields),
+        # Hard-blocks File when Table 12 HSN-B2B or Table 13 DOC are missing
+        # with outward supplies; NIL/AT/TXPD stay advisory in readiness.
+        "blocks_file": gap.table in ("hsn", "doc_issue"),
+    }
+
+
+def serialize_filing_readiness(fr: FilingReadiness) -> dict[str, Any]:
+    return {
+        "can_save": fr.can_save,
+        "can_file": fr.can_file,
+        "summary": fr.summary,
+        "save_blockers": list(fr.save_blockers),
+        "file_blockers": list(fr.file_blockers),
+        "advisory": list(fr.advisory),
+    }
+
+
+def serialize_gstr1_readiness(mapped: Gstr1FilingMapResult) -> dict[str, Any]:
+    """Full readiness payload for the CA pre-Save review UI."""
+    gaps = [
+        serialize_external_input_gap(g)
+        for g in mapped.external_input_gaps.needs_external_input
+    ]
+    pending = [serialize_pending_review_item(p) for p in mapped.pending_review]
+    by_table: dict[str, list[dict[str, Any]]] = {}
+    for p in pending:
+        by_table.setdefault(p["suggested_table"] or "unclassified", []).append(p)
+
+    return {
+        "filing_period": mapped.filing_period,
+        "filer_state": mapped.filer_state,
+        "filing_readiness": serialize_filing_readiness(mapped.filing_readiness),
+        "pending_review": pending,
+        "pending_review_by_table": by_table,
+        "pending_review_count": len(pending),
+        "external_input_gaps": gaps,
+        "external_input_tables": sorted(
+            mapped.external_input_gaps.tables_blocked()
+        ),
+        "save_section_keys": sorted(mapped.save_payload.keys()),
+        "row_accounting": {
+            "total_rows": mapped.row_accounting.total_rows,
+            "saved": mapped.row_accounting.saved,
+            "pending_review": mapped.row_accounting.pending_review,
+            "external_input": mapped.row_accounting.external_input,
+            "skipped": mapped.row_accounting.skipped,
+            "by_lane": dict(mapped.row_accounting.by_lane),
+        },
+    }

@@ -18,7 +18,7 @@ from app.filing.gstr1_orchestrator import (
 FILER = "27"
 PERIOD = "2025-04"
 GSTIN_OK = "27AAECO5678G1Z2"
-GSTIN_OTHER = "06AACVV3456J1Z1"
+GSTIN_OTHER = "06AACVV3456J1Z3"
 
 
 def _tax_at_rate(taxable_paise: int, rate: float) -> int:

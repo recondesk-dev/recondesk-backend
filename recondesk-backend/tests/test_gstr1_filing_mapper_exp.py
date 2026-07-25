@@ -169,7 +169,7 @@ def test_never_uses_normalized_invoice_number_for_inum():
 def test_b2b_sez_excluded_standalone_without_running_b2b_first():
     """SEZ-to-registered must not land in exp[] even if EXP is called alone."""
     sez = _exp_sr(
-        gstin="27AABCS2345L1Z7",
+        gstin="27AABCS2345L1Z8",
         gstin_valid=True,
         invoice_type="EXPORT",  # recon lump category
         invoice_type_raw="SEZ with payment",
@@ -190,7 +190,7 @@ def test_b2b_sez_excluded_standalone_without_running_b2b_first():
 def test_b2b_sez_same_row_goes_to_b2b_review_not_exp_save():
     """Cross-check: B2B mapper also peels the same shape (orchestration-safe)."""
     sez = _exp_sr(
-        gstin="27AABCS2345L1Z7",
+        gstin="27AABCS2345L1Z8",
         gstin_valid=True,
         invoice_type="EXPORT",
         invoice_type_raw="SEZ with payment",

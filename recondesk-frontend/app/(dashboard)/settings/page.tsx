@@ -120,6 +120,12 @@ export default function SettingsHubPage() {
       Icon: SlidersHorizontal,
     },
     {
+      href: "/filing/gstr-1",
+      title: "GSTR-1 Filing",
+      description: "Readiness, Save to GSTN, EVC OTP, and File.",
+      Icon: ClipboardList,
+    },
+    {
       href: "/settings/billing",
       title: "Billing",
       description: "Plans, invoices, and payment methods.",

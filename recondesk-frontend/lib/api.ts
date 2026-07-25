@@ -1500,6 +1500,263 @@ export const reconcileSettingsApi = {
     }),
 };
 
+// ─── GSTR-1 filing (Sandbox / GSTN) ───────────────────────────────────────────
+
+export type FilingDecisionNeeded =
+  | "inv_typ"
+  | "ntty"
+  | "exp_typ"
+  | "table_classification"
+  | string;
+
+export type FilingReadinessVerdict = {
+  can_save: boolean;
+  can_file: boolean;
+  summary: string;
+  save_blockers: string[];
+  file_blockers: string[];
+  advisory: string[];
+};
+
+export type FilingPendingReviewItem = {
+  suggested_table: string;
+  reason: string;
+  proposed_inv_typ: string | null;
+  decision_needed: FilingDecisionNeeded;
+  context: Record<string, unknown>;
+};
+
+export type FilingExternalInputGap = {
+  table: string;
+  filing_period: string;
+  reason: string;
+  message: string;
+  missing_fields: string[];
+  blocks_file: boolean;
+};
+
+export type FilingReadinessResponse = {
+  gstin: string;
+  client_gstin_id: string;
+  filing_period: string;
+  filer_state: string;
+  filing_readiness: FilingReadinessVerdict;
+  pending_review: FilingPendingReviewItem[];
+  pending_review_by_table: Record<string, FilingPendingReviewItem[]>;
+  pending_review_count: number;
+  external_input_gaps: FilingExternalInputGap[];
+  external_input_tables: string[];
+  save_section_keys: string[];
+  row_accounting: {
+    total_rows: number;
+    saved: number;
+    pending_review: number;
+    external_input: number;
+    skipped: number;
+    by_lane: Record<string, number>;
+  };
+  record_count?: number;
+  source_filename?: string | null;
+};
+
+export type FilingSaveResponse = {
+  run_id: string;
+  reference_id: string;
+  status: string;
+  filing_readiness: FilingReadinessVerdict;
+  pending_review_count: number;
+  external_input_tables: string[];
+  save_payload_keys: string[];
+};
+
+export type FilingStatusResponse = {
+  period: string;
+  reference_id: string;
+  data: unknown;
+  gstn_status_cd: string | null;
+  outer_status_cd: string | null;
+  gstn_success: boolean;
+  gstn_failed: boolean;
+  run_status: string | null;
+  error_cd: string | null;
+  error_message: string | null;
+};
+
+export type FilingSessionVerifyResponse = {
+  session_id: string;
+  gstin: string;
+  token_expires_at: string | null;
+  session_expires_at?: string | null;
+  status: string;
+};
+
+export type FilingEvcOtpResponse = {
+  period: string;
+  message: string;
+  status_cd?: string | null;
+  gstn_status_cd?: string | null;
+  outer_status_cd?: string | null;
+};
+
+export type FilingFileResponse = {
+  period: string;
+  status: string;
+  ack_number: string | null;
+  gstn_status_cd?: string | null;
+  outer_status_cd?: string | null;
+};
+
+function filingPeriodPath(period: string): string {
+  return `/api/filing/gstr-1/${encodeURIComponent(period.trim())}`;
+}
+
+export const filingApi = {
+  readinessUpload: (
+    token: string,
+    period: string,
+    params: { client_gstin_id: string; sales_register_file: File }
+  ) => {
+    const form = new FormData();
+    form.append("client_gstin_id", params.client_gstin_id);
+    form.append("sales_register_file", params.sales_register_file);
+    return apiFetch<FilingReadinessResponse>(
+      `${filingPeriodPath(period)}/readiness-upload`,
+      { method: "POST", body: form, token }
+    );
+  },
+
+  readiness: (
+    token: string,
+    period: string,
+    body: {
+      client_gstin_id: string;
+      period: string;
+      records: Record<string, unknown>[];
+    }
+  ) =>
+    apiFetch<FilingReadinessResponse>(`${filingPeriodPath(period)}/readiness`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  saveUpload: (
+    token: string,
+    period: string,
+    params: {
+      client_gstin_id: string;
+      sales_register_file: File;
+      session_id?: string | null;
+      gt?: number;
+      cur_gt?: number;
+    }
+  ) => {
+    const form = new FormData();
+    form.append("client_gstin_id", params.client_gstin_id);
+    form.append("sales_register_file", params.sales_register_file);
+    if (params.session_id) form.append("session_id", params.session_id);
+    if (params.gt != null) form.append("gt", String(params.gt));
+    if (params.cur_gt != null) form.append("cur_gt", String(params.cur_gt));
+    return apiFetch<FilingSaveResponse>(
+      `${filingPeriodPath(period)}/save-upload`,
+      { method: "POST", body: form, token }
+    );
+  },
+
+  status: (
+    token: string,
+    period: string,
+    params: {
+      reference_id: string;
+      session_id?: string | null;
+      run_id?: string | null;
+    }
+  ) => {
+    const sp = new URLSearchParams();
+    sp.set("reference_id", params.reference_id);
+    if (params.session_id) sp.set("session_id", params.session_id);
+    if (params.run_id) sp.set("run_id", params.run_id);
+    return apiFetch<FilingStatusResponse>(
+      `${filingPeriodPath(period)}/status?${sp.toString()}`,
+      {
+        token,
+        directBackend: true,
+        timeoutMs: STATUS_POLL_REQUEST_TIMEOUT_MS,
+        cache: "no-store",
+      }
+    );
+  },
+
+  proceed: (
+    token: string,
+    period: string,
+    body: { session_id?: string | null; run_id?: string | null; is_nil?: string }
+  ) =>
+    apiFetch<{
+      period: string;
+      reference_id: string;
+      status: string;
+      gstn_status_cd?: string | null;
+      outer_status_cd?: string | null;
+      error_cd?: string | null;
+      error_message?: string | null;
+    }>(`${filingPeriodPath(period)}/proceed`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  evcOtp: (
+    token: string,
+    period: string,
+    body: { pan: string; session_id?: string | null; run_id?: string | null }
+  ) =>
+    apiFetch<FilingEvcOtpResponse>(`${filingPeriodPath(period)}/evc-otp`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  file: (
+    token: string,
+    period: string,
+    body: {
+      pan: string;
+      otp: string;
+      session_id?: string | null;
+      run_id?: string | null;
+    }
+  ) =>
+    apiFetch<FilingFileResponse>(`${filingPeriodPath(period)}/file`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  generateOtp: (
+    token: string,
+    body: { gstin: string; username: string; client_gstin_id?: string | null }
+  ) =>
+    apiFetch<{ message: string; transaction_id?: string; status_cd?: string }>(
+      "/api/filing/session/otp/generate",
+      { method: "POST", body: JSON.stringify(body), token }
+    ),
+
+  verifyOtp: (
+    token: string,
+    body: {
+      gstin: string;
+      username: string;
+      otp: string;
+      client_gstin_id?: string | null;
+    }
+  ) =>
+    apiFetch<FilingSessionVerifyResponse>(
+      "/api/filing/session/otp/verify",
+      { method: "POST", body: JSON.stringify(body), token }
+    ),
+};
+
 // ─── Manage Data (admin raw file storage) ─────────────────────────────────────
 
 export interface ManageDataFileInfo {

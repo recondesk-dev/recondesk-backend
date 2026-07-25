@@ -30,7 +30,7 @@ def _xlsx_bytes(rows: list[list]) -> bytes:
 def _b2b_sr(**overrides):
     base = {
         "row_number": 2,
-        "gstin": "06AACVV3456J1Z1",
+        "gstin": "06AACVV3456J1Z3",
         "gstin_valid": True,
         "invoice_type": "B2B",
         "invoice_type_raw": None,
@@ -97,7 +97,7 @@ def test_map_b2b_clear_r_uses_invoice_number_raw_and_sandbox_shape():
     assert result.save_invoice_count == 1
     assert result.b2b == [
         {
-            "ctin": "06AACVV3456J1Z1",
+            "ctin": "06AACVV3456J1Z3",
             "inv": [
                 {
                     "inum": "RD/2025-26/1034",
@@ -110,12 +110,12 @@ def test_map_b2b_clear_r_uses_invoice_number_raw_and_sandbox_shape():
                         {
                             "num": 1,
                             "itm_det": {
-                                "rt": 5.0,
+                                "rt": 5,
                                 "txval": 220478.32,
                                 "iamt": 11023.92,
-                                "camt": 0.0,
-                                "samt": 0.0,
-                                "csamt": 0.0,
+                                "camt": 0,
+                                "samt": 0,
+                                "csamt": 0,
                             },
                         }
                     ],
@@ -208,8 +208,8 @@ def test_sr_without_invoice_type_column_maps_b2b_as_r_not_pending_review():
     SEZ / deemed-export / ambiguous type text (or EXPORT+SEZ with GSTIN).
 
     Historical skip note (not inv_typ policy): an earlier draft of this test
-    used GSTINs with invalid check digits (``07AABCN6789S1Z8``,
-    ``29AABCS2345L1Z7``). The parser set ``gstin_valid=False``
+    used GSTINs with invalid check digits (``07AABCN6789S1ZD``,
+    ``29AABCS2345L1Z4``). The parser set ``gstin_valid=False``
     (``normalize_gstin`` → ``invalid_checksum``); the mapper then counted them
     as ``skipped_non_b2b`` because ``gstin_ok`` requires ``gstin_valid``.
     That was test-data corruption, not \"no type column → review\".

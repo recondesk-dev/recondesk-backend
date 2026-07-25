@@ -28,6 +28,7 @@ import {
   StatCard,
   type ResultsBucketTabId,
 } from "@/components/reconcile/ResultsUi";
+import { toFilingPeriodYyyyMm } from "@/components/filing/filingHelpers";
 import {
   countMismatchesByType,
   filterGstr1aEligibleMismatches,
@@ -243,6 +244,17 @@ export function Gstr1ResultsView({
     result.tie_out?.ret_period ||
     result.parse_diagnostics?.gstr1?.filing_period ||
     "—";
+
+  const filingPeriodYyyyMm = toFilingPeriodYyyyMm(
+    typeof periodLabel === "string" ? periodLabel : null
+  );
+  const filingHref = filingPeriodYyyyMm
+    ? `/filing/gstr-1/${encodeURIComponent(filingPeriodYyyyMm)}${
+        result.client_gstin_id
+          ? `?client_gstin_id=${encodeURIComponent(result.client_gstin_id)}`
+          : ""
+      }`
+    : "/filing/gstr-1";
 
   const handleExcel = () => {
     setExcelBusy(true);
@@ -765,6 +777,14 @@ export function Gstr1ResultsView({
               >
                 Run again
               </button>
+            ) : null}
+            {filingHref ? (
+              <Link
+                href={filingHref}
+                className="inline-flex items-center gap-2 rounded-full bg-[#F5F5F6] px-5 py-2.5 text-[13px] font-semibold text-gray-700 transition-colors hover:bg-gray-200/70"
+              >
+                File GSTR-1
+              </Link>
             ) : null}
             <button
               type="button"

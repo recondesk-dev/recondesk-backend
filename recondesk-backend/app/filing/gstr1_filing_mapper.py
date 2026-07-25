@@ -59,6 +59,7 @@ B2CS call up front (precondition, not a row-level data issue).
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -68,6 +69,7 @@ from app.filing.gstr1_external_input import (
     NeedsExternalInput,
     advances_unavailable_from_sr,
 )
+from app.services.normalizer import NormalizationError, normalize_gstin
 
 # GSTN B2B inv_typ codes (Tables 4A/4B/6B/6C).
 INV_TYP_R = "R"
@@ -137,6 +139,88 @@ _AMBIGUOUS_SEZ_EXPORT_HINTS: tuple[str, ...] = (
     "zero-rated",
 )
 
+# Save amount / rate keys that must serialize as JSON ints when whole
+# (GSTN schema marks many of these as ``integer``; ``18.0`` fails validation).
+_GSTN_AMOUNT_KEYS: frozenset[str] = frozenset({
+    "rt",
+    "txval",
+    "iamt",
+    "camt",
+    "samt",
+    "csamt",
+    "val",
+    "qty",
+    "nil_amt",
+    "expt_amt",
+    "ngsup_amt",
+    "ad_amt",
+    "num",  # item / HSN row sequence — always whole
+    "gt",
+    "cur_gt",
+})
+
+
+def _gstn_json_number(value: Any) -> int | float | None:
+    """Coerce a numeric Save field so whole values serialize without ``.0``.
+
+    GSTN/Sandbox JSON Schema treats ``rt`` / ``csamt`` (and several others) as
+    ``integer``. Python ``18.0`` becomes JSON ``18.0``, which fails that check
+    even when the value is mathematically whole. Fractional rates/amounts stay
+    as ``float``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(f):
+        return None
+    rounded = round(f)
+    if abs(f - rounded) < 1e-9:
+        return int(rounded)
+    return f
+
+
+def _gstn_finalize_amounts(obj: Any) -> Any:
+    """Recursively apply :func:`_gstn_json_number` to Save amount keys."""
+    if isinstance(obj, dict):
+        out: dict[str, Any] = {}
+        for key, val in obj.items():
+            if key in _GSTN_AMOUNT_KEYS and isinstance(val, (int, float)) and not isinstance(
+                val, bool
+            ):
+                coerced = _gstn_json_number(val)
+                out[key] = coerced if coerced is not None else val
+            else:
+                out[key] = _gstn_finalize_amounts(val)
+        return out
+    if isinstance(obj, list):
+        return [_gstn_finalize_amounts(item) for item in obj]
+    return obj
+
+
+def _validated_counterparty_gstin(raw: Any) -> str | None:
+    """Format + check-digit via ``normalize_gstin`` (same as SR parser).
+
+    G1M7's ``gstin_format_ok`` is regex-only and must **not** be reused here.
+    """
+    if raw is None:
+        return None
+    try:
+        return normalize_gstin(str(raw))
+    except NormalizationError:
+        return None
+
+
+def _counterparty_gstin_ok(rec: dict[str, Any]) -> bool:
+    """True when recipient GSTIN passes checksum (not format-regex alone)."""
+    return _validated_counterparty_gstin(rec.get("gstin")) is not None
+
+
+# Kept for callers that only need the pattern; prefer ``_validated_counterparty_gstin``.
 _GSTIN_RE = re.compile(
     r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$"
 )
@@ -562,8 +646,8 @@ def map_sales_register_to_gstr1_b2b(
             continue
 
         derived = str(rec.get("invoice_type") or "").strip().upper()
-        gstin = str(rec.get("gstin") or "").strip().upper()
-        gstin_ok = bool(rec.get("gstin_valid")) and bool(_GSTIN_RE.match(gstin))
+        ctin = _validated_counterparty_gstin(rec.get("gstin"))
+        gstin_ok = ctin is not None
 
         type_raw = _coalesce_str(
             rec.get("invoice_type_raw"),
@@ -637,7 +721,8 @@ def map_sales_register_to_gstr1_b2b(
                 )
             )
             continue
-        by_ctin.setdefault(gstin, []).append(inv)
+        assert ctin is not None
+        by_ctin.setdefault(ctin, []).append(inv)
 
     result.b2b = [
         {"ctin": ctin, "inv": invs}
@@ -836,7 +921,7 @@ def map_sales_register_to_gstr1_b2cs(
         bucket["csamt"] += _paise_to_rupees(rec.get("cess_paise")) or 0.0
 
     result.b2cs = [
-        buckets[k]
+        _gstn_finalize_amounts(buckets[k])
         for k in sorted(buckets.keys(), key=lambda x: (x[0], x[1]))
     ]
     return result
@@ -1003,7 +1088,7 @@ def apply_b2cs_netting(
         if abs(txval) <= TAX_RATE_AMOUNT_TOLERANCE_RUPEES:
             result.omitted_zero_buckets += 1
             continue
-        save_rows.append(bucket)
+        save_rows.append(_gstn_finalize_amounts(bucket))
 
     result.b2cs = save_rows
     return result
@@ -1151,7 +1236,7 @@ def map_sales_register_to_gstr1_b2cl(
             )
             continue
 
-        inv = {
+        inv = _gstn_finalize_amounts({
             "inum": inum,
             "idt": idt,
             "val": val,
@@ -1166,7 +1251,7 @@ def map_sales_register_to_gstr1_b2cl(
                     },
                 }
             ],
-        }
+        })
         by_pos.setdefault(pos, []).append(inv)
 
     result.b2cl = [
@@ -1280,8 +1365,8 @@ def map_sales_register_to_gstr1_cdnr(
             rec.get("export_type"),
         )
 
-        gstin = str(rec.get("gstin") or "").strip().upper()
-        gstin_ok = bool(rec.get("gstin_valid")) and bool(_GSTIN_RE.match(gstin))
+        ctin = _validated_counterparty_gstin(rec.get("gstin"))
+        gstin_ok = ctin is not None
 
         if derived not in {"CREDIT_NOTE", "DEBIT_NOTE"}:
             # Defensive unclassified branch (see resolve_ntty_from_sr).
@@ -1351,7 +1436,8 @@ def map_sales_register_to_gstr1_cdnr(
                 )
             )
             continue
-        by_ctin.setdefault(gstin, []).append(note)
+        assert ctin is not None
+        by_ctin.setdefault(ctin, []).append(note)
 
     result.cdnr = [
         {"ctin": ctin, "nt": notes}
@@ -1521,25 +1607,27 @@ def map_sales_register_to_gstr1_cdnur(
             continue
 
         result.cdnur.append(
-            {
-                "typ": "B2CL",
-                "ntty": ntty_res.ntty or "C",
-                "nt_num": nt_num,
-                "nt_dt": nt_dt,
-                "pos": pos,
-                "val": val_paise / 100.0,
-                "itms": [
-                    {
-                        "num": 1,
-                        "itm_det": {
-                            "rt": rt,
-                            "txval": txval,
-                            "iamt": iamt,
-                            "csamt": csamt,
-                        },
-                    }
-                ],
-            }
+            _gstn_finalize_amounts(
+                {
+                    "typ": "B2CL",
+                    "ntty": ntty_res.ntty or "C",
+                    "nt_num": nt_num,
+                    "nt_dt": nt_dt,
+                    "pos": pos,
+                    "val": val_paise / 100.0,
+                    "itms": [
+                        {
+                            "num": 1,
+                            "itm_det": {
+                                "rt": rt,
+                                "txval": txval,
+                                "iamt": iamt,
+                                "csamt": csamt,
+                            },
+                        }
+                    ],
+                }
+            )
         )
 
     return result
@@ -1568,8 +1656,7 @@ def map_sales_register_to_gstr1_exp(
             rec.get("export_type_raw"),
             rec.get("export_type"),
         )
-        gstin = str(rec.get("gstin") or "").strip().upper()
-        gstin_ok = bool(rec.get("gstin_valid")) and bool(_GSTIN_RE.match(gstin))
+        gstin_ok = _counterparty_gstin_ok(rec)
 
         # Notes / nil / advances / HSN are other tables.
         if derived in {
@@ -1745,22 +1832,24 @@ def map_sales_register_to_gstr1_exp(
 
         assert typ_res.exp_typ in (EXP_TYP_WPAY, EXP_TYP_WOPAY)
         by_typ.setdefault(typ_res.exp_typ, []).append(
-            {
-                "inum": inum,
-                "idt": idt,
-                "val": val,
-                "sbpcode": sbpcode,
-                "sbnum": sbnum,
-                "sbdt": sbdt,
-                "itms": [
-                    {
-                        "txval": txval,
-                        "rt": rt,
-                        "iamt": iamt,
-                        "csamt": csamt,
-                    }
-                ],
-            }
+            _gstn_finalize_amounts(
+                {
+                    "inum": inum,
+                    "idt": idt,
+                    "val": val,
+                    "sbpcode": sbpcode,
+                    "sbnum": sbnum,
+                    "sbdt": sbdt,
+                    "itms": [
+                        {
+                            "txval": txval,
+                            "rt": rt,
+                            "iamt": iamt,
+                            "csamt": csamt,
+                        }
+                    ],
+                }
+            )
         )
 
     # Stable order: WPAY then WOPAY.
@@ -1944,7 +2033,7 @@ def map_sales_register_to_gstr1_hsn(
                 )
             )
             continue
-        row = dict(bucket)
+        row = _gstn_finalize_amounts(dict(bucket))
         if side == "hsn_b2b":
             b2b.append(row)
         else:
@@ -2179,8 +2268,7 @@ def map_sales_register_to_gstr1_nil(
             continue
         txval = abs(txval)
 
-        gstin = str(rec.get("gstin") or "").strip().upper()
-        gstin_ok = bool(rec.get("gstin_valid")) and bool(_GSTIN_RE.match(gstin))
+        gstin_ok = _counterparty_gstin_ok(rec)
         is_inter = pos != state
         if is_inter and gstin_ok:
             sply_ty = "INTERB2B"
@@ -2236,7 +2324,7 @@ def map_sales_register_to_gstr1_nil(
         return result
 
     inv = [
-        buckets[k]
+        _gstn_finalize_amounts(buckets[k])
         for k in _NIL_SPLY_TYPES
         if k in buckets
     ]
@@ -2391,9 +2479,7 @@ def _resolve_hsn_uqc_qty(
 
 
 def _hsn_b2b_or_b2c(rec: dict[str, Any]) -> str:
-    gstin = str(rec.get("gstin") or "").strip().upper()
-    gstin_ok = bool(rec.get("gstin_valid")) and bool(_GSTIN_RE.match(gstin))
-    return "hsn_b2b" if gstin_ok else "hsn_b2c"
+    return "hsn_b2b" if _counterparty_gstin_ok(rec) else "hsn_b2c"
 
 
 def _exp_typ_from_text(text: str) -> str | None:
@@ -2623,7 +2709,7 @@ def _sr_record_to_cdnr_nt(
     if not _tax_amount_matches_rate(txval, rt, gst_tax):
         return "tax_amount_inconsistent_with_rate"
 
-    return {
+    return _gstn_finalize_amounts({
         "ntty": ntty,
         "nt_num": nt_num,
         "nt_dt": nt_dt,
@@ -2644,7 +2730,7 @@ def _sr_record_to_cdnr_nt(
                 },
             }
         ],
-    }
+    })
 
 
 def _is_b2c_candidate(rec: dict[str, Any]) -> bool:
@@ -2654,9 +2740,7 @@ def _is_b2c_candidate(rec: dict[str, Any]) -> bool:
     if derived in _NON_B2C_TYPES:
         return False
     # Fallback: no valid recipient GSTIN → treat as B2C-ish for routing.
-    gstin = str(rec.get("gstin") or "").strip().upper()
-    gstin_ok = bool(rec.get("gstin_valid")) and bool(_GSTIN_RE.match(gstin))
-    return not gstin_ok
+    return not _counterparty_gstin_ok(rec)
 
 
 def _tax_rate(rec: dict[str, Any]) -> float | None:
@@ -2892,7 +2976,7 @@ def _sr_record_to_b2b_inv(
     if rt is None:
         return None
 
-    return {
+    return _gstn_finalize_amounts({
         "inum": inum,
         "idt": idt,
         "val": val,
@@ -2912,4 +2996,4 @@ def _sr_record_to_b2b_inv(
                 },
             }
         ],
-    }
+    })

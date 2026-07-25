@@ -46,7 +46,9 @@ CREATE TABLE IF NOT EXISTS public.filing_runs (
     status              text NOT NULL DEFAULT 'draft'
                         CHECK (status IN (
                             'draft',
+                            'save_pending',
                             'saved',
+                            'save_failed',
                             'proceeded',
                             'evc_pending',
                             'filed',
