@@ -49,6 +49,7 @@ from app.routers.team import router as team_router
 from app.routers.rules import router as rules_router
 from app.routers.gstr1_reconcile import router as gstr1_reconcile_router
 from app.routers.filing import router as filing_router
+from app.routers.tally_sync import router as tally_sync_router
 from app.utils.rate_limit import limiter
 
 _log = logging.getLogger(__name__)
@@ -337,6 +338,11 @@ app.include_router(
     filing_router,
     prefix="/api/filing",
     tags=["GST Filing"],
+)
+app.include_router(
+    tally_sync_router,
+    prefix="/api/tally-sync",
+    tags=["Tally Bridge"],
 )
 
 

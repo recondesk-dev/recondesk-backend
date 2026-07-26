@@ -1504,6 +1504,47 @@ export const reconcileSettingsApi = {
     }),
 };
 
+// ─── Tally Bridge ─────────────────────────────────────────────────────────────
+
+export interface TallyBridgeKeyRow {
+  id: string;
+  company_name: string;
+  last_synced_at: string | null;
+  created_at?: string | null;
+}
+
+export interface TallyBridgeStatus {
+  account_id: string;
+  has_key: boolean;
+  keys: TallyBridgeKeyRow[];
+  last_synced_at: string | null;
+}
+
+export interface TallyBridgeCreateKeyResponse {
+  id: string;
+  api_key: string;
+  account_id: string;
+  company_name: string;
+  created_at: string;
+  last_synced_at: string | null;
+}
+
+export const tallyBridgeApi = {
+  status: (token: string) =>
+    apiFetch<TallyBridgeStatus>("/api/tally-sync/status", { token }),
+
+  createKey: (token: string, company_name = "") =>
+    apiFetch<TallyBridgeCreateKeyResponse>("/api/tally-sync/keys", {
+      method: "POST",
+      body: JSON.stringify({ company_name }),
+      token,
+    }),
+
+  agentDownloadUrl: () => `${API_URL}/api/tally-sync/agent`,
+  configExampleDownloadUrl: () =>
+    `${API_URL}/api/tally-sync/agent-config-example`,
+};
+
 // ─── GSTR-1 filing (Sandbox / GSTN) ───────────────────────────────────────────
 
 export type FilingDecisionNeeded =

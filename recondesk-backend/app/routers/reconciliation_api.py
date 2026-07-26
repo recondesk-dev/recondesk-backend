@@ -1217,6 +1217,8 @@ _RULE37_SETTLEMENT_COLUMNS = frozenset(
         "total_settled",
         "remaining_unpaid_amount",
         "payment_coverage",
+        "source",
+        "settled_date",
     }
 )
 
@@ -1233,6 +1235,8 @@ def _rule37_action_insert_payload(
     total_settled: Optional[float] = None,
     remaining_unpaid_amount: Optional[float] = None,
     payment_coverage: Optional[str] = None,
+    source: Optional[str] = None,
+    settled_date: Optional[str] = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "run_id": run_id,
@@ -1257,6 +1261,8 @@ def _rule37_action_insert_payload(
                     else None
                 ),
                 "payment_coverage": payment_coverage,
+                "source": (str(source).strip() if source else None),
+                "settled_date": settled_date,
             }
         )
     else:
@@ -1268,6 +1274,8 @@ def _rule37_action_insert_payload(
                 "total_settled": None,
                 "remaining_unpaid_amount": None,
                 "payment_coverage": None,
+                "source": (str(source).strip() if source else None),
+                "settled_date": None,
             }
         )
     return payload
@@ -1329,12 +1337,17 @@ def _upsert_rule37_action(
     total_settled: Optional[float] = None,
     remaining_unpaid_amount: Optional[float] = None,
     payment_coverage: Optional[str] = None,
+    source: Optional[str] = None,
+    settled_date: Optional[str] = None,
 ) -> None:
     """Persist a Rule 37 action in the dedicated ``rule37_actions`` table.
 
     Uses delete-then-insert keyed on (run_id, record_hash) so clicking the same
     button twice is idempotent.  ``record_hash`` is the bare string after
     stripping the ``r37:`` prefix — plain TEXT, never treated as UUID.
+
+    Optional ``source`` / ``settled_date`` support Tally Bridge auto-settle
+    without duplicating this path (dashboard Mark as Settled omits them).
     """
     record_hash = _rule37_record_hash(record_id)
     _log.debug(
@@ -1352,6 +1365,8 @@ def _upsert_rule37_action(
         total_settled=total_settled,
         remaining_unpaid_amount=remaining_unpaid_amount,
         payment_coverage=payment_coverage,
+        source=source,
+        settled_date=settled_date,
     )
     _persist_rule37_action_row(sb, payload)
 
