@@ -7,6 +7,8 @@ type Props = {
   applied: boolean;
   differsFromInput?: boolean;
   busy?: boolean;
+  /** After Load: unavailable / idle empty-state copy (not shown while values exist). */
+  emptyHint?: string | null;
   onLoad: () => void;
   onUse: () => void;
   onDismiss: () => void;
@@ -24,6 +26,7 @@ export function DraftSuggestionBanner({
   applied,
   differsFromInput,
   busy,
+  emptyHint,
   onLoad,
   onUse,
   onDismiss,
@@ -43,8 +46,11 @@ export function DraftSuggestionBanner({
           </p>
           <p className="mt-0.5 text-[12px] text-amber-950/70">
             Not applied until you click Use — not a pre-filled fact from GSTN.
-            An empty result after Load means suggestions are not wired yet, not
-            that the amount is confirmed zero.
+            {busy
+              ? " Loading draft…"
+              : hasValues
+                ? null
+                : " Click Load for an optional draft from reconcile data."}
           </p>
         </div>
         {!hasValues ? (
@@ -100,6 +106,8 @@ export function DraftSuggestionBanner({
             </div>
           )}
         </div>
+      ) : emptyHint && !busy ? (
+        <p className="mt-2 text-[12px] text-amber-950/70">{emptyHint}</p>
       ) : null}
     </div>
   );

@@ -21,6 +21,10 @@ from app.filing.gstr3b_offset import (
     extract_offset_pair,
     offset_bodies_equal,
 )
+from app.filing.gstr3b_suggestions import (
+    load_itc_oth_suggestion,
+    load_osup_det_suggestion,
+)
 from app.filing.sandbox_filing_client import (
     FilingApiError,
     FilingAuthError,
@@ -1084,6 +1088,38 @@ def get_gstr3b_ledger_balance(
         "gstn_status_cd": info.gstn_status_cd if info else None,
         "outer_status_cd": info.outer_status_cd if info else None,
     }
+
+
+@router.get("/gstr-3b/{period}/suggestions/osup-det")
+def gstr3b_suggest_osup_det(
+    period: str,
+    client_gstin_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Optional GSTR-1 Table 3.1(a) draft for ``osup_det`` — never auto-applied."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    _firm_id(sb, current_user)
+    _assert_client_access(sb, current_user, client_gstin_id.strip())
+    return load_osup_det_suggestion(
+        sb, client_gstin_id=client_gstin_id.strip(), period=period,
+    )
+
+
+@router.get("/gstr-3b/{period}/suggestions/itc-oth")
+def gstr3b_suggest_itc_oth(
+    period: str,
+    client_gstin_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Optional GSTR-2B available-ITC draft for ``itc_avl`` OTH — never auto-applied."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    _firm_id(sb, current_user)
+    _assert_client_access(sb, current_user, client_gstin_id.strip())
+    return load_itc_oth_suggestion(
+        sb, client_gstin_id=client_gstin_id.strip(), period=period,
+    )
 
 
 @router.get("/gstr-3b/{period}/offset-preview")

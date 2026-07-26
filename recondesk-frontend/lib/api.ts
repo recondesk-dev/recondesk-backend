@@ -1802,6 +1802,35 @@ export type Gstr3bOffsetPreviewResponse = {
   ledger: Record<string, unknown>;
 };
 
+export type Gstr3bOsupDetSuggestionResponse = {
+  available: boolean;
+  reason?: string;
+  source?: string;
+  period?: string;
+  run_id?: string | null;
+  record_count?: number;
+  osup_det?: {
+    txval: number;
+    iamt: number;
+    camt: number;
+    samt: number;
+    csamt: number;
+  };
+};
+
+export type Gstr3bItcOthSuggestionResponse = {
+  available: boolean;
+  reason?: string;
+  source?: string;
+  period?: string;
+  run_id?: string | null;
+  record_count?: number;
+  iamt?: number;
+  camt?: number;
+  samt?: number;
+  csamt?: number;
+};
+
 export type Gstr3bSaveResponse = {
   run_id: string;
   reference_id: string | null;
@@ -1956,6 +1985,32 @@ export const gstr3bFilingApi = {
     return apiFetch<Gstr3bOffsetPreviewResponse>(
       `${gstr3bPeriodPath(period)}/offset-preview?${sp.toString()}`,
       { token, directBackend: true, cache: "no-store" }
+    );
+  },
+
+  suggestOsupDet: (
+    token: string,
+    period: string,
+    params: { client_gstin_id: string }
+  ) => {
+    const sp = new URLSearchParams();
+    sp.set("client_gstin_id", params.client_gstin_id);
+    return apiFetch<Gstr3bOsupDetSuggestionResponse>(
+      `${gstr3bPeriodPath(period)}/suggestions/osup-det?${sp.toString()}`,
+      { token, cache: "no-store" }
+    );
+  },
+
+  suggestItcOth: (
+    token: string,
+    period: string,
+    params: { client_gstin_id: string }
+  ) => {
+    const sp = new URLSearchParams();
+    sp.set("client_gstin_id", params.client_gstin_id);
+    return apiFetch<Gstr3bItcOthSuggestionResponse>(
+      `${gstr3bPeriodPath(period)}/suggestions/itc-oth?${sp.toString()}`,
+      { token, cache: "no-store" }
     );
   },
 

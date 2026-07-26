@@ -6,6 +6,7 @@ import { DraftSuggestionBanner } from "@/components/filing/gstr3b/DraftSuggestio
 import {
   type Gstr3bFiguresState,
   type OutwardSuggestion,
+  type SuggestionLoadResult,
   type Gstr3bTaxHeadFields,
 } from "@/components/filing/gstr3b/figuresModel";
 import {
@@ -17,7 +18,14 @@ type Props = {
   value: Gstr3bFiguresState["sup_details"];
   onChange: (next: Gstr3bFiguresState["sup_details"]) => void;
   /** Explicit load only — never auto-runs on mount. */
-  onLoadOutwardSuggestion: () => Promise<OutwardSuggestion | null>;
+  onLoadOutwardSuggestion: () => Promise<SuggestionLoadResult<OutwardSuggestion>>;
+};
+
+const UNAVAILABLE_HINTS: Record<string, string> = {
+  no_gstr1_reconcile_run:
+    "No GSTR-1 reconcile run for this period — suggestions unavailable. This does not mean the figure is zero; enter the amount from the books.",
+  no_gstr1_aggregate:
+    "GSTR-1 reconcile has no 3.1(a) aggregate for this period — suggestions unavailable. This does not mean the figure is zero; enter the amount from the books.",
 };
 
 export function SupplyOutwardSection({
@@ -28,7 +36,7 @@ export function SupplyOutwardSection({
   const [suggestion, setSuggestion] = useState<OutwardSuggestion | null>(null);
   const [busy, setBusy] = useState(false);
   const [applied, setApplied] = useState(false);
-  const [loadNote, setLoadNote] = useState<string | null>(null);
+  const [emptyHint, setEmptyHint] = useState<string | null>(null);
 
   const patchRow = useCallback(
     (rowKey: string, field: keyof Gstr3bTaxHeadFields, raw: string) => {
@@ -43,18 +51,25 @@ export function SupplyOutwardSection({
 
   const load = useCallback(async () => {
     setBusy(true);
-    setLoadNote(null);
+    setEmptyHint(null);
     setApplied(false);
     try {
-      const s = await onLoadOutwardSuggestion();
-      if (!s) {
+      const result = await onLoadOutwardSuggestion();
+      if (result.status === "unavailable") {
         setSuggestion(null);
-        setLoadNote(
-          "Suggestions not yet available in this build — GSTR-1 wiring is pending. This does not mean the figure is zero; enter the amount from the books."
+        setEmptyHint(
+          UNAVAILABLE_HINTS[result.reason] ||
+            "No outward suggestion available for this period. This does not mean the figure is zero; enter the amount from the books."
         );
         return;
       }
-      setSuggestion(s);
+      setSuggestion(result.suggestion);
+      setEmptyHint(null);
+    } catch {
+      setSuggestion(null);
+      setEmptyHint(
+        "Could not load GSTR-1 suggestions. Try again, or enter the amount from the books."
+      );
     } finally {
       setBusy(false);
     }
@@ -120,6 +135,7 @@ export function SupplyOutwardSection({
         applied={applied}
         differsFromInput={differs && !applied}
         busy={busy}
+        emptyHint={emptyHint}
         onLoad={() => void load()}
         loadLabel="Load suggestions (GSTR-1 3.1(a))"
         onUse={() => {
@@ -139,11 +155,9 @@ export function SupplyOutwardSection({
         onDismiss={() => {
           setSuggestion(null);
           setApplied(false);
+          setEmptyHint(null);
         }}
       />
-      {loadNote ? (
-        <p className="text-[12px] text-gray-500">{loadNote}</p>
-      ) : null}
     </div>
   );
 }

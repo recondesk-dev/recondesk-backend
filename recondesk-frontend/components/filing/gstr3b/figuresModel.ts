@@ -178,3 +178,8 @@ export type ItcOthSuggestion = {
   samt?: number;
   csamt?: number;
 };
+
+/** Result of an explicit Load suggestions click (never auto-fetched). */
+export type SuggestionLoadResult<T> =
+  | { status: "available"; suggestion: T }
+  | { status: "unavailable"; reason: string };

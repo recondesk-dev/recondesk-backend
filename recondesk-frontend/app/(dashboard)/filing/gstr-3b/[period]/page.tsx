@@ -18,6 +18,7 @@ import {
   type Gstr3bFiguresState,
   type ItcOthSuggestion,
   type OutwardSuggestion,
+  type SuggestionLoadResult,
 } from "@/components/filing/gstr3b/figuresModel";
 import { GstnSessionPanel } from "@/components/filing/GstnSessionPanel";
 import { toFilingPeriodYyyyMm } from "@/components/filing/filingHelpers";
@@ -26,7 +27,7 @@ import {
   sectionContainerClass,
   SectionHeader,
 } from "@/components/reconcile/ResultsUi";
-import { clientsApi, type ClientGstin } from "@/lib/api";
+import { clientsApi, gstr3bFilingApi, type ClientGstin } from "@/lib/api";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 const EMPTY_RUN: Gstr3bRunState = {
@@ -86,15 +87,56 @@ function Gstr3bFilingPageContent() {
     setFigures(emptyGstr3bFigures(gstin, retPeriod));
   }, [clientGstinId, period, gstin, retPeriod]);
 
-  const loadOutwardSuggestion = useCallback(async (): Promise<OutwardSuggestion | null> => {
-    // Explicit action only — no auto-fetch on mount.
-    // Wire to GSTR-1 reconcile aggregate when a dedicated source exists.
-    return null;
-  }, []);
+  const loadOutwardSuggestion = useCallback(async (): Promise<
+    SuggestionLoadResult<OutwardSuggestion>
+  > => {
+    if (!token || !clientGstinId || !period) {
+      return { status: "unavailable", reason: "no_gstr1_reconcile_run" };
+    }
+    const res = await gstr3bFilingApi.suggestOsupDet(token, period, {
+      client_gstin_id: clientGstinId,
+    });
+    if (!res.available || !res.osup_det) {
+      return {
+        status: "unavailable",
+        reason: res.reason || "no_gstr1_aggregate",
+      };
+    }
+    return {
+      status: "available",
+      suggestion: {
+        source: res.source || "GSTR-1 Table 3.1(a)",
+        osup_det: res.osup_det,
+      },
+    };
+  }, [token, clientGstinId, period]);
 
-  const loadOthSuggestion = useCallback(async (): Promise<ItcOthSuggestion | null> => {
-    return null;
-  }, []);
+  const loadOthSuggestion = useCallback(async (): Promise<
+    SuggestionLoadResult<ItcOthSuggestion>
+  > => {
+    if (!token || !clientGstinId || !period) {
+      return { status: "unavailable", reason: "no_gstr2b_reconcile_run" };
+    }
+    const res = await gstr3bFilingApi.suggestItcOth(token, period, {
+      client_gstin_id: clientGstinId,
+    });
+    if (!res.available) {
+      return {
+        status: "unavailable",
+        reason: res.reason || "no_gstr2b_records",
+      };
+    }
+    return {
+      status: "available",
+      suggestion: {
+        source: res.source || "GSTR-2B Table 4.1(A) OTH",
+        iamt: res.iamt,
+        camt: res.camt,
+        samt: res.samt,
+        csamt: res.csamt,
+      },
+    };
+  }, [token, clientGstinId, period]);
 
   if (tokenState === null) {
     return (

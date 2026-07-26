@@ -7,16 +7,24 @@ import {
   type Gstr3bFiguresState,
   type ItcOthSuggestion,
   type ItcRowProps,
+  type SuggestionLoadResult,
 } from "@/components/filing/gstr3b/figuresModel";
 import { parseAmountInput } from "@/components/filing/gstr3b/TaxHeadTable";
 
 type Props = {
   value: Gstr3bFiguresState["itc_elg"];
   onChange: (next: Gstr3bFiguresState["itc_elg"]) => void;
-  onLoadOthSuggestion: () => Promise<ItcOthSuggestion | null>;
+  onLoadOthSuggestion: () => Promise<SuggestionLoadResult<ItcOthSuggestion>>;
 };
 
 const ITC_COLS = ["iamt", "camt", "samt", "csamt"] as const;
+
+const UNAVAILABLE_HINTS: Record<string, string> = {
+  no_gstr2b_reconcile_run:
+    "No GSTR-2B reconcile run for this period — OTH suggestions unavailable. This does not mean OTH ITC is zero; enter the amount from the books.",
+  no_gstr2b_records:
+    "GSTR-2B reconcile has no invoice records for this period — OTH suggestions unavailable. This does not mean OTH ITC is zero; enter the amount from the books.",
+};
 
 function ItcBlock({
   title,
@@ -77,7 +85,7 @@ export function ItcEligibilitySection({
   const [suggestion, setSuggestion] = useState<ItcOthSuggestion | null>(null);
   const [busy, setBusy] = useState(false);
   const [applied, setApplied] = useState(false);
-  const [loadNote, setLoadNote] = useState<string | null>(null);
+  const [emptyHint, setEmptyHint] = useState<string | null>(null);
 
   const patchBlock = useCallback(
     (
@@ -137,22 +145,30 @@ export function ItcEligibilitySection({
           })
         }
         busy={busy}
+        emptyHint={emptyHint}
         loadLabel="Load suggestions (GSTR-2B OTH)"
         onLoad={() => {
           void (async () => {
             setBusy(true);
-            setLoadNote(null);
+            setEmptyHint(null);
             setApplied(false);
             try {
-              const s = await onLoadOthSuggestion();
-              if (!s) {
+              const result = await onLoadOthSuggestion();
+              if (result.status === "unavailable") {
                 setSuggestion(null);
-                setLoadNote(
-                  "Suggestions not yet available in this build — GSTR-2B wiring is pending. This does not mean OTH ITC is zero; enter the amount from the books."
+                setEmptyHint(
+                  UNAVAILABLE_HINTS[result.reason] ||
+                    "No OTH suggestion available for this period. This does not mean OTH ITC is zero; enter the amount from the books."
                 );
                 return;
               }
-              setSuggestion(s);
+              setSuggestion(result.suggestion);
+              setEmptyHint(null);
+            } catch {
+              setSuggestion(null);
+              setEmptyHint(
+                "Could not load GSTR-2B suggestions. Try again, or enter the amount from the books."
+              );
             } finally {
               setBusy(false);
             }
@@ -174,11 +190,9 @@ export function ItcEligibilitySection({
         onDismiss={() => {
           setSuggestion(null);
           setApplied(false);
+          setEmptyHint(null);
         }}
       />
-      {loadNote ? (
-        <p className="text-[12px] text-gray-500">{loadNote}</p>
-      ) : null}
 
       <ItcBlock
         title="4(B) ITC reversed"
