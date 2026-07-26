@@ -18,6 +18,7 @@ import {
   type Gstr3bFiguresState,
   type ItcOthSuggestion,
   type OutwardSuggestion,
+  type SuggestionLoadResult,
 } from "@/components/filing/gstr3b/figuresModel";
 import { GstnSessionPanel } from "@/components/filing/GstnSessionPanel";
 import { toFilingPeriodYyyyMm } from "@/components/filing/filingHelpers";
@@ -26,7 +27,7 @@ import {
   sectionContainerClass,
   SectionHeader,
 } from "@/components/reconcile/ResultsUi";
-import { clientsApi, type ClientGstin } from "@/lib/api";
+import { clientsApi, filingApi, gstr3bFilingApi, type ClientGstin } from "@/lib/api";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 const EMPTY_RUN: Gstr3bRunState = {
@@ -69,6 +70,12 @@ function Gstr3bFilingPageContent() {
     ([, t]) => clientsApi.list(t)
   );
 
+  const { data: filingFeatures, isLoading: featuresLoading } = useSWR(
+    "filing-features",
+    () => filingApi.features()
+  );
+  const gstr3bFilingEnabled = filingFeatures?.gstr3b_filing_enabled === true;
+
   const selectedClient: ClientGstin | null = useMemo(() => {
     if (!clients || !clientGstinId) return null;
     return clients.find((c) => c.id === clientGstinId) ?? null;
@@ -86,20 +93,81 @@ function Gstr3bFilingPageContent() {
     setFigures(emptyGstr3bFigures(gstin, retPeriod));
   }, [clientGstinId, period, gstin, retPeriod]);
 
-  const loadOutwardSuggestion = useCallback(async (): Promise<OutwardSuggestion | null> => {
-    // Explicit action only — no auto-fetch on mount.
-    // Wire to GSTR-1 reconcile aggregate when a dedicated source exists.
-    return null;
-  }, []);
+  const loadOutwardSuggestion = useCallback(async (): Promise<
+    SuggestionLoadResult<OutwardSuggestion>
+  > => {
+    if (!token || !clientGstinId || !period) {
+      return { status: "unavailable", reason: "no_gstr1_reconcile_run" };
+    }
+    const res = await gstr3bFilingApi.suggestOsupDet(token, period, {
+      client_gstin_id: clientGstinId,
+    });
+    if (!res.available || !res.osup_det) {
+      return {
+        status: "unavailable",
+        reason: res.reason || "no_gstr1_aggregate",
+      };
+    }
+    return {
+      status: "available",
+      suggestion: {
+        source: res.source || "GSTR-1 Table 3.1(a)",
+        osup_det: res.osup_det,
+      },
+    };
+  }, [token, clientGstinId, period]);
 
-  const loadOthSuggestion = useCallback(async (): Promise<ItcOthSuggestion | null> => {
-    return null;
-  }, []);
+  const loadOthSuggestion = useCallback(async (): Promise<
+    SuggestionLoadResult<ItcOthSuggestion>
+  > => {
+    if (!token || !clientGstinId || !period) {
+      return { status: "unavailable", reason: "no_gstr2b_reconcile_run" };
+    }
+    const res = await gstr3bFilingApi.suggestItcOth(token, period, {
+      client_gstin_id: clientGstinId,
+    });
+    if (!res.available) {
+      return {
+        status: "unavailable",
+        reason: res.reason || "no_gstr2b_records",
+      };
+    }
+    return {
+      status: "available",
+      suggestion: {
+        source: res.source || "GSTR-2B Table 4.1(A) OTH",
+        iamt: res.iamt,
+        camt: res.camt,
+        samt: res.samt,
+        csamt: res.csamt,
+      },
+    };
+  }, [token, clientGstinId, period]);
 
-  if (tokenState === null) {
+  if (tokenState === null || featuresLoading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center px-8 text-[13px] text-gray-500">
         Loading…
+      </div>
+    );
+  }
+
+  if (!gstr3bFilingEnabled) {
+    return (
+      <div className="mx-auto max-w-lg space-y-4 px-8 py-16 text-center">
+        <h1 className="text-xl font-semibold text-[var(--ink)]">
+          GSTR-3B filing unavailable
+        </h1>
+        <p className="text-[14px] text-gray-500">
+          GSTR-3B filing is not yet available. Save → Offset → File has not been
+          live-proven end-to-end against GSTN.
+        </p>
+        <Link
+          href="/settings"
+          className="inline-flex rounded-full bg-[var(--ink)] px-5 py-2.5 text-[13px] font-semibold text-white"
+        >
+          Back to Settings
+        </Link>
       </div>
     );
   }

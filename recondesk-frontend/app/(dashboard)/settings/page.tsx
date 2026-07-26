@@ -12,7 +12,7 @@ import {
   Users,
 } from "lucide-react";
 
-import { teamApi, billingApi, type TeamMemberListItem } from "@/lib/api";
+import { teamApi, billingApi, filingApi, type TeamMemberListItem } from "@/lib/api";
 import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
@@ -71,6 +71,12 @@ export default function SettingsHubPage() {
     ([, t]) => billingApi.status(t)
   );
 
+  const { data: filingFeatures } = useSWR("filing-features", () =>
+    filingApi.features()
+  );
+  // Fail closed: only show when the API explicitly enables GSTR-3B.
+  const gstr3bFilingEnabled = filingFeatures?.gstr3b_filing_enabled === true;
+
   const loadingShell =
     resolvingToken ||
     (!!authToken &&
@@ -125,12 +131,16 @@ export default function SettingsHubPage() {
       description: "Readiness, Save to GSTN, EVC OTP, and File.",
       Icon: ClipboardList,
     },
-    {
-      href: "/filing/gstr-3b",
-      title: "GSTR-3B Filing",
-      description: "Confirm figures, Save, Offset liability, EVC, File.",
-      Icon: ClipboardList,
-    },
+    ...(gstr3bFilingEnabled
+      ? [
+          {
+            href: "/filing/gstr-3b",
+            title: "GSTR-3B Filing",
+            description: "Confirm figures, Save, Offset liability, EVC, File.",
+            Icon: ClipboardList,
+          },
+        ]
+      : []),
     {
       href: "/settings/billing",
       title: "Billing",

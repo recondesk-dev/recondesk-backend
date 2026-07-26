@@ -10,6 +10,7 @@ import {
   type Gstr3bFiguresState,
   type ItcOthSuggestion,
   type OutwardSuggestion,
+  type SuggestionLoadResult,
 } from "@/components/filing/gstr3b/figuresModel";
 import { parseAmountInput } from "@/components/filing/gstr3b/TaxHeadTable";
 import {
@@ -23,8 +24,8 @@ type Props = {
   retPeriod: string;
   value: Gstr3bFiguresState;
   onChange: (next: Gstr3bFiguresState) => void;
-  onLoadOutwardSuggestion: () => Promise<OutwardSuggestion | null>;
-  onLoadOthSuggestion: () => Promise<ItcOthSuggestion | null>;
+  onLoadOutwardSuggestion: () => Promise<SuggestionLoadResult<OutwardSuggestion>>;
+  onLoadOthSuggestion: () => Promise<SuggestionLoadResult<ItcOthSuggestion>>;
   readOnly?: boolean;
 };
 
