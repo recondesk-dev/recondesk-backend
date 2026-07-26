@@ -27,7 +27,7 @@ import {
   sectionContainerClass,
   SectionHeader,
 } from "@/components/reconcile/ResultsUi";
-import { clientsApi, gstr3bFilingApi, type ClientGstin } from "@/lib/api";
+import { clientsApi, filingApi, gstr3bFilingApi, type ClientGstin } from "@/lib/api";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 const EMPTY_RUN: Gstr3bRunState = {
@@ -69,6 +69,12 @@ function Gstr3bFilingPageContent() {
     clientsKey,
     ([, t]) => clientsApi.list(t)
   );
+
+  const { data: filingFeatures, isLoading: featuresLoading } = useSWR(
+    "filing-features",
+    () => filingApi.features()
+  );
+  const gstr3bFilingEnabled = filingFeatures?.gstr3b_filing_enabled === true;
 
   const selectedClient: ClientGstin | null = useMemo(() => {
     if (!clients || !clientGstinId) return null;
@@ -138,10 +144,30 @@ function Gstr3bFilingPageContent() {
     };
   }, [token, clientGstinId, period]);
 
-  if (tokenState === null) {
+  if (tokenState === null || featuresLoading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center px-8 text-[13px] text-gray-500">
         Loading…
+      </div>
+    );
+  }
+
+  if (!gstr3bFilingEnabled) {
+    return (
+      <div className="mx-auto max-w-lg space-y-4 px-8 py-16 text-center">
+        <h1 className="text-xl font-semibold text-[var(--ink)]">
+          GSTR-3B filing unavailable
+        </h1>
+        <p className="text-[14px] text-gray-500">
+          GSTR-3B filing is not yet available. Save → Offset → File has not been
+          live-proven end-to-end against GSTN.
+        </p>
+        <Link
+          href="/settings"
+          className="inline-flex rounded-full bg-[var(--ink)] px-5 py-2.5 text-[13px] font-semibold text-white"
+        >
+          Back to Settings
+        </Link>
       </div>
     );
   }

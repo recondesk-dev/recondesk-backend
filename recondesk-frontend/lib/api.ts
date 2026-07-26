@@ -1614,7 +1614,17 @@ function filingPeriodPath(period: string): string {
   return `/api/filing/gstr-1/${encodeURIComponent(period.trim())}`;
 }
 
+export type FilingFeaturesResponse = {
+  gstr1_filing_enabled: boolean;
+  gstr3b_filing_enabled: boolean;
+};
+
 export const filingApi = {
+  features: () =>
+    apiFetch<FilingFeaturesResponse>("/api/filing/features", {
+      cache: "no-store",
+    }),
+
   readinessUpload: (
     token: string,
     period: string,

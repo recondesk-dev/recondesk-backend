@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     SANDBOX_BASE_URL: str = "https://api.sandbox.co.in"
     SANDBOX_API_VERSION: str = "1.0.0"
 
+    # GSTR-3B filing (Save → Offset → File). Offset moves real ledger money.
+    # Unset → enabled outside production, disabled in production.
+    # Explicit true/false always wins.
+    GSTR3B_FILING_ENABLED: Optional[bool] = None
+
     @computed_field  # type: ignore[misc]
     @property
     def ENV(self) -> str:  # noqa: N802
@@ -139,6 +144,17 @@ class Settings(BaseSettings):
         if self.IMPORT_USE_CELERY:
             return True
         return (self.APP_ENV or "").lower() == "production"
+
+    @property
+    def gstr3b_filing_enabled(self) -> bool:
+        """Whether GSTR-3B filing APIs/UI may run.
+
+        Default: off in production (Offset is irreversible), on in local/dev.
+        Override with ``GSTR3B_FILING_ENABLED=true|false``.
+        """
+        if self.GSTR3B_FILING_ENABLED is not None:
+            return bool(self.GSTR3B_FILING_ENABLED)
+        return (self.APP_ENV or "").lower() != "production"
 
 
 @lru_cache

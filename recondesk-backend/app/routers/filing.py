@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.auth import get_current_active_user
+from app.config import get_settings
 from app.database import get_supabase
 from app.filing import filing_store
 from app.filing.gstr1_orchestrator import (
@@ -47,6 +48,38 @@ from app.utils.audit import resolve_firm_id
 
 router = APIRouter(redirect_slashes=False)
 _log = logging.getLogger(__name__)
+
+
+def require_gstr3b_filing_enabled() -> None:
+    """Block GSTR-3B filing when the production feature flag is off."""
+    if not get_settings().gstr3b_filing_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "GSTR3B_FILING_DISABLED",
+                "message": (
+                    "GSTR-3B filing is not yet available. "
+                    "Save → Offset → File has not been live-proven end-to-end."
+                ),
+            },
+        )
+
+
+# GSTR-3B money path — gated until live Save→Offset→File is proven.
+# Included under the same /api/filing prefix; returns 503 (not 404).
+gstr3b_router = APIRouter(
+    redirect_slashes=False,
+    dependencies=[Depends(require_gstr3b_filing_enabled)],
+)
+
+
+@router.get("/features")
+def filing_features():
+    """Public feature flags for filing UI entry points (no auth)."""
+    return {
+        "gstr1_filing_enabled": True,
+        "gstr3b_filing_enabled": get_settings().gstr3b_filing_enabled,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1034,7 +1067,7 @@ def _compute_current_offset_body(client, token: str, *, period: str) -> dict[str
         ) from exc
 
 
-@router.get("/gstr-3b/{period}/details")
+@gstr3b_router.get("/gstr-3b/{period}/details")
 def get_gstr3b_details(
     period: str,
     client_gstin_id: str,
@@ -1062,7 +1095,7 @@ def get_gstr3b_details(
     }
 
 
-@router.get("/gstr-3b/{period}/ledger-balance")
+@gstr3b_router.get("/gstr-3b/{period}/ledger-balance")
 def get_gstr3b_ledger_balance(
     period: str,
     client_gstin_id: str,
@@ -1090,7 +1123,7 @@ def get_gstr3b_ledger_balance(
     }
 
 
-@router.get("/gstr-3b/{period}/suggestions/osup-det")
+@gstr3b_router.get("/gstr-3b/{period}/suggestions/osup-det")
 def gstr3b_suggest_osup_det(
     period: str,
     client_gstin_id: str,
@@ -1106,7 +1139,7 @@ def gstr3b_suggest_osup_det(
     )
 
 
-@router.get("/gstr-3b/{period}/suggestions/itc-oth")
+@gstr3b_router.get("/gstr-3b/{period}/suggestions/itc-oth")
 def gstr3b_suggest_itc_oth(
     period: str,
     client_gstin_id: str,
@@ -1122,7 +1155,7 @@ def gstr3b_suggest_itc_oth(
     )
 
 
-@router.get("/gstr-3b/{period}/offset-preview")
+@gstr3b_router.get("/gstr-3b/{period}/offset-preview")
 def gstr3b_offset_preview(
     period: str,
     client_gstin_id: str,
@@ -1167,7 +1200,7 @@ def gstr3b_offset_preview(
     }
 
 
-@router.post("/gstr-3b/{period}/save")
+@gstr3b_router.post("/gstr-3b/{period}/save")
 def save_gstr3b(
     period: str,
     body: SaveGstr3bBody,
@@ -1254,7 +1287,7 @@ def save_gstr3b(
     }
 
 
-@router.get("/gstr-3b/{period}/status")
+@gstr3b_router.get("/gstr-3b/{period}/status")
 def gstr3b_return_status(
     period: str,
     reference_id: str,
@@ -1333,7 +1366,7 @@ def gstr3b_return_status(
     }
 
 
-@router.post("/gstr-3b/{period}/offset")
+@gstr3b_router.post("/gstr-3b/{period}/offset")
 def offset_gstr3b(
     period: str,
     body: OffsetGstr3bBody,
@@ -1420,7 +1453,7 @@ def offset_gstr3b(
     }
 
 
-@router.post("/gstr-3b/{period}/evc-otp")
+@gstr3b_router.post("/gstr-3b/{period}/evc-otp")
 def generate_evc_otp_gstr3b(
     period: str,
     body: EvcOtpGstr3bBody,
@@ -1457,7 +1490,7 @@ def generate_evc_otp_gstr3b(
     }
 
 
-@router.post("/gstr-3b/{period}/file")
+@gstr3b_router.post("/gstr-3b/{period}/file")
 def file_gstr3b(
     period: str,
     body: FileGstr3bBody,
@@ -1522,3 +1555,5 @@ def file_gstr3b(
         "gstn_status_cd": info.gstn_status_cd if info else None,
         "outer_status_cd": info.outer_status_cd if info else None,
     }
+
+router.include_router(gstr3b_router)
