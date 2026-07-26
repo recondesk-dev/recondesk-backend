@@ -171,6 +171,22 @@ def get_user_profile(user_id: str) -> Optional[dict]:
         except Exception:
             profile["auto_approve_confidence_threshold"] = 95
 
+        # Optional first-login tour flag (20260726180000). Fail soft if missing.
+        try:
+            fl = (
+                client.table("user_profiles")
+                .select("is_first_login")
+                .eq("id", user_id)
+                .limit(1)
+                .execute()
+            )
+            if fl.data and "is_first_login" in fl.data[0]:
+                profile["is_first_login"] = bool(fl.data[0].get("is_first_login"))
+            else:
+                profile["is_first_login"] = not bool(profile.get("onboarding_completed"))
+        except Exception:
+            profile["is_first_login"] = not bool(profile.get("onboarding_completed"))
+
         # Optional GSTIN subscription columns. Fail soft if migration not applied yet.
         try:
             sub = (

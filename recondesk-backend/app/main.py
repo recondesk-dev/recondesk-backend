@@ -29,6 +29,7 @@ from app.routers import (
     manage_data,
     notes,
     notifications,
+    onboarding_tour,
     pr_upload,
     register_upload,
     reconciliation,
@@ -279,6 +280,16 @@ app.include_router(
 app.include_router(gstin_router, prefix="/api/gstin", tags=["GSTIN"])
 app.include_router(team_router, prefix="/api/team", tags=["Team"])
 app.include_router(users_router.router, prefix="/api/users", tags=["Users"])
+app.include_router(
+    onboarding_tour.router,
+    prefix="/api/onboarding",
+    tags=["Onboarding Tour"],
+)
+app.include_router(
+    onboarding_tour.router,
+    prefix="/api/v1/onboarding",
+    tags=["Onboarding Tour"],
+)
 app.include_router(
     intelligence.router,
     prefix="/api/intelligence",
