@@ -21,7 +21,7 @@ import {
 import { GstinCell } from "@/components/ui/GstinCell";
 import { HoverTextCell } from "@/components/ui/HoverTextCell";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   Fragment,
   useCallback,
@@ -971,6 +971,22 @@ export default function ReconcileResultsPage() {
   const [section17Page, setSection17Page] = useState(1);
 
   const [resultsTab, setResultsTab] = useState<ResultsBucketTabId>("matched");
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (
+      tab === "itc" ||
+      tab === "risk" ||
+      tab === "matched" ||
+      tab === "review_required" ||
+      tab === "rule37" ||
+      tab === "section17"
+    ) {
+      setResultsTab(tab);
+    }
+  }, [searchParams]);
+
   const [itcGroupBySupplier, setItcGroupBySupplier] = useState(false);
   const [riskGroupBySupplier, setRiskGroupBySupplier] = useState(false);
   const [itcExpandedSupplier, setItcExpandedSupplier] = useState<string | null>(
@@ -2234,6 +2250,8 @@ export default function ReconcileResultsPage() {
     summary?.user_role === "admin" && !isRunFinalized;
   const staffFinalizeMessageVisible =
     summary?.user_role === "staff" && !isRunFinalized;
+  const tourMode = searchParams.get("tour") === "1";
+
   const canDeleteRun = summary?.user_role === "admin";
 
   const authProfileKey = useMemo(
@@ -2591,6 +2609,7 @@ export default function ReconcileResultsPage() {
                     className="inline-flex items-center gap-2"
                     role="group"
                     aria-label="Export reports"
+                    data-tour="export-button"
                   >
                     <button
                       type="button"
@@ -2805,7 +2824,7 @@ export default function ReconcileResultsPage() {
           summary &&
           summary.missed_itc_count === 0 &&
           summary.wrongful_risk_count === 0 && (
-          <div className={sectionContainerClass}>
+          <div className={sectionContainerClass} data-tour="missed-itc-row">
             <div className="flex gap-3">
               <Check className="mt-0.5 h-5 w-5 shrink-0 text-[#16A34A]" />
               <div>
@@ -3194,8 +3213,11 @@ export default function ReconcileResultsPage() {
                   }
                 >
                   {itcRows.filter((r) => checkDocType(r, docTypeFilterItc)).map((row, i) => (
-                    <DecisionInvoiceCard
+                    <div
                       key={row.id}
+                      data-tour={i === 0 ? "missed-itc-row" : undefined}
+                    >
+                    <DecisionInvoiceCard
                       index={(itcPage - 1) * itcPageData.limit + i + 1}
                       gstin={row.supplier_gstin}
                       invoiceNumber={row.invoice_number}
@@ -3250,6 +3272,7 @@ export default function ReconcileResultsPage() {
                         ) : null
                       }
                     />
+                    </div>
                   ))}
                 </DecisionInvoiceList>
                 )}
@@ -5445,12 +5468,23 @@ export default function ReconcileResultsPage() {
               type="button"
               className="inline-flex shrink-0 items-center gap-2 rounded-full bg-[var(--ink)] px-5 py-2.5 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
               onClick={() => setFinalizeModalOpen(true)}
+              data-tour="finalize-button"
             >
               Finalize Reconciliation
             </button>
           </div>
         </div>
       )}
+
+      {tourMode && !finalizeBarVisible ? (
+        <div
+          data-tour="finalize-button"
+          className="pointer-events-none fixed bottom-6 right-8 z-40 rounded-full bg-[var(--ink)] px-5 py-2.5 text-[13px] font-semibold text-white opacity-90 shadow-[var(--shadow-lift)]"
+          aria-hidden
+        >
+          Finalize Reconciliation
+        </div>
+      ) : null}
 
       {staffFinalizeMessageVisible && (
         <div className="fixed bottom-3 left-[256px] right-3 z-40">

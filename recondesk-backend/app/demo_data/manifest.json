@@ -1,0 +1,13 @@
+{
+  "buyer_gstin": "27DEMOC0001A1ZJ",
+  "trade_name": "Demo Client - Sample Reconciliation",
+  "legal_name": "Demo Client - Sample Reconciliation",
+  "period": "2026-04",
+  "gstr_file": "demo_gstr_2b.json",
+  "pr_file": "demo_purchase_register.xlsx",
+  "scenarios": {
+    "clean_match": "INV-001",
+    "missed_itc": "INV-MISS-01",
+    "rule37_overdue": "INV-R37-01"
+  }
+}

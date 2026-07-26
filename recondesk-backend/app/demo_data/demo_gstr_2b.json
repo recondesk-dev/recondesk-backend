@@ -1,0 +1,531 @@
+{
+  "status_cd": "1",
+  "data": {
+    "gstin": "27DEMOC0001A1ZJ",
+    "rtnprd": "042026",
+    "fp": "042026",
+    "version": "ReconDesk-Demo-1.0",
+    "gendt": "14-05-2026",
+    "docdata": {
+      "b2b": [
+        {
+          "ctin": "27AAACR5055K1Z7",
+          "trdnm": "Reliable Office Supplies Pvt Ltd",
+          "supfildt": "11-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-001",
+              "idt": "03-04-2026",
+              "val": 11800.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 10000.0,
+                    "iamt": 0.0,
+                    "camt": 900.0,
+                    "samt": 900.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            },
+            {
+              "inum": "INV-009",
+              "idt": "20-04-2026",
+              "val": 7080.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 6000.0,
+                    "iamt": 0.0,
+                    "camt": 540.0,
+                    "samt": 540.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            },
+            {
+              "inum": "INV-015",
+              "idt": "26-04-2026",
+              "val": 8850.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 7500.0,
+                    "iamt": 0.0,
+                    "camt": 675.0,
+                    "samt": 675.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AADCS0472N1Z2",
+          "trdnm": "Shree Tech Services",
+          "supfildt": "11-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-002",
+              "idt": "05-04-2026",
+              "val": 5900.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 5000.0,
+                    "iamt": 0.0,
+                    "camt": 450.0,
+                    "samt": 450.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            },
+            {
+              "inum": "INV-010",
+              "idt": "21-04-2026",
+              "val": 10620.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 9000.0,
+                    "iamt": 0.0,
+                    "camt": 810.0,
+                    "samt": 810.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            },
+            {
+              "inum": "INV-016",
+              "idt": "27-04-2026",
+              "val": 4838.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 4100.0,
+                    "iamt": 0.0,
+                    "camt": 369.0,
+                    "samt": 369.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AAECS1234F1ZO",
+          "trdnm": "Metro Cloud Solutions",
+          "supfildt": "11-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-003",
+              "idt": "07-04-2026",
+              "val": 23600.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 20000.0,
+                    "iamt": 3600.0,
+                    "camt": 0.0,
+                    "samt": 0.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            },
+            {
+              "inum": "INV-011",
+              "idt": "22-04-2026",
+              "val": 12980.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 11000.0,
+                    "iamt": 1980.0,
+                    "camt": 0.0,
+                    "samt": 0.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            },
+            {
+              "inum": "INV-017",
+              "idt": "28-04-2026",
+              "val": 15340.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 13000.0,
+                    "iamt": 2340.0,
+                    "camt": 0.0,
+                    "samt": 0.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AACCM9910C1ZN",
+          "trdnm": "RD Logistics",
+          "supfildt": "11-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-004",
+              "idt": "09-04-2026",
+              "val": 8260.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 7000.0,
+                    "iamt": 0.0,
+                    "camt": 630.0,
+                    "samt": 630.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            },
+            {
+              "inum": "INV-012",
+              "idt": "23-04-2026",
+              "val": 4130.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 3500.0,
+                    "iamt": 0.0,
+                    "camt": 315.0,
+                    "samt": 315.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AABCT3518Q1ZW",
+          "trdnm": "Tally Data Processors",
+          "supfildt": "11-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-005",
+              "idt": "12-04-2026",
+              "val": 17700.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 15000.0,
+                    "iamt": 0.0,
+                    "camt": 1350.0,
+                    "samt": 1350.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            },
+            {
+              "inum": "INV-MISS-01",
+              "idt": "10-04-2026",
+              "val": 29500.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 25000.0,
+                    "iamt": 0.0,
+                    "camt": 2250.0,
+                    "samt": 2250.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AAHCR8765L1ZJ",
+          "trdnm": "Royal Motors Garage",
+          "supfildt": "11-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-006",
+              "idt": "14-04-2026",
+              "val": 9440.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 8000.0,
+                    "iamt": 0.0,
+                    "camt": 720.0,
+                    "samt": 720.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AAFP9999X1Z1E",
+          "trdnm": "Prime Stationery Mart",
+          "supfildt": "11-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-007",
+              "idt": "16-04-2026",
+              "val": 5310.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 4500.0,
+                    "iamt": 0.0,
+                    "camt": 405.0,
+                    "samt": 405.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AABCU9603R1ZN",
+          "trdnm": "Urban Packers India",
+          "supfildt": "11-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-008",
+              "idt": "18-04-2026",
+              "val": 14160.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 12000.0,
+                    "iamt": 0.0,
+                    "camt": 1080.0,
+                    "samt": 1080.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            },
+            {
+              "inum": "INV-014",
+              "idt": "25-04-2026",
+              "val": 6490.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 5500.0,
+                    "iamt": 0.0,
+                    "camt": 495.0,
+                    "samt": 495.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AAICP2468D1ZD",
+          "trdnm": "Prime Office Interiors",
+          "supfildt": "11-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-R37-01",
+              "idt": "15-09-2025",
+              "val": 21240.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 18000.0,
+                    "iamt": 0.0,
+                    "camt": 1620.0,
+                    "samt": 1620.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AAKFC3210M1ZH",
+          "trdnm": "Carbon Fuels Corporation",
+          "supfildt": "11-05-2026",
+          "supprd": "042026",
+          "inv": [
+            {
+              "inum": "INV-013",
+              "idt": "24-04-2026",
+              "val": 25960.0,
+              "pos": "27",
+              "rchrg": "N",
+              "inv_typ": "R",
+              "itcavl": "Y",
+              "rsn": "",
+              "itms": [
+                {
+                  "num": 1,
+                  "itm_det": {
+                    "rt": 18.0,
+                    "txval": 22000.0,
+                    "iamt": 3960.0,
+                    "camt": 0.0,
+                    "samt": 0.0,
+                    "csamt": 0.0
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

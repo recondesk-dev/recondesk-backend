@@ -31,6 +31,8 @@ export interface Client {
   registrationType: "Regular" | "Composition" | "SEZ";
   assignedStaffId: string;
   createdAt: string;
+  /** Auto-seeded sample client for the product tour. */
+  isDemo?: boolean;
 }
 
 export interface ReconciliationRun {
