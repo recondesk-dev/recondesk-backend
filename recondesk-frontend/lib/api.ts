@@ -23,7 +23,6 @@ export type ClientGstin =
   Database["public"]["Tables"]["client_gstins"]["Row"] & {
     gstn_access_token?: string | null;
     gstn_token_expiry?: string | null;
-    is_demo?: boolean | null;
   };
 export type ReconciliationRun =
   Database["public"]["Tables"]["reconciliation_runs"]["Row"];
@@ -71,7 +70,6 @@ export interface AuthMeProfile {
   icai_membership_number?: string | null;
   firm_gstin?: string | null;
   onboarding_completed?: boolean | null;
-  is_first_login?: boolean | null;
   auto_approve_confidence_threshold?: number | null;
 }
 
@@ -865,32 +863,6 @@ export const authApi = {
       },
     });
   },
-};
-
-export interface DemoEnsureResponse {
-  client_id: string;
-  run_id: string | null;
-  created: boolean;
-  trade_name?: string | null;
-  period?: string | null;
-  scenarios?: Record<string, string> | null;
-}
-
-export const onboardingTourApi = {
-  ensureDemo: (token: string) =>
-    apiFetch<DemoEnsureResponse>("/api/onboarding/ensure-demo", {
-      method: "POST",
-      token,
-    }),
-
-  demoStatus: (token: string) =>
-    apiFetch<DemoEnsureResponse>("/api/onboarding/demo-status", { token }),
-
-  firstLoginComplete: (token: string) =>
-    apiFetch<{ success: boolean; is_first_login: boolean }>(
-      "/api/onboarding/first-login-complete",
-      { method: "PATCH", token }
-    ),
 };
 
 export const auditLogsApi = {

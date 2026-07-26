@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Logo } from "@/components/ui/Logo";
@@ -22,14 +21,6 @@ import {
 import { DW, formatPeriodLabel } from "@/lib/dashboard-portfolio";
 import { clearOnboardingDoneCookie } from "@/lib/onboarding-cookie";
 import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
-
-const ProductTourController = dynamic(
-  () =>
-    import("@/components/onboarding/ProductTour").then(
-      (m) => m.ProductTourController
-    ),
-  { ssr: false }
-);
 
 function initialsFromDisplayName(name: string): string {
   const t = name.trim();
@@ -401,14 +392,13 @@ export default function DashboardShellLayout({
 
   return (
     <div className="dashboard-soft-bg flex min-h-screen w-full min-w-0 text-[var(--text-primary)]">
-      <ProductTourController />
       <aside className="fixed inset-y-3 left-3 z-50 flex w-[232px] flex-col rounded-[1.75rem] bg-white shadow-[var(--shadow-soft)]">
         <div className="px-5 pb-4 pt-6">
           <Link href="/dashboard" className="flex items-center">
             <Logo width={180} height={34} />
           </Link>
         </div>
-        <nav className="flex-1 space-y-1 px-3" data-tour="sidebar-nav">
+        <nav className="flex-1 space-y-1 px-3">
           {nav.map(({ href, label, Icon }) => {
             const isActive =
               href === "/dashboard"
@@ -584,46 +574,6 @@ export default function DashboardShellLayout({
                     </svg>
                     Help &amp; Support
                   </a>
-
-                  {/* ── Replay Demo Tour ── */}
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50"
-                    onClick={() => {
-                      setHeaderProfileOpen(false);
-                      void (async () => {
-                        try {
-                          const { replayProductTour } = await import(
-                            "@/components/onboarding/ProductTour"
-                          );
-                          const {
-                            data: { session },
-                          } = await createClient().auth.getSession();
-                          const t = session?.access_token;
-                          if (!t) {
-                            toast("Sign in again to replay the tour.", "error");
-                            return;
-                          }
-                          await replayProductTour(t);
-                        } catch (e) {
-                          toast(
-                            isApiError(e)
-                              ? e.detail
-                              : e instanceof Error
-                                ? e.message
-                                : "Could not start the demo tour.",
-                            "error"
-                          );
-                        }
-                      })();
-                    }}
-                  >
-                    <svg className="h-4 w-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polygon points="5 3 19 12 5 21 5 3" />
-                    </svg>
-                    Replay Demo Tour
-                  </button>
 
                   {/* ── Settings ── */}
                   <button

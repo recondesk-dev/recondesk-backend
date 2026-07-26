@@ -169,9 +169,6 @@ export function clientGstinToClient(row: ClientGstin): Client {
     registrationType,
     assignedStaffId: row.assigned_to ?? "",
     createdAt: row.added_at,
-    isDemo:
-      row.is_demo === true ||
-      (row.trade_name || "").trim() === "Demo Client - Sample Reconciliation",
   };
 }
 
