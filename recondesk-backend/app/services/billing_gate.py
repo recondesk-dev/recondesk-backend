@@ -292,34 +292,19 @@ async def sync_billing_credits(firm_owner_id: str) -> dict[str, int]:
 
 
 def count_active_gstins(sb: Client, firm_owner_id: str) -> int:
-    """Count billable GSTINs — demo clients are excluded from capacity."""
     try:
         res = (
             sb.table("client_gstins")
             .select("id", count="exact")
             .eq("firm_owner_id", firm_owner_id)
             .eq("is_active", True)
-            .eq("is_demo", False)
             .limit(0)
             .execute()
         )
         return int(res.count or 0)
     except Exception as exc:  # noqa: BLE001
-        # is_demo column may not exist yet — fall back to all active clients.
-        _log.warning("count_active_gstins (is_demo filter) failed: %s", exc)
-        try:
-            res = (
-                sb.table("client_gstins")
-                .select("id", count="exact")
-                .eq("firm_owner_id", firm_owner_id)
-                .eq("is_active", True)
-                .limit(0)
-                .execute()
-            )
-            return int(res.count or 0)
-        except Exception as exc2:  # noqa: BLE001
-            _log.warning("count_active_gstins failed: %s", exc2)
-            return 0
+        _log.warning("count_active_gstins failed: %s", exc)
+        return 0
 
 
 def get_gstin_limit(sb: Client, firm_owner_id: str) -> int:

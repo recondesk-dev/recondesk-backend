@@ -307,13 +307,6 @@ export default function NewReconcileWizardPage() {
   const [start409, setStart409] = useState<string | null>(null);
 
   const [poll, setPoll] = useState<{ pct: number; message: string; status: string } | null>(null);
-
-  /** Product tour: force wizard step so data-tour anchors exist. */
-  const tourStep = searchParams.get("tourStep");
-  useEffect(() => {
-    if (tourStep === "pr") setUiStep(3);
-    if (tourStep === "gstr") setUiStep(2);
-  }, [tourStep]);
   const [pollSlow, setPollSlow] = useState(false);
   const pollStartRef = useRef<number | null>(null);
 
@@ -1367,7 +1360,7 @@ export default function NewReconcileWizardPage() {
       ) : null}
 
       {uiStep === 2 && runId ? (
-        <div className="dashboard-card space-y-4 p-6" data-tour="gstr2b-autofetch">
+        <div className="dashboard-card space-y-4 p-6">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
               {gstnConnected && !showManualGstrUpload && !run?.gstr2b_file_name
@@ -1686,51 +1679,8 @@ export default function NewReconcileWizardPage() {
         </div>
       ) : null}
 
-      {uiStep === 2 && !runId && tourStep === "gstr" ? (
-        <div
-          className="dashboard-card space-y-4 p-6"
-          data-tour="gstr2b-autofetch"
-        >
-          <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
-            GSTR-2B auto-fetch
-          </h2>
-          <p className="text-sm text-[var(--text-secondary)]">
-            Connect GSTN for a client, then fetch GSTR-2B with an OTP via Sandbox —
-            no manual portal downloads every month.
-          </p>
-          <button
-            type="button"
-            disabled
-            className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white opacity-60"
-          >
-            Fetch GSTR-2B (OTP / Sandbox)
-          </button>
-        </div>
-      ) : null}
-
-      {uiStep === 3 && !runId && tourStep === "pr" ? (
-        <div
-          className="dashboard-card space-y-4 p-6"
-          data-tour="purchase-register-import"
-        >
-          <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
-            Upload purchase register
-          </h2>
-          <p className="text-sm text-[var(--text-secondary)]">
-            Drop your real client&apos;s Tally / Busy / Excel purchase register here.
-            Column mapping is auto-detected for common exports.
-          </p>
-          <div className="rounded-xl border border-dashed border-[var(--border)] bg-[#FAFAFA] px-4 py-8 text-center text-sm text-[var(--text-secondary)]">
-            Drop Purchase Register Excel here or click to browse
-          </div>
-        </div>
-      ) : null}
-
       {uiStep === 3 && runId ? (
-        <div
-          className="dashboard-card space-y-4 p-6"
-          data-tour="purchase-register-import"
-        >
+        <div className="dashboard-card space-y-4 p-6">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Upload purchase register</h2>
             <button type="button" onClick={onBack} className="text-sm text-[var(--ink)] hover:underline">

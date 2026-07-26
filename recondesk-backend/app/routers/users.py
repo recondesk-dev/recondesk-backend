@@ -69,16 +69,6 @@ async def onboarding_complete(current_user: dict = Depends(get_current_active_us
     return {"success": True}
 
 
-@router.patch("/first-login-complete")
-async def first_login_complete(current_user: dict = Depends(get_current_active_user)):
-    """Alias: mark product tour done (``is_first_login = false``)."""
-    uid = str(current_user.get("id", "")).strip()
-    get_supabase().table("user_profiles").update({"is_first_login": False}).eq(
-        "id", uid
-    ).execute()
-    return {"success": True, "is_first_login": False}
-
-
 @router.patch("/profile", response_model=UserProfileResponse)
 async def update_profile(
     payload: ProfileUpdateRequest,

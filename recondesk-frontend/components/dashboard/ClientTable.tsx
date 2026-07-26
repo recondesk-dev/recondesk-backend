@@ -209,7 +209,6 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
     <tr
       className={`cursor-pointer border-b border-[#F0F0F0] transition-colors last:border-b-0 ${rowBg} ${rowOpacity} ${hoverClass}`}
       onClick={navigateDetail}
-      data-tour={row.client.isDemo ? "demo-client-card" : undefined}
       onMouseEnter={(e) => {
         if (latest?.status === "COMPLETE") {
           onPreviewEnter(row.client.id, e.currentTarget.getBoundingClientRect());
@@ -241,11 +240,6 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
         >
           {row.client.tradeName}
         </Link>
-        {row.client.isDemo ? (
-          <span className="ml-2 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-            Demo
-          </span>
-        ) : null}
       </td>
       <td className="hidden px-4 py-3.5 font-mono text-[11px] text-gray-400 xl:table-cell">
         {row.client.gstin}

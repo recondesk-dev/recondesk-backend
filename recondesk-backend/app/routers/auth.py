@@ -201,7 +201,6 @@ async def signup(
 
 @router.post("/onboarding-complete")
 async def onboarding_complete(
-    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_active_user),
 ):
     """Set onboarding_completed so middleware allows dashboard / reconcile routes."""
@@ -209,13 +208,6 @@ async def onboarding_complete(
     get_supabase().table("user_profiles").update({"onboarding_completed": True}).eq(
         "id", uid
     ).execute()
-    # Pre-seed demo client so the product tour has live data on first dashboard load.
-    try:
-        from app.routers.onboarding_tour import schedule_demo_seed
-
-        schedule_demo_seed(background_tasks, uid)
-    except Exception:  # noqa: BLE001
-        _log.exception("Failed to schedule demo seed after onboarding-complete")
     return {"success": True}
 
 
@@ -286,12 +278,6 @@ async def webhook_signup(
     ).strip()
 
     background_tasks.add_task(_signup_welcome_email_task, email, full_name)
-    try:
-        from app.routers.onboarding_tour import schedule_demo_seed
-
-        schedule_demo_seed(background_tasks, user_id)
-    except Exception:  # noqa: BLE001
-        _log.exception("Failed to schedule demo seed after signup webhook")
     return {"received": True}
 
 
@@ -421,10 +407,6 @@ async def get_me(
     profile["role"] = role
     if profile.get("auto_approve_confidence_threshold") is None:
         profile["auto_approve_confidence_threshold"] = 95
-    # Before migration, treat missing column as "tour already done" for existing
-    # onboarded users; new signups default true via schema.
-    if "is_first_login" not in profile:
-        profile["is_first_login"] = not bool(profile.get("onboarding_completed"))
     return UserProfileResponse(**profile)
 
 
