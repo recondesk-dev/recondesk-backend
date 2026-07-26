@@ -69,7 +69,7 @@ def _find_demo_client(sb, firm_owner_id: str) -> dict[str, Any] | None:
 def _latest_demo_run(sb, client_id: str) -> dict[str, Any] | None:
     res = (
         sb.table("reconciliation_run")
-        .select("id, status, period, client_gstin_id, missed_itc_count, matched_count")
+        .select("id, status, period, client_gstin_id, created_at")
         .eq("client_gstin_id", client_id)
         .order("created_at", desc=True)
         .limit(5)
@@ -217,7 +217,7 @@ def _seed_and_reconcile(sb, firm_owner_id: str, client: dict[str, Any]) -> dict[
 
     run_out = (
         sb.table("reconciliation_run")
-        .select("id, status, period, client_gstin_id, missed_itc_count, matched_count")
+        .select("id, status, period, client_gstin_id, created_at")
         .eq("id", run_id)
         .single()
         .execute()
