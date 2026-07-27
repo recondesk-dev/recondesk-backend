@@ -58,6 +58,7 @@ def build_recommendations_for_run(
 
     outcome_rows, _cc, _stats = ro.build_outcome_rows(sb, run_id, payload)
     gstr_m = ro.load_gstr_map(sb, run_id)
+    r37_by_pr, r37_by_pair, blocked_by_pair = _compliance_indexes(payload)
 
     # Prefer live IMS invoices for writeback payloads when token present.
     ims_by_key: dict[tuple[str, str], IMSInvoice] = {}
@@ -110,6 +111,28 @@ def build_recommendations_for_run(
             # Fall back to stored overlay on GSTR matcher / record_data.
             ims_status = _ims_from_gstr_maps(gstr_m, row, key)
 
+        r37 = _lookup_rule37(row, gst, inum, r37_by_pr, r37_by_pair)
+        bc = _lookup_blocked(row, gst, inum, blocked_by_pair)
+        days_remaining = None
+        r37_status = None
+        if isinstance(r37, dict):
+            raw_days = r37.get("days_remaining")
+            if raw_days is not None and str(raw_days).strip() != "":
+                try:
+                    days_remaining = int(raw_days)
+                except (TypeError, ValueError):
+                    days_remaining = None
+            st = r37.get("status")
+            r37_status = str(st).strip() if st is not None else None
+
+        bc_category = None
+        bc_reason = None
+        if isinstance(bc, dict):
+            cat = bc.get("category")
+            reason = bc.get("reason")
+            bc_category = str(cat).strip() if cat else None
+            bc_reason = str(reason).strip() if reason else None
+
         inputs.append(
             InvoiceRecommendationInput(
                 invoice_id=row.id,
@@ -127,6 +150,14 @@ def build_recommendations_for_run(
                 is_pending_action_blocked=blocked,
                 section=section,
                 writeback_payload=writeback,
+                rule37_flag=bool(row.rule37_flag),
+                blocked_credit_flag=bool(row.blocked_credit_flag),
+                rule37_days_remaining=days_remaining,
+                rule37_status=r37_status,
+                blocked_credit_category=bc_category,
+                blocked_credit_reason=bc_reason,
+                pr_supplier_gstin=row.pr_supplier_gstin,
+                gstr_supplier_gstin=row.gstr_supplier_gstin,
             )
         )
 
@@ -196,3 +227,85 @@ def _writeback_from_ims(inv: IMSInvoice) -> dict[str, Any]:
     if "prev_status" not in raw:
         raw["prev_status"] = raw.get("action") or "N"
     return raw
+
+
+def _compliance_indexes(
+    payload: dict[str, Any],
+) -> tuple[dict[str, dict], dict[tuple[str, str], dict], dict[tuple[str, str], dict]]:
+    """Index Rule 37 / 17(5) compliance rows for enrichment.
+
+    ``OutcomeRow`` only carries boolean flags; day-counts and 17(5) categories
+    live on ``payload["compliance"]`` and are joined here (no OutcomeRow change).
+    """
+    comp = payload.get("compliance") if isinstance(payload.get("compliance"), dict) else {}
+    r37_list = list(comp.get("rule37") or [])
+    r37_by_pr: dict[str, dict] = {
+        str(x.get("pr_id")): x
+        for x in r37_list
+        if isinstance(x, dict) and x.get("pr_id") is not None
+    }
+    r37_by_pair: dict[tuple[str, str], dict] = {}
+    for x in r37_list:
+        if not isinstance(x, dict):
+            continue
+        pair = (
+            str(x.get("supplier_gstin") or "").strip().upper(),
+            str(x.get("invoice_number") or "").strip(),
+        )
+        if pair[0] and pair[1]:
+            r37_by_pair[pair] = x
+
+    s175 = list(comp.get("section_17_5") or comp.get("section_175") or [])
+    blocked_by_pair: dict[tuple[str, str], dict] = {}
+    for x in s175:
+        if not isinstance(x, dict):
+            continue
+        pair = (
+            str(x.get("supplier_gstin") or "").strip().upper(),
+            str(x.get("invoice_number") or "").strip(),
+        )
+        if pair[0]:
+            blocked_by_pair[pair] = x
+    return r37_by_pr, r37_by_pair, blocked_by_pair
+
+
+def _lookup_rule37(
+    row: Any,
+    gst: str,
+    inum: str,
+    r37_by_pr: dict[str, dict],
+    r37_by_pair: dict[tuple[str, str], dict],
+) -> dict | None:
+    rid = str(getattr(row, "id", "") or "")
+    if rid.startswith("r37:"):
+        hit = r37_by_pr.get(rid.split(":", 1)[1])
+        if hit is not None:
+            return hit
+    mpid = getattr(row, "matched_pr_id", None)
+    if mpid:
+        hit = r37_by_pr.get(str(mpid))
+        if hit is not None:
+            return hit
+    return r37_by_pair.get((gst, inum))
+
+
+def _lookup_blocked(
+    row: Any,
+    gst: str,
+    inum: str,
+    blocked_by_pair: dict[tuple[str, str], dict],
+) -> dict | None:
+    hit = blocked_by_pair.get((gst, inum))
+    if hit is not None:
+        return hit
+    # Also try PR / GSTR GSTINs from the outcome when supplier_gstin was blended.
+    for alt in (
+        getattr(row, "gstr_supplier_gstin", None),
+        getattr(row, "pr_supplier_gstin", None),
+    ):
+        alt_g = str(alt or "").strip().upper()
+        if alt_g and alt_g != gst:
+            hit = blocked_by_pair.get((alt_g, inum))
+            if hit is not None:
+                return hit
+    return None

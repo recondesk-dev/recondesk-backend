@@ -2167,7 +2167,11 @@ export type ImsInvoiceRecommendationDto = {
   category: string;
   ims_status: string;
   recommended_action: ImsRecommendedActionDto;
-  confidence_score: number;
+  confidence_score: number | null;
+  confidence_source?:
+    | "matcher_fuzzy"
+    | "matcher_exact_no_fuzzy_score"
+    | "unavailable";
   reason_codes: string[];
   human_readable_why: string;
   amount_paise?: number | null;

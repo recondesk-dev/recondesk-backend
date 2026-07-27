@@ -57,6 +57,28 @@ describe("isHighConfidenceAccept / override", () => {
       ),
       false
     );
+    assert.equal(
+      isHighConfidenceAccept(
+        sample({
+          invoice_id: "d",
+          recommended_action: "accept",
+          confidence_score: null,
+          confidence_source: "matcher_exact_no_fuzzy_score",
+        })
+      ),
+      true
+    );
+    assert.equal(
+      isHighConfidenceAccept(
+        sample({
+          invoice_id: "e",
+          recommended_action: "accept",
+          confidence_score: null,
+          confidence_source: "unavailable",
+        })
+      ),
+      false
+    );
   });
 
   it("tracks overrides distinctly from straight confirms", () => {

@@ -17,7 +17,12 @@ export type ImsInvoiceRecommendation = {
   category: string;
   ims_status: string;
   recommended_action: ImsRecommendedAction;
-  confidence_score: number;
+  /** Real matcher score, or null when exact L1–L4 left confidence blank / unavailable. */
+  confidence_score: number | null;
+  confidence_source?:
+    | "matcher_fuzzy"
+    | "matcher_exact_no_fuzzy_score"
+    | "unavailable";
   reason_codes: string[];
   human_readable_why: string;
   amount_paise?: number | null;
@@ -55,7 +60,8 @@ export type ImsConfirmSteps = {
 };
 
 export const IMS_HOLD_MS = 2000;
-export const HIGH_CONFIDENCE_ACCEPT_MIN = 0.85;
+/** Align with backend ``CONFIDENCE_HIGH_MIN`` / outcomes ≥90%. */
+export const HIGH_CONFIDENCE_ACCEPT_MIN = 0.9;
 
 export const EMPTY_IMS_CONFIRM_STEPS: ImsConfirmSteps = {
   reviewed: false,
@@ -64,12 +70,16 @@ export const EMPTY_IMS_CONFIRM_STEPS: ImsConfirmSteps = {
 };
 
 export function isHighConfidenceAccept(
-  inv: Pick<ImsInvoiceRecommendation, "recommended_action" | "confidence_score">
+  inv: Pick<
+    ImsInvoiceRecommendation,
+    "recommended_action" | "confidence_score" | "confidence_source"
+  >
 ): boolean {
-  return (
-    inv.recommended_action === "accept" &&
-    inv.confidence_score >= HIGH_CONFIDENCE_ACCEPT_MIN
-  );
+  if (inv.recommended_action !== "accept") return false;
+  if (inv.confidence_score != null) {
+    return inv.confidence_score >= HIGH_CONFIDENCE_ACCEPT_MIN;
+  }
+  return inv.confidence_source === "matcher_exact_no_fuzzy_score";
 }
 
 export function isOverride(

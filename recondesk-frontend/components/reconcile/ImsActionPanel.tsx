@@ -64,7 +64,8 @@ function actionBadgeClass(action: ImsRecommendedAction): string {
   }
 }
 
-function confidenceLabel(score: number): string {
+function confidenceLabel(score: number | null | undefined): string {
+  if (score == null || !Number.isFinite(score)) return "n/a";
   return `${Math.round(score * 100)}%`;
 }
 
