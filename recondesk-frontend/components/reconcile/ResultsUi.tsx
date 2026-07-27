@@ -631,6 +631,7 @@ export type ResultsBucketTabId =
   | "section17"
   | "gstr3b"
   | "followup"
+  | "ims"
   /** Sales / GSTR-1 reconciliation buckets */
   | "unmatched_sr"
   | "unmatched_gstr1"
@@ -649,6 +650,7 @@ const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "section17", label: "Section 17(5)" },
   { id: "gstr3b", label: "GSTR-3B" },
   { id: "followup", label: "Follow-up Log" },
+  { id: "ims", label: "IMS Actions" },
 ];
 
 /** Default purchase-side tabs. Sales pages pass an explicit `tabs` list. */

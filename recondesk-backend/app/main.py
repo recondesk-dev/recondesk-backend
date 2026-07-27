@@ -43,6 +43,7 @@ from app.routers import (
 from app.routers import payments as payments_routes
 from app.routers.clients import clients_router
 from app.routers.gstr2b_autofetch_routes import router as gstr2b_autofetch_router
+from app.routers.ims_actions import router as ims_actions_router
 from app.routers.gst_fetch_routes import router as gst_fetch_router
 from app.routers.gstin import router as gstin_router
 from app.routers.team import router as team_router
@@ -250,6 +251,16 @@ app.include_router(
     reconciliation_api.reconcile_runs_router,
     prefix="/api/v1/reconcile",
     tags=["Reconcile Runs"],
+)
+app.include_router(
+    ims_actions_router,
+    prefix="/api/reconcile",
+    tags=["IMS Actions"],
+)
+app.include_router(
+    ims_actions_router,
+    prefix="/api/v1/reconcile",
+    tags=["IMS Actions"],
 )
 app.include_router(
     export_router.router,

@@ -7,6 +7,7 @@ import {
 } from "@/components/reconcile/Rule37MarkPaidModal";
 import { ReconcilePaginationFooter } from "@/components/reconcile/ReconcilePaginationFooter";
 import { AuditObservationsPanel } from "@/components/AuditObservationsPanel";
+import { ImsActionPanel } from "@/components/reconcile/ImsActionPanel";
 import { Rule37SummarySection } from "@/components/reconcile/Rule37SummarySection";
 import type { Rule37SummaryResponse } from "@/lib/rule37Summary";
 import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
@@ -4867,6 +4868,24 @@ export default function ReconcileResultsPage() {
             </>
           )}
         </div>
+        )}
+
+        {/* IMS Actions — CA confirm before GSTN writeback */}
+        {resultsTab === "ims" && (
+        <>
+        {authToken ? (
+          <ImsActionPanel
+            runId={runId}
+            authToken={authToken}
+          />
+        ) : (
+          <div className={sectionContainerClass}>
+            <p className="text-sm text-gray-500">
+              Sign in to load IMS recommendations for this run.
+            </p>
+          </div>
+        )}
+        </>
         )}
 
         {/* Rule 37 */}

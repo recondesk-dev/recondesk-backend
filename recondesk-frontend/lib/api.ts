@@ -2152,3 +2152,109 @@ export const manageDataApi = {
     ),
 };
 
+
+// ─── IMS Action panel (Phase 3) ───────────────────────────────────────────────
+// Recommendations + confirmed writeback. Never auto-called on page open.
+
+export type ImsRecommendedActionDto = "accept" | "reject" | "hold";
+
+export type ImsInvoiceRecommendationDto = {
+  invoice_id: string;
+  supplier_gstin: string;
+  invoice_number: string;
+  invoice_date?: string | null;
+  supplier_name?: string | null;
+  category: string;
+  ims_status: string;
+  recommended_action: ImsRecommendedActionDto;
+  confidence_score: number;
+  reason_codes: string[];
+  human_readable_why: string;
+  amount_paise?: number | null;
+  section?: string;
+  writeback_payload?: Record<string, unknown> | null;
+  match_confidence?: number | null;
+};
+
+export type ImsRecommendationsResponse = {
+  available: boolean;
+  reason?: string | null;
+  run_id?: string | null;
+  period?: string | null;
+  gstin?: string | null;
+  source?: string;
+  high_confidence_accept_count: number;
+  invoice_count: number;
+  invoices: ImsInvoiceRecommendationDto[];
+};
+
+export type ImsConfirmActionsResponse = {
+  reference_id: string;
+  transaction_id: string;
+  invoice_count: number;
+  action_groups: Record<string, number>;
+  override_count: number;
+  override_invoice_ids: string[];
+  phase4_post_action_2b_sync_pending?: boolean;
+  phase4_note?: string;
+  run_id?: string;
+  confirmation_summary?: string;
+};
+
+export type ImsActionStatusResponse = {
+  reference_id: string;
+  status_cd: string;
+  is_complete: boolean;
+  has_errors: boolean;
+  processed_count: number;
+  error_count: number;
+  error_code?: string;
+  error_message?: string;
+  error_report?: Record<string, unknown>;
+  outcome: "pending" | "confirmed" | "failed";
+  run_id?: string;
+};
+
+export const imsApi = {
+  /** Explicit Load only — never call from useEffect on mount. */
+  getRecommendations: (token: string, runId: string) =>
+    apiFetch<ImsRecommendationsResponse>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/ims/recommendations`,
+      { token, cache: "no-store" }
+    ),
+
+  confirmActions: (
+    token: string,
+    runId: string,
+    body: {
+      confirmed: true;
+      confirmation_summary: string;
+      expected_count: number;
+      invoices: Array<{
+        invoice_id: string;
+        chosen_action: ImsRecommendedActionDto;
+        recommended_action?: string | null;
+        section?: string;
+        writeback_payload?: Record<string, unknown> | null;
+        remarks?: string | null;
+      }>;
+    }
+  ) =>
+    apiFetch<ImsConfirmActionsResponse>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/ims/actions/confirm`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
+  actionStatus: (token: string, runId: string, referenceId: string) => {
+    const sp = new URLSearchParams();
+    sp.set("reference_id", referenceId);
+    return apiFetch<ImsActionStatusResponse>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/ims/actions/status?${sp.toString()}`,
+      { token, cache: "no-store", timeoutMs: STATUS_POLL_REQUEST_TIMEOUT_MS }
+    );
+  },
+};
