@@ -17,7 +17,7 @@ const STATUS_OPTIONS = [
   { value: "MATCHED", label: "Matched" },
   { value: "MISMATCHED", label: "Mismatched" },
   { value: "MISSING", label: "Missing" },
-  { value: "ITC_AT_RISK", label: "ITC at Risk" },
+  { value: "ITC_AT_RISK", label: "ITC at Risk — Not in GSTR-2B" },
   { value: "DUPLICATE", label: "Duplicate" },
 ] as const;
 

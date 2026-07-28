@@ -84,7 +84,7 @@ export function Rule37SummarySection({
     <div className="mb-6 space-y-6">
       <div className="grid w-full min-w-0 grid-cols-2 gap-3 md:[grid-template-columns:repeat(4,minmax(0,1fr))]">
         <StatCard
-          label="Total ITC at Risk"
+          label="ITC at Risk — Rule 37 (Unpaid 180+ Days)"
           accent="neutral"
           value={
             <CompactStatAmount
