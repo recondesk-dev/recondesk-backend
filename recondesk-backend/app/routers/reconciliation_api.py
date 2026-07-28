@@ -789,6 +789,8 @@ class SupplierFollowupAuditBody(BaseModel):
     template_type: Literal["wrongful_itc_single", "wrongful_itc_bulk"]
     status: Literal["generated", "downloaded", "copied"]
     supplier_name_display: Optional[str] = Field(None, max_length=200)
+    # Full letter text at action time (generated draft, or edited copy/download).
+    letter_body: str = Field(..., min_length=1, max_length=100_000)
 
 
 class SupplierFollowupAuditResponse(BaseModel):
@@ -809,6 +811,7 @@ class SupplierFollowupAuditListItem(BaseModel):
     generated_by_name: str
     generated_at: str
     invoice_numbers_display: str = ""
+    letter_body: Optional[str] = None
 
 
 _FOLLOWUP_AUDIT_STATUSES = frozenset({"generated", "downloaded", "copied"})
@@ -882,7 +885,8 @@ def _followup_audit_query(
             sb.table("supplier_followup_audit")
             .select(
                 "id, run_id, tax_period, supplier_gstin, supplier_name_display, "
-                "template_type, status, generated_by, generated_at, invoice_snapshot"
+                "template_type, status, generated_by, generated_at, invoice_snapshot, "
+                "letter_body"
             )
             .in_("run_id", chunk)
         )
@@ -922,6 +926,12 @@ def _followup_audit_list_response(rows: list[dict[str, Any]]) -> list[SupplierFo
                 generated_by_name=names.get(gb, ""),
                 generated_at=str(r.get("generated_at") or ""),
                 invoice_numbers_display=_followup_audit_invoice_numbers_display(r),
+                letter_body=(
+                    str(r["letter_body"])
+                    if r.get("letter_body") is not None
+                    and str(r.get("letter_body") or "").strip()
+                    else None
+                ),
             )
         )
     return out
@@ -4632,6 +4642,13 @@ def _log_supplier_followup_audit_impl(
         for item in body.invoice_snapshot
     ]
 
+    letter_body = (body.letter_body or "").strip()
+    if not letter_body:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="letter_body is required",
+        )
+
     now = datetime.now(timezone.utc).isoformat()
     row_ins: dict[str, Any] = {
         "run_id": rid,
@@ -4643,6 +4660,7 @@ def _log_supplier_followup_audit_impl(
         "generated_by": uid,
         "status": body.status,
         "supplier_name_display": (body.supplier_name_display or "").strip() or None,
+        "letter_body": letter_body,
     }
     try:
         ins = sb.table("supplier_followup_audit").insert(row_ins).execute()

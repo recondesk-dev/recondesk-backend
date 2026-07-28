@@ -51,10 +51,12 @@ export function SupplierFollowupLetterModal({
 
   const postAudit = useCallback(
     async (
-      status: "generated" | "downloaded" | "copied"
+      status: "generated" | "downloaded" | "copied",
+      letterBody: string
     ): Promise<boolean> => {
       const snap = snapshotRef.current;
-      if (!snap.length || !token) return false;
+      const text = letterBody.trim();
+      if (!snap.length || !token || !text) return false;
       setAuditBusy(true);
       if (status !== "generated") setAuditError(null);
       try {
@@ -72,6 +74,7 @@ export function SupplierFollowupLetterModal({
               template_type: templateTypeForRowCount(snap.length),
               status,
               supplier_name_display: display,
+              letter_body: text,
             }),
           }
         );
@@ -109,16 +112,15 @@ export function SupplierFollowupLetterModal({
     setSupplierName(
       rows.map((r) => r.trade_name?.trim()).find(Boolean) || ""
     );
-    setBody(
-      buildFollowupLetterDraft({
-        clientName,
-        clientGstin,
-        taxPeriod,
-        supplierDisplayName: defaultSupplierDisplayName(rows, ""),
-        supplierGstin,
-        snapshot: snap,
-      })
-    );
+    const draft = buildFollowupLetterDraft({
+      clientName,
+      clientGstin,
+      taxPeriod,
+      supplierDisplayName: defaultSupplierDisplayName(rows, ""),
+      supplierGstin,
+      snapshot: snap,
+    });
+    setBody(draft);
 
     const genKey = snap
       .map((s) => s.record_id)
@@ -126,7 +128,7 @@ export function SupplierFollowupLetterModal({
       .join("|");
     if (loggedGeneratedKeyRef.current !== genKey) {
       loggedGeneratedKeyRef.current = genKey;
-      void postAudit("generated");
+      void postAudit("generated", draft);
     }
   }, [
     open,
@@ -162,7 +164,7 @@ export function SupplierFollowupLetterModal({
       await navigator.clipboard.writeText(body);
       setCopyOk(true);
       window.setTimeout(() => setCopyOk(false), 2000);
-      void postAudit("copied");
+      void postAudit("copied", body);
     } catch {
       setAuditError("Clipboard unavailable");
     }
@@ -173,7 +175,7 @@ export function SupplierFollowupLetterModal({
     try {
       const blob = await buildFollowupLetterPdfBlob(body, DISCLAIMER_MODAL);
       downloadBlobAsFile(blob, followupPdfFilename(supplierGstin, taxPeriod));
-      void postAudit("downloaded");
+      void postAudit("downloaded", body);
     } catch {
       setAuditError("Could not generate PDF. Please try again or use Copy message.");
     }

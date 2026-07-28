@@ -49,8 +49,9 @@ def supabase_error_message(exc: BaseException, *, context: str = "") -> str:
         return (
             "The supplier_followup_audit table is missing or not in the API schema cache. "
             "Apply Supabase migrations "
-            "(20260604120000_supplier_followup_audit.sql and "
-            "20260604140000_supplier_followup_audit_grants.sql), then reload the schema."
+            "(20260604120000_supplier_followup_audit.sql, "
+            "20260604140000_supplier_followup_audit_grants.sql, and "
+            "20260729120000_supplier_followup_audit_letter_body.sql), then reload the schema."
         )
 
     if any(

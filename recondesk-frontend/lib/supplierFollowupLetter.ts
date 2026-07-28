@@ -28,6 +28,8 @@ export type FollowupAuditPayload = {
   template_type: FollowupTemplateType;
   status: FollowupAuditStatus;
   supplier_name_display?: string | null;
+  /** Full letter text at action time (draft / edited copy / PDF download). */
+  letter_body: string;
 };
 
 export type RiskRowForFollowup = {

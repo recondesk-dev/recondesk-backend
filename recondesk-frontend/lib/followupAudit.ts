@@ -12,6 +12,8 @@ export type SupplierFollowupAuditRow = {
   generated_by_name: string;
   generated_at: string;
   invoice_numbers_display?: string;
+  /** Full letter text when persisted; null for legacy audit rows. */
+  letter_body?: string | null;
 };
 
 export function formatFollowupAuditTimeIst(iso: string): string {
