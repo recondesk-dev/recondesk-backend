@@ -285,6 +285,48 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             parsed = parse_gstr2b(gstr_payload)
             records = list(parsed.get("records") or [])
             for_sanity = _gstr_records_for_sanity(records)
+
+            # Persist ISD/IMPG detection for results-page banner (not reconciled).
+            try:
+                from app.parsers.gstr2b_parser import format_isd_impg_warning
+                from app.services.reconciliation_import_wizard.wizard_service import (
+                    merge_isd_impg_into_run_summary,
+                )
+
+                isd_n = int(parsed.get("isd_count") or 0)
+                impg_n = int(parsed.get("impg_count") or 0)
+                prior_rs = (
+                    client.table("reconciliation_run")
+                    .select("run_summary")
+                    .eq("id", run_id)
+                    .limit(1)
+                    .execute()
+                )
+                existing_rs = (
+                    (prior_rs.data or [{}])[0].get("run_summary")
+                    if prior_rs.data
+                    else None
+                )
+                if not isinstance(existing_rs, dict):
+                    existing_rs = {}
+                _update_run(
+                    client,
+                    run_id,
+                    {
+                        "run_summary": merge_isd_impg_into_run_summary(
+                            existing_rs,
+                            isd_count=isd_n,
+                            impg_count=impg_n,
+                            warning=format_isd_impg_warning(isd_n, impg_n),
+                        ),
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+            except Exception:
+                _log.exception(
+                    "Failed to persist ISD/IMPG detection on run_summary for %s",
+                    run_id,
+                )
             
             parsed_period = str(parsed.get("period", ""))
             if parsed_period and len(parsed_period) >= 7:

@@ -1990,6 +1990,16 @@ def _build_reconcile_summary(
     ):
         status_message = f"Completed — {pr_skipped_detail}"
 
+    isd_count = int(rs.get("isd_count") or 0)
+    impg_count = int(rs.get("impg_count") or 0)
+    isd_present = bool(rs.get("isd_present")) or isd_count > 0
+    impg_present = bool(rs.get("impg_present")) or impg_count > 0
+    isd_impg_warning = rs.get("isd_impg_warning")
+    if (isd_count > 0 or impg_count > 0) and not isd_impg_warning:
+        from app.parsers.gstr2b_parser import format_isd_impg_warning
+
+        isd_impg_warning = format_isd_impg_warning(isd_count, impg_count)
+
     return {
         "run_id": rid,
         "client_name": client_display,
@@ -2026,6 +2036,11 @@ def _build_reconcile_summary(
         "user_role": role_out,
         "pr_skipped_count": skipped_count,
         "pr_skipped_detail": pr_skipped_detail,
+        "isd_present": isd_present,
+        "isd_count": isd_count,
+        "impg_present": impg_present,
+        "impg_count": impg_count,
+        "isd_impg_warning": isd_impg_warning,
         "duplicate_entry_count": sum(
             1 for r in outcome_rows if r.category == "duplicate_entry"
         ),

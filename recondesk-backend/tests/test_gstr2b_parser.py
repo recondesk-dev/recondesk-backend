@@ -512,6 +512,76 @@ def test_isd_and_impg_silently_ignored():
     result = parse_gstr2b(_enc({"data": data}))
     assert result["total_parsed"] == 1
     assert result["total_skipped"] == 0
+    # Detected but not parsed into records.
+    assert result["isd_present"] is True
+    assert result["isd_count"] == 1
+    assert result["impg_present"] is True
+    assert result["impg_count"] == 1
+    assert result["metrics"]["isd_count"] == 1
+    assert result["metrics"]["impg_count"] == 1
+
+
+def test_isd_impg_detected_from_docdata():
+    data = {
+        "gstin": BUYER_GSTIN,
+        "rtnprd": "042024",
+        "b2b": [_supplier(SUPPLIER_1, [_invoice()])],
+        "docdata": {
+            "isd": [
+                {
+                    "ctin": SUPPLIER_1,
+                    "doc": [{"docty": "ISD", "docnum": "I1"}, {"docty": "ISD", "docnum": "I2"}],
+                }
+            ],
+            "impg": [
+                {"refdt": "01-04-2024", "portcd": "INBOM1", "boenum": "123"},
+                {"refdt": "02-04-2024", "portcd": "INBOM1", "boenum": "124"},
+            ],
+        },
+    }
+    result = parse_gstr2b(_enc({"data": data}))
+    assert result["isd_count"] == 2
+    assert result["impg_count"] == 2
+    assert result["total_parsed"] == 1
+
+
+def test_empty_isd_impg_not_flagged():
+    data = {
+        "gstin": BUYER_GSTIN,
+        "rtnprd": "042024",
+        "b2b": [_supplier(SUPPLIER_1, [_invoice()])],
+        "isd": [],
+        "impg": [],
+    }
+    result = parse_gstr2b(_enc({"data": data}))
+    assert result["isd_present"] is False
+    assert result["isd_count"] == 0
+    assert result["impg_present"] is False
+    assert result["impg_count"] == 0
+
+
+def test_sanity_warns_on_isd_impg():
+    from app.services.reconciliation_import_wizard.wizard_service import (
+        ISD_IMPG_UNPROCESSED_CHECK_ID,
+        run_sanity_gstr2b_json,
+    )
+
+    data = {
+        "gstin": BUYER_GSTIN,
+        "rtnprd": "042024",
+        "b2b": [_supplier(SUPPLIER_1, [_invoice()])],
+        "isd": [{"ctin": SUPPLIER_1, "doc": [{"docty": "ISD", "docnum": "A1"}]}],
+        "impg": [{"portcd": "INMAA1", "boenum": "9"}],
+    }
+    checks, count = run_sanity_gstr2b_json(_enc({"data": data}))
+    assert count == 1
+    warn = next(c for c in checks if c["id"] == ISD_IMPG_UNPROCESSED_CHECK_ID)
+    assert warn["requires_acknowledgment"] is True
+    assert warn["isd_count"] == 1
+    assert warn["impg_count"] == 1
+    assert "NOT included" in warn["detail"]
+    assert "1 ISD credit line" in warn["detail"]
+    assert "1 import-of-goods line" in warn["detail"]
 
 
 def test_unique_key_structure_on_every_record():

@@ -378,6 +378,12 @@ type RunSummary = {
   /** PR rows excluded from matching (e.g. missing invoice number). */
   pr_skipped_count?: number;
   pr_skipped_detail?: string | null;
+  /** GSTR-2B ISD / IMPG lines detected but not included in reconciliation. */
+  isd_present?: boolean;
+  isd_count?: number;
+  impg_present?: boolean;
+  impg_count?: number;
+  isd_impg_warning?: string | null;
 };
 
 type ConfidenceSummary = {
@@ -2628,6 +2634,21 @@ export default function ReconcileResultsPage() {
                 {exportScopeLabel}
               </div>
             </div>
+
+            {(summary.isd_count ?? 0) > 0 || (summary.impg_count ?? 0) > 0 ? (
+              <div
+                className="mt-3 rounded-[1.25rem] border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm"
+                role="alert"
+              >
+                <p className="font-semibold tracking-tight">
+                  ISD / Import of goods not included in this reconciliation
+                </p>
+                <p className="mt-1 leading-relaxed">
+                  {summary.isd_impg_warning?.trim() ||
+                    `This GSTR-2B file contains ${(summary.isd_count ?? 0) > 0 ? `${summary.isd_count!.toLocaleString("en-IN")} ISD credit line(s)` : ""}${(summary.isd_count ?? 0) > 0 && (summary.impg_count ?? 0) > 0 ? " and " : ""}${(summary.impg_count ?? 0) > 0 ? `${summary.impg_count!.toLocaleString("en-IN")} import-of-goods line(s)` : ""} that are NOT included in this reconciliation. Verify these separately.`}
+                </p>
+              </div>
+            ) : null}
 
             {(summary.pr_skipped_count ?? 0) > 0 ? (
               <div

@@ -64,3 +64,52 @@ def test_parse_gstr2b_end_to_end_from_excel_bytes():
         "SLA243379976690",
         "TSC/FY26-27/997",
     }
+
+
+def test_excel_detects_isd_impg_sheets_without_parsing():
+    import io
+
+    import pandas as pd
+
+    from app.parsers.gstr2b_parser import (
+        _UNPARSED_IMPG_COUNT_KEY,
+        _UNPARSED_ISD_COUNT_KEY,
+    )
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "Sr": 1,
+                    "GSTIN": "27AABCT1332L1ZV",
+                    "Invoice No": "INV-1",
+                    "Invoice Date": "01-Apr-24",
+                    "Taxable Value": 1000,
+                    "Integrated Tax": 180,
+                }
+            ]
+        ).to_excel(writer, sheet_name="invoice", index=False)
+        pd.DataFrame(
+            [
+                {"Doc No": "ISD-1", "Amount": 100},
+                {"Doc No": "ISD-2", "Amount": 200},
+            ]
+        ).to_excel(writer, sheet_name="ISD", index=False)
+        pd.DataFrame(
+            [{"BoE": "1234567", "IGST": 500}]
+        ).to_excel(writer, sheet_name="IMPG", index=False)
+    raw = buf.getvalue()
+
+    alt = excel_to_alt_2b_dict(raw, "mixed.xlsx")
+    assert alt[_UNPARSED_ISD_COUNT_KEY] == 2
+    assert alt[_UNPARSED_IMPG_COUNT_KEY] == 1
+
+    portal = parse_2b_excel(raw, "mixed.xlsx")
+    result = parse_gstr2b(portal)
+    assert result["isd_count"] == 2
+    assert result["impg_count"] == 1
+    assert result["isd_present"] is True
+    assert result["impg_present"] is True
+    assert result["total_parsed"] >= 1
+

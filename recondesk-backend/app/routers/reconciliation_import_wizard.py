@@ -442,10 +442,20 @@ async def sanity_check_gstr2b(
         r.get("sanity_check_results"), checks
     )
 
+    isd_impg = ws.isd_impg_fields_from_checks(checks)
+    existing_rs = r.get("run_summary") if isinstance(r.get("run_summary"), dict) else {}
+    run_summary = ws.merge_isd_impg_into_run_summary(
+        existing_rs,
+        isd_count=int(isd_impg.get("isd_count") or 0),
+        impg_count=int(isd_impg.get("impg_count") or 0),
+        warning=isd_impg.get("isd_impg_warning"),
+    )
+
     sb.table(ws.T_RUNS).update(
         {
             "sanity_check_results": checks,
             "gstr2b_record_count": record_count,
+            "run_summary": run_summary,
             "current_step": 2,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }

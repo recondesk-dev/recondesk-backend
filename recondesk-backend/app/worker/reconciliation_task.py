@@ -1424,6 +1424,35 @@ def execute_reconciliation(run_id: str) -> None:
             unmatched_notes_count=len(state.unmatched_notes),
             matched_itc_paise=matched_itc_paise,
         )
+        # Preserve ISD/IMPG detection written at import / GSTR-2B sanity time.
+        try:
+            prior_rs_res = (
+                client.table("reconciliation_run")
+                .select("run_summary")
+                .eq("id", run_id)
+                .limit(1)
+                .execute()
+            )
+            prior_rs = (
+                (prior_rs_res.data or [{}])[0].get("run_summary")
+                if prior_rs_res.data
+                else None
+            )
+            if isinstance(prior_rs, dict):
+                for _k in (
+                    "isd_present",
+                    "isd_count",
+                    "impg_present",
+                    "impg_count",
+                    "isd_impg_warning",
+                ):
+                    if _k in prior_rs and prior_rs.get(_k) is not None:
+                        run_summary[_k] = prior_rs[_k]
+        except Exception:
+            _log.exception(
+                "execute_reconciliation: could not preserve ISD/IMPG fields for %s",
+                run_id,
+            )
 
         valid_review_required = []
         for r in state.review_required:

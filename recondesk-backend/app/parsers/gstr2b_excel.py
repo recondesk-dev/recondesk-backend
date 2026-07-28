@@ -3,6 +3,9 @@
 Reads ``.xls`` / ``.xlsx`` workbooks whose tabs match the alt JSON schema
 (``invoice``, ``note``, …), reuses Purchase Register header-row detection, and
 hands the resulting row dicts to ``normalize_alt_2b_schema``.
+
+ISD / IMPG-like sheet tabs are detected (row-counted) but not parsed — counts
+are attached so ``parse_gstr2b`` can warn the CA.
 """
 
 from __future__ import annotations
@@ -16,6 +19,8 @@ import pandas as pd
 
 from app.parsers.gstr2b_parser import (
     _GSTIN_IN_TEXT_RE,
+    _UNPARSED_IMPG_COUNT_KEY,
+    _UNPARSED_ISD_COUNT_KEY,
     normalize_alt_2b_schema,
 )
 from app.parsers.purchase_register_parser import (
@@ -30,6 +35,10 @@ _EXCEL_EXTS = frozenset({".xls", ".xlsx"})
 # Sheet tabs we import (IMS tabs ignored for now — same as alt JSON path).
 _INVOICE_SHEET_NAMES = frozenset({"invoice", "invoices", "b2b"})
 _NOTE_SHEET_NAMES = frozenset({"note", "notes", "cdn", "cdnr"})
+
+# Unparsed section tabs — detect + count only.
+_ISD_SHEET_COMPACT = frozenset({"isd", "isda"})
+_IMPG_SHEET_COMPACT = frozenset({"impg", "impga", "impgsez", "impgseza"})
 
 
 def is_gstr2b_excel_filename(filename: str | None) -> bool:
@@ -59,6 +68,60 @@ def _sheet_kind(sheet_name: str) -> str | None:
     if norm in _NOTE_SHEET_NAMES:
         return "note"
     return None
+
+
+def _unparsed_sheet_kind(sheet_name: str) -> str | None:
+    """Return ``isd`` / ``impg`` for unparsed section-like sheet names."""
+    compact = normalize_header(str(sheet_name)).replace(" ", "")
+    if not compact:
+        return None
+    if compact in _ISD_SHEET_COMPACT or compact.startswith("isd"):
+        return "isd"
+    if compact in _IMPG_SHEET_COMPACT or compact.startswith("impg"):
+        return "impg"
+    if "importofgoods" in compact or "importgoods" in compact:
+        return "impg"
+    return None
+
+
+def _count_nonempty_sheet_rows(xl: pd.ExcelFile, sheet_name: str) -> int:
+    """Count data rows on an unparsed sheet (header-aware when possible)."""
+    try:
+        rows, _gstin, _hdr = _read_named_sheet(xl, sheet_name)
+        if rows:
+            return len(rows)
+    except Exception as exc:
+        logger.warning(
+            "GSTR-2B Excel unparsed sheet %r header-read failed: %s",
+            sheet_name,
+            exc,
+        )
+    try:
+        raw_df = pd.read_excel(xl, sheet_name=sheet_name, header=None, dtype=object)
+    except Exception as exc:
+        logger.warning(
+            "GSTR-2B Excel unparsed sheet %r raw-read failed: %s",
+            sheet_name,
+            exc,
+        )
+        return 0
+    if raw_df is None or raw_df.empty:
+        return 0
+    # Count rows with at least one non-null / non-blank cell.
+    n = 0
+    for _, series in raw_df.iterrows():
+        has_val = False
+        for val in series.tolist():
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                continue
+            if str(val).strip() == "":
+                continue
+            has_val = True
+            break
+        if has_val:
+            n += 1
+    # Subtract one for a likely header row when we couldn't map columns.
+    return max(0, n - 1) if n > 1 else n
 
 
 def _cell_to_jsonish(val: Any) -> Any:
@@ -139,7 +202,13 @@ def excel_to_alt_2b_dict(file_content: bytes, filename: str = "gstr2b.xlsx") -> 
 
     Returns::
 
-        {"invoice": [...], "note": [...], "gstin": "<optional from title>"}
+        {
+          "invoice": [...],
+          "note": [...],
+          "gstin": "<optional from title>",
+          "_unparsed_isd_count": int,
+          "_unparsed_impg_count": int,
+        }
     """
     del filename  # reserved for future engine hints; extension handled by callers
     if not file_content:
@@ -153,10 +222,17 @@ def excel_to_alt_2b_dict(file_content: bytes, filename: str = "gstr2b.xlsx") -> 
     invoice_rows: list[dict[str, Any]] = []
     note_rows: list[dict[str, Any]] = []
     title_gstin = ""
+    isd_count = 0
+    impg_count = 0
 
     for sheet_name in xl.sheet_names:
         kind = _sheet_kind(str(sheet_name))
         if kind is None:
+            unparsed = _unparsed_sheet_kind(str(sheet_name))
+            if unparsed == "isd":
+                isd_count += _count_nonempty_sheet_rows(xl, sheet_name)
+            elif unparsed == "impg":
+                impg_count += _count_nonempty_sheet_rows(xl, sheet_name)
             continue
         try:
             rows, gstin, _hdr = _read_named_sheet(xl, sheet_name)
@@ -179,6 +255,8 @@ def excel_to_alt_2b_dict(file_content: bytes, filename: str = "gstr2b.xlsx") -> 
     payload: dict[str, Any] = {
         "invoice": invoice_rows,
         "note": note_rows,
+        _UNPARSED_ISD_COUNT_KEY: int(isd_count),
+        _UNPARSED_IMPG_COUNT_KEY: int(impg_count),
     }
     if title_gstin:
         payload["gstin"] = title_gstin
@@ -197,7 +275,12 @@ def parse_2b_excel(
     ``normalize_alt_2b_schema`` (same path as flat JSON exports).
     """
     alt = excel_to_alt_2b_dict(file_content, filename)
-    return normalize_alt_2b_schema(alt, fallback_buyer_gstin=fallback_buyer_gstin)
+    isd_count = int(alt.pop(_UNPARSED_ISD_COUNT_KEY, 0) or 0)
+    impg_count = int(alt.pop(_UNPARSED_IMPG_COUNT_KEY, 0) or 0)
+    portal = normalize_alt_2b_schema(alt, fallback_buyer_gstin=fallback_buyer_gstin)
+    portal[_UNPARSED_ISD_COUNT_KEY] = isd_count
+    portal[_UNPARSED_IMPG_COUNT_KEY] = impg_count
+    return portal
 
 
 def load_gstr2b_upload_payload(
@@ -209,8 +292,8 @@ def load_gstr2b_upload_payload(
     """Load GSTR-2B upload bytes (JSON or Excel) into a parse-ready dict.
 
     Excel → ``normalize_alt_2b_schema`` portal shape (may include
-    ``_alt_buyer_gstin_source``). JSON is returned as a parsed ``dict`` for
-    ``parse_gstr2b`` to handle (portal or alt).
+    ``_alt_buyer_gstin_source`` and unparsed ISD/IMPG counts). JSON is returned
+    as a parsed ``dict`` for ``parse_gstr2b`` to handle (portal or alt).
     """
     name = filename or ""
     if is_gstr2b_excel_filename(name) or (
