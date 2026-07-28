@@ -2650,6 +2650,33 @@ export default function ReconcileResultsPage() {
               </div>
             ) : null}
 
+            {(summary.unmatched_notes_count ?? 0) > 0 ? (
+              <div
+                className="mt-3 rounded-[1.25rem] border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm"
+                role="alert"
+              >
+                <p className="font-semibold tracking-tight">
+                  Credit/debit notes not automatically reconciled
+                </p>
+                <p className="mt-1 leading-relaxed">
+                  {(summary.unmatched_notes_count ?? 0).toLocaleString("en-IN")}{" "}
+                  purchase-register credit/debit note
+                  {(summary.unmatched_notes_count ?? 0) === 1 ? "" : "s"}{" "}
+                  {(summary.unmatched_notes_count ?? 0) === 1 ? "was" : "were"}{" "}
+                  excluded from invoice matching. CDN↔GSTR-2B note matching is
+                  not implemented — review them separately under Notes — Not
+                  Auto-Matched.
+                </p>
+                <button
+                  type="button"
+                  className="mt-2 text-[13px] font-semibold text-amber-950 underline underline-offset-2 hover:text-amber-900"
+                  onClick={() => setResultsTab("unmatched_notes")}
+                >
+                  View quarantined notes
+                </button>
+              </div>
+            ) : null}
+
             {(summary.pr_skipped_count ?? 0) > 0 ? (
               <div
                 className="mt-3 rounded-[1.25rem] bg-amber-50 px-4 py-2.5 text-sm text-amber-950"
@@ -4440,7 +4467,7 @@ export default function ReconcileResultsPage() {
         {resultsTab === "unmatched_notes" && (
           <div className={sectionContainerClass}>
             <h2 className="mb-1 text-[15px] font-semibold tracking-tight text-gray-900">
-              Notes — Not Matched{" "}
+              Notes — Not Auto-Matched{" "}
               {summary != null && (
                 <span className="font-normal text-gray-500">
                   ({(summary.unmatched_notes_count ?? 0).toLocaleString("en-IN")})
@@ -4448,10 +4475,14 @@ export default function ReconcileResultsPage() {
               )}
             </h2>
             <p className="mb-5 text-[12px] leading-relaxed text-gray-500">
-              Credit and debit notes from the purchase register. These are value
-              adjustments, not invoices — they are kept out of Matched, Review
-              Required, and ITC at Risk — Not in GSTR-2B. Full matching against
-              GSTR-2B note[] is not implemented yet.
+              Credit and debit notes from the purchase register were quarantined
+              before matching and are{" "}
+              <span className="font-medium text-gray-700">
+                not automatically reconciled
+              </span>
+              . They are kept out of Matched, Review Required, and ITC at Risk —
+              Not in GSTR-2B. Full matching against GSTR-2B note[] is not
+              implemented yet — review these manually.
             </p>
             {(summary?.unmatched_notes_count ?? 0) <= 0 ? (
               <p className="text-sm text-gray-500">

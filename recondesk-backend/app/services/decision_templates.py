@@ -46,11 +46,6 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "Invoice number format difference between supplier system and {source_software}",
         "next": "Compare physical invoice against GSTR-2B entry. Correct purchase register if supplier number is authoritative.",
     },
-    "L5_PROBABLE": {
-        "what": "Probable match -- GSTIN and amount similar but invoice number differs by {distance} characters",
-        "why": "Possible data entry error or abbreviation difference",
-        "next": "Verify with physical invoice. If same transaction, correct the invoice number in purchase register.",
-    },
     "MISSED_ITC": {
         "what": "Available in 2B but Missing in Books",
         "why": "Invoice not entered in {source_software} or entered under a different GSTIN",

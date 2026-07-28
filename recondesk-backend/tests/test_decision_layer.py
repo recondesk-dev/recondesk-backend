@@ -1,4 +1,4 @@
-"""12 tests — one per decision template."""
+"""Decision template coverage tests."""
 from __future__ import annotations
 from app.services.decision_templates import generate_decision
 from app.decisions.layer import populate_decisions
@@ -42,13 +42,6 @@ def test_l4_invoice_num():
     assert "invoice numbers do not match" in d.what
     assert "Excel" in d.why
     assert "physical invoice" in d.next
-
-
-def test_l5_probable():
-    d = generate_decision("L5_PROBABLE", distance=2)
-    assert "2 characters" in d.what
-    assert "data entry error" in d.why
-    assert "purchase register" in d.next
 
 
 def test_missed_itc():

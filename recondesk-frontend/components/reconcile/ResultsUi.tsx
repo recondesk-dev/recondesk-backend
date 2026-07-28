@@ -643,7 +643,7 @@ const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "matched", label: "Matched" },
   { id: "review_required", label: "Review Required" },
   { id: "duplicate_entry", label: "Duplicate Entries" },
-  { id: "unmatched_notes", label: "Notes — Not Matched" },
+  { id: "unmatched_notes", label: "Notes — Not Auto-Matched" },
   { id: "risk", label: "ITC at Risk — Not in GSTR-2B" },
   { id: "itc", label: "Missed ITC" },
   { id: "rule37", label: "ITC at Risk — Rule 37 (Unpaid 180+ Days)" },
