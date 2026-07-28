@@ -230,7 +230,9 @@ def confirm_ims_actions(
 
     Idempotency: ``store.try_claim_submission`` atomically claims
     (invoice_id, period, gstin) *before* any Sandbox call. Claim losers
-    reuse the existing row and never call ``save_invoice_status``.
+    (``None``) reuse the existing row and never call ``save_invoice_status``.
+    Claim RPC execution failures raise ``ImsClaimRpcError`` and must not
+    be treated as a lost race — they propagate so the CA can retry.
 
     Dual-status: ``save_invoice_status`` alone never marks ``confirmed``.
     Each new save group is polled via ``check_invoice_status`` until
@@ -249,6 +251,7 @@ def confirm_ims_actions(
 
     # ── Atomic claim BEFORE Sandbox (replaces find_non_failed as the gate) ─
     for item in actions:
+        # ImsClaimRpcError / other claim failures propagate — do not skip.
         claimed = store.try_claim_submission(
             invoice_id=item.invoice_id,
             period=period_n,
@@ -259,7 +262,7 @@ def confirm_ims_actions(
             run_id=run_id,
         )
         if claimed is None:
-            # Another writer owns a non-failed row — skip Sandbox entirely.
+            # Lost race only: another writer owns a non-failed, non-stale row.
             existing = store.find_non_failed(
                 invoice_id=item.invoice_id,
                 period=period_n,

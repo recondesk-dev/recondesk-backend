@@ -56,7 +56,8 @@ BEGIN
         RETURN;
     END IF;
 
-    -- 2) Only failed rows may be reclaimed for retry (still atomic).
+    -- 2) Reclaim failed, or abandoned stale ``claiming`` (crash between
+    --    claim and save+poll). Still atomic. Fresh claiming/pending/etc. win.
     UPDATE public.ims_action_submissions AS s
     SET
         status = 'claiming',
@@ -74,7 +75,13 @@ BEGIN
     WHERE s.invoice_id = p_invoice_id
       AND s.period = p
       AND s.gstin = g
-      AND s.status = 'failed'
+      AND (
+          s.status = 'failed'
+          OR (
+              s.status = 'claiming'
+              AND s.updated_at < now() - interval '5 minutes'
+          )
+      )
     RETURNING * INTO claimed;
 
     IF FOUND THEN
@@ -85,7 +92,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.claim_ims_action_submission IS
-    'Atomically claim an IMS invoice for writeback. Returns the row if this caller won the claim; empty if another non-failed submission already owns the key.';
+    'Atomically claim an IMS invoice for writeback. Returns the row if this caller won (insert, failed reclaim, or stale claiming >5m); empty if another non-failed non-stale submission owns the key.';
 
 GRANT EXECUTE ON FUNCTION public.claim_ims_action_submission(
     text, text, character varying, text, text, text, uuid

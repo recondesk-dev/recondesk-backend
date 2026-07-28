@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.auth import get_current_active_user
 from app.database import get_supabase
 from app.ims.ims_run_service import build_recommendations_for_run
-from app.ims.ims_action_store import SupabaseImsActionStore
+from app.ims.ims_action_store import ImsClaimRpcError, SupabaseImsActionStore
 from app.ims.ims_writeback_client import (
     ConfirmedInvoiceAction,
     confirm_ims_actions,
@@ -220,6 +220,12 @@ async def confirm_ims_actions_route(
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except ImsClaimRpcError as exc:
+        # Distinct from lost-race skip — CA must see a real failure and retry.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
     except SandboxClientError as exc:

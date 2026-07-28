@@ -7,14 +7,18 @@ This table mirrors the ``rule37_actions`` unique-key pattern:
 Concurrency: ``try_claim_submission`` is the gate before Sandbox save.
 It uses Postgres ``INSERT … ON CONFLICT DO NOTHING RETURNING`` (via RPC),
 not PostgREST ``.upsert()`` (which is DO UPDATE and cannot claim safely).
+
+``None`` from ``try_claim_submission`` means only a lost race (another
+non-failed, non-stale owner). RPC execution failures raise
+``ImsClaimRpcError`` — never return ``None``.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-from datetime import datetime, timezone
-from typing import Any, Optional, Protocol
+from datetime import datetime, timedelta, timezone
+from typing import Any, Protocol
 from uuid import uuid4
 
 TABLE = "ims_action_submissions"
@@ -22,15 +26,67 @@ CLAIM_RPC = "claim_ims_action_submission"
 
 # Statuses that block a second Sandbox save for the same invoice/period/gstin.
 # ``claiming`` is held from atomic claim until save+poll settles (or fails).
+# Stale ``claiming`` past CLAIMING_STALE_AFTER is reclaimable (crash recovery).
 NON_FAILED_STATUSES: frozenset[str] = frozenset(
     {"claiming", "pending", "confirmed", "unclear"}
 )
 
+# Crash / kill between claim and save+poll cleanup: abandon after this age.
+CLAIMING_STALE_AFTER = timedelta(minutes=5)
+
 _log = logging.getLogger(__name__)
+
+
+class ImsClaimRpcError(RuntimeError):
+    """Claim RPC failed to execute — distinct from a lost-race empty result.
+
+    Callers must surface this as a real failure (retryable by the CA).
+    Never treat it as ``try_claim_submission(...) is None``.
+    """
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_row_ts(value: Any) -> datetime | None:
+    """Parse stored ``updated_at`` / ``created_at`` into aware UTC datetime."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def is_stale_claiming(
+    row: dict[str, Any] | None,
+    *,
+    now: datetime | None = None,
+    stale_after: timedelta = CLAIMING_STALE_AFTER,
+) -> bool:
+    """True when row is ``claiming`` and older than the abandon threshold."""
+    if not row or row.get("status") != "claiming":
+        return False
+    ts = _parse_row_ts(row.get("updated_at")) or _parse_row_ts(row.get("created_at"))
+    if ts is None:
+        # Missing timestamps: treat as stale so a stuck row cannot block forever.
+        return True
+    clock = now or datetime.now(timezone.utc)
+    return clock - ts >= stale_after
 
 
 def normalize_period(period: str) -> str:
@@ -127,8 +183,12 @@ class InMemoryImsActionStore:
                 }
                 self.rows[key] = row
                 return dict(row)
-            if existing.get("status") == "failed":
-                # Atomic reclaim of failed only (mirrors RPC second branch).
+            can_reclaim = existing.get("status") == "failed" or is_stale_claiming(
+                existing
+            )
+            if can_reclaim:
+                # Reclaim failed, or abandoned stale ``claiming`` (crash recovery).
+                # Mirrors RPC second branch (failed OR stale claiming).
                 row = {
                     **existing,
                     "chosen_action": chosen_action,
@@ -146,7 +206,7 @@ class InMemoryImsActionStore:
                 }
                 self.rows[key] = row
                 return dict(row)
-            # Non-failed owner already exists — claim lost.
+            # Non-failed, non-stale owner already exists — claim lost.
             return None
 
     def upsert_submission(self, row: dict[str, Any]) -> dict[str, Any]:
@@ -207,10 +267,14 @@ class SupabaseImsActionStore:
         submit_mode: str = "confirm_recommendation",
         run_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Atomic claim via RPC (INSERT DO NOTHING, else reclaim failed).
+        """Atomic claim via RPC (INSERT DO NOTHING, else reclaim failed/stale).
 
         Returns the claimed row if this caller won; ``None`` if another
-        non-failed submission already owns (invoice_id, period, gstin).
+        non-failed, non-stale submission already owns (invoice_id, period, gstin).
+
+        Raises ``ImsClaimRpcError`` when the RPC call itself fails to execute
+        (network, timeout, Postgres, malformed params). That must not be
+        treated as a lost race.
         """
         payload = {
             "p_invoice_id": invoice_id,
@@ -221,7 +285,16 @@ class SupabaseImsActionStore:
             "p_submit_mode": submit_mode or "confirm_recommendation",
             "p_run_id": run_id,
         }
-        res = self._sb.rpc(CLAIM_RPC, payload).execute()
+        try:
+            res = self._sb.rpc(CLAIM_RPC, payload).execute()
+        except ImsClaimRpcError:
+            raise
+        except Exception as exc:
+            raise ImsClaimRpcError(
+                f"claim_ims_action_submission RPC failed for "
+                f"invoice_id={invoice_id!r} period={payload['p_period']!r} "
+                f"gstin={payload['p_gstin']!r}: {exc}"
+            ) from exc
         rows = res.data or []
         if isinstance(rows, dict):
             # Some clients return a single object.

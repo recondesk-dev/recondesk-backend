@@ -526,3 +526,131 @@ def test_sandbox_exception_marks_claim_failed_for_retry():
     assert len(ok_box.save_calls) == 1
     assert second.confirmed_count == 1
     assert second.reused_count == 0
+
+
+def test_claim_rpc_execution_error_does_not_skip_sandbox_silently():
+    """RPC failure must raise — never return None / reused_existing skip.
+
+    Before hardening, a bare ``.execute()`` that raised would already
+    propagate; this locks the contract that ``ImsClaimRpcError`` is distinct
+    from a lost-race ``None`` and that confirm does not treat it as reuse.
+    """
+    from app.ims.ims_action_store import ImsClaimRpcError, SupabaseImsActionStore
+
+    class _BoomRpc:
+        def execute(self):
+            raise ConnectionError("supabase unreachable")
+
+    class _BoomSb:
+        def rpc(self, _name, _payload):
+            return _BoomRpc()
+
+    store = SupabaseImsActionStore(_BoomSb())
+    sandbox = FakeSandbox()
+
+    with pytest.raises(ImsClaimRpcError, match="claim_ims_action_submission RPC failed"):
+        confirm_ims_actions(
+            access_token="tok",
+            buyer_gstin=GSTIN,
+            period=PERIOD,
+            actions=[_action("pm:RPC-BOOM")],
+            store=store,
+            client=sandbox,
+            poll_interval_s=0.0,
+            max_polls=2,
+            sleep_fn=lambda _s: None,
+        )
+
+    assert sandbox.save_calls == [], (
+        "RPC claim failure must not reach save_invoice_status, and must not "
+        "be silently skipped as a lost-race reuse"
+    )
+
+
+def test_stale_claiming_row_is_reclaimable_after_threshold():
+    """Crash between claim and save leaves ``claiming``; past TTL it is reclaimable.
+
+    Fresh ``claiming`` still loses the race (no silent double-save). Stale
+    ``claiming`` is treated like failed for reclaim — CA retry can proceed.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.ims.ims_action_store import CLAIMING_STALE_AFTER
+
+    # Fresh claiming must still lose.
+    fresh_store = InMemoryImsActionStore()
+    fresh = fresh_store.try_claim_submission(
+        invoice_id="pm:FRESH-CLAIM",
+        period=PERIOD,
+        gstin=GSTIN,
+        chosen_action="accept",
+    )
+    assert fresh is not None and fresh["status"] == "claiming"
+    lost = fresh_store.try_claim_submission(
+        invoice_id="pm:FRESH-CLAIM",
+        period=PERIOD,
+        gstin=GSTIN,
+        chosen_action="reject",
+    )
+    assert lost is None
+
+    # Stale claiming is reclaimable at the store layer.
+    store = InMemoryImsActionStore()
+    key = ("pm:STALE-CLAIM", PERIOD, GSTIN)
+    stale_ts = (
+        datetime.now(timezone.utc) - CLAIMING_STALE_AFTER - timedelta(seconds=30)
+    ).isoformat()
+
+    def _seed_stale() -> None:
+        store.rows[key] = {
+            "id": "mem-stale",
+            "invoice_id": "pm:STALE-CLAIM",
+            "period": PERIOD,
+            "gstin": GSTIN,
+            "chosen_action": "accept",
+            "recommended_action": "accept",
+            "submit_mode": "confirm_recommendation",
+            "status": "claiming",
+            "run_id": None,
+            "created_at": stale_ts,
+            "updated_at": stale_ts,
+        }
+
+    _seed_stale()
+    reclaimed = store.try_claim_submission(
+        invoice_id="pm:STALE-CLAIM",
+        period=PERIOD,
+        gstin=GSTIN,
+        chosen_action="accept",
+    )
+    assert reclaimed is not None
+    assert reclaimed["status"] == "claiming"
+    assert reclaimed["updated_at"] != stale_ts
+
+    # End-to-end: confirm must reclaim a still-stale row and call Sandbox
+    # (not silently reuse / skip). Re-seed so claim inside confirm sees stale.
+    _seed_stale()
+    sandbox = FakeSandbox()
+    original = sandbox.save_invoice_status
+
+    def save_ok(*a, **k):
+        resp = original(*a, **k)
+        sandbox.poll_scripts[resp.reference_id] = [_ok()]
+        return resp
+
+    sandbox.save_invoice_status = save_ok  # type: ignore[method-assign]
+    result = confirm_ims_actions(
+        access_token="tok",
+        buyer_gstin=GSTIN,
+        period=PERIOD,
+        actions=[_action("pm:STALE-CLAIM")],
+        store=store,
+        client=sandbox,
+        poll_interval_s=0.0,
+        max_polls=3,
+        sleep_fn=lambda _s: None,
+    )
+    assert len(sandbox.save_calls) == 1
+    assert result.confirmed_count == 1
+    assert result.reused_count == 0
+    assert result.invoice_results[0].reused_existing is False
