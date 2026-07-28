@@ -639,7 +639,7 @@ export default function PortfolioDashboardPage() {
             }
           />
           <StatCard
-            label="ITC at Risk"
+            label="Missed ITC"
             hint="Missed ITC across latest client reconciliations"
             icon={<IconFail />}
             value={

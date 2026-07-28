@@ -264,7 +264,7 @@ export function ReconciliationsPageContent() {
                       <th className="px-5 py-4">Client</th>
                       <th className="px-4 py-4">Status</th>
                       <th className="px-4 py-4">Matched Records</th>
-                      <th className="px-4 py-4">ITC at Risk</th>
+                      <th className="px-4 py-4">Missed ITC</th>
                       <th className="px-4 py-4">Date</th>
                       <th className="px-5 py-4 text-right">Action</th>
                     </tr>

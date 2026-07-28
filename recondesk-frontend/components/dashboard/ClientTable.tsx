@@ -627,7 +627,7 @@ export function ClientTable({
                   className="inline-flex items-center font-medium"
                   onClick={() => onSortToggle("missedItc")}
                 >
-                  ITC at Risk
+                  Missed ITC
                   <SortArrow active={sort.key === "missedItc"} dir={sort.dir} />
                 </button>
               </th>

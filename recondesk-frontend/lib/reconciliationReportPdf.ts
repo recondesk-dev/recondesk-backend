@@ -1280,7 +1280,7 @@ function buildFollowupSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPd
   y = drawSubtitle(
     doc,
     y,
-    "Record of follow-up letters generated for ITC at risk invoices."
+    "Record of follow-up letters generated for ITC at Risk — Not in GSTR-2B invoices."
   );
 
   const rows = data.followupRows;
