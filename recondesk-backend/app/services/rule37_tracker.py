@@ -235,6 +235,16 @@ def check_rule_37_compliance(
         else:
             payment_status = None  # was wrongly defaulted to "unpaid"
 
+        # Calculate tax stake early — used by pending-verification exposure and
+        # by unpaid / partial at-risk math below.
+        if "igst_paise" in pr_rec or "cgst_paise" in pr_rec or "sgst_paise" in pr_rec:
+            igst = int(pr_rec.get("igst_paise") or 0)
+            cgst = int(pr_rec.get("cgst_paise") or 0)
+            sgst = int(pr_rec.get("sgst_paise") or 0)
+            total_tax_paise = igst + cgst + sgst
+        else:
+            total_tax_paise = int(pr_rec.get("total_tax_paise") or 0)
+
         if payment_status is None or payment_status == "":
             # Unknown payment status — surface for manual verification but do
             # NOT add to itc_at_risk total.
@@ -253,6 +263,9 @@ def check_rule_37_compliance(
                 "total_paid_paise": 0,
                 "unpaid_paise": 0,
                 "itc_at_risk_paise": 0,  # NOT counted in at-risk total
+                # Upper-bound exposure if these turn out unpaid.
+                "potential_itc_paise": total_tax_paise,
+                "total_tax_paise": total_tax_paise,
                 "status": PENDING_VERIFICATION,
                 "urgency": MEDIUM,
                 "action": (
@@ -270,15 +283,6 @@ def check_rule_37_compliance(
             continue
 
         days_remaining = (deadline - today).days
-
-        # Calculate reversal amount as igst + cgst + sgst
-        if "igst_paise" in pr_rec or "cgst_paise" in pr_rec or "sgst_paise" in pr_rec:
-            igst = int(pr_rec.get("igst_paise") or 0)
-            cgst = int(pr_rec.get("cgst_paise") or 0)
-            sgst = int(pr_rec.get("sgst_paise") or 0)
-            total_tax_paise = igst + cgst + sgst
-        else:
-            total_tax_paise = int(pr_rec.get("total_tax_paise") or 0)
 
         inv_val = int(pr_rec.get("invoice_value_paise") or 0)
         if inv_val <= 0:

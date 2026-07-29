@@ -164,6 +164,9 @@ class TestBug2BlankPaymentStatusPendingVerification:
             assert r["status"] == PENDING_VERIFICATION, (
                 f"Expected PENDING_VERIFICATION. Got: {r['status']}"
             )
+            assert r.get("potential_itc_paise") == 44_734, (
+                "PENDING_VERIFICATION must carry potential ITC exposure."
+            )
 
     def test_empty_string_payment_status_is_pending_verification(self):
         pr = make_pr("b2-002", total_tax_paise=44_734, payment_status="")

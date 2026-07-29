@@ -9,7 +9,11 @@ import { ReconcilePaginationFooter } from "@/components/reconcile/ReconcilePagin
 import { AuditObservationsPanel } from "@/components/AuditObservationsPanel";
 import { ImsActionPanel } from "@/components/reconcile/ImsActionPanel";
 import { Rule37SummarySection } from "@/components/reconcile/Rule37SummarySection";
-import type { Rule37SummaryResponse } from "@/lib/rule37Summary";
+import {
+  formatRule37EmptyStateMessage,
+  formatRule37HeaderCoverageSublabel,
+  type Rule37SummaryResponse,
+} from "@/lib/rule37Summary";
 import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
 import { Gstr3bSummaryView } from "@/components/reconcile/Gstr3bSummaryView";
 import { AdvancedExportPanel } from "@/components/reconcile/AdvancedExportPanel";
@@ -2227,6 +2231,9 @@ export default function ReconcileResultsPage() {
   );
 
   const rule37TotalAmount = rule37SummaryData?.summary.total_itc_at_risk ?? null;
+  const rule37HeaderSublabel = formatRule37HeaderCoverageSublabel(
+    rule37SummaryData?.summary
+  );
 
   const unresolvedRule37Count = useMemo(() => {
     const rows = rule37Data?.data ?? [];
@@ -4986,9 +4993,10 @@ export default function ReconcileResultsPage() {
             >
               {rule37TotalAmount != null && (
                 <SectionAmountBadge
-                  label="ITC AT RISK — RULE 37 (UNPAID 180+ DAYS)"
+                  label="CONFIRMED ITC AT RISK — RULE 37"
                   amount={rule37TotalAmount}
                   variant="rule37"
+                  sublabel={rule37HeaderSublabel}
                 />
               )}
               <ChevronDown
@@ -5018,7 +5026,7 @@ export default function ReconcileResultsPage() {
               )}
               {rule37Data && !rule37Error && rule37Data.total === 0 && (
                 <p className="text-sm text-gray-500">
-                  No Rule 37 warnings for this period.
+                  {formatRule37EmptyStateMessage(rule37SummaryData?.summary)}
                 </p>
               )}
               {rule37Data &&

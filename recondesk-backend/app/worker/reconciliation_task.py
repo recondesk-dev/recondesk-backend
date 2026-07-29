@@ -1045,6 +1045,12 @@ def execute_reconciliation(run_id: str) -> None:
         )
         _phase("rule37")
         pr_for_rule37 = []
+        # Coverage: of matched ITC-claimed invoices, how many have an explicit
+        # PR payment_status (known) vs blank (unverified). Paid invoices count
+        # as known even though they are not forwarded to the tracker.
+        rule37_claimed_invoice_count = 0
+        rule37_payment_status_known_count = 0
+        rule37_payment_status_unknown_count = 0
         for m in state.clean_matched:
             pr_id = str(m.get("pr_id"))
             p = pr_by_id.get(pr_id)
@@ -1061,11 +1067,18 @@ def execute_reconciliation(run_id: str) -> None:
             if not _is_itc_claimed(raw):
                 continue
 
+            rule37_claimed_invoice_count += 1
+
             status_str = raw.get("payment_status")
             if isinstance(status_str, str):
-                status_str = status_str.strip().lower()
+                status_str = status_str.strip().lower() or None
             else:
                 status_str = None  # BUG 2 FIX: blank/None → do NOT default to "unpaid"
+
+            if status_str:
+                rule37_payment_status_known_count += 1
+            else:
+                rule37_payment_status_unknown_count += 1
 
             # Only forward unpaid, partially paid, and blank-status records.
             # Blank status is handled inside check_rule_37_compliance as
@@ -1132,8 +1145,19 @@ def execute_reconciliation(run_id: str) -> None:
             int(r.get("itc_at_risk_paise") or 0) for r in rule37
         )
         rule37_pending_paise = sum(
-            int(r.get("total_tax_paise") or 0) for r in rule37_pending_verification
+            int(
+                r.get("potential_itc_paise")
+                if r.get("potential_itc_paise") is not None
+                else r.get("total_tax_paise")
+                or 0
+            )
+            for r in rule37_pending_verification
         )
+        rule37_coverage = {
+            "claimed_invoice_count": rule37_claimed_invoice_count,
+            "payment_status_known_count": rule37_payment_status_known_count,
+            "payment_status_unknown_count": rule37_payment_status_unknown_count,
+        }
         late_filing = check_late_filing(
             state.clean_matched, gstr_raw_by_id, claim_period=period
         )
@@ -1418,6 +1442,9 @@ def execute_reconciliation(run_id: str) -> None:
             late_match_count=late_itc,
             rule37_pending_verification_count=len(rule37_pending_verification),
             rule37_pending_verification_paise=rule37_pending_paise,
+            rule37_claimed_invoice_count=rule37_claimed_invoice_count,
+            rule37_payment_status_known_count=rule37_payment_status_known_count,
+            rule37_payment_status_unknown_count=rule37_payment_status_unknown_count,
             skipped_count=skipped_count,
             review_required_count=review_gstr_count,
             duplicate_entry_count=len(state.duplicate_entries),
@@ -1510,6 +1537,7 @@ def execute_reconciliation(run_id: str) -> None:
                 duplicate_entries=list(state.duplicate_entries),
                 unmatched_notes=list(state.unmatched_notes),
                 rule37_pending_verification=rule37_pending_verification,
+                rule37_coverage=rule37_coverage,
                 review_required_typo=[],
             )
         )

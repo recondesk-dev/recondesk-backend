@@ -715,6 +715,15 @@ class Rule37SummaryStats(BaseModel):
     itc_saved: float
     itc_reversed: float
     pending_action: float
+    # Past-180 invoices with blank payment_status — not in confirmed at-risk.
+    pending_verification_count: int = 0
+    pending_verification_exposure: float = 0.0
+    # Matched ITC-claimed invoices vs those with an explicit PR payment_status.
+    claimed_invoice_count: int = 0
+    payment_status_known_count: int = 0
+    payment_status_unknown_count: int = 0
+    # False for older runs that predate coverage metrics.
+    coverage_available: bool = False
 
 
 class Rule37ActionHistoryItem(BaseModel):
@@ -1484,11 +1493,100 @@ def _all_rule37_rows_for_run(
     return _build_rule37_rows(sb, rid, payload, notes)
 
 
+def _rule37_pending_verification_from_payload(
+    payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return PENDING_VERIFICATION rows from stored compliance (not the at-risk list)."""
+    comp = payload.get("compliance") if isinstance(payload.get("compliance"), dict) else {}
+    dec = payload.get("decisions") if isinstance(payload.get("decisions"), dict) else {}
+    rows: list[dict[str, Any]] = []
+    for src in (
+        comp.get("rule37_pending_verification"),
+        dec.get("rule37_pending_verification"),
+    ):
+        if isinstance(src, list):
+            rows.extend(r for r in src if isinstance(r, dict))
+    # Deduplicate by pr_id when both blobs exist.
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        key = str(r.get("pr_id") or r.get("id") or "")
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(r)
+    return out
+
+
+def _rule37_coverage_from_payload(
+    payload: dict[str, Any],
+    *,
+    run_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Payment-status coverage for ITC-claimed matched invoices.
+
+    Prefer ``compliance.rule37_coverage`` written at reconcile time; fall back to
+    run_summary scalars for older payloads that only stored summary metrics.
+    """
+    comp = payload.get("compliance") if isinstance(payload.get("compliance"), dict) else {}
+    cov = comp.get("rule37_coverage") if isinstance(comp.get("rule37_coverage"), dict) else {}
+    rs = run_summary if isinstance(run_summary, dict) else {}
+
+    def _int(primary: object, fallback: object) -> int | None:
+        for v in (primary, fallback):
+            if v is None or v == "":
+                continue
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    claimed = _int(cov.get("claimed_invoice_count"), rs.get("rule37_claimed_invoice_count"))
+    known = _int(
+        cov.get("payment_status_known_count"),
+        rs.get("rule37_payment_status_known_count"),
+    )
+    unknown = _int(
+        cov.get("payment_status_unknown_count"),
+        rs.get("rule37_payment_status_unknown_count"),
+    )
+    if claimed is None and known is None and unknown is None:
+        return {
+            "claimed_invoice_count": 0,
+            "payment_status_known_count": 0,
+            "payment_status_unknown_count": 0,
+            "coverage_available": False,
+        }
+    claimed_n = claimed if claimed is not None else (known or 0) + (unknown or 0)
+    known_n = known if known is not None else 0
+    unknown_n = unknown if unknown is not None else max(claimed_n - known_n, 0)
+    return {
+        "claimed_invoice_count": claimed_n,
+        "payment_status_known_count": known_n,
+        "payment_status_unknown_count": unknown_n,
+        "coverage_available": True,
+    }
+
+
+def _rule37_pending_exposure_paise(row: dict[str, Any]) -> int:
+    for key in ("potential_itc_paise", "total_tax_paise"):
+        if row.get(key) is not None:
+            try:
+                return int(row[key])
+            except (TypeError, ValueError):
+                continue
+    return 0
+
+
 def _build_rule37_summary_payload(
     sb,
     rid: str,
     payload: dict[str, Any],
     notes: Counter[str],
+    *,
+    run_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rows = _all_rule37_rows_for_run(sb, rid, payload, notes)
     row_by_id = {str(r.get("id") or ""): r for r in rows}
@@ -1524,6 +1622,31 @@ def _build_rule37_summary_payload(
             reversed_exact += amt_exact
         else:
             pending_exact += amt_exact
+
+    pending_verification_rows = _rule37_pending_verification_from_payload(payload)
+    pending_verification_count = len(pending_verification_rows)
+    pending_verification_exposure_exact = sum(
+        _paise_to_rupees_exact(_rule37_pending_exposure_paise(r))
+        for r in pending_verification_rows
+    )
+    # Fallback when payload list is empty but run_summary still has scalars
+    # (e.g. older slim payloads that dropped the list but kept counts).
+    rs = run_summary if isinstance(run_summary, dict) else {}
+    if pending_verification_count == 0:
+        try:
+            rs_count = int(rs.get("rule37_pending_verification_count") or 0)
+        except (TypeError, ValueError):
+            rs_count = 0
+        if rs_count > 0:
+            pending_verification_count = rs_count
+            try:
+                pending_verification_exposure_exact = _paise_to_rupees_exact(
+                    int(rs.get("rule37_pending_verification_paise") or 0)
+                )
+            except (TypeError, ValueError):
+                pending_verification_exposure_exact = 0.0
+
+    cov = _rule37_coverage_from_payload(payload, run_summary=rs)
 
     action_rows = _rule37_actions_history_for_run(sb, rid)
     uids = {
@@ -1585,6 +1708,14 @@ def _build_rule37_summary_payload(
             "itc_saved": round(saved_exact, 2),
             "itc_reversed": round(reversed_exact, 2),
             "pending_action": round(pending_exact, 2),
+            "pending_verification_count": pending_verification_count,
+            "pending_verification_exposure": round(
+                pending_verification_exposure_exact, 2
+            ),
+            "claimed_invoice_count": int(cov["claimed_invoice_count"]),
+            "payment_status_known_count": int(cov["payment_status_known_count"]),
+            "payment_status_unknown_count": int(cov["payment_status_unknown_count"]),
+            "coverage_available": bool(cov["coverage_available"]),
         },
         "action_history": history,
     }
@@ -4985,10 +5116,13 @@ async def reconcile_run_rule37_summary(
 
     def _work() -> Rule37SummaryResponse:
         sb = get_supabase()
-        assert_run_accessible(sb, rid, current_user)
+        run_row = assert_run_accessible(sb, rid, current_user)
         p = _payload_or_404(sb, rid)
         notes = _notes_count_for_run(sb, rid)
-        body = _build_rule37_summary_payload(sb, rid, p, notes)
+        rs = run_row.get("run_summary") if isinstance(run_row, dict) else None
+        if not isinstance(rs, dict):
+            rs = None
+        body = _build_rule37_summary_payload(sb, rid, p, notes, run_summary=rs)
         return Rule37SummaryResponse(**body)
 
     return await _run_sync(_work)
