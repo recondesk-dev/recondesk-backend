@@ -222,18 +222,6 @@ def _decision_for_row(row: dict[str, Any]) -> DecisionOutput:
             source_software=source_software,
         )
 
-    if level == 5:
-        mf = ["gstin"] if row.get("supplier_gstin") else []
-        mf.extend(x for x in amt_meta if x not in mf)
-        return generate_decision(
-            "L5_PROBABLE",
-            confidence="LOW",
-            matched_fields=list(dict.fromkeys(mf)),
-            differed_fields=["invoice_number"],
-            normalized_pairs=pair_np or [],
-            distance=row.get("invoice_distance", "?"),
-        )
-
     mf = list(dict.fromkeys(ident + amt_meta))
     return generate_decision(
         "L1_EXACT",
@@ -380,7 +368,7 @@ def _decision_for_review_row(row: dict[str, Any]) -> DecisionOutput:
     """Produce a DecisionOutput for a review-required record.
 
     Falls back to _decision_for_row() when the row carries a numeric
-    match_level that the existing templates already handle (levels 2–5).
+    match_level that the existing templates already handle (levels 2–4).
     For rows with a review_reason, uses the dedicated REVIEW_* templates.
     """
     review_reason = row.get("review_reason") or row.get("reason") or ""

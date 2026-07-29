@@ -18,15 +18,29 @@ import { apiFetch } from "@/lib/api";
 import {
   formatRule37ActionLabel,
   formatRule37ActionTimeIst,
+  formatRule37CoverageLine,
   formatRule37NetPaid,
   formatRule37RemainingUnpaid,
   formatRule37SettlementConsidered,
   formatRule37StatutoryDeduction,
+  RULE37_METHODOLOGY_CAPTION,
+  rule37CoverageRatio,
   type Rule37SummaryResponse,
+  type Rule37SummaryStats,
 } from "@/lib/rule37Summary";
 
 const EMPTY_ACTIONS =
   "No actions taken yet for this period.";
+
+function coverageTone(summary: Rule37SummaryStats): "ok" | "warn" | "neutral" {
+  if (!summary.coverage_available) return "neutral";
+  const pending = summary.pending_verification_count ?? 0;
+  if (pending > 0) return "warn";
+  const ratio = rule37CoverageRatio(summary);
+  if (ratio == null) return "neutral";
+  if (ratio < 0.8) return "warn";
+  return "ok";
+}
 
 export function Rule37SummarySection({
   runId,
@@ -79,13 +93,40 @@ export function Rule37SummarySection({
   if (!data) return null;
 
   const { summary, action_history: actionHistory } = data;
+  const pendingVerificationCount = summary.pending_verification_count ?? 0;
+  const pendingVerificationExposure =
+    summary.pending_verification_exposure ?? 0;
+  const coverageLine = formatRule37CoverageLine(summary);
+  const tone = coverageTone(summary);
+  const showVerificationCard = pendingVerificationCount > 0;
+  const coverageUnavailable = summary.coverage_available === false;
 
   return (
     <div className="mb-6 space-y-6">
+      {coverageLine ? (
+        <p
+          className={`rounded-lg border px-3 py-2 text-[13px] ${
+            coverageUnavailable
+              ? "border-gray-200 bg-gray-50 text-gray-700"
+              : tone === "warn"
+                ? "border-amber-200 bg-amber-50 text-amber-900"
+                : tone === "ok"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  : "border-gray-200 bg-gray-50 text-gray-700"
+          }`}
+        >
+          {coverageLine}
+          {!coverageUnavailable && tone === "warn"
+            ? " — treat confirmed at-risk as a lower bound until payment dates are verified."
+            : null}
+        </p>
+      ) : null}
+
       <div className="grid w-full min-w-0 grid-cols-2 gap-3 md:[grid-template-columns:repeat(4,minmax(0,1fr))]">
         <StatCard
-          label="Total ITC at Risk"
+          label="Confirmed ITC at Risk — Rule 37"
           accent="neutral"
+          subtext="Confirmed unpaid / partial past 180 days only"
           value={
             <CompactStatAmount
               amount={summary.total_itc_at_risk}
@@ -124,6 +165,50 @@ export function Rule37SummarySection({
           }
         />
       </div>
+
+      {showVerificationCard ? (
+        <div
+          className="rounded-xl border border-dashed border-amber-300 bg-[#FFFCFA] px-4 py-4"
+          role="status"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 max-w-xl">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">
+                Payment status unknown — verify manually
+              </p>
+              <p className="mt-1 text-[13px] text-gray-600">
+                {pendingVerificationCount} invoice
+                {pendingVerificationCount === 1 ? "" : "s"} past 180 days with
+                blank payment status. Not included in confirmed at-risk above.
+              </p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="text-lg font-semibold tabular-nums text-amber-900">
+                {pendingVerificationCount}{" "}
+                <span className="text-sm font-medium text-amber-700">
+                  invoice{pendingVerificationCount === 1 ? "" : "s"}
+                </span>
+              </p>
+              {pendingVerificationExposure > 0 ? (
+                <p className="mt-1 text-[13px] text-amber-800">
+                  If unpaid, up to{" "}
+                  <span className="font-semibold">
+                    <InrAmount amount={pendingVerificationExposure} />
+                  </span>{" "}
+                  additional exposure
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <p
+        className="text-[11px] leading-snug text-gray-400"
+        title={RULE37_METHODOLOGY_CAPTION}
+      >
+        {RULE37_METHODOLOGY_CAPTION}
+      </p>
 
       <div>
         <h3 className="mb-3 text-[13px] font-semibold uppercase tracking-wider text-gray-500">

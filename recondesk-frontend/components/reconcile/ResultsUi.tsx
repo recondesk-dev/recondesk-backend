@@ -631,6 +631,7 @@ export type ResultsBucketTabId =
   | "section17"
   | "gstr3b"
   | "followup"
+  | "ims"
   /** Sales / GSTR-1 reconciliation buckets */
   | "unmatched_sr"
   | "unmatched_gstr1"
@@ -642,13 +643,14 @@ const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "matched", label: "Matched" },
   { id: "review_required", label: "Review Required" },
   { id: "duplicate_entry", label: "Duplicate Entries" },
-  { id: "unmatched_notes", label: "Notes — Not Matched" },
-  { id: "risk", label: "ITC at Risk" },
+  { id: "unmatched_notes", label: "Notes — Not Auto-Matched" },
+  { id: "risk", label: "ITC at Risk — Not in GSTR-2B" },
   { id: "itc", label: "Missed ITC" },
-  { id: "rule37", label: "Rule 37" },
+  { id: "rule37", label: "ITC at Risk — Rule 37 (Unpaid 180+ Days)" },
   { id: "section17", label: "Section 17(5)" },
   { id: "gstr3b", label: "GSTR-3B" },
   { id: "followup", label: "Follow-up Log" },
+  { id: "ims", label: "IMS Actions" },
 ];
 
 /** Default purchase-side tabs. Sales pages pass an explicit `tabs` list. */

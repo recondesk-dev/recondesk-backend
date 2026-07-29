@@ -202,7 +202,7 @@ export default function BillingPage() {
         <div className="dashboard-card p-5">
           <p className="text-sm font-medium text-gray-500">GSTINs used</p>
           <p className="mt-2 text-[1.85rem] font-semibold tracking-tight tabular-nums text-[var(--ink)]">
-            {status ? `${status.gstins_used ?? 0} / ${status.gstin_limit ?? 2}` : "—"}
+            {status ? `${status.gstins_used ?? 0} / ${status.gstin_limit ?? 1}` : "—"}
           </p>
         </div>
         <div className="dashboard-card p-5">
@@ -499,7 +499,7 @@ function BillingBanner({
       <div className="rounded-[1.25rem] bg-[var(--ink)] px-5 py-4 text-sm text-white">
         You have {status.free_runs_remaining} free reconciliation
         {status.free_runs_remaining === 1 ? "" : "s"} remaining — no payment needed. Free tier
-        allows up to {status.gstin_limit ?? 2} GSTINs.
+        allows up to {status.gstin_limit ?? 1} GSTINs.
       </div>
     );
   }

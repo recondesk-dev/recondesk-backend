@@ -33,7 +33,7 @@ const CHAPTERS: Chapter[] = [
       {
         title: "Results buckets",
         detail:
-          "Matched, Review Required, Duplicates, ITC at Risk, Missed ITC, Rule 37, Section 17(5), GSTR-3B check.",
+          "Matched, Review Required, Duplicates, ITC at Risk — Not in GSTR-2B, Missed ITC, Rule 37, Section 17(5), GSTR-3B check.",
       },
       {
         title: "Decision layer",
@@ -149,7 +149,7 @@ const BUCKET_STRIP = [
   "Matched",
   "Review Required",
   "Duplicates",
-  "ITC at Risk",
+  "ITC at Risk — Not in GSTR-2B",
   "Missed ITC",
   "Rule 37",
   "Section 17(5)",

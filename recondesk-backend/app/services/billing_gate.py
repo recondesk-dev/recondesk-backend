@@ -45,7 +45,7 @@ PLAN_CONFIG: dict[str, dict[str, int | str]] = {
     },
 }
 
-FREE_GSTIN_LIMIT = 2
+FREE_GSTIN_LIMIT = 1
 BATCH_VALID_DAYS = 30  # legacy run-credit batches
 FREE_RUNS_ALLOCATION = 2
 _SUCCESSFUL_RUN_STATUSES = frozenset(
@@ -307,6 +307,34 @@ def count_active_gstins(sb: Client, firm_owner_id: str) -> int:
         return 0
 
 
+def count_lifetime_gstins(sb: Client, firm_owner_id: str) -> int:
+    """Count all client GSTINs ever created for the firm (including soft-deleted)."""
+    try:
+        res = (
+            sb.table("client_gstins")
+            .select("id", count="exact")
+            .eq("firm_owner_id", firm_owner_id)
+            .limit(0)
+            .execute()
+        )
+        return int(res.count or 0)
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("count_lifetime_gstins failed: %s", exc)
+        return 0
+
+
+def count_gstins_toward_limit(sb: Client, firm_owner_id: str) -> int:
+    """
+    GSTINs counted against the firm's plan limit.
+
+    Free / expired: lifetime rows (removing a client does not free the slot).
+    Paid subscription: active rows only (subscribers can rotate clients within plan).
+    """
+    if has_active_subscription(sb, firm_owner_id):
+        return count_active_gstins(sb, firm_owner_id)
+    return count_lifetime_gstins(sb, firm_owner_id)
+
+
 def get_gstin_limit(sb: Client, firm_owner_id: str) -> int:
     try:
         res = (
@@ -332,7 +360,7 @@ def get_gstin_limit(sb: Client, firm_owner_id: str) -> int:
 
 def assert_gstin_capacity(sb: Client, firm_owner_id: str) -> dict[str, int]:
     """Raise ValueError when firm is at GSTIN capacity."""
-    used = count_active_gstins(sb, firm_owner_id)
+    used = count_gstins_toward_limit(sb, firm_owner_id)
     limit = get_gstin_limit(sb, firm_owner_id)
     if used >= limit:
         raise ValueError(

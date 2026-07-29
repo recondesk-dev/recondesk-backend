@@ -47,7 +47,7 @@ const RESULT_STATS = [
     dotClass: "bg-red-500",
   },
   {
-    label: "ITC at Risk",
+    label: "ITC at Risk — Not in GSTR-2B",
     value: "₹14.93L",
     sub: "Compliance risk",
     valueClass: "text-amber-800",
@@ -59,7 +59,7 @@ const RESULT_TABS = [
   { label: "Matched", count: "4,457", active: true },
   { label: "Review Required", count: "396", active: false },
   { label: "Missed ITC", count: "147", active: false },
-  { label: "ITC at Risk", count: "124", active: false },
+  { label: "ITC at Risk — Not in GSTR-2B", count: "124", active: false },
 ] as const;
 
 function ResultsPagePreview({ clear }: { clear: boolean }) {

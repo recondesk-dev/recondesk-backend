@@ -442,10 +442,20 @@ async def sanity_check_gstr2b(
         r.get("sanity_check_results"), checks
     )
 
+    isd_impg = ws.isd_impg_fields_from_checks(checks)
+    existing_rs = r.get("run_summary") if isinstance(r.get("run_summary"), dict) else {}
+    run_summary = ws.merge_isd_impg_into_run_summary(
+        existing_rs,
+        isd_count=int(isd_impg.get("isd_count") or 0),
+        impg_count=int(isd_impg.get("impg_count") or 0),
+        warning=isd_impg.get("isd_impg_warning"),
+    )
+
     sb.table(ws.T_RUNS).update(
         {
             "sanity_check_results": checks,
             "gstr2b_record_count": record_count,
+            "run_summary": run_summary,
             "current_step": 2,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -775,12 +785,20 @@ async def cancel_run(run_id: uuid.UUID, user_id: str = Depends(get_current_user_
         raise HTTPException(status.HTTP_409_CONFLICT, "Run cannot be cancelled")
     keys = [k for k in (r.get("gstr2b_r2_key"), r.get("pr_r2_key")) if k]
     ws.delete_r2_keys(keys)
+    # Match Manage Data: stamp *_deleted_at when we remove the R2 object so
+    # deleted_at is the source of truth for "object still exists".
+    now = datetime.now(timezone.utc).isoformat()
+    extra_patch: dict[str, Any] = {"current_step": r.get("current_step", 1)}
+    if r.get("gstr2b_r2_key") and not r.get("gstr2b_deleted_at"):
+        extra_patch["gstr2b_deleted_at"] = now
+    if r.get("pr_r2_key") and not r.get("pr_deleted_at"):
+        extra_patch["pr_deleted_at"] = now
     ws.transition_run(
         sb,
         str(run_id),
         user_id,
         "cancelled",
-        extra_patch={"current_step": r.get("current_step", 1)},
+        extra_patch=extra_patch,
         audit_event="run_cancelled",
         audit_detail={"cancelled_at_step": r.get("current_step")},
     )

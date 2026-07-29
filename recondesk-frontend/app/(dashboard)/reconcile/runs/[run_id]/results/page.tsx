@@ -7,8 +7,13 @@ import {
 } from "@/components/reconcile/Rule37MarkPaidModal";
 import { ReconcilePaginationFooter } from "@/components/reconcile/ReconcilePaginationFooter";
 import { AuditObservationsPanel } from "@/components/AuditObservationsPanel";
+import { ImsActionPanel } from "@/components/reconcile/ImsActionPanel";
 import { Rule37SummarySection } from "@/components/reconcile/Rule37SummarySection";
-import type { Rule37SummaryResponse } from "@/lib/rule37Summary";
+import {
+  formatRule37EmptyStateMessage,
+  formatRule37HeaderCoverageSublabel,
+  type Rule37SummaryResponse,
+} from "@/lib/rule37Summary";
 import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
 import { Gstr3bSummaryView } from "@/components/reconcile/Gstr3bSummaryView";
 import { AdvancedExportPanel } from "@/components/reconcile/AdvancedExportPanel";
@@ -377,6 +382,12 @@ type RunSummary = {
   /** PR rows excluded from matching (e.g. missing invoice number). */
   pr_skipped_count?: number;
   pr_skipped_detail?: string | null;
+  /** GSTR-2B ISD / IMPG lines detected but not included in reconciliation. */
+  isd_present?: boolean;
+  isd_count?: number;
+  impg_present?: boolean;
+  impg_count?: number;
+  isd_impg_warning?: string | null;
 };
 
 type ConfidenceSummary = {
@@ -2220,6 +2231,9 @@ export default function ReconcileResultsPage() {
   );
 
   const rule37TotalAmount = rule37SummaryData?.summary.total_itc_at_risk ?? null;
+  const rule37HeaderSublabel = formatRule37HeaderCoverageSublabel(
+    rule37SummaryData?.summary
+  );
 
   const unresolvedRule37Count = useMemo(() => {
     const rows = rule37Data?.data ?? [];
@@ -2628,6 +2642,48 @@ export default function ReconcileResultsPage() {
               </div>
             </div>
 
+            {(summary.isd_count ?? 0) > 0 || (summary.impg_count ?? 0) > 0 ? (
+              <div
+                className="mt-3 rounded-[1.25rem] border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm"
+                role="alert"
+              >
+                <p className="font-semibold tracking-tight">
+                  ISD / Import of goods not included in this reconciliation
+                </p>
+                <p className="mt-1 leading-relaxed">
+                  {summary.isd_impg_warning?.trim() ||
+                    `This GSTR-2B file contains ${(summary.isd_count ?? 0) > 0 ? `${summary.isd_count!.toLocaleString("en-IN")} ISD credit line(s)` : ""}${(summary.isd_count ?? 0) > 0 && (summary.impg_count ?? 0) > 0 ? " and " : ""}${(summary.impg_count ?? 0) > 0 ? `${summary.impg_count!.toLocaleString("en-IN")} import-of-goods line(s)` : ""} that are NOT included in this reconciliation. Verify these separately.`}
+                </p>
+              </div>
+            ) : null}
+
+            {(summary.unmatched_notes_count ?? 0) > 0 ? (
+              <div
+                className="mt-3 rounded-[1.25rem] border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm"
+                role="alert"
+              >
+                <p className="font-semibold tracking-tight">
+                  Credit/debit notes not automatically reconciled
+                </p>
+                <p className="mt-1 leading-relaxed">
+                  {(summary.unmatched_notes_count ?? 0).toLocaleString("en-IN")}{" "}
+                  purchase-register credit/debit note
+                  {(summary.unmatched_notes_count ?? 0) === 1 ? "" : "s"}{" "}
+                  {(summary.unmatched_notes_count ?? 0) === 1 ? "was" : "were"}{" "}
+                  excluded from invoice matching. CDN↔GSTR-2B note matching is
+                  not implemented — review them separately under Notes — Not
+                  Auto-Matched.
+                </p>
+                <button
+                  type="button"
+                  className="mt-2 text-[13px] font-semibold text-amber-950 underline underline-offset-2 hover:text-amber-900"
+                  onClick={() => setResultsTab("unmatched_notes")}
+                >
+                  View quarantined notes
+                </button>
+              </div>
+            ) : null}
+
             {(summary.pr_skipped_count ?? 0) > 0 ? (
               <div
                 className="mt-3 rounded-[1.25rem] bg-amber-50 px-4 py-2.5 text-sm text-amber-950"
@@ -2678,7 +2734,7 @@ export default function ReconcileResultsPage() {
                 }
               />
               <StatCard
-                label="ITC at Risk"
+                label="ITC at Risk — Not in GSTR-2B"
                 accent="risk"
                 emphasis="danger"
                 value={
@@ -3295,11 +3351,11 @@ export default function ReconcileResultsPage() {
         {resultsTab === "risk" && summary && summary.wrongful_risk_count > 0 && (
           <div className={sectionContainerClass}>
             <SectionHeader
-              title="ITC at Risk — Not Reflected in GSTR-2B"
+              title="ITC at Risk — Not in GSTR-2B"
               dotColor="#DC2626"
               badges={[
                 {
-                  label: "TOTAL ITC AT RISK",
+                  label: "ITC AT RISK — NOT IN GSTR-2B",
                   amount: summary.wrongful_risk_total_amount,
                   variant: "risk",
                 },
@@ -3327,7 +3383,7 @@ export default function ReconcileResultsPage() {
 
             <div className="mb-6">
               <h3 className="mb-4 text-base font-semibold text-gray-900">
-                Top Suppliers by ITC at Risk
+                Top Suppliers by ITC at Risk — Not in GSTR-2B
               </h3>
               {((riskGroupBySupplier
                 ? riskAllRowsLoading && !riskAllRows
@@ -3361,7 +3417,7 @@ export default function ReconcileResultsPage() {
                               Invoice Count
                             </th>
                             <th className={topSuppliersThTotal}>
-                              Total ITC at Risk
+                              ITC at Risk — Not in GSTR-2B
                             </th>
                             <th className={topSuppliersThImpact}>Impact</th>
                           </tr>
@@ -3522,7 +3578,7 @@ export default function ReconcileResultsPage() {
                         prev === gstin ? null : gstin
                       )
                     }
-                    amountLabel="ITC at Risk"
+                    amountLabel="ITC at Risk — Not in GSTR-2B"
                     grandTotal={summary.wrongful_risk_total_amount}
                     loading={riskAllRowsLoading && !riskAllRows}
                     onGenerateFollowup={(invoices) =>
@@ -3537,7 +3593,7 @@ export default function ReconcileResultsPage() {
                               <th className={decisionTh("invoice")}>Invoice#</th>
                               <th className={decisionTh("date")}>Date</th>
                               <th className={decisionTh("amount", "right")}>
-                                ITC at Risk
+                                ITC at Risk — Not in GSTR-2B
                               </th>
                               <th className={decisionTh("impact")}>Impact</th>
                               <th className={decisionTh("what")}>WHAT</th>
@@ -3710,7 +3766,7 @@ export default function ReconcileResultsPage() {
                 )}
                 {riskPageData.data.length === 0 ? (
                   <EmptyTableState
-                    title="No ITC-at-risk rows for this filter"
+                    title="No ITC at Risk — Not in GSTR-2B rows for this filter"
                     description="Adjust amount, GSTIN, or risk level filters to see compliance risk invoices."
                   />
                 ) : (
@@ -3753,7 +3809,7 @@ export default function ReconcileResultsPage() {
                       invoiceNumber={row.invoice_number}
                       invoiceDate={formatDate(row.invoice_date)}
                       amount={row.amount}
-                      amountCaption="ITC at Risk"
+                      amountCaption="ITC at Risk — Not in GSTR-2B"
                       selected={selectedIds.risk.has(row.id)}
                       checkboxDisabled={isRunFinalized}
                       onSelectChange={(checked) => {
@@ -4336,7 +4392,7 @@ export default function ReconcileResultsPage() {
             <p className="mb-5 text-[12px] leading-relaxed text-gray-500">
               Extra purchase-register bookings of an invoice that already matched
               GSTR-2B. These are data-entry duplicates in your books — not missing
-              from GSTR-2B, and not included in ITC at Risk.
+              from GSTR-2B, and not included in ITC at Risk — Not in GSTR-2B.
             </p>
             {(summary?.duplicate_entry_count ?? 0) > 0 && (
               <div className={`${filterToolbarClass}`}>
@@ -4418,7 +4474,7 @@ export default function ReconcileResultsPage() {
         {resultsTab === "unmatched_notes" && (
           <div className={sectionContainerClass}>
             <h2 className="mb-1 text-[15px] font-semibold tracking-tight text-gray-900">
-              Notes — Not Matched{" "}
+              Notes — Not Auto-Matched{" "}
               {summary != null && (
                 <span className="font-normal text-gray-500">
                   ({(summary.unmatched_notes_count ?? 0).toLocaleString("en-IN")})
@@ -4426,10 +4482,14 @@ export default function ReconcileResultsPage() {
               )}
             </h2>
             <p className="mb-5 text-[12px] leading-relaxed text-gray-500">
-              Credit and debit notes from the purchase register. These are value
-              adjustments, not invoices — they are kept out of Matched, Review
-              Required, and ITC at Risk. Full matching against GSTR-2B note[] is
-              not implemented yet.
+              Credit and debit notes from the purchase register were quarantined
+              before matching and are{" "}
+              <span className="font-medium text-gray-700">
+                not automatically reconciled
+              </span>
+              . They are kept out of Matched, Review Required, and ITC at Risk —
+              Not in GSTR-2B. Full matching against GSTR-2B note[] is not
+              implemented yet — review these manually.
             </p>
             {(summary?.unmatched_notes_count ?? 0) <= 0 ? (
               <p className="text-sm text-gray-500">
@@ -4869,6 +4929,24 @@ export default function ReconcileResultsPage() {
         </div>
         )}
 
+        {/* IMS Actions — CA confirm before GSTN writeback */}
+        {resultsTab === "ims" && (
+        <>
+        {authToken ? (
+          <ImsActionPanel
+            runId={runId}
+            authToken={authToken}
+          />
+        ) : (
+          <div className={sectionContainerClass}>
+            <p className="text-sm text-gray-500">
+              Sign in to load IMS recommendations for this run.
+            </p>
+          </div>
+        )}
+        </>
+        )}
+
         {/* Rule 37 */}
         {resultsTab === "rule37" && (
         <>
@@ -4891,7 +4969,7 @@ export default function ReconcileResultsPage() {
                 aria-hidden
               />
               <span className="text-lg font-semibold text-gray-900">
-                Rule 37 Tracking
+                ITC at Risk — Rule 37 (Unpaid 180+ Days)
               </span>
               {rule37Data != null && (
                 <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
@@ -4915,9 +4993,10 @@ export default function ReconcileResultsPage() {
             >
               {rule37TotalAmount != null && (
                 <SectionAmountBadge
-                  label="AMOUNT AT RISK"
+                  label="CONFIRMED ITC AT RISK — RULE 37"
                   amount={rule37TotalAmount}
                   variant="rule37"
+                  sublabel={rule37HeaderSublabel}
                 />
               )}
               <ChevronDown
@@ -4947,7 +5026,7 @@ export default function ReconcileResultsPage() {
               )}
               {rule37Data && !rule37Error && rule37Data.total === 0 && (
                 <p className="text-sm text-gray-500">
-                  No Rule 37 warnings for this period.
+                  {formatRule37EmptyStateMessage(rule37SummaryData?.summary)}
                 </p>
               )}
               {rule37Data &&
@@ -5437,7 +5516,7 @@ export default function ReconcileResultsPage() {
                   Checklist before finalize
                 </p>
                 <p className="mt-0.5 text-[11px] leading-snug text-gray-500">
-                  Review Matched, Review Required, Missed ITC, and ITC at Risk before locking this run.
+                  Review Matched, Review Required, Missed ITC, and ITC at Risk — Not in GSTR-2B before locking this run.
                 </p>
               </div>
             </div>

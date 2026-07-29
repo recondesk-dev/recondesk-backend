@@ -617,7 +617,7 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
     boxY,
     boxW,
     boxH,
-    "ITC at Risk",
+    "ITC at Risk — Not in GSTR-2B",
     summary.wrongful_risk_total_amount,
     RED_DOT,
     RED_DOT
@@ -641,7 +641,7 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
   pillX += drawStatusPill(doc, pillX, y, "Matched", summary.matched_count, {
     dot: GREEN_DOT,
   });
-  pillX += drawStatusPill(doc, pillX, y, "ITC at Risk", summary.wrongful_risk_count, {
+  pillX += drawStatusPill(doc, pillX, y, "ITC at Risk — Not in GSTR-2B", summary.wrongful_risk_count, {
     dot: RED_DOT,
   });
   drawStatusPill(doc, pillX, y, "Missed ITC", summary.missed_itc_count, {
@@ -687,8 +687,8 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
     ["Matched Records", summary.matched_count.toLocaleString("en-IN")],
     ["Match Rate", `${matchPct.toFixed(1)}%`],
     ["Missed ITC Count", missedN.toLocaleString("en-IN")],
-    ["ITC at Risk Count", riskN.toLocaleString("en-IN")],
-    ["Total ITC at Risk", formatINR(summary.wrongful_risk_total_amount)],
+    ["ITC at Risk — Not in GSTR-2B Count", riskN.toLocaleString("en-IN")],
+    ["ITC at Risk — Not in GSTR-2B", formatINR(summary.wrongful_risk_total_amount)],
     ["Total Recoverable ITC", formatINR(summary.missed_itc_total_amount)],
     ["Unmatched Records", unmatched.toLocaleString("en-IN")],
   ];
@@ -750,7 +750,7 @@ function buildRiskSection(
 ) {
   doc.addPage();
   let y = CONTENT_TOP;
-  y = drawSectionTitle(doc, y, "ITC at Risk — Compliance Alerts", RED_DOT);
+  y = drawSectionTitle(doc, y, "ITC at Risk — Not in GSTR-2B", RED_DOT);
   y = drawSubtitle(
     doc,
     y,
@@ -764,12 +764,12 @@ function buildRiskSection(
     setFont(doc, "normal");
     doc.setFontSize(9);
     setGrey(doc);
-    doc.text("No ITC at risk invoices for this reconciliation run.", MARGIN, y + 4);
+    doc.text("No ITC at Risk — Not in GSTR-2B invoices for this reconciliation run.", MARGIN, y + 4);
     setFont(doc, "bold");
     doc.setFontSize(9);
     setInk(doc);
     doc.text(
-      `Total ITC at Risk: ${formatINR(data.summary.wrongful_risk_total_amount)}`,
+      `ITC at Risk — Not in GSTR-2B: ${formatINR(data.summary.wrongful_risk_total_amount)}`,
       PAGE_W - MARGIN,
       y + 14,
       { align: "right" }
@@ -859,7 +859,7 @@ function buildRiskSection(
   doc.text(fnLines, MARGIN, afterTableY);
   afterTableY += fnLines.length * 3.8 + 3;
 
-  drawTotalLine(doc, "Total ITC at Risk", data.summary.wrongful_risk_total_amount, afterTableY);
+  drawTotalLine(doc, "ITC at Risk — Not in GSTR-2B", data.summary.wrongful_risk_total_amount, afterTableY);
 }
 
 function buildMissedSection(
@@ -1220,7 +1220,7 @@ function buildRule37Section(
     r37AfterY += 5;
   }
 
-  const r37TotalY = drawTotalLine(doc, "Total ITC at Risk (Rule 37)", rs.total_itc_at_risk, r37AfterY);
+  const r37TotalY = drawTotalLine(doc, "ITC at Risk — Rule 37 (Unpaid 180+ Days)", rs.total_itc_at_risk, r37AfterY);
 
   const history = data.rule37Summary.action_history ?? [];
   if (history.length > 0) {
@@ -1280,7 +1280,7 @@ function buildFollowupSection(doc: jsPDF, autoTable: AutoTableFn, data: ReportPd
   y = drawSubtitle(
     doc,
     y,
-    "Record of follow-up letters generated for ITC at risk invoices."
+    "Record of follow-up letters generated for ITC at Risk — Not in GSTR-2B invoices."
   );
 
   const rows = data.followupRows;

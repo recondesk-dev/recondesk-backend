@@ -21,6 +21,7 @@ from app.services.firm_access import list_accessible_client_gstin_ids
 from app.services.carry_forward import get_chronic_risks
 from app.services.gstin_verification import verify_gstin as _verify_gstin
 from app.utils.audit import log_audit
+from app.utils.redis_cache import invalidate_user_dashboard
 
 router = APIRouter(redirect_slashes=False)
 # Alias for `app.include_router(clients_router, ...)` in main.py
@@ -179,6 +180,68 @@ async def create_client(
     sb = get_supabase()
     uid = str(current_user.get("id", ""))
     owner = _resolve_firm_owner(sb, uid)
+
+    # Soft-deleted row for this GSTIN: restore it (does not consume a new free slot).
+    existing = (
+        sb.table("client_gstins")
+        .select("*")
+        .eq("firm_owner_id", owner)
+        .eq("gstin", g)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        row = existing.data[0]
+        if row.get("is_active"):
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content=row,
+            )
+        updates: dict[str, Any] = {
+            "is_active": True,
+            "trade_name": body.trade_name,
+            "legal_name": body.legal_name,
+            "state_code": g[:2],
+            "added_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if body.assigned_to:
+            try:
+                UUID(body.assigned_to.strip())
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="invalid assigned_to",
+                ) from exc
+            updates["assigned_to"] = str(body.assigned_to).strip()
+        sb.table("client_gstins").update(updates).eq("id", row["id"]).execute()
+        out = (
+            sb.table("client_gstins")
+            .select("*")
+            .eq("id", row["id"])
+            .single()
+            .execute()
+        )
+        client_label = (
+            str(body.trade_name or "").strip()
+            or str(body.legal_name or "").strip()
+            or g
+        )
+        await log_audit(
+            sb,
+            current_user,
+            "CLIENT_RESTORED",
+            "client",
+            str(row["id"]),
+            client_label,
+            {"gstin": g},
+        )
+        invalidate_user_dashboard(uid)
+        invalidate_user_dashboard(owner)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=dict(out.data or {}),
+        )
+
     try:
         assert_gstin_capacity(sb, owner)
     except ValueError as exc:
@@ -209,7 +272,7 @@ async def create_client(
         sb.table("client_gstins").insert(ins).execute()
     except Exception as e:
         if _pg_unique_violation(e):
-            existing = (
+            raced = (
                 sb.table("client_gstins")
                 .select("*")
                 .eq("firm_owner_id", owner)
@@ -217,10 +280,10 @@ async def create_client(
                 .limit(1)
                 .execute()
             )
-            if existing.data:
+            if raced.data:
                 return JSONResponse(
                     status_code=status.HTTP_200_OK,
-                    content=existing.data[0],
+                    content=raced.data[0],
                 )
         raise
     out = (
@@ -272,6 +335,8 @@ async def create_client(
     if gstin_verification_warning:
         response_body["gstin_verification_warning"] = gstin_verification_warning
 
+    invalidate_user_dashboard(uid)
+    invalidate_user_dashboard(owner)
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
         content=response_body,
@@ -486,6 +551,7 @@ async def delete_client(
         cid,
         client_label,
     )
+    invalidate_user_dashboard(uid)
     return None
 
 

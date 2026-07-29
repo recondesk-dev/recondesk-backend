@@ -285,7 +285,7 @@ function DashboardScreen({ activeRow }: { activeRow: number }) {
           </span>
           <div>
             <p className="font-sans text-xl font-semibold tracking-tight text-[var(--ink)]">₹1.2L</p>
-            <p className="mt-0.5 text-[10px] font-medium text-gray-500">ITC at Risk</p>
+            <p className="mt-0.5 text-[10px] font-medium text-gray-500">ITC at Risk — Not in GSTR-2B</p>
           </div>
         </div>
         <div className="flex min-h-[96px] flex-col justify-between rounded-[1.15rem] bg-white p-3 shadow-[var(--shadow-soft)]">
@@ -361,7 +361,7 @@ function ResultsScreen() {
         {[
           { label: "Matched", value: "847", sub: "invoices", tone: "text-emerald-600" },
           { label: "Mismatches", value: "23", sub: "to review", tone: "text-[var(--ink)]" },
-          { label: "ITC at Risk", value: "₹1.2L", sub: "this run", tone: "text-amber-600" },
+          { label: "ITC at Risk — Not in GSTR-2B", value: "₹1.2L", sub: "this run", tone: "text-amber-600" },
         ].map((card) => (
           <div
             key={card.label}

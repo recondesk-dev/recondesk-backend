@@ -247,10 +247,6 @@ class TestAllTemplatesRender:
         d = generate_decision("L4_INVOICE_NUM", source_software="Excel")
         assert d.what and d.why and d.next
 
-    def test_L5_probable_renders(self):
-        d = generate_decision("L5_PROBABLE", distance=2)
-        assert d.what and d.why and d.next
-
     def test_unknown_template_returns_fallback(self):
         d = generate_decision("THIS_DOES_NOT_EXIST")
         assert d.what == "Mismatch detected", (

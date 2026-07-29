@@ -360,6 +360,20 @@ def run_sanity_gstr2b_json(
             }
         )
 
+    isd_count = int(
+        parsed.get("isd_count")
+        or (parsed.get("metrics") or {}).get("isd_count")
+        or 0
+    )
+    impg_count = int(
+        parsed.get("impg_count")
+        or (parsed.get("metrics") or {}).get("impg_count")
+        or 0
+    )
+    isd_impg_check = build_isd_impg_unprocessed_check(isd_count, impg_count)
+    if isd_impg_check is not None:
+        checks.append(isd_impg_check)
+
     return checks, record_count
 
 
@@ -396,6 +410,7 @@ def _skip_breakdown_affected_records(
 
 MULTI_SHEET_COMBINE_CHECK_ID = "multi_sheet_combine"
 MISSING_INVOICE_CHECK_ID = "missing_invoice_number"
+ISD_IMPG_UNPROCESSED_CHECK_ID = "isd_impg_unprocessed"
 
 
 def build_multi_sheet_combine_check(
@@ -458,6 +473,81 @@ def build_missing_invoice_number_check(
         "requires_acknowledgment": True,
         "acknowledged": False,
     }
+
+
+def build_isd_impg_unprocessed_check(
+    isd_count: int,
+    impg_count: int,
+) -> dict[str, Any] | None:
+    """Blocking warning when GSTR-2B contains ISD / IMPG lines we do not reconcile."""
+    from app.parsers.gstr2b_parser import format_isd_impg_warning
+
+    isd_n = int(isd_count or 0)
+    impg_n = int(impg_count or 0)
+    detail = format_isd_impg_warning(isd_n, impg_n)
+    if not detail:
+        return None
+    return {
+        "id": ISD_IMPG_UNPROCESSED_CHECK_ID,
+        "label": "ISD / Import of goods not reconciled",
+        "status": "warning",
+        "detail": detail,
+        "affected_records": [],
+        "requires_acknowledgment": True,
+        "acknowledged": False,
+        "isd_present": isd_n > 0,
+        "isd_count": isd_n,
+        "impg_present": impg_n > 0,
+        "impg_count": impg_n,
+    }
+
+
+def isd_impg_fields_from_checks(
+    sanity_check_results: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Pull ISD/IMPG detection fields out of sanity checks for run_summary."""
+    for item in sanity_check_results or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("id") or "") != ISD_IMPG_UNPROCESSED_CHECK_ID:
+            continue
+        isd_n = int(item.get("isd_count") or 0)
+        impg_n = int(item.get("impg_count") or 0)
+        return {
+            "isd_present": isd_n > 0,
+            "isd_count": isd_n,
+            "impg_present": impg_n > 0,
+            "impg_count": impg_n,
+            "isd_impg_warning": str(item.get("detail") or "") or None,
+        }
+    return {
+        "isd_present": False,
+        "isd_count": 0,
+        "impg_present": False,
+        "impg_count": 0,
+        "isd_impg_warning": None,
+    }
+
+
+def merge_isd_impg_into_run_summary(
+    existing: dict[str, Any] | None,
+    *,
+    isd_count: int = 0,
+    impg_count: int = 0,
+    warning: str | None = None,
+) -> dict[str, Any]:
+    """Merge ISD/IMPG detection into a run_summary dict (preserves other keys)."""
+    from app.parsers.gstr2b_parser import format_isd_impg_warning
+
+    out = dict(existing) if isinstance(existing, dict) else {}
+    isd_n = int(isd_count or 0)
+    impg_n = int(impg_count or 0)
+    out["isd_present"] = isd_n > 0
+    out["isd_count"] = isd_n
+    out["impg_present"] = impg_n > 0
+    out["impg_count"] = impg_n
+    out["isd_impg_warning"] = warning or format_isd_impg_warning(isd_n, impg_n)
+    return out
 
 
 def upsert_sanity_check(

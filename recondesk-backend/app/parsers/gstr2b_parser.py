@@ -8,7 +8,8 @@ before the same parse path runs.
 Supported sections: b2b, b2ba (amendments), cdnr (credit/debit notes),
 cdnra (credit/debit note amendments).
 
-Sections isd and impg are silently ignored.
+Sections ``isd`` and ``impg`` are not parsed into records, but are detected
+(present + line-item counts) so the import wizard can warn the CA.
 """
 
 import datetime
@@ -31,6 +32,100 @@ from app.services.normalizer import (
 from app.services.matcher import normalize_invoice
 
 SCHEMA_VERSION = "gstr2b_v1"
+
+
+# Private keys attached by the Excel adapter (and preserved through parse).
+_UNPARSED_ISD_COUNT_KEY = "_unparsed_isd_count"
+_UNPARSED_IMPG_COUNT_KEY = "_unparsed_impg_count"
+
+# Nested document-array keys used by portal ISD / IMPG section rows.
+_SECTION_NESTED_DOC_KEYS = ("doc", "inv", "nt", "boe", "data")
+
+
+def _section_line_item_count(section: Any) -> int:
+    """Count document/line items in an ISD or IMPG section without parsing.
+
+    Portal ISD rows are usually supplier objects with a nested ``doc``/``inv``
+    list. IMPG rows are often flat Bill-of-Entry objects. Empty nested lists
+    fall through to counting the parent entry itself when it looks like a
+    document row (has any keys other than empty containers).
+    """
+    if not isinstance(section, list) or not section:
+        return 0
+    total = 0
+    for entry in section:
+        if not isinstance(entry, dict):
+            total += 1
+            continue
+        nested: list | None = None
+        for key in _SECTION_NESTED_DOC_KEYS:
+            val = entry.get(key)
+            if isinstance(val, list) and len(val) > 0:
+                nested = val
+                break
+        if nested is not None:
+            total += len(nested)
+        else:
+            total += 1
+    return total
+
+
+def _resolve_section_blob(root: Mapping[str, Any], key: str) -> Any:
+    """Prefer ``root[key]``; fall back to ``root.docdata[key]``."""
+    raw = root.get(key)
+    if raw not in (None, [], {}):
+        return raw
+    docdata = root.get("docdata")
+    if isinstance(docdata, Mapping):
+        nested = docdata.get(key)
+        if nested not in (None, [], {}):
+            return nested
+    return raw
+
+
+def detect_isd_impg_sections(
+    root: Mapping[str, Any] | None,
+    *,
+    excel_isd_count: int = 0,
+    excel_impg_count: int = 0,
+) -> dict[str, Any]:
+    """Detect (do not parse) ISD / IMPG sections on a portal-shaped root.
+
+    Returns ``isd_present``, ``isd_count``, ``impg_present``, ``impg_count``.
+    Excel-detected counts are merged via ``max`` (JSON and Excel paths are
+    mutually exclusive in practice).
+    """
+    isd_count = 0
+    impg_count = 0
+    if isinstance(root, Mapping):
+        isd_count = _section_line_item_count(_resolve_section_blob(root, "isd"))
+        impg_count = _section_line_item_count(_resolve_section_blob(root, "impg"))
+    isd_count = max(int(isd_count or 0), int(excel_isd_count or 0))
+    impg_count = max(int(impg_count or 0), int(excel_impg_count or 0))
+    return {
+        "isd_present": isd_count > 0,
+        "isd_count": isd_count,
+        "impg_present": impg_count > 0,
+        "impg_count": impg_count,
+    }
+
+
+def format_isd_impg_warning(isd_count: int, impg_count: int) -> str | None:
+    """Human-readable CA warning when unparsed ISD/IMPG lines were detected."""
+    isd_n = int(isd_count or 0)
+    impg_n = int(impg_count or 0)
+    if isd_n <= 0 and impg_n <= 0:
+        return None
+    parts: list[str] = []
+    if isd_n > 0:
+        parts.append(f"{isd_n} ISD credit line(s)")
+    if impg_n > 0:
+        parts.append(f"{impg_n} import-of-goods line(s)")
+    joined = " and ".join(parts)
+    return (
+        f"This GSTR-2B file contains {joined} that are NOT included in this "
+        "reconciliation. Verify these separately."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1490,14 +1585,31 @@ def parse_gstr2b(
     if not isinstance(data, dict):
         raise ValueError("invalid_data_structure")
 
+    # Excel adapter attaches unparsed ISD/IMPG sheet counts on the payload.
+    excel_isd_count = int(data.pop(_UNPARSED_ISD_COUNT_KEY, 0) or 0)
+    excel_impg_count = int(data.pop(_UNPARSED_IMPG_COUNT_KEY, 0) or 0)
+
     buyer_gstin_source = BUYER_GSTIN_SOURCE_PORTAL
     if "data" not in data:
         if is_alt_gstr2b_schema(data):
+            # Preserve excel counts if they rode on the alt dict.
+            excel_isd_count = max(
+                excel_isd_count, int(data.pop(_UNPARSED_ISD_COUNT_KEY, 0) or 0)
+            )
+            excel_impg_count = max(
+                excel_impg_count, int(data.pop(_UNPARSED_IMPG_COUNT_KEY, 0) or 0)
+            )
             data = normalize_alt_2b_schema(
                 data, fallback_buyer_gstin=fallback_buyer_gstin
             )
             buyer_gstin_source = str(
                 data.pop("_alt_buyer_gstin_source", BUYER_GSTIN_SOURCE_FILE)
+            )
+            excel_isd_count = max(
+                excel_isd_count, int(data.pop(_UNPARSED_ISD_COUNT_KEY, 0) or 0)
+            )
+            excel_impg_count = max(
+                excel_impg_count, int(data.pop(_UNPARSED_IMPG_COUNT_KEY, 0) or 0)
             )
         else:
             raise ValueError(_UNSUPPORTED_GSTR2B_SCHEMA)
@@ -1506,8 +1618,21 @@ def parse_gstr2b(
         buyer_gstin_source = str(
             data.pop("_alt_buyer_gstin_source", BUYER_GSTIN_SOURCE_FILE)
         )
+        excel_isd_count = max(
+            excel_isd_count, int(data.pop(_UNPARSED_ISD_COUNT_KEY, 0) or 0)
+        )
+        excel_impg_count = max(
+            excel_impg_count, int(data.pop(_UNPARSED_IMPG_COUNT_KEY, 0) or 0)
+        )
 
     data = normalize_gstr2b_payload(data)
+    # normalize_* may leave excel keys on the outer dict; pop again defensively.
+    excel_isd_count = max(
+        excel_isd_count, int(data.pop(_UNPARSED_ISD_COUNT_KEY, 0) or 0)
+    )
+    excel_impg_count = max(
+        excel_impg_count, int(data.pop(_UNPARSED_IMPG_COUNT_KEY, 0) or 0)
+    )
     root = data["data"]
 
     if not isinstance(root, dict):
@@ -1563,6 +1688,12 @@ def parse_gstr2b(
             sections_present.append(section_name)
         elif status == "empty":
             sections_empty.append(section_name)
+
+    isd_impg = detect_isd_impg_sections(
+        root,
+        excel_isd_count=excel_isd_count,
+        excel_impg_count=excel_impg_count,
+    )
 
     # Enrich every parsed record with standardized output fields.
     for record in records:
@@ -1638,6 +1769,10 @@ def parse_gstr2b(
         "normalization_note_frequency": normalization_note_frequency,
         "gstin_format_invalid_count": gstin_format_invalid_count,
         "buyer_gstin_source": buyer_gstin_source,
+        "isd_present": isd_impg["isd_present"],
+        "isd_count": isd_impg["isd_count"],
+        "impg_present": isd_impg["impg_present"],
+        "impg_count": isd_impg["impg_count"],
     }
 
     result = {
@@ -1652,6 +1787,10 @@ def parse_gstr2b(
         "total_skipped": total_skipped,
         "skip_breakdown": skip_breakdown,
         "gstin_format_invalid_count": gstin_format_invalid_count,
+        "isd_present": isd_impg["isd_present"],
+        "isd_count": isd_impg["isd_count"],
+        "impg_present": isd_impg["impg_present"],
+        "impg_count": isd_impg["impg_count"],
         "metrics": metrics,
     }
     if buyer_gstin_source == BUYER_GSTIN_SOURCE_PLACEHOLDER:

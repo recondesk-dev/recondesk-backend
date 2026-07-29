@@ -1045,6 +1045,12 @@ def execute_reconciliation(run_id: str) -> None:
         )
         _phase("rule37")
         pr_for_rule37 = []
+        # Coverage: of matched ITC-claimed invoices, how many have an explicit
+        # PR payment_status (known) vs blank (unverified). Paid invoices count
+        # as known even though they are not forwarded to the tracker.
+        rule37_claimed_invoice_count = 0
+        rule37_payment_status_known_count = 0
+        rule37_payment_status_unknown_count = 0
         for m in state.clean_matched:
             pr_id = str(m.get("pr_id"))
             p = pr_by_id.get(pr_id)
@@ -1061,11 +1067,26 @@ def execute_reconciliation(run_id: str) -> None:
             if not _is_itc_claimed(raw):
                 continue
 
+            rule37_claimed_invoice_count += 1
+
             status_str = raw.get("payment_status")
             if isinstance(status_str, str):
-                status_str = status_str.strip().lower()
+                status_str = status_str.strip().lower() or None
             else:
                 status_str = None  # BUG 2 FIX: blank/None → do NOT default to "unpaid"
+
+            # Known = explicit payment_status and/or payment_date on the PR.
+            # Status still gates Rule 37 routing; payment_date alone counts as
+            # coverage signal so CAs see that some payment evidence existed.
+            pay_date_raw = raw.get("payment_date")
+            has_payment_date = False
+            if pay_date_raw is not None and str(pay_date_raw).strip():
+                has_payment_date = True
+
+            if status_str or has_payment_date:
+                rule37_payment_status_known_count += 1
+            else:
+                rule37_payment_status_unknown_count += 1
 
             # Only forward unpaid, partially paid, and blank-status records.
             # Blank status is handled inside check_rule_37_compliance as
@@ -1084,7 +1105,7 @@ def execute_reconciliation(run_id: str) -> None:
                     # Pass None through so check_rule_37_compliance routes it to
                     # PENDING_VERIFICATION instead of treating it as "unpaid".
                     "payment_status": status_str,
-                    "payment_date": raw.get("payment_date"),
+                    "payment_date": pay_date_raw,
                     # itc_claimed=True here because we already filtered above;
                     # passing explicitly so the gate inside the tracker is a no-op.
                     "itc_claimed": True,
@@ -1132,8 +1153,19 @@ def execute_reconciliation(run_id: str) -> None:
             int(r.get("itc_at_risk_paise") or 0) for r in rule37
         )
         rule37_pending_paise = sum(
-            int(r.get("total_tax_paise") or 0) for r in rule37_pending_verification
+            int(
+                r.get("potential_itc_paise")
+                if r.get("potential_itc_paise") is not None
+                else r.get("total_tax_paise")
+                or 0
+            )
+            for r in rule37_pending_verification
         )
+        rule37_coverage = {
+            "claimed_invoice_count": rule37_claimed_invoice_count,
+            "payment_status_known_count": rule37_payment_status_known_count,
+            "payment_status_unknown_count": rule37_payment_status_unknown_count,
+        }
         late_filing = check_late_filing(
             state.clean_matched, gstr_raw_by_id, claim_period=period
         )
@@ -1418,12 +1450,44 @@ def execute_reconciliation(run_id: str) -> None:
             late_match_count=late_itc,
             rule37_pending_verification_count=len(rule37_pending_verification),
             rule37_pending_verification_paise=rule37_pending_paise,
+            rule37_claimed_invoice_count=rule37_claimed_invoice_count,
+            rule37_payment_status_known_count=rule37_payment_status_known_count,
+            rule37_payment_status_unknown_count=rule37_payment_status_unknown_count,
             skipped_count=skipped_count,
             review_required_count=review_gstr_count,
             duplicate_entry_count=len(state.duplicate_entries),
             unmatched_notes_count=len(state.unmatched_notes),
             matched_itc_paise=matched_itc_paise,
         )
+        # Preserve ISD/IMPG detection written at import / GSTR-2B sanity time.
+        try:
+            prior_rs_res = (
+                client.table("reconciliation_run")
+                .select("run_summary")
+                .eq("id", run_id)
+                .limit(1)
+                .execute()
+            )
+            prior_rs = (
+                (prior_rs_res.data or [{}])[0].get("run_summary")
+                if prior_rs_res.data
+                else None
+            )
+            if isinstance(prior_rs, dict):
+                for _k in (
+                    "isd_present",
+                    "isd_count",
+                    "impg_present",
+                    "impg_count",
+                    "isd_impg_warning",
+                ):
+                    if _k in prior_rs and prior_rs.get(_k) is not None:
+                        run_summary[_k] = prior_rs[_k]
+        except Exception:
+            _log.exception(
+                "execute_reconciliation: could not preserve ISD/IMPG fields for %s",
+                run_id,
+            )
 
         valid_review_required = []
         for r in state.review_required:
@@ -1481,6 +1545,7 @@ def execute_reconciliation(run_id: str) -> None:
                 duplicate_entries=list(state.duplicate_entries),
                 unmatched_notes=list(state.unmatched_notes),
                 rule37_pending_verification=rule37_pending_verification,
+                rule37_coverage=rule37_coverage,
                 review_required_typo=[],
             )
         )

@@ -207,7 +207,7 @@ export default function VendorIntelligencePage() {
 
       <div>
         <h1 className="text-xl font-semibold text-gray-900">
-          Top Suppliers by ITC at Risk
+          Top Suppliers by ITC at Risk — Not in GSTR-2B
         </h1>
         {summary?.period && (
           <p className="mt-1 text-sm text-gray-500">Period: {summary.period}</p>
@@ -237,7 +237,7 @@ export default function VendorIntelligencePage() {
 
       {!loading && !error && !isRunFailed && summary && summary.wrongful_risk_count <= 0 && (
         <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600">
-          No ITC at risk for this run.
+          No ITC at Risk — Not in GSTR-2B for this run.
         </div>
       )}
 
@@ -246,7 +246,8 @@ export default function VendorIntelligencePage() {
           <p className="mb-3 text-sm text-gray-600">
             {suppliers.length.toLocaleString("en-IN")} supplier
             {suppliers.length === 1 ? "" : "s"} ·{" "}
-            {formatINR(summary?.wrongful_risk_total_amount ?? 0)} total ITC at risk
+            {formatINR(summary?.wrongful_risk_total_amount ?? 0)} ITC at Risk — Not in
+            GSTR-2B
           </p>
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
@@ -257,7 +258,7 @@ export default function VendorIntelligencePage() {
                   </th>
                   <th className="px-3 py-2">Trade Name</th>
                   <th className="px-3 py-2 text-right">Invoice Count</th>
-                  <th className="px-3 py-2 text-right">Total ITC at Risk</th>
+                  <th className="px-3 py-2 text-right">ITC at Risk — Not in GSTR-2B</th>
                   <th className="px-3 py-2">Impact</th>
                 </tr>
               </thead>

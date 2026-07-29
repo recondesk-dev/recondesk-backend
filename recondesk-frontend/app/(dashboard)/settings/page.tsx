@@ -93,7 +93,7 @@ export default function SettingsHubPage() {
   const planLabelStr = rawPlan.charAt(0).toUpperCase() + rawPlan.slice(1).toLowerCase();
 
   const gstinCapacity = billingStatus
-    ? `${billingStatus.gstins_used ?? 0} / ${billingStatus.gstin_limit ?? 2}`
+    ? `${billingStatus.gstins_used ?? 0} / ${billingStatus.gstin_limit ?? 1}`
     : "—";
 
   const teamSize = Array.isArray(teamMembers)

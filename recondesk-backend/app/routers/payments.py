@@ -25,7 +25,7 @@ from app.services.billing_gate import (
     PLAN_CONFIG,
     activate_subscription,
     consume_run_credit,
-    count_active_gstins,
+    count_gstins_toward_limit,
     forfeit_expired_credit_batches,
     get_gstin_limit,
     has_active_subscription,
@@ -483,7 +483,7 @@ async def billing_status(
     runs_balance = synced["runs_balance"]
     sub_active = has_active_subscription(db, firm_owner)
     gstin_limit = get_gstin_limit(db, firm_owner)
-    gstins_used = count_active_gstins(db, firm_owner)
+    gstins_used = count_gstins_toward_limit(db, firm_owner)
     subscription_ends_at = prof.get("subscription_ends_at")
 
     batches_res = (
