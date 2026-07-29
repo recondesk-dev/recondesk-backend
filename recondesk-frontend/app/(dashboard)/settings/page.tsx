@@ -7,6 +7,7 @@ import {
   ChevronRight,
   ClipboardList,
   CreditCard,
+  Link2,
   SlidersHorizontal,
   UserCircle,
   Users,
@@ -124,6 +125,12 @@ export default function SettingsHubPage() {
       title: "Reconciliation",
       description: "Auto-approve confidence threshold and match triage.",
       Icon: SlidersHorizontal,
+    },
+    {
+      href: "/settings/tally-bridge",
+      title: "Tally Bridge",
+      description: "Local agent API key and Rule 37 auto-settle sync.",
+      Icon: Link2,
     },
     {
       href: "/filing/gstr-1",
