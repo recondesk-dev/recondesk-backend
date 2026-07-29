@@ -4,5 +4,6 @@
   "tally_host": "localhost",
   "tally_port": 9000,
   "sync_interval_minutes": 60,
+  "lookback_days": 200,
   "company_name": "Your Company Name As In Tally"
 }

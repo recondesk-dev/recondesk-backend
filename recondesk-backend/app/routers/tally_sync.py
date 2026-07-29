@@ -2,6 +2,10 @@
 
 Local agent authenticates with a firm-scoped API key (``tally_bridge_keys``).
 Dashboard endpoints use the normal Supabase JWT via ``get_current_active_user``.
+
+POST /outstanding accepts:
+  - ``outstanding``: Bills Payable rows (pending due) — unpaid truth only
+  - ``payments``: Payment Agst Ref allocations — only settle path
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ from pydantic import BaseModel, Field
 from app.auth import get_current_active_user
 from app.database import get_supabase
 from app.services.tally_bridge_sync import (
-    apply_tally_outstanding_sync,
+    apply_tally_bridge_sync,
     generate_tally_bridge_api_key,
 )
 from app.utils.audit import resolve_firm_id
@@ -38,17 +42,27 @@ _CONFIG_EXAMPLE_PATH = (
 )
 
 
-class TallyOutstandingRecord(BaseModel):
+class TallyOutstandingRow(BaseModel):
     party: str = ""
     bill_ref: str = Field(..., min_length=1)
     bill_date: Optional[str] = None
-    amount: Optional[float] = None
+    amount: Optional[float] = None  # remaining due (pending), never amount paid
 
 
-class TallyOutstandingBody(BaseModel):
+class TallyPaymentRow(BaseModel):
+    party: str = ""
+    bill_ref: str = Field(..., min_length=1)
+    amount: Optional[float] = None  # Agst Ref allocation = amount paid
+    payment_date: Optional[str] = None
+    voucher_number: str = ""
+    voucher_type: str = ""
+
+
+class TallyBridgeSyncBody(BaseModel):
     company_name: str = ""
     synced_at: Optional[str] = None
-    records: list[TallyOutstandingRecord] = Field(default_factory=list)
+    outstanding: list[TallyOutstandingRow] = Field(default_factory=list)
+    payments: list[TallyPaymentRow] = Field(default_factory=list)
 
 
 class TallyKeyCreateBody(BaseModel):
@@ -116,10 +130,10 @@ async def require_tally_bridge_key(
 
 @router.post("/outstanding")
 async def tally_sync_outstanding(
-    body: TallyOutstandingBody,
+    body: TallyBridgeSyncBody,
     key_row: dict[str, Any] = Depends(require_tally_bridge_key),
 ):
-    """Receive bill-wise Tally records and auto-settle confident Rule 37 matches."""
+    """Receive Bills Payable + Payment Agst Ref rows; settle only from payments."""
     account_id = str(key_row.get("account_id") or "").strip()
     if not account_id:
         raise HTTPException(
@@ -127,20 +141,22 @@ async def tally_sync_outstanding(
             detail="api key missing account_id",
         )
     company = (body.company_name or key_row.get("company_name") or "").strip()
-    records = [r.model_dump() for r in body.records]
+    outstanding = [r.model_dump() for r in body.outstanding]
+    payments = [r.model_dump() for r in body.payments]
     sb = get_supabase()
     try:
-        result = apply_tally_outstanding_sync(
+        result = apply_tally_bridge_sync(
             sb,
             account_id=account_id,
-            records=records,
+            outstanding=outstanding,
+            payments=payments,
             company_name=company or str(key_row.get("company_name") or ""),
             key_id=str(key_row.get("id") or "") or None,
         )
     except HTTPException:
         raise
     except Exception as exc:
-        _log.exception("tally outstanding sync failed account_id=%s", account_id)
+        _log.exception("tally bridge sync failed account_id=%s", account_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="tally sync failed",

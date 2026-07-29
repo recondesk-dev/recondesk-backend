@@ -151,8 +151,9 @@ export default function TallyBridgeSetupPage() {
             Tally Bridge Setup
           </h1>
           <p className="text-sm text-gray-500">
-            Sync bill-wise outstanding data from Tally to auto-settle Rule 37
-            invoices.
+            Sync Bills Payable (still unpaid) and Payment Agst Ref vouchers from
+            Tally. Auto-settle only from payments when party name confidence is
+            high; weak party matches are flagged for manual confirmation.
           </p>
         </div>
       </div>
@@ -254,9 +255,13 @@ export default function TallyBridgeSetupPage() {
             </h2>
             <p className="text-sm text-gray-500">
               Run on the CA machine with Tally open and XML server enabled
-              (F1 → Settings → Connectivity). Start with{" "}
-              <code className="text-[12px]">--test</code> to validate the raw
-              XML before enabling push.
+              (F1 → Settings → Connectivity). The agent exports Bills Payable
+              (unpaid check only — never settle) and Day Book Payment vouchers
+              (settle evidence). Start with{" "}
+              <code className="text-[12px]">--test</code> to validate both
+              exports: it prints per-export row counts and warns if either is
+              zero. TDS is not auto-detected; GSTIN is not used for matching
+              yet.
             </p>
             <div className="flex flex-wrap gap-3">
               <button
