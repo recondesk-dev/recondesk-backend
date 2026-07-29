@@ -21,8 +21,8 @@ def test_free_runs_allocation_is_two():
     assert FREE_RUNS_ALLOCATION == 2
 
 
-def test_free_gstin_limit_is_two():
-    assert FREE_GSTIN_LIMIT == 2
+def test_free_gstin_limit_is_one():
+    assert FREE_GSTIN_LIMIT == 1
 
 
 def test_gstin_plan_catalog():

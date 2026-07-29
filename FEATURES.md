@@ -441,7 +441,7 @@ Code-backed map of the Next.js frontend (`recondesk-frontend/`) and FastAPI back
 - **Status**: complete
 
 ### GSTIN Subscription Billing (Razorpay)
-- **What it does**: Plans Starter/Growth/Pro (GSTIN limits 25/50/75); free 2 GSTINs + 2 free runs; create-order / verify / webhook / history / receipt PDF / send-receipt / billing status.
+- **What it does**: Plans Starter/Growth/Pro (GSTIN limits 25/50/75); free 1 GSTIN (lifetime — removing does not free the slot) + 2 free runs; create-order / verify / webhook / history / receipt PDF / send-receipt / billing status.
 - **Where it lives**:
   - Backend: `app/routers/payments.py`, `webhooks.py`, `app/services/billing_gate.py`, `billing_service.py`, `receipt_pdf.py`, `payment_idempotency.py`
   - Frontend: `billing/page.tsx`, `SubscriptionFeatures.tsx`, `lib/billing-checkout.ts`, Next proxies `app/api/billing/{create-order,verify-payment}`

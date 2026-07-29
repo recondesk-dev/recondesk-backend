@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Modal } from "@/components/ui/Modal";
 import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import { GstinInput, validateGstin } from "@/components/ui/GstinInput";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
+  billingApi,
   clientsApi,
   isApiError,
   teamApi,
@@ -63,6 +64,7 @@ function assignLabel(
 
 export function ClientsPageContent() {
   const toast = useToast();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const tokenState = useAccessToken();
   const authToken =
@@ -81,6 +83,11 @@ export function ClientsPageContent() {
     AUTH_PROFILE_SWR_OPTIONS
   );
   const { data: teamMembers } = useSWR(teamKey, ([, t]) => teamApi.list(t));
+  const billingKey = authToken ? (["clients-billing", authToken] as const) : null;
+  const { data: billingStatus, mutate: mutateBilling } = useSWR(
+    billingKey,
+    ([, t]) => billingApi.status(t)
+  );
   const {
     data: clients,
     error: clientsError,
@@ -153,6 +160,7 @@ export function ClientsPageContent() {
   // Track which GSTIN the current result belongs to so we reset on change
   const verifiedForRef = useRef<string>("");
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
+  const addQueryHandledRef = useRef(false);
 
   const filtered = useMemo(() => {
     const list = clients ?? [];
@@ -180,6 +188,24 @@ export function ClientsPageContent() {
     formContactPhone.trim().length >= 6 &&
     !!formAssignedTo;
 
+  const gstinLimit = billingStatus?.gstin_limit ?? 1;
+  const gstinsUsed = billingStatus?.gstins_used ?? 0;
+  const atGstinLimit =
+    billingStatus != null && gstinsUsed >= gstinLimit;
+
+  const openAddClient = () => {
+    if (atGstinLimit) {
+      toast(
+        `GSTIN limit reached (${gstinsUsed}/${gstinLimit}). Upgrade on Billing to add more clients.`,
+        "error"
+      );
+      router.push("/billing");
+      return;
+    }
+    resetAddForm();
+    setAddOpen(true);
+  };
+
   const resetAddForm = () => {
     setFormGstin("");
     setFormTradeName("");
@@ -196,13 +222,16 @@ export function ClientsPageContent() {
 
   useEffect(() => {
     if (searchParams.get("add") !== "1") return;
-    resetAddForm();
-    setAddOpen(true);
+    if (addQueryHandledRef.current) return;
     if (typeof window !== "undefined") {
       window.history.replaceState({}, "", "/clients");
     }
+    // Wait for billing status so free-tier limit can gate the modal.
+    if (billingStatus === undefined) return;
+    addQueryHandledRef.current = true;
+    openAddClient();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- open-once from query; avoid re-running when form changes
-  }, [searchParams]);
+  }, [searchParams, billingStatus]);
 
   // Reset verify result whenever the GSTIN changes
   useEffect(() => {
@@ -255,8 +284,17 @@ export function ClientsPageContent() {
         resetAddForm();
       }
       await mutateClients();
+      void mutateBilling();
     } catch (e: unknown) {
-      toast(isApiError(e) ? e.detail : "Could not add client.", "error");
+      const detail = isApiError(e) ? e.detail : "Could not add client.";
+      toast(detail, "error");
+      if (
+        isApiError(e) &&
+        typeof e.detail === "string" &&
+        e.detail.includes("GSTIN limit reached")
+      ) {
+        router.push("/billing");
+      }
     } finally {
       setAddBusy(false);
     }
@@ -286,6 +324,7 @@ export function ClientsPageContent() {
       await clientsApi.delete(authToken, row.id);
       toast("Client removed", "success");
       await mutateClients();
+      void mutateBilling();
     } catch (e: unknown) {
       toast(isApiError(e) ? e.detail : "Could not remove client.", "error");
     }
@@ -316,10 +355,7 @@ export function ClientsPageContent() {
         <button
           type="button"
           className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-          onClick={() => {
-            resetAddForm();
-            setAddOpen(true);
-          }}
+          onClick={openAddClient}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
             <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -360,10 +396,7 @@ export function ClientsPageContent() {
             <button
               type="button"
               className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-              onClick={() => {
-                resetAddForm();
-                setAddOpen(true);
-              }}
+              onClick={openAddClient}
             >
               Add Client
             </button>

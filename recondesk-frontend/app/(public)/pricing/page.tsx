@@ -37,7 +37,7 @@ const plans = [
 const pricingFaq = [
   {
     q: "Is there a free trial?",
-    a: "Yes. Your first 2 reconciliations are free — no credit card needed. Free accounts can manage up to 2 GSTINs.",
+    a: "Yes. Your first 2 reconciliations are free — no credit card needed. Free accounts can manage 1 GSTIN.",
   },
   {
     q: "What am I paying for?",

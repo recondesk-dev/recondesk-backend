@@ -59,7 +59,7 @@ function billingCapacityLabel(status: BillingStatus): string {
   if (runs > 0) {
     return runs === 1 ? "1 run remaining" : `${runs} runs remaining`;
   }
-  return `${status.gstins_used ?? 0}/${status.gstin_limit ?? 2} GSTINs`;
+  return `${status.gstins_used ?? 0}/${status.gstin_limit ?? 1} GSTINs`;
 }
 
 function ProfileBillingSkeleton() {
