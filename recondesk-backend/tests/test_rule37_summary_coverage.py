@@ -184,3 +184,6 @@ def test_build_rule37_summary_payload_surfaces_verification_and_coverage():
     assert s["payment_status_known_count"] == 12
     assert s["payment_status_unknown_count"] == 58
     assert s["coverage_available"] is True
+    # Confirmed at-risk stays separate from pending-verification exposure
+    assert s["pending_verification_exposure"] != s["total_itc_at_risk"]
+    assert s["pending_action"] == 0.0

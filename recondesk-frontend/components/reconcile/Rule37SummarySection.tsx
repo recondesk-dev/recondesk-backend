@@ -15,7 +15,6 @@ import {
   tableWrapClass,
 } from "@/components/reconcile/ResultsUi";
 import { apiFetch } from "@/lib/api";
-import { formatINR } from "@/lib/format";
 import {
   formatRule37ActionLabel,
   formatRule37ActionTimeIst,
@@ -24,6 +23,8 @@ import {
   formatRule37RemainingUnpaid,
   formatRule37SettlementConsidered,
   formatRule37StatutoryDeduction,
+  RULE37_METHODOLOGY_CAPTION,
+  rule37CoverageRatio,
   type Rule37SummaryResponse,
   type Rule37SummaryStats,
 } from "@/lib/rule37Summary";
@@ -33,9 +34,11 @@ const EMPTY_ACTIONS =
 
 function coverageTone(summary: Rule37SummaryStats): "ok" | "warn" | "neutral" {
   if (!summary.coverage_available) return "neutral";
-  const unknown = summary.payment_status_unknown_count ?? 0;
   const pending = summary.pending_verification_count ?? 0;
-  if (unknown > 0 || pending > 0) return "warn";
+  if (pending > 0) return "warn";
+  const ratio = rule37CoverageRatio(summary);
+  if (ratio == null) return "neutral";
+  if (ratio < 0.8) return "warn";
   return "ok";
 }
 
@@ -95,10 +98,7 @@ export function Rule37SummarySection({
     summary.pending_verification_exposure ?? 0;
   const coverageLine = formatRule37CoverageLine(summary);
   const tone = coverageTone(summary);
-  const showVerificationCard =
-    pendingVerificationCount > 0 ||
-    (summary.coverage_available &&
-      (summary.payment_status_unknown_count ?? 0) > 0);
+  const showVerificationCard = pendingVerificationCount > 0;
 
   return (
     <div className="mb-6 space-y-6">
@@ -164,16 +164,19 @@ export function Rule37SummarySection({
       </div>
 
       {showVerificationCard ? (
-        <div className="rounded-xl border border-amber-200 bg-[#FFFCFA] px-4 py-4">
+        <div
+          className="rounded-xl border border-dashed border-amber-300 bg-[#FFFCFA] px-4 py-4"
+          role="status"
+        >
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
+            <div className="min-w-0 max-w-xl">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">
-                Payment status unverified (past 180 days)
+                Payment status unknown — verify manually
               </p>
               <p className="mt-1 text-[13px] text-gray-600">
-                Not included in confirmed at-risk. Verify supplier payment or
-                upload payment dates before treating{" "}
-                {formatINR(summary.total_itc_at_risk)} as complete.
+                {pendingVerificationCount} invoice
+                {pendingVerificationCount === 1 ? "" : "s"} past 180 days with
+                blank payment status. Not included in confirmed at-risk above.
               </p>
             </div>
             <div className="shrink-0 text-right">
@@ -191,23 +194,18 @@ export function Rule37SummarySection({
                   </span>{" "}
                   additional exposure
                 </p>
-              ) : summary.coverage_available &&
-                (summary.payment_status_unknown_count ?? 0) > 0 ? (
-                <p className="mt-1 text-[13px] text-amber-800">
-                  {summary.payment_status_unknown_count} claimed invoice
-                  {(summary.payment_status_unknown_count ?? 0) === 1
-                    ? ""
-                    : "s"}{" "}
-                  still lack payment status
-                  {pendingVerificationCount === 0
-                    ? " (within 180 days or not yet flagged)"
-                    : ""}
-                </p>
               ) : null}
             </div>
           </div>
         </div>
       ) : null}
+
+      <p
+        className="text-[11px] leading-snug text-gray-400"
+        title={RULE37_METHODOLOGY_CAPTION}
+      >
+        {RULE37_METHODOLOGY_CAPTION}
+      </p>
 
       <div>
         <h3 className="mb-3 text-[13px] font-semibold uppercase tracking-wider text-gray-500">

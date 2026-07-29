@@ -119,12 +119,22 @@ export function formatRule37CoverageLine(summary: Rule37SummaryStats): string | 
   const known = summary.payment_status_known_count ?? 0;
   const claimed = summary.claimed_invoice_count ?? 0;
   if (claimed <= 0) return "No ITC-claimed matched invoices in this period.";
-  return `Payment status known for ${known} of ${claimed} claimed invoices`;
+  return `Payment status known for ${known} of ${claimed} ITC-claimed invoices`;
+}
+
+/** Share of claimed invoices with explicit payment_status and/or payment_date. */
+export function rule37CoverageRatio(
+  summary: Rule37SummaryStats | null | undefined
+): number | null {
+  if (!summary?.coverage_available) return null;
+  const claimed = summary.claimed_invoice_count ?? 0;
+  if (claimed <= 0) return null;
+  return (summary.payment_status_known_count ?? 0) / claimed;
 }
 
 /**
  * Empty-state copy when the at-risk list is empty — distinguishes verified-clean
- * from "never had payment data."
+ * from "never had payment data." High coverage = ≥80% known.
  */
 export function formatRule37EmptyStateMessage(
   summary: Rule37SummaryStats | null | undefined
@@ -136,18 +146,32 @@ export function formatRule37EmptyStateMessage(
   const unknown = summary.payment_status_unknown_count ?? 0;
   const claimed = summary.claimed_invoice_count ?? 0;
   const coverageOk = Boolean(summary.coverage_available);
+  const ratio = rule37CoverageRatio(summary);
+  const highCoverage = ratio != null && ratio >= 0.8;
 
-  if (pendingCount > 0 || (coverageOk && unknown > 0)) {
+  if (pendingCount > 0 || (coverageOk && unknown > 0 && !highCoverage)) {
     const n = pendingCount > 0 ? pendingCount : unknown;
     return (
-      `No confirmed Rule 37 at-risk invoices, but payment status is unknown ` +
-      `for ${n} invoice${n === 1 ? "" : "s"} — verify manually or upload payment dates.`
+      `0 flagged, but payment status is unknown for ${n} invoice${n === 1 ? "" : "s"} ` +
+      `— upload payment dates or verify manually to check Rule 37 exposure.`
     );
   }
-  if (coverageOk && claimed > 0 && unknown === 0) {
+  if (coverageOk && claimed > 0 && highCoverage) {
+    if (unknown === 0) {
+      return (
+        `No Rule 37 warnings — payment status confirmed for all ` +
+        `${claimed} claimed invoice${claimed === 1 ? "" : "s"}.`
+      );
+    }
     return (
-      `No Rule 37 warnings for this period — payment status confirmed for all ` +
-      `${claimed} claimed invoice${claimed === 1 ? "" : "s"}.`
+      `No Rule 37 warnings — payment status confirmed for most claimed invoices ` +
+      `(${summary.payment_status_known_count ?? 0} of ${claimed}).`
+    );
+  }
+  if (coverageOk && claimed > 0 && unknown > 0) {
+    return (
+      `0 flagged, but payment status is unknown for ${unknown} invoice${unknown === 1 ? "" : "s"} ` +
+      `— upload payment dates or verify manually to check Rule 37 exposure.`
     );
   }
   if (coverageOk && claimed === 0) {
@@ -155,6 +179,10 @@ export function formatRule37EmptyStateMessage(
   }
   return "No confirmed Rule 37 at-risk invoices for this period.";
 }
+
+/** Caption under Rule 37 summary — clock start + interest lower bound. */
+export const RULE37_METHODOLOGY_CAPTION =
+  "180-day clock starts from invoice date (not ITC availment). Interest shown is a lower-bound estimate from the 180-day due date.";
 
 /** Short sublabel under the section header ₹0 badge. */
 export function formatRule37HeaderCoverageSublabel(

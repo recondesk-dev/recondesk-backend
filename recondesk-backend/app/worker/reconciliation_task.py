@@ -1075,7 +1075,15 @@ def execute_reconciliation(run_id: str) -> None:
             else:
                 status_str = None  # BUG 2 FIX: blank/None → do NOT default to "unpaid"
 
-            if status_str:
+            # Known = explicit payment_status and/or payment_date on the PR.
+            # Status still gates Rule 37 routing; payment_date alone counts as
+            # coverage signal so CAs see that some payment evidence existed.
+            pay_date_raw = raw.get("payment_date")
+            has_payment_date = False
+            if pay_date_raw is not None and str(pay_date_raw).strip():
+                has_payment_date = True
+
+            if status_str or has_payment_date:
                 rule37_payment_status_known_count += 1
             else:
                 rule37_payment_status_unknown_count += 1
@@ -1097,7 +1105,7 @@ def execute_reconciliation(run_id: str) -> None:
                     # Pass None through so check_rule_37_compliance routes it to
                     # PENDING_VERIFICATION instead of treating it as "unpaid".
                     "payment_status": status_str,
-                    "payment_date": raw.get("payment_date"),
+                    "payment_date": pay_date_raw,
                     # itc_claimed=True here because we already filtered above;
                     # passing explicitly so the gate inside the tracker is a no-op.
                     "itc_claimed": True,
