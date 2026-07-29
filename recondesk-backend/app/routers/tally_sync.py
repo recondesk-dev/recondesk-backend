@@ -11,12 +11,13 @@ POST /outstanding accepts:
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Security, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -39,6 +40,12 @@ _CONFIG_EXAMPLE_PATH = (
     Path(__file__).resolve().parents[2]
     / "tally_bridge"
     / "tally_bridge.config.example.json"
+)
+_EXE_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "tally_bridge"
+    / "dist"
+    / "ReconDeskTallyBridge.exe"
 )
 
 
@@ -255,6 +262,32 @@ async def tally_bridge_download_agent(
         path=str(_AGENT_PATH),
         filename="tally_bridge_agent.py",
         media_type="text/x-python",
+    )
+
+
+@router.get("/agent-exe")
+async def tally_bridge_download_agent_exe(
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Download the Windows one-file agent (.exe), or redirect to published URL."""
+    _ = current_user
+    if _EXE_PATH.is_file():
+        return FileResponse(
+            path=str(_EXE_PATH),
+            filename="ReconDeskTallyBridge.exe",
+            media_type="application/octet-stream",
+        )
+    redirect_url = (os.environ.get("TALLY_BRIDGE_EXE_URL") or "").strip()
+    if redirect_url:
+        return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=(
+            "Windows agent not published yet. "
+            "Build via GitHub Actions (build-tally-bridge) and place "
+            "ReconDeskTallyBridge.exe under tally_bridge/dist/, "
+            "or set TALLY_BRIDGE_EXE_URL to a Release/CDN URL."
+        ),
     )
 
 

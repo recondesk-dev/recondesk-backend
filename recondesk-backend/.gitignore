@@ -10,6 +10,14 @@ build/
 .eggs/
 *.whl
 
+# Keep empty Tally Bridge dist placeholder (exe itself stays ignored)
+!tally_bridge/dist/
+!tally_bridge/dist/.gitkeep
+tally_bridge/dist/*
+!tally_bridge/dist/.gitkeep
+tally_bridge/build/
+
+
 # Virtual environments
 .venv/
 venv/

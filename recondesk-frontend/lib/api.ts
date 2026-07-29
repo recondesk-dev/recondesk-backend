@@ -1541,6 +1541,7 @@ export const tallyBridgeApi = {
     }),
 
   agentDownloadUrl: () => `${API_URL}/api/tally-sync/agent`,
+  agentExeDownloadUrl: () => `${API_URL}/api/tally-sync/agent-exe`,
   configExampleDownloadUrl: () =>
     `${API_URL}/api/tally-sync/agent-config-example`,
 };

@@ -8,11 +8,16 @@ Exports:
 Pushes both to ReconDesk. Auto-settle happens only from Payment Agst Ref lines
 when party-name confidence clears the server-side gate.
 
-Usage:
-  python tally_bridge_agent.py --config tally_bridge.config.json
+Usage (Windows .exe — preferred for CAs):
+  ReconDeskTallyBridge.exe --config tally_bridge.config.json --test
+  ReconDeskTallyBridge.exe --config tally_bridge.config.json --once
+  ReconDeskTallyBridge.exe --config tally_bridge.config.json
+
+Usage (Python):
   python tally_bridge_agent.py --config tally_bridge.config.json --test
   python tally_bridge_agent.py --config tally_bridge.config.json --once
 
+When frozen (PyInstaller), default config and out-dir resolve next to the .exe.
 Test mode fetches both exports, parses row counts, and saves XML/JSON —
 nothing is pushed. Zero-row exports are logged as warnings.
 """
@@ -54,6 +59,18 @@ _PAYMENT_VOUCHER_ALIASES = {
     "bank payment",
     "cash payment",
 }
+
+
+def _is_frozen() -> bool:
+    """True when running as a PyInstaller (or similar) bundled executable."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def _app_dir() -> Path:
+    """Directory containing the .exe (frozen) or this script (dev)."""
+    if _is_frozen():
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
 
 
 def _setup_logging(log_path: Path) -> logging.Logger:
@@ -648,11 +665,18 @@ def run_once(
 
 
 def main(argv: list[str] | None = None) -> int:
+    app_dir = _app_dir()
+    default_config = str(app_dir / "tally_bridge.config.json")
+    default_out = str(app_dir)
+
     parser = argparse.ArgumentParser(description="ReconDesk Tally Bridge local agent")
     parser.add_argument(
         "--config",
-        default="tally_bridge.config.json",
-        help="Path to JSON config (default: tally_bridge.config.json)",
+        default=default_config,
+        help=(
+            "Path to JSON config "
+            f"(default: {default_config} — next to the .exe when frozen)"
+        ),
     )
     parser.add_argument(
         "--test",
@@ -666,8 +690,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--out-dir",
-        default=".",
-        help="Directory for logs and saved XML/JSON (default: cwd)",
+        default=default_out,
+        help=(
+            "Directory for logs and saved XML/JSON "
+            f"(default: {default_out} — next to the .exe when frozen)"
+        ),
     )
     args = parser.parse_args(argv)
 

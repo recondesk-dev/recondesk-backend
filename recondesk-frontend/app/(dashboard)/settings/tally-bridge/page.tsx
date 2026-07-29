@@ -34,7 +34,29 @@ function formatSyncedAgo(iso: string | null | undefined): string {
 async function downloadAuthed(url: string, token: string, filename: string) {
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
+    redirect: "manual",
   });
+  // Published exe may be a Release/CDN URL — follow outside the blob path.
+  if (
+    res.status === 301 ||
+    res.status === 302 ||
+    res.status === 303 ||
+    res.status === 307 ||
+    res.status === 308
+  ) {
+    const loc = res.headers.get("Location");
+    if (!loc) {
+      throw new Error("Download redirect missing Location header");
+    }
+    const a = document.createElement("a");
+    a.href = loc;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return;
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(text || `Download failed (${res.status})`);
@@ -68,9 +90,9 @@ export default function TallyBridgeSetupPage() {
   const [creating, setCreating] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [downloading, setDownloading] = useState<"agent" | "config" | null>(
-    null
-  );
+  const [downloading, setDownloading] = useState<
+    "exe" | "agent" | "config" | null
+  >(null);
 
   const lastSyncedLabel = useMemo(
     () => formatSyncedAgo(status?.last_synced_at),
@@ -108,11 +130,17 @@ export default function TallyBridgeSetupPage() {
   }, [newKey, toast]);
 
   const download = useCallback(
-    async (kind: "agent" | "config") => {
+    async (kind: "exe" | "agent" | "config") => {
       if (!authToken) return;
       setDownloading(kind);
       try {
-        if (kind === "agent") {
+        if (kind === "exe") {
+          await downloadAuthed(
+            tallyBridgeApi.agentExeDownloadUrl(),
+            authToken,
+            "ReconDeskTallyBridge.exe"
+          );
+        } else if (kind === "agent") {
           await downloadAuthed(
             tallyBridgeApi.agentDownloadUrl(),
             authToken,
@@ -255,9 +283,13 @@ export default function TallyBridgeSetupPage() {
             </h2>
             <p className="text-sm text-gray-500">
               Run on the CA machine with Tally open and XML server enabled
-              (F1 → Settings → Connectivity). The agent exports Bills Payable
-              (unpaid check only — never settle) and Day Book Payment vouchers
-              (settle evidence). Start with{" "}
+              (F1 → Settings → Connectivity). Download the Windows{" "}
+              <code className="text-[12px]">.exe</code> — no Python install
+              needed. Place{" "}
+              <code className="text-[12px]">tally_bridge.config.json</code> next
+              to the executable. The agent exports Bills Payable (unpaid check
+              only — never settle) and Day Book Payment vouchers (settle
+              evidence). Start with{" "}
               <code className="text-[12px]">--test</code> to validate both
               exports: it prints per-export row counts and warns if either is
               zero. TDS is not auto-detected; GSTIN is not used for matching
@@ -266,16 +298,16 @@ export default function TallyBridgeSetupPage() {
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
-                onClick={() => download("agent")}
+                onClick={() => download("exe")}
                 disabled={!authToken || downloading !== null}
                 className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               >
-                {downloading === "agent" ? (
+                {downloading === "exe" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Download className="h-4 w-4" />
                 )}
-                Download agent script
+                Download Windows agent (.exe)
               </button>
               <button
                 type="button"
@@ -290,9 +322,22 @@ export default function TallyBridgeSetupPage() {
                 )}
                 Config example
               </button>
+              <button
+                type="button"
+                onClick={() => download("agent")}
+                disabled={!authToken || downloading !== null}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-[#F3F4F6] px-5 text-sm font-semibold text-[var(--ink)] transition hover:bg-gray-200/70 disabled:opacity-50"
+              >
+                {downloading === "agent" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                Python script (advanced)
+              </button>
             </div>
             <pre className="overflow-x-auto rounded-xl bg-[#0F1117] px-4 py-3 text-[12px] leading-relaxed text-gray-200">
-{`python tally_bridge_agent.py --config tally_bridge.config.json --test`}
+{`ReconDeskTallyBridge.exe --config tally_bridge.config.json --test`}
             </pre>
           </section>
         </>

@@ -1,0 +1,53 @@
+name: Build Tally Bridge Windows exe
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["tally-bridge-v*"]
+  pull_request:
+    paths:
+      - "recondesk-backend/tally_bridge/**"
+      - ".github/workflows/build-tally-bridge.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: recondesk-backend/tally_bridge
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build exe
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File .\build.ps1
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReconDeskTallyBridge-windows
+          path: recondesk-backend/tally_bridge/dist/ReconDeskTallyBridge.exe
+          if-no-files-found: error
+
+      - name: Publish GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/tally-bridge-v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: ${{ github.workspace }}
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $exe = "recondesk-backend/tally_bridge/dist/ReconDeskTallyBridge.exe"
+          gh release create $tag $exe `
+            --title "Tally Bridge $tag" `
+            --notes "Windows one-file agent. Place tally_bridge.config.json next to the .exe. Run: ReconDeskTallyBridge.exe --config tally_bridge.config.json --test" `
+            --verify-tag
