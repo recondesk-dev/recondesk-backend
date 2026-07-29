@@ -299,13 +299,12 @@ def parse_outstanding_records(xml_text: str) -> list[dict[str, Any]]:
         if not bill_ref:
             continue
 
-        child_bill_refs = [
+        child_bill_containers = [
             c
             for c in list(el)
             if _local(c.tag).upper() in bill_tags
-            or _find_text(c, ("BILLNAME", "NAME", "BILLREF"))
         ]
-        if child_bill_refs and tag.endswith(".LIST"):
+        if child_bill_containers and tag.endswith(".LIST"):
             continue
 
         amount = None
