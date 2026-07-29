@@ -99,21 +99,24 @@ export function Rule37SummarySection({
   const coverageLine = formatRule37CoverageLine(summary);
   const tone = coverageTone(summary);
   const showVerificationCard = pendingVerificationCount > 0;
+  const coverageUnavailable = summary.coverage_available === false;
 
   return (
     <div className="mb-6 space-y-6">
       {coverageLine ? (
         <p
           className={`rounded-lg border px-3 py-2 text-[13px] ${
-            tone === "warn"
-              ? "border-amber-200 bg-amber-50 text-amber-900"
-              : tone === "ok"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                : "border-gray-200 bg-gray-50 text-gray-700"
+            coverageUnavailable
+              ? "border-gray-200 bg-gray-50 text-gray-700"
+              : tone === "warn"
+                ? "border-amber-200 bg-amber-50 text-amber-900"
+                : tone === "ok"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  : "border-gray-200 bg-gray-50 text-gray-700"
           }`}
         >
           {coverageLine}
-          {tone === "warn"
+          {!coverageUnavailable && tone === "warn"
             ? " — treat confirmed at-risk as a lower bound until payment dates are verified."
             : null}
         </p>

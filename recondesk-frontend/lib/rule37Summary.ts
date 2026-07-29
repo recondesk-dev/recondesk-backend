@@ -115,7 +115,9 @@ export function formatRule37PaymentPdfLine(row: Rule37ActionHistoryRow): string 
 
 /** Coverage line for the Rule 37 summary card / section header. */
 export function formatRule37CoverageLine(summary: Rule37SummaryStats): string | null {
-  if (!summary.coverage_available) return null;
+  if (!summary.coverage_available) {
+    return "Payment-status coverage not recorded for this run — re-reconcile to verify.";
+  }
   const known = summary.payment_status_known_count ?? 0;
   const claimed = summary.claimed_invoice_count ?? 0;
   if (claimed <= 0) return "No ITC-claimed matched invoices in this period.";
@@ -149,14 +151,29 @@ export function formatRule37EmptyStateMessage(
   const ratio = rule37CoverageRatio(summary);
   const highCoverage = ratio != null && ratio >= 0.8;
 
-  if (pendingCount > 0 || (coverageOk && unknown > 0 && !highCoverage)) {
+  // Legacy runs: do not imply "0 unknown" or "verified clean."
+  if (!coverageOk) {
+    if (pendingCount > 0) {
+      return (
+        `0 confirmed at-risk flags, but ${pendingCount} invoice${pendingCount === 1 ? "" : "s"} ` +
+        `past 180 days still need payment verification. Coverage metrics were not recorded ` +
+        `for this run — re-reconcile after uploading payment dates.`
+      );
+    }
+    return (
+      "No confirmed Rule 37 at-risk invoices. Payment-status coverage was not recorded " +
+      "for this run — re-reconcile to distinguish verified-clean from unchecked."
+    );
+  }
+
+  if (pendingCount > 0 || (unknown > 0 && !highCoverage)) {
     const n = pendingCount > 0 ? pendingCount : unknown;
     return (
       `0 flagged, but payment status is unknown for ${n} invoice${n === 1 ? "" : "s"} ` +
       `— upload payment dates or verify manually to check Rule 37 exposure.`
     );
   }
-  if (coverageOk && claimed > 0 && highCoverage) {
+  if (claimed > 0 && highCoverage) {
     if (unknown === 0) {
       return (
         `No Rule 37 warnings — payment status confirmed for all ` +
@@ -168,13 +185,13 @@ export function formatRule37EmptyStateMessage(
       `(${summary.payment_status_known_count ?? 0} of ${claimed}).`
     );
   }
-  if (coverageOk && claimed > 0 && unknown > 0) {
+  if (claimed > 0 && unknown > 0) {
     return (
       `0 flagged, but payment status is unknown for ${unknown} invoice${unknown === 1 ? "" : "s"} ` +
       `— upload payment dates or verify manually to check Rule 37 exposure.`
     );
   }
-  if (coverageOk && claimed === 0) {
+  if (claimed === 0) {
     return "No ITC-claimed matched invoices subject to Rule 37 in this period.";
   }
   return "No confirmed Rule 37 at-risk invoices for this period.";
@@ -189,6 +206,9 @@ export function formatRule37HeaderCoverageSublabel(
   summary: Rule37SummaryStats | null | undefined
 ): string | undefined {
   if (!summary) return undefined;
+  if (!summary.coverage_available) {
+    return "Coverage not recorded — re-reconcile to verify";
+  }
   const line = formatRule37CoverageLine(summary);
   if (line) return line;
   const pending = summary.pending_verification_count ?? 0;
