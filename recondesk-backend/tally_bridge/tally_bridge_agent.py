@@ -39,11 +39,13 @@ from typing import Any
 DEFAULT_CONFIG = {
     "api_key": "",
     "recondesk_endpoint": "https://api.recondesk.in/api/tally-sync/outstanding",
+    "pr_sync_endpoint": "https://api.recondesk.in/api/tally-sync/purchase-register",
     "tally_host": "localhost",
     "tally_port": 9000,
     "sync_interval_minutes": 60,
     "lookback_days": 200,
     "company_name": "",
+    "client_gstin_id": "",
 }
 
 TALLY_UNREACHABLE_MSG = (
@@ -166,6 +168,36 @@ def build_daybook_payments_xml(
   <EXPORTDATA>
    <REQUESTDESC>
     <REPORTNAME>Day Book</REPORTNAME>
+    <STATICVARIABLES>
+     <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+     <SVFROMDATE>{from_date}</SVFROMDATE>
+     <SVTODATE>{to_date}</SVTODATE>
+     {company_xml}    </STATICVARIABLES>
+   </REQUESTDESC>
+  </EXPORTDATA>
+ </BODY>
+</ENVELOPE>
+"""
+
+
+def build_purchase_register_xml(
+    company_name: str,
+    from_date: str,
+    to_date: str,
+) -> str:
+    """Purchase Register for the period. Dates must be YYYYMMDD (Tally native).
+    Mirrors build_bills_payable_xml's structure, adding the date-range
+    STATICVARIABLES the same way build_daybook_payments_xml does."""
+    company_xml = _company_static_xml(company_name)
+    return f"""<?xml version="1.0"?>
+<ENVELOPE>
+ <HEADER>
+  <TALLYREQUEST>Export Data</TALLYREQUEST>
+ </HEADER>
+ <BODY>
+  <EXPORTDATA>
+   <REQUESTDESC>
+    <REPORTNAME>Purchase Register</REPORTNAME>
     <STATICVARIABLES>
      <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
      <SVFROMDATE>{from_date}</SVFROMDATE>
@@ -474,6 +506,94 @@ def parse_payment_records(xml_text: str) -> list[dict[str, Any]]:
     return records
 
 
+def parse_purchase_register_records(xml_text: str) -> list:
+    """Parse Purchase Register XML into rows keyed by the native Tally
+    header strings TALLY_PURCHASE_ALIASES already recognizes server-side
+    (GSTIN/UIN, Party's A/c Name, Inv No., etc.). Uses the same
+    namespace-agnostic helpers already defined in this file (_local,
+    _text, _find_text, _find_direct_text, _parse_amount, _normalize_date).
+
+    UNVERIFIED until tested live: whether this report's XML structures
+    vouchers the same way Day Book/Bills Payable do (<VOUCHER> elements
+    with <ALLLEDGERENTRIES.LIST>/<LEDGERENTRIES.LIST> children), and
+    whether party GSTIN appears under PARTYGSTIN, GSTIN, or
+    GSTREGISTRATIONNUMBER. Run with --test first and inspect the raw
+    saved XML before trusting these tag names."""
+    root = _parse_root(xml_text)
+    records = []
+    seen = set()
+
+    for voucher in root.iter():
+        if _local(voucher.tag).upper() != "VOUCHER":
+            continue
+
+        voucher_date = _normalize_date(
+            _find_direct_text(voucher, ("DATE", "VOUCHERDATE"))
+            or _find_text(voucher, ("DATE", "VOUCHERDATE"))
+        )
+        voucher_number = (
+            _find_direct_text(voucher, ("VOUCHERNUMBER", "NUMBER"))
+            or _find_text(voucher, ("VOUCHERNUMBER", "NUMBER"))
+        )
+        party = (
+            _find_direct_text(voucher, ("PARTYLEDGERNAME", "PARTYNAME", "LEDGERNAME"))
+            or _find_text(voucher, ("PARTYLEDGERNAME", "PARTYNAME", "LEDGERNAME"))
+        )
+        party_gstin = (
+            _find_direct_text(voucher, ("PARTYGSTIN", "GSTIN", "GSTREGISTRATIONNUMBER"))
+            or _find_text(voucher, ("PARTYGSTIN", "GSTIN", "GSTREGISTRATIONNUMBER"))
+        )
+
+        taxable_amt = 0.0
+        cgst_amt = 0.0
+        sgst_amt = 0.0
+        igst_amt = 0.0
+
+        for entry in voucher.iter():
+            etag = _local(entry.tag).upper()
+            if etag not in {"ALLLEDGERENTRIES.LIST", "LEDGERENTRIES.LIST", "LEDGERENTRY"}:
+                continue
+            ledger_name = (
+                _find_direct_text(entry, ("LEDGERNAME",))
+                or _find_text(entry, ("LEDGERNAME",))
+            )
+            amount = _parse_amount(
+                _find_direct_text(entry, ("AMOUNT",)) or _find_text(entry, ("AMOUNT",))
+            )
+            if amount is None:
+                continue
+            name_upper = (ledger_name or "").upper()
+            if "CGST" in name_upper:
+                cgst_amt += abs(amount)
+            elif "SGST" in name_upper or "UTGST" in name_upper:
+                sgst_amt += abs(amount)
+            elif "IGST" in name_upper:
+                igst_amt += abs(amount)
+            elif ledger_name and ledger_name != party:
+                taxable_amt += abs(amount)
+
+        gross_total = taxable_amt + cgst_amt + sgst_amt + igst_amt
+
+        rec = {
+            "GSTIN/UIN": party_gstin or "",
+            "Party's A/c Name": party or "",
+            "Inv No.": voucher_number or "",
+            "Inv Date": voucher_date or "",
+            "Taxable Amt": f"{taxable_amt:.2f}",
+            "IGST Amt": f"{igst_amt:.2f}",
+            "CGST Amt": f"{cgst_amt:.2f}",
+            "SGST Amt": f"{sgst_amt:.2f}",
+            "Gross Total": f"{gross_total:.2f}",
+        }
+        key = (rec["Inv No."], rec["GSTIN/UIN"])
+        if key in seen:
+            continue
+        seen.add(key)
+        records.append(rec)
+
+    return records
+
+
 def push_sync_payload(
     endpoint: str,
     api_key: str,
@@ -507,10 +627,58 @@ def push_sync_payload(
         return {"raw": body}
 
 
+def push_purchase_register_payload(
+    endpoint: str,
+    api_key: str,
+    client_gstin_id: str,
+    period: str,  # "YYYY-MM"
+    company_name: str,
+    rows: list,
+    timeout: float = 60.0,
+) -> dict:
+    payload = json.dumps(
+        {
+            "client_gstin_id": client_gstin_id,
+            "period": period,
+            "company_name": company_name,
+            "rows": rows,
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        endpoint,
+        data=payload,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        body = resp.read().decode("utf-8", errors="replace")
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        return {"raw": body}
+
+
 def _lookback_window(lookback_days: int) -> tuple[str, str]:
     to_dt = datetime.now().date()
     from_dt = to_dt - timedelta(days=max(1, int(lookback_days)))
     return from_dt.strftime("%Y%m%d"), to_dt.strftime("%Y%m%d")
+
+
+def _group_purchase_rows_by_period(rows: list) -> dict:
+    """Groups rows by 'YYYY-MM' derived from each row's 'Inv Date'
+    (already normalized to YYYY-MM-DD by parse_purchase_register_records).
+    Rows with missing/unparseable dates are dropped into a "" bucket and
+    logged as a warning by the caller — they can't be attached to a
+    period-scoped run."""
+    grouped: dict = {}
+    for row in rows:
+        inv_date = row.get("Inv Date") or ""
+        period = inv_date[:7] if len(inv_date) >= 7 else ""
+        grouped.setdefault(period, []).append(row)
+    return grouped
 
 
 def run_once(
@@ -557,19 +725,41 @@ def run_once(
         logger.error("%s", exc)
         return 2
 
+    logger.info(
+        "Fetching Purchase Register %s\u2192%s (lookback_days=%s)",
+        from_ymd,
+        to_ymd,
+        lookback,
+    )
+    try:
+        purchase_register_xml = fetch_tally_xml(
+            host,
+            port,
+            build_purchase_register_xml(company, from_ymd, to_ymd),
+            timeout=120.0,
+        )
+    except ConnectionError as exc:
+        logger.error("%s", exc)
+        return 2
+
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     outstanding_path = out_dir / f"tally_bills_payable_{stamp}.xml"
     payments_path = out_dir / f"tally_daybook_payments_{stamp}.xml"
+    purchase_register_path = out_dir / f"tally_purchase_register_{stamp}.xml"
     outstanding_path.write_text(outstanding_xml, encoding="utf-8")
     payments_path.write_text(payments_xml, encoding="utf-8")
+    purchase_register_path.write_text(purchase_register_xml, encoding="utf-8")
     outstanding_bytes = len(outstanding_xml.encode("utf-8"))
     payments_bytes = len(payments_xml.encode("utf-8"))
+    purchase_register_bytes = len(purchase_register_xml.encode("utf-8"))
     logger.info(
-        "Saved raw XML → %s (%d bytes), %s (%d bytes)",
+        "Saved raw XML \u2192 %s (%d bytes), %s (%d bytes), %s (%d bytes)",
         outstanding_path,
         outstanding_bytes,
         payments_path,
         payments_bytes,
+        purchase_register_path,
+        purchase_register_bytes,
     )
 
     try:
@@ -578,6 +768,21 @@ def run_once(
     except ET.ParseError as exc:
         logger.error("Failed to parse Tally XML: %s", exc)
         return 3
+
+    purchase_rows = parse_purchase_register_records(purchase_register_xml)
+    purchase_by_period = _group_purchase_rows_by_period(purchase_rows)
+
+    unattached = purchase_by_period.pop("", [])
+    if unattached:
+        logger.warning(
+            "%d purchase row(s) had no parseable Inv Date \u2014 skipped, not pushed",
+            len(unattached),
+        )
+
+    logger.info(
+        "Purchase Register \u2192 %d row(s) across %d period(s): %s",
+        len(purchase_rows), len(purchase_by_period), sorted(purchase_by_period.keys()),
+    )
 
     outstanding_n = len(outstanding)
     payments_n = len(payments)
@@ -608,6 +813,8 @@ def run_once(
         logger.warning("Bills Payable raw XML is empty (0 bytes)")
     if payments_bytes == 0:
         logger.warning("Day Book payments raw XML is empty (0 bytes)")
+    if purchase_register_bytes == 0:
+        logger.warning("Purchase Register raw XML is empty (0 bytes)")
 
     parsed_path = out_dir / f"tally_bridge_{stamp}.json"
     parsed_path.write_text(
@@ -635,6 +842,8 @@ def run_once(
         print(outstanding_xml[:2000] or "(empty)")
         print("--- Day Book payments XML preview (first 2k) ---")
         print(payments_xml[:2000] or "(empty)")
+        print(f"Purchase Register:  {len(purchase_rows)} row(s) across "
+              f"{len(purchase_by_period)} period(s)  {sorted(purchase_by_period.keys())}")
         return 0
 
     if not cfg["api_key"]:
@@ -661,6 +870,30 @@ def run_once(
         return 5
 
     logger.info("Push OK: %s", result)
+
+    if not cfg.get("client_gstin_id"):
+        logger.warning("client_gstin_id not set in config \u2014 skipping purchase register push")
+    elif not cfg.get("pr_sync_endpoint"):
+        logger.warning("pr_sync_endpoint not set in config \u2014 skipping purchase register push")
+    else:
+        for period, period_rows in purchase_by_period.items():
+            try:
+                pr_result = push_purchase_register_payload(
+                    cfg["pr_sync_endpoint"],
+                    cfg["api_key"],
+                    cfg["client_gstin_id"],
+                    period,
+                    company,
+                    period_rows,
+                )
+                logger.info("Purchase register push OK for %s: %s", period, pr_result)
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+                logger.error("Purchase register push failed for %s HTTP %s: %s",
+                             period, exc.code, detail or exc.reason)
+            except urllib.error.URLError as exc:
+                logger.error("Purchase register push failed for %s: %s", period, exc)
+
     return 0
 
 

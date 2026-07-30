@@ -16,6 +16,10 @@ build/
 tally_bridge/dist/*
 !tally_bridge/dist/.gitkeep
 tally_bridge/build/
+# Real agent config contains live API key — never commit it
+# (tally_bridge.config.example.json is the safe template; it IS committed)
+tally_bridge/tally_bridge.config.json
+
 
 
 # Virtual environments
