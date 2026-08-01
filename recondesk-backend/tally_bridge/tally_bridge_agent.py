@@ -536,24 +536,22 @@ def parse_payment_records(xml_text: str) -> list[dict[str, Any]]:
 
 
 def parse_purchase_register_records(xml_text: str) -> list:
-    """Parse Purchase Register XML into rows keyed by the native Tally
-    header strings TALLY_PURCHASE_ALIASES already recognizes server-side
-    (GSTIN/UIN, Party's A/c Name, Inv No., etc.). Uses the same
-    namespace-agnostic helpers already defined in this file (_local,
-    _text, _find_text, _find_direct_text, _parse_amount, _normalize_date).
+    """Parse Day Book XML into Purchase Register rows.
 
-    UNVERIFIED until tested live: whether this report's XML structures
-    vouchers the same way Day Book/Bills Payable do (<VOUCHER> elements
-    with <ALLLEDGERENTRIES.LIST>/<LEDGERENTRIES.LIST> children), and
-    whether party GSTIN appears under PARTYGSTIN, GSTIN, or
-    GSTREGISTRATIONNUMBER. Run with --test first and inspect the raw
-    saved XML before trusting these tag names."""
+    Source is the same Day Book fetch used by parse_payment_records() —
+    the dedicated "Purchase Register" report returns monthly summary
+    totals, not itemized vouchers, so it is the wrong source.
+
+    Vouchers with ACTION="Cancel" are skipped (deleted/superseded entries).
+    """
     root = _parse_root(xml_text)
     records = []
     seen = set()
 
     for voucher in root.iter():
         if _local(voucher.tag).upper() != "VOUCHER":
+            continue
+        if (voucher.attrib.get("ACTION") or "").strip().lower() == "cancel":
             continue
 
         voucher_date = _normalize_date(
@@ -754,41 +752,19 @@ def run_once(
         logger.error("%s", exc)
         return 2
 
-    logger.info(
-        "Fetching Purchase Register %s\u2192%s (lookback_days=%s)",
-        from_ymd,
-        to_ymd,
-        lookback,
-    )
-    try:
-        purchase_register_xml = fetch_tally_xml(
-            host,
-            port,
-            build_purchase_register_xml(company, from_ymd, to_ymd),
-            timeout=120.0,
-        )
-    except ConnectionError as exc:
-        logger.error("%s", exc)
-        return 2
-
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     outstanding_path = out_dir / f"tally_bills_payable_{stamp}.xml"
     payments_path = out_dir / f"tally_daybook_payments_{stamp}.xml"
-    purchase_register_path = out_dir / f"tally_purchase_register_{stamp}.xml"
     outstanding_path.write_text(outstanding_xml, encoding="utf-8")
     payments_path.write_text(payments_xml, encoding="utf-8")
-    purchase_register_path.write_text(purchase_register_xml, encoding="utf-8")
     outstanding_bytes = len(outstanding_xml.encode("utf-8"))
     payments_bytes = len(payments_xml.encode("utf-8"))
-    purchase_register_bytes = len(purchase_register_xml.encode("utf-8"))
     logger.info(
-        "Saved raw XML \u2192 %s (%d bytes), %s (%d bytes), %s (%d bytes)",
+        "Saved raw XML → %s (%d bytes), %s (%d bytes)",
         outstanding_path,
         outstanding_bytes,
         payments_path,
         payments_bytes,
-        purchase_register_path,
-        purchase_register_bytes,
     )
 
     try:
@@ -798,7 +774,7 @@ def run_once(
         logger.error("Failed to parse Tally XML: %s", exc)
         return 3
 
-    purchase_rows = parse_purchase_register_records(purchase_register_xml)
+    purchase_rows = parse_purchase_register_records(payments_xml)
     purchase_by_period = _group_purchase_rows_by_period(purchase_rows)
 
     unattached = purchase_by_period.pop("", [])
@@ -842,8 +818,6 @@ def run_once(
         logger.warning("Bills Payable raw XML is empty (0 bytes)")
     if payments_bytes == 0:
         logger.warning("Day Book payments raw XML is empty (0 bytes)")
-    if purchase_register_bytes == 0:
-        logger.warning("Purchase Register raw XML is empty (0 bytes)")
 
     parsed_path = out_dir / f"tally_bridge_{stamp}.json"
     parsed_path.write_text(
@@ -872,7 +846,7 @@ def run_once(
         print("--- Day Book payments XML preview (first 2k) ---")
         print(payments_xml[:2000] or "(empty)")
         print(f"Purchase Register:  {len(purchase_rows)} row(s) across "
-              f"{len(purchase_by_period)} period(s)  {sorted(purchase_by_period.keys())}")
+              f"{len(purchase_by_period)} period(s)  {sorted(purchase_by_period.keys())}  [from Day Book]")
         return 0
 
     if not cfg["api_key"]:
