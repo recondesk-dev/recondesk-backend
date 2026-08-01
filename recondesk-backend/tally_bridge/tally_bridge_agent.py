@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 import time
 import urllib.error
@@ -308,7 +309,35 @@ def _normalize_date(raw: str) -> str | None:
     return None
 
 
+# Matches numeric character references whose code-point is illegal in XML 1.0
+# (all C0 controls except tab/LF/CR, plus the surrogate range and a few others).
+_ILLEGAL_XML_CHARREF = re.compile(
+    r"&#(?:x[0-9A-Fa-f]+|[0-9]+);"
+    r"|[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]"
+    r"|\uFFFE|\uFFFF"
+)
+
+
+def _strip_illegal_xml_charrefs(text: str) -> str:
+    """Remove numeric character references and bare control characters that are
+    illegal in XML 1.0 and cause ET.ParseError before we even reach the tree.
+    Tally occasionally emits these (e.g. &#4; in narration fields).
+    """
+    def _replace(m: re.Match) -> str:  # type: ignore[type-arg]
+        raw = m.group(0)
+        if raw.startswith("&#"):
+            try:
+                cp = int(raw[3:-1], 16) if raw[2] == "x" else int(raw[2:-1])
+                return chr(cp) if 0x20 <= cp <= 0xD7FF or cp in (0x9, 0xA, 0xD) else ""
+            except ValueError:
+                return ""
+        return ""  # bare control character — strip it
+
+    return _ILLEGAL_XML_CHARREF.sub(_replace, text)
+
+
 def _parse_root(xml_text: str) -> ET.Element:
+    xml_text = _strip_illegal_xml_charrefs(xml_text)
     try:
         return ET.fromstring(xml_text)
     except ET.ParseError:
