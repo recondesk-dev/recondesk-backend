@@ -555,12 +555,14 @@ def parse_purchase_register_records(xml_text: str) -> list:
             continue
 
         voucher_date = _normalize_date(
-            _find_direct_text(voucher, ("DATE", "VOUCHERDATE"))
-            or _find_text(voucher, ("DATE", "VOUCHERDATE"))
+            _find_direct_text(voucher, ("REFERENCEDATE", "DATE", "VOUCHERDATE"))
+            or _find_text(voucher, ("REFERENCEDATE", "DATE", "VOUCHERDATE"))
         )
+        # REFERENCE = supplier invoice number entered during voucher entry.
+        # VOUCHERNUMBER is Tally's internal auto-serial — wrong field for GST matching.
         voucher_number = (
-            _find_direct_text(voucher, ("VOUCHERNUMBER", "NUMBER"))
-            or _find_text(voucher, ("VOUCHERNUMBER", "NUMBER"))
+            _find_direct_text(voucher, ("REFERENCE", "VOUCHERNUMBER", "NUMBER"))
+            or _find_text(voucher, ("REFERENCE", "VOUCHERNUMBER", "NUMBER"))
         )
         party = (
             _find_direct_text(voucher, ("PARTYLEDGERNAME", "PARTYNAME", "LEDGERNAME"))
