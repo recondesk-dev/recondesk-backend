@@ -789,6 +789,13 @@ def run_once(
         len(purchase_rows), len(purchase_by_period), sorted(purchase_by_period.keys()),
     )
 
+    pr_parsed_path = out_dir / f"tally_purchase_register_parsed_{stamp}.json"
+    pr_parsed_path.write_text(
+        json.dumps(purchase_by_period, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    logger.info("Saved purchase register rows \u2192 %s", pr_parsed_path)
+
     outstanding_n = len(outstanding)
     payments_n = len(payments)
     logger.info(
