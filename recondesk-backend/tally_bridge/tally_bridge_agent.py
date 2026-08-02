@@ -554,15 +554,22 @@ def parse_purchase_register_records(xml_text: str) -> list:
         if (voucher.attrib.get("ACTION") or "").strip().lower() == "cancel":
             continue
 
+        # _find_direct_text/_find_text scan in document order (they build a set
+        # from the names tuple, discarding priority). Use separate single-tag
+        # calls so each preferred field is exhausted before falling back.
         voucher_date = _normalize_date(
-            _find_direct_text(voucher, ("REFERENCEDATE", "DATE", "VOUCHERDATE"))
-            or _find_text(voucher, ("REFERENCEDATE", "DATE", "VOUCHERDATE"))
+            _find_direct_text(voucher, ("REFERENCEDATE",))
+            or _find_text(voucher, ("REFERENCEDATE",))
+            or _find_direct_text(voucher, ("DATE", "VOUCHERDATE"))
+            or _find_text(voucher, ("DATE", "VOUCHERDATE"))
         )
         # REFERENCE = supplier invoice number entered during voucher entry.
         # VOUCHERNUMBER is Tally's internal auto-serial — wrong field for GST matching.
         voucher_number = (
-            _find_direct_text(voucher, ("REFERENCE", "VOUCHERNUMBER", "NUMBER"))
-            or _find_text(voucher, ("REFERENCE", "VOUCHERNUMBER", "NUMBER"))
+            _find_direct_text(voucher, ("REFERENCE",))
+            or _find_text(voucher, ("REFERENCE",))
+            or _find_direct_text(voucher, ("VOUCHERNUMBER", "NUMBER"))
+            or _find_text(voucher, ("VOUCHERNUMBER", "NUMBER"))
         )
         party = (
             _find_direct_text(voucher, ("PARTYLEDGERNAME", "PARTYNAME", "LEDGERNAME"))
