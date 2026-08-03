@@ -1016,9 +1016,6 @@ def _process_pr_sheet_rows(
             if raw_tax is not None:
                 if taxable_amount_paise is None:
                     row_errors.append("invalid value")
-                else:
-                    original_taxable = taxable_amount_paise
-
         if not note_mode:
             row_errors.extend(
                 _invoice_type_consistency_errors(invoice_type, original_taxable)
@@ -1029,8 +1026,18 @@ def _process_pr_sheet_rows(
                 "missing invoice number" in row_errors
                 or "missing note number" in row_errors
             ):
+                # Truly unparseable: no GSTIN *and* no invoice reference.
                 skipped_rows += 1
                 _bump_skip("truly_unparseable_row")
+                continue
+            elif row_errors == ["missing GSTIN"]:
+                # Has an invoice number but no GSTIN (unregistered vendor,
+                # Tally EDU test data, etc.). Import with gstin=None — row
+                # will appear as unmatched in reconciliation, not dropped.
+                errors.append(
+                    f"{sheet_prefix}Row {row_number}: missing GSTIN (imported without GSTIN)"
+                )
+                # Fall through — do NOT skip this row.
             else:
                 errors.append(
                     f"{sheet_prefix}Row {row_number}: {', '.join(row_errors)}"
