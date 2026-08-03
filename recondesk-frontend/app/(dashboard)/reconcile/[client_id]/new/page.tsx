@@ -310,6 +310,17 @@ export default function NewReconcileWizardPage() {
   const [pollSlow, setPollSlow] = useState(false);
   const pollStartRef = useRef<number | null>(null);
 
+  /**
+   * True when server-side detect-columns returned high confidence on all
+   * required + tax fields with no low-confidence rows. Controls whether the
+   * post-upload mapping table collapses to a compact confirmed summary.
+   * This is a render-only flag — mappingLocal, requiredOk, taxOk, lowOk, and
+   * canGoToStep4 are completely unaffected by its value.
+   */
+  const [mappingAutoConfirmed, setMappingAutoConfirmed] = useState(false);
+  /** When true, always show the full post-upload table even if mappingAutoConfirmed. */
+  const [showFullMappingTable, setShowFullMappingTable] = useState(false);
+
   const monthChoices = useMemo(() => pastMonthOptions(), []);
 
   const refreshRun = useCallback(
@@ -678,6 +689,8 @@ export default function NewReconcileWizardPage() {
     setSchemaOk(false);
     setRegisterTypeDetection(null);
     setRegisterTypeOverride(null);
+    setMappingAutoConfirmed(false);
+    setShowFullMappingTable(false);
     if (!file || typeof token !== "string" || !clientId) return;
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
     if (!["csv", "xlsx", "xls"].includes(ext)) {
@@ -860,6 +873,26 @@ export default function NewReconcileWizardPage() {
         setConfirmSavedMapping(true);
       }
       if (typeof res.schema_ok === "boolean") setSchemaOk(res.schema_ok);
+      // Option A — auto-confirm check (render-only, does not affect canGoToStep4).
+      // Collapse the post-upload mapping table to a compact summary when the server
+      // agrees with what the CA already confirmed pre-upload: all required fields
+      // at high confidence, at least one tax field at high confidence, and no row
+      // has low confidence (low requires a manual checkbox and should not be hidden).
+      // Medium or below on ANY field keeps the full table visible.
+      {
+        const cols = res.columns;
+        const reqAllHigh = REQUIRED_MAPPING_FIELDS.every((f) => {
+          const row = cols.find((r) => r.standard_field === f);
+          return !!row?.detected_column && row.confidence === "high";
+        });
+        const taxHigh = TAX_MAPPING_FIELDS.some((f) => {
+          const row = cols.find((r) => r.standard_field === f);
+          return !!row?.detected_column && row.confidence === "high";
+        });
+        const noLowAnywhere = cols.every((r) => r.confidence !== "low");
+        setMappingAutoConfirmed(reqAllHigh && taxHigh && noLowAnywhere);
+        setShowFullMappingTable(false);
+      }
       const r = await refreshRun(runId, token);
       setRun(r);
       if (r.sanity_check_results) setSanityChecks(r.sanity_check_results);
@@ -1087,6 +1120,47 @@ export default function NewReconcileWizardPage() {
         );
       }
       setPoll(null);
+
+      // ── Recovery check ────────────────────────────────────────────────────────
+      // importWizardApi.start() is a blocking HTTP call (~300 s Railway timeout).
+      // If the client-side network drops or the fetch times out, this catch block
+      // fires even if the engine already completed successfully on the server.
+      // Poll once to find the true server-side state before showing any error.
+      // Do NOT remove: prevents "succeeded but looks failed" and silent
+      // duplicate-run submissions when the CA hits Retry on a finished run.
+      try {
+        const recovery = await importWizardApi.pollStatus(token, runId);
+
+        if (recovery.status === "complete") {
+          // Engine finished while we were disconnected — redirect silently,
+          // same as the normal success path. No error is shown.
+          router.push(`/reconcile/runs/${runId}/results`);
+          return;
+        }
+
+        if (recovery.status === "processing" || recovery.status === "pending") {
+          // Engine still running — re-attach the polling loop by flipping run
+          // state to "processing". The useEffect keyed on run?.status picks it up.
+          setRun((prev) =>
+            prev ? { ...prev, status: "processing" as const } : prev
+          );
+          pollStartRef.current = Date.now();
+          setPollSlow(false);
+          setPoll({
+            pct: recovery.progress_pct,
+            message:
+              "We lost connection, but your reconciliation may still be running. Checking status…",
+            status: "processing",
+          });
+          return;
+        }
+
+        // "error" / "failed" / "cancelled" — fall through to existing error UI below.
+      } catch {
+        // pollStatus itself failed (e.g. 404, network still down) — fall through to
+        // existing error UI below.
+      }
+      // ── End recovery check ────────────────────────────────────────────────────
 
       if (status === 402) {
         setErr("No runs remaining on your current plan. Please upgrade to continue.");
@@ -1953,96 +2027,147 @@ export default function NewReconcileWizardPage() {
           ) : null}
 
           {mappingLocal?.length ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--border)] text-[var(--text-secondary)]">
-                    <th className="py-2 pr-3">Standard field</th>
-                    <th className="py-2 pr-3">Detected column</th>
-                    <th className="py-2 pr-3">Confidence</th>
-                    <th className="py-2 pr-3">Sample values</th>
-                    <th className="py-2 pr-3">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {mappingLocal.map((row) => {
-                    const optional = isOptionalMappingField(row.standard_field);
-                    const notFound =
-                      row.confidence === "not_found" || !row.detected_column;
-                    const optionalMissing = optional && notFound;
-                    const highlight =
-                      optionalMissing
-                        ? ""
-                        : row.confidence === "low" || row.confidence === "not_found"
-                          ? "bg-amber-50"
-                          : "";
-                    const badge = optionalMissing
-                      ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
-                      : row.confidence === "high"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : row.confidence === "medium"
-                          ? "bg-amber-100 text-amber-900"
-                          : "bg-red-100 text-red-800";
-                    const fieldLabel =
-                      MAPPING_FIELD_LABELS[row.standard_field] ?? row.standard_field;
-                    return (
-                      <tr key={row.standard_field} className={`border-b border-[var(--border)] ${highlight}`}>
-                        <td className="py-2 pr-3 font-medium">
-                          {fieldLabel}
-                          {optional ? (
-                            <span className="ml-1.5 text-xs font-normal text-gray-500 dark:text-gray-400">
-                              (Optional)
-                            </span>
+            mappingAutoConfirmed && !showFullMappingTable ? (
+              // Compact confirmed summary — all required + tax fields returned at high
+              // confidence with no low-confidence rows. The CA already mapped columns
+              // pre-upload; this just confirms the server agreed. canGoToStep4 is
+              // still governed by requiredOk/taxOk/lowOk derived from mappingLocal.
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800">
+                  <span aria-hidden="true">✓</span> Mapping confirmed
+                </div>
+                <ul className="space-y-1.5">
+                  {mappingLocal
+                    .filter((row) => !!row.detected_column)
+                    .map((row) => (
+                      <li key={row.standard_field} className="flex items-baseline gap-2 text-sm">
+                        <span className="w-36 shrink-0 text-xs font-medium text-[var(--text-secondary)]">
+                          {MAPPING_FIELD_LABELS[row.standard_field] ?? row.standard_field}
+                          {isOptionalMappingField(row.standard_field) ? (
+                            <span className="ml-1 font-normal text-gray-400">(opt)</span>
                           ) : null}
-                        </td>
-                        <td
-                          className={`py-2 pr-3 ${
-                            optionalMissing ? "text-gray-500 dark:text-gray-400" : ""
-                          }`}
-                        >
-                          {row.detected_column ??
-                            (optionalMissing ? "Not found" : "—")}
-                        </td>
-                        <td className="py-2 pr-3">
-                          <span className={`rounded px-2 py-0.5 text-xs font-medium capitalize ${badge}`}>
-                            {row.confidence.replace("_", " ")}
-                          </span>
-                        </td>
-                        <td className="py-2 pr-3 font-mono text-xs text-[var(--text-secondary)]">
-                          {(row.sample_values ?? []).join(" · ") || "—"}
-                        </td>
-                        <td className="py-2 pr-3">
-                          <select
-                            value={row.detected_column ?? ""}
-                            onChange={(e) => onMappingChange(row.standard_field, e.target.value)}
-                            className="max-w-[180px] rounded border border-[var(--border)] bg-white px-2 py-1 text-xs"
+                        </span>
+                        <span className="text-xs text-[var(--text-secondary)]">→</span>
+                        <span className="font-mono text-xs text-[var(--text-primary)]">
+                          {row.detected_column}
+                        </span>
+                      </li>
+                    ))}
+                </ul>
+                <button
+                  type="button"
+                  onClick={() => setShowFullMappingTable(true)}
+                  className="text-xs text-[var(--ink)] underline-offset-2 hover:underline"
+                >
+                  Show full mapping table
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                {showFullMappingTable && mappingAutoConfirmed ? (
+                  <div className="mb-3 flex items-center justify-between gap-4">
+                    <p className="text-xs text-[var(--text-secondary)]">
+                      Mapping was auto-confirmed — showing full table for review.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowFullMappingTable(false)}
+                      className="shrink-0 text-xs text-[var(--ink)] underline-offset-2 hover:underline"
+                    >
+                      Back to summary
+                    </button>
+                  </div>
+                ) : null}
+                <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-[var(--border)] text-[var(--text-secondary)]">
+                      <th className="py-2 pr-3">Standard field</th>
+                      <th className="py-2 pr-3">Detected column</th>
+                      <th className="py-2 pr-3">Confidence</th>
+                      <th className="py-2 pr-3">Sample values</th>
+                      <th className="py-2 pr-3">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mappingLocal.map((row) => {
+                      const optional = isOptionalMappingField(row.standard_field);
+                      const notFound =
+                        row.confidence === "not_found" || !row.detected_column;
+                      const optionalMissing = optional && notFound;
+                      const highlight =
+                        optionalMissing
+                          ? ""
+                          : row.confidence === "low" || row.confidence === "not_found"
+                            ? "bg-amber-50"
+                            : "";
+                      const badge = optionalMissing
+                        ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                        : row.confidence === "high"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : row.confidence === "medium"
+                            ? "bg-amber-100 text-amber-900"
+                            : "bg-red-100 text-red-800";
+                      const fieldLabel =
+                        MAPPING_FIELD_LABELS[row.standard_field] ?? row.standard_field;
+                      return (
+                        <tr key={row.standard_field} className={`border-b border-[var(--border)] ${highlight}`}>
+                          <td className="py-2 pr-3 font-medium">
+                            {fieldLabel}
+                            {optional ? (
+                              <span className="ml-1.5 text-xs font-normal text-gray-500 dark:text-gray-400">
+                                (Optional)
+                              </span>
+                            ) : null}
+                          </td>
+                          <td
+                            className={`py-2 pr-3 ${
+                              optionalMissing ? "text-gray-500 dark:text-gray-400" : ""
+                            }`}
                           >
-                            <option value="">—</option>
-                            {allHeaders.map((h) => (
-                              <option key={h} value={h}>
-                                {h}
-                              </option>
-                            ))}
-                          </select>
-                          {row.confidence === "low" && row.detected_column ? (
-                            <label className="mt-1 flex items-center gap-2 text-xs">
-                              <input
-                                type="checkbox"
-                                checked={row.confirmed}
-                                onChange={() => {
-                                  if (!row.confirmed) void onMappingConfirmLow(row.standard_field);
-                                }}
-                              />
-                              I confirm this mapping is correct
-                            </label>
-                          ) : null}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                            {row.detected_column ??
+                              (optionalMissing ? "Not found" : "—")}
+                          </td>
+                          <td className="py-2 pr-3">
+                            <span className={`rounded px-2 py-0.5 text-xs font-medium capitalize ${badge}`}>
+                              {row.confidence.replace("_", " ")}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-3 font-mono text-xs text-[var(--text-secondary)]">
+                            {(row.sample_values ?? []).join(" · ") || "—"}
+                          </td>
+                          <td className="py-2 pr-3">
+                            <select
+                              value={row.detected_column ?? ""}
+                              onChange={(e) => onMappingChange(row.standard_field, e.target.value)}
+                              className="max-w-[180px] rounded border border-[var(--border)] bg-white px-2 py-1 text-xs"
+                            >
+                              <option value="">—</option>
+                              {allHeaders.map((h) => (
+                                <option key={h} value={h}>
+                                  {h}
+                                </option>
+                              ))}
+                            </select>
+                            {row.confidence === "low" && row.detected_column ? (
+                              <label className="mt-1 flex items-center gap-2 text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={row.confirmed}
+                                  onChange={() => {
+                                    if (!row.confirmed) void onMappingConfirmLow(row.standard_field);
+                                  }}
+                                />
+                                I confirm this mapping is correct
+                              </label>
+                            ) : null}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
           ) : null}
 
           <p className="text-xs text-[var(--text-secondary)]">
