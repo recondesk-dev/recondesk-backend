@@ -46,9 +46,10 @@ class Settings(BaseSettings):
     R2_BUCKET_NAME: str = "recondesk-uploads"
     R2_PUBLIC_URL: str = ""
 
-    # Celery / Redis — local default false; production always queues imports
-    # (set IMPORT_USE_CELERY=true locally when a worker is running).
-    IMPORT_USE_CELERY: bool = False
+    # Celery / Redis — set IMPORT_USE_CELERY=true when a Celery worker is running,
+    # false to force synchronous in-process imports (no worker needed).
+    # Unset (None) → falls back to APP_ENV heuristic (production = True).
+    IMPORT_USE_CELERY: Optional[bool] = None
     IMPORT_SANITY_STRICT: bool = False
 
     # JWT
@@ -140,9 +141,14 @@ class Settings(BaseSettings):
 
     @property
     def import_use_celery(self) -> bool:
-        """Queue imports to Celery when explicitly enabled or in production."""
-        if self.IMPORT_USE_CELERY:
-            return True
+        """Queue imports to Celery when explicitly enabled or (by default) in production.
+
+        IMPORT_USE_CELERY=true  → always use Celery (worker must be running)
+        IMPORT_USE_CELERY=false → always run synchronously (no worker needed)
+        unset                   → use Celery only when APP_ENV=production
+        """
+        if self.IMPORT_USE_CELERY is not None:
+            return bool(self.IMPORT_USE_CELERY)  # explicit override always wins
         return (self.APP_ENV or "").lower() == "production"
 
     @property
