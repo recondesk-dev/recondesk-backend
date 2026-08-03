@@ -490,11 +490,7 @@ export function ImsActionPanel({ runId, authToken, refreshKey = 0 }: Props) {
         </p>
       ) : null}
 
-      {phase4Note ? (
-        <p className="mt-2 rounded-lg border border-dashed border-gray-300 bg-[#FAFAFB] px-3 py-2 text-[11px] text-gray-500">
-          Phase 4 hook (not built): {phase4Note}
-        </p>
-      ) : null}
+      {/* phase4Note intentionally not rendered — dev-only field, suppressed from CA UI */}
 
       {confirmOpen && bulkAction && selected.length > 0 ? (
         <ImsDeliberateConfirm

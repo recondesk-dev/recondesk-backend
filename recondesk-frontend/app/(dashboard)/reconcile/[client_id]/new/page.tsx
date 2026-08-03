@@ -305,6 +305,8 @@ export default function NewReconcileWizardPage() {
 
   const [startBusy, setStartBusy] = useState(false);
   const [start409, setStart409] = useState<string | null>(null);
+  const [creatingRun, setCreatingRun] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const [poll, setPoll] = useState<{ pct: number; message: string; status: string } | null>(null);
   const [pollSlow, setPollSlow] = useState(false);
@@ -486,7 +488,7 @@ export default function NewReconcileWizardPage() {
       return;
     }
     setErr(null);
-    setBusy(true);
+    setCreatingRun(true);
     try {
       // eslint-disable-next-line no-console -- debug: verify JWT sent on Continue
       const r = await importWizardApi.createRun(token, { client_id: clientId, period });
@@ -497,7 +499,7 @@ export default function NewReconcileWizardPage() {
       const ae = e as ApiError;
       setErr(ae.detail ?? "Could not create run.");
     } finally {
-      setBusy(false);
+      setCreatingRun(false);
     }
   };
 
@@ -1331,13 +1333,37 @@ export default function NewReconcileWizardPage() {
           </p>
         ) : null}
         <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={onCancelRun}
-            className="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg)]"
-          >
-            Cancel run
-          </button>
+          {showCancelConfirm ? (
+            <div className="w-full rounded-xl border border-[var(--warning)] bg-amber-50 p-4 text-sm text-amber-950">
+              <p className="font-medium">Cancel this reconciliation? This cannot be undone.</p>
+              <div className="mt-3 flex gap-3">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onCancelRun}
+                  className="rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:opacity-90"
+                >
+                  {busy ? "Cancelling…" : "Cancel run"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setShowCancelConfirm(false)}
+                  className="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-medium text-amber-950 hover:bg-amber-100"
+                >
+                  Keep running
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowCancelConfirm(true)}
+              className="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg)]"
+            >
+              Cancel run
+            </button>
+          )}
           <Link
             href="/dashboard"
             className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
@@ -1424,11 +1450,11 @@ export default function NewReconcileWizardPage() {
           ) : null}
           <button
             type="button"
-            disabled={!period || busy}
+            disabled={!period || creatingRun}
             onClick={onConfirmPeriod}
             className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:opacity-90"
           >
-            Continue
+            {creatingRun ? "Creating…" : "Continue"}
           </button>
         </div>
       ) : null}
