@@ -2,6 +2,7 @@
 
 import { ChevronDown, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   SectionHeader,
@@ -102,6 +103,16 @@ export function ImsActionPanel({ runId, authToken, refreshKey = 0 }: Props) {
     setPhase4Note(null);
   }, [runId, refreshKey]);
 
+  // DEBUG — remove before merge
+  useEffect(() => {
+    console.log("[ImsActionPanel] confirmOpen state settled", {
+      confirmOpen,
+      bulkAction,
+      "selected.length": selected.length,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmOpen]);
+
   const loadRecommendations = useCallback(async () => {
     if (!runId || !authToken) return;
     setLoadState({ status: "loading" });
@@ -161,11 +172,22 @@ export function ImsActionPanel({ runId, authToken, refreshKey = 0 }: Props) {
   );
 
   const openBulkConfirm = useCallback(() => {
-    if (selected.length === 0 || !bulkAction) return;
+    // DEBUG — remove before merge
+    console.log("[ImsActionPanel] openBulkConfirm called", {
+      "selected.length": selected.length,
+      bulkAction,
+      confirmBusy,
+    });
+    if (selected.length === 0 || !bulkAction) {
+      console.log("[ImsActionPanel] openBulkConfirm early-return hit", {
+        reason: selected.length === 0 ? "no rows selected" : "bulkAction is null (mixed actions)",
+      });
+      return;
+    }
     setConfirmSteps(resetImsConfirmSteps());
     setConfirmOpen(true);
     setActionError(null);
-  }, [bulkAction, selected.length]);
+  }, [bulkAction, confirmBusy, selected.length]);
 
   const openSingleConfirm = useCallback(
     (invoiceId: string) => {
@@ -492,6 +514,17 @@ export function ImsActionPanel({ runId, authToken, refreshKey = 0 }: Props) {
 
       {/* phase4Note intentionally not rendered — dev-only field, suppressed from CA UI */}
 
+      {/* DEBUG — remove before merge */}
+      {(() => {
+        console.log("[ImsActionPanel] render-guard evaluated", {
+          confirmOpen,
+          bulkAction,
+          "selected.length": selected.length,
+          willShowModal: confirmOpen && bulkAction != null && selected.length > 0,
+        });
+        return null;
+      })()}
+
       {confirmOpen && bulkAction && selected.length > 0 ? (
         <ImsDeliberateConfirm
           action={bulkAction}
@@ -707,6 +740,8 @@ function WritebackBadge({
 /**
  * Dark portal-write friction — count-based confirm + hold-to-commit.
  * Mirrors OffsetDeliberateConfirm; never a vague single Confirm button.
+ * Rendered into document.body via createPortal so it always appears
+ * centred on screen regardless of the user's scroll position.
  */
 function ImsDeliberateConfirm({
   action,
@@ -735,6 +770,28 @@ function ImsDeliberateConfirm({
   const committedRef = useRef(false);
   const stepsRef = useRef(steps);
   stepsRef.current = steps;
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  // Focus the dialog container when it mounts so keyboard users land inside it.
+  useEffect(() => {
+    dialogRef.current?.focus();
+  }, []);
+
+  // Escape key dismisses the modal, guarded by busy.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onCancel();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [busy, onCancel]);
+
+  // Cancel any in-flight rAF loop when the component unmounts.
+  useEffect(() => {
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
 
   const stopHold = useCallback(() => {
     setHolding(false);
@@ -777,135 +834,141 @@ function ImsDeliberateConfirm({
     rafRef.current = requestAnimationFrame(tick);
   }, [busy, count, tick]);
 
-  useEffect(() => {
-    return () => {
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
-
   const typedOk = typedCountMatchesExpected(steps.typedCount, count);
   const holdReady = canStartImsHold(steps, count);
   const progress = Math.min(1, steps.holdProgressMs / IMS_HOLD_MS);
 
-  return (
+  return createPortal(
+    // Full-screen fixed backdrop
     <div
-      className="mt-5 rounded-none border border-[#3A3630] bg-[#0E0C0A] px-5 py-6 text-[#E8E4DC] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-      role="dialog"
-      aria-label="Confirm IMS writeback"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      aria-modal="true"
+      onClick={() => { if (!busy) onCancel(); }}
     >
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C4B59A]">
-        Write to GSTN IMS — irreversible for these invoices
-      </p>
-      <p className="mt-2 text-[15px] font-semibold tracking-tight text-[#F5F0E8]">
-        {summary}
-      </p>
-      <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-[#C8C0B4]">
-        This calls the confirmed-action writeback client only after you finish
-        all steps below. Release the hold button to cancel.
-      </p>
-      {overrideCount > 0 ? (
-        <p className="mt-3 rounded-lg border border-amber-700/40 bg-amber-950/40 px-3 py-2 text-[12px] text-amber-100">
-          {overrideCount} invoice{overrideCount === 1 ? "" : "s"} override
-          ReconDesk&apos;s recommendation — logged as{" "}
-          <span className="font-semibold">override</span>, not a straight
-          confirm.
+      {/* Dialog panel — stops click propagation so backdrop click doesn't bubble through */}
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="relative w-full max-w-lg rounded-none border border-[#3A3630] bg-[#0E0C0A] px-5 py-6 text-[#E8E4DC] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] outline-none"
+        role="dialog"
+        aria-label="Confirm IMS writeback"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C4B59A]">
+          Write to GSTN IMS — irreversible for these invoices
         </p>
-      ) : (
-        <p className="mt-3 text-[12px] text-[#A89F90]">
-          Straight confirm of recommended {caActionLabel(action).toLowerCase()}{" "}
-          — no overrides in this batch.
+        <p className="mt-2 text-[15px] font-semibold tracking-tight text-[#F5F0E8]">
+          {summary}
         </p>
-      )}
+        <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-[#C8C0B4]">
+          This calls the confirmed-action writeback client only after you finish
+          all steps below. Release the hold button to cancel.
+        </p>
+        {overrideCount > 0 ? (
+          <p className="mt-3 rounded-lg border border-amber-700/40 bg-amber-950/40 px-3 py-2 text-[12px] text-amber-100">
+            {overrideCount} invoice{overrideCount === 1 ? "" : "s"} override
+            ReconDesk&apos;s recommendation — logged as{" "}
+            <span className="font-semibold">override</span>, not a straight
+            confirm.
+          </p>
+        ) : (
+          <p className="mt-3 text-[12px] text-[#A89F90]">
+            Straight confirm of recommended {caActionLabel(action).toLowerCase()}{" "}
+            — no overrides in this batch.
+          </p>
+        )}
 
-      <div className="mt-6 space-y-6 border-t border-[#3A3630] pt-6">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#A89F90]">
-            Step 1 of 3 — Review
-          </p>
-          <label className="mt-3 flex cursor-pointer items-start gap-3 text-[13px] text-[#E8E4DC]">
-            <input
-              type="checkbox"
-              checked={steps.reviewed}
-              disabled={busy}
-              onChange={(e) =>
-                onStepsChange({ ...steps, reviewed: e.target.checked })
-              }
-              className="mt-0.5 h-4 w-4 rounded border-[#5A564E] bg-[#1A1814] text-[#E8E4DC]"
-            />
-            <span>
-              I reviewed the {count} invoice{count === 1 ? "" : "s"} and
-              understand this writes {caActionLabel(action)} to the government
-              portal.
-            </span>
-          </label>
-        </div>
-
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#A89F90]">
-            Step 2 of 3 — Type the count
-          </p>
-          <p className="mt-2 text-[12px] text-[#A89F90]">
-            Type <span className="font-mono text-[#E8E4DC]">{count}</span> to
-            match &ldquo;{summary}&rdquo;.
-          </p>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={steps.typedCount}
-            disabled={busy || !steps.reviewed}
-            onChange={(e) =>
-              onStepsChange({ ...steps, typedCount: e.target.value })
-            }
-            placeholder={String(count)}
-            className="mt-2 w-full max-w-xs rounded-md border border-[#3A3630] bg-[#1A1814] px-3 py-2 font-mono text-[14px] text-[#F5F0E8] placeholder:text-[#5A564E] disabled:opacity-40"
-          />
-          {steps.typedCount && !typedOk ? (
-            <p className="mt-1 text-[11px] text-red-300">Count does not match.</p>
-          ) : null}
-        </div>
-
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#A89F90]">
-            Step 3 of 3 — Hold to commit
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              disabled={!holdReady || busy}
-              onMouseDown={beginHold}
-              onMouseUp={stopHold}
-              onMouseLeave={stopHold}
-              onTouchStart={(e) => {
-                e.preventDefault();
-                beginHold();
-              }}
-              onTouchEnd={stopHold}
-              className="relative overflow-hidden rounded-full bg-[#E8E4DC] px-5 py-2.5 text-[13px] font-semibold text-[#0E0C0A] disabled:opacity-40"
-            >
-              <span
-                className="absolute inset-y-0 left-0 bg-[#C4B59A]/70"
-                style={{ width: `${progress * 100}%` }}
-                aria-hidden
+        <div className="mt-6 space-y-6 border-t border-[#3A3630] pt-6">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#A89F90]">
+              Step 1 of 3 — Review
+            </p>
+            <label className="mt-3 flex cursor-pointer items-start gap-3 text-[13px] text-[#E8E4DC]">
+              <input
+                type="checkbox"
+                checked={steps.reviewed}
+                disabled={busy}
+                onChange={(e) =>
+                  onStepsChange({ ...steps, reviewed: e.target.checked })
+                }
+                className="mt-0.5 h-4 w-4 rounded border-[#5A564E] bg-[#1A1814] text-[#E8E4DC]"
               />
-              <span className="relative">
-                {busy
-                  ? "Writing…"
-                  : holding
-                    ? "Keep holding…"
-                    : `Hold to ${caActionLabel(action).toLowerCase()} ${count}`}
+              <span>
+                I reviewed the {count} invoice{count === 1 ? "" : "s"} and
+                understand this writes {caActionLabel(action)} to the government
+                portal.
               </span>
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onCancel}
-              className="rounded-full px-3 py-2 text-[12px] font-medium text-[#A89F90] hover:text-[#E8E4DC] disabled:opacity-40"
-            >
-              Cancel
-            </button>
+            </label>
+          </div>
+
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#A89F90]">
+              Step 2 of 3 — Type the count
+            </p>
+            <p className="mt-2 text-[12px] text-[#A89F90]">
+              Type <span className="font-mono text-[#E8E4DC]">{count}</span> to
+              match &ldquo;{summary}&rdquo;.
+            </p>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={steps.typedCount}
+              disabled={busy || !steps.reviewed}
+              onChange={(e) =>
+                onStepsChange({ ...steps, typedCount: e.target.value })
+              }
+              placeholder={String(count)}
+              className="mt-2 w-full max-w-xs rounded-md border border-[#3A3630] bg-[#1A1814] px-3 py-2 font-mono text-[14px] text-[#F5F0E8] placeholder:text-[#5A564E] disabled:opacity-40"
+            />
+            {steps.typedCount && !typedOk ? (
+              <p className="mt-1 text-[11px] text-red-300">Count does not match.</p>
+            ) : null}
+          </div>
+
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#A89F90]">
+              Step 3 of 3 — Hold to commit
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={!holdReady || busy}
+                onMouseDown={beginHold}
+                onMouseUp={stopHold}
+                onMouseLeave={stopHold}
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  beginHold();
+                }}
+                onTouchEnd={stopHold}
+                className="relative overflow-hidden rounded-full bg-[#E8E4DC] px-5 py-2.5 text-[13px] font-semibold text-[#0E0C0A] disabled:opacity-40"
+              >
+                <span
+                  className="absolute inset-y-0 left-0 bg-[#C4B59A]/70"
+                  style={{ width: `${progress * 100}%` }}
+                  aria-hidden
+                />
+                <span className="relative">
+                  {busy
+                    ? "Writing…"
+                    : holding
+                      ? "Keep holding…"
+                      : `Hold to ${caActionLabel(action).toLowerCase()} ${count}`}
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onCancel}
+                className="rounded-full px-3 py-2 text-[12px] font-medium text-[#A89F90] hover:text-[#E8E4DC] disabled:opacity-40"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
