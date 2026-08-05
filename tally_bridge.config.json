@@ -1,0 +1,23 @@
+
+{
+
+  "api_key": "rdb_gDIKvhpePa6YxTfoUFNYdO6TbEJRDIdF6Vq5MyPNST0",
+
+  "recondesk_endpoint": "https://recondesk-backend-production.up.railway.app/api/tally-sync/outstanding",
+
+  "pr_sync_endpoint": "https://recondesk-backend-production.up.railway.app/api/tally-sync/purchase-register",
+
+  "tally_host": "192.168.64.2",
+
+  "tally_port": 9000,
+
+  "sync_interval_minutes": 60,
+
+  "lookback_days": 200,
+
+  "company_name": "Reondesk",
+
+  "client_gstin_id": "db672e8d-66ee-4a94-a3d8-520b3069fc89"
+
+}
+
