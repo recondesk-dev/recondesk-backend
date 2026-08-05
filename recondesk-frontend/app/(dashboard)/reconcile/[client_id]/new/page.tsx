@@ -507,6 +507,9 @@ export default function NewReconcileWizardPage() {
 
   const runSanityWithRetry = async () => {
     if (typeof token !== "string" || !runId) return;
+    // Guard: only call if the run is in gstr_uploaded status — calling on a
+    // "draft" run returns 409 and sets a confusing generic error banner.
+    if (run?.status !== "gstr_uploaded") return;
     setSanityBusy(true);
     setErr(null);
     try {
@@ -587,8 +590,19 @@ export default function NewReconcileWizardPage() {
         file_size: uploadFile.size,
         file_hash: hash,
       });
-      setRun(updated);
-      await runSanityWithRetry();
+
+      // gstr2bUploadComplete returns a partial {sanity_check_results:[...]} object
+      // (not a full ImportWizardRun) when the GSTIN in the file doesn't match the
+      // client GSTIN. In that case the run stays "draft" in the DB and calling
+      // runSanityWithRetry() would 409. Detect the early-exit by checking for the
+      // absence of a run "status" field and surface the checks directly.
+      const asRun = updated as { status?: string; sanity_check_results?: SanityCheckItem[] };
+      if (!asRun.status && asRun.sanity_check_results?.length) {
+        setSanityChecks(asRun.sanity_check_results);
+      } else {
+        setRun(updated);
+        await runSanityWithRetry();
+      }
       return true;
     } catch (e) {
       setGstrUploadFailed(true);
