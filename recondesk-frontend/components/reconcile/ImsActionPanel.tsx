@@ -103,15 +103,6 @@ export function ImsActionPanel({ runId, authToken, refreshKey = 0 }: Props) {
     setPhase4Note(null);
   }, [runId, refreshKey]);
 
-  // DEBUG — remove before merge
-  useEffect(() => {
-    console.log("[ImsActionPanel] confirmOpen state settled", {
-      confirmOpen,
-      bulkAction,
-      "selected.length": selected.length,
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [confirmOpen]);
 
   const loadRecommendations = useCallback(async () => {
     if (!runId || !authToken) return;
@@ -172,16 +163,7 @@ export function ImsActionPanel({ runId, authToken, refreshKey = 0 }: Props) {
   );
 
   const openBulkConfirm = useCallback(() => {
-    // DEBUG — remove before merge
-    console.log("[ImsActionPanel] openBulkConfirm called", {
-      "selected.length": selected.length,
-      bulkAction,
-      confirmBusy,
-    });
     if (selected.length === 0 || !bulkAction) {
-      console.log("[ImsActionPanel] openBulkConfirm early-return hit", {
-        reason: selected.length === 0 ? "no rows selected" : "bulkAction is null (mixed actions)",
-      });
       return;
     }
     setConfirmSteps(resetImsConfirmSteps());
@@ -513,17 +495,6 @@ export function ImsActionPanel({ runId, authToken, refreshKey = 0 }: Props) {
       ) : null}
 
       {/* phase4Note intentionally not rendered — dev-only field, suppressed from CA UI */}
-
-      {/* DEBUG — remove before merge */}
-      {(() => {
-        console.log("[ImsActionPanel] render-guard evaluated", {
-          confirmOpen,
-          bulkAction,
-          "selected.length": selected.length,
-          willShowModal: confirmOpen && bulkAction != null && selected.length > 0,
-        });
-        return null;
-      })()}
 
       {confirmOpen && bulkAction && selected.length > 0 ? (
         <ImsDeliberateConfirm

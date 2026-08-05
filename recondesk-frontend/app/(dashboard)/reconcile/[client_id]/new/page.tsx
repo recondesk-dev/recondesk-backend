@@ -1647,7 +1647,25 @@ export default function NewReconcileWizardPage() {
             <div className="space-y-3">
               {sanityErrors.length ? (
                 <div className="rounded-lg border border-[var(--danger)] bg-red-50 p-3 text-sm text-red-900">
-                  Cannot proceed. Fix the issues below and re-upload.
+                  <p className="font-semibold">Cannot proceed — fix the following and re-upload:</p>
+                  <ul className="mt-1.5 space-y-1">
+                    {sanityErrors.map((c, i) => {
+                      // Support both API shapes:
+                      //  • sanity-check endpoint  → { id, label, detail }
+                      //  • upload-complete GSTIN  → { name, status, message }
+                      const name = (c as { name?: string }).name ?? c.label;
+                      const msg  = (c as { message?: string }).message ?? c.detail;
+                      return (
+                        <li key={c.id ?? i} className="flex gap-1.5">
+                          <span className="shrink-0 font-bold" aria-hidden>✕</span>
+                          <span>
+                            <span className="font-semibold">{name}</span>
+                            {msg ? <> &mdash; {msg}</> : null}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
               ) : null}
               {sanityErrors.length === 0 &&
