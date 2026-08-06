@@ -179,7 +179,8 @@ export default function TallyBridgeSetupPage() {
             Tally Bridge Setup
           </h1>
           <p className="text-sm text-gray-500">
-            Sync Bills Payable (still unpaid) and Payment Agst Ref vouchers from
+            Sync Bills Payable (still unpaid), Payment Agst Ref vouchers,
+            Purchase Register, and Ledger Masters (GSTIN & State) from
             Tally. Auto-settle only from payments when party name confidence is
             high; weak party matches are flagged for manual confirmation.
           </p>
@@ -288,12 +289,12 @@ export default function TallyBridgeSetupPage() {
               needed. Place{" "}
               <code className="text-[12px]">tally_bridge.config.json</code> next
               to the executable. The agent exports Bills Payable (unpaid check
-              only — never settle) and Day Book Payment vouchers (settle
-              evidence). Start with{" "}
-              <code className="text-[12px]">--test</code> to validate both
-              exports: it prints per-export row counts and warns if either is
-              zero. TDS is not auto-detected; GSTIN is not used for matching
-              yet.
+              only — never settle), Day Book Payment vouchers (settle
+              evidence), Purchase Register, and Ledger Masters (GSTIN & State
+              sync). Start with{" "}
+              <code className="text-[12px]">--test</code> to validate
+              exports: it prints per-export row counts and warns if any is
+              zero.
             </p>
             <div className="flex flex-wrap gap-3">
               <button
