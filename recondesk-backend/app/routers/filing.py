@@ -262,6 +262,20 @@ class FileGstr3bBody(_StripModel):
         return v
 
 
+class CreateBatchBody(_StripModel):
+    period: str
+    client_gstin_ids: list[str] = Field(default_factory=list)
+    return_type: str = "gstr-1"
+
+    @field_validator("period")
+    @classmethod
+    def _period(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1556,4 +1570,115 @@ def file_gstr3b(
         "outer_status_cd": info.outer_status_cd if info else None,
     }
 
+
+# ---------------------------------------------------------------------------
+# Bulk Filing Batches
+# ---------------------------------------------------------------------------
+
+
+@router.post("/batches")
+def create_filing_batch(
+    body: CreateBatchBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Create and trigger a bulk return filing batch (GSTR-1 only)."""
+    if body.return_type != "gstr-1":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bulk filing is currently supported for GSTR-1 only",
+        )
+    period = _assert_period_yyyy_mm(body.period)
+    if not body.client_gstin_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one client_gstin_id must be selected for bulk filing",
+        )
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    allowed = list_accessible_client_gstin_ids(sb, current_user)
+    for cid in body.client_gstin_ids:
+        if cid not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied for client_gstin_id {cid}",
+            )
+    batch = filing_store.create_batch(
+        sb,
+        firm_id=firm_id,
+        created_by=str(current_user.get("id")),
+        period=period,
+        client_gstin_ids=body.client_gstin_ids,
+        return_type=body.return_type,
+    )
+    try:
+        from app.worker.filing_batch_task import process_filing_batch
+
+        process_filing_batch.delay(batch["id"])
+    except Exception as exc:
+        _log.exception("Failed to dispatch process_filing_batch for batch %s: %s", batch["id"], exc)
+
+    return batch
+
+
+@router.get("/batches")
+def list_filing_batches(
+    current_user: dict = Depends(get_current_active_user),
+):
+    """List bulk filing batches for the firm."""
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    batches = filing_store.list_batches(sb, firm_id=firm_id)
+    return {"batches": batches}
+
+
+@router.get("/batches/{batch_id}")
+def get_filing_batch(
+    batch_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Get details of a bulk filing batch including all item statuses."""
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    batch = filing_store.get_batch(sb, batch_id)
+    if not batch or str(batch.get("firm_id")) != firm_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Filing batch not found",
+        )
+    return batch
+
+
+@router.post("/batches/{batch_id}/retry")
+def retry_filing_batch(
+    batch_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Retry failed items in a bulk filing batch."""
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    batch = filing_store.get_batch(sb, batch_id)
+    if not batch or str(batch.get("firm_id")) != firm_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Filing batch not found",
+        )
+    for item in batch.get("items", []):
+        if item.get("status") in ("failed", "pending"):
+            filing_store.update_batch_item(
+                sb, item["id"], status="pending", error_code=None, error_detail=None
+            )
+
+    filing_store.recalculate_batch_status(sb, batch_id)
+
+    try:
+        from app.worker.filing_batch_task import process_filing_batch
+
+        process_filing_batch.delay(batch_id)
+    except Exception as exc:
+        _log.exception("Failed to dispatch retry for batch %s: %s", batch_id, exc)
+
+    return filing_store.get_batch(sb, batch_id)
+
+
 router.include_router(gstr3b_router)
+

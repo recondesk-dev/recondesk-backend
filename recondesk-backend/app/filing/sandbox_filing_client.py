@@ -1002,16 +1002,25 @@ class SandboxFilingClient:
                 sorted(json_body.keys()) if json_body else [],
             )
 
-        try:
-            resp = self._http.request(
-                method,
-                url,
-                headers=headers,
-                params=dict(params or {}),
-                json=dict(json_body) if json_body is not None else None,
-            )
-        except httpx.HTTPError as exc:
-            raise FilingApiError(safe_httpx_error_text(exc)) from exc
+        for attempt in range(3):
+            try:
+                resp = self._http.request(
+                    method,
+                    url,
+                    headers=headers,
+                    params=dict(params or {}),
+                    json=dict(json_body) if json_body is not None else None,
+                )
+                if resp.status_code == 429 and attempt < 2:
+                    retry_after = float(resp.headers.get("Retry-After", (attempt + 1) * 1.5))
+                    logger.warning("Filing rate-limited (HTTP 429). Retrying in %.1fs...", retry_after)
+                    time.sleep(retry_after)
+                    continue
+                break
+            except httpx.HTTPError as exc:
+                if attempt == 2:
+                    raise FilingApiError(safe_httpx_error_text(exc)) from exc
+                time.sleep((attempt + 1) * 1.0)
 
         logger.info(
             "Filing response status=%s url=%s",
@@ -1028,6 +1037,7 @@ class SandboxFilingClient:
                 detail = f"{detail}: {body_snip}"
             raise FilingAuthError(detail)
         if resp.status_code != 200:
+
             raise FilingApiError(
                 f"HTTP {resp.status_code} on {path}: {resp.text[:300]}",
                 status_code=resp.status_code,

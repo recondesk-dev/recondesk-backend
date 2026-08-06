@@ -1661,6 +1661,53 @@ export type FilingFeaturesResponse = {
   gstr3b_filing_enabled: boolean;
 };
 
+export type FilingBatchItem = {
+  id: string;
+  batch_id: string;
+  client_gstin_id: string;
+  gstin: string;
+  filing_run_id?: string | null;
+  status:
+    | "pending"
+    | "in_progress"
+    | "saved"
+    | "proceeded"
+    | "needs_review"
+    | "evc_pending"
+    | "failed"
+    | "filed"
+    | "skipped";
+  error_code?: string | null;
+  error_detail?: string | null;
+  created_at: string;
+  updated_at: string;
+  client_gstins?: { trade_name?: string | null; legal_name?: string | null } | null;
+};
+
+export type FilingBatch = {
+  id: string;
+  firm_id: string;
+  created_by: string;
+  return_type: "gstr-1";
+  period: string;
+  status:
+    | "pending"
+    | "in_progress"
+    | "completed"
+    | "partially_completed"
+    | "failed"
+    | "cancelled";
+  total_count: number;
+  saved_count: number;
+  evc_pending_count: number;
+  filed_count: number;
+  failed_count: number;
+  needs_review_count: number;
+  created_at: string;
+  updated_at: string;
+  items?: FilingBatchItem[];
+};
+
 export const filingApi = {
   features: () =>
     apiFetch<FilingFeaturesResponse>("/api/filing/features", {
@@ -1811,7 +1858,36 @@ export const filingApi = {
       "/api/filing/session/otp/verify",
       { method: "POST", body: JSON.stringify(body), token }
     ),
+
+  createBatch: (
+    token: string,
+    body: { period: string; client_gstin_ids: string[]; return_type?: string }
+  ) =>
+    apiFetch<FilingBatch>("/api/filing/batches", {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  listBatches: (token: string) =>
+    apiFetch<{ batches: FilingBatch[] }>("/api/filing/batches", {
+      token,
+      cache: "no-store",
+    }),
+
+  getBatch: (token: string, batchId: string) =>
+    apiFetch<FilingBatch>(`/api/filing/batches/${encodeURIComponent(batchId)}`, {
+      token,
+      cache: "no-store",
+    }),
+
+  retryBatch: (token: string, batchId: string) =>
+    apiFetch<FilingBatch>(`/api/filing/batches/${encodeURIComponent(batchId)}/retry`, {
+      method: "POST",
+      token,
+    }),
 };
+
 
 // ─── GSTR-3B filing (Sandbox / GSTN) ──────────────────────────────────────────
 

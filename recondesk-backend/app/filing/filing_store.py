@@ -444,3 +444,155 @@ def apply_offset_status_to_run(
         status="offset_pending",
         raw_response=envelope,
     )
+
+
+BATCHES = "filing_batches"
+BATCH_ITEMS = "filing_batch_items"
+
+
+def create_batch(
+    sb,
+    *,
+    firm_id: str,
+    created_by: str,
+    period: str,
+    client_gstin_ids: list[str],
+    return_type: str = "gstr-1",
+) -> dict[str, Any]:
+    """Create a new filing_batches row along with its filing_batch_items."""
+    p = period.strip()
+    batch_payload = {
+        "firm_id": firm_id,
+        "created_by": created_by,
+        "return_type": return_type,
+        "period": p,
+        "status": "pending",
+        "total_count": len(client_gstin_ids),
+        "updated_at": _iso(datetime.now(timezone.utc)),
+    }
+    b_res = sb.table(BATCHES).insert(batch_payload).execute()
+    if not b_res.data:
+        raise RuntimeError("filing_batches insert failed")
+    batch = b_res.data[0]
+    batch_id = batch["id"]
+
+    # Fetch GSTIN strings for each client_gstin_id
+    if client_gstin_ids:
+        cg_res = (
+            sb.table("client_gstins")
+            .select("id, gstin")
+            .in_("id", client_gstin_ids)
+            .execute()
+        )
+        gstin_map = {
+            str(r["id"]): str(r["gstin"]).strip().upper()
+            for r in (cg_res.data or [])
+        }
+
+        item_rows = [
+            {
+                "batch_id": batch_id,
+                "client_gstin_id": cid,
+                "gstin": gstin_map.get(cid, ""),
+                "status": "pending",
+                "updated_at": _iso(datetime.now(timezone.utc)),
+            }
+            for cid in client_gstin_ids
+        ]
+        sb.table(BATCH_ITEMS).insert(item_rows).execute()
+
+    return get_batch(sb, batch_id) or batch
+
+
+def get_batch(sb, batch_id: str) -> dict[str, Any] | None:
+    res = sb.table(BATCHES).select("*").eq("id", batch_id).limit(1).execute()
+    if not res.data:
+        return None
+    batch = res.data[0]
+    items_res = (
+        sb.table(BATCH_ITEMS)
+        .select("*, client_gstins(trade_name, legal_name)")
+        .eq("batch_id", batch_id)
+        .order("created_at")
+        .execute()
+    )
+    batch["items"] = items_res.data or []
+    return batch
+
+
+def list_batches(sb, firm_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    res = (
+        sb.table(BATCHES)
+        .select("*")
+        .eq("firm_id", firm_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return res.data or []
+
+
+def update_batch_item(
+    sb,
+    item_id: str,
+    *,
+    status: str | None = None,
+    filing_run_id: str | None = None,
+    error_code: str | None = None,
+    error_detail: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "updated_at": _iso(datetime.now(timezone.utc)),
+    }
+    if status is not None:
+        payload["status"] = status
+    if filing_run_id is not None:
+        payload["filing_run_id"] = filing_run_id
+    if error_code is not None:
+        payload["error_code"] = error_code
+    if error_detail is not None:
+        payload["error_detail"] = error_detail[:2000]
+
+    res = sb.table(BATCH_ITEMS).update(payload).eq("id", item_id).execute()
+    return (res.data or [payload])[0]
+
+
+def recalculate_batch_status(sb, batch_id: str) -> dict[str, Any]:
+    """Aggregate item statuses and update filing_batches summary counts & overall status."""
+    items_res = (
+        sb.table(BATCH_ITEMS)
+        .select("status")
+        .eq("batch_id", batch_id)
+        .execute()
+    )
+    items = items_res.data or []
+    total = len(items)
+
+    saved_c = sum(1 for i in items if i["status"] == "saved")
+    evc_pending_c = sum(1 for i in items if i["status"] == "evc_pending")
+    filed_c = sum(1 for i in items if i["status"] == "filed")
+    failed_c = sum(1 for i in items if i["status"] == "failed")
+    needs_review_c = sum(1 for i in items if i["status"] == "needs_review")
+    in_prog_c = sum(1 for i in items if i["status"] in ("in_progress", "pending"))
+
+    if in_prog_c > 0:
+        overall_status = "in_progress"
+    elif filed_c == total and total > 0:
+        overall_status = "completed"
+    elif failed_c == total and total > 0:
+        overall_status = "failed"
+    else:
+        overall_status = "partially_completed"
+
+    payload = {
+        "status": overall_status,
+        "saved_count": saved_c,
+        "evc_pending_count": evc_pending_c,
+        "filed_count": filed_c,
+        "failed_count": failed_c,
+        "needs_review_count": needs_review_c,
+        "updated_at": _iso(datetime.now(timezone.utc)),
+    }
+    b_res = sb.table(BATCHES).update(payload).eq("id", batch_id).execute()
+    return (b_res.data or [payload])[0]
+

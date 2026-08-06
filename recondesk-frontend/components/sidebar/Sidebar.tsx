@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Users,
   RefreshCcw,
+  Layers,
   CreditCard,
   UsersRound,
   Settings,
@@ -16,10 +17,12 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/clients", label: "Clients", icon: Users },
   { href: "/reconciliation", label: "Reconciliation", icon: RefreshCcw },
+  { href: "/filing/batches", label: "Bulk Filing", icon: Layers },
   { href: "/billing", label: "Billing", icon: CreditCard },
   { href: "/team", label: "Team", icon: UsersRound },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
+
 
 interface SidebarProps {
   collapsed?: boolean;
