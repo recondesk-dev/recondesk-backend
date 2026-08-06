@@ -1,4 +1,5 @@
 "use client";
+// Updated for Tally Bridge Ledger Master & Purchase Register Sync
 
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
