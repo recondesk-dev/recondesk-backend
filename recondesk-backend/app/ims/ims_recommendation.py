@@ -47,6 +47,8 @@ REASON_DUPLICATE_AMBIGUITY = "DUPLICATE_AMBIGUITY"
 REASON_ACTION_BLOCKED = "ACTION_BLOCKED"
 REASON_INSUFFICIENT_SIGNAL = "INSUFFICIENT_SIGNAL"
 REASON_RULE37_BREACH = "RULE37_BREACH"
+REASON_RULE37A_NON_FILER = "RULE37A_NON_FILER"
+REASON_UNLINKED_CREDIT_NOTE = "UNLINKED_CREDIT_NOTE"
 REASON_LOW_MATCH_CONFIDENCE = "LOW_MATCH_CONFIDENCE"
 REASON_NO_MATCH_CONFIDENCE = "NO_MATCH_CONFIDENCE"
 
@@ -78,6 +80,7 @@ class InvoiceRecommendationInput:
     writeback_payload: Optional[dict[str, Any]] = None
     # Real flags / enrichment from outcome + compliance (not category labels alone)
     rule37_flag: bool = False
+    rule37a_flag: bool = False
     blocked_credit_flag: bool = False
     rule37_days_remaining: Optional[int] = None
     rule37_status: Optional[str] = None
@@ -315,6 +318,20 @@ def recommend_invoice(
             why=_rule37_why(inp),
         )
 
+    # Active Rule 37A → Hold (supplier GSTR-3B non-filing risk)
+    if inp.rule37a_flag:
+        return _rec(
+            inp,
+            action="hold",
+            score=score,
+            conf_source=conf_source,
+            codes=(REASON_RULE37A_NON_FILER,),
+            why=(
+                "Supplier has not filed GSTR-3B for the tax period (Rule 37A risk). "
+                "Hold on IMS until supplier files GSTR-3B to prevent mandatory ITC reversal."
+            ),
+        )
+
     match_status = (inp.match_status or "").strip().upper()
     has_amount_diff = abs(int(inp.total_tax_diff_paise or 0)) > 0 or abs(
         int(inp.taxable_value_diff_paise or 0)
@@ -399,6 +416,19 @@ def recommend_invoice(
         )
 
     if category == "missed_itc":
+        sec = (inp.section or "").strip().lower()
+        if sec in ("cn", "cna", "cdnr"):
+            return _rec(
+                inp,
+                action="hold",
+                score=score,
+                conf_source=conf_source,
+                codes=(REASON_UNLINKED_CREDIT_NOTE,),
+                why=(
+                    "Supplier Credit Note is present on IMS/GSTR-2B but unlinked in Purchase Register. "
+                    "Hold on IMS until the Credit Note is booked in accounting to prevent premature ITC reduction."
+                ),
+            )
         return _rec(
             inp,
             action="hold",

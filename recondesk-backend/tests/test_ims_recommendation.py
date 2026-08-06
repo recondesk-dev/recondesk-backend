@@ -361,3 +361,38 @@ def test_poll_outcome_pending_confirmed_failed():
         error_count=2,
     )
     assert outcome_from_poll(bad) == "failed"
+
+
+def test_rule37a_flag_holds_recommendation():
+    rec = recommend_invoice(
+        InvoiceRecommendationInput(
+            invoice_id="r37a:1",
+            supplier_gstin="27AAAAA0000A1Z5",
+            invoice_number="INV-37A",
+            category="matched",
+            ims_status="no_action_taken",
+            rule37a_flag=True,
+            match_confidence=1.0,
+        )
+    )
+    assert rec is not None
+    assert rec.recommended_action == "hold"
+    assert "RULE37A_NON_FILER" in rec.reason_codes
+    assert "Rule 37A risk" in rec.human_readable_why
+
+
+def test_unlinked_credit_note_holds_recommendation():
+    rec = recommend_invoice(
+        InvoiceRecommendationInput(
+            invoice_id="cn:1",
+            supplier_gstin="27AAAAA0000A1Z5",
+            invoice_number="CN-101",
+            category="missed_itc",
+            section="cn",
+            ims_status="no_action_taken",
+        )
+    )
+    assert rec is not None
+    assert rec.recommended_action == "hold"
+    assert "UNLINKED_CREDIT_NOTE" in rec.reason_codes
+    assert "unlinked in Purchase Register" in rec.human_readable_why
