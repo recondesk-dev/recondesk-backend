@@ -922,15 +922,6 @@ def parse_ledger_master_records(xml_text: str) -> list[dict[str, Any]]:
 
         state = state_gst or state_mailing or state_top
 
-        # Debug print for Box9 as requested
-        if name == "Box9":
-            derived_state = _GST_STATE_CODES.get(gstin[:2], "") if (not state and len(gstin) >= 2) else state
-            print(
-                f"State debug for Box9: LEDGSTREGDETAILS.LIST>STATE={state_gst!r}, "
-                f"LEDMAILINGDETAILS.LIST>STATE={state_mailing!r}, STATENAME={state_top!r}, "
-                f"derived={derived_state!r}"
-            )
-
         if not state and len(gstin) >= 2:
             state = _GST_STATE_CODES.get(gstin[:2], "")
 
@@ -961,16 +952,18 @@ def push_sync_payload(
     company_name: str,
     outstanding: list[dict[str, Any]],
     payments: list[dict[str, Any]],
+    ledgers: list[dict[str, Any]] | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
-    payload = json.dumps(
-        {
-            "company_name": company_name,
-            "synced_at": datetime.now(timezone.utc).isoformat(),
-            "outstanding": outstanding,
-            "payments": payments,
-        }
-    ).encode("utf-8")
+    payload_dict = {
+        "company_name": company_name,
+        "synced_at": datetime.now(timezone.utc).isoformat(),
+        "outstanding": outstanding,
+        "payments": payments,
+    }
+    if ledgers is not None:
+        payload_dict["ledgers"] = ledgers
+    payload = json.dumps(payload_dict).encode("utf-8")
     req = urllib.request.Request(
         endpoint,
         data=payload,
@@ -1086,24 +1079,41 @@ def run_once(
         logger.error("%s", exc)
         return 2
 
+    logger.info("Fetching Ledger Master from Tally at %s:%s (company=%r)", host, port, company)
+    try:
+        ledgers_xml = fetch_tally_xml(
+            host, port, build_ledger_master_xml(company)
+        )
+    except ConnectionError as exc:
+        logger.error("Failed to fetch Ledger Master: %s", exc)
+        ledgers_xml = ""
+
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     outstanding_path = out_dir / f"tally_bills_payable_{stamp}.xml"
     payments_path = out_dir / f"tally_daybook_payments_{stamp}.xml"
+    ledgers_path = out_dir / f"tally_ledger_master_{stamp}.xml"
     outstanding_path.write_text(outstanding_xml, encoding="utf-8")
     payments_path.write_text(payments_xml, encoding="utf-8")
+    if ledgers_xml:
+        ledgers_path.write_text(ledgers_xml, encoding="utf-8")
+
     outstanding_bytes = len(outstanding_xml.encode("utf-8"))
     payments_bytes = len(payments_xml.encode("utf-8"))
+    ledgers_bytes = len(ledgers_xml.encode("utf-8")) if ledgers_xml else 0
     logger.info(
-        "Saved raw XML → %s (%d bytes), %s (%d bytes)",
+        "Saved raw XML → %s (%d bytes), %s (%d bytes), %s (%d bytes)",
         outstanding_path,
         outstanding_bytes,
         payments_path,
         payments_bytes,
+        ledgers_path,
+        ledgers_bytes,
     )
 
     try:
         outstanding = parse_outstanding_records(outstanding_xml)
         payments = parse_payment_records(payments_xml)
+        ledgers = parse_ledger_master_records(ledgers_xml) if ledgers_xml else []
     except ET.ParseError as exc:
         logger.error("Failed to parse Tally XML: %s", exc)
         return 3
@@ -1132,14 +1142,17 @@ def run_once(
 
     outstanding_n = len(outstanding)
     payments_n = len(payments)
+    ledgers_n = len(ledgers)
     logger.info(
-        "Export summary: Bills Payable → %d outstanding row(s) "
-        "(%d raw bytes); Day Book Payment Agst Ref → %d payment row(s) "
-        "(%d raw bytes)",
+        "Export summary: Bills Payable → %d outstanding row(s) (%d raw bytes); "
+        "Day Book Payment Agst Ref → %d payment row(s) (%d raw bytes); "
+        "Ledger Master → %d record(s) (%d raw bytes)",
         outstanding_n,
         outstanding_bytes,
         payments_n,
         payments_bytes,
+        ledgers_n,
+        ledgers_bytes,
     )
     if outstanding_n == 0:
         logger.warning(
@@ -1163,8 +1176,9 @@ def run_once(
     parsed_path = out_dir / f"tally_bridge_{stamp}.json"
     parsed_path.write_text(
         json.dumps(
-            {"outstanding": outstanding, "payments": payments},
+            {"outstanding": outstanding, "payments": payments, "ledgers": ledgers},
             indent=2,
+            ensure_ascii=False,
         ),
         encoding="utf-8",
     )
@@ -1179,6 +1193,7 @@ def run_once(
         print("=== Tally Bridge --test summary ===")
         print(f"Bills Payable:     {outstanding_n} outstanding row(s)  [{outstanding_path.name}]")
         print(f"Day Book Payments: {payments_n} Agst Ref payment row(s)  [{payments_path.name}]")
+        print(f"Ledger Master:     {ledgers_n} record(s)  [{ledgers_path.name}]")
         if outstanding_n == 0 or payments_n == 0:
             print("WARNING: one or both exports returned zero parsed rows — do not enable push until fixed.")
         print(f"Parsed JSON:       {parsed_path.name}")
@@ -1204,6 +1219,7 @@ def run_once(
             company,
             outstanding,
             payments,
+            ledgers=ledgers,
         )
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
