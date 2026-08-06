@@ -417,6 +417,71 @@ AllLedgerEntries.LedgerName,AllLedgerEntries.Amount</FETCH>
 """
 
 
+def build_open_companies_xml() -> str:
+    """Fetch currently loaded/open companies in Tally via TDL COLLECTION."""
+    return """<?xml version="1.0"?>
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <TALLYREQUEST>Export</TALLYREQUEST>
+  <TYPE>Collection</TYPE>
+  <ID>RD_OpenCompanies</ID>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <STATICVARIABLES>
+    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+   </STATICVARIABLES>
+   <TDL>
+    <TDLMESSAGE>
+     <COLLECTION NAME="RD_OpenCompanies" ISMODIFY="No">
+      <TYPE>Company</TYPE>
+      <FETCH>NAME,COMPANYNUMBER,GUID,GSTREGISTRATIONNUMBER,STARTINGFROM</FETCH>
+     </COLLECTION>
+    </TDLMESSAGE>
+   </TDL>
+  </DESC>
+ </BODY>
+</ENVELOPE>
+"""
+
+
+def parse_open_companies_records(xml_text: str) -> list[dict[str, Any]]:
+    """Parse TDL Company Collection XML into open company metadata records."""
+    if not xml_text:
+        return []
+    try:
+        root = _parse_root(xml_text)
+    except ET.ParseError:
+        return []
+
+    records = []
+    seen = set()
+    for elem in root.iter():
+        if _local(elem.tag).upper() != "COMPANY":
+            continue
+        name = (
+            _find_direct_text(elem, ("NAME", "COMPANYNAME"))
+            or _find_text(elem, ("NAME", "COMPANYNAME"))
+            or (elem.attrib.get("NAME") or "").strip()
+        )
+        if not name or name in seen:
+            continue
+        seen.add(name)
+
+        comp_no = _find_direct_text(elem, ("COMPANYNUMBER",)) or _find_text(elem, ("COMPANYNUMBER",))
+        guid = _find_direct_text(elem, ("GUID",)) or _find_text(elem, ("GUID",))
+        gstin = _find_direct_text(elem, ("GSTREGISTRATIONNUMBER", "PARTYGSTIN")) or _find_text(elem, ("GSTREGISTRATIONNUMBER", "PARTYGSTIN"))
+
+        records.append({
+            "name": name,
+            "company_number": comp_no or "",
+            "guid": guid or "",
+            "gstin": (gstin or "").strip().upper(),
+        })
+    return records
+
+
 def build_ledger_master_xml(company_name: str, min_alter_id: int | None = None) -> str:
     company_xml = _company_static_xml(company_name)
     filter_tag = ""
@@ -1710,7 +1775,7 @@ def run_once(
 ) -> int:
     host = cfg["tally_host"]
     port = int(cfg["tally_port"])
-    company = cfg["company_name"]
+    company_cfg = cfg.get("company_name", "")
     lookback = int(cfg.get("lookback_days", 200))
     min_alter_id = cfg.get("last_alter_id")
     if min_alter_id is not None:
@@ -1721,13 +1786,30 @@ def run_once(
 
     from_ymd, to_ymd = _lookback_window(lookback)
 
-    logger.info(
-        "Fetching Bills Payable from Tally at %s:%s (company=%r, min_alter_id=%s)",
-        host,
-        port,
-        company,
-        min_alter_id,
+    open_companies = []
+    try:
+        companies_xml = fetch_tally_xml(host, port, build_open_companies_xml(), timeout=30.0)
+        open_companies = parse_open_companies_records(companies_xml)
+        if open_companies:
+            comp_names = [c["name"] for c in open_companies]
+            logger.info("Auto-discovered %d open Tally company(ies): %s", len(open_companies), comp_names)
+    except Exception as exc:
+        logger.warning("Auto-discovery of open companies failed: %s", exc)
+
+    target_companies = (
+        [c["name"] for c in open_companies]
+        if (company_cfg.lower() in ("", "auto", "all") and open_companies)
+        else [company_cfg]
     )
+
+    for company in target_companies:
+        logger.info(
+            "Syncing Tally company=%r at %s:%s (min_alter_id=%s)",
+            company,
+            host,
+            port,
+            min_alter_id,
+        )
     try:
         outstanding_xml = fetch_tally_xml(
             host, port, build_bills_payable_xml(company), timeout=120.0
