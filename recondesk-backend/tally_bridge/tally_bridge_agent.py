@@ -839,14 +839,34 @@ def parse_payment_records(xml_text: str) -> list[dict[str, Any]]:
     return records
 
 
+def _is_voucher_cancelled_or_deleted(voucher) -> bool:
+    """Check if a Tally voucher is marked as cancelled or deleted."""
+    action = (voucher.attrib.get("ACTION") or "").strip().lower()
+    if action in {"cancel", "delete"}:
+        return True
+    is_cancelled = (
+        _find_direct_text(voucher, ("ISCANCELLED",))
+        or _find_text(voucher, ("ISCANCELLED",))
+        or ""
+    ).strip().lower()
+    if is_cancelled in {"yes", "true", "1"}:
+        return True
+    is_deleted = (
+        _find_direct_text(voucher, ("ISDELETED", "ISDELETEDVCHRETAINED"))
+        or _find_text(voucher, ("ISDELETED", "ISDELETEDVCHRETAINED"))
+        or ""
+    ).strip().lower()
+    if is_deleted in {"yes", "true", "1"}:
+        return True
+    return False
+
+
 def parse_purchase_register_records(xml_text: str) -> list:
     """Parse Day Book XML into Purchase Register rows.
 
     Source is the same Day Book fetch used by parse_payment_records() —
     the dedicated "Purchase Register" report returns monthly summary
     totals, not itemized vouchers, so it is the wrong source.
-
-    Vouchers with ACTION="Cancel" are skipped (deleted/superseded entries).
     """
     root = _parse_root(xml_text)
     records = []
@@ -855,8 +875,8 @@ def parse_purchase_register_records(xml_text: str) -> list:
     for voucher in root.iter():
         if _local(voucher.tag).upper() != "VOUCHER":
             continue
-        if (voucher.attrib.get("ACTION") or "").strip().lower() == "cancel":
-            continue
+
+        is_cancelled = _is_voucher_cancelled_or_deleted(voucher)
 
         # _find_direct_text/_find_text scan in document order (they build a set
         # from the names tuple, discarding priority). Use separate single-tag
@@ -924,6 +944,7 @@ def parse_purchase_register_records(xml_text: str) -> list:
             "CGST Amt": f"{cgst_amt:.2f}",
             "SGST Amt": f"{sgst_amt:.2f}",
             "Gross Total": f"{gross_total:.2f}",
+            "Is Cancelled": is_cancelled,
         }
         key = (rec["Inv No."], rec["GSTIN/UIN"])
         if key in seen:
@@ -935,10 +956,7 @@ def parse_purchase_register_records(xml_text: str) -> list:
 
 
 def parse_sales_register_records(xml_text: str) -> list:
-    """Parse Day Book XML into Sales Register rows.
-
-    Vouchers with ACTION="Cancel" are skipped (deleted/superseded entries).
-    """
+    """Parse Day Book XML into Sales Register rows."""
     root = _parse_root(xml_text)
     records = []
     seen = set()
@@ -946,8 +964,8 @@ def parse_sales_register_records(xml_text: str) -> list:
     for voucher in root.iter():
         if _local(voucher.tag).upper() != "VOUCHER":
             continue
-        if (voucher.attrib.get("ACTION") or "").strip().lower() == "cancel":
-            continue
+
+        is_cancelled = _is_voucher_cancelled_or_deleted(voucher)
 
         voucher_date = _normalize_date(
             _find_direct_text(voucher, ("REFERENCEDATE",))
@@ -1047,6 +1065,7 @@ def parse_sales_register_records(xml_text: str) -> list:
             "SGST Amt": f"{sgst_amt:.2f}",
             "Gross Total": f"{gross_total:.2f}",
             "Items": items,
+            "Is Cancelled": is_cancelled,
         }
         key = (rec["Inv No."], rec["GSTIN/UIN"])
         if key in seen:
@@ -1058,10 +1077,7 @@ def parse_sales_register_records(xml_text: str) -> list:
 
 
 def parse_credit_debit_note_records(xml_text: str) -> list:
-    """Parse Day Book XML into Credit Note / Debit Note (CDNR) rows.
-
-    Vouchers with ACTION="Cancel" are skipped (deleted/superseded entries).
-    """
+    """Parse Day Book XML into Credit Note / Debit Note (CDNR) rows."""
     root = _parse_root(xml_text)
     records = []
     seen = set()
@@ -1069,8 +1085,8 @@ def parse_credit_debit_note_records(xml_text: str) -> list:
     for voucher in root.iter():
         if _local(voucher.tag).upper() != "VOUCHER":
             continue
-        if (voucher.attrib.get("ACTION") or "").strip().lower() == "cancel":
-            continue
+
+        is_cancelled = _is_voucher_cancelled_or_deleted(voucher)
 
         vtype = (
             _find_direct_text(voucher, ("VOUCHERTYPENAME", "VOUCHERTYPE"))
@@ -1140,6 +1156,7 @@ def parse_credit_debit_note_records(xml_text: str) -> list:
             "CGST Amt": f"{cgst_amt:.2f}",
             "SGST Amt": f"{sgst_amt:.2f}",
             "Gross Total": f"{gross_total:.2f}",
+            "Is Cancelled": is_cancelled,
         }
         key = (rec["Note No."], rec["GSTIN/UIN"], rec["voucher_type"])
         if key in seen:
