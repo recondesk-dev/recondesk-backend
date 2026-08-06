@@ -156,27 +156,21 @@ def build_daybook_payments_xml(
     """Fetch Payment vouchers (with Agst Ref bill allocations) via TDL COLLECTION.
 
     WHY NOT "Export Data" + REPORTNAME "Day Book":
-    TallyPrime's XML server does not render screen reports headlessly. Sending
-    TALLYREQUEST=Export Data / REPORTNAME=Day Book causes Tally to silently fall
-    back to an "Import Data / All Masters" master-sync dump — the wrong data
-    entirely, which is why parse_payment_records always returned 0 rows.
+    TallyPrime's XML server falls back to an "Import Data / All Masters" master
+    dump when it cannot render a screen report headlessly. COLLECTION requests
+    (TALLYREQUEST=Export, TYPE=Collection) bypass this entirely.
 
-    THE FIX — TDL COLLECTION request:
-    TALLYREQUEST=Export + TYPE=Collection instructs Tally to execute a named
-    TDL collection defined inline in the same request.
-
-    DATE FILTER: SVFromDate/SVToDate are NOT bound in COLLECTION filter formula
-    scope (confirmed by live diagnostic — using them as formula references was a
-    no-op, passing all vouchers). Dates are injected as $$StringToDate literals
-    directly into the formula string at Python build time instead.
+    DATE FILTERING — confirmed by live bisection diagnostic:
+    $$StringToDate formula comparisons against $Date do not work in COLLECTION
+    filter formula scope in this Tally version: both YYYYMMDD and DD-Mon-YYYY
+    formats pass only null-DATE vouchers and reject all vouchers with real dates.
+    SVFROMDATE/SVTODATE in STATICVARIABLES do apply at the engine level, so
+    the date window is still enforced — just not via an inline formula filter.
+    RD_InDateRange has been removed; only RD_IsPayment remains as a FILTER.
 
     Dates must be YYYYMMDD (Tally native).
     """
     company_xml = _company_static_xml(company_name)
-    date_filter = (
-        f'$Date &gt;= $$StringToDate:"{from_date}"'
-        f' AND $Date &lt;= $$StringToDate:"{to_date}"'
-    )
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
  <HEADER>
@@ -196,7 +190,7 @@ def build_daybook_payments_xml(
     <TDLMESSAGE>
      <COLLECTION NAME="RD_PaymentVouchers" ISMODIFY="No">
       <TYPE>Voucher</TYPE>
-      <FILTERS>RD_IsPayment,RD_InDateRange</FILTERS>
+      <FILTERS>RD_IsPayment</FILTERS>
       <FETCH>Date,VoucherTypeName,VoucherNumber,PartyledgerName,
 AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
 AllLedgerEntries.BillAllocations.Name,
@@ -204,7 +198,6 @@ AllLedgerEntries.BillAllocations.BillType,
 AllLedgerEntries.BillAllocations.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsPayment">$$IsPayment:$VoucherTypeName</SYSTEM>
-     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>
     </TDLMESSAGE>
    </TDL>
   </DESC>
@@ -220,17 +213,14 @@ def build_purchase_register_xml(
 ) -> str:
     """Fetch Purchase vouchers via TDL COLLECTION.
 
-    Same COLLECTION approach and same date-filter fix as build_daybook_payments_xml:
-    SVFromDate/SVToDate are not bound in COLLECTION filter formula scope, so
-    dates are injected as $$StringToDate literals at Python build time.
+    Same COLLECTION approach as build_daybook_payments_xml. Date bounding is
+    handled by SVFROMDATE/SVTODATE in STATICVARIABLES — formula-based date
+    filters ($$StringToDate comparisons) are confirmed broken in COLLECTION
+    filter scope for this Tally version and have been removed.
 
     Dates must be YYYYMMDD (Tally native).
     """
     company_xml = _company_static_xml(company_name)
-    date_filter = (
-        f'$Date &gt;= $$StringToDate:"{from_date}"'
-        f' AND $Date &lt;= $$StringToDate:"{to_date}"'
-    )
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
  <HEADER>
@@ -250,13 +240,12 @@ def build_purchase_register_xml(
     <TDLMESSAGE>
      <COLLECTION NAME="RD_PurchaseVouchers" ISMODIFY="No">
       <TYPE>Voucher</TYPE>
-      <FILTERS>RD_IsPurchase,RD_PRInDateRange</FILTERS>
+      <FILTERS>RD_IsPurchase</FILTERS>
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
 PartyledgerName,PartyGstin,
 AllLedgerEntries.LedgerName,AllLedgerEntries.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsPurchase">$$IsPurchase:$VoucherTypeName</SYSTEM>
-     <SYSTEM TYPE="Formulae" NAME="RD_PRInDateRange">{date_filter}</SYSTEM>
     </TDLMESSAGE>
    </TDL>
   </DESC>
