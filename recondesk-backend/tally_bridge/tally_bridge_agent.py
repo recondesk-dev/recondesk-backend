@@ -163,13 +163,20 @@ def build_daybook_payments_xml(
 
     THE FIX — TDL COLLECTION request:
     TALLYREQUEST=Export + TYPE=Collection instructs Tally to execute a named
-    TDL collection defined inline in the same request. The COLLECTION filters
-    by VoucherDate range and fetches BILLALLOCATIONS.LIST natively, which is
-    the only reliable programmatic path in TallyPrime 3.x+.
+    TDL collection defined inline in the same request.
+
+    DATE FILTER: SVFromDate/SVToDate are NOT bound in COLLECTION filter formula
+    scope (confirmed by live diagnostic — using them as formula references was a
+    no-op, passing all vouchers). Dates are injected as $$StringToDate literals
+    directly into the formula string at Python build time instead.
 
     Dates must be YYYYMMDD (Tally native).
     """
     company_xml = _company_static_xml(company_name)
+    date_filter = (
+        f'$Date &gt;= $$StringToDate:"{from_date}"'
+        f' AND $Date &lt;= $$StringToDate:"{to_date}"'
+    )
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
  <HEADER>
@@ -197,7 +204,7 @@ AllLedgerEntries.BillAllocations.BillType,
 AllLedgerEntries.BillAllocations.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsPayment">$$IsPayment:$VoucherTypeName</SYSTEM>
-     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">$Date &gt;= SVFromDate AND $Date &lt;= SVToDate</SYSTEM>
+     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>
     </TDLMESSAGE>
    </TDL>
   </DESC>
@@ -211,15 +218,19 @@ def build_purchase_register_xml(
     from_date: str,
     to_date: str,
 ) -> str:
-    """Fetch Purchase vouchers via TDL COLLECTION (same fix as build_daybook_payments_xml).
+    """Fetch Purchase vouchers via TDL COLLECTION.
 
-    "Export Data" + REPORTNAME "Purchase Register" triggers the same Tally
-    silent-fallback as the Day Book request. Switched to a COLLECTION request
-    that fetches Purchase vouchers with ledger-entry breakdown for GST fields.
+    Same COLLECTION approach and same date-filter fix as build_daybook_payments_xml:
+    SVFromDate/SVToDate are not bound in COLLECTION filter formula scope, so
+    dates are injected as $$StringToDate literals at Python build time.
 
     Dates must be YYYYMMDD (Tally native).
     """
     company_xml = _company_static_xml(company_name)
+    date_filter = (
+        f'$Date &gt;= $$StringToDate:"{from_date}"'
+        f' AND $Date &lt;= $$StringToDate:"{to_date}"'
+    )
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
  <HEADER>
@@ -245,7 +256,7 @@ PartyledgerName,PartyGstin,
 AllLedgerEntries.LedgerName,AllLedgerEntries.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsPurchase">$$IsPurchase:$VoucherTypeName</SYSTEM>
-     <SYSTEM TYPE="Formulae" NAME="RD_PRInDateRange">$Date &gt;= SVFromDate AND $Date &lt;= SVToDate</SYSTEM>
+     <SYSTEM TYPE="Formulae" NAME="RD_PRInDateRange">{date_filter}</SYSTEM>
     </TDLMESSAGE>
    </TDL>
   </DESC>
