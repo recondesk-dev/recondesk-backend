@@ -1,0 +1,38 @@
+name: Build Tally Bridge (.exe)
+
+on:
+  push:
+    paths:
+      - "tally_bridge/**"
+      - ".github/workflows/build-tally-bridge.yml"
+    tags:
+      - "tally-bridge-v*"
+  pull_request:
+    paths:
+      - "tally_bridge/**"
+
+jobs:
+  build-windows-exe:
+    name: Build Windows Exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build Executable via build.ps1
+        shell: powershell
+        run: |
+          cd tally_bridge
+          powershell -ExecutionPolicy Bypass -File .\build.ps1
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReconDeskTallyBridge
+          path: tally_bridge/dist/ReconDeskTallyBridge.exe
