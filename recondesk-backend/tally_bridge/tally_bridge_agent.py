@@ -257,13 +257,13 @@ def build_purchase_register_xml(
       <TYPE>Voucher</TYPE>
       <FILTERS>{filters_str}</FILTERS>
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
-PartyledgerName,PartyGstin,ALTERID,MASTERID,ISCANCELLED,ISDELETED,
-AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
+PartyLedgerName,PartyGstin,ALTERID,MASTERID,ISCANCELLED,ISDELETED,
+AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,AllLedgerEntries.HSNCode,AllLedgerEntries.GSTHSNCode,
 AllLedgerEntries.CategoryAllocations.Category,
 AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Name,
 AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Amount,
-AllInventoryEntries.StockItemName,AllInventoryEntries.BilledQty,AllInventoryEntries.Rate,AllInventoryEntries.Amount,
-InventoryEntries.StockItemName,InventoryEntries.BilledQty,InventoryEntries.Rate,InventoryEntries.Amount</FETCH>
+AllInventoryEntries.StockItemName,AllInventoryEntries.HSNCode,AllInventoryEntries.BilledQty,AllInventoryEntries.Rate,AllInventoryEntries.Amount,
+InventoryEntries.StockItemName,InventoryEntries.HSNCode,InventoryEntries.BilledQty,InventoryEntries.Rate,InventoryEntries.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsPurchase">$$IsPurchase:$VoucherTypeName</SYSTEM>
      <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>{alter_formula}
@@ -1309,41 +1309,59 @@ def parse_purchase_register_records(xml_text: str) -> list:
         cgst_amt = 0.0
         sgst_amt = 0.0
         igst_amt = 0.0
+        cess_amt = 0.0
+        hsn_codes: list[str] = []
 
         for entry in voucher.iter():
             etag = _local(entry.tag).upper()
-            if etag not in {"ALLLEDGERENTRIES.LIST", "LEDGERENTRIES.LIST", "LEDGERENTRY"}:
-                continue
-            ledger_name = (
-                _find_direct_text(entry, ("LEDGERNAME",))
-                or _find_text(entry, ("LEDGERNAME",))
-            )
-            amount = _parse_amount(
-                _find_direct_text(entry, ("AMOUNT",)) or _find_text(entry, ("AMOUNT",))
-            )
-            if amount is None:
-                continue
-            name_upper = (ledger_name or "").upper()
-            if "CGST" in name_upper:
-                cgst_amt += abs(amount)
-            elif "SGST" in name_upper or "UTGST" in name_upper:
-                sgst_amt += abs(amount)
-            elif "IGST" in name_upper:
-                igst_amt += abs(amount)
-            elif ledger_name and ledger_name != party:
-                taxable_amt += abs(amount)
+            if etag in {"ALLLEDGERENTRIES.LIST", "LEDGERENTRIES.LIST", "LEDGERENTRY"}:
+                hsn = (
+                    _find_direct_text(entry, ("HSNCODE", "GSTHSNCODE"))
+                    or _find_text(entry, ("HSNCODE", "GSTHSNCODE"))
+                )
+                if hsn and hsn not in hsn_codes:
+                    hsn_codes.append(hsn)
+                ledger_name = (
+                    _find_direct_text(entry, ("LEDGERNAME",))
+                    or _find_text(entry, ("LEDGERNAME",))
+                )
+                amount = _parse_amount(
+                    _find_direct_text(entry, ("AMOUNT",)) or _find_text(entry, ("AMOUNT",))
+                )
+                if amount is None:
+                    continue
+                name_upper = (ledger_name or "").upper()
+                if "CGST" in name_upper:
+                    cgst_amt += abs(amount)
+                elif "SGST" in name_upper or "UTGST" in name_upper:
+                    sgst_amt += abs(amount)
+                elif "IGST" in name_upper:
+                    igst_amt += abs(amount)
+                elif "CESS" in name_upper:
+                    cess_amt += abs(amount)
+                elif ledger_name and ledger_name != party:
+                    taxable_amt += abs(amount)
+            elif etag in {"ALLINVENTORYENTRIES.LIST", "INVENTORYENTRIES.LIST", "INVENTORYENTRY"}:
+                hsn = (
+                    _find_direct_text(entry, ("HSNCODE", "GSTHSNCODE"))
+                    or _find_text(entry, ("HSNCODE", "GSTHSNCODE"))
+                )
+                if hsn and hsn not in hsn_codes:
+                    hsn_codes.append(hsn)
 
-        gross_total = taxable_amt + cgst_amt + sgst_amt + igst_amt
+        gross_total = taxable_amt + cgst_amt + sgst_amt + igst_amt + cess_amt
 
         rec = {
             "GSTIN/UIN": party_gstin or "",
             "Party's A/c Name": party or "",
             "Inv No.": voucher_number or "",
             "Inv Date": voucher_date or "",
+            "HSN/SAC": ", ".join(hsn_codes),
             "Taxable Amt": f"{taxable_amt:.2f}",
             "IGST Amt": f"{igst_amt:.2f}",
             "CGST Amt": f"{cgst_amt:.2f}",
             "SGST Amt": f"{sgst_amt:.2f}",
+            "Cess Amt": f"{cess_amt:.2f}",
             "Gross Total": f"{gross_total:.2f}",
             "Is Cancelled": is_cancelled,
             "Voucher GUID": guid,

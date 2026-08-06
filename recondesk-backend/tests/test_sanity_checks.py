@@ -134,12 +134,12 @@ def test_parser_includes_row_with_malformed_gstin():
     assert rec["gstin"] == "BADINVALIDGSTIN"
 
 
-def test_parser_skips_row_with_blank_gstin():
-    """A row with a completely blank supplier GSTIN must still be rejected (row is meaningless)."""
+def test_parser_handles_row_with_blank_gstin():
+    """A row with a blank supplier GSTIN is imported with gstin=None (unregistered vendor / EDU data)."""
     csv_data = _csv_bytes(**{"Supplier GSTIN": ""})
     result = parse_purchase_register(csv_data, "test.csv")
-    # valid_rows should be 0 since the only row has a blank GSTIN
-    assert len(result["records"]) == 0, "Row with blank GSTIN must be skipped"
+    assert len(result["records"]) == 1
+    assert result["records"][0]["gstin"] is None
 
 
 def test_parser_keeps_conflicting_duplicate_invoices():

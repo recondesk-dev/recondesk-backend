@@ -952,10 +952,6 @@ export default function ReconcileResultsPage() {
       ? tokenState
       : null;
 
-  useEffect(() => {
-    console.log("[results] tokenState:", tokenState === null ? "null (loading)" : tokenState === false ? "false (no session)" : `"${String(tokenState).slice(0, 20)}..."`);
-  }, [tokenState]);
-
   const [riskPage, setRiskPage] = useState(1);
   const [itcPage, setItcPage] = useState(1);
   const [matchedPage, setMatchedPage] = useState(1);

@@ -247,12 +247,7 @@ def _gstin_identity_ok(
     When GSTIN is present on at least one side it remains the primary key
     (both must match). When both sides are empty/null — legitimate for
     B2CL and Export — identity falls through to invoice + amount + date.
-
-    Sales-side matching sets ``allow_gstin_mismatch`` so invoice number is
-    the primary key; GSTIN diffs are classified separately (G1M7).
     """
-    if config.allow_gstin_mismatch:
-        return True
     return _gstin_match(rec_a, rec_b, config) or _gstin_both_absent(
         rec_a, rec_b, config
     )

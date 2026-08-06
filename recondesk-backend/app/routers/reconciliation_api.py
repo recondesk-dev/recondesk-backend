@@ -4981,6 +4981,12 @@ async def get_gstr9c_itc_fy_rollup(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
+    except Exception as exc:
+        _log.exception("GSTR-9C FY rollup failed for client=%s fy=%s", cid, fy_raw)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unable to generate GSTR-9C FY rollup: {str(exc)}",
+        ) from exc
 
 
 @reconcile_runs_router.patch(
