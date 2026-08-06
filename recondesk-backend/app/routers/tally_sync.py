@@ -399,9 +399,190 @@ async def tally_sync_purchase_register(
     try:
         sb.table("tally_bridge_keys").update(
             {"last_synced_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", str(key_row.get("id") or "")).execute()
+        ).eq("id", str(key_row.get("id"))).execute()
     except Exception:
-        _log.warning("Failed to update last_synced_at for key_id=%s", key_row.get("id"))
+        pass
+
+    return {"run_id": run_id, "status": "importing"}
+
+
+class TallySalesRegisterBody(BaseModel):
+    client_gstin_id: str = Field(..., min_length=1)
+    period: str = Field(..., min_length=7, max_length=7)  # YYYY-MM
+    company_name: str = ""
+    rows: List[dict] = Field(default_factory=list)
+
+    @field_validator("period")
+    @classmethod
+    def _validate_period(cls, v: str) -> str:
+        if not _PERIOD_RE.match(v):
+            raise ValueError("period must be YYYY-MM")
+        return v
+
+
+@router.post("/sales-register")
+def tally_sync_sales_register(
+    body: TallySalesRegisterBody,
+    key_row: dict[str, Any] = Depends(require_tally_bridge_key),
+):
+    """Receive a parsed Sales Register from the local Tally Bridge agent.
+
+    Builds an .xlsx from the raw Tally rows (native header names), uploads to R2,
+    and dispatches the existing run_import_job task with file_type 'sales_register'.
+    """
+    account_id = str(key_row.get("account_id") or "").strip()
+    if not account_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="api key missing account_id",
+        )
+
+    cg = str(body.client_gstin_id).strip()
+    period_norm = str(body.period).strip()
+
+    # ── 1. Ownership check ────────────────────────────────────────────────
+    sb = get_supabase()
+    try:
+        cg_res = (
+            sb.table("client_gstins")
+            .select("id, firm_owner_id")
+            .eq("id", cg)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        _log.exception("client_gstins lookup failed cg=%s", cg)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="database error",
+        ) from exc
+    if not cg_res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="client_gstin_id not found",
+        )
+    firm_owner = str(cg_res.data[0].get("firm_owner_id") or "").strip()
+    if firm_owner != account_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="client_gstin_id does not belong to this api key",
+        )
+
+    # ── 2. Build .xlsx from rows ──────────────────────────────────────────
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(_PR_HEADERS)
+    for row in body.rows:
+        ws.append([str(row.get(h, "")) for h in _PR_HEADERS])
+    buf = io.BytesIO()
+    wb.save(buf)
+    xlsx_bytes = buf.getvalue()
+
+    # ── 3. Deduplicate on (client_gstin_id, period, file_hash, file_type) ─
+    file_hash = hashlib.sha256(xlsx_bytes).hexdigest()
+    ts = int(datetime.now(timezone.utc).timestamp())
+    r2_key = f"uploads/{cg}/{period_norm}/tally_sr_{ts}.xlsx"
+
+    dup = (
+        sb.table("reconciliation_run")
+        .select("id, status")
+        .eq("client_gstin_id", cg)
+        .eq("period", period_norm)
+        .eq("file_hash", file_hash)
+        .eq("file_type", "sales_register")
+        .limit(1)
+        .execute()
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    if dup.data:
+        row_d = dup.data[0]
+        prev_status = (row_d.get("status") or "").strip().lower()
+        if prev_status not in ("failed",):
+            return {"run_id": row_d["id"], "status": prev_status or "queued"}
+        run_id = row_d["id"]
+        sb.table("reconciliation_run").update(
+            {
+                "r2_key": r2_key,
+                "status": "uploading",
+                "progress_percent": 0,
+                "status_message": None,
+                "updated_at": now,
+            }
+        ).eq("id", run_id).execute()
+    else:
+        run_id = str(uuid4())
+        sb.table("reconciliation_run").insert(
+            {
+                "id": run_id,
+                "client_gstin_id": cg,
+                "period": period_norm,
+                "file_type": "sales_register",
+                "file_hash": file_hash,
+                "r2_key": r2_key,
+                "status": "uploading",
+                "progress_percent": 0,
+                "created_at": now,
+                "updated_at": now,
+            }
+        ).execute()
+
+    # ── 4. Upload xlsx to R2 ──────────────────────────────────────────────
+    bucket = get_settings().R2_BUCKET_NAME
+    try:
+        _s3_client().put_object(
+            Bucket=bucket,
+            Key=r2_key,
+            Body=xlsx_bytes,
+            ContentType=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+        )
+        sb.table("reconciliation_run").update(
+            {"status": "queued", "updated_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", run_id).execute()
+    except Exception as exc:
+        _log.exception("R2 upload failed run_id=%s r2_key=%s", run_id, r2_key)
+        sb.table("reconciliation_run").update(
+            {
+                "status": "failed",
+                "status_message": str(exc),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).eq("id", run_id).execute()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="R2 upload failed",
+        ) from exc
+
+    # ── 5. Dispatch import job ────────────────────────────────────────────
+    try:
+        from app.worker.tasks import run_import_job
+
+        if get_settings().import_use_celery:
+            from app.worker.celery_app import celery_app
+
+            try:
+                celery_app.send_task(
+                    "worker.run_import_job",
+                    args=[run_id, "sales_register", r2_key],
+                )
+            except Exception as celery_exc:
+                _log.warning(
+                    "Celery enqueue failed; running synchronously: %s", celery_exc
+                )
+                run_import_job.apply(args=[run_id, "sales_register", r2_key])
+        else:
+            run_import_job.apply(args=[run_id, "sales_register", r2_key])
+    except Exception:
+        _log.exception("import job dispatch failed run_id=%s", run_id)
+
+    # ── 6. Update last_synced_at on the bridge key ────────────────────────
+    try:
+        sb.table("tally_bridge_keys").update(
+            {"last_synced_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", str(key_row.get("id"))).execute()
+    except Exception:
+        pass
 
     return {"run_id": run_id, "status": "importing"}
 

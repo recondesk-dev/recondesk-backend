@@ -258,6 +258,56 @@ AllLedgerEntries.LedgerName,AllLedgerEntries.Amount</FETCH>
 """
 
 
+def build_sales_register_xml(
+    company_name: str,
+    from_date: str,
+    to_date: str,
+) -> str:
+    """Fetch Sales vouchers via TDL COLLECTION.
+
+    Uses exact TDL numeric date component math for 100% precise date bounding.
+
+    Dates must be YYYYMMDD (Tally native).
+    """
+    company_xml = _company_static_xml(company_name)
+    date_math = "($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)"
+    date_filter = f"NOT $$IsEmpty:$Date AND {date_math} &gt;= {from_date} AND {date_math} &lt;= {to_date}"
+
+    return f"""<?xml version="1.0"?>
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <TALLYREQUEST>Export</TALLYREQUEST>
+  <TYPE>Collection</TYPE>
+  <ID>RD_SalesVouchers</ID>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <STATICVARIABLES>
+    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+    <SVFROMDATE>{from_date}</SVFROMDATE>
+    <SVTODATE>{to_date}</SVTODATE>
+    {company_xml}  </STATICVARIABLES>
+   <TDL>
+    <TDLMESSAGE>
+     <COLLECTION NAME="RD_SalesVouchers" ISMODIFY="No">
+      <TYPE>Voucher</TYPE>
+      <FILTERS>RD_IsSales,RD_InDateRange</FILTERS>
+      <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
+PartyledgerName,PartyGstin,
+AllLedgerEntries.LedgerName,AllLedgerEntries.Amount</FETCH>
+     </COLLECTION>
+     <SYSTEM TYPE="Formulae" NAME="RD_IsSales">$$IsSales:$VoucherTypeName</SYSTEM>
+     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>
+    </TDLMESSAGE>
+   </TDL>
+  </DESC>
+ </BODY>
+</ENVELOPE>
+"""
+
+
+
 def build_ledger_master_xml(company_name: str) -> str:
     """Fetch Ledger Master list via TDL COLLECTION.
 
@@ -827,6 +877,92 @@ def parse_purchase_register_records(xml_text: str) -> list:
     return records
 
 
+def parse_sales_register_records(xml_text: str) -> list:
+    """Parse Day Book XML into Sales Register rows.
+
+    Vouchers with ACTION="Cancel" are skipped (deleted/superseded entries).
+    """
+    root = _parse_root(xml_text)
+    records = []
+    seen = set()
+
+    for voucher in root.iter():
+        if _local(voucher.tag).upper() != "VOUCHER":
+            continue
+        if (voucher.attrib.get("ACTION") or "").strip().lower() == "cancel":
+            continue
+
+        voucher_date = _normalize_date(
+            _find_direct_text(voucher, ("REFERENCEDATE",))
+            or _find_text(voucher, ("REFERENCEDATE",))
+            or _find_direct_text(voucher, ("DATE", "VOUCHERDATE"))
+            or _find_text(voucher, ("DATE", "VOUCHERDATE"))
+        )
+        voucher_number = (
+            _find_direct_text(voucher, ("REFERENCE",))
+            or _find_text(voucher, ("REFERENCE",))
+            or _find_direct_text(voucher, ("VOUCHERNUMBER", "NUMBER"))
+            or _find_text(voucher, ("VOUCHERNUMBER", "NUMBER"))
+        )
+        party = (
+            _find_direct_text(voucher, ("PARTYLEDGERNAME", "PARTYNAME", "LEDGERNAME"))
+            or _find_text(voucher, ("PARTYLEDGERNAME", "PARTYNAME", "LEDGERNAME"))
+        )
+        party_gstin = (
+            _find_direct_text(voucher, ("PARTYGSTIN", "GSTIN", "GSTREGISTRATIONNUMBER"))
+            or _find_text(voucher, ("PARTYGSTIN", "GSTIN", "GSTREGISTRATIONNUMBER"))
+        )
+
+        taxable_amt = 0.0
+        cgst_amt = 0.0
+        sgst_amt = 0.0
+        igst_amt = 0.0
+
+        for entry in voucher.iter():
+            etag = _local(entry.tag).upper()
+            if etag not in {"ALLLEDGERENTRIES.LIST", "LEDGERENTRIES.LIST", "LEDGERENTRY"}:
+                continue
+            ledger_name = (
+                _find_direct_text(entry, ("LEDGERNAME",))
+                or _find_text(entry, ("LEDGERNAME",))
+            )
+            amount = _parse_amount(
+                _find_direct_text(entry, ("AMOUNT",)) or _find_text(entry, ("AMOUNT",))
+            )
+            if amount is None:
+                continue
+            name_upper = (ledger_name or "").upper()
+            if "CGST" in name_upper:
+                cgst_amt += abs(amount)
+            elif "SGST" in name_upper or "UTGST" in name_upper:
+                sgst_amt += abs(amount)
+            elif "IGST" in name_upper:
+                igst_amt += abs(amount)
+            elif ledger_name and ledger_name != party:
+                taxable_amt += abs(amount)
+
+        gross_total = taxable_amt + cgst_amt + sgst_amt + igst_amt
+
+        rec = {
+            "GSTIN/UIN": party_gstin or "",
+            "Party's A/c Name": party or "",
+            "Inv No.": voucher_number or "",
+            "Inv Date": voucher_date or "",
+            "Taxable Amt": f"{taxable_amt:.2f}",
+            "IGST Amt": f"{igst_amt:.2f}",
+            "CGST Amt": f"{cgst_amt:.2f}",
+            "SGST Amt": f"{sgst_amt:.2f}",
+            "Gross Total": f"{gross_total:.2f}",
+        }
+        key = (rec["Inv No."], rec["GSTIN/UIN"])
+        if key in seen:
+            continue
+        seen.add(key)
+        records.append(rec)
+
+    return records
+
+
 _GST_STATE_CODES: dict[str, str] = {
     "01": "Jammu & Kashmir",
     "02": "Himachal Pradesh",
@@ -1015,6 +1151,40 @@ def push_purchase_register_payload(
         return {"raw": body}
 
 
+def push_sales_register_payload(
+    endpoint: str,
+    api_key: str,
+    client_gstin_id: str,
+    period: str,  # "YYYY-MM"
+    company_name: str,
+    rows: list,
+    timeout: float = 60.0,
+) -> dict:
+    payload = json.dumps(
+        {
+            "client_gstin_id": client_gstin_id,
+            "period": period,
+            "company_name": company_name,
+            "rows": rows,
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        endpoint,
+        data=payload,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        body = resp.read().decode("utf-8", errors="replace")
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        return {"raw": body}
+
+
 def _lookback_window(lookback_days: int) -> tuple[str, str]:
     to_dt = datetime.now().date()
     from_dt = to_dt - timedelta(days=max(1, int(lookback_days)))
@@ -1045,7 +1215,7 @@ def run_once(
     host = cfg["tally_host"]
     port = int(cfg["tally_port"])
     company = cfg["company_name"]
-    lookback = int(cfg["lookback_days"])
+    lookback = int(cfg.get("lookback_days", 200))
     from_ymd, to_ymd = _lookback_window(lookback)
 
     logger.info(
@@ -1056,7 +1226,7 @@ def run_once(
     )
     try:
         outstanding_xml = fetch_tally_xml(
-            host, port, build_bills_payable_xml(company)
+            host, port, build_bills_payable_xml(company), timeout=120.0
         )
     except ConnectionError as exc:
         logger.error("%s", exc)
@@ -1088,26 +1258,49 @@ def run_once(
         logger.error("Failed to fetch Ledger Master: %s", exc)
         ledgers_xml = ""
 
+    logger.info(
+        "Fetching Sales Register %s→%s (lookback_days=%s)",
+        from_ymd,
+        to_ymd,
+        lookback,
+    )
+    try:
+        sales_xml = fetch_tally_xml(
+            host,
+            port,
+            build_sales_register_xml(company, from_ymd, to_ymd),
+            timeout=120.0,
+        )
+    except ConnectionError as exc:
+        logger.error("Failed to fetch Sales Register: %s", exc)
+        sales_xml = ""
+
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     outstanding_path = out_dir / f"tally_bills_payable_{stamp}.xml"
     payments_path = out_dir / f"tally_daybook_payments_{stamp}.xml"
     ledgers_path = out_dir / f"tally_ledger_master_{stamp}.xml"
+    sales_path = out_dir / f"tally_sales_register_{stamp}.xml"
     outstanding_path.write_text(outstanding_xml, encoding="utf-8")
     payments_path.write_text(payments_xml, encoding="utf-8")
     if ledgers_xml:
         ledgers_path.write_text(ledgers_xml, encoding="utf-8")
+    if sales_xml:
+        sales_path.write_text(sales_xml, encoding="utf-8")
 
     outstanding_bytes = len(outstanding_xml.encode("utf-8"))
     payments_bytes = len(payments_xml.encode("utf-8"))
     ledgers_bytes = len(ledgers_xml.encode("utf-8")) if ledgers_xml else 0
+    sales_bytes = len(sales_xml.encode("utf-8")) if sales_xml else 0
     logger.info(
-        "Saved raw XML → %s (%d bytes), %s (%d bytes), %s (%d bytes)",
+        "Saved raw XML → %s (%d bytes), %s (%d bytes), %s (%d bytes), %s (%d bytes)",
         outstanding_path,
         outstanding_bytes,
         payments_path,
         payments_bytes,
         ledgers_path,
         ledgers_bytes,
+        sales_path,
+        sales_bytes,
     )
 
     try:
@@ -1124,12 +1317,12 @@ def run_once(
     unattached = purchase_by_period.pop("", [])
     if unattached:
         logger.warning(
-            "%d purchase row(s) had no parseable Inv Date \u2014 skipped, not pushed",
+            "%d purchase row(s) had no parseable Inv Date — skipped, not pushed",
             len(unattached),
         )
 
     logger.info(
-        "Purchase Register \u2192 %d row(s) across %d period(s): %s",
+        "Purchase Register → %d row(s) across %d period(s): %s",
         len(purchase_rows), len(purchase_by_period), sorted(purchase_by_period.keys()),
     )
 
@@ -1138,21 +1331,46 @@ def run_once(
         json.dumps(purchase_by_period, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-    logger.info("Saved purchase register rows \u2192 %s", pr_parsed_path)
+    logger.info("Saved purchase register rows → %s", pr_parsed_path)
+
+    sales_rows = parse_sales_register_records(sales_xml) if sales_xml else []
+    sales_by_period = _group_purchase_rows_by_period(sales_rows)
+    unattached_sales = sales_by_period.pop("", [])
+    if unattached_sales:
+        logger.warning(
+            "%d sales row(s) had no parseable Inv Date — skipped",
+            len(unattached_sales),
+        )
+
+    logger.info(
+        "Sales Register → %d row(s) across %d period(s): %s",
+        len(sales_rows), len(sales_by_period), sorted(sales_by_period.keys()),
+    )
+
+    sr_parsed_path = out_dir / f"tally_sales_register_parsed_{stamp}.json"
+    sr_parsed_path.write_text(
+        json.dumps(sales_by_period, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    logger.info("Saved sales register rows → %s", sr_parsed_path)
 
     outstanding_n = len(outstanding)
     payments_n = len(payments)
     ledgers_n = len(ledgers)
+    sales_n = len(sales_rows)
     logger.info(
         "Export summary: Bills Payable → %d outstanding row(s) (%d raw bytes); "
         "Day Book Payment Agst Ref → %d payment row(s) (%d raw bytes); "
-        "Ledger Master → %d record(s) (%d raw bytes)",
+        "Ledger Master → %d record(s) (%d raw bytes); "
+        "Sales Register → %d row(s) (%d raw bytes)",
         outstanding_n,
         outstanding_bytes,
         payments_n,
         payments_bytes,
         ledgers_n,
         ledgers_bytes,
+        sales_n,
+        sales_bytes,
     )
     if outstanding_n == 0:
         logger.warning(
@@ -1194,6 +1412,7 @@ def run_once(
         print(f"Bills Payable:     {outstanding_n} outstanding row(s)  [{outstanding_path.name}]")
         print(f"Day Book Payments: {payments_n} Agst Ref payment row(s)  [{payments_path.name}]")
         print(f"Ledger Master:     {ledgers_n} record(s)  [{ledgers_path.name}]")
+        print(f"Sales Register:    {sales_n} row(s) across {len(sales_by_period)} period(s) {sorted(sales_by_period.keys())}  [{sales_path.name}]")
         if outstanding_n == 0 or payments_n == 0:
             print("WARNING: one or both exports returned zero parsed rows — do not enable push until fixed.")
         print(f"Parsed JSON:       {parsed_path.name}")
@@ -1203,6 +1422,8 @@ def run_once(
         print(payments_xml[:2000] or "(empty)")
         print(f"Purchase Register:  {len(purchase_rows)} row(s) across "
               f"{len(purchase_by_period)} period(s)  {sorted(purchase_by_period.keys())}  [from Day Book]")
+        print(f"Sales Register:     {len(sales_rows)} row(s) across "
+              f"{len(sales_by_period)} period(s)  {sorted(sales_by_period.keys())}  [from Sales Vouchers]")
         return 0
 
     if not cfg["api_key"]:
@@ -1232,27 +1453,45 @@ def run_once(
     logger.info("Push OK: %s", result)
 
     if not cfg.get("client_gstin_id"):
-        logger.warning("client_gstin_id not set in config \u2014 skipping purchase register push")
-    elif not cfg.get("pr_sync_endpoint"):
-        logger.warning("pr_sync_endpoint not set in config \u2014 skipping purchase register push")
+        logger.warning("client_gstin_id not set in config — skipping purchase/sales register push")
     else:
-        for period, period_rows in purchase_by_period.items():
-            try:
-                pr_result = push_purchase_register_payload(
-                    cfg["pr_sync_endpoint"],
-                    cfg["api_key"],
-                    cfg["client_gstin_id"],
-                    period,
-                    company,
-                    period_rows,
-                )
-                logger.info("Purchase register push OK for %s: %s", period, pr_result)
-            except urllib.error.HTTPError as exc:
-                detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
-                logger.error("Purchase register push failed for %s HTTP %s: %s",
-                             period, exc.code, detail or exc.reason)
-            except urllib.error.URLError as exc:
-                logger.error("Purchase register push failed for %s: %s", period, exc)
+        if cfg.get("pr_sync_endpoint"):
+            for period, period_rows in purchase_by_period.items():
+                try:
+                    pr_result = push_purchase_register_payload(
+                        cfg["pr_sync_endpoint"],
+                        cfg["api_key"],
+                        cfg["client_gstin_id"],
+                        period,
+                        company,
+                        period_rows,
+                    )
+                    logger.info("Purchase register push OK for %s: %s", period, pr_result)
+                except urllib.error.HTTPError as exc:
+                    detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+                    logger.error("Purchase register push failed for %s HTTP %s: %s",
+                                 period, exc.code, detail or exc.reason)
+                except urllib.error.URLError as exc:
+                    logger.error("Purchase register push failed for %s: %s", period, exc)
+
+        if cfg.get("sr_sync_endpoint"):
+            for period, period_rows in sales_by_period.items():
+                try:
+                    sr_result = push_sales_register_payload(
+                        cfg["sr_sync_endpoint"],
+                        cfg["api_key"],
+                        cfg["client_gstin_id"],
+                        period,
+                        company,
+                        period_rows,
+                    )
+                    logger.info("Sales register push OK for %s: %s", period, sr_result)
+                except urllib.error.HTTPError as exc:
+                    detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+                    logger.error("Sales register push failed for %s HTTP %s: %s",
+                                 period, exc.code, detail or exc.reason)
+                except urllib.error.URLError as exc:
+                    logger.error("Sales register push failed for %s: %s", period, exc)
 
     return 0
 
