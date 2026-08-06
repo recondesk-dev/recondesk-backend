@@ -2076,6 +2076,16 @@ def run_once(
     except Exception as exc:
         logger.warning("Auto-discovery of open companies failed: %s", exc)
 
+    company_map = cfg.get("company_map", {})
+    fallback_client_id = cfg.get("client_gstin_id", "")
+
+    def resolve_client_id(c_name: str, c_gstin: str = "") -> str:
+        if c_name in company_map:
+            return company_map[c_name]
+        if c_gstin and c_gstin in company_map:
+            return company_map[c_gstin]
+        return fallback_client_id
+
     target_companies = (
         [c["name"] for c in open_companies]
         if (company_cfg.lower() in ("", "auto", "all") and open_companies)
@@ -2083,9 +2093,15 @@ def run_once(
     )
 
     for company in target_companies:
+        comp_meta = next((c for c in open_companies if c["name"] == company), {})
+        comp_gstin = comp_meta.get("gstin", "")
+        target_client_id = resolve_client_id(company, comp_gstin)
+
         logger.info(
-            "Syncing Tally company=%r at %s:%s (min_alter_id=%s)",
+            "Syncing Tally company=%r (GSTIN=%r) → ReconDesk client_id=%r at %s:%s (min_alter_id=%s)",
             company,
+            comp_gstin,
+            target_client_id,
             host,
             port,
             min_alter_id,
@@ -2482,8 +2498,8 @@ def run_once(
 
     logger.info("Push OK: %s", result)
 
-    if not cfg.get("client_gstin_id"):
-        logger.warning("client_gstin_id not set in config — skipping purchase/sales register push")
+    if not target_client_id:
+        logger.warning("No target client_id resolved for company %r — skipping purchase/sales register push", company)
     else:
         if cfg.get("pr_sync_endpoint"):
             for period, period_rows in purchase_by_period.items():
@@ -2491,12 +2507,12 @@ def run_once(
                     pr_result = push_purchase_register_payload(
                         cfg["pr_sync_endpoint"],
                         cfg["api_key"],
-                        cfg["client_gstin_id"],
+                        target_client_id,
                         period,
                         company,
                         period_rows,
                     )
-                    logger.info("Purchase register push OK for %s: %s", period, pr_result)
+                    logger.info("Purchase register push OK for %s (client_id=%s): %s", period, target_client_id, pr_result)
                 except urllib.error.HTTPError as exc:
                     detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
                     logger.error("Purchase register push failed for %s HTTP %s: %s",
@@ -2510,12 +2526,12 @@ def run_once(
                     sr_result = push_sales_register_payload(
                         cfg["sr_sync_endpoint"],
                         cfg["api_key"],
-                        cfg["client_gstin_id"],
+                        target_client_id,
                         period,
                         company,
                         period_rows,
                     )
-                    logger.info("Sales register push OK for %s: %s", period, sr_result)
+                    logger.info("Sales register push OK for %s (client_id=%s): %s", period, target_client_id, sr_result)
                 except urllib.error.HTTPError as exc:
                     detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
                     logger.error("Sales register push failed for %s HTTP %s: %s",
