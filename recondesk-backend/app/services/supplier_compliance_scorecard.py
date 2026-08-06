@@ -81,6 +81,8 @@ class SupplierClientCounters:
     mismatch_keys: set[str] = field(default_factory=set)
     rule37_open_count: int = 0
     rule37_at_risk_paise: int = 0
+    rule37a_risk_count: int = 0
+    rule37a_risk_paise: int = 0
     section_17_5_count: int = 0
     late_filing_count: int = 0
     pr_only_count: int = 0
@@ -95,6 +97,8 @@ class SupplierClientCounters:
         self.mismatch_keys |= other.mismatch_keys
         self.rule37_open_count += other.rule37_open_count
         self.rule37_at_risk_paise += other.rule37_at_risk_paise
+        self.rule37a_risk_count += other.rule37a_risk_count
+        self.rule37a_risk_paise += other.rule37a_risk_paise
         self.section_17_5_count += other.section_17_5_count
         self.late_filing_count += other.late_filing_count
         self.pr_only_count += other.pr_only_count
@@ -121,9 +125,11 @@ def compute_risk_score(
     late_filing_rate: float,
     quarterly_filer_flag: bool,
     pr_only_count: int,
+    rule37a_risk_count: int = 0,
 ) -> int:
     score = (
         rule37_open_count * 10
+        + rule37a_risk_count * 15
         + section_17_5_count * 5
         + int(mismatch_rate * 40)
         + int(late_filing_rate * 20)
@@ -131,6 +137,17 @@ def compute_risk_score(
         + min(int(pr_only_count), 10)
     )
     return max(0, min(100, score))
+
+
+def compute_risk_tier(score: int) -> str:
+    """Classify supplier compliance risk score (0-100) into actionable risk tiers."""
+    if score <= 25:
+        return "LOW_RISK"
+    if score <= 50:
+        return "MEDIUM_RISK"
+    if score <= 75:
+        return "HIGH_RISK"
+    return "CRITICAL_RISK"
 
 
 def _rate(numer: int, denom: int) -> Decimal:

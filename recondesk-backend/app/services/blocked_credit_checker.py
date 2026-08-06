@@ -22,22 +22,22 @@ BLOCKED_HSN_CODES = {
         "exempt_note": "Exempt if used for transport business, driving school, or further supply",
     },
     "2106": {
-        "category": "Food preparations -- Section 17(5)(b)",
+        "category": "Food preparations -- Section 17(5)(b)(i)",
         "usage_dependent": True,
         "exempt_note": "Verify business use before claiming ITC",
     },
     "9963": {
-        "category": "Food/beverages/catering services -- Section 17(5)(b)",
+        "category": "Food/beverages/catering services -- Section 17(5)(b)(i)",
         "usage_dependent": True,
         "exempt_note": "Exempt if canteen is mandatory under Factories Act",
     },
     "9972": {
-        "category": "Construction/real estate services -- Section 17(5)(c)",
+        "category": "Construction/real estate services -- Section 17(5)(d)",
         "usage_dependent": False,
         "exempt_note": "",
     },
     "9995": {
-        "category": "Club memberships -- Section 17(5)(b)",
+        "category": "Club memberships -- Section 17(5)(b)(ii)",
         "usage_dependent": False,
         "exempt_note": "",
     },
@@ -47,11 +47,57 @@ BLOCKED_HSN_CODES = {
         "exempt_note": "",
     },
     "9993": {
-        "category": "Health/beauty/grooming services -- Section 17(5)(b)",
+        "category": "Health/beauty/grooming services -- Section 17(5)(b)(i)",
         "usage_dependent": False,
         "exempt_note": "",
     },
+    "9971": {
+        "category": "Life/Health Insurance services -- Section 17(5)(b)(i)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if statutory obligation by employer",
+    },
+    "9964": {
+        "category": "Passenger transport / Rent-a-cab -- Section 17(5)(b)(i)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if statutory obligation by employer",
+    },
+    "9952": {
+        "category": "Maintenance/servicing of motor vehicles -- Section 17(5)(ab)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if motor vehicle itself is eligible for ITC",
+    },
+    "8802": {
+        "category": "Aircraft -- Section 17(5)(aa)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if used for taxable supply of air transport or training",
+    },
+    "8901": {
+        "category": "Vessels -- Section 17(5)(aa)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if used for taxable supply of water transport or training",
+    },
+    "8902": {
+        "category": "Vessels -- Section 17(5)(aa)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if used for taxable supply of water transport or training",
+    },
 }
+
+BLOCKED_KEYWORDS: list[tuple[str, str]] = [
+    ("OUTDOOR CATERING", "Outdoor Catering -- Section 17(5)(b)(i)"),
+    ("CATERING", "Catering Services -- Section 17(5)(b)(i)"),
+    ("FOOD & BEVERAGE", "Food & Beverages -- Section 17(5)(b)(i)"),
+    ("FOOD AND BEVERAGE", "Food & Beverages -- Section 17(5)(b)(i)"),
+    ("CLUB MEMBERSHIP", "Club Membership -- Section 17(5)(b)(ii)"),
+    ("HEALTH CLUB", "Health Club Membership -- Section 17(5)(b)(ii)"),
+    ("GYM MEMBERSHIP", "Health & Fitness Centre -- Section 17(5)(b)(ii)"),
+    ("RENT A CAB", "Rent-a-cab Services -- Section 17(5)(b)(i)"),
+    ("RENT-A-CAB", "Rent-a-cab Services -- Section 17(5)(b)(i)"),
+    ("LIFE INSURANCE", "Life Insurance Services -- Section 17(5)(b)(i)"),
+    ("HEALTH INSURANCE", "Health Insurance Services -- Section 17(5)(b)(i)"),
+    ("BEAUTY TREATMENT", "Beauty Treatment Services -- Section 17(5)(b)(i)"),
+    ("PLASTIC SURGERY", "Cosmetic/Plastic Surgery -- Section 17(5)(b)(i)"),
+]
 
 
 def _hsn_chapter_key(raw: object) -> str | None:
@@ -198,34 +244,62 @@ def check_blocked_credits(invoices: list[dict]) -> list[dict]:
 
         hsn_code = _raw_hsn_from_record(record)
         hsn_chapter = _hsn_chapter_key(hsn_code)
-        if hsn_chapter is None or hsn_chapter not in BLOCKED_HSN_CODES:
+        if hsn_chapter is not None and hsn_chapter in BLOCKED_HSN_CODES:
+            entry = BLOCKED_HSN_CODES[hsn_chapter]
+            category = entry["category"]
+            usage_dependent = entry["usage_dependent"]
+            exempt_note = entry["exempt_note"]
+
+            if usage_dependent:
+                reason = (
+                    f"HSN {hsn_chapter} falls under {category}. "
+                    "Verify before claiming ITC -- may be blocked under Section 17(5). "
+                    f"Note: {exempt_note}"
+                )
+            else:
+                reason = (
+                    f"HSN {hsn_chapter} falls under {category}. "
+                    "Verify before claiming ITC -- likely blocked under Section 17(5)"
+                )
+
+            warnings.append(
+                _base_warning(
+                    record,
+                    reason=reason,
+                    hsn_code=hsn_chapter,
+                    category=category,
+                    flag_source="hsn",
+                )
+            )
             continue
 
-        entry = BLOCKED_HSN_CODES[hsn_chapter]
-        category = entry["category"]
-        usage_dependent = entry["usage_dependent"]
-        exempt_note = entry["exempt_note"]
+        # Check line item / ledger text description for blocked credit keywords
+        desc_text = " ".join([
+            str(record.get("description") or ""),
+            str(record.get("item_name") or ""),
+            str(record.get("ledger_name") or ""),
+            str(record.get("remarks") or ""),
+        ]).upper()
 
-        if usage_dependent:
-            reason = (
-                f"HSN {hsn_chapter} falls under {category}. "
-                "Verify before claiming ITC -- may be blocked under Section 17(5). "
-                f"Note: {exempt_note}"
-            )
-        else:
-            reason = (
-                f"HSN {hsn_chapter} falls under {category}. "
-                "Verify before claiming ITC -- likely blocked under Section 17(5)"
-            )
-
-        warnings.append(
-            _base_warning(
-                record,
-                reason=reason,
-                hsn_code=hsn_chapter,
-                category=category,
-                flag_source="hsn",
-            )
-        )
+        if desc_text.strip():
+            matched_cat = None
+            for kw, cat_desc in BLOCKED_KEYWORDS:
+                if kw in desc_text:
+                    matched_cat = cat_desc
+                    break
+            if matched_cat:
+                reason = (
+                    f"Text description contains blocked credit keyword. "
+                    f"Falls under {matched_cat}. Verify before claiming ITC."
+                )
+                warnings.append(
+                    _base_warning(
+                        record,
+                        reason=reason,
+                        hsn_code=None,
+                        category=matched_cat,
+                        flag_source="keyword",
+                    )
+                )
 
     return warnings

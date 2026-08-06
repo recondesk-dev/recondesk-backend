@@ -112,10 +112,26 @@ def test_hsn_2106_chapter_triggers_warning():
             {
                 "invoice_number": "INV7",
                 "supplier_gstin": "27GGG",
-                "hsn": "2106",
+                "hsn": "210690",
             }
         ]
     )
     assert len(warnings) == 1
     assert warnings[0]["hsn_code"] == "2106"
-    assert "2106" in warnings[0]["reason"]
+
+
+def test_keyword_blocked_credit_triggers_warning():
+    warnings = check_blocked_credits(
+        [
+            {
+                "invoice_number": "INV8",
+                "supplier_gstin": "27HHH",
+                "ledger_name": "Outdoor Catering Expenses",
+                "total_tax_paise": 150000,
+            }
+        ]
+    )
+    assert len(warnings) == 1
+    assert warnings[0]["flag_source"] == "keyword"
+    assert "Outdoor Catering" in warnings[0]["category"]
+    assert warnings[0]["amount"] == 1500.0

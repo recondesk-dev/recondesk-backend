@@ -294,3 +294,32 @@ class TestGstinMismatchAttribution:
         assert VALID_KA in out
         assert len(out[VALID_MH].mismatch_keys) == 1
         assert len(out[VALID_KA].mismatch_keys) == 1
+
+    def test_compute_risk_tier_classification(self):
+        from app.services.supplier_compliance_scorecard import compute_risk_tier
+
+        assert compute_risk_tier(10) == "LOW_RISK"
+        assert compute_risk_tier(35) == "MEDIUM_RISK"
+        assert compute_risk_tier(60) == "HIGH_RISK"
+        assert compute_risk_tier(85) == "CRITICAL_RISK"
+
+    def test_rule37a_risk_increases_score(self):
+        base = compute_risk_score(
+            rule37_open_count=0,
+            section_17_5_count=0,
+            mismatch_rate=0.0,
+            late_filing_rate=0.0,
+            quarterly_filer_flag=False,
+            pr_only_count=0,
+            rule37a_risk_count=0,
+        )
+        with_r37a = compute_risk_score(
+            rule37_open_count=0,
+            section_17_5_count=0,
+            mismatch_rate=0.0,
+            late_filing_rate=0.0,
+            quarterly_filer_flag=False,
+            pr_only_count=0,
+            rule37a_risk_count=2,
+        )
+        assert with_r37a == base + 30
