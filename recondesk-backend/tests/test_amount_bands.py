@@ -182,12 +182,17 @@ class TestDateAndAmountCombined:
         assert result.requires_human_review is True
 
     def test_large_diff_date_beyond_l2_is_L6(self):
-        g = make_gstr(taxable_paise=1000000, invoice_date="2024-04-01")
-        p = make_pr(taxable_paise=970000, invoice_date="2024-04-10")
+        # Same invoice number with >L2 gap links as L3 Review
+        g = make_gstr(invoice="INV001", taxable_paise=1000000, invoice_date="2024-04-01")
+        p = make_pr(invoice="INV001", taxable_paise=970000, invoice_date="2024-04-10")
         result = match_gstr_to_pr(g, [p])
-        assert result is None or not result.matched, (
-            f"3% diff + 9-day date gap must be L6. Got L{getattr(result,'level',None)}."
-        )
+        assert result is not None and result.level == 3 and result.requires_human_review is True
+
+        # Different invoice number + >L2 gap does NOT match (L6)
+        g_diff = make_gstr(invoice="INV001", taxable_paise=1000000, invoice_date="2024-04-01")
+        p_diff = make_pr(invoice="XYZ999", taxable_paise=970000, invoice_date="2024-04-10")
+        result_diff = match_gstr_to_pr(g_diff, [p_diff])
+        assert result_diff is None or not result_diff.matched
 
 class TestL5AmountTolerance:
     def test_within_rs50_fuzzy_invoice_fires_L5(self):

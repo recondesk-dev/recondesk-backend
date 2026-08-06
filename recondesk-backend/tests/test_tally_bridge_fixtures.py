@@ -640,7 +640,12 @@ class TestEmptyExports:
 
             with patch(
                 "tally_bridge.tally_bridge_agent.fetch_tally_xml",
-                side_effect=[OUTSTANDING_EMPTY, PAYMENTS_EMPTY],
+                side_effect=lambda host, port, req, timeout=120.0: (
+                    OUTSTANDING_EMPTY if "RD_BillsPayable" in req else ""
+                ),
+            ), patch(
+                "tally_bridge.tally_bridge_agent.fetch_tally_xml_paginated",
+                return_value=PAYMENTS_EMPTY,
             ):
                 code = run_once(cfg, logger, test_mode=True, out_dir=out)
 
