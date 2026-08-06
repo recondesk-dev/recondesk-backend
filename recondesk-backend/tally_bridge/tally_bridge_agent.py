@@ -148,11 +148,20 @@ def build_bills_payable_xml(company_name: str) -> str:
 """
 
 
+def _collection_attrs(top: int | None = None, start: int | None = None) -> str:
+    if top is not None and top > 0:
+        s = start if (start is not None and start > 0) else 1
+        return f' TOP="{top}" START="{s}"'
+    return ""
+
+
 def build_daybook_payments_xml(
     company_name: str,
     from_date: str,
     to_date: str,
     min_alter_id: int | None = None,
+    top: int | None = None,
+    start: int | None = None,
 ) -> str:
     company_xml = _company_static_xml(company_name)
     date_math = "($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)"
@@ -165,6 +174,7 @@ def build_daybook_payments_xml(
         alter_formula = f'\n     <SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>'
 
     filters_str = ",".join(filters)
+    coll_attrs = _collection_attrs(top, start)
 
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
@@ -183,7 +193,7 @@ def build_daybook_payments_xml(
     {company_xml}  </STATICVARIABLES>
    <TDL>
     <TDLMESSAGE>
-     <COLLECTION NAME="RD_PaymentVouchers" ISMODIFY="No">
+     <COLLECTION NAME="RD_PaymentVouchers" ISMODIFY="No"{coll_attrs}>
       <TYPE>Voucher</TYPE>
       <FILTERS>{filters_str}</FILTERS>
       <FETCH>Date,VoucherTypeName,VoucherNumber,PartyledgerName,ALTERID,MASTERID,ISCANCELLED,ISDELETED,
@@ -207,6 +217,8 @@ def build_purchase_register_xml(
     from_date: str,
     to_date: str,
     min_alter_id: int | None = None,
+    top: int | None = None,
+    start: int | None = None,
 ) -> str:
     company_xml = _company_static_xml(company_name)
     date_math = "($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)"
@@ -219,6 +231,7 @@ def build_purchase_register_xml(
         alter_formula = f'\n     <SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>'
 
     filters_str = ",".join(filters)
+    coll_attrs = _collection_attrs(top, start)
 
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
@@ -237,7 +250,7 @@ def build_purchase_register_xml(
     {company_xml}  </STATICVARIABLES>
    <TDL>
     <TDLMESSAGE>
-     <COLLECTION NAME="RD_PurchaseVouchers" ISMODIFY="No">
+     <COLLECTION NAME="RD_PurchaseVouchers" ISMODIFY="No"{coll_attrs}>
       <TYPE>Voucher</TYPE>
       <FILTERS>{filters_str}</FILTERS>
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
@@ -261,6 +274,8 @@ def build_sales_register_xml(
     from_date: str,
     to_date: str,
     min_alter_id: int | None = None,
+    top: int | None = None,
+    start: int | None = None,
 ) -> str:
     company_xml = _company_static_xml(company_name)
     date_math = "($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)"
@@ -273,6 +288,7 @@ def build_sales_register_xml(
         alter_formula = f'\n     <SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>'
 
     filters_str = ",".join(filters)
+    coll_attrs = _collection_attrs(top, start)
 
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
@@ -291,7 +307,7 @@ def build_sales_register_xml(
     {company_xml}  </STATICVARIABLES>
    <TDL>
     <TDLMESSAGE>
-     <COLLECTION NAME="RD_SalesVouchers" ISMODIFY="No">
+     <COLLECTION NAME="RD_SalesVouchers" ISMODIFY="No"{coll_attrs}>
       <TYPE>Voucher</TYPE>
       <FILTERS>{filters_str}</FILTERS>
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
@@ -315,6 +331,8 @@ def build_credit_debit_notes_xml(
     from_date: str,
     to_date: str,
     min_alter_id: int | None = None,
+    top: int | None = None,
+    start: int | None = None,
 ) -> str:
     company_xml = _company_static_xml(company_name)
     date_math = "($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)"
@@ -327,6 +345,7 @@ def build_credit_debit_notes_xml(
         alter_formula = f'\n     <SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>'
 
     filters_str = ",".join(filters)
+    coll_attrs = _collection_attrs(top, start)
 
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
@@ -345,7 +364,7 @@ def build_credit_debit_notes_xml(
     {company_xml}  </STATICVARIABLES>
    <TDL>
     <TDLMESSAGE>
-     <COLLECTION NAME="RD_CreditDebitNotes" ISMODIFY="No">
+     <COLLECTION NAME="RD_CreditDebitNotes" ISMODIFY="No"{coll_attrs}>
       <TYPE>Voucher</TYPE>
       <FILTERS>{filters_str}</FILTERS>
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
@@ -369,6 +388,8 @@ def build_receipt_journal_contra_xml(
     from_date: str,
     to_date: str,
     min_alter_id: int | None = None,
+    top: int | None = None,
+    start: int | None = None,
 ) -> str:
     """Fetch Receipt, Journal, and Contra vouchers via TDL COLLECTION."""
     company_xml = _company_static_xml(company_name)
@@ -382,6 +403,7 @@ def build_receipt_journal_contra_xml(
         alter_formula = f'\n     <SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>'
 
     filters_str = ",".join(filters)
+    coll_attrs = _collection_attrs(top, start)
 
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
@@ -400,7 +422,7 @@ def build_receipt_journal_contra_xml(
     {company_xml}  </STATICVARIABLES>
    <TDL>
     <TDLMESSAGE>
-     <COLLECTION NAME="RD_ReceiptJournalContra" ISMODIFY="No">
+     <COLLECTION NAME="RD_ReceiptJournalContra" ISMODIFY="No"{coll_attrs}>
       <TYPE>Voucher</TYPE>
       <FILTERS>{filters_str}</FILTERS>
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
@@ -482,13 +504,20 @@ def parse_open_companies_records(xml_text: str) -> list[dict[str, Any]]:
     return records
 
 
-def build_ledger_master_xml(company_name: str, min_alter_id: int | None = None) -> str:
+def build_ledger_master_xml(
+    company_name: str,
+    min_alter_id: int | None = None,
+    top: int | None = None,
+    start: int | None = None,
+) -> str:
     company_xml = _company_static_xml(company_name)
     filter_tag = ""
     alter_formula = ""
     if min_alter_id is not None and min_alter_id > 0:
         filter_tag = "<FILTERS>RD_MinAlterId</FILTERS>\n       "
         alter_formula = f'<SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>\n      '
+
+    coll_attrs = _collection_attrs(top, start)
 
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
@@ -505,7 +534,7 @@ def build_ledger_master_xml(company_name: str, min_alter_id: int | None = None) 
     {company_xml}  </STATICVARIABLES>
    <TDL>
     <TDLMESSAGE>
-     <COLLECTION NAME="RD_LedgerMaster" ISMODIFY="No">
+     <COLLECTION NAME="RD_LedgerMaster" ISMODIFY="No"{coll_attrs}>
       <TYPE>Ledger</TYPE>
       {filter_tag}<FETCH>NAME,PARENT,GSTIN,PARTYGSTIN,GSTREGISTRATIONNUMBER,LEDSTATENAME,STATENAME,OPENINGBALANCE,CLOSINGBALANCE,ALTERID,MASTERID,LEDGSTREGDETAILS.LIST,LEDMAILINGDETAILS.LIST</FETCH>
      </COLLECTION>
@@ -517,7 +546,12 @@ def build_ledger_master_xml(company_name: str, min_alter_id: int | None = None) 
 """
 
 
-def build_stock_master_xml(company_name: str, min_alter_id: int | None = None) -> str:
+def build_stock_master_xml(
+    company_name: str,
+    min_alter_id: int | None = None,
+    top: int | None = None,
+    start: int | None = None,
+) -> str:
     """Fetch Stock Item masters via TDL COLLECTION."""
     company_xml = _company_static_xml(company_name)
     filter_tag = ""
@@ -525,6 +559,8 @@ def build_stock_master_xml(company_name: str, min_alter_id: int | None = None) -
     if min_alter_id is not None and min_alter_id > 0:
         filter_tag = "<FILTERS>RD_MinAlterId</FILTERS>\n       "
         alter_formula = f'<SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>\n      '
+
+    coll_attrs = _collection_attrs(top, start)
 
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
@@ -541,7 +577,7 @@ def build_stock_master_xml(company_name: str, min_alter_id: int | None = None) -
     {company_xml}  </STATICVARIABLES>
    <TDL>
     <TDLMESSAGE>
-     <COLLECTION NAME="RD_StockMaster" ISMODIFY="No">
+     <COLLECTION NAME="RD_StockMaster" ISMODIFY="No"{coll_attrs}>
       <TYPE>StockItem</TYPE>
       {filter_tag}<FETCH>NAME,PARENT,CATEGORY,GSTHSNNAME,HSNCODE,HSNSACCODE,GSTRATE,OPENINGBALANCE,CLOSINGBALANCE,BASEUNITS,ALTERID,MASTERID</FETCH>
      </COLLECTION>
@@ -599,6 +635,86 @@ def fetch_tally_xml(
     raise ConnectionError(
         TALLY_UNREACHABLE_MSG.format(host=host, port=port)
     ) from last_exc
+
+
+def fetch_tally_xml_paginated(
+    host: str,
+    port: int,
+    builder_fn: Any,
+    *args: Any,
+    batch_size: int = 1000,
+    timeout: float = 120.0,
+    **kwargs: Any,
+) -> str:
+    """Paginate TDL COLLECTION requests in batches of batch_size using TOP and START attributes.
+
+    Prevents Tally timeouts and RAM exhaustion on massive databases (50k+ records).
+    Merges batch XML envelopes into a single combined TDL response envelope.
+    """
+    first_resp_xml = ""
+    first_root: ET.Element | None = None
+    collection_node: ET.Element | None = None
+    seen_page_starts: set[str] = set()
+    start = 1
+
+    while True:
+        kwargs_batch = dict(kwargs)
+        kwargs_batch["top"] = batch_size
+        kwargs_batch["start"] = start
+
+        batch_req_xml = builder_fn(*args, **kwargs_batch)
+        resp_xml = fetch_tally_xml(host, port, batch_req_xml, timeout=timeout)
+
+        if not resp_xml:
+            break
+
+        try:
+            root = _parse_root(resp_xml)
+        except ET.ParseError:
+            if start == 1:
+                return resp_xml
+            break
+
+        coll_elem = None
+        for elem in root.iter():
+            if _local(elem.tag).upper() == "COLLECTION":
+                coll_elem = elem
+                break
+
+        records = [e for e in coll_elem] if coll_elem is not None else []
+        if not records:
+            if start == 1:
+                return resp_xml
+            break
+
+        page_id = (
+            records[0].attrib.get("REMOTEID")
+            or records[0].attrib.get("NAME")
+            or _find_direct_text(records[0], ("GUID", "MASTERID", "ALTERID", "NAME"))
+            or _find_text(records[0], ("GUID", "MASTERID", "ALTERID", "NAME"))
+            or f"page_{start}"
+        )
+        if page_id in seen_page_starts:
+            break
+        seen_page_starts.add(page_id)
+
+        if first_root is None:
+            first_resp_xml = resp_xml
+            first_root = root
+            collection_node = coll_elem
+        else:
+            if collection_node is not None:
+                for r in records:
+                    collection_node.append(r)
+
+        if len(records) < batch_size:
+            break
+
+        start += batch_size
+
+    if first_root is not None:
+        return ET.tostring(first_root, encoding="utf-8").decode("utf-8")
+    return first_resp_xml or fetch_tally_xml(host, port, builder_fn(*args, **kwargs), timeout=timeout)
 
 
 def _local(tag: str) -> str:
@@ -1810,103 +1926,133 @@ def run_once(
             port,
             min_alter_id,
         )
-    try:
-        outstanding_xml = fetch_tally_xml(
-            host, port, build_bills_payable_xml(company), timeout=120.0
-        )
-    except ConnectionError as exc:
-        logger.error("%s", exc)
-        return 2
+        try:
+            outstanding_xml = fetch_tally_xml(
+                host, port, build_bills_payable_xml(company), timeout=120.0
+            )
+        except ConnectionError as exc:
+            logger.error("%s", exc)
+            return 2
 
-    logger.info(
-        "Fetching Day Book payments %s→%s (lookback_days=%s, min_alter_id=%s)",
-        from_ymd,
-        to_ymd,
-        lookback,
-        min_alter_id,
-    )
-    try:
-        payments_xml = fetch_tally_xml(
-            host,
-            port,
-            build_daybook_payments_xml(company, from_ymd, to_ymd, min_alter_id=min_alter_id),
-            timeout=120.0,
+        logger.info(
+            "Fetching Day Book payments %s→%s (lookback_days=%s, min_alter_id=%s)",
+            from_ymd,
+            to_ymd,
+            lookback,
+            min_alter_id,
         )
-    except ConnectionError as exc:
-        logger.error("%s", exc)
-        return 2
+        try:
+            payments_xml = fetch_tally_xml_paginated(
+                host,
+                port,
+                build_daybook_payments_xml,
+                company,
+                from_ymd,
+                to_ymd,
+                min_alter_id=min_alter_id,
+                batch_size=1000,
+                timeout=120.0,
+            )
+        except ConnectionError as exc:
+            logger.error("%s", exc)
+            return 2
 
-    logger.info("Fetching Ledger Master from Tally at %s:%s (company=%r)", host, port, company)
-    try:
-        ledgers_xml = fetch_tally_xml(
-            host, port, build_ledger_master_xml(company, min_alter_id=min_alter_id)
-        )
-    except ConnectionError as exc:
-        logger.error("Failed to fetch Ledger Master: %s", exc)
-        ledgers_xml = ""
+        logger.info("Fetching Ledger Master from Tally at %s:%s (company=%r)", host, port, company)
+        try:
+            ledgers_xml = fetch_tally_xml_paginated(
+                host,
+                port,
+                build_ledger_master_xml,
+                company,
+                min_alter_id=min_alter_id,
+                batch_size=1000,
+            )
+        except ConnectionError as exc:
+            logger.error("Failed to fetch Ledger Master: %s", exc)
+            ledgers_xml = ""
 
-    logger.info(
-        "Fetching Sales Register %s→%s (lookback_days=%s, min_alter_id=%s)",
-        from_ymd,
-        to_ymd,
-        lookback,
-        min_alter_id,
-    )
-    try:
-        sales_xml = fetch_tally_xml(
-            host,
-            port,
-            build_sales_register_xml(company, from_ymd, to_ymd, min_alter_id=min_alter_id),
-            timeout=120.0,
+        logger.info(
+            "Fetching Sales Register %s→%s (lookback_days=%s, min_alter_id=%s)",
+            from_ymd,
+            to_ymd,
+            lookback,
+            min_alter_id,
         )
-    except ConnectionError as exc:
-        logger.error("Failed to fetch Sales Register: %s", exc)
-        sales_xml = ""
+        try:
+            sales_xml = fetch_tally_xml_paginated(
+                host,
+                port,
+                build_sales_register_xml,
+                company,
+                from_ymd,
+                to_ymd,
+                min_alter_id=min_alter_id,
+                batch_size=1000,
+                timeout=120.0,
+            )
+        except ConnectionError as exc:
+            logger.error("Failed to fetch Sales Register: %s", exc)
+            sales_xml = ""
 
-    logger.info(
-        "Fetching Credit/Debit Notes %s→%s (lookback_days=%s, min_alter_id=%s)",
-        from_ymd,
-        to_ymd,
-        lookback,
-        min_alter_id,
-    )
-    try:
-        cdn_xml = fetch_tally_xml(
-            host,
-            port,
-            build_credit_debit_notes_xml(company, from_ymd, to_ymd, min_alter_id=min_alter_id),
-            timeout=120.0,
+        logger.info(
+            "Fetching Credit/Debit Notes %s→%s (lookback_days=%s, min_alter_id=%s)",
+            from_ymd,
+            to_ymd,
+            lookback,
+            min_alter_id,
         )
-    except ConnectionError as exc:
-        logger.error("Failed to fetch Credit/Debit Notes: %s", exc)
-        cdn_xml = ""
+        try:
+            cdn_xml = fetch_tally_xml_paginated(
+                host,
+                port,
+                build_credit_debit_notes_xml,
+                company,
+                from_ymd,
+                to_ymd,
+                min_alter_id=min_alter_id,
+                batch_size=1000,
+                timeout=120.0,
+            )
+        except ConnectionError as exc:
+            logger.error("Failed to fetch Credit/Debit Notes: %s", exc)
+            cdn_xml = ""
 
-    logger.info("Fetching Stock Master from Tally at %s:%s (company=%r)", host, port, company)
-    try:
-        stock_xml = fetch_tally_xml(
-            host, port, build_stock_master_xml(company, min_alter_id=min_alter_id)
-        )
-    except ConnectionError as exc:
-        logger.error("Failed to fetch Stock Master: %s", exc)
-        stock_xml = ""
+        logger.info("Fetching Stock Master from Tally at %s:%s (company=%r)", host, port, company)
+        try:
+            stock_xml = fetch_tally_xml_paginated(
+                host,
+                port,
+                build_stock_master_xml,
+                company,
+                min_alter_id=min_alter_id,
+                batch_size=1000,
+            )
+        except ConnectionError as exc:
+            logger.error("Failed to fetch Stock Master: %s", exc)
+            stock_xml = ""
 
-    logger.info(
-        "Fetching Receipt/Journal/Contra %s→%s (lookback_days=%s, min_alter_id=%s)",
-        from_ymd,
-        to_ymd,
-        lookback,
-        min_alter_id,
-    )
-    try:
-        rjc_xml = fetch_tally_xml(
-            host,
-            port,
-            build_receipt_journal_contra_xml(company, from_ymd, to_ymd, min_alter_id=min_alter_id),
-            timeout=120.0,
+        logger.info(
+            "Fetching Receipt/Journal/Contra %s→%s (lookback_days=%s, min_alter_id=%s)",
+            from_ymd,
+            to_ymd,
+            lookback,
+            min_alter_id,
         )
-    except ConnectionError as exc:
-        logger.error("Failed to fetch Receipt/Journal/Contra: %s", exc)
-        rjc_xml = ""
+        try:
+            rjc_xml = fetch_tally_xml_paginated(
+                host,
+                port,
+                build_receipt_journal_contra_xml,
+                company,
+                from_ymd,
+                to_ymd,
+                min_alter_id=min_alter_id,
+                batch_size=1000,
+                timeout=120.0,
+            )
+        except ConnectionError as exc:
+            logger.error("Failed to fetch Receipt/Journal/Contra: %s", exc)
+            rjc_xml = ""
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     outstanding_path = out_dir / f"tally_bills_payable_{stamp}.xml"
