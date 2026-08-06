@@ -200,7 +200,10 @@ def build_daybook_payments_xml(
 AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
 AllLedgerEntries.BillAllocations.Name,
 AllLedgerEntries.BillAllocations.BillType,
-AllLedgerEntries.BillAllocations.Amount</FETCH>
+AllLedgerEntries.BillAllocations.Amount,
+AllLedgerEntries.CategoryAllocations.Category,
+AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Name,
+AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsPayment">$$IsPayment:$VoucherTypeName</SYSTEM>
      <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>{alter_formula}
@@ -256,6 +259,9 @@ def build_purchase_register_xml(
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
 PartyledgerName,PartyGstin,ALTERID,MASTERID,ISCANCELLED,ISDELETED,
 AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
+AllLedgerEntries.CategoryAllocations.Category,
+AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Name,
+AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Amount,
 AllInventoryEntries.StockItemName,AllInventoryEntries.BilledQty,AllInventoryEntries.Rate,AllInventoryEntries.Amount,
 InventoryEntries.StockItemName,InventoryEntries.BilledQty,InventoryEntries.Rate,InventoryEntries.Amount</FETCH>
      </COLLECTION>
@@ -313,6 +319,9 @@ def build_sales_register_xml(
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
 PartyledgerName,PartyGstin,ALTERID,MASTERID,ISCANCELLED,ISDELETED,
 AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
+AllLedgerEntries.CategoryAllocations.Category,
+AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Name,
+AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Amount,
 AllInventoryEntries.StockItemName,AllInventoryEntries.BilledQty,AllInventoryEntries.Rate,AllInventoryEntries.Amount,
 InventoryEntries.StockItemName,InventoryEntries.BilledQty,InventoryEntries.Rate,InventoryEntries.Amount</FETCH>
      </COLLECTION>
@@ -370,6 +379,9 @@ def build_credit_debit_notes_xml(
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
 PartyledgerName,PartyGstin,ALTERID,MASTERID,ISCANCELLED,ISDELETED,
 AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
+AllLedgerEntries.CategoryAllocations.Category,
+AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Name,
+AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Amount,
 AllInventoryEntries.StockItemName,AllInventoryEntries.BilledQty,AllInventoryEntries.Rate,AllInventoryEntries.Amount,
 InventoryEntries.StockItemName,InventoryEntries.BilledQty,InventoryEntries.Rate,InventoryEntries.Amount</FETCH>
      </COLLECTION>
@@ -427,7 +439,10 @@ def build_receipt_journal_contra_xml(
       <FILTERS>{filters_str}</FILTERS>
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
 PartyledgerName,PartyGstin,GUID,ALTERID,MASTERID,ISCANCELLED,ISDELETED,
-AllLedgerEntries.LedgerName,AllLedgerEntries.Amount</FETCH>
+AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
+AllLedgerEntries.CategoryAllocations.Category,
+AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Name,
+AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsRJC">$$IsReceipt:$VoucherTypeName OR $$IsJournal:$VoucherTypeName OR $$IsContra:$VoucherTypeName</SYSTEM>
      <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>{alter_formula}
@@ -580,6 +595,49 @@ def build_stock_master_xml(
      <COLLECTION NAME="RD_StockMaster" ISMODIFY="No"{coll_attrs}>
       <TYPE>StockItem</TYPE>
       {filter_tag}<FETCH>NAME,PARENT,CATEGORY,GSTHSNNAME,HSNCODE,HSNSACCODE,GSTRATE,OPENINGBALANCE,CLOSINGBALANCE,BASEUNITS,ALTERID,MASTERID</FETCH>
+     </COLLECTION>
+      {alter_formula}</TDLMESSAGE>
+   </TDL>
+  </DESC>
+ </BODY>
+</ENVELOPE>
+"""
+
+
+def build_cost_centre_master_xml(
+    company_name: str,
+    min_alter_id: int | None = None,
+    top: int | None = None,
+    start: int | None = None,
+) -> str:
+    """Fetch Cost Centre masters via TDL COLLECTION."""
+    company_xml = _company_static_xml(company_name)
+    filter_tag = ""
+    alter_formula = ""
+    if min_alter_id is not None and min_alter_id > 0:
+        filter_tag = "<FILTERS>RD_MinAlterId</FILTERS>\n       "
+        alter_formula = f'<SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>\n      '
+
+    coll_attrs = _collection_attrs(top, start)
+
+    return f"""<?xml version="1.0"?>
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <TALLYREQUEST>Export</TALLYREQUEST>
+  <TYPE>Collection</TYPE>
+  <ID>RD_CostCentreMaster</ID>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <STATICVARIABLES>
+    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+    {company_xml}  </STATICVARIABLES>
+   <TDL>
+    <TDLMESSAGE>
+     <COLLECTION NAME="RD_CostCentreMaster" ISMODIFY="No"{coll_attrs}>
+      <TYPE>CostCentre</TYPE>
+      {filter_tag}<FETCH>NAME,CATEGORY,PARENT,ALTERID,MASTERID</FETCH>
      </COLLECTION>
       {alter_formula}</TDLMESSAGE>
    </TDL>
@@ -1649,6 +1707,50 @@ def parse_stock_master_records(xml_text: str) -> list[dict[str, Any]]:
     return records
 
 
+def parse_cost_centre_master_records(xml_text: str) -> list[dict[str, Any]]:
+    """Parse TDL CostCentre Collection XML into canonical rows."""
+    if not xml_text:
+        return []
+    try:
+        root = _parse_root(xml_text)
+    except ET.ParseError:
+        return []
+
+    records = []
+    seen = set()
+    for elem in root.iter():
+        if _local(elem.tag).upper() != "COSTCENTRE":
+            continue
+        name = (
+            _find_direct_text(elem, ("NAME", "COSTCENTRENAME"))
+            or _find_text(elem, ("NAME", "COSTCENTRENAME"))
+            or (elem.attrib.get("NAME") or "").strip()
+        )
+        if not name or name in seen:
+            continue
+        seen.add(name)
+
+        category = (
+            _find_direct_text(elem, ("CATEGORY", "COSTCATEGORY"))
+            or _find_text(elem, ("CATEGORY", "COSTCATEGORY"))
+            or ""
+        )
+        parent = (
+            _find_direct_text(elem, ("PARENT",))
+            or _find_text(elem, ("PARENT",))
+            or ""
+        )
+        alter_id = _find_direct_text(elem, ("ALTERID",)) or _find_text(elem, ("ALTERID",))
+
+        records.append({
+            "name": name,
+            "category": category,
+            "parent": parent,
+            "alter_id": int(alter_id) if alter_id and alter_id.isdigit() else None,
+        })
+    return records
+
+
 def parse_receipt_journal_contra_records(xml_text: str) -> list[dict[str, Any]]:
     """Parse TDL Receipt/Journal/Contra Collection XML into canonical rows."""
     if not xml_text:
@@ -2054,6 +2156,20 @@ def run_once(
             logger.error("Failed to fetch Receipt/Journal/Contra: %s", exc)
             rjc_xml = ""
 
+        logger.info("Fetching Cost Centre Master from Tally at %s:%s (company=%r)", host, port, company)
+        try:
+            cost_centres_xml = fetch_tally_xml_paginated(
+                host,
+                port,
+                build_cost_centre_master_xml,
+                company,
+                min_alter_id=min_alter_id,
+                batch_size=1000,
+            )
+        except ConnectionError as exc:
+            logger.error("Failed to fetch Cost Centre Master: %s", exc)
+            cost_centres_xml = ""
+
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     outstanding_path = out_dir / f"tally_bills_payable_{stamp}.xml"
     payments_path = out_dir / f"tally_daybook_payments_{stamp}.xml"
@@ -2170,10 +2286,19 @@ def run_once(
     )
     logger.info("Saved receipt/journal/contra rows → %s", rjc_parsed_path)
 
+    cost_centres = parse_cost_centre_master_records(cost_centres_xml) if cost_centres_xml else []
+    cc_parsed_path = out_dir / f"tally_cost_centre_master_parsed_{stamp}.json"
+    cc_parsed_path.write_text(
+        json.dumps(cost_centres, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    logger.info("Saved cost centre master rows → %s", cc_parsed_path)
+
     outstanding_n = len(outstanding)
     payments_n = len(payments)
     ledgers_n = len(ledgers)
     stock_n = len(stock_items)
+    cc_n = len(cost_centres)
     sales_n = len(sales_rows)
     cdn_n = len(cdn_rows)
     rjc_n = len(rjc_rows)
@@ -2182,6 +2307,7 @@ def run_once(
         "Day Book Payment Agst Ref → %d payment row(s) (%d raw bytes); "
         "Ledger Master → %d record(s) (%d raw bytes); "
         "Stock Master → %d record(s); "
+        "Cost Centre Master → %d record(s); "
         "Sales Register → %d row(s) (%d raw bytes); "
         "Credit/Debit Notes → %d row(s) (%d raw bytes); "
         "Receipt/Journal/Contra → %d row(s)",
@@ -2192,6 +2318,7 @@ def run_once(
         ledgers_n,
         ledgers_bytes,
         stock_n,
+        cc_n,
         sales_n,
         sales_bytes,
         cdn_n,
