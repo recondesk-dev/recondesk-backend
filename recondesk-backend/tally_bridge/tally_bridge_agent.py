@@ -399,6 +399,42 @@ def build_ledger_master_xml(company_name: str, min_alter_id: int | None = None) 
 """
 
 
+def build_stock_master_xml(company_name: str, min_alter_id: int | None = None) -> str:
+    """Fetch Stock Item masters via TDL COLLECTION."""
+    company_xml = _company_static_xml(company_name)
+    filter_tag = ""
+    alter_formula = ""
+    if min_alter_id is not None and min_alter_id > 0:
+        filter_tag = "<FILTERS>RD_MinAlterId</FILTERS>\n       "
+        alter_formula = f'<SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>\n      '
+
+    return f"""<?xml version="1.0"?>
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <TALLYREQUEST>Export</TALLYREQUEST>
+  <TYPE>Collection</TYPE>
+  <ID>RD_StockMaster</ID>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <STATICVARIABLES>
+    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+    {company_xml}  </STATICVARIABLES>
+   <TDL>
+    <TDLMESSAGE>
+     <COLLECTION NAME="RD_StockMaster" ISMODIFY="No">
+      <TYPE>StockItem</TYPE>
+      {filter_tag}<FETCH>NAME,PARENT,CATEGORY,GSTHSNNAME,HSNCODE,HSNSACCODE,GSTRATE,OPENINGBALANCE,CLOSINGBALANCE,BASEUNITS,ALTERID,MASTERID</FETCH>
+     </COLLECTION>
+      {alter_formula}</TDLMESSAGE>
+   </TDL>
+  </DESC>
+ </BODY>
+</ENVELOPE>
+"""
+
+
 
 def fetch_tally_xml(
     host: str,
@@ -1286,6 +1322,67 @@ def parse_ledger_master_records(xml_text: str) -> list[dict[str, Any]]:
     return records
 
 
+def parse_stock_master_records(xml_text: str) -> list[dict[str, Any]]:
+    """Parse TDL StockItem Collection XML into canonical stock master records."""
+    if not xml_text:
+        return []
+    try:
+        root = _parse_root(xml_text)
+    except ET.ParseError:
+        return []
+
+    records = []
+    seen = set()
+    for elem in root.iter():
+        if _local(elem.tag).upper() != "STOCKITEM":
+            continue
+        name = (
+            _find_direct_text(elem, ("NAME", "STOCKITEMNAME"))
+            or _find_text(elem, ("NAME", "STOCKITEMNAME"))
+            or (elem.attrib.get("NAME") or "").strip()
+        )
+        if not name or name in seen:
+            continue
+        seen.add(name)
+
+        parent = (
+            _find_direct_text(elem, ("PARENT", "STOCKGROUPNAME"))
+            or _find_text(elem, ("PARENT", "STOCKGROUPNAME"))
+            or ""
+        )
+        category = (
+            _find_direct_text(elem, ("CATEGORY", "STOCKCATEGORYNAME"))
+            or _find_text(elem, ("CATEGORY", "STOCKCATEGORYNAME"))
+            or ""
+        )
+        hsn = (
+            _find_direct_text(elem, ("HSNCODE", "HSNSACCODE", "GSTHSNNAME"))
+            or _find_text(elem, ("HSNCODE", "HSNSACCODE", "GSTHSNNAME"))
+            or ""
+        )
+        unit = (
+            _find_direct_text(elem, ("BASEUNITS", "UNITS", "UNIT"))
+            or _find_text(elem, ("BASEUNITS", "UNITS", "UNIT"))
+            or ""
+        )
+        op_bal = _find_direct_text(elem, ("OPENINGBALANCE",)) or _find_text(elem, ("OPENINGBALANCE",))
+        cl_bal = _find_direct_text(elem, ("CLOSINGBALANCE",)) or _find_text(elem, ("CLOSINGBALANCE",))
+        alter_id = _find_direct_text(elem, ("ALTERID",)) or _find_text(elem, ("ALTERID",))
+
+        records.append({
+            "name": name,
+            "parent_group": parent,
+            "category": category,
+            "hsn_code": hsn,
+            "base_unit": unit,
+            "opening_balance": op_bal or "",
+            "closing_balance": cl_bal or "",
+            "alter_id": int(alter_id) if alter_id and alter_id.isdigit() else None,
+        })
+    return records
+
+
+
 
 def push_sync_payload(
     endpoint: str,
@@ -1526,16 +1623,28 @@ def run_once(
         logger.error("Failed to fetch Credit/Debit Notes: %s", exc)
         cdn_xml = ""
 
+    logger.info("Fetching Stock Master from Tally at %s:%s (company=%r)", host, port, company)
+    try:
+        stock_xml = fetch_tally_xml(
+            host, port, build_stock_master_xml(company, min_alter_id=min_alter_id)
+        )
+    except ConnectionError as exc:
+        logger.error("Failed to fetch Stock Master: %s", exc)
+        stock_xml = ""
+
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     outstanding_path = out_dir / f"tally_bills_payable_{stamp}.xml"
     payments_path = out_dir / f"tally_daybook_payments_{stamp}.xml"
     ledgers_path = out_dir / f"tally_ledger_master_{stamp}.xml"
+    stock_path = out_dir / f"tally_stock_master_{stamp}.xml"
     sales_path = out_dir / f"tally_sales_register_{stamp}.xml"
     cdn_path = out_dir / f"tally_cdn_notes_{stamp}.xml"
     outstanding_path.write_text(outstanding_xml, encoding="utf-8")
     payments_path.write_text(payments_xml, encoding="utf-8")
     if ledgers_xml:
         ledgers_path.write_text(ledgers_xml, encoding="utf-8")
+    if stock_xml:
+        stock_path.write_text(stock_xml, encoding="utf-8")
     if sales_xml:
         sales_path.write_text(sales_xml, encoding="utf-8")
     if cdn_xml:
@@ -1620,15 +1729,25 @@ def run_once(
     )
     logger.info("Saved credit/debit note rows → %s", cdn_parsed_path)
 
+    stock_items = parse_stock_master_records(stock_xml) if stock_xml else []
+    stock_parsed_path = out_dir / f"tally_stock_master_parsed_{stamp}.json"
+    stock_parsed_path.write_text(
+        json.dumps(stock_items, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    logger.info("Saved stock master rows → %s", stock_parsed_path)
+
     outstanding_n = len(outstanding)
     payments_n = len(payments)
     ledgers_n = len(ledgers)
+    stock_n = len(stock_items)
     sales_n = len(sales_rows)
     cdn_n = len(cdn_rows)
     logger.info(
         "Export summary: Bills Payable → %d outstanding row(s) (%d raw bytes); "
         "Day Book Payment Agst Ref → %d payment row(s) (%d raw bytes); "
         "Ledger Master → %d record(s) (%d raw bytes); "
+        "Stock Master → %d record(s); "
         "Sales Register → %d row(s) (%d raw bytes); "
         "Credit/Debit Notes → %d row(s) (%d raw bytes)",
         outstanding_n,
@@ -1637,6 +1756,7 @@ def run_once(
         payments_bytes,
         ledgers_n,
         ledgers_bytes,
+        stock_n,
         sales_n,
         sales_bytes,
         cdn_n,
