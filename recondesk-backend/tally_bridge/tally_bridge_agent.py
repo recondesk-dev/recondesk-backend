@@ -347,12 +347,23 @@ def _parse_root(xml_text: str) -> ET.Element:
 def parse_outstanding_records(xml_text: str) -> list[dict[str, Any]]:
     """Parse Bills Payable / bill-wise outstanding XML.
 
+    Tally's Bills Payable export is FLAT: each bill is a <BILLFIXED> block
+    (containing BILLDATE/BILLREF/BILLPARTY) immediately followed by sibling
+    <BILLCL> (pending amount), <BILLDUE>, <BILLOVERDUE> elements — NOT nested
+    inside BILLFIXED. A bill record is assembled by walking siblings in document
+    order via a dedicated flat-sibling pass.
+
+    A first pass handles alternate nested-schema Tally exports (e.g. TDL
+    customisations with BILLWISEDETAILS.LIST containers). If that pass finds
+    records whose amounts are all None, the flat-sibling pass takes over.
+
     ``amount`` is remaining due (pending), never amount paid.
     """
     root = _parse_root(xml_text)
     records: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str, str]] = set()
 
+    # ── Pass 1: nested-schema / other Tally variants ───────────────────────
     bill_tags = {
         "BILLALLOCATIONS.LIST",
         "BILLFIXED",
@@ -377,25 +388,27 @@ def parse_outstanding_records(xml_text: str) -> list[dict[str, Any]]:
         if not bill_ref:
             continue
 
+        # Skip container nodes that hold child bill containers — they are
+        # grouping wrappers, not individual bill records.
         child_bill_containers = [
-            c
-            for c in list(el)
-            if _local(c.tag).upper() in bill_tags
+            c for c in list(el) if _local(c.tag).upper() in bill_tags
         ]
         if child_bill_containers and tag.endswith(".LIST"):
             continue
 
+        # Use _find_direct_text so we only look at direct children of this
+        # element, not descendants that belong to a sibling bill block.
         amount = None
         for name in ("AMOUNT", "CLOSINGBALANCE", "BILLAMOUNT", "PENDINGAMOUNT"):
-            amount = _parse_amount(_find_text(el, (name,)))
+            amount = _parse_amount(_find_direct_text(el, (name,)))
             if amount is not None:
                 break
 
         bill_date = _normalize_date(
-            _find_text(el, ("BILLDATE", "DATE", "VOUCHERDATE", "INVOICEDATE"))
+            _find_direct_text(el, ("BILLDATE", "DATE", "VOUCHERDATE", "INVOICEDATE"))
         )
         party = (
-            _find_text(el, ("PARTYLEDGERNAME", "PARTYNAME", "LEDGERNAME"))
+            _find_direct_text(el, ("PARTYLEDGERNAME", "PARTYNAME", "LEDGERNAME"))
             or current_party
         )
         if party.upper() in {"BILL-WISE DETAILS", "BILLS PAYABLE", "LEDGER OUTSTANDINGS"}:
@@ -418,6 +431,7 @@ def parse_outstanding_records(xml_text: str) -> list[dict[str, Any]]:
         seen.add(key)
         records.append(rec)
 
+    # Fallback: bare BILLNAME scan for very sparse exports.
     if not records:
         current_party = ""
         for el in root.iter():
@@ -433,6 +447,67 @@ def parse_outstanding_records(xml_text: str) -> list[dict[str, Any]]:
                         "amount": None,
                     }
                 )
+
+    # ── Pass 2: flat-sibling walk (canonical Bills Payable format) ─────────
+    # Tally's standard Bills Payable XML is FLAT: <BILLFIXED> is immediately
+    # followed by sibling <BILLCL> — NOT nested inside BILLFIXED — so Pass 1
+    # (which uses _find_direct_text on the BILLFIXED element) cannot see the
+    # amount. When Pass 1 found records but every amount is None, rebuild from
+    # the flat structure instead.
+    if records and all(r["amount"] is None for r in records):
+        records.clear()
+        seen.clear()
+
+        def _flush_flat(cur: dict[str, Any] | None) -> None:
+            if cur is None or not cur.get("bill_ref"):
+                return
+            rec = {
+                "party": cur.get("party") or "",
+                "bill_ref": cur["bill_ref"],
+                "bill_date": cur.get("bill_date"),
+                "amount": cur.get("amount"),
+            }
+            key = (
+                rec["party"], rec["bill_ref"], rec["bill_date"] or "",
+                "" if rec["amount"] is None else f"{rec['amount']:.2f}",
+            )
+            if key not in seen:
+                seen.add(key)
+                records.append(rec)
+
+        # Locate the parent whose direct children include BILLFIXED blocks.
+        flat_elements: list[ET.Element] = []
+        for parent in root.iter():
+            children = list(parent)
+            if any(_local(c.tag).upper() == "BILLFIXED" for c in children):
+                flat_elements = children
+                break
+
+        current_flat: dict[str, Any] | None = None
+        for el in flat_elements:
+            tag = _local(el.tag).upper()
+            if tag == "BILLFIXED":
+                _flush_flat(current_flat)
+                current_flat = {
+                    "bill_ref": _find_text(
+                        el, ("BILLREF", "BILLNAME", "NAME", "BILLREFERENCENUMBER")
+                    ),
+                    "party": _find_text(
+                        el, ("BILLPARTY", "PARTYLEDGERNAME", "PARTYNAME", "LEDGERNAME")
+                    ),
+                    "bill_date": _normalize_date(
+                        _find_text(el, ("BILLDATE", "DATE", "VOUCHERDATE", "INVOICEDATE"))
+                    ),
+                    "amount": None,
+                }
+                continue
+            if current_flat is None:
+                continue
+            if tag in ("BILLCL", "AMOUNT", "CLOSINGBALANCE", "BILLAMOUNT", "PENDINGAMOUNT"):
+                amt = _parse_amount(_text(el))
+                if amt is not None and current_flat.get("amount") is None:
+                    current_flat["amount"] = abs(amt)
+        _flush_flat(current_flat)
 
     return records
 
