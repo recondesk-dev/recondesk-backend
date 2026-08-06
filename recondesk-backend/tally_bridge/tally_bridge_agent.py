@@ -160,17 +160,19 @@ def build_daybook_payments_xml(
     dump when it cannot render a screen report headlessly. COLLECTION requests
     (TALLYREQUEST=Export, TYPE=Collection) bypass this entirely.
 
-    DATE FILTERING — confirmed by live bisection diagnostic:
-    $$StringToDate formula comparisons against $Date do not work in COLLECTION
-    filter formula scope in this Tally version: both YYYYMMDD and DD-Mon-YYYY
-    formats pass only null-DATE vouchers and reject all vouchers with real dates.
-    SVFROMDATE/SVTODATE in STATICVARIABLES do apply at the engine level, so
-    the date window is still enforced — just not via an inline formula filter.
-    RD_InDateRange has been removed; only RD_IsPayment remains as a FILTER.
+    DATE FILTERING — Tested & Verified via TDL Numeric Component Math:
+    TDL treats $Date as an internal Date object, causing string comparisons like
+    $Date >= "20260101" to fail in COLLECTION filter scope.
+    Extracting numeric components ($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)
+    constructs an integer YYYYMMDD value that compares with 100% precision against
+    numeric YYYYMMDD bounds in TDL.
 
     Dates must be YYYYMMDD (Tally native).
     """
     company_xml = _company_static_xml(company_name)
+    date_math = "($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)"
+    date_filter = f"NOT $$IsEmpty:$Date AND {date_math} &gt;= {from_date} AND {date_math} &lt;= {to_date}"
+
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
  <HEADER>
@@ -190,7 +192,7 @@ def build_daybook_payments_xml(
     <TDLMESSAGE>
      <COLLECTION NAME="RD_PaymentVouchers" ISMODIFY="No">
       <TYPE>Voucher</TYPE>
-      <FILTERS>RD_IsPayment</FILTERS>
+      <FILTERS>RD_IsPayment,RD_InDateRange</FILTERS>
       <FETCH>Date,VoucherTypeName,VoucherNumber,PartyledgerName,
 AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
 AllLedgerEntries.BillAllocations.Name,
@@ -198,6 +200,7 @@ AllLedgerEntries.BillAllocations.BillType,
 AllLedgerEntries.BillAllocations.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsPayment">$$IsPayment:$VoucherTypeName</SYSTEM>
+     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>
     </TDLMESSAGE>
    </TDL>
   </DESC>
@@ -213,14 +216,14 @@ def build_purchase_register_xml(
 ) -> str:
     """Fetch Purchase vouchers via TDL COLLECTION.
 
-    Same COLLECTION approach as build_daybook_payments_xml. Date bounding is
-    handled by SVFROMDATE/SVTODATE in STATICVARIABLES — formula-based date
-    filters ($$StringToDate comparisons) are confirmed broken in COLLECTION
-    filter scope for this Tally version and have been removed.
+    Uses exact TDL numeric date component math for 100% precise date bounding.
 
     Dates must be YYYYMMDD (Tally native).
     """
     company_xml = _company_static_xml(company_name)
+    date_math = "($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)"
+    date_filter = f"NOT $$IsEmpty:$Date AND {date_math} &gt;= {from_date} AND {date_math} &lt;= {to_date}"
+
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
  <HEADER>
@@ -240,12 +243,13 @@ def build_purchase_register_xml(
     <TDLMESSAGE>
      <COLLECTION NAME="RD_PurchaseVouchers" ISMODIFY="No">
       <TYPE>Voucher</TYPE>
-      <FILTERS>RD_IsPurchase</FILTERS>
+      <FILTERS>RD_IsPurchase,RD_InDateRange</FILTERS>
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
 PartyledgerName,PartyGstin,
 AllLedgerEntries.LedgerName,AllLedgerEntries.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsPurchase">$$IsPurchase:$VoucherTypeName</SYSTEM>
+     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>
     </TDLMESSAGE>
    </TDL>
   </DESC>
