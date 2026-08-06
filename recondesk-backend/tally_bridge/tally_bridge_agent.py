@@ -152,26 +152,19 @@ def build_daybook_payments_xml(
     company_name: str,
     from_date: str,
     to_date: str,
+    min_alter_id: int | None = None,
 ) -> str:
-    """Fetch Payment vouchers (with Agst Ref bill allocations) via TDL COLLECTION.
-
-    WHY NOT "Export Data" + REPORTNAME "Day Book":
-    TallyPrime's XML server falls back to an "Import Data / All Masters" master
-    dump when it cannot render a screen report headlessly. COLLECTION requests
-    (TALLYREQUEST=Export, TYPE=Collection) bypass this entirely.
-
-    DATE FILTERING — Tested & Verified via TDL Numeric Component Math:
-    TDL treats $Date as an internal Date object, causing string comparisons like
-    $Date >= "20260101" to fail in COLLECTION filter scope.
-    Extracting numeric components ($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)
-    constructs an integer YYYYMMDD value that compares with 100% precision against
-    numeric YYYYMMDD bounds in TDL.
-
-    Dates must be YYYYMMDD (Tally native).
-    """
     company_xml = _company_static_xml(company_name)
     date_math = "($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)"
     date_filter = f"NOT $$IsEmpty:$Date AND {date_math} &gt;= {from_date} AND {date_math} &lt;= {to_date}"
+
+    filters = ["RD_IsPayment", "RD_InDateRange"]
+    alter_formula = ""
+    if min_alter_id is not None and min_alter_id > 0:
+        filters.append("RD_MinAlterId")
+        alter_formula = f'\n     <SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>'
+
+    filters_str = ",".join(filters)
 
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
@@ -192,15 +185,15 @@ def build_daybook_payments_xml(
     <TDLMESSAGE>
      <COLLECTION NAME="RD_PaymentVouchers" ISMODIFY="No">
       <TYPE>Voucher</TYPE>
-      <FILTERS>RD_IsPayment,RD_InDateRange</FILTERS>
-      <FETCH>Date,VoucherTypeName,VoucherNumber,PartyledgerName,
+      <FILTERS>{filters_str}</FILTERS>
+      <FETCH>Date,VoucherTypeName,VoucherNumber,PartyledgerName,ALTERID,MASTERID,ISCANCELLED,ISDELETED,
 AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
 AllLedgerEntries.BillAllocations.Name,
 AllLedgerEntries.BillAllocations.BillType,
 AllLedgerEntries.BillAllocations.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsPayment">$$IsPayment:$VoucherTypeName</SYSTEM>
-     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>
+     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>{alter_formula}
     </TDLMESSAGE>
    </TDL>
   </DESC>
@@ -213,16 +206,19 @@ def build_purchase_register_xml(
     company_name: str,
     from_date: str,
     to_date: str,
+    min_alter_id: int | None = None,
 ) -> str:
-    """Fetch Purchase vouchers via TDL COLLECTION.
-
-    Uses exact TDL numeric date component math for 100% precise date bounding.
-
-    Dates must be YYYYMMDD (Tally native).
-    """
     company_xml = _company_static_xml(company_name)
     date_math = "($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)"
     date_filter = f"NOT $$IsEmpty:$Date AND {date_math} &gt;= {from_date} AND {date_math} &lt;= {to_date}"
+
+    filters = ["RD_IsPurchase", "RD_InDateRange"]
+    alter_formula = ""
+    if min_alter_id is not None and min_alter_id > 0:
+        filters.append("RD_MinAlterId")
+        alter_formula = f'\n     <SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>'
+
+    filters_str = ",".join(filters)
 
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
@@ -243,15 +239,15 @@ def build_purchase_register_xml(
     <TDLMESSAGE>
      <COLLECTION NAME="RD_PurchaseVouchers" ISMODIFY="No">
       <TYPE>Voucher</TYPE>
-      <FILTERS>RD_IsPurchase,RD_InDateRange</FILTERS>
+      <FILTERS>{filters_str}</FILTERS>
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
-PartyledgerName,PartyGstin,
+PartyledgerName,PartyGstin,ALTERID,MASTERID,ISCANCELLED,ISDELETED,
 AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
 AllInventoryEntries.StockItemName,AllInventoryEntries.BilledQty,AllInventoryEntries.Rate,AllInventoryEntries.Amount,
 InventoryEntries.StockItemName,InventoryEntries.BilledQty,InventoryEntries.Rate,InventoryEntries.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsPurchase">$$IsPurchase:$VoucherTypeName</SYSTEM>
-     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>
+     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>{alter_formula}
     </TDLMESSAGE>
    </TDL>
   </DESC>
@@ -264,16 +260,19 @@ def build_sales_register_xml(
     company_name: str,
     from_date: str,
     to_date: str,
+    min_alter_id: int | None = None,
 ) -> str:
-    """Fetch Sales vouchers via TDL COLLECTION.
-
-    Uses exact TDL numeric date component math for 100% precise date bounding.
-
-    Dates must be YYYYMMDD (Tally native).
-    """
     company_xml = _company_static_xml(company_name)
     date_math = "($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)"
     date_filter = f"NOT $$IsEmpty:$Date AND {date_math} &gt;= {from_date} AND {date_math} &lt;= {to_date}"
+
+    filters = ["RD_IsSales", "RD_InDateRange"]
+    alter_formula = ""
+    if min_alter_id is not None and min_alter_id > 0:
+        filters.append("RD_MinAlterId")
+        alter_formula = f'\n     <SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>'
+
+    filters_str = ",".join(filters)
 
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
@@ -294,15 +293,15 @@ def build_sales_register_xml(
     <TDLMESSAGE>
      <COLLECTION NAME="RD_SalesVouchers" ISMODIFY="No">
       <TYPE>Voucher</TYPE>
-      <FILTERS>RD_IsSales,RD_InDateRange</FILTERS>
+      <FILTERS>{filters_str}</FILTERS>
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
-PartyledgerName,PartyGstin,
+PartyledgerName,PartyGstin,ALTERID,MASTERID,ISCANCELLED,ISDELETED,
 AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
 AllInventoryEntries.StockItemName,AllInventoryEntries.BilledQty,AllInventoryEntries.Rate,AllInventoryEntries.Amount,
 InventoryEntries.StockItemName,InventoryEntries.BilledQty,InventoryEntries.Rate,InventoryEntries.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsSales">$$IsSales:$VoucherTypeName</SYSTEM>
-     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>
+     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>{alter_formula}
     </TDLMESSAGE>
    </TDL>
   </DESC>
@@ -315,16 +314,19 @@ def build_credit_debit_notes_xml(
     company_name: str,
     from_date: str,
     to_date: str,
+    min_alter_id: int | None = None,
 ) -> str:
-    """Fetch Credit Note and Debit Note vouchers via TDL COLLECTION.
-
-    Uses exact TDL numeric date component math for 100% precise date bounding.
-
-    Dates must be YYYYMMDD (Tally native).
-    """
     company_xml = _company_static_xml(company_name)
     date_math = "($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)"
     date_filter = f"NOT $$IsEmpty:$Date AND {date_math} &gt;= {from_date} AND {date_math} &lt;= {to_date}"
+
+    filters = ["RD_IsCDN", "RD_InDateRange"]
+    alter_formula = ""
+    if min_alter_id is not None and min_alter_id > 0:
+        filters.append("RD_MinAlterId")
+        alter_formula = f'\n     <SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>'
+
+    filters_str = ",".join(filters)
 
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
@@ -345,15 +347,15 @@ def build_credit_debit_notes_xml(
     <TDLMESSAGE>
      <COLLECTION NAME="RD_CreditDebitNotes" ISMODIFY="No">
       <TYPE>Voucher</TYPE>
-      <FILTERS>RD_IsCDN,RD_InDateRange</FILTERS>
+      <FILTERS>{filters_str}</FILTERS>
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
-PartyledgerName,PartyGstin,
+PartyledgerName,PartyGstin,ALTERID,MASTERID,ISCANCELLED,ISDELETED,
 AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
 AllInventoryEntries.StockItemName,AllInventoryEntries.BilledQty,AllInventoryEntries.Rate,AllInventoryEntries.Amount,
 InventoryEntries.StockItemName,InventoryEntries.BilledQty,InventoryEntries.Rate,InventoryEntries.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsCDN">$$IsCreditNote:$VoucherTypeName OR $$IsDebitNote:$VoucherTypeName</SYSTEM>
-     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>
+     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>{alter_formula}
     </TDLMESSAGE>
    </TDL>
   </DESC>
@@ -362,13 +364,14 @@ InventoryEntries.StockItemName,InventoryEntries.BilledQty,InventoryEntries.Rate,
 """
 
 
-def build_ledger_master_xml(company_name: str) -> str:
-    """Fetch Ledger Master list via TDL COLLECTION.
-
-    Uses TALLYREQUEST=Export, TYPE=Collection, TYPE=Ledger without filters.
-    Casts a wide net for ledger metadata fields to inspect Tally's exact tags.
-    """
+def build_ledger_master_xml(company_name: str, min_alter_id: int | None = None) -> str:
     company_xml = _company_static_xml(company_name)
+    filter_tag = ""
+    alter_formula = ""
+    if min_alter_id is not None and min_alter_id > 0:
+        filter_tag = "<FILTERS>RD_MinAlterId</FILTERS>\n       "
+        alter_formula = f'<SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>\n      '
+
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
  <HEADER>
@@ -386,9 +389,9 @@ def build_ledger_master_xml(company_name: str) -> str:
     <TDLMESSAGE>
      <COLLECTION NAME="RD_LedgerMaster" ISMODIFY="No">
       <TYPE>Ledger</TYPE>
-      <FETCH>NAME,PARENT,GSTIN,PARTYGSTIN,GSTREGISTRATIONNUMBER,LEDSTATENAME,STATENAME,OPENINGBALANCE,CLOSINGBALANCE,LEDGSTREGDETAILS.LIST,LEDMAILINGDETAILS.LIST</FETCH>
+      {filter_tag}<FETCH>NAME,PARENT,GSTIN,PARTYGSTIN,GSTREGISTRATIONNUMBER,LEDSTATENAME,STATENAME,OPENINGBALANCE,CLOSINGBALANCE,ALTERID,MASTERID,LEDGSTREGDETAILS.LIST,LEDMAILINGDETAILS.LIST</FETCH>
      </COLLECTION>
-    </TDLMESSAGE>
+      {alter_formula}</TDLMESSAGE>
    </TDL>
   </DESC>
  </BODY>
@@ -1390,24 +1393,50 @@ def _group_purchase_rows_by_period(rows: list) -> dict:
     return grouped
 
 
+def parse_max_alter_id(xml_text: str) -> int:
+    """Parse maximum ALTERID from a Tally XML response envelope."""
+    if not xml_text:
+        return 0
+    try:
+        root = _parse_root(xml_text)
+    except Exception:
+        return 0
+    max_id = 0
+    for elem in root.iter():
+        if _local(elem.tag).upper() in {"ALTERID", "MASTERID"}:
+            val = (elem.text or "").strip()
+            if val.isdigit():
+                max_id = max(max_id, int(val))
+    return max_id
+
+
 def run_once(
     cfg: dict[str, Any],
     logger: logging.Logger,
     *,
     test_mode: bool,
     out_dir: Path,
+    config_file: Path | None = None,
 ) -> int:
     host = cfg["tally_host"]
     port = int(cfg["tally_port"])
     company = cfg["company_name"]
     lookback = int(cfg.get("lookback_days", 200))
+    min_alter_id = cfg.get("last_alter_id")
+    if min_alter_id is not None:
+        try:
+            min_alter_id = int(min_alter_id)
+        except (ValueError, TypeError):
+            min_alter_id = None
+
     from_ymd, to_ymd = _lookback_window(lookback)
 
     logger.info(
-        "Fetching Bills Payable from Tally at %s:%s (company=%r)",
+        "Fetching Bills Payable from Tally at %s:%s (company=%r, min_alter_id=%s)",
         host,
         port,
         company,
+        min_alter_id,
     )
     try:
         outstanding_xml = fetch_tally_xml(
@@ -1418,16 +1447,17 @@ def run_once(
         return 2
 
     logger.info(
-        "Fetching Day Book payments %s→%s (lookback_days=%s)",
+        "Fetching Day Book payments %s→%s (lookback_days=%s, min_alter_id=%s)",
         from_ymd,
         to_ymd,
         lookback,
+        min_alter_id,
     )
     try:
         payments_xml = fetch_tally_xml(
             host,
             port,
-            build_daybook_payments_xml(company, from_ymd, to_ymd),
+            build_daybook_payments_xml(company, from_ymd, to_ymd, min_alter_id=min_alter_id),
             timeout=120.0,
         )
     except ConnectionError as exc:
@@ -1437,23 +1467,24 @@ def run_once(
     logger.info("Fetching Ledger Master from Tally at %s:%s (company=%r)", host, port, company)
     try:
         ledgers_xml = fetch_tally_xml(
-            host, port, build_ledger_master_xml(company)
+            host, port, build_ledger_master_xml(company, min_alter_id=min_alter_id)
         )
     except ConnectionError as exc:
         logger.error("Failed to fetch Ledger Master: %s", exc)
         ledgers_xml = ""
 
     logger.info(
-        "Fetching Sales Register %s→%s (lookback_days=%s)",
+        "Fetching Sales Register %s→%s (lookback_days=%s, min_alter_id=%s)",
         from_ymd,
         to_ymd,
         lookback,
+        min_alter_id,
     )
     try:
         sales_xml = fetch_tally_xml(
             host,
             port,
-            build_sales_register_xml(company, from_ymd, to_ymd),
+            build_sales_register_xml(company, from_ymd, to_ymd, min_alter_id=min_alter_id),
             timeout=120.0,
         )
     except ConnectionError as exc:
@@ -1461,16 +1492,17 @@ def run_once(
         sales_xml = ""
 
     logger.info(
-        "Fetching Credit/Debit Notes %s→%s (lookback_days=%s)",
+        "Fetching Credit/Debit Notes %s→%s (lookback_days=%s, min_alter_id=%s)",
         from_ymd,
         to_ymd,
         lookback,
+        min_alter_id,
     )
     try:
         cdn_xml = fetch_tally_xml(
             host,
             port,
-            build_credit_debit_notes_xml(company, from_ymd, to_ymd),
+            build_credit_debit_notes_xml(company, from_ymd, to_ymd, min_alter_id=min_alter_id),
             timeout=120.0,
         )
     except ConnectionError as exc:
@@ -1622,6 +1654,21 @@ def run_once(
         encoding="utf-8",
     )
     logger.info("Saved parsed payload → %s", parsed_path)
+
+    max_alter = max(
+        parse_max_alter_id(outstanding_xml),
+        parse_max_alter_id(payments_xml),
+        parse_max_alter_id(ledgers_xml),
+        parse_max_alter_id(sales_xml),
+        parse_max_alter_id(cdn_xml),
+    )
+    if max_alter > 0 and config_file and config_file.exists():
+        try:
+            cfg["last_alter_id"] = max_alter
+            config_file.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+            logger.info("Updated last_alter_id=%d in config %s", max_alter, config_file)
+        except Exception as exc:
+            logger.warning("Failed updating last_alter_id in config: %s", exc)
 
     if test_mode:
         logger.info(
@@ -1806,12 +1853,12 @@ def main(argv: list[str] | None = None) -> int:
 
     once = args.once or args.test
     if once:
-        return run_once(cfg, logger, test_mode=args.test, out_dir=out_dir)
+        return run_once(cfg, logger, test_mode=args.test, out_dir=out_dir, config_file=config_path)
 
     interval = int(cfg["sync_interval_minutes"]) * 60
     logger.info("Starting timer loop every %s minute(s)", cfg["sync_interval_minutes"])
     while True:
-        code = run_once(cfg, logger, test_mode=False, out_dir=out_dir)
+        code = run_once(cfg, logger, test_mode=False, out_dir=out_dir, config_file=config_path)
         if code != 0:
             logger.warning("Sync finished with code %s; will retry after interval", code)
         logger.info("Sleeping %s seconds…", interval)
