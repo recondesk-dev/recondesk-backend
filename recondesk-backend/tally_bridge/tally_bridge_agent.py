@@ -258,6 +258,41 @@ AllLedgerEntries.LedgerName,AllLedgerEntries.Amount</FETCH>
 """
 
 
+def build_ledger_master_xml(company_name: str) -> str:
+    """Fetch Ledger Master list via TDL COLLECTION.
+
+    Uses TALLYREQUEST=Export, TYPE=Collection, TYPE=Ledger without filters.
+    Casts a wide net for ledger metadata fields to inspect Tally's exact tags.
+    """
+    company_xml = _company_static_xml(company_name)
+    return f"""<?xml version="1.0"?>
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <TALLYREQUEST>Export</TALLYREQUEST>
+  <TYPE>Collection</TYPE>
+  <ID>RD_LedgerMaster</ID>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <STATICVARIABLES>
+    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+    {company_xml}  </STATICVARIABLES>
+   <TDL>
+    <TDLMESSAGE>
+     <COLLECTION NAME="RD_LedgerMaster" ISMODIFY="No">
+      <TYPE>Ledger</TYPE>
+      <FETCH>NAME,PARENT,GSTIN,PARTYGSTIN,GSTREGISTRATIONNUMBER,LEDSTATENAME,STATENAME,OPENINGBALANCE,CLOSINGBALANCE,LEDGSTREGDETAILS.LIST,LEDMAILINGDETAILS.LIST</FETCH>
+     </COLLECTION>
+    </TDLMESSAGE>
+   </TDL>
+  </DESC>
+ </BODY>
+</ENVELOPE>
+"""
+
+
+
 def fetch_tally_xml(
     host: str,
     port: int,
@@ -792,6 +827,134 @@ def parse_purchase_register_records(xml_text: str) -> list:
     return records
 
 
+_GST_STATE_CODES: dict[str, str] = {
+    "01": "Jammu & Kashmir",
+    "02": "Himachal Pradesh",
+    "03": "Punjab",
+    "04": "Chandigarh",
+    "05": "Uttarakhand",
+    "06": "Haryana",
+    "07": "Delhi",
+    "08": "Rajasthan",
+    "09": "Uttar Pradesh",
+    "10": "Bihar",
+    "11": "Sikkim",
+    "12": "Arunachal Pradesh",
+    "13": "Nagaland",
+    "14": "Manipur",
+    "15": "Mizoram",
+    "16": "Tripura",
+    "17": "Meghalaya",
+    "18": "Assam",
+    "19": "West Bengal",
+    "20": "Jharkhand",
+    "21": "Odisha",
+    "22": "Chhattisgarh",
+    "23": "Madhya Pradesh",
+    "24": "Gujarat",
+    "26": "Dadra & Nagar Haveli and Daman & Diu",
+    "27": "Maharashtra",
+    "29": "Karnataka",
+    "30": "Goa",
+    "31": "Lakshadweep",
+    "32": "Kerala",
+    "33": "Tamil Nadu",
+    "34": "Puducherry",
+    "35": "Andaman & Nicobar Islands",
+    "36": "Telangana",
+    "37": "Andhra Pradesh",
+    "38": "Ladakh",
+}
+
+_NON_PARTY_NAMES: set[str] = {
+    "CASH",
+    "PROFIT & LOSS A/C",
+    "PROFIT AND LOSS A/C",
+    "SUNDRY CREDITORS",
+    "SUNDRY DEBTORS",
+    "CASH-IN-HAND",
+    "BANK ACCOUNTS",
+}
+
+
+def parse_ledger_master_records(xml_text: str) -> list[dict[str, Any]]:
+    """Parse Ledger Master XML into structured party ledger records.
+
+    Extracts name, parent_group, gstin, state, opening_balance, closing_balance.
+    Filters out system ledgers and root group header ledgers.
+    """
+    root = _parse_root(xml_text)
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for el in root.iter():
+        if _local(el.tag).upper() != "LEDGER":
+            continue
+
+        name = (el.attrib.get("NAME") or "").strip()
+        if not name:
+            name = _find_direct_text(el, ("MAILINGNAME", "NAME")) or _find_text(el, ("MAILINGNAME",))
+        if not name:
+            continue
+
+        name_upper = name.upper()
+        if name_upper in _NON_PARTY_NAMES:
+            continue
+
+        parent_group = _find_direct_text(el, ("PARENT",)) or _find_text(el, ("PARENT",))
+
+        # GSTIN lives in LEDGSTREGDETAILS.LIST -> GSTIN in TallyPrime 3.x+
+        gst_details = el.find("LEDGSTREGDETAILS.LIST")
+        gstin = _find_direct_text(gst_details, ("GSTIN",)) if gst_details is not None else ""
+        if not gstin:
+            gstin = _find_direct_text(el, ("GSTIN", "PARTYGSTIN")) or _find_text(el, ("GSTIN", "PARTYGSTIN"))
+
+        # State extraction priority:
+        # 1. LEDGSTREGDETAILS.LIST > STATE
+        # 2. LEDMAILINGDETAILS.LIST > STATE
+        # 3. Top-level STATENAME
+        state_gst = _find_direct_text(gst_details, ("STATE",)) if gst_details is not None else ""
+
+        mailing_details = el.find("LEDMAILINGDETAILS.LIST")
+        state_mailing = _find_direct_text(mailing_details, ("STATE",)) if mailing_details is not None else ""
+
+        state_top = _find_direct_text(el, ("STATENAME", "LEDSTATENAME", "STATE"))
+
+        state = state_gst or state_mailing or state_top
+
+        # Debug print for Box9 as requested
+        if name == "Box9":
+            derived_state = _GST_STATE_CODES.get(gstin[:2], "") if (not state and len(gstin) >= 2) else state
+            print(
+                f"State debug for Box9: LEDGSTREGDETAILS.LIST>STATE={state_gst!r}, "
+                f"LEDMAILINGDETAILS.LIST>STATE={state_mailing!r}, STATENAME={state_top!r}, "
+                f"derived={derived_state!r}"
+            )
+
+        if not state and len(gstin) >= 2:
+            state = _GST_STATE_CODES.get(gstin[:2], "")
+
+        opening_balance = _parse_amount(_find_direct_text(el, ("OPENINGBALANCE",)))
+        closing_balance = _parse_amount(_find_direct_text(el, ("CLOSINGBALANCE",)))
+
+        rec = {
+            "name": name,
+            "parent_group": parent_group or "",
+            "gstin": gstin or "",
+            "state": state or "",
+            "opening_balance": abs(opening_balance) if opening_balance is not None else None,
+            "closing_balance": abs(closing_balance) if closing_balance is not None else None,
+        }
+
+        if rec["name"] in seen:
+            continue
+        seen.add(rec["name"])
+        records.append(rec)
+
+    return records
+
+
+
 def push_sync_payload(
     endpoint: str,
     api_key: str,
@@ -1078,6 +1241,30 @@ def run_once(
     return 0
 
 
+def fetch_ledgers_only(cfg: dict[str, Any], logger: logging.Logger, out_dir: Path) -> int:
+    host = cfg["tally_host"]
+    port = int(cfg["tally_port"])
+    company = cfg["company_name"]
+    logger.info("Fetching Ledger Master from Tally at %s:%s (company=%r)", host, port, company)
+    try:
+        xml_text = fetch_tally_xml(host, port, build_ledger_master_xml(company))
+    except ConnectionError as exc:
+        logger.error("%s", exc)
+        return 2
+
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_path = out_dir / f"tally_ledger_master_{stamp}.xml"
+    out_path.write_text(xml_text, encoding="utf-8")
+    logger.info("Saved raw Ledger Master XML → %s (%d bytes)", out_path, len(xml_text.encode("utf-8")))
+
+    records = parse_ledger_master_records(xml_text)
+    logger.info("Parsed %d ledger master record(s)", len(records))
+
+    print("\n=== Parsed Ledger Master Records ===")
+    print(json.dumps(records, indent=2, ensure_ascii=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     app_dir = _app_dir()
     default_config = str(app_dir / "tally_bridge.config.json")
@@ -1096,6 +1283,11 @@ def main(argv: list[str] | None = None) -> int:
         "--test",
         action="store_true",
         help="Fetch + parse both exports and print row counts; do not push",
+    )
+    parser.add_argument(
+        "--ledgers",
+        action="store_true",
+        help="Fetch and print raw Ledger Master XML from Tally then exit",
     )
     parser.add_argument(
         "--once",
@@ -1132,6 +1324,9 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         logger.error("Invalid config: %s", exc)
         return 1
+
+    if args.ledgers:
+        return fetch_ledgers_only(cfg, logger, out_dir)
 
     once = args.once or args.test
     if once:
