@@ -364,6 +364,59 @@ InventoryEntries.StockItemName,InventoryEntries.BilledQty,InventoryEntries.Rate,
 """
 
 
+def build_receipt_journal_contra_xml(
+    company_name: str,
+    from_date: str,
+    to_date: str,
+    min_alter_id: int | None = None,
+) -> str:
+    """Fetch Receipt, Journal, and Contra vouchers via TDL COLLECTION."""
+    company_xml = _company_static_xml(company_name)
+    date_math = "($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)"
+    date_filter = f"NOT $$IsEmpty:$Date AND {date_math} &gt;= {from_date} AND {date_math} &lt;= {to_date}"
+
+    filters = ["RD_IsRJC", "RD_InDateRange"]
+    alter_formula = ""
+    if min_alter_id is not None and min_alter_id > 0:
+        filters.append("RD_MinAlterId")
+        alter_formula = f'\n     <SYSTEM TYPE="Formulae" NAME="RD_MinAlterId">$ALTERID &gt; {min_alter_id}</SYSTEM>'
+
+    filters_str = ",".join(filters)
+
+    return f"""<?xml version="1.0"?>
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <TALLYREQUEST>Export</TALLYREQUEST>
+  <TYPE>Collection</TYPE>
+  <ID>RD_ReceiptJournalContra</ID>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <STATICVARIABLES>
+    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+    <SVFROMDATE>{from_date}</SVFROMDATE>
+    <SVTODATE>{to_date}</SVTODATE>
+    {company_xml}  </STATICVARIABLES>
+   <TDL>
+    <TDLMESSAGE>
+     <COLLECTION NAME="RD_ReceiptJournalContra" ISMODIFY="No">
+      <TYPE>Voucher</TYPE>
+      <FILTERS>{filters_str}</FILTERS>
+      <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
+PartyledgerName,PartyGstin,GUID,ALTERID,MASTERID,ISCANCELLED,ISDELETED,
+AllLedgerEntries.LedgerName,AllLedgerEntries.Amount</FETCH>
+     </COLLECTION>
+     <SYSTEM TYPE="Formulae" NAME="RD_IsRJC">$$IsReceipt:$VoucherTypeName OR $$IsJournal:$VoucherTypeName OR $$IsContra:$VoucherTypeName</SYSTEM>
+     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>{alter_formula}
+    </TDLMESSAGE>
+   </TDL>
+  </DESC>
+ </BODY>
+</ENVELOPE>
+"""
+
+
 def build_ledger_master_xml(company_name: str, min_alter_id: int | None = None) -> str:
     company_xml = _company_static_xml(company_name)
     filter_tag = ""
@@ -1415,6 +1468,81 @@ def parse_stock_master_records(xml_text: str) -> list[dict[str, Any]]:
     return records
 
 
+def parse_receipt_journal_contra_records(xml_text: str) -> list[dict[str, Any]]:
+    """Parse TDL Receipt/Journal/Contra Collection XML into canonical rows."""
+    if not xml_text:
+        return []
+    try:
+        root = _parse_root(xml_text)
+    except ET.ParseError:
+        return []
+
+    records = []
+    seen = set()
+    for voucher in root.iter():
+        if _local(voucher.tag).upper() != "VOUCHER":
+            continue
+
+        is_cancelled = _is_voucher_cancelled_or_deleted(voucher)
+        vtype = (
+            _find_direct_text(voucher, ("VOUCHERTYPENAME", "VOUCHERTYPE"))
+            or _find_text(voucher, ("VOUCHERTYPENAME", "VOUCHERTYPE"))
+            or ""
+        )
+        voucher_date = _normalize_date(
+            _find_direct_text(voucher, ("DATE", "VOUCHERDATE"))
+            or _find_text(voucher, ("DATE", "VOUCHERDATE"))
+        )
+        voucher_number = (
+            _find_direct_text(voucher, ("VOUCHERNUMBER", "NUMBER", "REFERENCE"))
+            or _find_text(voucher, ("VOUCHERNUMBER", "NUMBER", "REFERENCE"))
+        )
+        party = (
+            _find_direct_text(voucher, ("PARTYLEDGERNAME", "PARTYNAME", "LEDGERNAME"))
+            or _find_text(voucher, ("PARTYLEDGERNAME", "PARTYNAME", "LEDGERNAME"))
+        )
+        guid = (
+            _find_direct_text(voucher, ("GUID",))
+            or _find_text(voucher, ("GUID",))
+            or ""
+        )
+
+        entries = []
+        total_amt = 0.0
+        for entry in voucher.iter():
+            etag = _local(entry.tag).upper()
+            if etag not in {"ALLLEDGERENTRIES.LIST", "LEDGERENTRIES.LIST", "LEDGERENTRY"}:
+                continue
+            lname = (
+                _find_direct_text(entry, ("LEDGERNAME",))
+                or _find_text(entry, ("LEDGERNAME",))
+            )
+            amt = _parse_amount(
+                _find_direct_text(entry, ("AMOUNT",)) or _find_text(entry, ("AMOUNT",))
+            )
+            if lname and amt is not None:
+                entries.append({"ledger_name": lname, "amount": f"{abs(amt):.2f}"})
+                total_amt += abs(amt)
+
+        rec = {
+            "voucher_type": vtype,
+            "voucher_number": voucher_number or "",
+            "voucher_date": voucher_date or "",
+            "party_name": party or "",
+            "total_amount": f"{(total_amt / 2.0):.2f}" if total_amt > 0 else "0.00",
+            "is_cancelled": is_cancelled,
+            "guid": guid,
+            "entries": entries,
+        }
+        key = (rec["voucher_number"], rec["voucher_type"], rec["voucher_date"])
+        if key in seen:
+            continue
+        seen.add(key)
+        records.append(rec)
+    return records
+
+
+
 
 
 def _post_with_retry(
@@ -1680,6 +1808,24 @@ def run_once(
         logger.error("Failed to fetch Stock Master: %s", exc)
         stock_xml = ""
 
+    logger.info(
+        "Fetching Receipt/Journal/Contra %s→%s (lookback_days=%s, min_alter_id=%s)",
+        from_ymd,
+        to_ymd,
+        lookback,
+        min_alter_id,
+    )
+    try:
+        rjc_xml = fetch_tally_xml(
+            host,
+            port,
+            build_receipt_journal_contra_xml(company, from_ymd, to_ymd, min_alter_id=min_alter_id),
+            timeout=120.0,
+        )
+    except ConnectionError as exc:
+        logger.error("Failed to fetch Receipt/Journal/Contra: %s", exc)
+        rjc_xml = ""
+
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     outstanding_path = out_dir / f"tally_bills_payable_{stamp}.xml"
     payments_path = out_dir / f"tally_daybook_payments_{stamp}.xml"
@@ -1687,6 +1833,7 @@ def run_once(
     stock_path = out_dir / f"tally_stock_master_{stamp}.xml"
     sales_path = out_dir / f"tally_sales_register_{stamp}.xml"
     cdn_path = out_dir / f"tally_cdn_notes_{stamp}.xml"
+    rjc_path = out_dir / f"tally_rjc_vouchers_{stamp}.xml"
     outstanding_path.write_text(outstanding_xml, encoding="utf-8")
     payments_path.write_text(payments_xml, encoding="utf-8")
     if ledgers_xml:
@@ -1697,6 +1844,8 @@ def run_once(
         sales_path.write_text(sales_xml, encoding="utf-8")
     if cdn_xml:
         cdn_path.write_text(cdn_xml, encoding="utf-8")
+    if rjc_xml:
+        rjc_path.write_text(rjc_xml, encoding="utf-8")
 
     outstanding_bytes = len(outstanding_xml.encode("utf-8"))
     payments_bytes = len(payments_xml.encode("utf-8"))
@@ -1785,19 +1934,29 @@ def run_once(
     )
     logger.info("Saved stock master rows → %s", stock_parsed_path)
 
+    rjc_rows = parse_receipt_journal_contra_records(rjc_xml) if rjc_xml else []
+    rjc_parsed_path = out_dir / f"tally_rjc_vouchers_parsed_{stamp}.json"
+    rjc_parsed_path.write_text(
+        json.dumps(rjc_rows, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    logger.info("Saved receipt/journal/contra rows → %s", rjc_parsed_path)
+
     outstanding_n = len(outstanding)
     payments_n = len(payments)
     ledgers_n = len(ledgers)
     stock_n = len(stock_items)
     sales_n = len(sales_rows)
     cdn_n = len(cdn_rows)
+    rjc_n = len(rjc_rows)
     logger.info(
         "Export summary: Bills Payable → %d outstanding row(s) (%d raw bytes); "
         "Day Book Payment Agst Ref → %d payment row(s) (%d raw bytes); "
         "Ledger Master → %d record(s) (%d raw bytes); "
         "Stock Master → %d record(s); "
         "Sales Register → %d row(s) (%d raw bytes); "
-        "Credit/Debit Notes → %d row(s) (%d raw bytes)",
+        "Credit/Debit Notes → %d row(s) (%d raw bytes); "
+        "Receipt/Journal/Contra → %d row(s)",
         outstanding_n,
         outstanding_bytes,
         payments_n,
@@ -1809,6 +1968,7 @@ def run_once(
         sales_bytes,
         cdn_n,
         cdn_bytes,
+        rjc_n,
     )
     if outstanding_n == 0:
         logger.warning(
