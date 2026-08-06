@@ -306,12 +306,58 @@ def _aggregate_payments(
     return aggregated
 
 
+def _sync_tally_ledgers(
+    sb: Client,
+    account_id: str,
+    company_name: str,
+    ledgers: list[dict[str, Any]],
+) -> int:
+    if not ledgers:
+        return 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for leg in ledgers:
+        if not isinstance(leg, dict):
+            continue
+        name = str(leg.get("name") or "").strip()
+        if not name:
+            continue
+        rows.append(
+            {
+                "account_id": account_id,
+                "company_name": company_name,
+                "name": name,
+                "parent_group": str(leg.get("parent_group") or ""),
+                "gstin": str(leg.get("gstin") or "").strip().upper(),
+                "state": str(leg.get("state") or ""),
+                "opening_balance": leg.get("opening_balance"),
+                "closing_balance": leg.get("closing_balance"),
+                "synced_at": now_iso,
+            }
+        )
+    if not rows:
+        return 0
+    try:
+        sb.table("tally_ledger_masters").upsert(
+            rows, on_conflict="account_id,company_name,name"
+        ).execute()
+        return len(rows)
+    except Exception:
+        _log.warning(
+            "tally_bridge: failed upserting tally_ledger_masters for account_id=%s",
+            account_id,
+            exc_info=True,
+        )
+        return 0
+
+
 def apply_tally_bridge_sync(
     sb: Client,
     *,
     account_id: str,
     outstanding: list[dict[str, Any]],
     payments: list[dict[str, Any]],
+    ledgers: list[dict[str, Any]] | None = None,
     company_name: str = "",
     key_id: str | None = None,
 ) -> dict[str, Any]:
@@ -329,6 +375,7 @@ def apply_tally_bridge_sync(
     open_rows = load_open_rule37_for_account(sb, account_id)
     outstanding_pending = _index_outstanding_pending(outstanding)
     payment_groups = _aggregate_payments(payments)
+    ledgers_synced = _sync_tally_ledgers(sb, account_id, company_name, ledgers or [])
 
     settled: list[dict[str, Any]] = []
     still_outstanding: list[dict[str, Any]] = []
@@ -519,6 +566,8 @@ def apply_tally_bridge_sync(
         "open_candidates": len(open_rows) + len(claimed),
         "outstanding_received": len(outstanding),
         "payments_received": len(payments),
+        "ledgers_received": len(ledgers) if ledgers else 0,
+        "ledgers_synced_count": ledgers_synced,
         "settled_count": len(settled),
         "still_outstanding_count": len(still_outstanding),
         "needs_manual_confirmation_count": len(needs_manual_confirmation),
@@ -529,3 +578,4 @@ def apply_tally_bridge_sync(
         "skipped": skipped[:50],
         "last_synced_at": now_iso,
     }
+

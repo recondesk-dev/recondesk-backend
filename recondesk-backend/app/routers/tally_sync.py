@@ -73,11 +73,21 @@ class TallyPaymentRow(BaseModel):
     voucher_type: str = ""
 
 
+class TallyLedgerRow(BaseModel):
+    name: str = Field(..., min_length=1)
+    parent_group: str = ""
+    gstin: str = ""
+    state: str = ""
+    opening_balance: Optional[float] = None
+    closing_balance: Optional[float] = None
+
+
 class TallyBridgeSyncBody(BaseModel):
     company_name: str = ""
     synced_at: Optional[str] = None
     outstanding: list[TallyOutstandingRow] = Field(default_factory=list)
     payments: list[TallyPaymentRow] = Field(default_factory=list)
+    ledgers: list[TallyLedgerRow] = Field(default_factory=list)
 
 
 class TallyKeyCreateBody(BaseModel):
@@ -201,6 +211,7 @@ async def tally_sync_outstanding(
     company = (body.company_name or key_row.get("company_name") or "").strip()
     outstanding = [r.model_dump() for r in body.outstanding]
     payments = [r.model_dump() for r in body.payments]
+    ledgers = [r.model_dump() for r in body.ledgers]
     sb = get_supabase()
     try:
         result = apply_tally_bridge_sync(
@@ -208,6 +219,7 @@ async def tally_sync_outstanding(
             account_id=account_id,
             outstanding=outstanding,
             payments=payments,
+            ledgers=ledgers,
             company_name=company or str(key_row.get("company_name") or ""),
             key_id=str(key_row.get("id") or "") or None,
         )
