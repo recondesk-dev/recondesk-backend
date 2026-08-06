@@ -290,23 +290,63 @@ def _parse_amount(raw: str) -> float | None:
         return None
 
 
+_MONTH_ABBR: dict[str, str] = {
+    "jan": "01", "feb": "02", "mar": "03", "apr": "04",
+    "may": "05", "jun": "06", "jul": "07", "aug": "08",
+    "sep": "09", "oct": "10", "nov": "11", "dec": "12",
+}
+
+
 def _normalize_date(raw: str) -> str | None:
+    """Normalise a Tally date string to YYYY-MM-DD.
+
+    Handles:
+      - YYYYMMDD        (20260401)
+      - YYYY-MM-DD      (already ISO)
+      - D-Mon-YY / DD-Mon-YYYY  (1-Apr-26, 01-Apr-2026) — Tally default
+      - D/M/YY, D.M.YY, D-M-YY (numeric separators)
+
+    Month names use an explicit abbreviation lookup (case-insensitive) so
+    behaviour is identical regardless of the Python locale or platform.
+    """
     s = (raw or "").strip()
     if not s:
         return None
+
+    # YYYYMMDD
     if len(s) == 8 and s.isdigit():
         return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+
+    # Already ISO: YYYY-MM-DD[…]
     if len(s) >= 10 and s[4] == "-" and s[7] == "-":
         return s[:10]
+
+    # Split on any of the common Tally separators: - / .
     for sep in ("-", "/", "."):
         parts = s.split(sep)
-        if len(parts) == 3 and all(parts):
-            d, m, y = parts[0].zfill(2), parts[1].zfill(2), parts[2]
-            if len(y) == 2:
-                y = f"20{y}"
-            if len(y) == 4:
-                return f"{y}-{m}-{d}"
+        if len(parts) != 3 or not all(parts):
+            continue
+        d_raw, m_raw, y_raw = parts[0], parts[1], parts[2]
+
+        # Resolve month: numeric or 3-letter abbreviation.
+        m_lower = m_raw.lower()
+        if m_lower in _MONTH_ABBR:
+            # Month-name format: D-Mon-YY or D-Mon-YYYY
+            m = _MONTH_ABBR[m_lower]
+        elif m_raw.isdigit():
+            m = m_raw.zfill(2)
+        else:
+            continue  # unrecognised month token
+
+        d = d_raw.zfill(2)
+        y = y_raw
+        if len(y) == 2:
+            y = f"20{y}"
+        if len(y) == 4:
+            return f"{y}-{m}-{d}"
+
     return None
+
 
 
 # Matches numeric character references whose code-point is illegal in XML 1.0
