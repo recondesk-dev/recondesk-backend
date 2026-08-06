@@ -441,33 +441,46 @@ def fetch_tally_xml(
     port: int,
     body_xml: str,
     timeout: float = 60.0,
+    max_retries: int = 3,
 ) -> str:
     url = f"http://{host}:{port}"
     body = body_xml.encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        method="POST",
-        headers={"Content-Type": "application/xml", "Content-Length": str(len(body))},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-    except urllib.error.URLError as exc:
-        raise ConnectionError(
-            TALLY_UNREACHABLE_MSG.format(host=host, port=port)
-        ) from exc
-    except TimeoutError as exc:
-        raise ConnectionError(
-            TALLY_UNREACHABLE_MSG.format(host=host, port=port)
-        ) from exc
 
-    for encoding in ("utf-8", "utf-16", "latin-1"):
+    last_exc = None
+    for attempt in range(max_retries):
+        req = urllib.request.Request(
+            url,
+            data=body,
+            method="POST",
+            headers={"Content-Type": "application/xml", "Content-Length": str(len(body))},
+        )
         try:
-            return raw.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", errors="replace")
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read()
+            for encoding in ("utf-8", "utf-16", "latin-1"):
+                try:
+                    return raw.decode(encoding)
+                except UnicodeDecodeError:
+                    continue
+            return raw.decode("utf-8", errors="replace")
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_exc = exc
+            if attempt < max_retries - 1:
+                backoff = 2.0 ** (attempt + 1)
+                logging.getLogger("tally_bridge").warning(
+                    "Tally request to %s:%d failed (attempt %d/%d): %s. Retrying in %.1fs…",
+                    host,
+                    port,
+                    attempt + 1,
+                    max_retries,
+                    exc,
+                    backoff,
+                )
+                time.sleep(backoff)
+
+    raise ConnectionError(
+        TALLY_UNREACHABLE_MSG.format(host=host, port=port)
+    ) from last_exc
 
 
 def _local(tag: str) -> str:
@@ -1384,6 +1397,47 @@ def parse_stock_master_records(xml_text: str) -> list[dict[str, Any]]:
 
 
 
+def _post_with_retry(
+    endpoint: str,
+    headers: dict[str, str],
+    payload: bytes,
+    timeout: float = 60.0,
+    max_retries: int = 3,
+) -> dict[str, Any]:
+    last_exc = None
+    for attempt in range(max_retries):
+        req = urllib.request.Request(
+            endpoint,
+            data=payload,
+            method="POST",
+            headers=headers,
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read().decode("utf-8", errors="replace")
+            try:
+                return json.loads(body)
+            except json.JSONDecodeError:
+                return {"raw": body}
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_exc = exc
+            if attempt < max_retries - 1:
+                backoff = 2.0 ** (attempt + 1)
+                logging.getLogger("tally_bridge").warning(
+                    "ReconDesk push to %s failed (attempt %d/%d): %s. Retrying in %.1fs…",
+                    endpoint,
+                    attempt + 1,
+                    max_retries,
+                    exc,
+                    backoff,
+                )
+                time.sleep(backoff)
+
+    if last_exc:
+        raise last_exc
+    return {}
+
+
 def push_sync_payload(
     endpoint: str,
     api_key: str,
@@ -1402,21 +1456,11 @@ def push_sync_payload(
     if ledgers is not None:
         payload_dict["ledgers"] = ledgers
     payload = json.dumps(payload_dict).encode("utf-8")
-    req = urllib.request.Request(
-        endpoint,
-        data=payload,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read().decode("utf-8", errors="replace")
-    try:
-        return json.loads(body)
-    except json.JSONDecodeError:
-        return {"raw": body}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    return _post_with_retry(endpoint, headers, payload, timeout=timeout)
 
 
 def push_purchase_register_payload(
@@ -1436,21 +1480,11 @@ def push_purchase_register_payload(
             "rows": rows,
         }
     ).encode("utf-8")
-    req = urllib.request.Request(
-        endpoint,
-        data=payload,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read().decode("utf-8", errors="replace")
-    try:
-        return json.loads(body)
-    except json.JSONDecodeError:
-        return {"raw": body}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    return _post_with_retry(endpoint, headers, payload, timeout=timeout)
 
 
 def push_sales_register_payload(
@@ -1470,21 +1504,11 @@ def push_sales_register_payload(
             "rows": rows,
         }
     ).encode("utf-8")
-    req = urllib.request.Request(
-        endpoint,
-        data=payload,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read().decode("utf-8", errors="replace")
-    try:
-        return json.loads(body)
-    except json.JSONDecodeError:
-        return {"raw": body}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    return _post_with_retry(endpoint, headers, payload, timeout=timeout)
 
 
 def _lookback_window(lookback_days: int) -> tuple[str, str]:
