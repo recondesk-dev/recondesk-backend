@@ -153,29 +153,54 @@ def build_daybook_payments_xml(
     from_date: str,
     to_date: str,
 ) -> str:
-    """Day Book filtered to Payment vouchers for the lookback window.
+    """Fetch Payment vouchers (with Agst Ref bill allocations) via TDL COLLECTION.
 
-    Dates must be YYYYMMDD (Tally native). Filter uses TDL formula on
-    VoucherTypeName so custom payment voucher aliases still need a name
-    containing 'Payment' (or known aliases are accepted at parse time).
+    WHY NOT "Export Data" + REPORTNAME "Day Book":
+    TallyPrime's XML server does not render screen reports headlessly. Sending
+    TALLYREQUEST=Export Data / REPORTNAME=Day Book causes Tally to silently fall
+    back to an "Import Data / All Masters" master-sync dump — the wrong data
+    entirely, which is why parse_payment_records always returned 0 rows.
+
+    THE FIX — TDL COLLECTION request:
+    TALLYREQUEST=Export + TYPE=Collection instructs Tally to execute a named
+    TDL collection defined inline in the same request. The COLLECTION filters
+    by VoucherDate range and fetches BILLALLOCATIONS.LIST natively, which is
+    the only reliable programmatic path in TallyPrime 3.x+.
+
+    Dates must be YYYYMMDD (Tally native).
     """
     company_xml = _company_static_xml(company_name)
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
  <HEADER>
-  <TALLYREQUEST>Export Data</TALLYREQUEST>
+  <VERSION>1</VERSION>
+  <TALLYREQUEST>Export</TALLYREQUEST>
+  <TYPE>Collection</TYPE>
+  <ID>RD_PaymentVouchers</ID>
  </HEADER>
  <BODY>
-  <EXPORTDATA>
-   <REQUESTDESC>
-    <REPORTNAME>Day Book</REPORTNAME>
-    <STATICVARIABLES>
-     <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-     <SVFROMDATE>{from_date}</SVFROMDATE>
-     <SVTODATE>{to_date}</SVTODATE>
-     {company_xml}    </STATICVARIABLES>
-   </REQUESTDESC>
-  </EXPORTDATA>
+  <DESC>
+   <STATICVARIABLES>
+    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+    <SVFROMDATE>{from_date}</SVFROMDATE>
+    <SVTODATE>{to_date}</SVTODATE>
+    {company_xml}  </STATICVARIABLES>
+   <TDL>
+    <TDLMESSAGE>
+     <COLLECTION NAME="RD_PaymentVouchers" ISMODIFY="No">
+      <TYPE>Voucher</TYPE>
+      <FILTERS>RD_IsPayment,RD_InDateRange</FILTERS>
+      <FETCH>Date,VoucherTypeName,VoucherNumber,PartyledgerName,
+AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
+AllLedgerEntries.BillAllocations.Name,
+AllLedgerEntries.BillAllocations.BillType,
+AllLedgerEntries.BillAllocations.Amount</FETCH>
+     </COLLECTION>
+     <SYSTEM TYPE="Formulae" NAME="RD_IsPayment">$$IsPayment:$VoucherTypeName</SYSTEM>
+     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">$Date &gt;= SVFromDate AND $Date &lt;= SVToDate</SYSTEM>
+    </TDLMESSAGE>
+   </TDL>
+  </DESC>
  </BODY>
 </ENVELOPE>
 """
@@ -186,26 +211,44 @@ def build_purchase_register_xml(
     from_date: str,
     to_date: str,
 ) -> str:
-    """Purchase Register for the period. Dates must be YYYYMMDD (Tally native).
-    Mirrors build_bills_payable_xml's structure, adding the date-range
-    STATICVARIABLES the same way build_daybook_payments_xml does."""
+    """Fetch Purchase vouchers via TDL COLLECTION (same fix as build_daybook_payments_xml).
+
+    "Export Data" + REPORTNAME "Purchase Register" triggers the same Tally
+    silent-fallback as the Day Book request. Switched to a COLLECTION request
+    that fetches Purchase vouchers with ledger-entry breakdown for GST fields.
+
+    Dates must be YYYYMMDD (Tally native).
+    """
     company_xml = _company_static_xml(company_name)
     return f"""<?xml version="1.0"?>
 <ENVELOPE>
  <HEADER>
-  <TALLYREQUEST>Export Data</TALLYREQUEST>
+  <VERSION>1</VERSION>
+  <TALLYREQUEST>Export</TALLYREQUEST>
+  <TYPE>Collection</TYPE>
+  <ID>RD_PurchaseVouchers</ID>
  </HEADER>
  <BODY>
-  <EXPORTDATA>
-   <REQUESTDESC>
-    <REPORTNAME>Purchase Register</REPORTNAME>
-    <STATICVARIABLES>
-     <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-     <SVFROMDATE>{from_date}</SVFROMDATE>
-     <SVTODATE>{to_date}</SVTODATE>
-     {company_xml}    </STATICVARIABLES>
-   </REQUESTDESC>
-  </EXPORTDATA>
+  <DESC>
+   <STATICVARIABLES>
+    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+    <SVFROMDATE>{from_date}</SVFROMDATE>
+    <SVTODATE>{to_date}</SVTODATE>
+    {company_xml}  </STATICVARIABLES>
+   <TDL>
+    <TDLMESSAGE>
+     <COLLECTION NAME="RD_PurchaseVouchers" ISMODIFY="No">
+      <TYPE>Voucher</TYPE>
+      <FILTERS>RD_IsPurchase,RD_PRInDateRange</FILTERS>
+      <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
+PartyledgerName,PartyGstin,
+AllLedgerEntries.LedgerName,AllLedgerEntries.Amount</FETCH>
+     </COLLECTION>
+     <SYSTEM TYPE="Formulae" NAME="RD_IsPurchase">$$IsPurchase:$VoucherTypeName</SYSTEM>
+     <SYSTEM TYPE="Formulae" NAME="RD_PRInDateRange">$Date &gt;= SVFromDate AND $Date &lt;= SVToDate</SYSTEM>
+    </TDLMESSAGE>
+   </TDL>
+  </DESC>
  </BODY>
 </ENVELOPE>
 """
