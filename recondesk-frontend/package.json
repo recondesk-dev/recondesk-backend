@@ -1,6 +1,6 @@
-{
   "name": "recondesk-frontend",
   "version": "0.1.0",
+  "description": "ReconDesk Frontend App",
   "private": true,
   "scripts": {
     "dev": "ulimit -n 65536 2>/dev/null || true; next dev",
