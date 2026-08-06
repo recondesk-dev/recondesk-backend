@@ -66,14 +66,43 @@ def party_similarity(party: str, supplier_name: str) -> float:
     return float(vendor_name_similarity(party or "", supplier_name or ""))
 
 
-def party_clears_autosettle_gate(party: str, supplier_name: str) -> tuple[bool, float]:
-    """Hard gate: both names present and similarity ≥ ``_PARTY_AUTO_SETTLE_MIN``."""
+def party_clears_autosettle_gate(
+    party: str,
+    supplier_name: str,
+    *,
+    tally_gstin: str = "",
+    supplier_gstin: str = "",
+) -> tuple[bool, float]:
+    """Hard gate: clears if GSTINs match exactly, OR if names clear _PARTY_AUTO_SETTLE_MIN."""
     p = (party or "").strip()
     s = (supplier_name or "").strip()
+    tgst = (tally_gstin or "").strip().upper()
+    sgst = (supplier_gstin or "").strip().upper()
+
+    if tgst and sgst and tgst == sgst:
+        return True, 1.0
+
     if not p or not s:
         return False, 0.0
     sim = party_similarity(p, s)
     return sim >= _PARTY_AUTO_SETTLE_MIN, sim
+
+
+def _load_tally_ledger_gstin_map(sb: Client, account_id: str) -> dict[str, str]:
+    try:
+        res = (
+            sb.table("tally_ledger_masters")
+            .select("name, gstin")
+            .eq("account_id", account_id)
+            .execute()
+        )
+        return {
+            str(r["name"]).strip(): str(r.get("gstin") or "").strip().upper()
+            for r in (res.data or [])
+            if r.get("name")
+        }
+    except Exception:
+        return {}
 
 
 def is_confident_bill_match(
@@ -376,6 +405,7 @@ def apply_tally_bridge_sync(
     outstanding_pending = _index_outstanding_pending(outstanding)
     payment_groups = _aggregate_payments(payments)
     ledgers_synced = _sync_tally_ledgers(sb, account_id, company_name, ledgers or [])
+    tally_gstin_map = _load_tally_ledger_gstin_map(sb, account_id)
 
     settled: list[dict[str, Any]] = []
     still_outstanding: list[dict[str, Any]] = []
@@ -412,7 +442,15 @@ def apply_tally_bridge_sync(
             continue
 
         supplier_name = str(best.get("supplier_name") or "")
-        party_ok, party_sim = party_clears_autosettle_gate(party, supplier_name)
+        supplier_gstin = str(best.get("supplier_gstin") or "")
+        tally_gstin = tally_gstin_map.get(party, "")
+
+        party_ok, party_sim = party_clears_autosettle_gate(
+            party,
+            supplier_name,
+            tally_gstin=tally_gstin,
+            supplier_gstin=supplier_gstin,
+        )
         unique_gap = (
             _UNIQUE_GAP_MIN if party_ok else _UNIQUE_GAP_UNCLEAR_PARTY
         )

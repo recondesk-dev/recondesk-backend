@@ -246,7 +246,9 @@ def build_purchase_register_xml(
       <FILTERS>RD_IsPurchase,RD_InDateRange</FILTERS>
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
 PartyledgerName,PartyGstin,
-AllLedgerEntries.LedgerName,AllLedgerEntries.Amount</FETCH>
+AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
+AllInventoryEntries.StockItemName,AllInventoryEntries.BilledQty,AllInventoryEntries.Rate,AllInventoryEntries.Amount,
+InventoryEntries.StockItemName,InventoryEntries.BilledQty,InventoryEntries.Rate,InventoryEntries.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsPurchase">$$IsPurchase:$VoucherTypeName</SYSTEM>
      <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>
@@ -295,7 +297,9 @@ def build_sales_register_xml(
       <FILTERS>RD_IsSales,RD_InDateRange</FILTERS>
       <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
 PartyledgerName,PartyGstin,
-AllLedgerEntries.LedgerName,AllLedgerEntries.Amount</FETCH>
+AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
+AllInventoryEntries.StockItemName,AllInventoryEntries.BilledQty,AllInventoryEntries.Rate,AllInventoryEntries.Amount,
+InventoryEntries.StockItemName,InventoryEntries.BilledQty,InventoryEntries.Rate,InventoryEntries.Amount</FETCH>
      </COLLECTION>
      <SYSTEM TYPE="Formulae" NAME="RD_IsSales">$$IsSales:$VoucherTypeName</SYSTEM>
      <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>
@@ -306,6 +310,56 @@ AllLedgerEntries.LedgerName,AllLedgerEntries.Amount</FETCH>
 </ENVELOPE>
 """
 
+
+def build_credit_debit_notes_xml(
+    company_name: str,
+    from_date: str,
+    to_date: str,
+) -> str:
+    """Fetch Credit Note and Debit Note vouchers via TDL COLLECTION.
+
+    Uses exact TDL numeric date component math for 100% precise date bounding.
+
+    Dates must be YYYYMMDD (Tally native).
+    """
+    company_xml = _company_static_xml(company_name)
+    date_math = "($$YearOfDate:$Date * 10000 + $$MonthOfDate:$Date * 100 + $$DayOfDate:$Date)"
+    date_filter = f"NOT $$IsEmpty:$Date AND {date_math} &gt;= {from_date} AND {date_math} &lt;= {to_date}"
+
+    return f"""<?xml version="1.0"?>
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <TALLYREQUEST>Export</TALLYREQUEST>
+  <TYPE>Collection</TYPE>
+  <ID>RD_CreditDebitNotes</ID>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <STATICVARIABLES>
+    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+    <SVFROMDATE>{from_date}</SVFROMDATE>
+    <SVTODATE>{to_date}</SVTODATE>
+    {company_xml}  </STATICVARIABLES>
+   <TDL>
+    <TDLMESSAGE>
+     <COLLECTION NAME="RD_CreditDebitNotes" ISMODIFY="No">
+      <TYPE>Voucher</TYPE>
+      <FILTERS>RD_IsCDN,RD_InDateRange</FILTERS>
+      <FETCH>Date,ReferenceDate,Reference,VoucherNumber,VoucherTypeName,
+PartyledgerName,PartyGstin,
+AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,
+AllInventoryEntries.StockItemName,AllInventoryEntries.BilledQty,AllInventoryEntries.Rate,AllInventoryEntries.Amount,
+InventoryEntries.StockItemName,InventoryEntries.BilledQty,InventoryEntries.Rate,InventoryEntries.Amount</FETCH>
+     </COLLECTION>
+     <SYSTEM TYPE="Formulae" NAME="RD_IsCDN">$$IsCreditNote:$VoucherTypeName OR $$IsDebitNote:$VoucherTypeName</SYSTEM>
+     <SYSTEM TYPE="Formulae" NAME="RD_InDateRange">{date_filter}</SYSTEM>
+    </TDLMESSAGE>
+   </TDL>
+  </DESC>
+ </BODY>
+</ENVELOPE>
+"""
 
 
 def build_ledger_master_xml(company_name: str) -> str:
@@ -943,6 +997,42 @@ def parse_sales_register_records(xml_text: str) -> list:
 
         gross_total = taxable_amt + cgst_amt + sgst_amt + igst_amt
 
+        items = []
+        for entry in voucher.iter():
+            etag = _local(entry.tag).upper()
+            if etag in {"ALLINVENTORYENTRIES.LIST", "INVENTORYENTRIES.LIST", "INVENTORYENTRY"}:
+                stock_item = (
+                    _find_direct_text(entry, ("STOCKITEMNAME", "STOCKITEM"))
+                    or _find_text(entry, ("STOCKITEMNAME", "STOCKITEM"))
+                    or ""
+                )
+                hsn = (
+                    _find_direct_text(entry, ("HSNCODE", "HSNSACCODE", "GSTHSNNAME"))
+                    or _find_text(entry, ("HSNCODE", "HSNSACCODE", "GSTHSNNAME"))
+                    or ""
+                )
+                qty = (
+                    _find_direct_text(entry, ("BILLEDQTY", "ACTUALQTY", "QTY"))
+                    or _find_text(entry, ("BILLEDQTY", "ACTUALQTY", "QTY"))
+                    or ""
+                )
+                rate = (
+                    _find_direct_text(entry, ("RATE",))
+                    or _find_text(entry, ("RATE",))
+                    or ""
+                )
+                amt = _parse_amount(
+                    _find_direct_text(entry, ("AMOUNT",)) or _find_text(entry, ("AMOUNT",))
+                )
+                if stock_item or amt is not None:
+                    items.append({
+                        "stock_item": stock_item,
+                        "hsn": hsn,
+                        "qty": qty,
+                        "rate": rate,
+                        "amount": f"{abs(amt):.2f}" if amt is not None else "0.00",
+                    })
+
         rec = {
             "GSTIN/UIN": party_gstin or "",
             "Party's A/c Name": party or "",
@@ -953,6 +1043,7 @@ def parse_sales_register_records(xml_text: str) -> list:
             "CGST Amt": f"{cgst_amt:.2f}",
             "SGST Amt": f"{sgst_amt:.2f}",
             "Gross Total": f"{gross_total:.2f}",
+            "Items": items,
         }
         key = (rec["Inv No."], rec["GSTIN/UIN"])
         if key in seen:
@@ -961,6 +1052,100 @@ def parse_sales_register_records(xml_text: str) -> list:
         records.append(rec)
 
     return records
+
+
+def parse_credit_debit_note_records(xml_text: str) -> list:
+    """Parse Day Book XML into Credit Note / Debit Note (CDNR) rows.
+
+    Vouchers with ACTION="Cancel" are skipped (deleted/superseded entries).
+    """
+    root = _parse_root(xml_text)
+    records = []
+    seen = set()
+
+    for voucher in root.iter():
+        if _local(voucher.tag).upper() != "VOUCHER":
+            continue
+        if (voucher.attrib.get("ACTION") or "").strip().lower() == "cancel":
+            continue
+
+        vtype = (
+            _find_direct_text(voucher, ("VOUCHERTYPENAME", "VOUCHERTYPE"))
+            or _find_text(voucher, ("VOUCHERTYPENAME", "VOUCHERTYPE"))
+            or ""
+        )
+
+        voucher_date = _normalize_date(
+            _find_direct_text(voucher, ("REFERENCEDATE",))
+            or _find_text(voucher, ("REFERENCEDATE",))
+            or _find_direct_text(voucher, ("DATE", "VOUCHERDATE"))
+            or _find_text(voucher, ("DATE", "VOUCHERDATE"))
+        )
+        voucher_number = (
+            _find_direct_text(voucher, ("REFERENCE",))
+            or _find_text(voucher, ("REFERENCE",))
+            or _find_direct_text(voucher, ("VOUCHERNUMBER", "NUMBER"))
+            or _find_text(voucher, ("VOUCHERNUMBER", "NUMBER"))
+        )
+        party = (
+            _find_direct_text(voucher, ("PARTYLEDGERNAME", "PARTYNAME", "LEDGERNAME"))
+            or _find_text(voucher, ("PARTYLEDGERNAME", "PARTYNAME", "LEDGERNAME"))
+        )
+        party_gstin = (
+            _find_direct_text(voucher, ("PARTYGSTIN", "GSTIN", "GSTREGISTRATIONNUMBER"))
+            or _find_text(voucher, ("PARTYGSTIN", "GSTIN", "GSTREGISTRATIONNUMBER"))
+        )
+
+        taxable_amt = 0.0
+        cgst_amt = 0.0
+        sgst_amt = 0.0
+        igst_amt = 0.0
+
+        for entry in voucher.iter():
+            etag = _local(entry.tag).upper()
+            if etag not in {"ALLLEDGERENTRIES.LIST", "LEDGERENTRIES.LIST", "LEDGERENTRY"}:
+                continue
+            ledger_name = (
+                _find_direct_text(entry, ("LEDGERNAME",))
+                or _find_text(entry, ("LEDGERNAME",))
+            )
+            amount = _parse_amount(
+                _find_direct_text(entry, ("AMOUNT",)) or _find_text(entry, ("AMOUNT",))
+            )
+            if amount is None:
+                continue
+            name_upper = (ledger_name or "").upper()
+            if "CGST" in name_upper:
+                cgst_amt += abs(amount)
+            elif "SGST" in name_upper or "UTGST" in name_upper:
+                sgst_amt += abs(amount)
+            elif "IGST" in name_upper:
+                igst_amt += abs(amount)
+            elif ledger_name and ledger_name != party:
+                taxable_amt += abs(amount)
+
+        gross_total = taxable_amt + cgst_amt + sgst_amt + igst_amt
+
+        rec = {
+            "voucher_type": vtype,
+            "GSTIN/UIN": party_gstin or "",
+            "Party's A/c Name": party or "",
+            "Note No.": voucher_number or "",
+            "Note Date": voucher_date or "",
+            "Taxable Amt": f"{taxable_amt:.2f}",
+            "IGST Amt": f"{igst_amt:.2f}",
+            "CGST Amt": f"{cgst_amt:.2f}",
+            "SGST Amt": f"{sgst_amt:.2f}",
+            "Gross Total": f"{gross_total:.2f}",
+        }
+        key = (rec["Note No."], rec["GSTIN/UIN"], rec["voucher_type"])
+        if key in seen:
+            continue
+        seen.add(key)
+        records.append(rec)
+
+    return records
+
 
 
 _GST_STATE_CODES: dict[str, str] = {
@@ -1275,24 +1460,45 @@ def run_once(
         logger.error("Failed to fetch Sales Register: %s", exc)
         sales_xml = ""
 
+    logger.info(
+        "Fetching Credit/Debit Notes %s→%s (lookback_days=%s)",
+        from_ymd,
+        to_ymd,
+        lookback,
+    )
+    try:
+        cdn_xml = fetch_tally_xml(
+            host,
+            port,
+            build_credit_debit_notes_xml(company, from_ymd, to_ymd),
+            timeout=120.0,
+        )
+    except ConnectionError as exc:
+        logger.error("Failed to fetch Credit/Debit Notes: %s", exc)
+        cdn_xml = ""
+
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     outstanding_path = out_dir / f"tally_bills_payable_{stamp}.xml"
     payments_path = out_dir / f"tally_daybook_payments_{stamp}.xml"
     ledgers_path = out_dir / f"tally_ledger_master_{stamp}.xml"
     sales_path = out_dir / f"tally_sales_register_{stamp}.xml"
+    cdn_path = out_dir / f"tally_cdn_notes_{stamp}.xml"
     outstanding_path.write_text(outstanding_xml, encoding="utf-8")
     payments_path.write_text(payments_xml, encoding="utf-8")
     if ledgers_xml:
         ledgers_path.write_text(ledgers_xml, encoding="utf-8")
     if sales_xml:
         sales_path.write_text(sales_xml, encoding="utf-8")
+    if cdn_xml:
+        cdn_path.write_text(cdn_xml, encoding="utf-8")
 
     outstanding_bytes = len(outstanding_xml.encode("utf-8"))
     payments_bytes = len(payments_xml.encode("utf-8"))
     ledgers_bytes = len(ledgers_xml.encode("utf-8")) if ledgers_xml else 0
     sales_bytes = len(sales_xml.encode("utf-8")) if sales_xml else 0
+    cdn_bytes = len(cdn_xml.encode("utf-8")) if cdn_xml else 0
     logger.info(
-        "Saved raw XML → %s (%d bytes), %s (%d bytes), %s (%d bytes), %s (%d bytes)",
+        "Saved raw XML → %s (%d bytes), %s (%d bytes), %s (%d bytes), %s (%d bytes), %s (%d bytes)",
         outstanding_path,
         outstanding_bytes,
         payments_path,
@@ -1301,6 +1507,8 @@ def run_once(
         ledgers_bytes,
         sales_path,
         sales_bytes,
+        cdn_path,
+        cdn_bytes,
     )
 
     try:
@@ -1354,15 +1562,26 @@ def run_once(
     )
     logger.info("Saved sales register rows → %s", sr_parsed_path)
 
+    cdn_rows = parse_credit_debit_note_records(cdn_xml) if cdn_xml else []
+    cdn_by_period = _group_purchase_rows_by_period(cdn_rows)
+    cdn_parsed_path = out_dir / f"tally_cdn_notes_parsed_{stamp}.json"
+    cdn_parsed_path.write_text(
+        json.dumps(cdn_by_period, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    logger.info("Saved credit/debit note rows → %s", cdn_parsed_path)
+
     outstanding_n = len(outstanding)
     payments_n = len(payments)
     ledgers_n = len(ledgers)
     sales_n = len(sales_rows)
+    cdn_n = len(cdn_rows)
     logger.info(
         "Export summary: Bills Payable → %d outstanding row(s) (%d raw bytes); "
         "Day Book Payment Agst Ref → %d payment row(s) (%d raw bytes); "
         "Ledger Master → %d record(s) (%d raw bytes); "
-        "Sales Register → %d row(s) (%d raw bytes)",
+        "Sales Register → %d row(s) (%d raw bytes); "
+        "Credit/Debit Notes → %d row(s) (%d raw bytes)",
         outstanding_n,
         outstanding_bytes,
         payments_n,
@@ -1371,6 +1590,8 @@ def run_once(
         ledgers_bytes,
         sales_n,
         sales_bytes,
+        cdn_n,
+        cdn_bytes,
     )
     if outstanding_n == 0:
         logger.warning(
