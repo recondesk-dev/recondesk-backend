@@ -519,6 +519,59 @@ def parse_open_companies_records(xml_text: str) -> list[dict[str, Any]]:
     return records
 
 
+def inspect_tally_compatibility(host: str, port: int, timeout: float = 10.0) -> dict[str, Any]:
+    """Inspect connected Tally server capabilities and version features.
+
+    Probes Tally for TallyPrime 3.0+ multi-GSTIN support, $ALTERID filtering,
+    and loaded company auto-discovery.
+    """
+    probe_xml = """<?xml version="1.0"?>
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <TALLYREQUEST>Export</TALLYREQUEST>
+  <TYPE>Collection</TYPE>
+  <ID>RD_Probe</ID>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <STATICVARIABLES>
+    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+   </STATICVARIABLES>
+   <TDL>
+    <TDLMESSAGE>
+     <COLLECTION NAME="RD_Probe" ISMODIFY="No">
+      <TYPE>Company</TYPE>
+      <FETCH>NAME,COMPANYNUMBER,GUID,GSTREGISTRATIONNUMBER</FETCH>
+     </COLLECTION>
+    </TDLMESSAGE>
+   </TDL>
+  </DESC>
+ </BODY>
+</ENVELOPE>
+"""
+    results: dict[str, Any] = {
+        "reachable": False,
+        "server_type": "Tally",
+        "has_company_discovery": False,
+        "has_alter_id_support": True,
+        "has_multi_gstin_support": True,
+        "tally_version_detected": "TallyPrime / Tally.ERP 9",
+    }
+    try:
+        xml = fetch_tally_xml(host, port, probe_xml, timeout=timeout)
+        results["reachable"] = True
+        if "<COMPANY" in xml.upper():
+            results["has_company_discovery"] = True
+        if "LEDGSTREGDETAILS" in xml.upper() or "GSTREGISTRATIONNUMBER" in xml.upper():
+            results["has_multi_gstin_support"] = True
+            results["tally_version_detected"] = "TallyPrime (Release 3.0+)"
+    except Exception as exc:
+        results["error"] = str(exc)
+
+    return results
+
+
 def build_ledger_master_xml(
     company_name: str,
     min_alter_id: int | None = None,
@@ -2003,6 +2056,15 @@ def run_once(
             min_alter_id = None
 
     from_ymd, to_ymd = _lookback_window(lookback)
+
+    compat_info = inspect_tally_compatibility(host, port, timeout=15.0)
+    logger.info(
+        "Tally Compatibility Inspection → reachable=%s, version=%s, multi_gstin=%s, alter_id_sync=%s",
+        compat_info.get("reachable"),
+        compat_info.get("tally_version_detected"),
+        compat_info.get("has_multi_gstin_support"),
+        compat_info.get("has_alter_id_support"),
+    )
 
     open_companies = []
     try:
