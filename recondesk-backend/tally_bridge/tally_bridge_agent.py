@@ -833,6 +833,12 @@ def parse_payment_records(xml_text: str) -> list[dict[str, Any]]:
             or _find_text(voucher, ("VOUCHERNUMBER", "NUMBER"))
         )
 
+        guid = (
+            _find_direct_text(voucher, ("GUID",))
+            or _find_text(voucher, ("GUID",))
+            or ""
+        )
+
         for entry in voucher.iter():
             etag = _local(entry.tag).upper()
             if etag not in {
@@ -872,6 +878,7 @@ def parse_payment_records(xml_text: str) -> list[dict[str, Any]]:
                     "payment_date": payment_date,
                     "voucher_number": voucher_number or "",
                     "voucher_type": vtype or "Payment",
+                    "guid": guid,
                 }
                 key = (
                     rec["party"],
@@ -926,18 +933,18 @@ def parse_purchase_register_records(xml_text: str) -> list:
             continue
 
         is_cancelled = _is_voucher_cancelled_or_deleted(voucher)
+        guid = (
+            _find_direct_text(voucher, ("GUID",))
+            or _find_text(voucher, ("GUID",))
+            or ""
+        )
 
-        # _find_direct_text/_find_text scan in document order (they build a set
-        # from the names tuple, discarding priority). Use separate single-tag
-        # calls so each preferred field is exhausted before falling back.
         voucher_date = _normalize_date(
             _find_direct_text(voucher, ("REFERENCEDATE",))
             or _find_text(voucher, ("REFERENCEDATE",))
             or _find_direct_text(voucher, ("DATE", "VOUCHERDATE"))
             or _find_text(voucher, ("DATE", "VOUCHERDATE"))
         )
-        # REFERENCE = supplier invoice number entered during voucher entry.
-        # VOUCHERNUMBER is Tally's internal auto-serial — wrong field for GST matching.
         voucher_number = (
             _find_direct_text(voucher, ("REFERENCE",))
             or _find_text(voucher, ("REFERENCE",))
@@ -994,6 +1001,7 @@ def parse_purchase_register_records(xml_text: str) -> list:
             "SGST Amt": f"{sgst_amt:.2f}",
             "Gross Total": f"{gross_total:.2f}",
             "Is Cancelled": is_cancelled,
+            "Voucher GUID": guid,
         }
         key = (rec["Inv No."], rec["GSTIN/UIN"])
         if key in seen:
@@ -1015,6 +1023,11 @@ def parse_sales_register_records(xml_text: str) -> list:
             continue
 
         is_cancelled = _is_voucher_cancelled_or_deleted(voucher)
+        guid = (
+            _find_direct_text(voucher, ("GUID",))
+            or _find_text(voucher, ("GUID",))
+            or ""
+        )
 
         voucher_date = _normalize_date(
             _find_direct_text(voucher, ("REFERENCEDATE",))
@@ -1115,6 +1128,7 @@ def parse_sales_register_records(xml_text: str) -> list:
             "Gross Total": f"{gross_total:.2f}",
             "Items": items,
             "Is Cancelled": is_cancelled,
+            "Voucher GUID": guid,
         }
         key = (rec["Inv No."], rec["GSTIN/UIN"])
         if key in seen:
@@ -1136,6 +1150,11 @@ def parse_credit_debit_note_records(xml_text: str) -> list:
             continue
 
         is_cancelled = _is_voucher_cancelled_or_deleted(voucher)
+        guid = (
+            _find_direct_text(voucher, ("GUID",))
+            or _find_text(voucher, ("GUID",))
+            or ""
+        )
 
         vtype = (
             _find_direct_text(voucher, ("VOUCHERTYPENAME", "VOUCHERTYPE"))
@@ -1206,6 +1225,7 @@ def parse_credit_debit_note_records(xml_text: str) -> list:
             "SGST Amt": f"{sgst_amt:.2f}",
             "Gross Total": f"{gross_total:.2f}",
             "Is Cancelled": is_cancelled,
+            "Voucher GUID": guid,
         }
         key = (rec["Note No."], rec["GSTIN/UIN"], rec["voucher_type"])
         if key in seen:
@@ -1404,13 +1424,17 @@ def _post_with_retry(
     timeout: float = 60.0,
     max_retries: int = 3,
 ) -> dict[str, Any]:
+    idempotency_key = hashlib.sha256(payload).hexdigest()
+    req_headers = dict(headers)
+    req_headers["Idempotency-Key"] = idempotency_key
+
     last_exc = None
     for attempt in range(max_retries):
         req = urllib.request.Request(
             endpoint,
             data=payload,
             method="POST",
-            headers=headers,
+            headers=req_headers,
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
