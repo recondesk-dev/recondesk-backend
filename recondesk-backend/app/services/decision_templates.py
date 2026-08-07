@@ -146,6 +146,22 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "This record requires human verification ({review_reason})",
         "next": "Examine GSTR-2B and purchase register entries side by side. Resolve discrepancies before filing GSTR-3B.",
     },
+    # ── E-Invoice Reconciliation templates ────────────────────────────────────
+    "EINVOICE_IRN_MISSING": {
+        "what": "Invoice raised in books but not registered on IRP",
+        "why": "Invoice was recorded in books, but no corresponding active IRN was found on the E-Invoice portal (likely IRN generation failure, portal timeout, or manual skip)",
+        "next": "Regenerate IRN before the 30-day reporting window closes, or the invoice cannot legally be reported in GSTR-1.",
+    },
+    "EINVOICE_CANCELLED_MISMATCH": {
+        "what": "IRN cancelled on IRP but invoice remains active in books",
+        "why": "IRN status is Cancelled on the portal, but accounting software reflects an active transaction without reversal",
+        "next": "Verify cancellation status with recipient and issue credit note or cancel invoice in books.",
+    },
+    "EINVOICE_VALUE_MISMATCH": {
+        "what": "E-Invoice IRN matched but invoice value differs by {diff}",
+        "why": "Value registered on IRP ({einvoice_val}) differs from value in books ({book_val})",
+        "next": "Verify against signed e-invoice JSON/PDF and amend books or issue debit/credit note.",
+    },
 }
 
 _FALLBACK = DecisionOutput(

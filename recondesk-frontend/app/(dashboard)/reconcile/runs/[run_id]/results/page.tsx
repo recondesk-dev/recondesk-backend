@@ -16,6 +16,7 @@ import {
 } from "@/lib/rule37Summary";
 import { SupplierFollowupAuditLogPanel } from "@/components/reconcile/SupplierFollowupAuditLogPanel";
 import { Gstr3bSummaryView } from "@/components/reconcile/Gstr3bSummaryView";
+import { EInvoiceCheckPanel } from "@/components/reconcile/EInvoiceCheckPanel";
 import { AdvancedExportPanel } from "@/components/reconcile/AdvancedExportPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
 import { SupplierGroupView } from "@/components/reconcile/SupplierGroupView";
@@ -4372,6 +4373,15 @@ export default function ReconcileResultsPage() {
 
         {resultsTab === "followup" && authToken && (
           <SupplierFollowupAuditLogPanel runId={runId} authToken={authToken} />
+        )}
+
+        {resultsTab === "einvoice" && (
+          <EInvoiceCheckPanel
+            runId={runId}
+            clientGstinId={summary?.client_gstin ?? undefined}
+            period={summary?.period ?? undefined}
+            authToken={authToken ?? undefined}
+          />
         )}
 
         {/* Duplicate Entries */}
