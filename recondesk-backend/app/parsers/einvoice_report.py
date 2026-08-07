@@ -7,9 +7,11 @@ Supported columns:
 - IRN
 - Ack No
 - Ack Date
-- IRN Status (Active/Cancelled)
+- IRN Status (Active/Cancelled/Unknown)
 - Total Value
-- GSTIN
+- Supplier GSTIN
+- Buyer GSTIN
+- Supply Type (Optional, used for B2C filtering)
 """
 
 from __future__ import annotations
@@ -61,7 +63,6 @@ EINVOICE_COLUMN_ALIASES: dict[str, list[str]] = {
         "doc. date",
         "irn date",
         "irn. date",
-        "ack date",
         "bill date",
     ],
     "irn": [
@@ -103,15 +104,35 @@ EINVOICE_COLUMN_ALIASES: dict[str, list[str]] = {
         "tot val",
         "totval",
     ],
-    "gstin": [
-        "gstin",
+    "supplier_gstin": [
         "supplier gstin",
-        "buyer gstin",
-        "recipient gstin",
-        "party gstin",
+        "supplier gst",
+        "seller gstin",
+        "gstin/uin of supplier",
+        "supplier gstin/uin",
         "gstin/uin",
         "gstin / uin",
         "gst reg no",
+        "gstin",
+        "gst no",
+    ],
+    "buyer_gstin": [
+        "buyer gstin",
+        "buyer gst",
+        "recipient gstin",
+        "buyer gstin/uin",
+        "gstin/uin of recipient",
+        "customer gstin",
+        "party gstin",
+    ],
+    "supply_type": [
+        "supply type",
+        "invoice type",
+        "txn type",
+        "transaction type",
+        "category",
+        "sub type",
+        "type",
     ],
 }
 
@@ -124,28 +145,35 @@ def _clean_header_str(col: Any) -> str:
 
 
 def map_einvoice_columns(df_cols: list[Any]) -> dict[str, str]:
-    """Map DataFrame column headers to canonical e-invoice field names.
+    """Map DataFrame column headers to canonical e-invoice field names with exclusivity.
     Returns dict mapping canonical_name -> original_column_name.
     """
     mapped: dict[str, str] = {}
     normalized_cols = {idx: _clean_header_str(col) for idx, col in enumerate(df_cols)}
+    claimed_indices: set[int] = set()
 
+    # Pass 1: Direct exact alias match
     for canonical, aliases in EINVOICE_COLUMN_ALIASES.items():
-        found = False
-        # Direct match check first
         for idx, norm_col in normalized_cols.items():
+            if idx in claimed_indices:
+                continue
             if norm_col in aliases or norm_col == canonical:
                 mapped[canonical] = str(df_cols[idx])
-                found = True
+                claimed_indices.add(idx)
                 break
-        if found:
-            continue
 
-        # Substring / partial match check fallback
+    # Pass 2: Substring fallback for unmapped canonical fields
+    for canonical, aliases in EINVOICE_COLUMN_ALIASES.items():
+        if canonical in mapped:
+            continue
         for idx, norm_col in normalized_cols.items():
+            if idx in claimed_indices:
+                continue
+            found = False
             for alias in aliases:
                 if alias in norm_col or norm_col in alias:
                     mapped[canonical] = str(df_cols[idx])
+                    claimed_indices.add(idx)
                     found = True
                     break
             if found:
@@ -167,10 +195,13 @@ def parse_einvoice_report(
     - irn (str or "")
     - ack_number (str or "")
     - ack_date (datetime.date or None)
-    - irn_status ("Active" | "Cancelled")
+    - irn_status ("Active" | "Cancelled" | "Unknown")
     - value_paise (int, amount in paise)
     - total_value (float, amount in rupees)
-    - gstin (normalized GSTIN or "")
+    - supplier_gstin (normalized supplier GSTIN or "")
+    - buyer_gstin (normalized buyer GSTIN or "")
+    - gstin (normalized GSTIN, alias of supplier_gstin for purchase recon)
+    - supply_type (optional raw string or None)
     """
     fn_lower = filename.lower()
     df_raw: pd.DataFrame | None = None
@@ -222,6 +253,14 @@ def parse_einvoice_report(
     records: list[dict[str, Any]] = []
 
     for _, row in df_raw.iterrows():
+        # Supply type B2C filtering
+        if "supply_type" in col_map:
+            raw_supply_type = str(row.get(col_map["supply_type"], "") or "").strip().lower()
+            if "b2c" in raw_supply_type:
+                continue
+        else:
+            raw_supply_type = ""
+
         # Invoice number
         raw_inv = str(row.get(col_map.get("invoice_number", ""), "") or "").strip()
         if not raw_inv or raw_inv.lower() in ("nan", "none", "total", "grand total"):
@@ -240,15 +279,30 @@ def parse_einvoice_report(
             except NormalizationError:
                 inv_date = None
 
-        # GSTIN
-        raw_gstin = str(row.get(col_map.get("gstin", ""), "") or "").strip()
-        gstin_norm = ""
-        if raw_gstin and raw_gstin.lower() not in ("nan", "none"):
+        # Supplier GSTIN
+        raw_sup_gstin = str(row.get(col_map.get("supplier_gstin", ""), "") or "").strip()
+        sup_gstin_norm = ""
+        if raw_sup_gstin and raw_sup_gstin.lower() not in ("nan", "none"):
             try:
-                gstin_norm = normalize_gstin(raw_gstin)
+                sup_gstin_norm = normalize_gstin(raw_sup_gstin)
             except NormalizationError:
-                # Store cleaned alphanumeric string if checksum fails
-                gstin_norm = re.sub(r"[^A-Z0-9]", "", raw_gstin.upper())
+                sup_gstin_norm = re.sub(r"[^A-Z0-9]", "", raw_sup_gstin.upper())
+
+        # Buyer GSTIN
+        raw_buyer_gstin = str(row.get(col_map.get("buyer_gstin", ""), "") or "").strip()
+        buyer_gstin_norm = ""
+        if raw_buyer_gstin and raw_buyer_gstin.lower() not in ("nan", "none"):
+            try:
+                buyer_gstin_norm = normalize_gstin(raw_buyer_gstin)
+            except NormalizationError:
+                buyer_gstin_norm = re.sub(r"[^A-Z0-9]", "", raw_buyer_gstin.upper())
+
+        # Primary gstin for purchase-side recon — supplier only.
+        # Do NOT fall back to buyer_gstin: einvoice_recon.py's strict GSTIN
+        # matching relies on this field being the supplier's GSTIN specifically.
+        # A blank value here should route through the matcher's LOW_GSTIN_BLANK
+        # safety path, not silently match on buyer GSTIN.
+        gstin_norm = sup_gstin_norm
 
         # IRN
         irn = str(row.get(col_map.get("irn", ""), "") or "").strip()
@@ -270,11 +324,16 @@ def parse_einvoice_report(
                 ack_date = None
 
         # IRN Status
+        # TODO: Confirm real-world GSP status strings against actual export samples and expand this list.
         raw_status = str(row.get(col_map.get("irn_status", ""), "") or "").strip().lower()
-        if "cancel" in raw_status:
+        if raw_status in ("cancel", "cancelled", "cnl", "0", "cancelled-irn") or "cancel" in raw_status:
             irn_status = "Cancelled"
-        else:
+        elif raw_status in ("active", "act", "1", "valid"):
             irn_status = "Active"
+        elif raw_status == "":
+            irn_status = "Unknown"
+        else:
+            irn_status = "Unknown"
 
         # Total Value
         raw_val = row.get(col_map.get("total_value", ""), 0)
@@ -292,6 +351,8 @@ def parse_einvoice_report(
                 "invoice_number_normalized": inv_norm,
                 "invoice_date": inv_date.isoformat() if inv_date else None,
                 "gstin": gstin_norm,
+                "supplier_gstin": sup_gstin_norm,
+                "buyer_gstin": buyer_gstin_norm,
                 "irn": irn,
                 "ack_number": ack_no,
                 "ack_date": ack_date.isoformat() if ack_date else None,
@@ -299,6 +360,7 @@ def parse_einvoice_report(
                 "value_paise": val_paise,
                 "value": round(val_paise / 100.0, 2),
                 "total_value": round(val_paise / 100.0, 2),
+                "supply_type": raw_supply_type if "supply_type" in col_map else None,
             }
         )
 

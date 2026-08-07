@@ -650,9 +650,9 @@ const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "rule37", label: "ITC at Risk — Rule 37 (Unpaid 180+ Days)" },
   { id: "section17", label: "Section 17(5)" },
   { id: "gstr3b", label: "GSTR-3B" },
+  { id: "einvoice", label: "E-Invoice Check" },
   { id: "followup", label: "Follow-up Log" },
   { id: "ims", label: "IMS Actions" },
-  { id: "einvoice", label: "E-Invoice Check" },
 ];
 
 /** Default purchase-side tabs. Sales pages pass an explicit `tabs` list. */

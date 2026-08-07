@@ -1882,6 +1882,20 @@ export default function ReconcileResultsPage() {
     revalidateOnFocus: false,
   });
 
+  const einvoiceResKey = useMemo(
+    () =>
+      authReady && runId
+        ? ([`/api/einvoice-recon/results/${runId}`, authToken] as const)
+        : null,
+    [authReady, runId, authToken]
+  );
+
+  const { data: einvoiceResData } = useSWR<{
+    summary?: { total_records?: number };
+  }>(einvoiceResKey, authJsonFetcher, {
+    revalidateOnFocus: false,
+  });
+
   const notesKey = useMemo(
     () =>
       authReady && activeRecord
@@ -2831,6 +2845,9 @@ export default function ReconcileResultsPage() {
                 ? { section17: section17Data.total }
                 : {}),
               ...(rule37Data != null ? { rule37: rule37Data.total } : {}),
+              ...(einvoiceResData?.summary != null
+                ? { einvoice: einvoiceResData.summary.total_records }
+                : {}),
             }}
             rightContent={
               <div className="flex flex-col items-end gap-1.5">

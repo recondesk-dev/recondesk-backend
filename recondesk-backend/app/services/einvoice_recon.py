@@ -12,6 +12,7 @@ Classifies results into 5 canonical categories:
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Any, Mapping
 
 import pandas as pd
@@ -140,8 +141,11 @@ def reconcile_books_vs_einvoice(
 
         matched_candidate: dict[str, Any] | None = None
         matched_einv_idx: int | None = None
+        match_confidence: str = "HIGH"
+        custom_unmatched_why: str | None = None
 
-        # Search candidate pool in e-invoices
+        # 1a. Collect all unconsumed candidates satisfying strict GSTIN match
+        strict_candidates: list[tuple[int, dict[str, Any]]] = []
         for idx, e in enumerate(norm_einv):
             if idx in consumed_einv_indices:
                 continue
@@ -149,21 +153,67 @@ def reconcile_books_vs_einvoice(
             e_inv_norm = e["invoice_number_normalized"]
             e_gstin = e["gstin"]
 
-            # Key comparison: invoice number + gstin (or PAN)
-            inv_match = False
-            if inv_norm and e_inv_norm and inv_norm == e_inv_norm:
-                inv_match = True
-            elif inv_norm and e_inv_norm and is_invoice_format_variant(inv_norm, e_inv_norm):
-                inv_match = True
+            inv_match = (
+                bool(inv_norm and e_inv_norm)
+                and (inv_norm == e_inv_norm or is_invoice_format_variant(inv_norm, e_inv_norm))
+            )
+            strict_gstin_match = (
+                bool(gstin)
+                and bool(e_gstin)
+                and (gstin == e_gstin or same_pan(gstin, e_gstin))
+            )
 
-            gstin_match = False
-            if not gstin or not e_gstin or gstin == e_gstin or same_pan(gstin, e_gstin):
-                gstin_match = True
+            if inv_match and strict_gstin_match:
+                strict_candidates.append((idx, e))
 
-            if inv_match and gstin_match:
-                matched_candidate = e
-                matched_einv_idx = idx
-                break
+        if strict_candidates:
+            # 1b. Rank multiple candidates: exact value diff == 0 first, then Active over Cancelled, then closest ack_date
+            def _candidate_rank_key(item: tuple[int, dict[str, Any]]) -> tuple[bool, bool, int, int, int]:
+                c_idx, e = item
+                v_diff = abs(b_val - e["value_paise"])
+                is_exact_val = (v_diff == 0)
+                is_active = (str(e.get("irn_status") or "").strip().lower() not in ("cancelled", "unknown"))
+
+                ack_diff_days = 999999
+                b_date_str = b.get("invoice_date")
+                e_date_str = e.get("ack_date") or e.get("invoice_date")
+                if b_date_str and e_date_str:
+                    try:
+                        bd = date.fromisoformat(str(b_date_str)[:10])
+                        ed = date.fromisoformat(str(e_date_str)[:10])
+                        ack_diff_days = abs((ed - bd).days)
+                    except Exception:
+                        ack_diff_days = 999999
+
+                return (is_exact_val, is_active, -v_diff, -ack_diff_days, -c_idx)
+
+            best_tuple = max(strict_candidates, key=_candidate_rank_key)
+            matched_einv_idx, matched_candidate = best_tuple
+            match_confidence = "HIGH"
+
+        elif not gstin:
+            # 1c. Zero candidates found under strict GSTIN matching & books GSTIN is blank
+            blank_gstin_candidates: list[tuple[int, dict[str, Any]]] = []
+            for idx, e in enumerate(norm_einv):
+                if idx in consumed_einv_indices:
+                    continue
+                e_inv_norm = e["invoice_number_normalized"]
+                inv_match = (
+                    bool(inv_norm and e_inv_norm)
+                    and (inv_norm == e_inv_norm or is_invoice_format_variant(inv_norm, e_inv_norm))
+                )
+                if inv_match:
+                    blank_gstin_candidates.append((idx, e))
+
+            if len(blank_gstin_candidates) == 1:
+                matched_einv_idx, matched_candidate = blank_gstin_candidates[0]
+                match_confidence = "LOW_GSTIN_BLANK"
+            elif len(blank_gstin_candidates) > 1:
+                custom_unmatched_why = (
+                    "Multiple e-invoice candidates share this invoice number; "
+                    "GSTIN missing in books prevents disambiguation. Add GSTIN to books entry and re-run."
+                )
+                match_confidence = "LOW_GSTIN_BLANK"
 
         if matched_candidate is not None and matched_einv_idx is not None:
             consumed_einv_indices.add(matched_einv_idx)
@@ -171,7 +221,7 @@ def reconcile_books_vs_einvoice(
             val_diff = abs(b_val - e_val)
             irn_status = matched_candidate["irn_status"]
 
-            if irn_status.lower() == "cancelled":
+            if irn_status.lower() in ("cancelled", "unknown"):
                 category = "IRN_CANCELLED"
                 dec = generate_decision("EINVOICE_CANCELLED_MISMATCH")
             elif val_diff > AMOUNT_TOLERANCE_L1_PAISE:
@@ -189,11 +239,6 @@ def reconcile_books_vs_einvoice(
                 category = "MATCHED"
                 dec = generate_decision(
                     "L1_EXACT",
-                    matched_fields=("invoice_number", "gstin", "amount"),
-                )
-                # Customize what for e-invoice matched
-                dec = generate_decision(
-                    "L1_EXACT",
                     confidence="HIGH",
                     matched_fields=("invoice_number", "gstin", "amount"),
                 )
@@ -207,6 +252,12 @@ def reconcile_books_vs_einvoice(
                     differed_fields=(),
                     normalized_pairs=((b["invoice_number"], matched_candidate["invoice_number"]),),
                 )
+
+            why_text = dec.why
+            if match_confidence == "LOW_GSTIN_BLANK":
+                note = " (Note: GSTIN was missing in books; matched on single e-invoice candidate for this invoice number. Please verify manually.)"
+                if note not in why_text:
+                    why_text = f"{why_text}{note}"
 
             results.append(
                 {
@@ -223,9 +274,10 @@ def reconcile_books_vs_einvoice(
                     "ack_number": matched_candidate["ack_number"],
                     "ack_date": matched_candidate["ack_date"],
                     "decision_what": dec.what,
-                    "decision_why": dec.why,
+                    "decision_why": why_text,
                     "decision_next": dec.next,
                     "decision_rule": dec.rule,
+                    "match_confidence": match_confidence,
                 }
             )
         else:
@@ -250,6 +302,8 @@ def reconcile_books_vs_einvoice(
                     normalized_pairs=(),
                 )
 
+            why_text = custom_unmatched_why if custom_unmatched_why is not None else dec.why
+
             results.append(
                 {
                     "invoice_number": b["invoice_number"],
@@ -265,9 +319,10 @@ def reconcile_books_vs_einvoice(
                     "ack_number": None,
                     "ack_date": None,
                     "decision_what": dec.what,
-                    "decision_why": dec.why,
+                    "decision_why": why_text,
                     "decision_next": dec.next,
                     "decision_rule": dec.rule,
+                    "match_confidence": match_confidence,
                 }
             )
 
@@ -309,6 +364,7 @@ def reconcile_books_vs_einvoice(
                 "decision_why": dec.why,
                 "decision_next": dec.next,
                 "decision_rule": dec.rule,
+                "match_confidence": "HIGH",
             }
         )
 
