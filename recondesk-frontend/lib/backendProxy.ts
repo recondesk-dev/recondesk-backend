@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(
   /\/+$/,
@@ -23,17 +24,31 @@ export async function proxyToBackend(
 
   const headers = new Headers();
   const auth = request.headers.get("authorization");
-  if (auth) headers.set("Authorization", auth);
+  if (auth) {
+    headers.set("Authorization", auth);
+  } else {
+    try {
+      const supabase = createClient();
+      if (supabase) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          headers.set("Authorization", `Bearer ${session.access_token}`);
+        }
+      }
+    } catch {
+      // Ignore cookie read failure
+    }
+  }
+
   const contentType = request.headers.get("content-type");
   if (contentType) headers.set("Content-Type", contentType);
   const accept = request.headers.get("accept");
   if (accept) headers.set("Accept", accept);
 
-  let body: string | undefined;
   const isGet = request.method === "GET" || request.method === "HEAD";
-  if (!isGet) {
-    body = await request.text();
-  }
+  const body = isGet ? undefined : await request.arrayBuffer();
 
   let backendRes: Response;
   try {
