@@ -100,7 +100,7 @@ def check_pr_availability(sb: Client, client_id: str, period: str) -> dict[str, 
     """
     res = (
         sb.table("reconciliation_run")
-        .select("id, status, r2_key, pr_r2_key, file_type, pr_records_imported, created_at")
+        .select("*")
         .eq("client_gstin_id", client_id)
         .eq("period", period)
         .order("created_at", desc=True)
@@ -347,7 +347,6 @@ def run_batch(batch_id: str, user_id: str | None = None) -> None:
                     "period": period,
                     "status": "uploading",
                     "gstr2b_r2_key": gstr2b_key,
-                    "pr_r2_key": pr_key,
                     "r2_key": pr_key,
                     "created_at": now,
                     "updated_at": now,
@@ -355,7 +354,7 @@ def run_batch(batch_id: str, user_id: str | None = None) -> None:
             else:
                 sb.table("reconciliation_run").update({
                     "gstr2b_r2_key": gstr2b_key,
-                    "pr_r2_key": pr_key,
+                    "r2_key": pr_key,
                     "status": "uploading",
                     "updated_at": now,
                 }).eq("id", run_id).execute()
