@@ -10,48 +10,9 @@ import {
   type PaymentHistoryRow,
 } from "@/lib/api";
 import { SubscriptionFeatures } from "@/components/billing/SubscriptionFeatures";
+import { PricingGrid } from "@/components/billing/PricingGrid";
 import { startPlanCheckout, type CheckoutPlan } from "@/lib/billing-checkout";
 import { subscribeAccessToken } from "@/lib/supabase/client";
-
-const PLANS: {
-  id: CheckoutPlan;
-  name: string;
-  priceInr: number;
-  periodLabel: string;
-  gstins: number;
-  blurb: string;
-  cta: string;
-  featured?: boolean;
-}[] = [
-  {
-    id: "starter",
-    name: "Starter",
-    priceInr: 999,
-    periodLabel: "/month",
-    gstins: 25,
-    blurb: "For solo CAs building a steady client desk.",
-    cta: "Start with Starter",
-  },
-  {
-    id: "growth",
-    name: "Growth",
-    priceInr: 7999,
-    periodLabel: "/year",
-    gstins: 50,
-    blurb: "Best value for growing firms — a full year of capacity.",
-    cta: "Go Growth",
-    featured: true,
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    priceInr: 11999,
-    periodLabel: "/year",
-    gstins: 75,
-    blurb: "Room for a larger portfolio without changing how you work.",
-    cta: "Choose Pro",
-  },
-];
 
 function formatInrPaise(paise: number | null | undefined): string {
   const p = Number(paise ?? 0);
@@ -328,88 +289,11 @@ export default function BillingPage() {
 
         {checkoutError && <p className="text-sm text-red-600">{checkoutError}</p>}
 
-        <div className="grid gap-5 lg:grid-cols-3">
-          {PLANS.map((plan) => (
-            <article
-              key={plan.id}
-              className={`liquid-glass-card ${
-                plan.featured ? "liquid-glass-card--featured" : ""
-              } flex h-full flex-col p-6 sm:p-7`}
-            >
-              <span className="liquid-glass-card__blob liquid-glass-card__blob--a" aria-hidden />
-              <span className="liquid-glass-card__blob liquid-glass-card__blob--b" aria-hidden />
-              <div className="liquid-glass-card__content flex h-full flex-col">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
-                      {plan.name}
-                    </h3>
-                    <p className="mt-1 text-sm text-gray-500">{plan.blurb}</p>
-                  </div>
-                  {plan.featured && (
-                    <span className="shrink-0 rounded-full bg-[var(--ink)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white">
-                      Best value
-                    </span>
-                  )}
-                </div>
-
-                <div className="mt-7">
-                  <p className="flex items-baseline gap-1">
-                    <span className="text-3xl font-semibold tracking-tight tabular-nums text-[var(--ink)]">
-                      {formatInr(plan.priceInr)}
-                    </span>
-                    <span className="text-sm text-gray-500">{plan.periodLabel}</span>
-                  </p>
-                  <p className="mt-2 text-sm font-medium text-[var(--ink)]">
-                    Up to {plan.gstins} GSTINs
-                  </p>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Excl. 18% GST · unlimited runs in period
-                  </p>
-                </div>
-
-                <ul className="mt-6 space-y-2.5 text-sm text-gray-600">
-                  <li className="flex gap-2">
-                    <span
-                      className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ink)]"
-                      aria-hidden
-                    />
-                    Full product on every plan
-                  </li>
-                  <li className="flex gap-2">
-                    <span
-                      className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ink)]"
-                      aria-hidden
-                    />
-                    GSTR-2B + GSTR-1 reconciliation
-                  </li>
-                  <li className="flex gap-2">
-                    <span
-                      className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ink)]"
-                      aria-hidden
-                    />
-                    Team, exports, and follow-ups included
-                  </li>
-                </ul>
-
-                <div className="mt-auto pt-7">
-                  <button
-                    type="button"
-                    disabled={checkoutPlan !== null}
-                    onClick={() => void onBuyPlan(plan.id)}
-                    className={`inline-flex w-full min-h-[44px] items-center justify-center rounded-full px-6 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 ${
-                      plan.featured
-                        ? "bg-[var(--ink)] text-white shadow-sm"
-                        : "bg-white/80 text-[var(--ink)] ring-1 ring-black/10"
-                    }`}
-                  >
-                    {checkoutPlan === plan.id ? "Opening checkout…" : plan.cta}
-                  </button>
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
+        <PricingGrid
+          isDashboard
+          loadingPlan={checkoutPlan}
+          onSelectPlan={(planId) => void onBuyPlan(planId)}
+        />
       </section>
 
       <section className="dashboard-card p-6 sm:p-8">

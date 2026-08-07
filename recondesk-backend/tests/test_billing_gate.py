@@ -27,15 +27,15 @@ def test_free_gstin_limit_is_one():
 
 def test_gstin_plan_catalog():
     assert set(PLAN_CONFIG) == {"starter", "growth", "pro"}
-    assert PLAN_CONFIG["starter"]["gstin_limit"] == 25
-    assert PLAN_CONFIG["starter"]["period_days"] == 30
-    assert PLAN_CONFIG["starter"]["base_paise"] == 99_900
-    assert PLAN_CONFIG["growth"]["gstin_limit"] == 50
+    assert PLAN_CONFIG["starter"]["gstin_limit"] == 50
+    assert PLAN_CONFIG["starter"]["period_days"] == 365
+    assert PLAN_CONFIG["starter"]["base_paise"] == 599_900
+    assert PLAN_CONFIG["growth"]["gstin_limit"] == 100
     assert PLAN_CONFIG["growth"]["period_days"] == 365
-    assert PLAN_CONFIG["growth"]["base_paise"] == 799_900
-    assert PLAN_CONFIG["pro"]["gstin_limit"] == 75
+    assert PLAN_CONFIG["growth"]["base_paise"] == 999_900
+    assert PLAN_CONFIG["pro"]["gstin_limit"] == 100
     assert PLAN_CONFIG["pro"]["period_days"] == 365
-    assert PLAN_CONFIG["pro"]["base_paise"] == 1_199_900
+    assert PLAN_CONFIG["pro"]["base_paise"] == 999_900
     for cfg in PLAN_CONFIG.values():
         assert cfg["total_paise"] == cfg["base_paise"] + cfg["gst_paise"]
 

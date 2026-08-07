@@ -4,6 +4,7 @@ import { FaqAccordion } from "@/components/public/FaqAccordion";
 import { FeatureStatsStrip } from "@/components/public/FeatureStatsStrip";
 import { HowItWorksSteps } from "@/components/public/HowItWorksSteps";
 import { LandingDashboardPreview } from "@/components/public/LandingDashboardPreview";
+import { PricingGrid } from "@/components/billing/PricingGrid";
 import { SecurityTrustStrip } from "@/components/public/SecurityTrustStrip";
 
 function Section({
@@ -111,18 +112,9 @@ export default function LandingPage() {
       <Section className="py-12 sm:py-16">
         <div className="text-center">
           <h2 className="text-2xl font-semibold text-[var(--ink)] sm:text-3xl">Simple, transparent pricing</h2>
-          <p className="mt-3 text-gray-500">Start free. Upgrade when you&apos;re ready.</p>
+          <p className="mt-3 text-gray-500">Start free. Upgrade when you&apos;re ready for your firm.</p>
         </div>
-        <div className="mx-auto mt-10 grid max-w-3xl gap-4 md:grid-cols-2">
-          <div
-            className="landing-card min-h-[220px] rounded-[1.5rem] bg-white p-5 sm:p-6"
-            aria-hidden
-          />
-          <div
-            className="landing-card min-h-[220px] rounded-[1.5rem] bg-white p-5 shadow-[var(--shadow-lift)] sm:p-6"
-            aria-hidden
-          />
-        </div>
+        <PricingGrid />
       </Section>
 
       {/* Final CTA */}

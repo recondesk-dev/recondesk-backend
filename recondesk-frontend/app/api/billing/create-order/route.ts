@@ -6,9 +6,9 @@ const PLANS: Record<
   string,
   { priceInr: number; gstinLimit: number; periodDays: number; billingPeriod: string }
 > = {
-  starter: { priceInr: 999, gstinLimit: 25, periodDays: 30, billingPeriod: "monthly" },
-  growth: { priceInr: 7999, gstinLimit: 50, periodDays: 365, billingPeriod: "yearly" },
-  pro: { priceInr: 11999, gstinLimit: 75, periodDays: 365, billingPeriod: "yearly" },
+  starter: { priceInr: 5999, gstinLimit: 50, periodDays: 365, billingPeriod: "yearly" },
+  growth: { priceInr: 9999, gstinLimit: 100, periodDays: 365, billingPeriod: "yearly" },
+  pro: { priceInr: 9999, gstinLimit: 100, periodDays: 365, billingPeriod: "yearly" },
 };
 
 export async function POST(request: Request) {

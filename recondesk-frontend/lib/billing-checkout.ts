@@ -82,9 +82,9 @@ export async function startPlanCheckout(
   }
 
   const labels: Record<CheckoutPlan, string> = {
-    starter: "Starter · 25 GSTINs / month",
-    growth: "Growth · 50 GSTINs / year",
-    pro: "Pro · 75 GSTINs / year",
+    starter: "Starter · 50 GSTINs / year",
+    growth: "Growth · 100 GSTINs / year",
+    pro: "Pro · 100 GSTINs / year",
   };
 
   await new Promise<void>((resolve, reject) => {

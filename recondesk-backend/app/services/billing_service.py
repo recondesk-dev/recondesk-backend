@@ -6,19 +6,19 @@ _client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_
 
 # Amounts in paise (INR). Matches billing_gate.PLAN_CONFIG base amounts.
 PLAN_PRICES = {
-    "starter": {"monthly": 99_900},
-    "growth": {"yearly": 799_900},
-    "pro": {"yearly": 1_199_900},
+    "starter": {"yearly": 599_900},
+    "growth": {"yearly": 999_900},
+    "pro": {"yearly": 999_900},
 }
 
 
-def create_order(plan: str, billing_period: str = "monthly") -> dict:
+def create_order(plan: str, billing_period: str = "yearly") -> dict:
     """Create a Razorpay order for a subscription plan."""
     amount = PLAN_PRICES.get(plan, {}).get(billing_period)
     if amount is None:
-        # Fallback: first available period for the plan, else starter monthly
+        # Fallback: first available period for the plan, else starter yearly
         periods = PLAN_PRICES.get(plan) or PLAN_PRICES["starter"]
-        amount = next(iter(periods.values()), 99_900)
+        amount = next(iter(periods.values()), 599_900)
     order_data = {
         "amount": amount,
         "currency": "INR",

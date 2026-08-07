@@ -1,142 +1,36 @@
-import Link from "next/link";
 import { SubscriptionFeatures } from "@/components/billing/SubscriptionFeatures";
-
-const plans = [
-  {
-    id: "starter",
-    name: "Starter",
-    price: 999,
-    periodLabel: "/month",
-    gstins: 25,
-    blurb: "For solo CAs building a steady client desk.",
-    cta: "Start with Starter",
-    featured: false,
-  },
-  {
-    id: "growth",
-    name: "Growth",
-    price: 7999,
-    periodLabel: "/year",
-    gstins: 50,
-    blurb: "Best value for growing firms — a full year of capacity.",
-    cta: "Go Growth",
-    featured: true,
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    price: 11999,
-    periodLabel: "/year",
-    gstins: 75,
-    blurb: "Room for a larger portfolio without changing how you work.",
-    cta: "Choose Pro",
-    featured: false,
-  },
-] as const;
+import { PricingGrid } from "@/components/billing/PricingGrid";
 
 const pricingFaq = [
   {
     q: "Is there a free trial?",
-    a: "Yes. Your first 2 reconciliations are free — no credit card needed. Free accounts can manage 1 GSTIN.",
+    a: "Yes. Your first 2 reconciliations are free — no credit card needed. Free accounts can manage up to 1 GSTIN.",
   },
   {
     q: "What am I paying for?",
-    a: "You pay for GSTIN capacity and the subscription period. Every plan includes the full ReconDesk product — matching, compliance, exports, team tools. Higher plans simply let you add more client GSTINs.",
+    a: "You pay an annual subscription based on your firm's GSTIN capacity (Starter: up to 50 GSTINs, Growth: up to 100 GSTINs, Custom: 100+ GSTINs). Every plan includes unlimited reconciliation runs during the subscription period.",
   },
   {
-    q: "Can I switch plans?",
-    a: "Yes. Upgrade anytime. Purchasing a plan extends your subscription from your current end date (or today if expired).",
+    q: "What is the difference between Starter and Growth?",
+    a: "Starter delivers complete GSTR-2B vs Books reconciliation, Decision Layer, Missed ITC, Rule 37 tracking, Section 17(5) blocked credit, and exports for up to 50 GSTINs. Growth expands capacity to 100 GSTINs and unlocks advanced features including GSTR-3B tie-outs, GSTR-1 sales-side recon, E-Invoice verification, Multi-Period FY Wizard, IMS direct writeback, Vendor Scorecards, Live Tally Bridge sync, and priority support.",
+  },
+  {
+    q: "Can I upgrade my plan anytime?",
+    a: "Yes. You can upgrade from Starter to Growth or to a Custom plan whenever your firm expands client capacity. Purchasing an upgrade extends your subscription period.",
   },
   {
     q: "How does billing work?",
-    a: "Manual payment via Razorpay — monthly for Starter, yearly for Growth and Pro. No auto-debit mandate.",
+    a: "Manual annual payment via Razorpay. No automatic debit mandates or surprise credit card charges.",
   },
   {
     q: "Are prices inclusive of GST?",
-    a: "Listed prices exclude GST. 18% GST is added at checkout.",
+    a: "Listed prices exclude 18% GST. Standard 18% GST is added at checkout with tax invoice provided for input credit.",
   },
   {
-    q: "What if I need more than 75 GSTINs?",
-    a: "Write to contact@recondesk.in for a custom Enterprise plan sized to your firm.",
+    q: "What if my firm manages more than 100 GSTINs?",
+    a: "Select our Custom tier or email contact@recondesk.in. We provide tailored volume pricing, multi-partner onboarding, dedicated account management, and custom SLAs.",
   },
 ] as const;
-
-function formatInr(n: number): string {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(n);
-}
-
-function PlanCard({
-  plan,
-}: {
-  plan: (typeof plans)[number];
-}) {
-  return (
-    <article
-      className={`liquid-glass-card ${plan.featured ? "liquid-glass-card--featured" : ""} flex h-full flex-col p-7 sm:p-8`}
-    >
-      <span className="liquid-glass-card__blob liquid-glass-card__blob--a" aria-hidden />
-      <span className="liquid-glass-card__blob liquid-glass-card__blob--b" aria-hidden />
-      <div className="liquid-glass-card__content flex h-full flex-col">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">{plan.name}</h2>
-            <p className="mt-1 text-sm text-gray-500">{plan.blurb}</p>
-          </div>
-          {plan.featured && (
-            <span className="shrink-0 rounded-full bg-[var(--ink)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white">
-              Best value
-            </span>
-          )}
-        </div>
-
-        <div className="mt-8">
-          <p className="flex items-baseline gap-1">
-            <span className="text-4xl font-semibold tracking-tight text-[var(--ink)] tabular-nums">
-              {formatInr(plan.price)}
-            </span>
-            <span className="text-sm text-gray-500">{plan.periodLabel}</span>
-          </p>
-          <p className="mt-2 text-sm font-medium text-[var(--ink)]">
-            Up to {plan.gstins} GSTINs
-          </p>
-          <p className="mt-1 text-xs text-gray-500">Excl. 18% GST · unlimited runs in period</p>
-        </div>
-
-        <ul className="mt-8 space-y-2.5 text-sm text-gray-600">
-          <li className="flex gap-2">
-            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ink)]" aria-hidden />
-            Full product on every plan
-          </li>
-          <li className="flex gap-2">
-            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ink)]" aria-hidden />
-            GSTR-2B + GSTR-1 reconciliation
-          </li>
-          <li className="flex gap-2">
-            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ink)]" aria-hidden />
-            Team, exports, and follow-ups included
-          </li>
-        </ul>
-
-        <div className="mt-auto pt-8">
-          <Link
-            href={`/signup?plan=${plan.id}`}
-            className={`inline-flex w-full min-h-[44px] items-center justify-center rounded-full px-6 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90 ${
-              plan.featured
-                ? "bg-[var(--ink)] text-white shadow-sm"
-                : "bg-white/80 text-[var(--ink)] ring-1 ring-black/10"
-            }`}
-          >
-            {plan.cta}
-          </Link>
-        </div>
-      </div>
-    </article>
-  );
-}
 
 export default function PricingPage() {
   return (
@@ -153,29 +47,26 @@ export default function PricingPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
           Pricing
         </p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--ink)] sm:text-4xl">
-          Simple plans. Priced by GSTIN.
+        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--ink)] sm:text-4xl lg:text-5xl">
+          Simple plans. Sized by GSTIN capacity.
         </h1>
-        <p className="mx-auto mt-4 max-w-2xl text-lg text-gray-600">
-          One product. Three capacities. Pay monthly or yearly — every subscription unlocks the
-          full desk.
+        <p className="mx-auto mt-4 max-w-2xl text-base text-gray-600 sm:text-lg">
+          Choose the right tier for your firm&apos;s portfolio. Annual subscriptions with unlimited reconciliation runs.
         </p>
       </div>
 
-      <div className="mx-auto mt-14 grid max-w-6xl gap-6 lg:grid-cols-3">
-        {plans.map((plan) => (
-          <PlanCard key={plan.id} plan={plan} />
-        ))}
-      </div>
+      <PricingGrid />
 
-      <p className="mx-auto mt-6 max-w-6xl text-center text-xs text-gray-500">
-        Free to start · 2 reconciliations included · Manual Razorpay renewal · No auto-debit
+      <p className="mx-auto mt-8 max-w-6xl text-center text-xs text-gray-500">
+        Free to start · 2 reconciliations included · Manual Razorpay annual renewal · No auto-debit
       </p>
 
       <SubscriptionFeatures />
 
       <div className="mx-auto mt-20 max-w-3xl">
-        <h2 className="text-center text-xl font-semibold text-[var(--ink)]">Pricing FAQ</h2>
+        <h2 className="text-center text-xl font-semibold text-[var(--ink)] sm:text-2xl">
+          Frequently Asked Questions
+        </h2>
         <dl className="mt-8 space-y-3">
           {pricingFaq.map(({ q, a }) => (
             <div
@@ -183,7 +74,7 @@ export default function PricingPage() {
               className="rounded-[1.25rem] bg-white/80 px-5 py-4 shadow-[var(--shadow-soft)] backdrop-blur-sm"
             >
               <dt className="font-semibold text-[var(--ink)]">{q}</dt>
-              <dd className="mt-2 text-sm text-gray-500">{a}</dd>
+              <dd className="mt-2 text-sm text-gray-600 leading-relaxed">{a}</dd>
             </div>
           ))}
         </dl>
