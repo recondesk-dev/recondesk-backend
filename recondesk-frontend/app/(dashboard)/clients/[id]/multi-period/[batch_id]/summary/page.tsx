@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "react";
+import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
@@ -32,7 +32,8 @@ export default function MultiPeriodSummaryPage() {
   const clientId = String(params.id);
   const batchId = String(params.batch_id);
 
-  const { token } = useAccessToken();
+  const rawToken = useAccessToken();
+  const token = typeof rawToken === "string" ? rawToken : null;
   const [batch, setBatch] = useState<MultiPeriodBatch | null>(null);
   const [loading, setLoading] = useState(true);
 

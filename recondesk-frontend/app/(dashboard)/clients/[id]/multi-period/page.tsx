@@ -45,8 +45,10 @@ export default function MultiPeriodWizardPage() {
   const params = useParams();
   const router = useRouter();
   const clientId = String(params.id);
-  const { token, loading: tokenLoading } = useAccessToken();
-  const { addToast } = useToast();
+  const rawToken = useAccessToken();
+  const token = typeof rawToken === "string" ? rawToken : null;
+  const tokenLoading = rawToken === null;
+  const toast = useToast();
 
   const [selectedFy, setSelectedFy] = useState("2025-26");
   const [batch, setBatch] = useState<MultiPeriodBatch | null>(null);
@@ -64,7 +66,7 @@ export default function MultiPeriodWizardPage() {
         const updated = await getMultiPeriodBatch(batch.id, token);
         setBatch(updated);
         if (updated.status === "completed") {
-          addToast("Annual reconciliation batch completed!", "success");
+          toast("Annual reconciliation batch completed!", "success");
           router.push(`/clients/${clientId}/multi-period/${updated.id}/summary`);
         }
       } catch (err) {
@@ -73,7 +75,7 @@ export default function MultiPeriodWizardPage() {
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [token, batch?.id, batch?.status, clientId, router, addToast]);
+  }, [token, batch?.id, batch?.status, clientId, router, toast]);
 
   const handleCreateBatch = async () => {
     if (!token) return;
@@ -82,9 +84,9 @@ export default function MultiPeriodWizardPage() {
       const newBatch = await createMultiPeriodBatch(clientId, selectedFy, token);
       setBatch(newBatch);
       setCurrentStep(1);
-      addToast(`Created multi-period batch for FY ${selectedFy}`, "success");
+      toast(`Created multi-period batch for FY ${selectedFy}`, "success");
     } catch (err: any) {
-      addToast(err?.detail || "Failed to create batch", "error");
+      toast(err?.detail || "Failed to create batch", "error");
     } finally {
       setLoading(false);
     }
@@ -97,9 +99,9 @@ export default function MultiPeriodWizardPage() {
       await triggerGstr2bAutofetch(batch.id, token);
       const updated = await getMultiPeriodBatch(batch.id, token);
       setBatch(updated);
-      addToast("Started GSTR-2B auto-fetch for 12 months", "info");
+      toast("Started GSTR-2B auto-fetch for 12 months", "info");
     } catch (err: any) {
-      addToast(err?.detail || "Failed to start auto-fetch", "error");
+      toast(err?.detail || "Failed to start auto-fetch", "error");
     } finally {
       setLoading(false);
     }
@@ -111,9 +113,9 @@ export default function MultiPeriodWizardPage() {
     try {
       const updated = await uploadManualPr(batch.id, period, file, token);
       setBatch(updated);
-      addToast(`Uploaded Purchase Register for ${periodMonthName(period)}`, "success");
+      toast(`Uploaded Purchase Register for ${periodMonthName(period)}`, "success");
     } catch (err: any) {
-      addToast(err?.detail || "Failed to upload PR file", "error");
+      toast(err?.detail || "Failed to upload PR file", "error");
     } finally {
       setUploadingPeriod(null);
     }
@@ -127,9 +129,9 @@ export default function MultiPeriodWizardPage() {
       const updated = await getMultiPeriodBatch(batch.id, token);
       setBatch(updated);
       setCurrentStep(3);
-      addToast("Started batch reconciliation across all periods", "info");
+      toast("Started batch reconciliation across all periods", "info");
     } catch (err: any) {
-      addToast(err?.detail || "Failed to run batch reconciliation", "error");
+      toast(err?.detail || "Failed to run batch reconciliation", "error");
     } finally {
       setLoading(false);
     }
