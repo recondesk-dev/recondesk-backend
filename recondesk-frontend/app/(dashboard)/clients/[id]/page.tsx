@@ -325,6 +325,18 @@ export default function ClientDetailPage() {
                   </Link>
                 )}
                 <Link
+                  href={`/clients/${id}/multi-period`}
+                  title="Annual FY Reconciliation — up to 12 periods in one flow"
+                  className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-indigo-600 px-4 py-3 text-left transition-opacity hover:opacity-90"
+                >
+                  <span className="text-sm font-semibold text-white">
+                    Run Annual Reconciliation
+                  </span>
+                  <span className="text-[11px] font-medium leading-snug text-indigo-100">
+                    12-Month Batch — Auto 2B & Tally Bridge sync
+                  </span>
+                </Link>
+                <Link
                   href={gstr1NewHref}
                   title="Sales Register ↔ GSTR-1 ↔ GSTR-3B tie-out"
                   className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[#F5F5F6] px-4 py-3 text-left ring-1 ring-[#F0F0F0] transition-colors hover:bg-gray-200/70"

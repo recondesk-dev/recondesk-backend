@@ -574,13 +574,21 @@ export default function PortfolioDashboardPage() {
       )}
 
       <section>
-        <div className="mb-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
-            Quick Stats
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Your portfolio snapshot — act on what needs attention first.
-          </p>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
+              Quick Stats
+            </h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Your portfolio snapshot — act on what needs attention first.
+            </p>
+          </div>
+          <Link
+            href="/clients"
+            className="inline-flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-500"
+          >
+            Run Annual Reconciliation
+          </Link>
         </div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <StatCard

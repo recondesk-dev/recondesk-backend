@@ -52,6 +52,7 @@ from app.routers.gstr1_reconcile import router as gstr1_reconcile_router
 from app.routers.einvoice_recon import router as einvoice_recon_router
 from app.routers.filing import router as filing_router
 from app.routers.tally_sync import router as tally_sync_router
+from app.routers.multi_period_wizard import router as multi_period_wizard_router
 from app.utils.rate_limit import limiter
 
 _log = logging.getLogger(__name__)
@@ -328,6 +329,16 @@ app.include_router(
     reconciliation_import_wizard.router,
     prefix="/api",
     tags=["Import Wizard"],
+)
+app.include_router(
+    multi_period_wizard_router,
+    prefix="/api/multi-period",
+    tags=["Multi-Period Wizard"],
+)
+app.include_router(
+    multi_period_wizard_router,
+    prefix="/api/v1/multi-period",
+    tags=["Multi-Period Wizard"],
 )
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(audit_logs.router, prefix="/api/audit-logs", tags=["Audit Logs"])
