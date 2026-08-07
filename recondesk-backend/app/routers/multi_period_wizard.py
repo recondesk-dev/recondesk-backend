@@ -69,7 +69,7 @@ async def create_multi_period_batch(
         logger.exception("Failed to create multi-period batch: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create batch",
+            detail=f"Failed to create batch: {exc}",
         ) from exc
 
 
