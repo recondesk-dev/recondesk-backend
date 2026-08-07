@@ -198,6 +198,7 @@ async def run_einvoice_recon(
                 "details": {
                     "gstin": r.get("gstin"),
                     "invoice_date": r.get("invoice_date"),
+                    "doc_type": r.get("doc_type") or r.get("document_type") or r.get("invoice_type"),
                     "value_difference": r.get("value_difference"),
                     "ack_number": r.get("ack_number"),
                     "ack_date": r.get("ack_date"),
@@ -288,6 +289,8 @@ async def get_einvoice_recon_results(
                 "decision_why": details.get("decision_why"),
                 "decision_next": details.get("decision_next"),
                 "decision_rule": details.get("decision_rule"),
+                "verification_source": r.get("verification_source") or details.get("verification_source"),
+                "verified_at": r.get("verified_at"),
                 "created_at": r.get("created_at"),
             }
         )
@@ -308,3 +311,84 @@ async def get_einvoice_recon_results(
         "summary": summary,
         "results": formatted_results,
     }
+
+
+class SaveCredentialsBody(BaseModel):
+    username: str = Field(..., description="e-Invoice portal username")
+    password: str = Field(..., description="e-Invoice portal password")
+
+
+class BatchVerifyBody(BaseModel):
+    result_ids: list[str] = Field(..., description="List of result_ids to verify")
+
+
+@router.get("/credentials/{client_id}")
+async def get_credentials_status(
+    client_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Check if e-Invoice portal credentials exist for a client GSTIN."""
+    sb = get_supabase()
+    _assert_access(client_id, user_id)
+
+    res = (
+        sb.table("client_einvoice_credentials")
+        .select("id, client_gstin_id, einvoice_username, updated_at")
+        .eq("client_gstin_id", client_id)
+        .limit(1)
+        .execute()
+    )
+
+    if res.data:
+        row = res.data[0]
+        return {
+            "has_credentials": True,
+            "username": row.get("einvoice_username"),
+            "updated_at": row.get("updated_at"),
+        }
+
+    return {"has_credentials": False, "username": None, "updated_at": None}
+
+
+@router.post("/credentials/{client_id}")
+async def save_credentials(
+    client_id: str,
+    body: SaveCredentialsBody,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Store or update encrypted e-Invoice credentials for a client GSTIN."""
+    sb = get_supabase()
+    from app.services.einvoice_verification import upsert_client_credentials
+
+    return upsert_client_credentials(
+        sb=sb,
+        client_gstin_id=client_id,
+        username=body.username,
+        password=body.password,
+        user_id=user_id,
+    )
+
+
+@router.post("/results/{result_id}/verify")
+async def verify_single_result(
+    result_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Trigger live IRP verification for a single IRN_MISSING result record."""
+    sb = get_supabase()
+    from app.services.einvoice_verification import verify_irn_missing_row
+
+    return verify_irn_missing_row(sb=sb, result_id=result_id, user_id=user_id)
+
+
+@router.post("/results/batch-verify")
+async def verify_batch_results(
+    body: BatchVerifyBody,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Trigger sequential live IRP verification for a batch of IRN_MISSING records."""
+    sb = get_supabase()
+    from app.services.einvoice_verification import verify_irn_missing_batch
+
+    return verify_irn_missing_batch(sb=sb, result_ids=body.result_ids, user_id=user_id)
+
