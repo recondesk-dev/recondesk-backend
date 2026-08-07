@@ -305,9 +305,16 @@ export default function MultiPeriodWizardPage() {
                           <Loader2 className="h-3 w-3 animate-spin" /> Fetching
                         </span>
                       ) : item.status === "failed" ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
-                          <AlertCircle className="h-3 w-3" /> Failed
-                        </span>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
+                            <AlertCircle className="h-3 w-3" /> Failed
+                          </span>
+                          {item.error_message && (
+                            <span className="text-[10px] text-right font-medium text-red-600 max-w-[140px] leading-tight">
+                              {item.error_message}
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
                           Pending
