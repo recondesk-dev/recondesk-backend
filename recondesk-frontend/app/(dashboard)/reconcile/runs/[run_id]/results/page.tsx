@@ -351,6 +351,7 @@ function WhyRationaleButton({
 type RunSummary = {
   run_id: string;
   client_name: string;
+  client_gstin_id?: string;
   client_gstin?: string;
   period: string;
   assigned_to_name: string;
@@ -4395,7 +4396,7 @@ export default function ReconcileResultsPage() {
         {resultsTab === "einvoice" && (
           <EInvoiceCheckPanel
             runId={runId}
-            clientGstinId={summary?.client_gstin ?? undefined}
+            clientGstinId={summary?.client_gstin_id ?? summary?.client_gstin ?? undefined}
             period={summary?.period ?? undefined}
             authToken={authToken ?? undefined}
           />

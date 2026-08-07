@@ -17,19 +17,47 @@ from app.services.sandbox_einvoice_client import (
 )
 from app.utils.crypto import decrypt_string, encrypt_string
 
+import uuid
+
 logger = logging.getLogger(__name__)
 
 
+def _is_gstin_str(s: str) -> bool:
+    s = s.strip()
+    return len(s) == 15 and s[:2].isdigit()
+
+
+def _resolve_client_gstin_id(sb: Any, client_id_or_gstin: str) -> str:
+    s = (client_id_or_gstin or "").strip()
+    if not s or not _is_gstin_str(s):
+        return s
+    try:
+        res = (
+            sb.table("client_gstins")
+            .select("id")
+            .eq("gstin", s.upper())
+            .limit(1)
+            .execute()
+        )
+        if res.data and res.data[0].get("id"):
+            return str(res.data[0]["id"])
+    except Exception as exc:
+        logger.warning("Failed to resolve client GSTIN %s to UUID: %s", s, exc)
+    return s
+
+
 def _assert_access(sb: Any, client_gstin_id: str, user_id: str) -> None:
-    ws.assert_client_access(sb, client_gstin_id, user_id)
+    resolved_id = _resolve_client_gstin_id(sb, client_gstin_id)
+    ws.assert_client_access(sb, resolved_id, user_id)
 
 
 def get_client_credentials(sb: Any, client_gstin_id: str) -> dict[str, Any] | None:
     """Fetch client e-Invoice credentials row from Supabase."""
+    resolved_id = _resolve_client_gstin_id(sb, client_gstin_id)
     res = (
         sb.table("client_einvoice_credentials")
         .select("*")
-        .eq("client_gstin_id", client_gstin_id)
+        .eq("client_gstin_id", resolved_id)
         .limit(1)
         .execute()
     )
@@ -46,14 +74,15 @@ def upsert_client_credentials(
     user_id: str,
 ) -> dict[str, Any]:
     """Store or update encrypted e-Invoice credentials for a client GSTIN."""
-    _assert_access(sb, client_gstin_id, user_id)
+    resolved_id = _resolve_client_gstin_id(sb, client_gstin_id)
+    _assert_access(sb, resolved_id, user_id)
     enc_password = encrypt_string(password.strip())
 
-    existing = get_client_credentials(sb, client_gstin_id)
+    existing = get_client_credentials(sb, resolved_id)
     now_iso = datetime.now(timezone.utc).isoformat()
 
     payload = {
-        "client_gstin_id": client_gstin_id,
+        "client_gstin_id": resolved_id,
         "einvoice_username": username.strip(),
         "einvoice_password": enc_password,
         "updated_at": now_iso,
