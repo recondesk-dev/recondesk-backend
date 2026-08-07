@@ -366,13 +366,27 @@ async def save_credentials(
     sb = get_supabase()
     from app.services.einvoice_verification import upsert_client_credentials
 
-    return upsert_client_credentials(
-        sb=sb,
-        client_gstin_id=client_id,
-        username=body.username,
-        password=body.password,
-        user_id=user_id,
-    )
+    try:
+        return upsert_client_credentials(
+            sb=sb,
+            client_gstin_id=client_id,
+            username=body.username,
+            password=body.password,
+            user_id=user_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to save e-Invoice credentials for client_id=%s", client_id)
+        if "policy" in str(exc).lower() or "not allowed" in str(exc).lower() or "relation" in str(exc).lower():
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="Database table 'client_einvoice_credentials' not found in Supabase. Please apply the SQL migration script in Supabase SQL Editor.",
+            ) from exc
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save credentials: {exc}",
+        ) from exc
 
 
 @router.post("/results/{result_id}/verify")
@@ -384,7 +398,21 @@ async def verify_single_result(
     sb = get_supabase()
     from app.services.einvoice_verification import verify_irn_missing_row
 
-    return verify_irn_missing_row(sb=sb, result_id=result_id, user_id=user_id)
+    try:
+        return verify_irn_missing_row(sb=sb, result_id=result_id, user_id=user_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to verify result_id=%s on IRP", result_id)
+        if "policy" in str(exc).lower() or "not allowed" in str(exc).lower() or "relation" in str(exc).lower():
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="Database table 'client_einvoice_credentials' not found in Supabase. Please apply the SQL migration script in Supabase SQL Editor.",
+            ) from exc
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Live IRP verification failed: {exc}",
+        ) from exc
 
 
 @router.post("/results/batch-verify")
@@ -396,5 +424,14 @@ async def verify_batch_results(
     sb = get_supabase()
     from app.services.einvoice_verification import verify_irn_missing_batch
 
-    return verify_irn_missing_batch(sb=sb, result_ids=body.result_ids, user_id=user_id)
+    try:
+        return verify_irn_missing_batch(sb=sb, result_ids=body.result_ids, user_id=user_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to batch verify results on IRP")
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Batch verification failed: {exc}",
+        ) from exc
 
