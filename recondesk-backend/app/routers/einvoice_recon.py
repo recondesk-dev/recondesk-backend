@@ -150,82 +150,88 @@ async def run_einvoice_recon(
 
     _assert_access(cid, user_id)
 
-    einv_records: list[dict[str, Any]] = []
-
-    if body and body.einvoice_records:
-        einv_records = body.einvoice_records
-    elif file is not None:
-        filename = file.filename or "einvoice_report.xlsx"
-        if not _ext_ok(filename):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only .csv, .xlsx, and .xls files are accepted.")
-        content = await file.read()
-        try:
+    try:
+        if body and body.einvoice_records:
+            einv_records = body.einvoice_records
+        elif file is not None:
+            filename = file.filename or "einvoice_report.xlsx"
+            if not _ext_ok(filename):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only .csv, .xlsx, and .xls files are accepted.")
+            content = await file.read()
             df_einv = parse_einvoice_report(content, filename)
             einv_records = df_einv.to_dict(orient="records")
-        except ParseError as exc:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    # Fetch existing books data
-    books_records = _fetch_books_records_for_period(cid, prd)
+        # Fetch existing books data
+        books_records = _fetch_books_records_for_period(cid, prd)
 
-    # Perform reconciliation
-    recon_output = reconcile_books_vs_einvoice(
-        books_records=books_records,
-        einvoice_records=einv_records,
-        e_invoice_applicable=is_app,
-    )
-
-    results = recon_output["results"]
-    summary = recon_output["summary"]
-
-    run_id = str(uuid.uuid4())
-    sb = get_supabase()
-
-    # Persist results in DB
-    db_rows = []
-    for r in results:
-        db_rows.append(
-            {
-                "run_id": run_id,
-                "client_gstin_id": cid,
-                "period": prd,
-                "invoice_number": r.get("invoice_number", ""),
-                "irn": r.get("irn"),
-                "irn_status": r.get("irn_status"),
-                "category": r.get("category", "UNMATCHED"),
-                "book_value": r.get("book_value", 0.0),
-                "einvoice_value": r.get("einvoice_value", 0.0),
-                "details": {
-                    "gstin": r.get("gstin"),
-                    "invoice_date": r.get("invoice_date"),
-                    "doc_type": r.get("doc_type") or r.get("document_type") or r.get("invoice_type"),
-                    "value_difference": r.get("value_difference"),
-                    "ack_number": r.get("ack_number"),
-                    "ack_date": r.get("ack_date"),
-                    "decision_what": r.get("decision_what"),
-                    "decision_why": r.get("decision_why"),
-                    "decision_next": r.get("decision_next"),
-                    "decision_rule": r.get("decision_rule"),
-                },
-            }
+        # Perform reconciliation
+        recon_output = reconcile_books_vs_einvoice(
+            books_records=books_records,
+            einvoice_records=einv_records,
+            e_invoice_applicable=is_app,
         )
 
-    if db_rows:
-        try:
-            sb.table("einvoice_recon_results").insert(db_rows).execute()
-        except Exception as exc:
-            logger.warning("Failed to insert einvoice_recon_results: %s", exc)
+        results = recon_output["results"]
+        summary = recon_output["summary"]
 
-    return {
-        "status": "COMPLETED",
-        "run_id": run_id,
-        "client_id": cid,
-        "period": prd,
-        "books_records_count": len(books_records),
-        "einvoice_records_count": len(einv_records),
-        "summary": summary,
-        "results": results,
-    }
+        run_id = str(uuid.uuid4())
+        sb = get_supabase()
+
+        # Persist results in DB
+        db_rows = []
+        for r in results:
+            db_rows.append(
+                {
+                    "run_id": run_id,
+                    "client_gstin_id": cid,
+                    "period": prd,
+                    "invoice_number": r.get("invoice_number", ""),
+                    "irn": r.get("irn"),
+                    "irn_status": r.get("irn_status"),
+                    "category": r.get("category", "UNMATCHED"),
+                    "book_value": r.get("book_value", 0.0),
+                    "einvoice_value": r.get("einvoice_value", 0.0),
+                    "details": {
+                        "gstin": r.get("gstin"),
+                        "invoice_date": r.get("invoice_date"),
+                        "doc_type": r.get("doc_type") or r.get("document_type") or r.get("invoice_type"),
+                        "value_difference": r.get("value_difference"),
+                        "ack_number": r.get("ack_number"),
+                        "ack_date": r.get("ack_date"),
+                        "decision_what": r.get("decision_what"),
+                        "decision_why": r.get("decision_why"),
+                        "decision_next": r.get("decision_next"),
+                        "decision_rule": r.get("decision_rule"),
+                    },
+                }
+            )
+
+        if db_rows:
+            try:
+                sb.table("einvoice_recon_results").insert(db_rows).execute()
+            except Exception as exc:
+                logger.warning("Failed to insert einvoice_recon_results: %s", exc)
+
+        return {
+            "status": "COMPLETED",
+            "run_id": run_id,
+            "client_id": cid,
+            "period": prd,
+            "books_records_count": len(books_records),
+            "einvoice_records_count": len(einv_records),
+            "summary": summary,
+            "results": results,
+        }
+    except ParseError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Unexpected error in run_einvoice_recon for client_id=%s, period=%s", cid, prd)
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"E-Invoice reconciliation failed: {exc}",
+        ) from exc
 
 
 @router.get("/results/{run_id}")

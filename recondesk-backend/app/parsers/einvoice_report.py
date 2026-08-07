@@ -214,6 +214,8 @@ def parse_einvoice_report(
                 break
             except Exception:
                 continue
+        if df_raw is None:
+            raise ParseError("Failed to parse CSV file. Ensure the file is valid CSV format.")
     elif fn_lower.endswith((".xlsx", ".xls")):
         try:
             excel_file = pd.ExcelFile(io.BytesIO(content))
