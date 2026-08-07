@@ -62,6 +62,17 @@ interface EInvoiceSummary {
   value_mismatch_difference?: number;
 }
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (typeof err === "string" && err.trim()) return err;
+  if (typeof err === "object" && err !== null) {
+    const obj = err as Record<string, unknown>;
+    if (typeof obj.detail === "string" && obj.detail.trim()) return obj.detail;
+    if (typeof obj.message === "string" && obj.message.trim()) return obj.message;
+    if (typeof obj.rawDetail === "string" && obj.rawDetail.trim()) return obj.rawDetail;
+  }
+  return fallback;
+}
+
 export function EInvoiceCheckPanel({
   runId,
   clientGstinId,
@@ -126,7 +137,7 @@ export function EInvoiceCheckPanel({
         setShowCredForm(false);
       }
     } catch (err: any) {
-      setCredError(err?.message || "Failed to save credentials.");
+      setCredError(getErrorMessage(err, "Failed to save credentials."));
     } finally {
       setSavingCreds(false);
     }
@@ -156,7 +167,7 @@ export function EInvoiceCheckPanel({
         }
       }
     } catch (err: any) {
-      setError(err?.message || "IRP live verification failed.");
+      setError(getErrorMessage(err, "IRP live verification failed."));
     } finally {
       setVerifyingId(null);
     }
@@ -200,7 +211,7 @@ export function EInvoiceCheckPanel({
         }
       }
     } catch (err: any) {
-      setError(err?.message || "Batch verification failed.");
+      setError(getErrorMessage(err, "Batch verification failed."));
     } finally {
       setBatchVerifying(false);
     }
@@ -271,7 +282,7 @@ export function EInvoiceCheckPanel({
         setError("No reconciliation results returned from server.");
       }
     } catch (err: any) {
-      setError(err?.message || "Failed to run E-Invoice reconciliation.");
+      setError(getErrorMessage(err, "Failed to run E-Invoice reconciliation."));
     } finally {
       setRunning(false);
     }
