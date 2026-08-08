@@ -167,27 +167,65 @@ def _run_async_job_sync(coro_fn) -> None:
     _asyncio.run(coro_fn())
 
 
+STARTUP_TIMEOUT_SECONDS = 10.0
+
+
+def _verify_supabase_connection() -> None:
+    _log.info("Startup: Checking Supabase database connectivity...")
+    supabase = get_supabase()
+    supabase.table("client_gstins").select("id").limit(1).execute()
+    _log.info("Startup: Supabase database connection verified successfully.")
+
+
 def _run_alembic_upgrade():
+    _log.info("Startup: Beginning Alembic database migrations to head...")
     try:
         from alembic.config import Config
         from alembic import command
         alembic_cfg = Config("alembic.ini")
         command.upgrade(alembic_cfg, "head")
-        _log.info("Alembic database migration to head completed successfully.")
+        _log.info("Startup: Alembic database migration to head completed successfully.")
     except Exception as e:
-        _log.exception("Alembic migration on startup failed: %s", e)
+        _log.exception("Startup WARNING: Alembic migration failed: %s", e)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await asyncio.to_thread(_run_alembic_upgrade)
+    _log.info("Startup: Beginning application startup sequence...")
+
+    # 1. Verify Supabase connection with strict 10s timeout
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(_verify_supabase_connection),
+            timeout=STARTUP_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        _log.error("Startup ERROR: Supabase connection check timed out after %ss!", STARTUP_TIMEOUT_SECONDS)
+    except Exception as e:
+        _log.exception("Startup WARNING: Supabase connection check failed: %s", e)
+
+    # 2. Run Alembic migrations with strict 10s timeout
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(_run_alembic_upgrade),
+            timeout=STARTUP_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        _log.error("Startup ERROR: Alembic database migration timed out after %ss!", STARTUP_TIMEOUT_SECONDS)
+    except Exception as e:
+        _log.exception("Startup WARNING: Alembic database migration failed: %s", e)
+
+    # 3. Spawn background workers
+    _log.info("Startup: Spawning background stuck_job_detector worker...")
     task = asyncio.create_task(stuck_job_detector())
+    _log.info("Startup: Application startup complete. Server ready to receive requests.")
     yield
     task.cancel()
     try:
         await task
     except asyncio.CancelledError:
         pass
+    _log.info("Shutdown: Application shutdown complete.")
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
