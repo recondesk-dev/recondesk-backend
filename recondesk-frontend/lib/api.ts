@@ -2496,18 +2496,18 @@ export const billingModuleApi = {
   // Company Profiles
   listCompanyProfiles: (token: string, clientGstinId: string) =>
     apiFetch<BillingCompanyProfile[]>(
-      `/api/billing/masters/company-profiles?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      `/api/einvoicing/masters/company-profiles?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       { token }
     ),
 
   getCompanyProfile: (token: string, id: string, clientGstinId: string) =>
     apiFetch<BillingCompanyProfile>(
-      `/api/billing/masters/company-profiles/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      `/api/einvoicing/masters/company-profiles/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       { token }
     ),
 
   createCompanyProfile: (token: string, data: Partial<BillingCompanyProfile>) =>
-    apiFetch<BillingCompanyProfile>("/api/billing/masters/company-profiles", {
+    apiFetch<BillingCompanyProfile>("/api/einvoicing/masters/company-profiles", {
       method: "POST",
       body: JSON.stringify(data),
       token,
@@ -2520,7 +2520,7 @@ export const billingModuleApi = {
     data: Partial<BillingCompanyProfile>
   ) =>
     apiFetch<BillingCompanyProfile>(
-      `/api/billing/masters/company-profiles/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      `/api/einvoicing/masters/company-profiles/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       {
         method: "PUT",
         body: JSON.stringify(data),
@@ -2531,12 +2531,12 @@ export const billingModuleApi = {
   // Customers
   listCustomers: (token: string, clientGstinId: string) =>
     apiFetch<BillingCustomer[]>(
-      `/api/billing/masters/customers?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      `/api/einvoicing/masters/customers?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       { token }
     ),
 
   createCustomer: (token: string, data: Partial<BillingCustomer>) =>
-    apiFetch<BillingCustomer>("/api/billing/masters/customers", {
+    apiFetch<BillingCustomer>("/api/einvoicing/masters/customers", {
       method: "POST",
       body: JSON.stringify(data),
       token,
@@ -2549,7 +2549,7 @@ export const billingModuleApi = {
     data: Partial<BillingCustomer>
   ) =>
     apiFetch<BillingCustomer>(
-      `/api/billing/masters/customers/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      `/api/einvoicing/masters/customers/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       {
         method: "PUT",
         body: JSON.stringify(data),
@@ -2559,7 +2559,7 @@ export const billingModuleApi = {
 
   deleteCustomer: (token: string, id: string, clientGstinId: string) =>
     apiFetch<{ status: string }>(
-      `/api/billing/masters/customers/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      `/api/einvoicing/masters/customers/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       {
         method: "DELETE",
         token,
@@ -2569,12 +2569,12 @@ export const billingModuleApi = {
   // Items
   listItems: (token: string, clientGstinId: string) =>
     apiFetch<BillingItem[]>(
-      `/api/billing/masters/items?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      `/api/einvoicing/masters/items?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       { token }
     ),
 
   createItem: (token: string, data: Partial<BillingItem>) =>
-    apiFetch<BillingItem>("/api/billing/masters/items", {
+    apiFetch<BillingItem>("/api/einvoicing/masters/items", {
       method: "POST",
       body: JSON.stringify(data),
       token,
@@ -2587,7 +2587,7 @@ export const billingModuleApi = {
     data: Partial<BillingItem>
   ) =>
     apiFetch<BillingItem>(
-      `/api/billing/masters/items/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      `/api/einvoicing/masters/items/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       {
         method: "PUT",
         body: JSON.stringify(data),
@@ -2597,7 +2597,7 @@ export const billingModuleApi = {
 
   deleteItem: (token: string, id: string, clientGstinId: string) =>
     apiFetch<{ status: string }>(
-      `/api/billing/masters/items/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      `/api/einvoicing/masters/items/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       {
         method: "DELETE",
         token,
@@ -2619,19 +2619,19 @@ export const billingModuleApi = {
     if (params.status) sp.set("status", params.status);
     if (params.start_date) sp.set("start_date", params.start_date);
     if (params.end_date) sp.set("end_date", params.end_date);
-    return apiFetch<BillingInvoice[]>(`/api/billing/invoices?${sp.toString()}`, {
+    return apiFetch<BillingInvoice[]>(`/api/einvoicing/invoices?${sp.toString()}`, {
       token,
     });
   },
 
   getInvoice: (token: string, id: string, clientGstinId: string) =>
     apiFetch<BillingInvoice>(
-      `/api/billing/invoices/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      `/api/einvoicing/invoices/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       { token }
     ),
 
   createInvoice: (token: string, data: any) =>
-    apiFetch<BillingInvoice>("/api/billing/invoices", {
+    apiFetch<BillingInvoice>("/api/einvoicing/invoices", {
       method: "POST",
       body: JSON.stringify(data),
       token,
@@ -2644,7 +2644,7 @@ export const billingModuleApi = {
     data: any
   ) =>
     apiFetch<BillingInvoice>(
-      `/api/billing/invoices/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      `/api/einvoicing/invoices/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       {
         method: "PATCH",
         body: JSON.stringify(data),
@@ -2654,7 +2654,7 @@ export const billingModuleApi = {
 
   finalizeInvoice: (token: string, id: string, clientGstinId: string) =>
     apiFetch<BillingInvoice>(
-      `/api/billing/invoices/${encodeURIComponent(id)}/finalize?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      `/api/einvoicing/invoices/${encodeURIComponent(id)}/finalize?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       {
         method: "POST",
         token,
