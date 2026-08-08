@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import os
 import subprocess
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
@@ -201,8 +203,8 @@ def _log_db_locks(db_url: str) -> None:
             else:
                 _log.info("Startup DB Locks check: No active non-idle locks detected.")
         eng.dispose()
-    except Exception as e:
-        _log.warning("Startup WARNING: Failed to check DB locks: %s", e)
+    except Exception:
+        _log.info("DB lock check skipped: insufficient privileges or unsupported DB view.")
 
 
 def _run_alembic_upgrade():
@@ -211,17 +213,24 @@ def _run_alembic_upgrade():
     if db_url:
         _log_db_locks(db_url)
 
+    _log.info(
+        "Startup: Environment check — SUPABASE_DATABASE_URL set: %s, DATABASE_URL set: %s",
+        bool(os.environ.get("SUPABASE_DATABASE_URL")),
+        bool(os.environ.get("DATABASE_URL")),
+    )
+
     try:
         res = subprocess.run(
-            ["alembic", "upgrade", "head"],
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
             timeout=60,
             capture_output=True,
             text=True,
+            env=os.environ.copy(),
         )
         if res.stdout:
             _log.info("Alembic stdout: %s", res.stdout.strip())
         if res.stderr:
-            _log.info("Alembic stderr: %s", res.stderr.strip())
+            _log.error("Alembic stderr: %s", res.stderr.strip())
 
         if res.returncode != 0:
             _log.error("Startup ERROR: Alembic process returned exit code %d!", res.returncode)
