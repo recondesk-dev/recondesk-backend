@@ -203,7 +203,8 @@ function usesSameOriginProxy(path: string): boolean {
     path.startsWith("/api/notes") ||
     path.startsWith("/api/audit-observations") ||
     path.startsWith("/api/reconciliation") ||
-    path.startsWith("/api/einvoice-recon")
+    path.startsWith("/api/einvoice-recon") ||
+    path.startsWith("/api/einvoicing")
   );
 }
 
