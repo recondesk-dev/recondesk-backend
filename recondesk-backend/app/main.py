@@ -207,17 +207,27 @@ def _log_db_locks(db_url: str) -> None:
         _log.info("DB lock check skipped: insufficient privileges or unsupported DB view.")
 
 
+def _get_url_host(url_str: str) -> str:
+    if not url_str:
+        return "(none)"
+    try:
+        from urllib.parse import urlparse
+        return urlparse(url_str).hostname or "(unknown)"
+    except Exception:
+        return "(invalid)"
+
+
 def _run_alembic_upgrade():
     _log.info("Startup: Beginning Alembic database migrations to head...")
     db_url = settings.SUPABASE_DATABASE_URL or settings.DATABASE_URL
-    if db_url:
-        _log_db_locks(db_url)
-
     _log.info(
-        "Startup: Environment check — SUPABASE_DATABASE_URL set: %s, DATABASE_URL set: %s",
+        "Startup: Migration target DB host: %s (SUPABASE_DATABASE_URL set: %s, DATABASE_URL set: %s)",
+        _get_url_host(db_url),
         bool(os.environ.get("SUPABASE_DATABASE_URL")),
         bool(os.environ.get("DATABASE_URL")),
     )
+    if db_url:
+        _log_db_locks(db_url)
 
     try:
         res = subprocess.run(

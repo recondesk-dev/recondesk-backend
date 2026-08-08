@@ -45,8 +45,16 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    from urllib.parse import urlparse
+    url = get_url()
+    try:
+        host = urlparse(url).hostname or "(unknown)"
+    except Exception:
+        host = "(invalid)"
+    print(f"Alembic env.py connecting to target DB host: {host}")
+
     configuration = config.get_section(config.config_ini_section) or {}
-    configuration["sqlalchemy.url"] = get_url()
+    configuration["sqlalchemy.url"] = url
 
     connectable = engine_from_config(
         configuration,
