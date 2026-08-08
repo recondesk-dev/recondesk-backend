@@ -38,6 +38,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        version_num_dim=128,
     )
 
     with context.begin_transaction():
@@ -63,7 +64,23 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        connection.execute(
+            sa.text(
+                "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(128) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num));"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128);"
+            )
+        )
+        connection.commit()
+
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            version_num_dim=128,
+        )
 
         with context.begin_transaction():
             context.run_migrations()
