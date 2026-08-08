@@ -1,4 +1,8 @@
 {
+  "name": "recondesk",
+  "scripts": {
+    "push": "./push.sh"
+  },
   "dependencies": {
     "driver.js": "^1.8.0"
   }
