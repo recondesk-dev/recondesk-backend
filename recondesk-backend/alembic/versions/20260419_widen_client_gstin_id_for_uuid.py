@@ -64,13 +64,37 @@ def _drop_fk_constraints_on_column(table: str, column: str) -> None:
         op.execute(sa.text(f'ALTER TABLE "{table}" DROP CONSTRAINT IF EXISTS "{fk}";'))
 
 
+def _is_column_narrower_than_64(table: str, column: str) -> bool:
+    conn = op.get_bind()
+    r = conn.execute(
+        sa.text(
+            """
+            SELECT character_maximum_length
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = :t
+              AND column_name = :c;
+            """
+        ),
+        {"t": table, "c": column},
+    )
+    max_len = r.scalar()
+    if max_len is None:
+        return False
+    return int(max_len) < 64
+
+
 def _widen(table: str) -> None:
-    if _table_exists(table) and _column_exists(table, "client_gstin_id"):
+    if (
+        _table_exists(table)
+        and _column_exists(table, "client_gstin_id")
+        and _is_column_narrower_than_64(table, "client_gstin_id")
+    ):
         op.execute(sa.text("SET lock_timeout = '5s';"))
         _drop_fk_constraints_on_column(table, "client_gstin_id")
         op.execute(
             sa.text(
-                f'ALTER TABLE "{table}" ALTER COLUMN client_gstin_id TYPE VARCHAR(64) USING client_gstin_id::varchar(64);'
+                f'ALTER TABLE "{table}" ALTER COLUMN client_gstin_id TYPE VARCHAR(64);'
             )
         )
 
