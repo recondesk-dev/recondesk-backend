@@ -67,12 +67,12 @@ class InvoiceStatus(str, Enum):
 class CompanyProfileBase(BaseModel):
     legal_name: str
     trade_name: Optional[str] = None
-    address_line1: str
+    address_line1: str = ""
     address_line2: Optional[str] = None
-    city: str
-    state: str
-    state_code: str = Field(..., min_length=2, max_length=2)
-    pincode: str
+    city: str = ""
+    state: str = ""
+    state_code: str = Field(default="27", min_length=2, max_length=2)
+    pincode: str = ""
     gstin: str
     pan: Optional[str] = None
     bank_account_number: Optional[str] = None

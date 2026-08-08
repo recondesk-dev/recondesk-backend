@@ -288,9 +288,16 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     _log.exception("Unhandled %s %s", request.method, request.url.path)
     if settings.SENTRY_DSN:
         sentry_sdk.capture_exception(exc)
+
+    msg = str(exc) or exc.__class__.__name__
+    if hasattr(exc, "message") and getattr(exc, "message"):
+        msg = str(getattr(exc, "message"))
+    elif hasattr(exc, "details") and getattr(exc, "details"):
+        msg = str(getattr(exc, "details"))
+
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error"},
+        content={"detail": f"Internal server error: {msg}"},
     )
 
 # ── Routers ───────────────────────────────────────────────────────────────────
