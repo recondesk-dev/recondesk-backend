@@ -19,11 +19,26 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             """
-            ALTER TABLE IF EXISTS billing_company_profiles DISABLE ROW LEVEL SECURITY;
-            ALTER TABLE IF EXISTS billing_customers DISABLE ROW LEVEL SECURITY;
-            ALTER TABLE IF EXISTS billing_items DISABLE ROW LEVEL SECURITY;
-            ALTER TABLE IF EXISTS billing_invoices DISABLE ROW LEVEL SECURITY;
-            ALTER TABLE IF EXISTS billing_invoice_line_items DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE IF EXISTS billing_company_profiles ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE IF EXISTS billing_customers ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE IF EXISTS billing_items ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE IF EXISTS billing_invoices ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE IF EXISTS billing_invoice_line_items ENABLE ROW LEVEL SECURITY;
+
+            DROP POLICY IF EXISTS "Allow all billing_company_profiles" ON billing_company_profiles;
+            CREATE POLICY "Allow all billing_company_profiles" ON billing_company_profiles FOR ALL USING (true) WITH CHECK (true);
+
+            DROP POLICY IF EXISTS "Allow all billing_customers" ON billing_customers;
+            CREATE POLICY "Allow all billing_customers" ON billing_customers FOR ALL USING (true) WITH CHECK (true);
+
+            DROP POLICY IF EXISTS "Allow all billing_items" ON billing_items;
+            CREATE POLICY "Allow all billing_items" ON billing_items FOR ALL USING (true) WITH CHECK (true);
+
+            DROP POLICY IF EXISTS "Allow all billing_invoices" ON billing_invoices;
+            CREATE POLICY "Allow all billing_invoices" ON billing_invoices FOR ALL USING (true) WITH CHECK (true);
+
+            DROP POLICY IF EXISTS "Allow all billing_invoice_line_items" ON billing_invoice_line_items;
+            CREATE POLICY "Allow all billing_invoice_line_items" ON billing_invoice_line_items FOR ALL USING (true) WITH CHECK (true);
 
             GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role, postgres;
             GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role, postgres;
