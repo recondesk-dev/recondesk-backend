@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import subprocess
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
@@ -168,7 +169,6 @@ def _run_async_job_sync(coro_fn) -> None:
 
 
 SUPABASE_CHECK_TIMEOUT_SECONDS = 10.0
-ALEMBIC_MIGRATION_TIMEOUT_SECONDS = 60.0
 
 
 def _verify_supabase_connection() -> None:
@@ -178,24 +178,70 @@ def _verify_supabase_connection() -> None:
     _log.info("Startup: Supabase database connection verified successfully.")
 
 
+def _log_db_locks(db_url: str) -> None:
+    """Query and log any active DB locks/blocking queries on target DB."""
+    try:
+        import sqlalchemy as sa
+        eng = sa.create_engine(db_url)
+        with eng.connect() as conn:
+            res = conn.execute(
+                sa.text(
+                    """
+                    SELECT pid, locktype, mode, granted, query, age(clock_timestamp(), query_start) AS duration
+                    FROM pg_locks l
+                    JOIN pg_stat_activity a ON l.pid = a.pid
+                    WHERE a.pid <> pg_backend_pid()
+                      AND a.state <> 'idle';
+                    """
+                )
+            )
+            rows = res.mappings().all()
+            if rows:
+                _log.warning("Startup DB Locks detected (%d active): %s", len(rows), [dict(r) for r in rows])
+            else:
+                _log.info("Startup DB Locks check: No active non-idle locks detected.")
+        eng.dispose()
+    except Exception as e:
+        _log.warning("Startup WARNING: Failed to check DB locks: %s", e)
+
+
 def _run_alembic_upgrade():
     _log.info("Startup: Beginning Alembic database migrations to head...")
-    try:
-        from alembic.config import Config
-        from alembic import command
-        import sqlalchemy as sa
-        alembic_cfg = Config("alembic.ini")
-        command.upgrade(alembic_cfg, "head")
-        _log.info("Startup: Alembic database migration to head completed successfully.")
+    db_url = settings.SUPABASE_DATABASE_URL or settings.DATABASE_URL
+    if db_url:
+        _log_db_locks(db_url)
 
-        db_url = settings.SUPABASE_DATABASE_URL or settings.DATABASE_URL
+    try:
+        res = subprocess.run(
+            ["alembic", "upgrade", "head"],
+            timeout=60,
+            capture_output=True,
+            text=True,
+        )
+        if res.stdout:
+            _log.info("Alembic stdout: %s", res.stdout.strip())
+        if res.stderr:
+            _log.info("Alembic stderr: %s", res.stderr.strip())
+
+        if res.returncode != 0:
+            _log.error("Startup ERROR: Alembic process returned exit code %d!", res.returncode)
+        else:
+            _log.info("Startup: Alembic database migration to head completed successfully.")
+
         if db_url:
+            import sqlalchemy as sa
             eng = sa.create_engine(db_url)
             with eng.connect() as conn:
                 conn.execute(sa.text("NOTIFY pgrst, 'reload schema';"))
                 conn.commit()
             eng.dispose()
             _log.info("Startup: PostgREST schema reload notified successfully.")
+    except subprocess.TimeoutExpired as e:
+        _log.error(
+            "Startup ERROR: Alembic subprocess timed out after 60s!\nCaptured stdout:\n%s\nCaptured stderr:\n%s",
+            e.stdout or "(none)",
+            e.stderr or "(none)",
+        )
     except Exception as e:
         _log.exception("Startup WARNING: Alembic migration / schema reload failed: %s", e)
 
@@ -215,14 +261,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         _log.exception("Startup WARNING: Supabase connection check failed: %s", e)
 
-    # 2. Run Alembic migrations with generous 60s timeout
+    # 2. Run Alembic migrations as a subprocess with true OS process termination on timeout
     try:
-        await asyncio.wait_for(
-            asyncio.to_thread(_run_alembic_upgrade),
-            timeout=ALEMBIC_MIGRATION_TIMEOUT_SECONDS,
-        )
-    except asyncio.TimeoutError:
-        _log.error("Startup ERROR: Alembic database migration timed out after 60s!")
+        await asyncio.to_thread(_run_alembic_upgrade)
     except Exception as e:
         _log.exception("Startup WARNING: Alembic database migration failed: %s", e)
 
