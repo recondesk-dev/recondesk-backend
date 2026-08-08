@@ -182,11 +182,21 @@ def _run_alembic_upgrade():
     try:
         from alembic.config import Config
         from alembic import command
+        import sqlalchemy as sa
         alembic_cfg = Config("alembic.ini")
         command.upgrade(alembic_cfg, "head")
         _log.info("Startup: Alembic database migration to head completed successfully.")
+
+        db_url = settings.DATABASE_URL
+        if db_url:
+            eng = sa.create_engine(db_url)
+            with eng.connect() as conn:
+                conn.execute(sa.text("NOTIFY pgrst, 'reload schema';"))
+                conn.commit()
+            eng.dispose()
+            _log.info("Startup: PostgREST schema reload notified successfully.")
     except Exception as e:
-        _log.exception("Startup WARNING: Alembic migration failed: %s", e)
+        _log.exception("Startup WARNING: Alembic migration / schema reload failed: %s", e)
 
 
 @asynccontextmanager

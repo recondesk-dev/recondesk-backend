@@ -25,11 +25,11 @@ def upgrade() -> None:
             ALTER TABLE IF EXISTS billing_invoices DISABLE ROW LEVEL SECURITY;
             ALTER TABLE IF EXISTS billing_invoice_line_items DISABLE ROW LEVEL SECURITY;
 
-            GRANT ALL ON TABLE billing_company_profiles TO anon, authenticated, service_role;
-            GRANT ALL ON TABLE billing_customers TO anon, authenticated, service_role;
-            GRANT ALL ON TABLE billing_items TO anon, authenticated, service_role;
-            GRANT ALL ON TABLE billing_invoices TO anon, authenticated, service_role;
-            GRANT ALL ON TABLE billing_invoice_line_items TO anon, authenticated, service_role;
+            GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role, postgres;
+            GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role, postgres;
+            GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role, postgres;
+
+            NOTIFY pgrst, 'reload schema';
             """
         )
     )
