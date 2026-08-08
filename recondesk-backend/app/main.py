@@ -167,7 +167,8 @@ def _run_async_job_sync(coro_fn) -> None:
     _asyncio.run(coro_fn())
 
 
-STARTUP_TIMEOUT_SECONDS = 10.0
+SUPABASE_CHECK_TIMEOUT_SECONDS = 10.0
+ALEMBIC_MIGRATION_TIMEOUT_SECONDS = 60.0
 
 
 def _verify_supabase_connection() -> None:
@@ -207,21 +208,21 @@ async def lifespan(app: FastAPI):
     try:
         await asyncio.wait_for(
             asyncio.to_thread(_verify_supabase_connection),
-            timeout=STARTUP_TIMEOUT_SECONDS,
+            timeout=SUPABASE_CHECK_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:
-        _log.error("Startup ERROR: Supabase connection check timed out after %ss!", STARTUP_TIMEOUT_SECONDS)
+        _log.error("Startup ERROR: Supabase connection check timed out after 10s!")
     except Exception as e:
         _log.exception("Startup WARNING: Supabase connection check failed: %s", e)
 
-    # 2. Run Alembic migrations with strict 10s timeout
+    # 2. Run Alembic migrations with generous 60s timeout
     try:
         await asyncio.wait_for(
             asyncio.to_thread(_run_alembic_upgrade),
-            timeout=STARTUP_TIMEOUT_SECONDS,
+            timeout=ALEMBIC_MIGRATION_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:
-        _log.error("Startup ERROR: Alembic database migration timed out after %ss!", STARTUP_TIMEOUT_SECONDS)
+        _log.error("Startup ERROR: Alembic database migration timed out after 60s!")
     except Exception as e:
         _log.exception("Startup WARNING: Alembic database migration failed: %s", e)
 
