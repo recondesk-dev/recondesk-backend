@@ -40,11 +40,36 @@ def _column_exists(table: str, column: str) -> bool:
     return r.scalar() is not None
 
 
+def _drop_fk_constraints_on_column(table: str, column: str) -> None:
+    """Find and drop any foreign key constraints on `column` before type alteration."""
+    conn = op.get_bind()
+    res = conn.execute(
+        sa.text(
+            """
+            SELECT c.conname
+            FROM pg_constraint c
+            JOIN pg_class t ON c.conrelid = t.oid
+            JOIN pg_namespace n ON t.relnamespace = n.oid
+            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+            WHERE n.nspname = 'public'
+              AND t.relname = :table
+              AND a.attname = :column
+              AND c.contype = 'f';
+            """
+        ),
+        {"table": table, "column": column},
+    )
+    fk_names = [row[0] for row in res.fetchall()]
+    for fk in fk_names:
+        op.execute(sa.text(f'ALTER TABLE "{table}" DROP CONSTRAINT IF EXISTS "{fk}";'))
+
+
 def _widen(table: str) -> None:
     if _table_exists(table) and _column_exists(table, "client_gstin_id"):
+        _drop_fk_constraints_on_column(table, "client_gstin_id")
         op.execute(
             sa.text(
-                f"ALTER TABLE {table} ALTER COLUMN client_gstin_id TYPE VARCHAR(64) USING client_gstin_id::varchar(64);"
+                f'ALTER TABLE "{table}" ALTER COLUMN client_gstin_id TYPE VARCHAR(64) USING client_gstin_id::varchar(64);'
             )
         )
 
