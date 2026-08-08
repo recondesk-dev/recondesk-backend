@@ -181,6 +181,18 @@ def upgrade() -> None:
                 RETURNING invoice_number_prefix AS prefix, (invoice_number_next_seq - 1) AS seq;
             END;
             $$;
+
+            ALTER TABLE IF EXISTS billing_company_profiles DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE IF EXISTS billing_customers DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE IF EXISTS billing_items DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE IF EXISTS billing_invoices DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE IF EXISTS billing_invoice_line_items DISABLE ROW LEVEL SECURITY;
+
+            GRANT ALL ON TABLE billing_company_profiles TO anon, authenticated, service_role;
+            GRANT ALL ON TABLE billing_customers TO anon, authenticated, service_role;
+            GRANT ALL ON TABLE billing_items TO anon, authenticated, service_role;
+            GRANT ALL ON TABLE billing_invoices TO anon, authenticated, service_role;
+            GRANT ALL ON TABLE billing_invoice_line_items TO anon, authenticated, service_role;
             """
         )
     )
