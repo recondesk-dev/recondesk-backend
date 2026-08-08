@@ -67,6 +67,7 @@ def _drop_fk_constraints_on_column(table: str, column: str) -> None:
 def _widen(table: str) -> None:
     if _table_exists(table) and _column_exists(table, "client_gstin_id"):
         _drop_fk_constraints_on_column(table, "client_gstin_id")
+        op.execute(sa.text("SET lock_timeout = '15s';"))
         op.execute(
             sa.text(
                 f'ALTER TABLE "{table}" ALTER COLUMN client_gstin_id TYPE VARCHAR(64) USING client_gstin_id::varchar(64);'

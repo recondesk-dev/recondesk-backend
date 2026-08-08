@@ -232,7 +232,7 @@ def _run_alembic_upgrade():
     try:
         res = subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],
-            timeout=60,
+            timeout=180,
             capture_output=True,
             text=True,
             env=os.environ.copy(),
@@ -257,7 +257,7 @@ def _run_alembic_upgrade():
             _log.info("Startup: PostgREST schema reload notified successfully.")
     except subprocess.TimeoutExpired as e:
         _log.error(
-            "Startup ERROR: Alembic subprocess timed out after 60s!\nCaptured stdout:\n%s\nCaptured stderr:\n%s",
+            "Startup ERROR: Alembic subprocess timed out after 180s!\nCaptured stdout:\n%s\nCaptured stderr:\n%s",
             e.stdout or "(none)",
             e.stderr or "(none)",
         )
