@@ -1,9 +1,6 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-
-import { useEffect, useState } from "react";
-
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -16,7 +13,7 @@ import {
   CheckCircle,
   Clock,
   ArrowRight,
-  Building,
+  Building2,
 } from "lucide-react";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import {
@@ -26,7 +23,7 @@ import {
   BillingInvoice,
 } from "@/lib/api";
 
-export default function EInvoicingDashboardPage() {
+function EInvoicingDashboardContent() {
   const router = useRouter();
   const token = useAccessToken();
 
@@ -94,42 +91,41 @@ export default function EInvoicingDashboardPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
-      {/* Beta / Internal Testing Warning Banner */}
-      <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-start gap-3 text-amber-200">
-        <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-        <div className="text-sm">
-          <span className="font-semibold text-amber-300">
+      {/* Beta / Internal Testing Notice Banner */}
+      <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 flex items-start gap-3.5 text-amber-900 shadow-sm">
+        <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+        <div className="text-sm leading-relaxed">
+          <span className="font-semibold text-amber-950">
             Beta / Internal Testing Mode:
           </span>{" "}
-          Invoices created and finalized in this module are internal records for management and testing.
-          Direct submission to IRP for legal e-Invoice IRN generation will be activated in Phase 2.
+          Invoices generated in this pass are saved internally for company management. Direct API submission to IRP for legal e-Invoice IRN generation will be activated in Phase 2.
         </div>
       </div>
 
       {/* Header & Controls */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <FileText className="w-7 h-7 text-indigo-400" />
+          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2.5 tracking-tight">
+            <FileText className="w-7 h-7 text-indigo-600" />
             E-Invoicing & Billing
           </h1>
-          <p className="text-sm text-gray-400 mt-1">
-            Create internal invoices, manage client company profiles, customers, and item master catalogs.
+          <p className="text-sm text-slate-500 mt-1">
+            Generate client invoices, manage B2B/B2C buyers, and maintain HSN/SAC master catalogs.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           {/* Client Selector */}
-          <div className="flex items-center gap-2 bg-[#161B26] border border-white/10 rounded-lg px-3 py-1.5">
-            <Building className="w-4 h-4 text-gray-400" />
+          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3.5 py-2 shadow-sm">
+            <Building2 className="w-4 h-4 text-slate-400" />
             <select
               value={selectedClientId}
               onChange={(e) => setSelectedClientId(e.target.value)}
-              className="bg-transparent text-white text-sm focus:outline-none cursor-pointer"
+              className="bg-transparent text-slate-800 font-medium text-sm focus:outline-none cursor-pointer pr-1"
             >
               {clients.length === 0 && <option value="">No Clients Found</option>}
               {clients.map((c) => (
-                <option key={c.id} value={c.id} className="bg-[#161B26] text-white">
+                <option key={c.id} value={c.id} className="text-slate-900">
                   {c.trade_name || c.legal_name || c.gstin} ({c.gstin})
                 </option>
               ))}
@@ -138,15 +134,15 @@ export default function EInvoicingDashboardPage() {
 
           <Link
             href={`/einvoicing/settings?client_gstin_id=${selectedClientId}`}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg border border-white/10 text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl border border-gray-200 text-sm font-semibold shadow-sm transition-all"
           >
-            <Settings className="w-4 h-4" />
+            <Settings className="w-4 h-4 text-slate-500" />
             Master Data
           </Link>
 
           <Link
             href={`/einvoicing/new?client_gstin_id=${selectedClientId}`}
-            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium shadow-lg shadow-indigo-600/30 transition-all"
+            className="flex items-center gap-2 px-4.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold shadow-md shadow-indigo-600/20 transition-all"
           >
             <Plus className="w-4 h-4" />
             Create Invoice
@@ -154,166 +150,168 @@ export default function EInvoicingDashboardPage() {
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-[#161B26] border border-white/10 rounded-xl p-4 flex items-center justify-between">
+      {/* Metric Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        <div className="bg-white border border-gray-200/80 rounded-2xl p-5 flex items-center justify-between shadow-sm">
           <div>
-            <p className="text-xs text-gray-400 font-medium">Total Invoices</p>
-            <p className="text-2xl font-bold text-white mt-1">{invoices.length}</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Invoices</p>
+            <p className="text-2xl font-bold text-slate-900 mt-1">{invoices.length}</p>
           </div>
-          <div className="w-10 h-10 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+          <div className="w-11 h-11 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
             <FileText className="w-5 h-5" />
           </div>
         </div>
 
-        <div className="bg-[#161B26] border border-white/10 rounded-xl p-4 flex items-center justify-between">
+        <div className="bg-white border border-gray-200/80 rounded-2xl p-5 flex items-center justify-between shadow-sm">
           <div>
-            <p className="text-xs text-gray-400 font-medium">Draft vs Finalized</p>
-            <p className="text-xl font-bold text-white mt-1 flex items-center gap-2">
-              <span className="text-amber-400 flex items-center gap-1 text-sm font-semibold">
-                <Clock className="w-3.5 h-3.5" /> {draftCount} Draft
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Draft vs Finalized</p>
+            <p className="text-xl font-bold text-slate-900 mt-1 flex items-center gap-2.5">
+              <span className="text-amber-700 flex items-center gap-1.5 text-sm font-semibold">
+                <Clock className="w-4 h-4 text-amber-500" /> {draftCount} Draft
               </span>
-              <span className="text-gray-500">|</span>
-              <span className="text-emerald-400 flex items-center gap-1 text-sm font-semibold">
-                <CheckCircle className="w-3.5 h-3.5" /> {finalizedCount} Finalized
+              <span className="text-slate-300">|</span>
+              <span className="text-emerald-700 flex items-center gap-1.5 text-sm font-semibold">
+                <CheckCircle className="w-4 h-4 text-emerald-500" /> {finalizedCount} Finalized
               </span>
             </p>
           </div>
         </div>
 
-        <div className="bg-[#161B26] border border-white/10 rounded-xl p-4 flex items-center justify-between">
+        <div className="bg-white border border-gray-200/80 rounded-2xl p-5 flex items-center justify-between shadow-sm">
           <div>
-            <p className="text-xs text-gray-400 font-medium">Total Billing Value</p>
-            <p className="text-2xl font-bold text-emerald-400 mt-1">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Billing Value</p>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">
               ₹{(totalAmountPaise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Filter & Search Bar */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-[#161B26] border border-white/10 rounded-xl p-3">
+      {/* Filter & Search Controls */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3.5 bg-white border border-gray-200/80 rounded-2xl p-3.5 shadow-sm">
         <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             placeholder="Search invoice # or customer..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+            className="w-full bg-slate-50/80 border border-gray-200 rounded-xl pl-9.5 pr-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-600 focus:bg-white transition-all"
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Filter className="w-4 h-4 text-gray-400" />
-          <span className="text-xs text-gray-400">Status:</span>
+        <div className="flex items-center gap-2.5 w-full sm:w-auto">
+          <Filter className="w-4 h-4 text-slate-400" />
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Status:</span>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="bg-white/5 border border-white/10 text-white text-xs rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
+            className="bg-slate-50/80 border border-gray-200 text-slate-800 text-xs font-semibold rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-600 cursor-pointer"
           >
-            <option value="" className="bg-[#161B26]">All Statuses</option>
-            <option value="draft" className="bg-[#161B26]">Draft</option>
-            <option value="finalized" className="bg-[#161B26]">Finalized</option>
-            <option value="cancelled" className="bg-[#161B26]">Cancelled</option>
+            <option value="">All Statuses</option>
+            <option value="draft">Draft</option>
+            <option value="finalized">Finalized</option>
+            <option value="cancelled">Cancelled</option>
           </select>
         </div>
       </div>
 
-      {/* Invoices List Table */}
-      <div className="bg-[#161B26] border border-white/10 rounded-xl overflow-hidden shadow-xl">
+      {/* Invoices Table Container */}
+      <div className="bg-white border border-gray-200/80 rounded-2xl overflow-hidden shadow-sm">
         {loading ? (
-          <div className="p-12 text-center text-gray-400">Loading invoices...</div>
+          <div className="p-12 text-center text-slate-500 font-medium">Loading invoices...</div>
         ) : error ? (
-          <div className="p-8 text-center text-red-400">{error}</div>
+          <div className="p-8 text-center text-red-600 font-medium">{error}</div>
         ) : filteredInvoices.length === 0 ? (
-          <div className="p-12 text-center text-gray-400 space-y-3">
-            <FileText className="w-12 h-12 mx-auto text-gray-600 stroke-[1.5]" />
-            <p className="text-base font-medium text-gray-300">No invoices found</p>
-            <p className="text-xs text-gray-500 max-w-sm mx-auto">
-              Get started by configuring master data (Company Profile & Customers), then create your first draft invoice.
+          <div className="p-14 text-center space-y-3.5">
+            <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+              <FileText className="w-7 h-7" />
+            </div>
+            <p className="text-base font-semibold text-slate-800">No invoices generated yet</p>
+            <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+              Configure your Company Seller Profile and Customer directory under Master Data, then generate internal invoices.
             </p>
             <Link
               href={`/einvoicing/new?client_gstin_id=${selectedClientId}`}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-500 transition-colors"
+              className="inline-flex items-center gap-2 px-4.5 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 transition-colors shadow-sm"
             >
-              <Plus className="w-4 h-4" /> Create Invoice Now
+              <Plus className="w-4 h-4" /> Create First Invoice
             </Link>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-gray-300">
-              <thead className="bg-white/5 text-xs text-gray-400 uppercase tracking-wider border-b border-white/10">
+            <table className="w-full text-left text-sm text-slate-800">
+              <thead className="bg-slate-50/80 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-gray-200/80">
                 <tr>
-                  <th className="px-4 py-3">Invoice #</th>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Customer</th>
-                  <th className="px-4 py-3">Supply Type</th>
-                  <th className="px-4 py-3 text-right">Taxable</th>
-                  <th className="px-4 py-3 text-right">Tax Amount</th>
-                  <th className="px-4 py-3 text-right">Total (₹)</th>
-                  <th className="px-4 py-3 text-center">Status</th>
-                  <th className="px-4 py-3 text-right">Action</th>
+                  <th className="px-4 py-3.5">Invoice #</th>
+                  <th className="px-4 py-3.5">Date</th>
+                  <th className="px-4 py-3.5">Customer</th>
+                  <th className="px-4 py-3.5">Supply Type</th>
+                  <th className="px-4 py-3.5 text-right">Taxable</th>
+                  <th className="px-4 py-3.5 text-right">Tax Amount</th>
+                  <th className="px-4 py-3.5 text-right">Total (₹)</th>
+                  <th className="px-4 py-3.5 text-center">Status</th>
+                  <th className="px-4 py-3.5 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody className="divide-y divide-gray-100">
                 {filteredInvoices.map((inv) => {
                   const isDraft = inv.status === "draft";
                   return (
-                    <tr key={inv.id} className="hover:bg-white/[0.02] transition-colors">
-                      <td className="px-4 py-3 font-semibold text-white">
+                    <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-4 py-3.5 font-bold text-slate-900 font-mono">
                         {inv.invoice_number}
                       </td>
-                      <td className="px-4 py-3 text-gray-400">{inv.invoice_date}</td>
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-gray-200">
+                      <td className="px-4 py-3.5 text-slate-600">{inv.invoice_date}</td>
+                      <td className="px-4 py-3.5">
+                        <div className="font-semibold text-slate-900">
                           {inv.customer?.name || "N/A"}
                         </div>
                         {inv.customer?.gstin && (
-                          <div className="text-xs text-gray-500 font-mono">
+                          <div className="text-xs text-slate-400 font-mono">
                             {inv.customer.gstin}
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-xs">
+                      <td className="px-4 py-3.5 text-xs">
                         {inv.is_interstate ? (
-                          <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium">
+                          <span className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 border border-purple-200/80 font-semibold">
                             Interstate (IGST)
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">
+                          <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/80 font-semibold">
                             Intrastate (CGST+SGST)
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono">
+                      <td className="px-4 py-3.5 text-right font-mono font-medium text-slate-800">
                         ₹{(inv.subtotal_paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-gray-400">
+                      <td className="px-4 py-3.5 text-right font-mono text-slate-500">
                         ₹{(inv.total_tax_paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono font-semibold text-emerald-400">
+                      <td className="px-4 py-3.5 text-right font-mono font-bold text-emerald-600">
                         ₹{(inv.total_paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-4 py-3.5 text-center">
                         {isDraft ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                            <Clock className="w-3 h-3" /> Draft
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                            <Clock className="w-3.5 h-3.5 text-amber-500" /> Draft
                           </span>
                         ) : inv.status === "finalized" ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            <CheckCircle className="w-3 h-3" /> Finalized
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> Finalized
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
                             Cancelled
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3.5 text-right">
                         <Link
                           href={`/einvoicing/${inv.id}?client_gstin_id=${selectedClientId}`}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-indigo-400 hover:text-indigo-300 transition-colors"
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors"
                         >
                           View Details <ArrowRight className="w-3.5 h-3.5" />
                         </Link>
@@ -327,5 +325,19 @@ export default function EInvoicingDashboardPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function EInvoicingDashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500 font-medium">
+          Loading E-Invoicing dashboard...
+        </div>
+      }
+    >
+      <EInvoicingDashboardContent />
+    </Suspense>
   );
 }

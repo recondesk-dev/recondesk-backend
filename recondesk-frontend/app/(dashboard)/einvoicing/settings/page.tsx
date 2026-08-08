@@ -1,13 +1,10 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-
 import { Suspense, useEffect, useState } from "react";
-
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
-  Building,
+  Building2,
   Users,
   Package,
   Plus,
@@ -107,7 +104,7 @@ function MasterDataSettingsContent() {
     name: "",
     hsn_or_sac_code: "9983",
     unit: "NOS",
-    default_rate: 10000, // ₹100 in paise
+    default_rate: 10000,
     default_tax_rate_percent: 18.0,
     item_type: "service",
   });
@@ -143,7 +140,6 @@ function MasterDataSettingsContent() {
           setCompanyProfile(profiles[0]);
           setProfileId(profiles[0].id);
         } else {
-          // Pre-populate GSTIN from selected client if available
           const selClient = clients.find((c) => c.id === clientGstinId);
           setCompanyProfile({
             legal_name: selClient?.legal_name || selClient?.trade_name || "",
@@ -170,7 +166,6 @@ function MasterDataSettingsContent() {
       .finally(() => setLoading(false));
   }, [token, clientGstinId, clients]);
 
-  // Handle Save Company Profile
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token || !clientGstinId) return;
@@ -195,7 +190,6 @@ function MasterDataSettingsContent() {
     }
   };
 
-  // Handle Save Customer
   const handleSaveCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token || !clientGstinId) return;
@@ -222,7 +216,6 @@ function MasterDataSettingsContent() {
     }
   };
 
-  // Handle Delete Customer
   const handleDeleteCustomer = async (id: string) => {
     if (!token || !clientGstinId || !confirm("Are you sure you want to delete this customer?")) return;
     try {
@@ -233,7 +226,6 @@ function MasterDataSettingsContent() {
     }
   };
 
-  // Handle Save Item
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token || !clientGstinId) return;
@@ -260,7 +252,6 @@ function MasterDataSettingsContent() {
     }
   };
 
-  // Handle Delete Item
   const handleDeleteItem = async (id: string) => {
     if (!token || !clientGstinId || !confirm("Are you sure you want to delete this item?")) return;
     try {
@@ -278,27 +269,27 @@ function MasterDataSettingsContent() {
         <div>
           <Link
             href={`/einvoicing?client_gstin_id=${clientGstinId}`}
-            className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-medium mb-1"
+            className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-semibold mb-1"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Back to Invoices
           </Link>
-          <h1 className="text-2xl font-bold text-white">E-Invoicing Master Data</h1>
-          <p className="text-sm text-gray-400">
-            Manage company profile, customer registry, and item catalog.
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">E-Invoicing Master Data</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Manage company profile, customer registry, and item master catalog.
           </p>
         </div>
 
         {/* Client Selector */}
-        <div className="flex items-center gap-2 bg-[#161B26] border border-white/10 rounded-lg px-3 py-2">
-          <Building className="w-4 h-4 text-gray-400" />
-          <span className="text-xs text-gray-400">Client:</span>
+        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3.5 py-2 shadow-sm">
+          <Building2 className="w-4 h-4 text-slate-400" />
+          <span className="text-xs text-slate-500 font-medium">Client:</span>
           <select
             value={clientGstinId}
             onChange={(e) => setClientGstinId(e.target.value)}
-            className="bg-transparent text-white text-sm focus:outline-none cursor-pointer"
+            className="bg-transparent text-slate-800 text-sm font-semibold focus:outline-none cursor-pointer"
           >
             {clients.map((c) => (
-              <option key={c.id} value={c.id} className="bg-[#161B26] text-white">
+              <option key={c.id} value={c.id} className="text-slate-900">
                 {c.trade_name || c.legal_name || c.gstin} ({c.gstin})
               </option>
             ))}
@@ -311,47 +302,47 @@ function MasterDataSettingsContent() {
         <div
           className={`p-4 rounded-xl flex items-center gap-3 text-sm font-medium border ${
             message.type === "success"
-              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
-              : "bg-red-500/10 border-red-500/30 text-red-300"
+              ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+              : "bg-red-50 border-red-200 text-red-900"
           }`}
         >
           {message.type === "success" ? (
-            <Check className="w-5 h-5 text-emerald-400" />
+            <Check className="w-5 h-5 text-emerald-600" />
           ) : (
-            <AlertCircle className="w-5 h-5 text-red-400" />
+            <AlertCircle className="w-5 h-5 text-red-600" />
           )}
           {message.text}
         </div>
       )}
 
       {/* Tabs Header */}
-      <div className="flex border-b border-white/10">
+      <div className="flex border-b border-gray-200">
         <button
           onClick={() => setActiveTab("company")}
-          className={`px-5 py-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-colors ${
+          className={`px-5 py-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
             activeTab === "company"
-              ? "border-indigo-500 text-indigo-400"
-              : "border-transparent text-gray-400 hover:text-gray-200"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-slate-500 hover:text-slate-900"
           }`}
         >
-          <Building className="w-4 h-4" /> Company Profile
+          <Building2 className="w-4 h-4" /> Company Profile
         </button>
         <button
           onClick={() => setActiveTab("customers")}
-          className={`px-5 py-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-colors ${
+          className={`px-5 py-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
             activeTab === "customers"
-              ? "border-indigo-500 text-indigo-400"
-              : "border-transparent text-gray-400 hover:text-gray-200"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-slate-500 hover:text-slate-900"
           }`}
         >
           <Users className="w-4 h-4" /> Customer Directory ({customers.length})
         </button>
         <button
           onClick={() => setActiveTab("items")}
-          className={`px-5 py-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-colors ${
+          className={`px-5 py-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
             activeTab === "items"
-              ? "border-indigo-500 text-indigo-400"
-              : "border-transparent text-gray-400 hover:text-gray-200"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-slate-500 hover:text-slate-900"
           }`}
         >
           <Package className="w-4 h-4" /> Item Catalog ({items.length})
@@ -359,42 +350,42 @@ function MasterDataSettingsContent() {
       </div>
 
       {loading ? (
-        <div className="p-12 text-center text-gray-400">Loading master data...</div>
+        <div className="p-12 text-center text-slate-500 font-medium">Loading master data...</div>
       ) : (
         <>
           {/* TAB 1: Company Profile Form */}
           {activeTab === "company" && (
-            <form onSubmit={handleSaveProfile} className="bg-[#161B26] border border-white/10 rounded-xl p-6 space-y-6">
-              <h2 className="text-lg font-semibold text-white border-b border-white/10 pb-3">
-                Business & Bank Profile (Invoice Seller Info)
+            <form onSubmit={handleSaveProfile} className="bg-white border border-gray-200/80 rounded-2xl p-6 space-y-6 shadow-sm">
+              <h2 className="text-lg font-bold text-slate-900 border-b border-gray-100 pb-3">
+                Business & Bank Profile (Invoice Seller Details)
               </h2>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs text-gray-400 font-medium mb-1">Legal Name *</label>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Legal Name *</label>
                   <input
                     type="text"
                     required
                     value={companyProfile.legal_name || ""}
                     onChange={(e) => setCompanyProfile({ ...companyProfile, legal_name: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
                     placeholder="e.g. Acme Corp Private Limited"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs text-gray-400 font-medium mb-1">Trade Name</label>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Trade Name</label>
                   <input
                     type="text"
                     value={companyProfile.trade_name || ""}
                     onChange={(e) => setCompanyProfile({ ...companyProfile, trade_name: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
                     placeholder="e.g. Acme Solutions"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs text-gray-400 font-medium mb-1">Seller GSTIN *</label>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Seller GSTIN *</label>
                   <input
                     type="text"
                     required
@@ -406,19 +397,19 @@ function MasterDataSettingsContent() {
                       const sc = val.length >= 2 ? val.substring(0, 2) : companyProfile.state_code;
                       setCompanyProfile({ ...companyProfile, gstin: val, pan, state_code: sc });
                     }}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                     placeholder="27AAAAA0000A1Z5"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs text-gray-400 font-medium mb-1">PAN Number</label>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">PAN Number</label>
                   <input
                     type="text"
                     maxLength={10}
                     value={companyProfile.pan || ""}
                     onChange={(e) => setCompanyProfile({ ...companyProfile, pan: e.target.value.toUpperCase() })}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                     placeholder="AAAAA0000A"
                   />
                 </div>
@@ -426,42 +417,42 @@ function MasterDataSettingsContent() {
 
               {/* Address */}
               <div className="space-y-4 pt-2">
-                <h3 className="text-sm font-semibold text-gray-300">Registered Address</h3>
+                <h3 className="text-sm font-bold text-slate-900">Registered Address</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">Address Line 1 *</label>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Address Line 1 *</label>
                     <input
                       type="text"
                       required
                       value={companyProfile.address_line1 || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, address_line1: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
                       placeholder="Street name, premises"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">Address Line 2</label>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Address Line 2</label>
                     <input
                       type="text"
                       value={companyProfile.address_line2 || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, address_line2: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
                       placeholder="Area, landmark"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">City *</label>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">City *</label>
                     <input
                       type="text"
                       required
                       value={companyProfile.city || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, city: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
                       placeholder="Mumbai"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">State & State Code *</label>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">State & State Code *</label>
                     <select
                       value={companyProfile.state_code || "27"}
                       onChange={(e) => {
@@ -473,7 +464,7 @@ function MasterDataSettingsContent() {
                           state: st ? st.name : companyProfile.state,
                         });
                       }}
-                      className="w-full bg-[#161B26] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white cursor-pointer font-medium"
                     >
                       {INDIAN_STATES.map((s) => (
                         <option key={s.code} value={s.code}>
@@ -483,81 +474,81 @@ function MasterDataSettingsContent() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">Pincode *</label>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Pincode *</label>
                     <input
                       type="text"
                       required
                       value={companyProfile.pincode || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, pincode: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white font-mono"
                       placeholder="400001"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Invoice Numbering Config & Bank Details */}
+              {/* Numbering & Bank Details */}
               <div className="space-y-4 pt-2">
-                <h3 className="text-sm font-semibold text-gray-300">Invoice Numbering & Bank Details</h3>
+                <h3 className="text-sm font-bold text-slate-900">Invoice Numbering & Bank Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">Invoice Prefix</label>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Invoice Prefix</label>
                     <input
                       type="text"
                       value={companyProfile.invoice_number_prefix || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, invoice_number_prefix: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                       placeholder="e.g. INV/24-25/"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">Next Sequence #</label>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Next Sequence #</label>
                     <input
                       type="number"
                       min={1}
                       value={companyProfile.invoice_number_next_seq || 1}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, invoice_number_next_seq: parseInt(e.target.value) || 1 })}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">Bank Name</label>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Bank Name</label>
                     <input
                       type="text"
                       value={companyProfile.bank_name || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, bank_name: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
                       placeholder="HDFC Bank"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">Bank Account Number</label>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Bank Account Number</label>
                     <input
                       type="text"
                       value={companyProfile.bank_account_number || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, bank_account_number: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                       placeholder="50100000000000"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">IFSC Code</label>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">IFSC Code</label>
                     <input
                       type="text"
                       value={companyProfile.bank_ifsc || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, bank_ifsc: e.target.value.toUpperCase() })}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                       placeholder="HDFC0000123"
                     />
                   </div>
                 </div>
               </div>
 
-              <div className="flex justify-end pt-4 border-t border-white/10">
+              <div className="flex justify-end pt-4 border-t border-gray-100">
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg text-sm transition-colors"
+                  className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm shadow-md shadow-indigo-600/20 transition-all"
                 >
                   <Save className="w-4 h-4" /> {saving ? "Saving..." : "Save Company Profile"}
                 </button>
@@ -569,7 +560,7 @@ function MasterDataSettingsContent() {
           {activeTab === "customers" && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-slate-500">
                   Manage B2B and B2C buyer profiles used in invoice creation.
                 </p>
                 <button
@@ -586,52 +577,52 @@ function MasterDataSettingsContent() {
                     });
                     setShowCustomerModal(true);
                   }}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-500 transition-colors"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 shadow-sm transition-colors"
                 >
                   <Plus className="w-4 h-4" /> Add Customer
                 </button>
               </div>
 
-              <div className="bg-[#161B26] border border-white/10 rounded-xl overflow-hidden">
+              <div className="bg-white border border-gray-200/80 rounded-2xl overflow-hidden shadow-sm">
                 {customers.length === 0 ? (
-                  <div className="p-8 text-center text-gray-400">No customers found. Click "Add Customer" to create one.</div>
+                  <div className="p-10 text-center text-slate-500">No customers found. Click "Add Customer" to create one.</div>
                 ) : (
-                  <table className="w-full text-left text-sm text-gray-300">
-                    <thead className="bg-white/5 text-xs text-gray-400 uppercase tracking-wider border-b border-white/10">
+                  <table className="w-full text-left text-sm text-slate-800">
+                    <thead className="bg-slate-50/80 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-gray-200/80">
                       <tr>
-                        <th className="px-4 py-3">Customer Name</th>
-                        <th className="px-4 py-3">Type</th>
-                        <th className="px-4 py-3">GSTIN</th>
-                        <th className="px-4 py-3">State & Code</th>
-                        <th className="px-4 py-3 text-right">Actions</th>
+                        <th className="px-4 py-3.5">Customer Name</th>
+                        <th className="px-4 py-3.5">Type</th>
+                        <th className="px-4 py-3.5">GSTIN</th>
+                        <th className="px-4 py-3.5">State & Code</th>
+                        <th className="px-4 py-3.5 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
+                    <tbody className="divide-y divide-gray-100">
                       {customers.map((c) => (
-                        <tr key={c.id} className="hover:bg-white/[0.02]">
-                          <td className="px-4 py-3 font-semibold text-white">{c.name}</td>
-                          <td className="px-4 py-3 text-xs">
+                        <tr key={c.id} className="hover:bg-slate-50/50">
+                          <td className="px-4 py-3.5 font-bold text-slate-900">{c.name}</td>
+                          <td className="px-4 py-3.5 text-xs">
                             {c.is_b2b ? (
-                              <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">B2B</span>
+                              <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 font-semibold">B2B</span>
                             ) : (
-                              <span className="px-2 py-0.5 rounded bg-gray-500/10 text-gray-400 border border-gray-500/20 font-medium">B2C</span>
+                              <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 border border-slate-200 font-semibold">B2C</span>
                             )}
                           </td>
-                          <td className="px-4 py-3 font-mono text-xs">{c.gstin || "—"}</td>
-                          <td className="px-4 py-3 text-xs">{c.state} ({c.state_code})</td>
-                          <td className="px-4 py-3 text-right space-x-2">
+                          <td className="px-4 py-3.5 font-mono text-xs text-slate-700 font-semibold">{c.gstin || "—"}</td>
+                          <td className="px-4 py-3.5 text-xs text-slate-600">{c.state} ({c.state_code})</td>
+                          <td className="px-4 py-3.5 text-right space-x-2">
                             <button
                               onClick={() => {
                                 setEditingCustomer(c);
                                 setShowCustomerModal(true);
                               }}
-                              className="p-1 text-gray-400 hover:text-indigo-400"
+                              className="p-1.5 text-slate-400 hover:text-indigo-600"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleDeleteCustomer(c.id)}
-                              className="p-1 text-gray-400 hover:text-red-400"
+                              className="p-1.5 text-slate-400 hover:text-red-600"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -649,7 +640,7 @@ function MasterDataSettingsContent() {
           {activeTab === "items" && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-slate-500">
                   Manage reusable goods and service items for line-item autocomplete.
                 </p>
                 <button
@@ -664,54 +655,54 @@ function MasterDataSettingsContent() {
                     });
                     setShowItemModal(true);
                   }}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-500 transition-colors"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 shadow-sm transition-colors"
                 >
                   <Plus className="w-4 h-4" /> Add Item
                 </button>
               </div>
 
-              <div className="bg-[#161B26] border border-white/10 rounded-xl overflow-hidden">
+              <div className="bg-white border border-gray-200/80 rounded-2xl overflow-hidden shadow-sm">
                 {items.length === 0 ? (
-                  <div className="p-8 text-center text-gray-400">No items in catalog. Click "Add Item" to add one.</div>
+                  <div className="p-10 text-center text-slate-500">No items in catalog. Click "Add Item" to add one.</div>
                 ) : (
-                  <table className="w-full text-left text-sm text-gray-300">
-                    <thead className="bg-white/5 text-xs text-gray-400 uppercase tracking-wider border-b border-white/10">
+                  <table className="w-full text-left text-sm text-slate-800">
+                    <thead className="bg-slate-50/80 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-gray-200/80">
                       <tr>
-                        <th className="px-4 py-3">Item Name</th>
-                        <th className="px-4 py-3">Type</th>
-                        <th className="px-4 py-3">HSN / SAC</th>
-                        <th className="px-4 py-3">Unit</th>
-                        <th className="px-4 py-3 text-right">Default Rate (₹)</th>
-                        <th className="px-4 py-3 text-right">GST Rate %</th>
-                        <th className="px-4 py-3 text-right">Actions</th>
+                        <th className="px-4 py-3.5">Item Name</th>
+                        <th className="px-4 py-3.5">Type</th>
+                        <th className="px-4 py-3.5">HSN / SAC</th>
+                        <th className="px-4 py-3.5">Unit</th>
+                        <th className="px-4 py-3.5 text-right">Default Rate (₹)</th>
+                        <th className="px-4 py-3.5 text-right">GST Rate %</th>
+                        <th className="px-4 py-3.5 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
+                    <tbody className="divide-y divide-gray-100">
                       {items.map((i) => (
-                        <tr key={i.id} className="hover:bg-white/[0.02]">
-                          <td className="px-4 py-3 font-semibold text-white">{i.name}</td>
-                          <td className="px-4 py-3 text-xs capitalize text-gray-400">{i.item_type}</td>
-                          <td className="px-4 py-3 font-mono text-xs">{i.hsn_or_sac_code}</td>
-                          <td className="px-4 py-3 text-xs">{i.unit}</td>
-                          <td className="px-4 py-3 text-right font-mono">
+                        <tr key={i.id} className="hover:bg-slate-50/50">
+                          <td className="px-4 py-3.5 font-bold text-slate-900">{i.name}</td>
+                          <td className="px-4 py-3.5 text-xs capitalize text-slate-500 font-medium">{i.item_type}</td>
+                          <td className="px-4 py-3.5 font-mono text-xs font-semibold text-slate-700">{i.hsn_or_sac_code}</td>
+                          <td className="px-4 py-3.5 text-xs text-slate-600 font-semibold">{i.unit}</td>
+                          <td className="px-4 py-3.5 text-right font-mono font-medium">
                             ₹{(i.default_rate / 100).toFixed(2)}
                           </td>
-                          <td className="px-4 py-3 text-right font-semibold text-indigo-400">
+                          <td className="px-4 py-3.5 text-right font-bold text-indigo-600">
                             {i.default_tax_rate_percent}%
                           </td>
-                          <td className="px-4 py-3 text-right space-x-2">
+                          <td className="px-4 py-3.5 text-right space-x-2">
                             <button
                               onClick={() => {
                                 setEditingItem(i);
                                 setShowItemModal(true);
                               }}
-                              className="p-1 text-gray-400 hover:text-indigo-400"
+                              className="p-1.5 text-slate-400 hover:text-indigo-600"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleDeleteItem(i.id)}
-                              className="p-1 text-gray-400 hover:text-red-400"
+                              className="p-1.5 text-slate-400 hover:text-red-600"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -729,31 +720,31 @@ function MasterDataSettingsContent() {
 
       {/* Modal: Customer Add/Edit */}
       {showCustomerModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#161B26] border border-white/10 rounded-xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <h3 className="text-lg font-semibold text-white">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <h3 className="text-lg font-bold text-slate-900">
                 {editingCustomer.id ? "Edit Customer" : "Add New Customer"}
               </h3>
-              <button onClick={() => setShowCustomerModal(false)} className="text-gray-400 hover:text-white">
+              <button onClick={() => setShowCustomerModal(false)} className="text-slate-400 hover:text-slate-700">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSaveCustomer} className="space-y-4">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Customer Name *</label>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Customer Name *</label>
                 <input
                   type="text"
                   required
                   value={editingCustomer.name || ""}
                   onChange={(e) => setEditingCustomer({ ...editingCustomer, name: e.target.value })}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
                 />
               </div>
 
               <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={editingCustomer.is_b2b ?? true}
@@ -765,7 +756,7 @@ function MasterDataSettingsContent() {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
                   Customer GSTIN {editingCustomer.is_b2b ? "*" : "(Optional for B2C)"}
                 </label>
                 <input
@@ -778,12 +769,12 @@ function MasterDataSettingsContent() {
                     const sc = val.length >= 2 ? val.substring(0, 2) : editingCustomer.state_code;
                     setEditingCustomer({ ...editingCustomer, gstin: val, state_code: sc });
                   }}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 mb-1">State & State Code *</label>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">State & State Code *</label>
                 <select
                   value={editingCustomer.state_code || "27"}
                   onChange={(e) => {
@@ -795,7 +786,7 @@ function MasterDataSettingsContent() {
                       state: st ? st.name : editingCustomer.state,
                     });
                   }}
-                  className="w-full bg-[#161B26] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white cursor-pointer font-medium"
                 >
                   {INDIAN_STATES.map((s) => (
                     <option key={s.code} value={s.code}>
@@ -805,18 +796,18 @@ function MasterDataSettingsContent() {
                 </select>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={() => setShowCustomerModal(false)}
-                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 text-xs font-semibold rounded-lg"
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-md shadow-indigo-600/20"
                 >
                   {saving ? "Saving..." : "Save Customer"}
                 </button>
@@ -828,55 +819,55 @@ function MasterDataSettingsContent() {
 
       {/* Modal: Item Add/Edit */}
       {showItemModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#161B26] border border-white/10 rounded-xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <h3 className="text-lg font-semibold text-white">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <h3 className="text-lg font-bold text-slate-900">
                 {editingItem.id ? "Edit Catalog Item" : "Add New Catalog Item"}
               </h3>
-              <button onClick={() => setShowItemModal(false)} className="text-gray-400 hover:text-white">
+              <button onClick={() => setShowItemModal(false)} className="text-slate-400 hover:text-slate-700">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSaveItem} className="space-y-4">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Item Name *</label>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Item Name *</label>
                 <input
                   type="text"
                   required
                   value={editingItem.name || ""}
                   onChange={(e) => setEditingItem({ ...editingItem, name: e.target.value })}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">HSN or SAC Code *</label>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">HSN or SAC Code *</label>
                   <input
                     type="text"
                     required
                     value={editingItem.hsn_or_sac_code || ""}
                     onChange={(e) => setEditingItem({ ...editingItem, hsn_or_sac_code: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Unit (e.g. NOS, KG, HRS) *</label>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Unit (e.g. NOS, KG, HRS) *</label>
                   <input
                     type="text"
                     required
                     value={editingItem.unit || "NOS"}
                     onChange={(e) => setEditingItem({ ...editingItem, unit: e.target.value.toUpperCase() })}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white font-semibold uppercase"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Default Rate (₹) *</label>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Default Rate (₹) *</label>
                   <input
                     type="number"
                     step="0.01"
@@ -889,17 +880,17 @@ function MasterDataSettingsContent() {
                         default_rate: Math.round((parseFloat(e.target.value) || 0) * 100),
                       })
                     }
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">GST Tax Rate % *</label>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">GST Tax Rate % *</label>
                   <select
                     value={editingItem.default_tax_rate_percent || 18}
                     onChange={(e) =>
                       setEditingItem({ ...editingItem, default_tax_rate_percent: parseFloat(e.target.value) })
                     }
-                    className="w-full bg-[#161B26] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white cursor-pointer font-semibold"
                   >
                     <option value={0}>0% (Exempt)</option>
                     <option value={5}>5%</option>
@@ -911,9 +902,9 @@ function MasterDataSettingsContent() {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Item Type</label>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Item Type</label>
                 <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
                     <input
                       type="radio"
                       name="item_type"
@@ -923,7 +914,7 @@ function MasterDataSettingsContent() {
                     />
                     Service
                   </label>
-                  <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
                     <input
                       type="radio"
                       name="item_type"
@@ -936,18 +927,18 @@ function MasterDataSettingsContent() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={() => setShowItemModal(false)}
-                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 text-xs font-semibold rounded-lg"
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-md shadow-indigo-600/20"
                 >
                   {saving ? "Saving..." : "Save Item"}
                 </button>
@@ -964,7 +955,7 @@ export default function MasterDataSettingsPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-gray-400">
+        <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500 font-medium">
           Loading master data settings...
         </div>
       }
@@ -973,4 +964,3 @@ export default function MasterDataSettingsPage() {
     </Suspense>
   );
 }
-
