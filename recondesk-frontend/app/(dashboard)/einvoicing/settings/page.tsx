@@ -269,7 +269,7 @@ function MasterDataSettingsContent() {
         <div>
           <Link
             href={`/einvoicing?client_gstin_id=${clientGstinId}`}
-            className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-semibold mb-1"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-800 hover:text-black font-semibold mb-1"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Back to Invoices
           </Link>
@@ -286,7 +286,7 @@ function MasterDataSettingsContent() {
           <select
             value={clientGstinId}
             onChange={(e) => setClientGstinId(e.target.value)}
-            className="bg-transparent text-slate-800 text-sm font-semibold focus:outline-none cursor-pointer"
+            className="bg-transparent text-slate-900 text-sm font-semibold focus:outline-none cursor-pointer"
           >
             {clients.map((c) => (
               <option key={c.id} value={c.id} className="text-slate-900">
@@ -321,7 +321,7 @@ function MasterDataSettingsContent() {
           onClick={() => setActiveTab("company")}
           className={`px-5 py-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
             activeTab === "company"
-              ? "border-indigo-600 text-indigo-600"
+              ? "border-slate-900 text-slate-900"
               : "border-transparent text-slate-500 hover:text-slate-900"
           }`}
         >
@@ -331,7 +331,7 @@ function MasterDataSettingsContent() {
           onClick={() => setActiveTab("customers")}
           className={`px-5 py-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
             activeTab === "customers"
-              ? "border-indigo-600 text-indigo-600"
+              ? "border-slate-900 text-slate-900"
               : "border-transparent text-slate-500 hover:text-slate-900"
           }`}
         >
@@ -341,7 +341,7 @@ function MasterDataSettingsContent() {
           onClick={() => setActiveTab("items")}
           className={`px-5 py-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
             activeTab === "items"
-              ? "border-indigo-600 text-indigo-600"
+              ? "border-slate-900 text-slate-900"
               : "border-transparent text-slate-500 hover:text-slate-900"
           }`}
         >
@@ -368,7 +368,7 @@ function MasterDataSettingsContent() {
                     required
                     value={companyProfile.legal_name || ""}
                     onChange={(e) => setCompanyProfile({ ...companyProfile, legal_name: e.target.value })}
-                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white"
                     placeholder="e.g. Acme Corp Private Limited"
                   />
                 </div>
@@ -379,7 +379,7 @@ function MasterDataSettingsContent() {
                     type="text"
                     value={companyProfile.trade_name || ""}
                     onChange={(e) => setCompanyProfile({ ...companyProfile, trade_name: e.target.value })}
-                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white"
                     placeholder="e.g. Acme Solutions"
                   />
                 </div>
@@ -397,7 +397,7 @@ function MasterDataSettingsContent() {
                       const sc = val.length >= 2 ? val.substring(0, 2) : companyProfile.state_code;
                       setCompanyProfile({ ...companyProfile, gstin: val, pan, state_code: sc });
                     }}
-                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
                     placeholder="27AAAAA0000A1Z5"
                   />
                 </div>
@@ -409,7 +409,7 @@ function MasterDataSettingsContent() {
                     maxLength={10}
                     value={companyProfile.pan || ""}
                     onChange={(e) => setCompanyProfile({ ...companyProfile, pan: e.target.value.toUpperCase() })}
-                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
                     placeholder="AAAAA0000A"
                   />
                 </div>
@@ -426,7 +426,7 @@ function MasterDataSettingsContent() {
                       required
                       value={companyProfile.address_line1 || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, address_line1: e.target.value })}
-                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white"
                       placeholder="Street name, premises"
                     />
                   </div>
@@ -436,7 +436,7 @@ function MasterDataSettingsContent() {
                       type="text"
                       value={companyProfile.address_line2 || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, address_line2: e.target.value })}
-                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white"
                       placeholder="Area, landmark"
                     />
                   </div>
@@ -447,7 +447,7 @@ function MasterDataSettingsContent() {
                       required
                       value={companyProfile.city || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, city: e.target.value })}
-                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white"
                       placeholder="Mumbai"
                     />
                   </div>
@@ -464,7 +464,7 @@ function MasterDataSettingsContent() {
                           state: st ? st.name : companyProfile.state,
                         });
                       }}
-                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white cursor-pointer font-medium"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white cursor-pointer font-medium"
                     >
                       {INDIAN_STATES.map((s) => (
                         <option key={s.code} value={s.code}>
@@ -480,7 +480,7 @@ function MasterDataSettingsContent() {
                       required
                       value={companyProfile.pincode || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, pincode: e.target.value })}
-                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white font-mono"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white font-mono"
                       placeholder="400001"
                     />
                   </div>
@@ -497,7 +497,7 @@ function MasterDataSettingsContent() {
                       type="text"
                       value={companyProfile.invoice_number_prefix || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, invoice_number_prefix: e.target.value })}
-                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
                       placeholder="e.g. INV/24-25/"
                     />
                   </div>
@@ -508,7 +508,7 @@ function MasterDataSettingsContent() {
                       min={1}
                       value={companyProfile.invoice_number_next_seq || 1}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, invoice_number_next_seq: parseInt(e.target.value) || 1 })}
-                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
                     />
                   </div>
                   <div>
@@ -517,7 +517,7 @@ function MasterDataSettingsContent() {
                       type="text"
                       value={companyProfile.bank_name || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, bank_name: e.target.value })}
-                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white"
                       placeholder="HDFC Bank"
                     />
                   </div>
@@ -527,7 +527,7 @@ function MasterDataSettingsContent() {
                       type="text"
                       value={companyProfile.bank_account_number || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, bank_account_number: e.target.value })}
-                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
                       placeholder="50100000000000"
                     />
                   </div>
@@ -537,7 +537,7 @@ function MasterDataSettingsContent() {
                       type="text"
                       value={companyProfile.bank_ifsc || ""}
                       onChange={(e) => setCompanyProfile({ ...companyProfile, bank_ifsc: e.target.value.toUpperCase() })}
-                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
+                      className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
                       placeholder="HDFC0000123"
                     />
                   </div>
@@ -548,7 +548,7 @@ function MasterDataSettingsContent() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm shadow-md shadow-indigo-600/20 transition-all"
+                  className="flex items-center gap-2 px-6 py-2.5 bg-slate-900 hover:bg-black text-white font-semibold rounded-xl text-sm shadow-sm transition-all"
                 >
                   <Save className="w-4 h-4" /> {saving ? "Saving..." : "Save Company Profile"}
                 </button>
@@ -577,7 +577,7 @@ function MasterDataSettingsContent() {
                     });
                     setShowCustomerModal(true);
                   }}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 shadow-sm transition-colors"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-black shadow-sm transition-colors"
                 >
                   <Plus className="w-4 h-4" /> Add Customer
                 </button>
@@ -603,7 +603,7 @@ function MasterDataSettingsContent() {
                           <td className="px-4 py-3.5 font-bold text-slate-900">{c.name}</td>
                           <td className="px-4 py-3.5 text-xs">
                             {c.is_b2b ? (
-                              <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 font-semibold">B2B</span>
+                              <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-900 border border-slate-200 font-semibold">B2B</span>
                             ) : (
                               <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 border border-slate-200 font-semibold">B2C</span>
                             )}
@@ -616,7 +616,7 @@ function MasterDataSettingsContent() {
                                 setEditingCustomer(c);
                                 setShowCustomerModal(true);
                               }}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600"
+                              className="p-1.5 text-slate-500 hover:text-slate-900"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
@@ -655,7 +655,7 @@ function MasterDataSettingsContent() {
                     });
                     setShowItemModal(true);
                   }}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 shadow-sm transition-colors"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-black shadow-sm transition-colors"
                 >
                   <Plus className="w-4 h-4" /> Add Item
                 </button>
@@ -687,7 +687,7 @@ function MasterDataSettingsContent() {
                           <td className="px-4 py-3.5 text-right font-mono font-medium">
                             ₹{(i.default_rate / 100).toFixed(2)}
                           </td>
-                          <td className="px-4 py-3.5 text-right font-bold text-indigo-600">
+                          <td className="px-4 py-3.5 text-right font-bold text-slate-900">
                             {i.default_tax_rate_percent}%
                           </td>
                           <td className="px-4 py-3.5 text-right space-x-2">
@@ -696,7 +696,7 @@ function MasterDataSettingsContent() {
                                 setEditingItem(i);
                                 setShowItemModal(true);
                               }}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600"
+                              className="p-1.5 text-slate-500 hover:text-slate-900"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
@@ -739,7 +739,7 @@ function MasterDataSettingsContent() {
                   required
                   value={editingCustomer.name || ""}
                   onChange={(e) => setEditingCustomer({ ...editingCustomer, name: e.target.value })}
-                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white"
                 />
               </div>
 
@@ -749,7 +749,7 @@ function MasterDataSettingsContent() {
                     type="checkbox"
                     checked={editingCustomer.is_b2b ?? true}
                     onChange={(e) => setEditingCustomer({ ...editingCustomer, is_b2b: e.target.checked })}
-                    className="accent-indigo-600 rounded"
+                    className="accent-slate-900 rounded"
                   />
                   Is B2B Customer (Requires GSTIN)
                 </label>
@@ -769,7 +769,7 @@ function MasterDataSettingsContent() {
                     const sc = val.length >= 2 ? val.substring(0, 2) : editingCustomer.state_code;
                     setEditingCustomer({ ...editingCustomer, gstin: val, state_code: sc });
                   }}
-                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
+                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
                 />
               </div>
 
@@ -786,7 +786,7 @@ function MasterDataSettingsContent() {
                       state: st ? st.name : editingCustomer.state,
                     });
                   }}
-                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white cursor-pointer font-medium"
+                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white cursor-pointer font-medium"
                 >
                   {INDIAN_STATES.map((s) => (
                     <option key={s.code} value={s.code}>
@@ -807,7 +807,7 @@ function MasterDataSettingsContent() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-md shadow-indigo-600/20"
+                  className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-semibold rounded-xl shadow-sm"
                 >
                   {saving ? "Saving..." : "Save Customer"}
                 </button>
@@ -838,7 +838,7 @@ function MasterDataSettingsContent() {
                   required
                   value={editingItem.name || ""}
                   onChange={(e) => setEditingItem({ ...editingItem, name: e.target.value })}
-                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white"
                 />
               </div>
 
@@ -850,7 +850,7 @@ function MasterDataSettingsContent() {
                     required
                     value={editingItem.hsn_or_sac_code || ""}
                     onChange={(e) => setEditingItem({ ...editingItem, hsn_or_sac_code: e.target.value })}
-                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
                   />
                 </div>
                 <div>
@@ -860,7 +860,7 @@ function MasterDataSettingsContent() {
                     required
                     value={editingItem.unit || "NOS"}
                     onChange={(e) => setEditingItem({ ...editingItem, unit: e.target.value.toUpperCase() })}
-                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white font-semibold uppercase"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white font-semibold uppercase"
                   />
                 </div>
               </div>
@@ -880,7 +880,7 @@ function MasterDataSettingsContent() {
                         default_rate: Math.round((parseFloat(e.target.value) || 0) * 100),
                       })
                     }
-                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
                   />
                 </div>
                 <div>
@@ -890,7 +890,7 @@ function MasterDataSettingsContent() {
                     onChange={(e) =>
                       setEditingItem({ ...editingItem, default_tax_rate_percent: parseFloat(e.target.value) })
                     }
-                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white cursor-pointer font-semibold"
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white cursor-pointer font-semibold"
                   >
                     <option value={0}>0% (Exempt)</option>
                     <option value={5}>5%</option>
@@ -910,7 +910,7 @@ function MasterDataSettingsContent() {
                       name="item_type"
                       checked={editingItem.item_type === "service"}
                       onChange={() => setEditingItem({ ...editingItem, item_type: "service" })}
-                      className="accent-indigo-600"
+                      className="accent-slate-900"
                     />
                     Service
                   </label>
@@ -920,7 +920,7 @@ function MasterDataSettingsContent() {
                       name="item_type"
                       checked={editingItem.item_type === "goods"}
                       onChange={() => setEditingItem({ ...editingItem, item_type: "goods" })}
-                      className="accent-indigo-600"
+                      className="accent-slate-900"
                     />
                     Goods
                   </label>
@@ -938,7 +938,7 @@ function MasterDataSettingsContent() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-md shadow-indigo-600/20"
+                  className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-semibold rounded-xl shadow-sm"
                 >
                   {saving ? "Saving..." : "Save Item"}
                 </button>

@@ -268,12 +268,12 @@ function CreateInvoiceContent() {
         <div>
           <Link
             href={`/einvoicing?client_gstin_id=${clientGstinId}`}
-            className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-semibold mb-1"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-800 hover:text-black font-semibold mb-1"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Back to Invoices
           </Link>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <FileText className="w-6 h-6 text-indigo-600" /> Create Draft Invoice
+            <FileText className="w-6 h-6 text-slate-900" /> Create Draft Invoice
           </h1>
         </div>
 
@@ -283,7 +283,7 @@ function CreateInvoiceContent() {
           <select
             value={clientGstinId}
             onChange={(e) => setClientGstinId(e.target.value)}
-            className="bg-transparent text-slate-800 text-sm font-semibold focus:outline-none cursor-pointer"
+            className="bg-transparent text-slate-900 text-sm font-semibold focus:outline-none cursor-pointer"
           >
             {clients.map((c) => (
               <option key={c.id} value={c.id} className="text-slate-900">
@@ -323,7 +323,7 @@ function CreateInvoiceContent() {
                 <select
                   value={selectedCustomerId}
                   onChange={(e) => handleCustomerChange(e.target.value)}
-                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 cursor-pointer"
+                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 cursor-pointer font-medium"
                   required
                 >
                   <option value="">Select Customer</option>
@@ -335,7 +335,7 @@ function CreateInvoiceContent() {
                 </select>
                 <Link
                   href={`/einvoicing/settings?client_gstin_id=${clientGstinId}`}
-                  className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-gray-200"
+                  className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl border border-gray-200"
                   title="Add Customer in Masters"
                 >
                   <Plus className="w-4 h-4" />
@@ -350,7 +350,7 @@ function CreateInvoiceContent() {
                 required
                 value={invoiceDate}
                 onChange={(e) => setInvoiceDate(e.target.value)}
-                className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600"
+                className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900"
               />
             </div>
 
@@ -360,7 +360,7 @@ function CreateInvoiceContent() {
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
-                className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600"
+                className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900"
               />
             </div>
           </div>
@@ -371,7 +371,7 @@ function CreateInvoiceContent() {
               <select
                 value={placeOfSupply}
                 onChange={(e) => setPlaceOfSupply(e.target.value)}
-                className="bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 cursor-pointer font-medium"
+                className="bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-sm text-slate-900 focus:outline-none focus:border-slate-900 cursor-pointer font-medium"
               >
                 {INDIAN_STATES.map((s) => (
                   <option key={s.code} value={s.code}>
@@ -384,11 +384,11 @@ function CreateInvoiceContent() {
             <div className="text-right">
               <span className="text-xs text-slate-500 font-semibold block">Calculated GST Tax Split:</span>
               {isInterstate ? (
-                <span className="inline-block mt-1 px-3 py-1 rounded-lg bg-purple-50 text-purple-700 border border-purple-200 text-xs font-bold">
+                <span className="inline-block mt-1 px-3 py-1 rounded-lg bg-slate-200 text-slate-900 border border-slate-300 text-xs font-bold">
                   INTERSTATE SUPPLY → 100% IGST APPLIED
                 </span>
               ) : (
-                <span className="inline-block mt-1 px-3 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold">
+                <span className="inline-block mt-1 px-3 py-1 rounded-lg bg-slate-200 text-slate-900 border border-slate-300 text-xs font-bold">
                   INTRASTATE SUPPLY → 50% CGST + 50% SGST SPLIT APPLIED
                 </span>
               )}
@@ -400,12 +400,12 @@ function CreateInvoiceContent() {
         <div className="bg-white border border-gray-200/80 rounded-2xl p-6 space-y-4 shadow-sm">
           <div className="flex items-center justify-between border-b border-gray-100 pb-3">
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Calculator className="w-5 h-5 text-indigo-600" /> Line Items Builder
+              <Calculator className="w-5 h-5 text-slate-900" /> Line Items Builder
             </h2>
             <button
               type="button"
               onClick={addLineItem}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl border border-indigo-200 text-xs font-bold transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-900 rounded-xl border border-slate-300 text-xs font-bold transition-colors"
             >
               <Plus className="w-4 h-4" /> Add Row
             </button>
@@ -453,7 +453,7 @@ function CreateInvoiceContent() {
                           placeholder="Description"
                           value={line.description}
                           onChange={(e) => updateLineItem(idx, { description: e.target.value })}
-                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white"
                         />
                       </td>
 
@@ -464,7 +464,7 @@ function CreateInvoiceContent() {
                           placeholder="9983"
                           value={line.hsn_or_sac_code}
                           onChange={(e) => updateLineItem(idx, { hsn_or_sac_code: e.target.value })}
-                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-indigo-600"
+                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-slate-900"
                         />
                       </td>
 
@@ -476,7 +476,7 @@ function CreateInvoiceContent() {
                           required
                           value={line.quantity}
                           onChange={(e) => updateLineItem(idx, { quantity: parseFloat(e.target.value) || 1 })}
-                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-indigo-600"
+                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-slate-900"
                         />
                       </td>
 
@@ -486,7 +486,7 @@ function CreateInvoiceContent() {
                           required
                           value={line.unit}
                           onChange={(e) => updateLineItem(idx, { unit: e.target.value.toUpperCase() })}
-                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-slate-900 uppercase font-semibold focus:outline-none focus:border-indigo-600"
+                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-slate-900 uppercase font-semibold focus:outline-none focus:border-slate-900"
                         />
                       </td>
 
@@ -500,7 +500,7 @@ function CreateInvoiceContent() {
                           onChange={(e) =>
                             updateLineItem(idx, { rate_paise: Math.round((parseFloat(e.target.value) || 0) * 100) })
                           }
-                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-indigo-600"
+                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-slate-900"
                         />
                       </td>
 
@@ -514,7 +514,7 @@ function CreateInvoiceContent() {
                           onChange={(e) =>
                             updateLineItem(idx, { discount_percent: parseFloat(e.target.value) || 0 })
                           }
-                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-indigo-600"
+                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-slate-900"
                         />
                       </td>
 
@@ -538,7 +538,7 @@ function CreateInvoiceContent() {
                         ₹{(comp.taxable_value_paise / 100).toFixed(2)}
                       </td>
 
-                      <td className="px-3 py-2 text-right font-mono text-xs font-bold text-emerald-600">
+                      <td className="px-3 py-2 text-right font-mono text-xs font-bold text-slate-900">
                         ₹{(comp.line_total_paise / 100).toFixed(2)}
                       </td>
 
@@ -567,7 +567,7 @@ function CreateInvoiceContent() {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Payment terms, bank transfer details, or note..."
-                className="w-full bg-slate-50 border border-gray-200 rounded-xl p-3 text-xs text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                className="w-full bg-slate-50 border border-gray-200 rounded-xl p-3 text-xs text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white"
               />
             </div>
 
@@ -589,13 +589,13 @@ function CreateInvoiceContent() {
                   </div>
                 </>
               ) : (
-                <div className="flex justify-between text-purple-700 text-xs">
+                <div className="flex justify-between text-slate-700 text-xs">
                   <span>IGST Total:</span>
                   <span>+ ₹{(totals.igst / 100).toFixed(2)}</span>
                 </div>
               )}
 
-              <div className="flex justify-between pt-2 border-t border-gray-200 font-bold text-base text-emerald-600">
+              <div className="flex justify-between pt-2 border-t border-gray-200 font-bold text-base text-slate-900">
                 <span>Grand Total:</span>
                 <span>₹{(totals.grandTotal / 100).toFixed(2)}</span>
               </div>
@@ -614,7 +614,7 @@ function CreateInvoiceContent() {
           <button
             type="submit"
             disabled={submitting}
-            className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl shadow-md shadow-indigo-600/20 transition-all"
+            className="flex items-center gap-2 px-6 py-2.5 bg-slate-900 hover:bg-black text-white text-sm font-semibold rounded-xl shadow-sm transition-all"
           >
             <Save className="w-4 h-4" /> {submitting ? "Saving Draft..." : "Save Draft Invoice"}
           </button>

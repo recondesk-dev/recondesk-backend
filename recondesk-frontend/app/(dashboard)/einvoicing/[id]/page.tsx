@@ -83,7 +83,7 @@ function InvoiceDetailContent() {
         <div>
           <Link
             href={`/einvoicing?client_gstin_id=${clientGstinId}`}
-            className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-semibold mb-1"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-800 hover:text-black font-semibold mb-1"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Back to Invoices List
           </Link>
@@ -117,7 +117,7 @@ function InvoiceDetailContent() {
           {isDraft && (
             <button
               onClick={() => setShowFinalizeModal(true)}
-              className="flex items-center gap-1.5 px-4.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-md shadow-emerald-600/20 transition-all"
+              className="flex items-center gap-1.5 px-4.5 py-2 bg-slate-900 hover:bg-black text-white text-xs font-semibold rounded-xl shadow-sm transition-all"
             >
               <Lock className="w-4 h-4" /> Finalize Invoice
             </button>
@@ -127,10 +127,10 @@ function InvoiceDetailContent() {
 
       {/* Lock Notice */}
       {isFinalized && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-start gap-3 text-emerald-900 text-xs shadow-sm">
-          <Lock className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+        <div className="bg-slate-100 border border-slate-200 rounded-2xl p-4 flex items-start gap-3 text-slate-900 text-xs shadow-sm">
+          <Lock className="w-4 h-4 text-slate-700 flex-shrink-0 mt-0.5" />
           <div className="leading-relaxed">
-            <span className="font-bold text-emerald-950">Invoice Record Finalized & Locked:</span> This invoice has been finalized. Line items, rates, and tax calculations are locked against modifications.
+            <span className="font-bold text-slate-950">Invoice Record Finalized & Locked:</span> This invoice has been finalized. Line items, rates, and tax calculations are locked against modifications.
           </div>
         </div>
       )}
@@ -140,7 +140,7 @@ function InvoiceDetailContent() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-gray-100 pb-6">
           {/* Seller Details */}
           <div>
-            <span className="text-xs font-semibold uppercase tracking-wider text-indigo-600 block mb-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 block mb-2">
               Seller (Billed From)
             </span>
             <h2 className="text-base font-bold text-slate-900">{seller?.legal_name || "N/A"}</h2>
@@ -155,7 +155,7 @@ function InvoiceDetailContent() {
 
           {/* Customer Details */}
           <div>
-            <span className="text-xs font-semibold uppercase tracking-wider text-indigo-600 block mb-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 block mb-2">
               Buyer (Billed To)
             </span>
             <h2 className="text-base font-bold text-slate-900">{buyer?.name || "N/A"}</h2>
@@ -188,7 +188,7 @@ function InvoiceDetailContent() {
           </div>
           <div>
             <span className="text-slate-500 font-medium block">Tax Regime</span>
-            <span className="font-semibold text-indigo-700 mt-0.5 block">
+            <span className="font-semibold text-slate-900 mt-0.5 block">
               {invoice.is_interstate ? "Interstate (IGST)" : "Intrastate (CGST + SGST)"}
             </span>
           </div>
@@ -222,14 +222,14 @@ function InvoiceDetailContent() {
                   </td>
                   <td className="px-4 py-3 text-right text-xs">
                     {invoice.is_interstate ? (
-                      <span className="text-purple-700 font-semibold">IGST {line.igst_rate_percent}%: ₹{(line.igst_paise / 100).toFixed(2)}</span>
+                      <span className="text-slate-800 font-semibold">IGST {line.igst_rate_percent}%: ₹{(line.igst_paise / 100).toFixed(2)}</span>
                     ) : (
-                      <span className="text-blue-700 font-semibold">
+                      <span className="text-slate-800 font-semibold">
                         C: {line.cgst_rate_percent}% (₹{(line.cgst_paise / 100).toFixed(2)}) + S: {line.sgst_rate_percent}% (₹{(line.sgst_paise / 100).toFixed(2)})
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono font-bold text-emerald-600">
+                  <td className="px-4 py-3 text-right font-mono font-bold text-slate-900">
                     ₹{(line.line_total_paise / 100).toFixed(2)}
                   </td>
                 </tr>
@@ -271,7 +271,7 @@ function InvoiceDetailContent() {
               <span>+ ₹{(invoice.total_tax_paise / 100).toFixed(2)}</span>
             </div>
 
-            <div className="flex justify-between pt-3 border-t border-gray-200 font-bold text-lg text-emerald-600">
+            <div className="flex justify-between pt-3 border-t border-gray-200 font-bold text-lg text-slate-900">
               <span>Grand Total:</span>
               <span>₹{(invoice.total_paise / 100).toFixed(2)}</span>
             </div>
@@ -283,7 +283,7 @@ function InvoiceDetailContent() {
       {showFinalizeModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-center">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 mx-auto flex items-center justify-center border border-emerald-100">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-900 mx-auto flex items-center justify-center border border-slate-200">
               <Lock className="w-6 h-6" />
             </div>
 
@@ -303,7 +303,7 @@ function InvoiceDetailContent() {
               <button
                 onClick={handleFinalize}
                 disabled={finalizing}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-md shadow-emerald-600/20"
+                className="px-5 py-2 bg-slate-900 hover:bg-black text-white text-xs font-semibold rounded-xl shadow-sm"
               >
                 {finalizing ? "Finalizing..." : "Confirm & Finalize"}
               </button>

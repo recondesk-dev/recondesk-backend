@@ -106,7 +106,7 @@ function EInvoicingDashboardContent() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2.5 tracking-tight">
-            <FileText className="w-7 h-7 text-indigo-600" />
+            <FileText className="w-7 h-7 text-slate-900" />
             E-Invoicing & Billing
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -121,7 +121,7 @@ function EInvoicingDashboardContent() {
             <select
               value={selectedClientId}
               onChange={(e) => setSelectedClientId(e.target.value)}
-              className="bg-transparent text-slate-800 font-medium text-sm focus:outline-none cursor-pointer pr-1"
+              className="bg-transparent text-slate-900 font-semibold text-sm focus:outline-none cursor-pointer pr-1"
             >
               {clients.length === 0 && <option value="">No Clients Found</option>}
               {clients.map((c) => (
@@ -134,15 +134,15 @@ function EInvoicingDashboardContent() {
 
           <Link
             href={`/einvoicing/settings?client_gstin_id=${selectedClientId}`}
-            className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl border border-gray-200 text-sm font-semibold shadow-sm transition-all"
+            className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 rounded-xl border border-gray-200 text-sm font-semibold shadow-sm transition-all"
           >
-            <Settings className="w-4 h-4 text-slate-500" />
+            <Settings className="w-4 h-4 text-slate-600" />
             Master Data
           </Link>
 
           <Link
             href={`/einvoicing/new?client_gstin_id=${selectedClientId}`}
-            className="flex items-center gap-2 px-4.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold shadow-md shadow-indigo-600/20 transition-all"
+            className="flex items-center gap-2 px-4.5 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-sm font-semibold shadow-sm transition-all"
           >
             <Plus className="w-4 h-4" />
             Create Invoice
@@ -157,7 +157,7 @@ function EInvoicingDashboardContent() {
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Invoices</p>
             <p className="text-2xl font-bold text-slate-900 mt-1">{invoices.length}</p>
           </div>
-          <div className="w-11 h-11 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+          <div className="w-11 h-11 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-900">
             <FileText className="w-5 h-5" />
           </div>
         </div>
@@ -180,7 +180,7 @@ function EInvoicingDashboardContent() {
         <div className="bg-white border border-gray-200/80 rounded-2xl p-5 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Billing Value</p>
-            <p className="text-2xl font-bold text-emerald-600 mt-1">
+            <p className="text-2xl font-bold text-slate-900 mt-1">
               ₹{(totalAmountPaise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
             </p>
           </div>
@@ -196,7 +196,7 @@ function EInvoicingDashboardContent() {
             placeholder="Search invoice # or customer..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-50/80 border border-gray-200 rounded-xl pl-9.5 pr-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-600 focus:bg-white transition-all"
+            className="w-full bg-slate-50/80 border border-gray-200 rounded-xl pl-9.5 pr-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900 focus:bg-white transition-all"
           />
         </div>
 
@@ -206,7 +206,7 @@ function EInvoicingDashboardContent() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="bg-slate-50/80 border border-gray-200 text-slate-800 text-xs font-semibold rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-600 cursor-pointer"
+            className="bg-slate-50/80 border border-gray-200 text-slate-800 text-xs font-semibold rounded-xl px-3 py-2 focus:outline-none focus:border-slate-900 cursor-pointer"
           >
             <option value="">All Statuses</option>
             <option value="draft">Draft</option>
@@ -233,7 +233,7 @@ function EInvoicingDashboardContent() {
             </p>
             <Link
               href={`/einvoicing/new?client_gstin_id=${selectedClientId}`}
-              className="inline-flex items-center gap-2 px-4.5 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 transition-colors shadow-sm"
+              className="inline-flex items-center gap-2 px-4.5 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-black transition-colors shadow-sm"
             >
               <Plus className="w-4 h-4" /> Create First Invoice
             </Link>
@@ -268,18 +268,18 @@ function EInvoicingDashboardContent() {
                           {inv.customer?.name || "N/A"}
                         </div>
                         {inv.customer?.gstin && (
-                          <div className="text-xs text-slate-400 font-mono">
+                          <div className="text-xs text-slate-500 font-mono">
                             {inv.customer.gstin}
                           </div>
                         )}
                       </td>
                       <td className="px-4 py-3.5 text-xs">
                         {inv.is_interstate ? (
-                          <span className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 border border-purple-200/80 font-semibold">
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 border border-slate-200 font-bold">
                             Interstate (IGST)
                           </span>
                         ) : (
-                          <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/80 font-semibold">
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 border border-slate-200 font-bold">
                             Intrastate (CGST+SGST)
                           </span>
                         )}
@@ -290,7 +290,7 @@ function EInvoicingDashboardContent() {
                       <td className="px-4 py-3.5 text-right font-mono text-slate-500">
                         ₹{(inv.total_tax_paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-4 py-3.5 text-right font-mono font-bold text-emerald-600">
+                      <td className="px-4 py-3.5 text-right font-mono font-bold text-slate-900">
                         ₹{(inv.total_paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-4 py-3.5 text-center">
@@ -311,7 +311,7 @@ function EInvoicingDashboardContent() {
                       <td className="px-4 py-3.5 text-right">
                         <Link
                           href={`/einvoicing/${inv.id}?client_gstin_id=${selectedClientId}`}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors"
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-slate-900 hover:text-black transition-colors underline underline-offset-2"
                         >
                           View Details <ArrowRight className="w-3.5 h-3.5" />
                         </Link>
