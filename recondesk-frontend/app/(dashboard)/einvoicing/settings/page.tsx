@@ -184,7 +184,8 @@ function MasterDataSettingsContent() {
       }
       setMessage({ type: "success", text: "Company profile saved successfully" });
     } catch (err: any) {
-      setMessage({ type: "error", text: err.detail || "Failed to save company profile" });
+      const text = err?.detail || err?.message || (typeof err === "string" ? err : "Failed to save company profile");
+      setMessage({ type: "error", text });
     } finally {
       setSaving(false);
     }
@@ -210,7 +211,8 @@ function MasterDataSettingsContent() {
       setCustomers(updated || []);
       setMessage({ type: "success", text: "Customer saved successfully" });
     } catch (err: any) {
-      setMessage({ type: "error", text: err.detail || "Failed to save customer" });
+      const text = err?.detail || err?.message || (typeof err === "string" ? err : "Failed to save customer");
+      setMessage({ type: "error", text });
     } finally {
       setSaving(false);
     }
@@ -222,7 +224,7 @@ function MasterDataSettingsContent() {
       await billingModuleApi.deleteCustomer(token, id, clientGstinId);
       setCustomers((prev) => prev.filter((c) => c.id !== id));
     } catch (err: any) {
-      alert(err.detail || "Failed to delete customer");
+      alert(err?.detail || err?.message || "Failed to delete customer");
     }
   };
 
@@ -246,7 +248,8 @@ function MasterDataSettingsContent() {
       setItems(updated || []);
       setMessage({ type: "success", text: "Item saved successfully" });
     } catch (err: any) {
-      setMessage({ type: "error", text: err.detail || "Failed to save item" });
+      const text = err?.detail || err?.message || (typeof err === "string" ? err : "Failed to save item");
+      setMessage({ type: "error", text });
     } finally {
       setSaving(false);
     }

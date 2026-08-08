@@ -73,9 +73,10 @@ def list_company_profiles(db: Client, client_gstin_id: str) -> List[Dict[str, An
 
 
 def create_company_profile(db: Client, profile_in: CompanyProfileCreate) -> Dict[str, Any]:
-    clean_gstin = validate_gstin_string(profile_in.gstin, "Company Profile GSTIN")
     data = profile_in.model_dump()
-    data["gstin"] = clean_gstin
+    data["gstin"] = validate_gstin_string(profile_in.gstin, "Company Profile GSTIN")
+    if not data.get("state_code") and len(data["gstin"]) >= 2:
+        data["state_code"] = data["gstin"][:2]
 
     res = db.table("billing_company_profiles").insert(data).execute()
     if not res.data:
@@ -86,11 +87,13 @@ def create_company_profile(db: Client, profile_in: CompanyProfileCreate) -> Dict
 def update_company_profile(
     db: Client, profile_id: str, client_gstin_id: str, profile_in: CompanyProfileUpdate
 ) -> Dict[str, Any]:
-    existing = get_company_profile(db, profile_id, client_gstin_id)
+    get_company_profile(db, profile_id, client_gstin_id)
     update_data = profile_in.model_dump(exclude_unset=True)
 
     if "gstin" in update_data and update_data["gstin"]:
         update_data["gstin"] = validate_gstin_string(update_data["gstin"], "Company Profile GSTIN")
+        if "state_code" not in update_data and len(update_data["gstin"]) >= 2:
+            update_data["state_code"] = update_data["gstin"][:2]
 
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     res = (
@@ -135,8 +138,18 @@ def list_customers(db: Client, client_gstin_id: str) -> List[Dict[str, Any]]:
 
 def create_customer(db: Client, customer_in: CustomerCreate) -> Dict[str, Any]:
     data = customer_in.model_dump()
-    if customer_in.is_b2b or (customer_in.gstin and customer_in.gstin.strip()):
-        data["gstin"] = validate_gstin_string(customer_in.gstin, "Customer GSTIN")
+    gstin_val = (customer_in.gstin or "").strip()
+    if customer_in.is_b2b:
+        if not gstin_val:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="GSTIN is required for B2B customers",
+            )
+        data["gstin"] = validate_gstin_string(gstin_val, "Customer GSTIN")
+    elif gstin_val:
+        data["gstin"] = validate_gstin_string(gstin_val, "Customer GSTIN")
+    else:
+        data["gstin"] = None
 
     res = db.table("billing_customers").insert(data).execute()
     if not res.data:
@@ -151,11 +164,20 @@ def update_customer(
     update_data = customer_in.model_dump(exclude_unset=True)
 
     is_b2b = update_data.get("is_b2b", existing.get("is_b2b", True))
-    gstin_val = update_data.get("gstin", existing.get("gstin"))
+    raw_gstin = update_data.get("gstin") if "gstin" in update_data else existing.get("gstin")
+    gstin_val = (raw_gstin or "").strip()
 
-    if is_b2b or (gstin_val and str(gstin_val).strip()):
-        if "gstin" in update_data and update_data["gstin"]:
-            update_data["gstin"] = validate_gstin_string(update_data["gstin"], "Customer GSTIN")
+    if is_b2b:
+        if not gstin_val:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="GSTIN is required for B2B customers",
+            )
+        update_data["gstin"] = validate_gstin_string(gstin_val, "Customer GSTIN")
+    elif gstin_val:
+        update_data["gstin"] = validate_gstin_string(gstin_val, "Customer GSTIN")
+    else:
+        update_data["gstin"] = None
 
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     res = (
