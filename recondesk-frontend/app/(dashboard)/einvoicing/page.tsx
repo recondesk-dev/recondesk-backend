@@ -142,9 +142,8 @@ function EInvoicingDashboardContent() {
 
           <Link
             href={`/einvoicing/new?client_gstin_id=${selectedClientId}`}
-            className="flex items-center gap-2 px-4.5 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-sm font-semibold shadow-sm transition-all"
+            className="flex items-center justify-center px-4.5 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-sm font-semibold shadow-sm transition-all"
           >
-            <Plus className="w-4 h-4" />
             Create Invoice
           </Link>
         </div>
@@ -196,7 +195,7 @@ function EInvoicingDashboardContent() {
             placeholder="Search invoice # or customer..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-50/80 border border-gray-200 rounded-xl pl-9.5 pr-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900 focus:bg-white transition-all"
+            className="w-full bg-slate-50/80 border border-gray-200 rounded-xl pl-10 pr-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900 focus:bg-white transition-all"
           />
         </div>
 
@@ -233,9 +232,9 @@ function EInvoicingDashboardContent() {
             </p>
             <Link
               href={`/einvoicing/new?client_gstin_id=${selectedClientId}`}
-              className="inline-flex items-center gap-2 px-4.5 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-black transition-colors shadow-sm"
+              className="inline-flex items-center justify-center px-4.5 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-black transition-colors shadow-sm"
             >
-              <Plus className="w-4 h-4" /> Create First Invoice
+              Create First Invoice
             </Link>
           </div>
         ) : (

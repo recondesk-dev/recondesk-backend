@@ -167,8 +167,20 @@ def _run_async_job_sync(coro_fn) -> None:
     _asyncio.run(coro_fn())
 
 
+def _run_alembic_upgrade():
+    try:
+        from alembic.config import Config
+        from alembic import command
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        _log.info("Alembic database migration to head completed successfully.")
+    except Exception as e:
+        _log.exception("Alembic migration on startup failed: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await asyncio.to_thread(_run_alembic_upgrade)
     task = asyncio.create_task(stuck_job_detector())
     yield
     task.cancel()
