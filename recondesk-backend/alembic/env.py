@@ -18,10 +18,14 @@ target_metadata = None
 
 
 def get_url() -> str:
-    url = os.environ.get("DATABASE_URL", "").strip()
+    url = (
+        os.environ.get("SUPABASE_DATABASE_URL", "").strip()
+        or os.environ.get("SUPABASE_DB_URL", "").strip()
+        or os.environ.get("DATABASE_URL", "").strip()
+    )
     if not url:
         raise RuntimeError(
-            "DATABASE_URL is not set. Add your Supabase Postgres URI to the environment "
+            "Neither SUPABASE_DATABASE_URL nor DATABASE_URL is set. Add your Supabase Postgres URI to the environment "
             "(see .env.example), then run: alembic upgrade head"
         )
     return url

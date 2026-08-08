@@ -188,7 +188,7 @@ def _run_alembic_upgrade():
         command.upgrade(alembic_cfg, "head")
         _log.info("Startup: Alembic database migration to head completed successfully.")
 
-        db_url = settings.DATABASE_URL
+        db_url = settings.SUPABASE_DATABASE_URL or settings.DATABASE_URL
         if db_url:
             eng = sa.create_engine(db_url)
             with eng.connect() as conn:

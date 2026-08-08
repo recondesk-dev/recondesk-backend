@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_ANON_KEY: str = ""
     SUPABASE_SERVICE_ROLE_KEY: str = ""
+    SUPABASE_DATABASE_URL: str = Field(
+        default="",
+        validation_alias=AliasChoices("SUPABASE_DATABASE_URL", "SUPABASE_DB_URL"),
+    )
 
     # Cloudflare R2
     R2_ENDPOINT_URL: str = ""
