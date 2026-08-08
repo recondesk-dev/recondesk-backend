@@ -11,6 +11,7 @@ import {
   UsersRound,
   Settings,
   ChevronLeft,
+  FileText,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -18,10 +19,12 @@ const NAV_ITEMS = [
   { href: "/clients", label: "Clients", icon: Users },
   { href: "/reconciliation", label: "Reconciliation", icon: RefreshCcw },
   { href: "/filing/batches", label: "Bulk Filing", icon: Layers },
+  { href: "/einvoicing", label: "E-Invoicing", icon: FileText },
   { href: "/billing", label: "Billing", icon: CreditCard },
   { href: "/team", label: "Team", icon: UsersRound },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
+
 
 
 interface SidebarProps {

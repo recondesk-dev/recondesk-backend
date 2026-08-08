@@ -53,7 +53,10 @@ from app.routers.einvoice_recon import router as einvoice_recon_router
 from app.routers.filing import router as filing_router
 from app.routers.tally_sync import router as tally_sync_router
 from app.routers.multi_period_wizard import router as multi_period_wizard_router
+from app.routers.billing import masters as billing_masters_router
+from app.routers.billing import invoices as billing_invoices_router
 from app.utils.rate_limit import limiter
+
 
 _log = logging.getLogger(__name__)
 
@@ -308,6 +311,26 @@ app.include_router(upload.public_router, prefix="/upload", tags=["Upload"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
 app.include_router(rules_router, prefix="/api/rules", tags=["rules"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
+app.include_router(
+    billing_masters_router.router,
+    prefix="/api/billing/masters",
+    tags=["E-Invoicing Masters"],
+)
+app.include_router(
+    billing_masters_router.router,
+    prefix="/api/einvoicing/masters",
+    tags=["E-Invoicing Masters"],
+)
+app.include_router(
+    billing_invoices_router.router,
+    prefix="/api/billing/invoices",
+    tags=["E-Invoicing Invoices"],
+)
+app.include_router(
+    billing_invoices_router.router,
+    prefix="/api/einvoicing/invoices",
+    tags=["E-Invoicing Invoices"],
+)
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 app.include_router(
     payments_routes.payments_router,

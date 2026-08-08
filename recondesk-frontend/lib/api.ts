@@ -2381,3 +2381,284 @@ export const imsApi = {
     );
   },
 };
+
+// ─── E-Invoicing / Billing Module API Client ───────────────────────────────
+
+export interface BillingCompanyProfile {
+  id: string;
+  client_gstin_id: string;
+  legal_name: string;
+  trade_name?: string | null;
+  address_line1: string;
+  address_line2?: string | null;
+  city: string;
+  state: string;
+  state_code: string;
+  pincode: string;
+  gstin: string;
+  pan?: string | null;
+  bank_account_number?: string | null;
+  bank_ifsc?: string | null;
+  bank_name?: string | null;
+  invoice_number_prefix: string;
+  invoice_number_next_seq: number;
+  financial_year_reset: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BillingCustomer {
+  id: string;
+  client_gstin_id: string;
+  name: string;
+  gstin?: string | null;
+  address_line1: string;
+  address_line2?: string | null;
+  city: string;
+  state: string;
+  state_code: string;
+  pincode: string;
+  is_b2b: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BillingItem {
+  id: string;
+  client_gstin_id: string;
+  name: string;
+  hsn_or_sac_code: string;
+  unit: string;
+  default_rate: number; // paise
+  default_tax_rate_percent: number;
+  item_type: "goods" | "service";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BillingLineItemInput {
+  item_id?: string | null;
+  description: string;
+  hsn_or_sac_code: string;
+  quantity: number;
+  unit: string;
+  rate_paise: number;
+  discount_percent: number;
+  tax_rate_percent: number;
+  cess_paise?: number;
+}
+
+export interface BillingLineItemResponse {
+  id: string;
+  invoice_id: string;
+  item_id?: string | null;
+  description: string;
+  hsn_or_sac_code: string;
+  quantity: number;
+  unit: string;
+  rate_paise: number;
+  discount_percent: number;
+  taxable_value_paise: number;
+  cgst_rate_percent: number;
+  cgst_paise: number;
+  sgst_rate_percent: number;
+  sgst_paise: number;
+  igst_rate_percent: number;
+  igst_paise: number;
+  cess_paise: number;
+  line_total_paise: number;
+}
+
+export interface BillingInvoice {
+  id: string;
+  client_gstin_id: string;
+  company_profile_id: string;
+  customer_id: string;
+  invoice_number: string;
+  invoice_date: string;
+  due_date?: string | null;
+  place_of_supply: string;
+  is_interstate: boolean;
+  subtotal_paise: number;
+  total_tax_paise: number;
+  total_paise: number;
+  status: "draft" | "finalized" | "cancelled";
+  irn?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  customer?: Partial<BillingCustomer> | null;
+  company_profile?: BillingCompanyProfile | null;
+  line_items?: BillingLineItemResponse[];
+}
+
+export const billingModuleApi = {
+  // Company Profiles
+  listCompanyProfiles: (token: string, clientGstinId: string) =>
+    apiFetch<BillingCompanyProfile[]>(
+      `/api/billing/masters/company-profiles?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      { token }
+    ),
+
+  getCompanyProfile: (token: string, id: string, clientGstinId: string) =>
+    apiFetch<BillingCompanyProfile>(
+      `/api/billing/masters/company-profiles/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      { token }
+    ),
+
+  createCompanyProfile: (token: string, data: Partial<BillingCompanyProfile>) =>
+    apiFetch<BillingCompanyProfile>("/api/billing/masters/company-profiles", {
+      method: "POST",
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  updateCompanyProfile: (
+    token: string,
+    id: string,
+    clientGstinId: string,
+    data: Partial<BillingCompanyProfile>
+  ) =>
+    apiFetch<BillingCompanyProfile>(
+      `/api/billing/masters/company-profiles/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+        token,
+      }
+    ),
+
+  // Customers
+  listCustomers: (token: string, clientGstinId: string) =>
+    apiFetch<BillingCustomer[]>(
+      `/api/billing/masters/customers?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      { token }
+    ),
+
+  createCustomer: (token: string, data: Partial<BillingCustomer>) =>
+    apiFetch<BillingCustomer>("/api/billing/masters/customers", {
+      method: "POST",
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  updateCustomer: (
+    token: string,
+    id: string,
+    clientGstinId: string,
+    data: Partial<BillingCustomer>
+  ) =>
+    apiFetch<BillingCustomer>(
+      `/api/billing/masters/customers/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+        token,
+      }
+    ),
+
+  deleteCustomer: (token: string, id: string, clientGstinId: string) =>
+    apiFetch<{ status: string }>(
+      `/api/billing/masters/customers/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      {
+        method: "DELETE",
+        token,
+      }
+    ),
+
+  // Items
+  listItems: (token: string, clientGstinId: string) =>
+    apiFetch<BillingItem[]>(
+      `/api/billing/masters/items?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      { token }
+    ),
+
+  createItem: (token: string, data: Partial<BillingItem>) =>
+    apiFetch<BillingItem>("/api/billing/masters/items", {
+      method: "POST",
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  updateItem: (
+    token: string,
+    id: string,
+    clientGstinId: string,
+    data: Partial<BillingItem>
+  ) =>
+    apiFetch<BillingItem>(
+      `/api/billing/masters/items/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+        token,
+      }
+    ),
+
+  deleteItem: (token: string, id: string, clientGstinId: string) =>
+    apiFetch<{ status: string }>(
+      `/api/billing/masters/items/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      {
+        method: "DELETE",
+        token,
+      }
+    ),
+
+  // Invoices
+  listInvoices: (
+    token: string,
+    params: {
+      client_gstin_id: string;
+      status?: string;
+      start_date?: string;
+      end_date?: string;
+    }
+  ) => {
+    const sp = new URLSearchParams();
+    sp.set("client_gstin_id", params.client_gstin_id);
+    if (params.status) sp.set("status", params.status);
+    if (params.start_date) sp.set("start_date", params.start_date);
+    if (params.end_date) sp.set("end_date", params.end_date);
+    return apiFetch<BillingInvoice[]>(`/api/billing/invoices?${sp.toString()}`, {
+      token,
+    });
+  },
+
+  getInvoice: (token: string, id: string, clientGstinId: string) =>
+    apiFetch<BillingInvoice>(
+      `/api/billing/invoices/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      { token }
+    ),
+
+  createInvoice: (token: string, data: any) =>
+    apiFetch<BillingInvoice>("/api/billing/invoices", {
+      method: "POST",
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  updateInvoice: (
+    token: string,
+    id: string,
+    clientGstinId: string,
+    data: any
+  ) =>
+    apiFetch<BillingInvoice>(
+      `/api/billing/invoices/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(data),
+        token,
+      }
+    ),
+
+  finalizeInvoice: (token: string, id: string, clientGstinId: string) =>
+    apiFetch<BillingInvoice>(
+      `/api/billing/invoices/${encodeURIComponent(id)}/finalize?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      {
+        method: "POST",
+        token,
+      }
+    ),
+};
+
