@@ -66,7 +66,7 @@ export function Gstr3bFiguresForm({
           onChange={(itc_elg) => onChange({ ...value, itc_elg })}
           onLoadOthSuggestion={onLoadOthSuggestion}
         />
-        <InwardAndInterestSections value={value} onChange={onChange} />
+        <InwardAndInterestSections value={value} onChange={onChange} readOnly={readOnly} />
       </div>
     </section>
   );
@@ -75,9 +75,11 @@ export function Gstr3bFiguresForm({
 function InwardAndInterestSections({
   value,
   onChange,
+  readOnly,
 }: {
   value: Gstr3bFiguresState;
   onChange: (next: Gstr3bFiguresState) => void;
+  readOnly?: boolean;
 }) {
   const patchInward = useCallback(
     (index: number, field: "inter" | "intra", raw: string) => {
