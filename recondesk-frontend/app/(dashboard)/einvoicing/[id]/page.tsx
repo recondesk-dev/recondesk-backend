@@ -233,12 +233,20 @@ function InvoiceDetailContent() {
           )}
 
           {isIrpRegistered && !isIrpCancelled && (
-            <button
-              onClick={() => setShowCancelModal(true)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-semibold rounded-xl shadow-sm transition-all"
-            >
-              <XCircle className="w-4 h-4 text-red-600" /> Cancel IRN
-            </button>
+            <>
+              <Link
+                href={`/einvoicing/${invoice.id}/cdn/new?client_gstin_id=${clientGstinId}&note_type=credit`}
+                className="flex items-center gap-1.5 px-4 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-semibold rounded-xl shadow-sm transition-all"
+              >
+                <FileText className="w-4 h-4 text-purple-600" /> Issue Credit Note
+              </Link>
+              <button
+                onClick={() => setShowCancelModal(true)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-semibold rounded-xl shadow-sm transition-all"
+              >
+                <XCircle className="w-4 h-4 text-red-600" /> Cancel IRN
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -534,9 +542,26 @@ function InvoiceDetailContent() {
                 <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" /> IRN Cancellation Warning:
               </span>
               <p>
-                This action cancels the registered IRN directly on the Government IRP portal. IRP rules restrict cancellation to within 24 hours of generation.
+                This action cancels the registered IRN directly on the Government IRP portal. IRP rules restrict cancellation to within 24 hours of generation. After 24 hours, you must issue a Credit Note instead.
               </p>
             </div>
+
+            {error && (
+              <div className="bg-amber-50 border border-amber-300 p-3 rounded-xl text-xs text-amber-900 space-y-2">
+                <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" /> IRN Cancellation Notice
+                </div>
+                <p className="leading-normal">{error}</p>
+                <div className="pt-1">
+                  <Link
+                    href={`/einvoicing/${invoice.id}/cdn/new?client_gstin_id=${clientGstinId}&note_type=credit`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold text-xs shadow-sm transition-colors"
+                  >
+                    <FileText className="w-3.5 h-3.5" /> Issue Credit Note Instead →
+                  </Link>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-3 pt-2">
               <div>

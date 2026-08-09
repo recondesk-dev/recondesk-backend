@@ -190,6 +190,14 @@ def build_gst_invoice_pdf(invoice_detail: Dict[str, Any]) -> bytes:
     customer = invoice_detail.get("customer") or {}
     line_items = invoice_detail.get("line_items") or []
 
+    is_cdn = ("note_type" in invoice_detail) or ("note_number" in invoice_detail)
+    note_type_str = str(invoice_detail.get("note_type") or "credit").lower()
+
+    if is_cdn:
+        doc_kind = "CREDIT NOTE" if note_type_str == "credit" else "DEBIT NOTE"
+    else:
+        doc_kind = "TAX INVOICE"
+
     irp_status = str(invoice_detail.get("irp_status") or "").lower()
     irn = invoice_detail.get("irn")
     is_irp_registered = (irp_status == "irp_registered") or bool(irn)
@@ -202,20 +210,29 @@ def build_gst_invoice_pdf(invoice_detail: Dict[str, Any]) -> bytes:
     # 1. HEADER & DOCUMENT METADATA TABLE
     # -------------------------------------------------------------------------
     if is_irp_registered:
-        sub_text = "<font color='#059669'><b>E-INVOICE (IRP REGISTERED)</b></font>"
+        sub_text = f"<font color='#059669'><b>E-{doc_kind} (IRP REGISTERED)</b></font>"
     elif status_str == "finalized":
-        sub_text = "<font color='#475569'><b>TAX INVOICE (FINALIZED — PENDING IRP SUBMISSION)</b></font>"
+        sub_text = f"<font color='#475569'><b>{doc_kind} (FINALIZED — PENDING IRP SUBMISSION)</b></font>"
     else:
-        sub_text = "<font color='#D97706'><b>DRAFT TAX INVOICE (UNFINALIZED)</b></font>"
+        sub_text = f"<font color='#D97706'><b>DRAFT {doc_kind} (UNFINALIZED)</b></font>"
 
-    title_p = Paragraph(f"{company.get('trade_name') or company.get('legal_name') or 'TAX INVOICE'}", style_title)
+    title_p = Paragraph(f"{company.get('trade_name') or company.get('legal_name') or doc_kind}", style_title)
     subtitle_p = Paragraph(sub_text, style_subtitle)
     header_left = [title_p, Spacer(1, 2), subtitle_p]
 
-    inv_num = invoice_detail.get("invoice_number") or "INV/DRAFT"
-    inv_date = _fmt_date(invoice_detail.get("invoice_date"))
-    due_date = _fmt_date(invoice_detail.get("due_date")) if invoice_detail.get("due_date") else "N/A"
-    pos_code = str(invoice_detail.get("place_of_supply") or company.get("state_code") or "").strip()
+    if is_cdn:
+        doc_num = invoice_detail.get("note_number") or "CRN/DRAFT"
+        doc_date = _fmt_date(invoice_detail.get("note_date"))
+        num_label = "Credit Note No:" if note_type_str == "credit" else "Debit Note No:"
+        date_label = "Note Date:"
+    else:
+        doc_num = invoice_detail.get("invoice_number") or "INV/DRAFT"
+        doc_date = _fmt_date(invoice_detail.get("invoice_date"))
+        num_label = "Invoice No:"
+        date_label = "Invoice Date:"
+
+    orig_inv = invoice_detail.get("original_invoice") or {}
+    pos_code = str(invoice_detail.get("place_of_supply") or orig_inv.get("place_of_supply") or company.get("state_code") or "").strip()
     pos_name = _get_state_name(pos_code)
 
     seller_sc = str(company.get("state_code") or "").strip().zfill(2)
@@ -224,13 +241,25 @@ def build_gst_invoice_pdf(invoice_detail: Dict[str, Any]) -> bytes:
     tax_type_label = "Interstate (IGST)" if is_interstate else "Intrastate (CGST + SGST)"
 
     meta_data = [
-        [Paragraph("<b>Invoice No:</b>", style_body), Paragraph(f"<b>{inv_num}</b>", style_body_bold)],
-        [Paragraph("<b>Invoice Date:</b>", style_body), Paragraph(inv_date, style_body)],
-        [Paragraph("<b>Due Date:</b>", style_body), Paragraph(due_date, style_body)],
-        [Paragraph("<b>Place of Supply:</b>", style_body), Paragraph(f"{pos_name} ({pos_code})", style_body)],
-        [Paragraph("<b>Tax Regime:</b>", style_body), Paragraph(tax_type_label, style_body)],
+        [Paragraph(f"<b>{num_label}</b>", style_body), Paragraph(f"<b>{doc_num}</b>", style_body_bold)],
+        [Paragraph(f"<b>{date_label}</b>", style_body), Paragraph(doc_date, style_body)],
     ]
-    meta_table = Table(meta_data, colWidths=[2.5 * cm, 4.0 * cm])
+
+    if is_cdn and orig_inv.get("invoice_number"):
+        meta_data.append([Paragraph("<b>Original Inv No:</b>", style_body), Paragraph(f"<b>{orig_inv.get('invoice_number')}</b>", style_body_bold)])
+        meta_data.append([Paragraph("<b>Original Inv Date:</b>", style_body), Paragraph(_fmt_date(orig_inv.get("invoice_date")), style_body)])
+        reason_str = str(invoice_detail.get("reason") or "1-Sales Return")
+        if invoice_detail.get("reason_detail"):
+            reason_str += f" ({invoice_detail.get('reason_detail')})"
+        meta_data.append([Paragraph("<b>Reason:</b>", style_body), Paragraph(reason_str, style_body)])
+    else:
+        due_date = _fmt_date(invoice_detail.get("due_date")) if invoice_detail.get("due_date") else "N/A"
+        meta_data.append([Paragraph("<b>Due Date:</b>", style_body), Paragraph(due_date, style_body)])
+
+    meta_data.append([Paragraph("<b>Place of Supply:</b>", style_body), Paragraph(f"{pos_name} ({pos_code})", style_body)])
+    meta_data.append([Paragraph("<b>Tax Regime:</b>", style_body), Paragraph(tax_type_label, style_body)])
+
+    meta_table = Table(meta_data, colWidths=[2.8 * cm, 4.2 * cm])
     meta_table.setStyle(
         TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "TOP"),

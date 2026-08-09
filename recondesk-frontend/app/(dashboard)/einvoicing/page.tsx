@@ -63,8 +63,7 @@ function EInvoicingDashboardContent() {
     setLoading(true);
     setError(null);
     billingModuleApi
-      .listInvoices(token, {
-        client_gstin_id: selectedClientId,
+      .listInvoices(token, selectedClientId, {
         status: statusFilter || undefined,
       })
       .then((data) => {

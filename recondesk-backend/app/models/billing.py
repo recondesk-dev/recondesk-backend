@@ -258,3 +258,70 @@ class InvoiceDetailResponse(InvoiceResponse):
     company_profile: Optional[CompanyProfileResponse] = None
     customer: Optional[CustomerResponse] = None
     line_items: List[InvoiceLineItemResponse] = []
+
+
+# --- Credit Notes / Debit Notes (CDNR) ---
+class CdnNoteType(str, Enum):
+    CREDIT = "credit"
+    DEBIT = "debit"
+
+
+class CdnReason(str, Enum):
+    SALES_RETURN = "1-Sales Return"
+    POST_SALE_DISCOUNT = "2-Post Sale Discount"
+    DEFICIENCY_IN_SERVICE = "3-Deficiency in Service"
+    CORRECTION_IN_INVOICE = "4-Correction in Invoice"
+    CHANGE_IN_POS = "5-Change in POS"
+    FINALIZATION_OF_ASSESSMENT = "6-Finalization of Provisional Assessment"
+    OTHERS = "7-Others"
+
+
+class CdnCreateInput(BaseModel):
+    client_gstin_id: str
+    original_invoice_id: str
+    note_type: CdnNoteType = CdnNoteType.CREDIT
+    reason: CdnReason = CdnReason.SALES_RETURN
+    reason_detail: Optional[str] = None
+    note_date: date = Field(default_factory=date.today)
+    notes: Optional[str] = None
+    line_items: List[InvoiceLineItemInput] = Field(..., min_length=1)
+
+
+class CdnUpdateInput(BaseModel):
+    note_type: Optional[CdnNoteType] = None
+    reason: Optional[CdnReason] = None
+    reason_detail: Optional[str] = None
+    note_date: Optional[date] = None
+    notes: Optional[str] = None
+    line_items: Optional[List[InvoiceLineItemInput]] = None
+
+
+class CdnResponse(BaseModel):
+    id: str
+    client_gstin_id: str
+    original_invoice_id: str
+    note_type: CdnNoteType
+    note_number: str
+    note_date: date
+    reason: str
+    reason_detail: Optional[str] = None
+    subtotal_paise: int
+    total_tax_paise: int
+    total_paise: int
+    status: InvoiceStatus
+    irn: Optional[str] = None
+    irn_ack_number: Optional[str] = None
+    irn_ack_date: Optional[datetime] = None
+    irn_qr_code: Optional[str] = None
+    irp_status: str = "not_submitted"
+    irp_environment: str = "test"
+    notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CdnDetailResponse(CdnResponse):
+    original_invoice: Optional[InvoiceDetailResponse] = None
+    company_profile: Optional[CompanyProfileResponse] = None
+    customer: Optional[CustomerResponse] = None
+    line_items: List[InvoiceLineItemResponse] = []

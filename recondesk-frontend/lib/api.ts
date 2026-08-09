@@ -2526,6 +2526,43 @@ export interface BillingIrpStatusResponse {
   submission_logs: BillingIrpLog[];
 }
 
+export type CdnReasonCode =
+  | "1-Sales Return"
+  | "2-Post Sale Discount"
+  | "3-Deficiency in Service"
+  | "4-Correction in Invoice"
+  | "5-Change in POS"
+  | "6-Finalization of Provisional Assessment"
+  | "7-Others";
+
+export interface BillingCdn {
+  id: string;
+  client_gstin_id: string;
+  original_invoice_id: string;
+  note_type: "credit" | "debit";
+  note_number: string;
+  note_date: string;
+  reason: CdnReasonCode;
+  reason_detail?: string | null;
+  subtotal_paise: number;
+  total_tax_paise: number;
+  total_paise: number;
+  status: "draft" | "finalized" | "cancelled";
+  irn?: string | null;
+  irn_ack_number?: string | null;
+  irn_ack_date?: string | null;
+  irn_qr_code?: string | null;
+  irp_status?: "not_submitted" | "submitted" | "irp_registered" | "irp_rejected" | "cancelled";
+  irp_environment?: "test" | "production";
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  original_invoice?: BillingInvoice | null;
+  company_profile?: BillingCompanyProfile | null;
+  customer?: Partial<BillingCustomer> | null;
+  line_items?: BillingLineItemResponse[];
+}
+
 export interface HsnSuggestion {
   code: string;
   description: string;
@@ -2563,7 +2600,7 @@ export const billingModuleApi = {
     apiFetch<BillingCompanyProfile>(
       `/api/einvoicing/masters/company-profiles/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       {
-        method: "PUT",
+        method: "PATCH",
         body: JSON.stringify(data),
         token,
       }
@@ -2614,7 +2651,7 @@ export const billingModuleApi = {
     apiFetch<BillingCustomer>(
       `/api/einvoicing/masters/customers/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       {
-        method: "PUT",
+        method: "PATCH",
         body: JSON.stringify(data),
         token,
       }
@@ -2629,14 +2666,12 @@ export const billingModuleApi = {
       }
     ),
 
-  // Items
-  suggestHsn: (token: string, q: string, itemType?: string) => {
-    const sp = new URLSearchParams({ q });
-    if (itemType) sp.set("type", itemType);
-    return apiFetch<HsnSuggestion[]>(`/api/einvoicing/masters/items/suggest-hsn?${sp.toString()}`, {
-      token,
-    });
-  },
+  // Items Catalog
+  autocompleteHsn: (token: string, query: string, limit: number = 10) =>
+    apiFetch<HsnSuggestion[]>(
+      `/api/einvoicing/masters/items/autocomplete-hsn?q=${encodeURIComponent(query)}&limit=${limit}`,
+      { token }
+    ),
 
   listItems: (token: string, clientGstinId: string) =>
     apiFetch<BillingItem[]>(
@@ -2660,7 +2695,7 @@ export const billingModuleApi = {
     apiFetch<BillingItem>(
       `/api/einvoicing/masters/items/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       {
-        method: "PUT",
+        method: "PATCH",
         body: JSON.stringify(data),
         token,
       }
@@ -2678,22 +2713,21 @@ export const billingModuleApi = {
   // Invoices
   listInvoices: (
     token: string,
-    params: {
-      client_gstin_id: string;
-      status?: string;
-      start_date?: string;
-      end_date?: string;
-    }
+    clientGstinId: string,
+    params?: { status?: string; start_date?: string; end_date?: string }
   ) => {
-    const sp = new URLSearchParams();
-    sp.set("client_gstin_id", params.client_gstin_id);
-    if (params.status) sp.set("status", params.status);
-    if (params.start_date) sp.set("start_date", params.start_date);
-    if (params.end_date) sp.set("end_date", params.end_date);
-    return apiFetch<BillingInvoice[]>(`/api/einvoicing/invoices?${sp.toString()}`, {
-      token,
-    });
+    let url = `/api/einvoicing/invoices?client_gstin_id=${encodeURIComponent(clientGstinId)}`;
+    if (params?.status) url += `&status=${encodeURIComponent(params.status)}`;
+    if (params?.start_date) url += `&start_date=${encodeURIComponent(params.start_date)}`;
+    if (params?.end_date) url += `&end_date=${encodeURIComponent(params.end_date)}`;
+    return apiFetch<BillingInvoice[]>(url, { token });
   },
+
+  getInvoiceDetail: (token: string, id: string, clientGstinId: string) =>
+    apiFetch<BillingInvoice>(
+      `/api/einvoicing/invoices/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      { token }
+    ),
 
   getInvoice: (token: string, id: string, clientGstinId: string) =>
     apiFetch<BillingInvoice>(
@@ -2701,7 +2735,22 @@ export const billingModuleApi = {
       { token }
     ),
 
-  createInvoice: (token: string, data: any) =>
+  suggestHsn: (token: string, q: string, itemType?: string, limit: number = 10) =>
+    apiFetch<HsnSuggestion[]>(
+      `/api/einvoicing/masters/items/autocomplete-hsn?q=${encodeURIComponent(q)}&limit=${limit}`,
+      { token }
+    ),
+
+  createInvoice: (token: string, data: {
+    client_gstin_id: string;
+    company_profile_id: string;
+    customer_id: string;
+    invoice_date: string;
+    due_date?: string;
+    place_of_supply?: string;
+    notes?: string;
+    line_items: BillingLineItemInput[];
+  }) =>
     apiFetch<BillingInvoice>("/api/einvoicing/invoices", {
       method: "POST",
       body: JSON.stringify(data),
@@ -2770,5 +2819,57 @@ export const billingModuleApi = {
 
   downloadInvoicePdfUrl: (id: string, clientGstinId: string) =>
     `/api/einvoicing/invoices/${encodeURIComponent(id)}/pdf?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+
+  // Credit Notes / Debit Notes (CDNR)
+  createCdn: (token: string, data: {
+    client_gstin_id: string;
+    original_invoice_id: string;
+    note_type: "credit" | "debit";
+    reason: CdnReasonCode;
+    reason_detail?: string;
+    note_date?: string;
+    notes?: string;
+    line_items: BillingLineItemInput[];
+  }) =>
+    apiFetch<BillingCdn>("/api/einvoicing/credit-debit-notes", {
+      method: "POST",
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  listCdns: (token: string, clientGstinId: string, originalInvoiceId?: string) => {
+    let url = `/api/einvoicing/credit-debit-notes?client_gstin_id=${encodeURIComponent(clientGstinId)}`;
+    if (originalInvoiceId) {
+      url += `&original_invoice_id=${encodeURIComponent(originalInvoiceId)}`;
+    }
+    return apiFetch<BillingCdn[]>(url, { token });
+  },
+
+  getCdnDetail: (token: string, id: string, clientGstinId: string) =>
+    apiFetch<BillingCdn>(
+      `/api/einvoicing/credit-debit-notes/${encodeURIComponent(id)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      { token }
+    ),
+
+  finalizeCdn: (token: string, id: string, clientGstinId: string) =>
+    apiFetch<BillingCdn>(
+      `/api/einvoicing/credit-debit-notes/${encodeURIComponent(id)}/finalize?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      {
+        method: "POST",
+        token,
+      }
+    ),
+
+  submitCdnToIrp: (token: string, id: string, clientGstinId: string) =>
+    apiFetch<BillingCdn>(
+      `/api/einvoicing/credit-debit-notes/${encodeURIComponent(id)}/submit-to-irp?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      {
+        method: "POST",
+        token,
+      }
+    ),
+
+  downloadCdnPdfUrl: (id: string, clientGstinId: string) =>
+    `/api/einvoicing/credit-debit-notes/${encodeURIComponent(id)}/pdf?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
 };
 

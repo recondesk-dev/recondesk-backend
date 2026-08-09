@@ -59,6 +59,7 @@ from app.routers.multi_period_wizard import router as multi_period_wizard_router
 from app.routers.billing import masters as billing_masters_router
 from app.routers.billing import invoices as billing_invoices_router
 from app.routers.billing import irp as billing_irp_router
+from app.routers.billing import cdn as billing_cdn_router
 from app.utils.rate_limit import limiter
 
 
@@ -469,6 +470,16 @@ app.include_router(
     billing_irp_router.router,
     prefix="/api/einvoicing/invoices",
     tags=["E-Invoicing IRP"],
+)
+app.include_router(
+    billing_cdn_router.router,
+    prefix="/api/billing/credit-debit-notes",
+    tags=["E-Invoicing CDNR"],
+)
+app.include_router(
+    billing_cdn_router.router,
+    prefix="/api/einvoicing/credit-debit-notes",
+    tags=["E-Invoicing CDNR"],
 )
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 app.include_router(
