@@ -16,6 +16,7 @@ from app.filing.gstr1_orchestrator import (
     map_sales_register_to_gstr1,
     serialize_gstr1_readiness,
 )
+from app.filing.gstr3b_filing_mapper import apply_system_late_fee_to_save_body
 from app.filing.gstr3b_offset import (
     Gstr3bOffsetBuildError,
     build_gstr3b_offset_body,
@@ -1109,6 +1110,28 @@ def get_gstr3b_details(
     }
 
 
+@gstr3b_router.get("/gstr-3b/{period}/raw-details")
+def get_gstr3b_raw_details(
+    period: str,
+    client_gstin_id: str,
+    session_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_active_user),
+):
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+    token, _ = _resolve_token(sb, firm_id, session_id=session_id, gstin=gstin)
+    try:
+        with get_filing_client() as client:
+            result = client.get_gstr3b_details(token, period=period)
+    except FilingClientError as exc:
+        raise _map_client_error(exc) from exc
+    return result.envelope
+
+
+
 @gstr3b_router.get("/gstr-3b/{period}/ledger-balance")
 def get_gstr3b_ledger_balance(
     period: str,
@@ -1266,6 +1289,18 @@ def save_gstr3b(
 
     try:
         with get_filing_client() as client:
+            try:
+                details_res = client.get_gstr3b_details(token, period=period)
+                details_data = details_res.data
+            except Exception as exc:
+                _log.warning("Could not fetch GSTR-3B details before save: %s", exc)
+                details_data = None
+
+            save_body = apply_system_late_fee_to_save_body(save_body, details_data)
+            filing_store.update_run(
+                sb, run_id, save_payload=save_body, clear_error=True,
+            )
+
             result = client.save_gstr3b(
                 token, period=period, save_body=save_body, sb=sb,
             )

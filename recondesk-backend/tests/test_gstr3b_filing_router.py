@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -206,16 +207,17 @@ class _FakeClient:
         return False
 
     def get_gstr3b_details(self, *_a, **_k):
-        return FilingApiResult(envelope={}, data=dict(self._details))
+        return FilingApiResult(envelope={"code": 200, "data": {"status_cd": "1", "data": dict(self._details)}}, data=dict(self._details))
 
     def get_ledger_balance(self, *_a, **_k):
-        return FilingApiResult(envelope={}, data=dict(self._ledger))
+        return FilingApiResult(envelope={"code": 200, "data": {"status_cd": "1", "data": dict(self._ledger)}}, data=dict(self._ledger))
 
     def offset_gstr3b_liability(self, *_a, **kwargs):
         self.offset_calls.append(dict(kwargs.get("offset_body") or {}))
         return self._offset_result
 
 
+@contextmanager
 def _patch_router_auth(
     *,
     fake_client: _FakeClient,
@@ -224,7 +226,6 @@ def _patch_router_auth(
 ):
     """Context patches shared by offset-preview / offset endpoint tests."""
     sb = MagicMock()
-    user = {"id": "user-1"}
 
     def _assert_save_or_offset(*_a, **_k):
         if lock_exc is not None:
@@ -239,7 +240,7 @@ def _patch_router_auth(
         "return_type": "gstr-3b",
     }
 
-    return (
+    patches = [
         patch.object(filing_router, "get_supabase", return_value=sb),
         patch.object(filing_router, "_firm_id", return_value=FIRM_ID),
         patch.object(
@@ -260,6 +261,11 @@ def _patch_router_auth(
         ),
         patch.object(
             filing_router.filing_store,
+            "assert_gstr3b_save_allowed",
+            side_effect=_assert_save_or_offset,
+        ),
+        patch.object(
+            filing_router.filing_store,
             "get_run",
             return_value=run_row,
         ),
@@ -273,7 +279,12 @@ def _patch_router_auth(
             "mark_run_failed",
             return_value=None,
         ),
-    )
+    ]
+
+    with ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
+        yield
 
 
 def test_offset_preview_matches_builder_output():
@@ -281,8 +292,7 @@ def test_offset_preview_matches_builder_output():
     ledger = _ledger()
     expected = build_gstr3b_offset_body(details, ledger)
     fake = _FakeClient(details=details, ledger=ledger)
-    patches = _patch_router_auth(fake_client=fake)
-    with patches[0], patches[1], patches[2], patches[3], patches[4]:
+    with _patch_router_auth(fake_client=fake):
         result = filing_router.gstr3b_offset_preview(
             PERIOD,
             CLIENT_ID,
@@ -299,7 +309,6 @@ def test_offset_happy_path_persists_posted_payload():
     ledger = _ledger()
     posted = build_gstr3b_offset_body(details, ledger)
     fake = _FakeClient(details=details, ledger=ledger)
-    patches = _patch_router_auth(fake_client=fake)
     body = filing_router.OffsetGstr3bBody(
         client_gstin_id=CLIENT_ID,
         session_id=SESSION_ID,
@@ -307,8 +316,7 @@ def test_offset_happy_path_persists_posted_payload():
         pdcash=posted["pdcash"],
         pditc=posted["pditc"],
     )
-    with patches[0], patches[1], patches[2], patches[3], patches[4], \
-         patches[5], patches[6], patches[7], patches[8]:
+    with _patch_router_auth(fake_client=fake):
         result = filing_router.offset_gstr3b(
             PERIOD, body, current_user={"id": "u"},
         )
@@ -330,7 +338,6 @@ def test_offset_stale_when_ledger_changes_between_preview_and_post():
     )
 
     fake = _FakeClient(details=details, ledger=ledger_now)
-    patches = _patch_router_auth(fake_client=fake)
     body = filing_router.OffsetGstr3bBody(
         client_gstin_id=CLIENT_ID,
         session_id=SESSION_ID,
@@ -338,8 +345,7 @@ def test_offset_stale_when_ledger_changes_between_preview_and_post():
         pdcash=posted["pdcash"],
         pditc=posted["pditc"],
     )
-    with patches[0], patches[1], patches[2], patches[3], patches[4], \
-         patches[5], patches[6], patches[7], patches[8]:
+    with _patch_router_auth(fake_client=fake):
         with pytest.raises(HTTPException) as ei:
             filing_router.offset_gstr3b(PERIOD, body, current_user={"id": "u"})
     assert ei.value.status_code == 409
@@ -370,7 +376,6 @@ def test_offset_period_locked_returns_structured_409():
         locking_run=locking,
     )
     fake = _FakeClient(details=details, ledger=ledger)
-    patches = _patch_router_auth(fake_client=fake, lock_exc=lock_exc)
     body = filing_router.OffsetGstr3bBody(
         client_gstin_id=CLIENT_ID,
         session_id=SESSION_ID,
@@ -378,8 +383,7 @@ def test_offset_period_locked_returns_structured_409():
         pdcash=posted["pdcash"],
         pditc=posted["pditc"],
     )
-    with patches[0], patches[1], patches[2], patches[3], patches[4], \
-         patches[5], patches[6], patches[7], patches[8]:
+    with _patch_router_auth(fake_client=fake, lock_exc=lock_exc):
         with pytest.raises(HTTPException) as ei:
             filing_router.offset_gstr3b(PERIOD, body, current_user={"id": "u"})
     assert ei.value.status_code == 409
@@ -395,9 +399,8 @@ def test_preview_and_offset_share_identical_builder_identity():
     details = _details_net_tax_only(igst_due=200)
     ledger = _ledger(igst_itc=60, igst_cash=500)
     fake = _FakeClient(details=details, ledger=ledger)
-    patches = _patch_router_auth(fake_client=fake)
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4]:
+    with _patch_router_auth(fake_client=fake):
         preview = filing_router.gstr3b_offset_preview(
             PERIOD, CLIENT_ID, session_id=SESSION_ID, current_user={"id": "u"},
         )
@@ -409,10 +412,82 @@ def test_preview_and_offset_share_identical_builder_identity():
         pdcash=preview["pdcash"],
         pditc=preview["pditc"],
     )
-    with patches[0], patches[1], patches[2], patches[3], patches[4], \
-         patches[5], patches[6], patches[7], patches[8]:
+    with _patch_router_auth(fake_client=fake):
         result = filing_router.offset_gstr3b(
             PERIOD, body, current_user={"id": "u"},
         )
     assert result["offset_payload"]["pdcash"] == preview["pdcash"]
     assert result["offset_payload"]["pditc"] == preview["pditc"]
+
+
+def test_get_gstr3b_raw_details_success_and_requires_session():
+    """Confirms /gstr-3b/{period}/raw-details requires a valid session and passes through raw envelope unmodified."""
+    details = _details_with_proposed()
+    raw_envelope = {"code": 200, "data": {"status_cd": "1", "data": details}, "transaction_id": "tx-123"}
+    fake = _FakeClient(details=details, ledger=_ledger())
+    fake.get_gstr3b_details = MagicMock(return_value=FilingApiResult(envelope=raw_envelope, data=details))
+
+    # 1. Success case: returns unmodified raw envelope
+    with _patch_router_auth(fake_client=fake):
+        raw = filing_router.get_gstr3b_raw_details(
+            PERIOD,
+            client_gstin_id=CLIENT_ID,
+            session_id=SESSION_ID,
+            current_user={"id": "u"},
+        )
+    assert raw == raw_envelope
+
+    # 2. Session missing/invalid case: raises 409
+    with patch.object(filing_router, "get_supabase", return_value=MagicMock()), \
+         patch.object(filing_router, "_firm_id", return_value=FIRM_ID), \
+         patch.object(filing_router, "_assert_client_access", return_value={"id": CLIENT_ID, "gstin": GSTIN}), \
+         patch.object(filing_router, "_resolve_token", side_effect=HTTPException(status_code=409, detail="no active filing session")):
+        with pytest.raises(HTTPException) as ei:
+            filing_router.get_gstr3b_raw_details(
+                PERIOD,
+                client_gstin_id=CLIENT_ID,
+                session_id=None,
+                current_user={"id": "u"},
+            )
+        assert ei.value.status_code == 409
+
+
+def test_save_gstr3b_applies_system_late_fee_from_get_details():
+    """Confirms save_gstr3b endpoint fetches get_gstr3b_details and overlays system late fee before saving."""
+    details = {
+        "gstin": GSTIN,
+        "ret_period": "072026",
+        "intr_ltfee": {
+            "ltfee_details": {"camt": 150.0, "samt": 150.0}
+        }
+    }
+    fake = _FakeClient(details=details, ledger=_ledger())
+    save_calls = []
+    def _mock_save(token, *, period, save_body, sb):
+        save_calls.append(dict(save_body))
+        return FilingApiResult(
+            envelope={"code": 200, "data": {"status_cd": "1", "data": {"reference_id": "REF-SAVE"}}},
+            reference_id="REF-SAVE",
+            data={"reference_id": "REF-SAVE"},
+        )
+    fake.save_gstr3b = _mock_save
+
+    body = filing_router.SaveGstr3bBody(
+        client_gstin_id=CLIENT_ID,
+        period=PERIOD,
+        session_id=SESSION_ID,
+        save_body={
+            "gstin": GSTIN,
+            "intr_ltfee": {"ltfee_details": {"camt": 0, "samt": 0}},
+        },
+    )
+    with _patch_router_auth(fake_client=fake):
+        res = filing_router.save_gstr3b(PERIOD, body, current_user={"id": "u"})
+
+    assert res["status"] == "save_pending"
+    assert len(save_calls) == 1
+    assert save_calls[0]["intr_ltfee"]["ltfee_details"] == {"camt": 150, "samt": 150}
+
+
+
+

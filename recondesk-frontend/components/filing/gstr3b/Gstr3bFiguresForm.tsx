@@ -150,18 +150,24 @@ function InwardAndInterestSections({
               string,
               number | ""
             >;
+            const isLtfee = block === "ltfee_details";
+            const isDisabled = readOnly || isLtfee;
             return (
               <label key={`${block}-${field}`} className="block">
                 <span className="text-[11px] font-medium text-gray-500">
-                  {label}
+                  {label} {isLtfee ? "(GSTN System)" : ""}
                 </span>
                 <input
                   type="text"
                   inputMode="decimal"
+                  readOnly={isDisabled}
+                  disabled={isDisabled}
+                  title={isLtfee ? "Late fee is system-calculated by GSTN" : undefined}
                   value={
                     blockVal[field] === "" ? "" : String(blockVal[field])
                   }
                   onChange={(e) => {
+                    if (isLtfee) return;
                     onChange({
                       ...value,
                       intr_ltfee: {
@@ -173,7 +179,11 @@ function InwardAndInterestSections({
                       },
                     });
                   }}
-                  className="mt-1 h-9 w-full rounded-lg border-0 bg-[#F5F5F6] px-2 font-mono text-[12px] outline-none focus:ring-2 focus:ring-black/10"
+                  className={`mt-1 h-9 w-full rounded-full border-0 px-3.5 text-[12px] font-medium outline-none focus:ring-2 focus:ring-black/10 ${
+                    isDisabled
+                      ? "bg-gray-200/60 text-gray-500 cursor-not-allowed"
+                      : "bg-[#F5F5F6] text-[var(--ink)]"
+                  }`}
                 />
               </label>
             );
