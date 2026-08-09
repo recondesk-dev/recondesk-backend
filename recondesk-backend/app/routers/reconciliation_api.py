@@ -5358,6 +5358,58 @@ async def reconcile_run_section175(
     return await _run_sync(_work)
 
 
+@reconcile_runs_router.get("/runs/{run_id}/rcm-tie-out")
+async def reconcile_run_rcm_tie_out(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Return RCM three-way tie-out reconciliation result for a run."""
+    from app.filing.gstr3b_rcm_extractor import extract_gstr3b_rcm_data
+    from app.reconciliation.rcm_reconciliation import reconcile_rcm_three_way
+
+    rid = _parse_uuid(run_id, "run_id")
+
+    def _work() -> dict[str, Any]:
+        sb = get_supabase()
+        run_row = assert_run_accessible(sb, rid, current_user)
+
+        # Load PR records
+        pr_map = ro.load_pr_map(sb, rid)
+        pr_records = list(pr_map.values()) if pr_map else []
+
+        # Load GSTR-3B data (from gstr3b_reconciliation or payload)
+        g3b_raw = None
+        try:
+            res = (
+                sb.table("gstr3b_reconciliation")
+                .select("raw_gstr3b")
+                .eq("run_id", rid)
+                .order("uploaded_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if res.data and res.data[0].get("raw_gstr3b"):
+                g3b_raw = res.data[0]["raw_gstr3b"]
+        except Exception as exc:
+            _log.debug("No gstr3b_reconciliation entry for run %s: %s", rid, exc)
+
+        if not g3b_raw:
+            p = ro.load_payload(sb, rid)
+            g3b_raw = p.get("gstr3b") or p.get("raw_gstr3b") or {
+                "gstin": str(run_row.get("client_gstin") or p.get("gstin") or ""),
+                "ret_period": str(run_row.get("period") or p.get("period") or "2026-05"),
+            }
+
+        g3b_extracted = extract_gstr3b_rcm_data(g3b_raw)
+        tie_out = reconcile_rcm_three_way(
+            pr_records=pr_records,
+            gstr3b_rcm_data=g3b_extracted,
+        )
+        return tie_out.summary_dict()
+
+    return await _run_sync(_work)
+
+
 class ReconcileFinalizeBody(BaseModel):
     checklist_snapshot: Optional[dict[str, Any]] = None
 

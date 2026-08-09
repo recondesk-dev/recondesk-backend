@@ -629,6 +629,7 @@ export type ResultsBucketTabId =
   | "itc"
   | "rule37"
   | "section17"
+  | "rcm"
   | "gstr3b"
   | "followup"
   | "ims"
@@ -649,6 +650,7 @@ const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "itc", label: "Missed ITC" },
   { id: "rule37", label: "ITC at Risk — Rule 37 (Unpaid 180+ Days)" },
   { id: "section17", label: "Section 17(5)" },
+  { id: "rcm", label: "RCM Reconciliation" },
   { id: "gstr3b", label: "GSTR-3B" },
   { id: "einvoice", label: "E-Invoice Check" },
   { id: "followup", label: "Follow-up Log" },

@@ -7,6 +7,7 @@ import {
 } from "@/components/reconcile/Rule37MarkPaidModal";
 import { ReconcilePaginationFooter } from "@/components/reconcile/ReconcilePaginationFooter";
 import { AuditObservationsPanel } from "@/components/AuditObservationsPanel";
+import { RcmReconciliationPanel } from "@/components/reconcile/RcmReconciliationPanel";
 import { ImsActionPanel } from "@/components/reconcile/ImsActionPanel";
 import { Rule37SummarySection } from "@/components/reconcile/Rule37SummarySection";
 import {
@@ -5308,6 +5309,24 @@ export default function ReconcileResultsPage() {
             </div>
           )}
         </div>
+        </>
+        )}
+
+        {/* RCM Reconciliation */}
+        {resultsTab === "rcm" && (
+        <>
+        {authToken ? (
+          <RcmReconciliationPanel
+            runId={runId}
+            authToken={authToken}
+          />
+        ) : (
+          <div className={sectionContainerClass}>
+            <p className="text-sm text-gray-500">
+              Sign in to view RCM 3-Way Reconciliation.
+            </p>
+          </div>
+        )}
         </>
         )}
       </div>
