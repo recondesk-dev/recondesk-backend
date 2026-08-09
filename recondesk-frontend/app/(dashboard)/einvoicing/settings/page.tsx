@@ -28,32 +28,7 @@ import {
   HsnSuggestion,
 } from "@/lib/api";
 
-const INDIAN_STATES = [
-  { code: "27", name: "Maharashtra" },
-  { code: "07", name: "Delhi" },
-  { code: "29", name: "Karnataka" },
-  { code: "33", name: "Tamil Nadu" },
-  { code: "09", name: "Uttar Pradesh" },
-  { code: "19", name: "West Bengal" },
-  { code: "24", name: "Gujarat" },
-  { code: "06", name: "Haryana" },
-  { code: "36", name: "Telangana" },
-  { code: "32", name: "Kerala" },
-  { code: "08", name: "Rajasthan" },
-  { code: "23", name: "Madhya Pradesh" },
-  { code: "10", name: "Bihar" },
-  { code: "37", name: "Andhra Pradesh" },
-  { code: "21", name: "Odisha" },
-  { code: "03", name: "Punjab" },
-  { code: "22", name: "Chhattisgarh" },
-  { code: "20", name: "Jharkhand" },
-  { code: "05", name: "Uttarakhand" },
-  { code: "02", name: "Himachal Pradesh" },
-  { code: "01", name: "Jammu and Kashmir" },
-  { code: "30", name: "Goa" },
-  { code: "18", name: "Assam" },
-  { code: "99", name: "Other Territory / Overseas" },
-];
+import { INDIAN_STATES, getStateNameByCode } from "@/lib/constants";
 
 function MasterDataSettingsContent() {
   const searchParams = useSearchParams();
@@ -682,7 +657,7 @@ function MasterDataSettingsContent() {
                           </td>
                           <td className="px-4 py-3.5 font-mono text-xs text-slate-700 font-semibold">{c.gstin || "—"}</td>
                           <td className="px-4 py-3.5 text-xs text-slate-600">
-                            {c.city ? `${c.city}, ` : ""}{c.state} ({c.state_code}){c.pincode ? ` - ${c.pincode}` : ""}
+                            {c.city ? `${c.city}, ` : ""}{getStateNameByCode(c.state_code, c.state)} ({c.state_code}){c.pincode ? ` - ${c.pincode}` : ""}
                           </td>
                           <td className="px-4 py-3.5 text-right space-x-2">
                             <button
@@ -841,7 +816,8 @@ function MasterDataSettingsContent() {
                   onChange={(e) => {
                     const val = e.target.value.toUpperCase();
                     const sc = val.length >= 2 ? val.substring(0, 2) : editingCustomer.state_code;
-                    setEditingCustomer({ ...editingCustomer, gstin: val, state_code: sc });
+                    const stName = getStateNameByCode(sc, editingCustomer.state || "");
+                    setEditingCustomer({ ...editingCustomer, gstin: val, state_code: sc, state: stName });
                   }}
                   className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
                   placeholder="e.g. 27AAACB1001R1Z1"

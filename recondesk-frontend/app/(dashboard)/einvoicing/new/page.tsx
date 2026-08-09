@@ -24,32 +24,7 @@ import {
   BillingLineItemInput,
 } from "@/lib/api";
 
-const INDIAN_STATES = [
-  { code: "27", name: "Maharashtra" },
-  { code: "07", name: "Delhi" },
-  { code: "29", name: "Karnataka" },
-  { code: "33", name: "Tamil Nadu" },
-  { code: "09", name: "Uttar Pradesh" },
-  { code: "19", name: "West Bengal" },
-  { code: "24", name: "Gujarat" },
-  { code: "06", name: "Haryana" },
-  { code: "36", name: "Telangana" },
-  { code: "32", name: "Kerala" },
-  { code: "08", name: "Rajasthan" },
-  { code: "23", name: "Madhya Pradesh" },
-  { code: "10", name: "Bihar" },
-  { code: "37", name: "Andhra Pradesh" },
-  { code: "21", name: "Odisha" },
-  { code: "03", name: "Punjab" },
-  { code: "22", name: "Chhattisgarh" },
-  { code: "20", name: "Jharkhand" },
-  { code: "05", name: "Uttarakhand" },
-  { code: "02", name: "Himachal Pradesh" },
-  { code: "01", name: "Jammu and Kashmir" },
-  { code: "30", name: "Goa" },
-  { code: "18", name: "Assam" },
-  { code: "99", name: "Other Territory / Overseas" },
-];
+import { INDIAN_STATES, getStateNameByCode } from "@/lib/constants";
 
 function CreateInvoiceContent() {
   const router = useRouter();
