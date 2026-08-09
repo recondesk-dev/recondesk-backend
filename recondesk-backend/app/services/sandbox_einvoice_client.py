@@ -186,6 +186,132 @@ class SandboxEinvoiceClient:
 
         raise EinvoiceDownError("IRP lookup failed across primary and secondary sources.")
 
+    def generate_einvoice(
+        self,
+        session_token: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Submit invoice payload to Sandbox e-Invoice Generate API.
+        Returns response dict containing Irn, AckNo, AckDt, SignedQRCode, SignedInvoice.
+        """
+        url = f"{BASE_URL}/gst/compliance/e-invoice/tax-payer/invoice"
+
+        for source in ("primary", "secondary"):
+            try:
+                headers = self._headers(source=source, auth_token=session_token)
+                logger.info("Calling Generate e-Invoice (%s)", source)
+                r = httpx.post(url, headers=headers, json=payload, timeout=20.0)
+
+                if r.status_code == 401:
+                    raise EinvoiceAuthError("e-Invoice session token expired. Please re-authenticate.")
+
+                if r.status_code in (400, 422):
+                    try:
+                        res_json = r.json()
+                        err_detail = (
+                            res_json.get("message")
+                            or res_json.get("data", {}).get("error", {}).get("message")
+                            or res_json.get("detail")
+                            or r.text[:500]
+                        )
+                        raise EinvoiceClientError(f"IRP Validation Rejected: {err_detail}")
+                    except EinvoiceClientError:
+                        raise
+                    except Exception:
+                        raise EinvoiceClientError(f"IRP Rejected (HTTP {r.status_code}): {r.text[:500]}")
+
+                r.raise_for_status()
+                envelope = r.json()
+                data = envelope.get("data") if isinstance(envelope, dict) else envelope
+
+                if isinstance(data, dict):
+                    status_cd = str(data.get("status_cd", "")).strip()
+                    if status_cd == "0":
+                        err_msg = data.get("error", {}).get("message") or "IRP generation error"
+                        raise EinvoiceClientError(str(err_msg))
+                    return data
+
+                return envelope
+
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                logger.warning("Generate e-invoice timeout/network error on source=%s: %s", source, exc)
+                if source == "secondary":
+                    raise EinvoiceDownError("IRP portal timed out or is currently unreachable.") from exc
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code >= 500:
+                    logger.warning("Generate e-invoice 5xx server error on source=%s: %s", source, exc)
+                    if source == "secondary":
+                        raise EinvoiceDownError("IRP portal server error. Please retry.") from exc
+                else:
+                    raise
+
+        raise EinvoiceDownError("IRP submission failed across primary and secondary sources.")
+
+    def cancel_einvoice(
+        self,
+        session_token: str,
+        irn: str,
+        reason_code: str,
+        remarks: str,
+    ) -> dict[str, Any]:
+        """Cancel an active e-Invoice IRN via Sandbox e-Invoice Cancel API."""
+        url = f"{BASE_URL}/gst/compliance/e-invoice/tax-payer/cancel"
+        body = {
+            "Irn": irn.strip(),
+            "CnlRsn": str(reason_code).strip(),
+            "CnlRem": str(remarks).strip(),
+        }
+
+        for source in ("primary", "secondary"):
+            try:
+                headers = self._headers(source=source, auth_token=session_token)
+                logger.info("Calling Cancel e-Invoice (%s) for IRN %s", source, irn)
+                r = httpx.post(url, headers=headers, json=body, timeout=15.0)
+
+                if r.status_code == 401:
+                    raise EinvoiceAuthError("e-Invoice session token expired. Please re-authenticate.")
+
+                if r.status_code in (400, 422):
+                    try:
+                        res_json = r.json()
+                        err_detail = (
+                            res_json.get("message")
+                            or res_json.get("data", {}).get("error", {}).get("message")
+                            or r.text[:500]
+                        )
+                        raise EinvoiceClientError(f"IRP Cancellation Rejected: {err_detail}")
+                    except EinvoiceClientError:
+                        raise
+                    except Exception:
+                        raise EinvoiceClientError(f"IRP Cancellation Rejected (HTTP {r.status_code}): {r.text[:500]}")
+
+                r.raise_for_status()
+                envelope = r.json()
+                data = envelope.get("data") if isinstance(envelope, dict) else envelope
+
+                if isinstance(data, dict):
+                    status_cd = str(data.get("status_cd", "")).strip()
+                    if status_cd == "0":
+                        err_msg = data.get("error", {}).get("message") or "IRP cancellation error"
+                        raise EinvoiceClientError(str(err_msg))
+                    return data
+
+                return envelope
+
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                logger.warning("Cancel e-invoice timeout/network error on source=%s: %s", source, exc)
+                if source == "secondary":
+                    raise EinvoiceDownError("IRP portal timed out or is currently unreachable.") from exc
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code >= 500:
+                    logger.warning("Cancel e-invoice 5xx server error on source=%s: %s", source, exc)
+                    if source == "secondary":
+                        raise EinvoiceDownError("IRP portal server error. Please retry.") from exc
+                else:
+                    raise
+
+        raise EinvoiceDownError("IRP cancellation failed across primary and secondary sources.")
+
 
 # Global singleton instance
 einvoice_client = SandboxEinvoiceClient()

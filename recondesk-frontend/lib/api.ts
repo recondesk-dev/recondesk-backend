@@ -2485,12 +2485,45 @@ export interface BillingInvoice {
   total_paise: number;
   status: "draft" | "finalized" | "cancelled";
   irn?: string | null;
+  irn_ack_number?: string | null;
+  irn_ack_date?: string | null;
+  irn_qr_code?: string | null;
+  irn_signed_json?: any;
+  irp_status?: "not_submitted" | "submitted" | "irp_registered" | "irp_rejected" | "cancelled";
+  irp_error_detail?: string | null;
+  irp_environment?: "test" | "production";
   notes?: string | null;
   created_at: string;
   updated_at: string;
   customer?: Partial<BillingCustomer> | null;
   company_profile?: BillingCompanyProfile | null;
   line_items?: BillingLineItemResponse[];
+}
+
+export interface BillingIrpLog {
+  id: string;
+  invoice_id: string;
+  client_gstin_id: string;
+  attempted_at: string;
+  environment: string;
+  request_payload?: any;
+  response_status: string;
+  response_body?: any;
+  created_at: string;
+}
+
+export interface BillingIrpStatusResponse {
+  invoice_id: string;
+  invoice_number: string;
+  irp_status: string;
+  irn?: string | null;
+  irn_ack_number?: string | null;
+  irn_ack_date?: string | null;
+  irn_qr_code?: string | null;
+  irp_environment: string;
+  irp_error_detail?: string | null;
+  cancellation_eligible: boolean;
+  submission_logs: BillingIrpLog[];
 }
 
 export interface HsnSuggestion {
@@ -2675,6 +2708,42 @@ export const billingModuleApi = {
         method: "POST",
         token,
       }
+    ),
+
+  submitToIrp: (token: string, id: string, clientGstinId: string) =>
+    apiFetch<BillingInvoice>(
+      `/api/einvoicing/invoices/${encodeURIComponent(id)}/submit-to-irp`,
+      {
+        method: "POST",
+        body: JSON.stringify({ client_gstin_id: clientGstinId }),
+        token,
+      }
+    ),
+
+  cancelIrn: (
+    token: string,
+    id: string,
+    clientGstinId: string,
+    reasonCode: string,
+    remarks: string
+  ) =>
+    apiFetch<BillingInvoice>(
+      `/api/einvoicing/invoices/${encodeURIComponent(id)}/cancel-irn`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          client_gstin_id: clientGstinId,
+          reason_code: reasonCode,
+          remarks,
+        }),
+        token,
+      }
+    ),
+
+  getIrpStatus: (token: string, id: string, clientGstinId: string) =>
+    apiFetch<BillingIrpStatusResponse>(
+      `/api/einvoicing/invoices/${encodeURIComponent(id)}/irp-status?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      { token }
     ),
 };
 
