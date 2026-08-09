@@ -665,7 +665,7 @@ function MasterDataSettingsContent() {
                         <th className="px-4 py-3.5">Customer Name</th>
                         <th className="px-4 py-3.5">Type</th>
                         <th className="px-4 py-3.5">GSTIN</th>
-                        <th className="px-4 py-3.5">State & Code</th>
+                        <th className="px-4 py-3.5">Location & Pincode</th>
                         <th className="px-4 py-3.5 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -681,7 +681,9 @@ function MasterDataSettingsContent() {
                             )}
                           </td>
                           <td className="px-4 py-3.5 font-mono text-xs text-slate-700 font-semibold">{c.gstin || "—"}</td>
-                          <td className="px-4 py-3.5 text-xs text-slate-600">{c.state} ({c.state_code})</td>
+                          <td className="px-4 py-3.5 text-xs text-slate-600">
+                            {c.city ? `${c.city}, ` : ""}{c.state} ({c.state_code}){c.pincode ? ` - ${c.pincode}` : ""}
+                          </td>
                           <td className="px-4 py-3.5 text-right space-x-2">
                             <button
                               onClick={() => {
@@ -842,7 +844,58 @@ function MasterDataSettingsContent() {
                     setEditingCustomer({ ...editingCustomer, gstin: val, state_code: sc });
                   }}
                   className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
+                  placeholder="e.g. 27AAACB1001R1Z1"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Address Line 1 *</label>
+                <input
+                  type="text"
+                  required
+                  value={editingCustomer.address_line1 || ""}
+                  onChange={(e) => setEditingCustomer({ ...editingCustomer, address_line1: e.target.value })}
+                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white"
+                  placeholder="Building name, street address"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Address Line 2 (Optional)</label>
+                <input
+                  type="text"
+                  value={editingCustomer.address_line2 || ""}
+                  onChange={(e) => setEditingCustomer({ ...editingCustomer, address_line2: e.target.value })}
+                  className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white"
+                  placeholder="Landmark, suite, floor"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">City *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingCustomer.city || ""}
+                    onChange={(e) => setEditingCustomer({ ...editingCustomer, city: e.target.value })}
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white"
+                    placeholder="e.g. Mumbai"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Pincode *</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    value={editingCustomer.pincode || ""}
+                    onChange={(e) => setEditingCustomer({ ...editingCustomer, pincode: e.target.value.replace(/\D/g, "") })}
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
+                    placeholder="e.g. 400001"
+                  />
+                </div>
               </div>
 
               <div>
