@@ -9,7 +9,7 @@ from fastapi import HTTPException, status
 from supabase import Client
 
 from app.services.billing.invoice_service import get_invoice_detail
-from app.services.einvoice_verification import get_client_credentials, get_valid_session_token, _assert_access
+from app.services.einvoice_verification import get_client_credentials, get_valid_session_token
 from app.services.normalizer import NormalizationError, normalize_gstin
 from app.services.sandbox_einvoice_client import (
     EinvoiceAuthError,
@@ -19,6 +19,51 @@ from app.services.sandbox_einvoice_client import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _assert_access(sb: Any, client_gstin_id: str, user_or_id: Any) -> None:
+    """Verify current user has permissions to access this client GSTIN record.
+    Safely extracts string user ID if a User Pydantic object was passed.
+    """
+    uid = getattr(user_or_id, "id", user_or_id)
+    uid_str = str(uid or "").strip()
+    if not uid_str:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing or unauthenticated user ID")
+
+    client_id_str = str(client_gstin_id or "").strip()
+    if not client_id_str:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Missing client GSTIN ID parameter")
+
+    if len(client_id_str) == 15 and client_id_str[:2].isdigit():
+        q = (
+            sb.table("client_gstins")
+            .select("id, firm_owner_id, assigned_to, gstin, trade_name, legal_name")
+            .eq("gstin", client_id_str.upper())
+            .limit(1)
+            .execute()
+        )
+    else:
+        q = (
+            sb.table("client_gstins")
+            .select("id, firm_owner_id, assigned_to, gstin, trade_name, legal_name")
+            .eq("id", client_id_str)
+            .limit(1)
+            .execute()
+        )
+
+    if not q.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Client GSTIN record not found for '{client_id_str}'.")
+
+    c = q.data[0]
+    firm_owner = str(c.get("firm_owner_id") or "").strip()
+    assigned = str(c.get("assigned_to") or "").strip()
+
+    if uid_str != firm_owner and uid_str != assigned:
+        client_label = c.get("trade_name") or c.get("legal_name") or c.get("gstin") or client_id_str
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"Access denied: Current user does not have administrative permissions for client '{client_label}'.",
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -348,9 +393,10 @@ def submit_to_irp(
     # Get credentials & session token
     creds = get_client_credentials(db, client_gstin_id)
     if not creds:
+        client_name = company.get("trade_name") or company.get("legal_name") or company.get("gstin") or client_gstin_id
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="e-Invoice portal credentials not configured for this client. Add credentials in Settings.",
+            detail=f"e-Invoice portal credentials not configured for client '{client_name}'. Please add credentials under Master Data / Settings → e-Invoice Credentials before submitting.",
         )
 
     seller_gstin = str(company.get("gstin") or "").strip().upper()

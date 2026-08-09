@@ -46,9 +46,10 @@ def _resolve_client_gstin_id(sb: Any, client_id_or_gstin: str) -> str:
     return s
 
 
-def _assert_access(sb: Any, client_gstin_id: str, user_id: str) -> None:
+def _assert_access(sb: Any, client_gstin_id: str, user_id: Any) -> None:
+    uid = getattr(user_id, "id", user_id)
     resolved_id = _resolve_client_gstin_id(sb, client_gstin_id)
-    ws.assert_client_access(sb, resolved_id, user_id)
+    ws.assert_client_access(sb, resolved_id, str(uid or "").strip())
 
 
 def get_client_credentials(sb: Any, client_gstin_id: str) -> dict[str, Any] | None:
