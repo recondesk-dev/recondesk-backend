@@ -396,7 +396,7 @@ def submit_to_irp(
         client_name = company.get("trade_name") or company.get("legal_name") or company.get("gstin") or client_gstin_id
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"e-Invoice portal credentials not configured for client '{client_name}'. Please add credentials under Master Data / Settings → e-Invoice Credentials before submitting.",
+            detail=f"e-Invoice portal credentials not configured for client '{client_name}'. Please add credentials under E-Invoicing → Master Data → e-Invoice Credentials before submitting.",
         )
 
     seller_gstin = str(company.get("gstin") or "").strip().upper()

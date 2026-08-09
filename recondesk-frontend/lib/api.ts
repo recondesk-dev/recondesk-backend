@@ -2569,6 +2569,28 @@ export const billingModuleApi = {
       }
     ),
 
+  // e-Invoice Portal Credentials
+  getCredentialsStatus: (token: string, clientGstinId: string) =>
+    apiFetch<{ has_credentials: boolean; username?: string | null; updated_at?: string | null }>(
+      `/api/einvoice-recon/credentials/${encodeURIComponent(clientGstinId)}`,
+      { token }
+    ),
+
+  saveCredentials: (
+    token: string,
+    clientGstinId: string,
+    username: string,
+    password: string
+  ) =>
+    apiFetch<{ has_credentials: boolean; username?: string | null; updated_at?: string | null }>(
+      `/api/einvoice-recon/credentials/${encodeURIComponent(clientGstinId)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ username, password }),
+        token,
+      }
+    ),
+
   // Customers
   listCustomers: (token: string, clientGstinId: string) =>
     apiFetch<BillingCustomer[]>(

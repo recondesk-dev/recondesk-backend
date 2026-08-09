@@ -16,6 +16,7 @@ import {
   AlertCircle,
   X,
   Sparkles,
+  Lock,
 } from "lucide-react";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import {
@@ -38,7 +39,26 @@ function MasterDataSettingsContent() {
   const [clientGstinId, setClientGstinId] = useState<string>(
     searchParams.get("client_gstin_id") || ""
   );
-  const [activeTab, setActiveTab] = useState<"company" | "customers" | "items">("company");
+  const [activeTab, setActiveTab] = useState<"company" | "customers" | "items" | "credentials">("company");
+
+  // e-Invoice Credentials state
+  const [hasCredentials, setHasCredentials] = useState<boolean | null>(null);
+  const [credUsername, setCredUsername] = useState<string>("");
+  const [credPassword, setCredPassword] = useState<string>("");
+  const [credLastUpdated, setCredLastUpdated] = useState<string | null>(null);
+
+  // Load credential status for active client
+  useEffect(() => {
+    if (!token || !clientGstinId) return;
+    billingModuleApi
+      .getCredentialsStatus(token, clientGstinId)
+      .then((res) => {
+        setHasCredentials(res?.has_credentials ?? false);
+        if (res?.username) setCredUsername(res.username);
+        if (res?.updated_at) setCredLastUpdated(res.updated_at);
+      })
+      .catch(() => setHasCredentials(false));
+  }, [token, clientGstinId]);
 
   // Company Profile state
   const [companyProfile, setCompanyProfile] = useState<Partial<BillingCompanyProfile>>({
@@ -309,6 +329,28 @@ function MasterDataSettingsContent() {
     }
   };
 
+  const handleSaveCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token || !clientGstinId || !credUsername || !credPassword) return;
+    setSaving(true);
+    setMessage(null);
+
+    try {
+      const res = await billingModuleApi.saveCredentials(token, clientGstinId, credUsername, credPassword);
+      if (res && res.has_credentials) {
+        setHasCredentials(true);
+        setCredLastUpdated(res.updated_at || new Date().toISOString());
+        setCredPassword("");
+        setMessage({ type: "success", text: "e-Invoice portal API credentials saved securely." });
+      }
+    } catch (err: any) {
+      const text = err?.detail || err?.message || (typeof err === "string" ? err : "Failed to save e-Invoice credentials");
+      setMessage({ type: "error", text });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       {/* Top Header */}
@@ -322,7 +364,7 @@ function MasterDataSettingsContent() {
           </Link>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">E-Invoicing Master Data</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Manage company profile, customer registry, and item master catalog.
+            Manage company profile, customer registry, item master catalog, and e-Invoice portal credentials.
           </p>
         </div>
 
@@ -393,6 +435,21 @@ function MasterDataSettingsContent() {
           }`}
         >
           <Package className="w-4 h-4" /> Item Catalog ({items.length})
+        </button>
+        <button
+          onClick={() => setActiveTab("credentials")}
+          className={`px-5 py-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
+            activeTab === "credentials"
+              ? "border-indigo-600 text-indigo-600 font-extrabold"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <Lock className="w-4 h-4" /> e-Invoice Credentials
+          {hasCredentials ? (
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+          ) : (
+            <span className="w-2 h-2 rounded-full bg-amber-500" />
+          )}
         </button>
       </div>
 
@@ -763,6 +820,79 @@ function MasterDataSettingsContent() {
                 )}
               </div>
             </div>
+          )}
+
+          {/* TAB 4: e-Invoice Credentials */}
+          {activeTab === "credentials" && (
+            <form onSubmit={handleSaveCredentials} className="bg-white border border-gray-200/80 rounded-2xl p-6 space-y-6 shadow-sm max-w-3xl">
+              <div className="flex items-start justify-between border-b border-gray-100 pb-4">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    <Lock className="w-5 h-5 text-indigo-600" /> e-Invoice Portal Credentials
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Configure government e-Invoice API portal credentials for Sandbox & IRP direct submission.
+                  </p>
+                </div>
+                <div>
+                  {hasCredentials ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <Check className="w-3.5 h-3.5 text-emerald-500" /> Credentials Configured
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-500" /> Missing Credentials
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    e-Invoice Portal Username / API Client ID *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={credUsername}
+                    onChange={(e) => setCredUsername(e.target.value)}
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
+                    placeholder="e.g. GSTIN_API_USER123"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    e-Invoice Portal Password / Secret *
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={credPassword}
+                    onChange={(e) => setCredPassword(e.target.value)}
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
+                    placeholder="Enter API portal password"
+                  />
+                </div>
+
+                {credLastUpdated && (
+                  <p className="text-xs text-slate-400 font-mono">
+                    Last updated: {new Date(credLastUpdated).toLocaleString()}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex justify-end pt-4 border-t border-gray-100">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm shadow-sm transition-all"
+                >
+                  <Save className="w-4 h-4" /> {saving ? "Saving Credentials..." : "Save Portal Credentials"}
+                </button>
+              </div>
+            </form>
           )}
         </>
       )}
