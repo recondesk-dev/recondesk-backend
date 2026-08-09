@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Optional
 
@@ -1292,11 +1293,19 @@ def save_gstr3b(
             try:
                 details_res = client.get_gstr3b_details(token, period=period)
                 details_data = details_res.data
+                _log.info(
+                    "[SAVE_GSTR3B_DEBUG] raw get_gstr3b_details envelope: %s",
+                    json.dumps(details_res.envelope, default=str),
+                )
             except Exception as exc:
-                _log.warning("Could not fetch GSTR-3B details before save: %s", exc)
+                _log.warning("[SAVE_GSTR3B_DEBUG] Could not fetch GSTR-3B details before save: %s", exc, exc_info=True)
                 details_data = None
 
             save_body = apply_system_late_fee_to_save_body(save_body, details_data)
+            _log.info(
+                "[SAVE_GSTR3B_DEBUG] raw save_body sent to Sandbox: %s",
+                json.dumps(save_body, default=str),
+            )
             filing_store.update_run(
                 sb, run_id, save_payload=save_body, clear_error=True,
             )

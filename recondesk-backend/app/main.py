@@ -602,6 +602,7 @@ async def health_check():
     return {
         "status": overall,
         "version": settings.APP_VERSION,
+        "git_commit_sha": os.environ.get("RAILWAY_GIT_COMMIT_SHA", os.environ.get("COMMIT_SHA", "unknown")),
         "uptime_seconds": uptime_seconds,
         "supabase": supabase_state,
         "r2": r2_state,

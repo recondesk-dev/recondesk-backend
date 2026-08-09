@@ -93,6 +93,38 @@ function Gstr3bFilingPageContent() {
     setFigures(emptyGstr3bFigures(gstin, retPeriod));
   }, [clientGstinId, period, gstin, retPeriod]);
 
+  const detailsKey =
+    token && period && clientGstinId && sessionId
+      ? (["gstr3b-details", token, period, clientGstinId, sessionId] as const)
+      : null;
+  const { data: detailsData } = useSWR(detailsKey, ([, t, p, cid, sid]) =>
+    gstr3bFilingApi.details(t, p, { client_gstin_id: cid, session_id: sid })
+  );
+
+  useEffect(() => {
+    if (!detailsData?.details) return;
+    const intrLtfee = detailsData.details.intr_ltfee as
+      | Record<string, unknown>
+      | undefined;
+    const ltfee = intrLtfee?.ltfee_details as
+      | Record<string, unknown>
+      | undefined;
+    if (ltfee) {
+      const camt = Number(ltfee.camt) || "";
+      const samt = Number(ltfee.samt) || "";
+      setFigures((prev) => ({
+        ...prev,
+        intr_ltfee: {
+          ...prev.intr_ltfee,
+          ltfee_details: {
+            camt: camt,
+            samt: samt,
+          },
+        },
+      }));
+    }
+  }, [detailsData]);
+
   const loadOutwardSuggestion = useCallback(async (): Promise<
     SuggestionLoadResult<OutwardSuggestion>
   > => {
