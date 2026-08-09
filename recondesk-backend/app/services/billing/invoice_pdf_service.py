@@ -55,9 +55,9 @@ def _get_state_name(code: Optional[str], default_name: str = "") -> str:
 
 def _fmt_paise(paise: Optional[int]) -> str:
     if paise is None:
-        return "₹0.00"
+        return "Rs. 0.00"
     val = float(paise) / 100.0
-    return f"₹{val:,.2f}"
+    return f"Rs. {val:,.2f}"
 
 
 def _fmt_date(dt_str: Optional[str]) -> str:
@@ -314,11 +314,11 @@ def build_gst_invoice_pdf(invoice_detail: Dict[str, Any]) -> bytes:
     # 3. LINE ITEMS TABLE
     # -------------------------------------------------------------------------
     if not is_interstate:
-        table_headers = ["#", "Item Description", "HSN/SAC", "Qty", "UQC", "Rate (₹)", "Taxable (₹)", "CGST (₹)", "SGST (₹)", "Total (₹)"]
-        col_widths = [0.6 * cm, 4.3 * cm, 1.5 * cm, 1.0 * cm, 1.1 * cm, 1.8 * cm, 2.0 * cm, 1.8 * cm, 1.8 * cm, 2.3 * cm]
+        table_headers = ["#", "Item Description", "HSN/SAC", "Qty", "UQC", "Rate (Rs.)", "Taxable (Rs.)", "CGST (Rs.)", "SGST (Rs.)", "Total (Rs.)"]
+        col_widths = [0.6 * cm, 4.1 * cm, 1.5 * cm, 1.0 * cm, 1.1 * cm, 2.0 * cm, 2.0 * cm, 1.9 * cm, 1.9 * cm, 2.3 * cm]
     else:
-        table_headers = ["#", "Item Description", "HSN/SAC", "Qty", "UQC", "Rate (₹)", "Taxable (₹)", "IGST Rate", "IGST (₹)", "Total (₹)"]
-        col_widths = [0.6 * cm, 4.5 * cm, 1.5 * cm, 1.0 * cm, 1.1 * cm, 1.8 * cm, 2.2 * cm, 1.4 * cm, 1.8 * cm, 2.3 * cm]
+        table_headers = ["#", "Item Description", "HSN/SAC", "Qty", "UQC", "Rate (Rs.)", "Taxable (Rs.)", "IGST Rate", "IGST (Rs.)", "Total (Rs.)"]
+        col_widths = [0.6 * cm, 4.3 * cm, 1.5 * cm, 1.0 * cm, 1.1 * cm, 2.0 * cm, 2.2 * cm, 1.4 * cm, 1.9 * cm, 2.3 * cm]
 
     table_data = [[Paragraph(h, style_table_header) for h in table_headers]]
 
