@@ -19,6 +19,7 @@ from app.models.billing import (
     ItemType,
     ItemUpdate,
 )
+from app.data.gst_uqc import is_valid_uqc
 from app.services.normalizer import NormalizationError, normalize_gstin
 
 _log = logging.getLogger(__name__)
@@ -230,6 +231,13 @@ def list_items(db: Client, client_gstin_id: str) -> List[Dict[str, Any]]:
 def create_item(db: Client, item_in: ItemCreate) -> Dict[str, Any]:
     data = item_in.model_dump()
     data["item_type"] = data["item_type"].value if isinstance(data["item_type"], ItemType) else data["item_type"]
+    unit_val = str(data.get("unit") or "").strip().upper()
+    if not is_valid_uqc(unit_val):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid Unit Quantity Code (UQC) '{data.get('unit')}'. Must be an official GST UQC code (e.g. NOS, KGS, PCS, BOX, HRS, SET).",
+        )
+    data["unit"] = unit_val
     res = db.table("billing_items").insert(data).execute()
     if not res.data:
         raise HTTPException(status_code=500, detail="Failed to create item")
@@ -243,6 +251,15 @@ def update_item(
     update_data = item_in.model_dump(exclude_unset=True)
     if "item_type" in update_data and isinstance(update_data["item_type"], ItemType):
         update_data["item_type"] = update_data["item_type"].value
+
+    if "unit" in update_data and update_data["unit"] is not None:
+        unit_val = str(update_data["unit"]).strip().upper()
+        if not is_valid_uqc(unit_val):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid Unit Quantity Code (UQC) '{update_data['unit']}'. Must be an official GST UQC code (e.g. NOS, KGS, PCS, BOX, HRS, SET).",
+            )
+        update_data["unit"] = unit_val
 
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     res = (

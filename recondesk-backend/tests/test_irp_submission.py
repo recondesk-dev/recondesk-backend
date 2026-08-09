@@ -130,6 +130,16 @@ def test_pre_submission_validation_rejects_inconsistent_tax_sums(
     assert any("Internal tax calculation mismatch" in e for e in errors)
 
 
+def test_pre_submission_validation_rejects_invalid_uqc_unit(
+    valid_invoice, valid_company, valid_customer, valid_line_items
+):
+    bad_items = [dict(valid_line_items[0], unit="INVALID_UQC_CODE")]
+    errors = irp_submission_service.validate_invoice_for_irp(
+        valid_invoice, valid_company, valid_customer, bad_items
+    )
+    assert any("Unit Quantity Code (UQC) 'INVALID_UQC_CODE' is invalid" in e for e in errors)
+
+
 def test_pre_submission_validation_catches_missing_and_invalid_fields(
     valid_invoice, valid_company, valid_customer, valid_line_items
 ):

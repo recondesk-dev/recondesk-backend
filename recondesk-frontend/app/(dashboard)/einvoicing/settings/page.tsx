@@ -29,7 +29,7 @@ import {
   HsnSuggestion,
 } from "@/lib/api";
 
-import { INDIAN_STATES, getStateNameByCode } from "@/lib/constants";
+import { INDIAN_STATES, getStateNameByCode, GST_UQC_CODES } from "@/lib/constants";
 
 function MasterDataSettingsContent() {
   const searchParams = useSearchParams();
@@ -1161,14 +1161,18 @@ function MasterDataSettingsContent() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Unit (e.g. NOS, KG, HRS) *</label>
-                  <input
-                    type="text"
-                    required
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">GST Unit Code (UQC) *</label>
+                  <select
                     value={editingItem.unit || "NOS"}
-                    onChange={(e) => setEditingItem({ ...editingItem, unit: e.target.value.toUpperCase() })}
-                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white font-semibold uppercase"
-                  />
+                    onChange={(e) => setEditingItem({ ...editingItem, unit: e.target.value })}
+                    className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-900 focus:bg-white cursor-pointer font-semibold"
+                  >
+                    {GST_UQC_CODES.map((uqc) => (
+                      <option key={uqc.code} value={uqc.code}>
+                        {uqc.code} - {uqc.description}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

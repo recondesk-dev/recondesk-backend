@@ -24,7 +24,7 @@ import {
   BillingLineItemInput,
 } from "@/lib/api";
 
-import { INDIAN_STATES, getStateNameByCode } from "@/lib/constants";
+import { INDIAN_STATES, getStateNameByCode, GST_UQC_CODES } from "@/lib/constants";
 
 function CreateInvoiceContent() {
   const router = useRouter();
@@ -456,13 +456,17 @@ function CreateInvoiceContent() {
                       </td>
 
                       <td className="px-3 py-2">
-                        <input
-                          type="text"
-                          required
-                          value={line.unit}
-                          onChange={(e) => updateLineItem(idx, { unit: e.target.value.toUpperCase() })}
-                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-slate-900 uppercase font-semibold focus:outline-none focus:border-slate-900"
-                        />
+                        <select
+                          value={line.unit || "NOS"}
+                          onChange={(e) => updateLineItem(idx, { unit: e.target.value })}
+                          className="w-full bg-slate-50 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-slate-900 font-semibold focus:outline-none cursor-pointer"
+                        >
+                          {GST_UQC_CODES.map((uqc) => (
+                            <option key={uqc.code} value={uqc.code}>
+                              {uqc.code} - {uqc.description}
+                            </option>
+                          ))}
+                        </select>
                       </td>
 
                       <td className="px-3 py-2">

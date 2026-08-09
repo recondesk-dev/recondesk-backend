@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException, status
 from supabase import Client
 
+from app.data.gst_uqc import is_valid_uqc
 from app.services.billing.invoice_service import get_invoice_detail
 from app.services.einvoice_verification import get_client_credentials, get_valid_session_token
 from app.services.normalizer import NormalizationError, normalize_gstin
@@ -147,6 +148,12 @@ def validate_invoice_for_irp(
         hsn = (item.get("hsn_or_sac_code") or "").strip()
         if not hsn or len(hsn) < 4:
             errors.append(f"Line Item #{idx}: HSN/SAC Code must be at least 4 digits (got '{hsn}').")
+
+        unit_code = (item.get("unit") or "").strip().upper()
+        if not unit_code or not is_valid_uqc(unit_code):
+            errors.append(
+                f"Line Item #{idx}: Unit Quantity Code (UQC) '{item.get('unit')}' is invalid. Must be an official GST UQC code (e.g. NOS, KGS, PCS, BOX, HRS)."
+            )
 
         qty = float(item.get("quantity") or 0)
         if qty <= 0:
