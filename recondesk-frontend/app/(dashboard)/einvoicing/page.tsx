@@ -14,6 +14,7 @@ import {
   Clock,
   ArrowRight,
   Building2,
+  Send,
 } from "lucide-react";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import {
@@ -91,14 +92,14 @@ function EInvoicingDashboardContent() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
-      {/* Beta / Internal Testing Notice Banner */}
-      <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 flex items-start gap-3.5 text-amber-900 shadow-sm">
-        <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+      {/* Live IRP Integration Notice Banner */}
+      <div className="bg-indigo-50 border border-indigo-200/80 rounded-2xl p-4 flex items-start gap-3.5 text-indigo-900 shadow-sm">
+        <Send className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" />
         <div className="text-sm leading-relaxed">
-          <span className="font-semibold text-amber-950">
-            Beta / Internal Testing Mode:
+          <span className="font-semibold text-indigo-950">
+            Live IRP Portal Integration Active:
           </span>{" "}
-          Invoices generated in this pass are saved internally for company management. Direct API submission to IRP for legal e-Invoice IRN generation will be activated in Phase 2.
+          Direct API submission to the Government IRP portal for legal e-Invoice IRN generation, digital signing, and QR code registration is now active in Test Mode. Finalize an invoice and click <span className="font-semibold text-indigo-700">"Submit to IRP"</span> on the invoice detail page to generate an official IRN.
         </div>
       </div>
 
@@ -293,26 +294,38 @@ function EInvoicingDashboardContent() {
                         ₹{(inv.total_paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-4 py-3.5 text-center">
-                        {isDraft ? (
+                        {inv.irp_status === "irp_registered" || inv.irn ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> IRN Registered
+                          </span>
+                        ) : inv.irp_status === "cancelled" ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
+                            IRN Cancelled
+                          </span>
+                        ) : isDraft ? (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
                             <Clock className="w-3.5 h-3.5 text-amber-500" /> Draft
                           </span>
-                        ) : inv.status === "finalized" ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> Finalized
-                          </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
-                            Cancelled
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-300">
+                            <CheckCircle className="w-3.5 h-3.5 text-slate-500" /> Finalized
                           </span>
                         )}
                       </td>
                       <td className="px-4 py-3.5 text-right">
                         <Link
                           href={`/einvoicing/${inv.id}?client_gstin_id=${selectedClientId}`}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-slate-900 hover:text-black transition-colors underline underline-offset-2"
+                          className={`inline-flex items-center gap-1 text-xs font-semibold transition-colors underline underline-offset-2 ${
+                            inv.status === "finalized" && inv.irp_status !== "irp_registered"
+                              ? "text-indigo-600 font-bold hover:text-indigo-800"
+                              : "text-slate-900 hover:text-black"
+                          }`}
                         >
-                          View Details <ArrowRight className="w-3.5 h-3.5" />
+                          {inv.status === "finalized" && inv.irp_status !== "irp_registered" ? (
+                            <>Submit to IRP <Send className="w-3 h-3 ml-0.5" /></>
+                          ) : (
+                            <>View Details <ArrowRight className="w-3.5 h-3.5" /></>
+                          )}
                         </Link>
                       </td>
                     </tr>

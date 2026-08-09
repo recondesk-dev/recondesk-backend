@@ -100,15 +100,44 @@ def test_pre_submission_validation_passes(valid_invoice, valid_company, valid_cu
     assert errors == []
 
 
+def test_pre_submission_validation_rejects_invalid_gstin_checksum(
+    valid_invoice, valid_company, valid_customer, valid_line_items
+):
+    bad_company = dict(valid_company)
+    bad_company["gstin"] = "27AAPCB1308R1ZT"  # Invalid checksum
+
+    errors = irp_submission_service.validate_invoice_for_irp(
+        valid_invoice, bad_company, valid_customer, valid_line_items
+    )
+    assert any("Invalid Seller GSTIN" in e and "invalid_checksum" in e for e in errors)
+
+
+def test_pre_submission_validation_rejects_inconsistent_tax_sums(
+    valid_invoice, valid_company, valid_customer, valid_line_items
+):
+    bad_items = [
+        dict(
+            valid_line_items[0],
+            taxable_value_paise=100000,
+            cgst_paise=9000,
+            sgst_paise=9000,
+            line_total_paise=150000,  # 100000 + 18000 != 150000
+        )
+    ]
+    errors = irp_submission_service.validate_invoice_for_irp(
+        valid_invoice, valid_company, valid_customer, bad_items
+    )
+    assert any("Internal tax calculation mismatch" in e for e in errors)
+
+
 def test_pre_submission_validation_catches_missing_and_invalid_fields(
     valid_invoice, valid_company, valid_customer, valid_line_items
 ):
     invalid_inv = dict(valid_invoice)
     invalid_inv["status"] = "draft"  # Not finalized
-    invalid_inv["total_paise"] = 99999  # Mismatch with line total (118000)
+    invalid_inv["total_paise"] = 99999  # Mismatch with header
 
     invalid_comp = dict(valid_company)
-    invalid_comp["gstin"] = "INVALID_GSTIN"
     invalid_comp["pincode"] = "123"  # Invalid pincode
 
     invalid_cust = dict(valid_customer)
@@ -123,7 +152,6 @@ def test_pre_submission_validation_catches_missing_and_invalid_fields(
     )
 
     assert any("must be in 'finalized' status" in e for e in errors)
-    assert any("Invalid Seller GSTIN" in e for e in errors)
     assert any("Pincode must be a 6-digit number" in e for e in errors)
     assert any("Buyer GSTIN is required for B2B" in e for e in errors)
     assert any("HSN/SAC Code must be at least 4 digits" in e for e in errors)
@@ -228,13 +256,13 @@ def test_timeout_handling_recovers_generated_irn(
 @patch("app.services.billing.irp_submission_service.get_client_credentials")
 @patch("app.services.billing.irp_submission_service.get_valid_session_token")
 @patch("app.services.billing.irp_submission_service.einvoice_client")
-def test_cancel_irn_24h_window_enforcement(
-    mock_client, mock_token, mock_creds, mock_get_inv, mock_assert_access, valid_invoice, valid_company, valid_customer
+def test_cancel_irn_within_24h_window_succeeds(
+    mock_client, mock_token, mock_creds, mock_get_inv, mock_assert_access, valid_invoice, valid_company
 ):
     mock_db = MagicMock()
     now_utc = datetime.datetime.now(timezone.utc)
 
-    # Case A: Generated 2 hours ago (within 24h window) -> Allowed
+    # Generated 2 hours ago (within 24h window) -> Allowed
     recent_ack = (now_utc - datetime.timedelta(hours=2)).isoformat()
     inv_recent = dict(valid_invoice)
     inv_recent["irp_status"] = "irp_registered"
@@ -257,7 +285,19 @@ def test_cancel_irn_24h_window_enforcement(
     )
     mock_client.cancel_einvoice.assert_called_once()
 
-    # Case B: Generated 26 hours ago (outside 24h window) -> Blocked
+
+@patch("app.services.billing.irp_submission_service._assert_access")
+@patch("app.services.billing.irp_submission_service.get_invoice_detail")
+@patch("app.services.billing.irp_submission_service.get_client_credentials")
+@patch("app.services.billing.irp_submission_service.get_valid_session_token")
+@patch("app.services.billing.irp_submission_service.einvoice_client")
+def test_cancel_irn_outside_24h_window_rejected(
+    mock_client, mock_token, mock_creds, mock_get_inv, mock_assert_access, valid_invoice, valid_company
+):
+    mock_db = MagicMock()
+    now_utc = datetime.datetime.now(timezone.utc)
+
+    # Generated 26 hours ago (outside 24h window) -> Blocked
     old_ack = (now_utc - datetime.timedelta(hours=26)).isoformat()
     inv_old = dict(valid_invoice)
     inv_old["irp_status"] = "irp_registered"
