@@ -126,6 +126,16 @@ function itcToApi(rows: ItcRowProps[]): Record<string, unknown>[] {
   }));
 }
 
+function singleItcToApi(row?: ItcRowProps): Record<string, number> {
+  if (!row) return { iamt: 0, camt: 0, samt: 0, csamt: 0 };
+  return {
+    iamt: toNum(row.iamt),
+    camt: toNum(row.camt),
+    samt: toNum(row.samt),
+    csamt: toNum(row.csamt),
+  };
+}
+
 /** Build GSTN Save body from form state (integers as numbers). */
 export function figuresToSaveBody(state: Gstr3bFiguresState): Record<string, unknown> {
   return {
@@ -141,7 +151,7 @@ export function figuresToSaveBody(state: Gstr3bFiguresState): Record<string, unk
     itc_elg: {
       itc_avl: itcToApi(state.itc_elg.itc_avl),
       itc_rev: itcToApi(state.itc_elg.itc_rev),
-      itc_net: itcToApi(state.itc_elg.itc_net),
+      itc_net: singleItcToApi(state.itc_elg.itc_net[0]),
       itc_inelg: itcToApi(state.itc_elg.itc_inelg),
     },
     inward_sup: {

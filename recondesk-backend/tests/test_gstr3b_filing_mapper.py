@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.filing.gstr3b_filing_mapper import (
     apply_system_late_fee_to_save_body,
     extract_system_late_fee,
+    normalize_gstr3b_save_body,
 )
 
 
@@ -83,3 +84,23 @@ def test_apply_system_late_fee_preserves_zero_late_fee_for_ontime():
 
     result = apply_system_late_fee_to_save_body(save_body_from_form, details_data_from_gstn)
     assert result["intr_ltfee"]["ltfee_details"] == {"camt": 0, "samt": 0}
+
+
+def test_normalize_gstr3b_save_body_converts_itc_net_array_to_object():
+    """Reproduces RT-3BGC-9003 bug: frontend sends itc_net as array [{'ty': '', ...}], which GSTN rejects.
+
+    The mapper must format itc_net as a single object {'iamt': ..., 'camt': ..., 'samt': ..., 'csamt': ...}.
+    """
+    save_body_with_array = {
+        "gstin": "27ISKPK1273H1ZF",
+        "ret_period": "062026",
+        "itc_elg": {
+            "itc_net": [{"ty": "", "iamt": 10, "camt": 20, "samt": 30, "csamt": 0}]
+        },
+        "intr_ltfee": {
+            "ltfee_details": {"camt": 0, "samt": 0}
+        }
+    }
+    normalized = normalize_gstr3b_save_body(save_body_with_array)
+    assert normalized["itc_elg"]["itc_net"] == {"iamt": 10, "camt": 20, "samt": 30, "csamt": 0}
+
