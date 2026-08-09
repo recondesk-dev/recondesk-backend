@@ -2493,6 +2493,13 @@ export interface BillingInvoice {
   line_items?: BillingLineItemResponse[];
 }
 
+export interface HsnSuggestion {
+  code: string;
+  description: string;
+  item_type: "goods" | "service";
+  match_score: number;
+}
+
 export const billingModuleApi = {
   // Company Profiles
   listCompanyProfiles: (token: string, clientGstinId: string) =>
@@ -2568,6 +2575,14 @@ export const billingModuleApi = {
     ),
 
   // Items
+  suggestHsn: (token: string, q: string, itemType?: string) => {
+    const sp = new URLSearchParams({ q });
+    if (itemType) sp.set("type", itemType);
+    return apiFetch<HsnSuggestion[]>(`/api/einvoicing/masters/items/suggest-hsn?${sp.toString()}`, {
+      token,
+    });
+  },
+
   listItems: (token: string, clientGstinId: string) =>
     apiFetch<BillingItem[]>(
       `/api/einvoicing/masters/items?client_gstin_id=${encodeURIComponent(clientGstinId)}`,

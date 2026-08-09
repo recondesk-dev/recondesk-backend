@@ -18,7 +18,7 @@ from app.models.billing import (
     ItemResponse,
     ItemUpdate,
 )
-from app.services.billing import invoice_service
+from app.services.billing import hsn_suggest_service, invoice_service
 
 router = APIRouter()
 _log = logging.getLogger(__name__)
@@ -131,6 +131,17 @@ async def delete_customer(
 # -----------------------------------------------------------------------------
 # Item Catalog
 # -----------------------------------------------------------------------------
+@router.get("/items/suggest-hsn")
+async def suggest_hsn_codes(
+    q: str = Query(..., description="Item name query string"),
+    type: Optional[str] = Query(None, description="Item type filter: goods or service"),
+    user: str = Depends(get_current_user),
+):
+    """Fast, lightweight auto-suggest endpoint for HSN/SAC codes by item name."""
+    item_type = type.strip().lower() if type and type.strip().lower() in ("goods", "service") else None
+    return hsn_suggest_service.suggest_hsn_sac(item_name=q, item_type=item_type)
+
+
 @router.get("/items", response_model=List[ItemResponse])
 async def list_items(
     client_gstin_id: str = Query(..., description="Client GSTIN ID"),

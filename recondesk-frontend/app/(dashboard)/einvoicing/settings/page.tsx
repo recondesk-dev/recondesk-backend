@@ -15,6 +15,7 @@ import {
   Save,
   AlertCircle,
   X,
+  Sparkles,
 } from "lucide-react";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import {
@@ -24,6 +25,7 @@ import {
   BillingCompanyProfile,
   BillingCustomer,
   BillingItem,
+  HsnSuggestion,
 } from "@/lib/api";
 
 const INDIAN_STATES = [
@@ -109,9 +111,76 @@ function MasterDataSettingsContent() {
     item_type: "service",
   });
 
+  // HSN/SAC auto-suggest & mismatch detection state
+  const [hsnSuggestions, setHsnSuggestions] = useState<HsnSuggestion[]>([]);
+  const [hsnLoading, setHsnLoading] = useState<boolean>(false);
+  const [showHsnDropdown, setShowHsnDropdown] = useState<boolean>(false);
+  const [typeMismatchWarning, setTypeMismatchWarning] = useState<string | null>(null);
+
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Debounced HSN/SAC auto-suggest as user types item name
+  useEffect(() => {
+    if (!showItemModal || !editingItem.name || editingItem.name.trim().length < 2) {
+      setHsnSuggestions([]);
+      setShowHsnDropdown(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      if (!token) return;
+      try {
+        setHsnLoading(true);
+        const results = await billingModuleApi.suggestHsn(
+          token,
+          (editingItem.name || "").trim(),
+          editingItem.item_type
+        );
+        setHsnSuggestions(results || []);
+        setShowHsnDropdown(Boolean(results && results.length > 0));
+      } catch (err) {
+        console.error("Error fetching HSN suggestions:", err);
+        setHsnSuggestions([]);
+        setShowHsnDropdown(false);
+      } finally {
+        setHsnLoading(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [showItemModal, editingItem.name, editingItem.item_type, token]);
+
+  // Inline mismatch detection for HSN (goods) vs SAC (service 99xx)
+  useEffect(() => {
+    if (!showItemModal || !editingItem.hsn_or_sac_code || !editingItem.item_type) {
+      setTypeMismatchWarning(null);
+      return;
+    }
+
+    const code = editingItem.hsn_or_sac_code.trim();
+    const digits = code.replace(/\D/g, "");
+    if (!digits || digits.length < 2) {
+      setTypeMismatchWarning(null);
+      return;
+    }
+
+    const isSac = digits.startsWith("99");
+    const currentType = editingItem.item_type;
+
+    if (isSac && currentType === "goods") {
+      setTypeMismatchWarning(
+        "This looks like a Service (SAC 99xx) code, but Item Type is set to Goods. Please confirm this is correct."
+      );
+    } else if (!isSac && currentType === "service") {
+      setTypeMismatchWarning(
+        "This looks like a Goods (HSN) code, but Item Type is set to Service. Please confirm this is correct."
+      );
+    } else {
+      setTypeMismatchWarning(null);
+    }
+  }, [showItemModal, editingItem.hsn_or_sac_code, editingItem.item_type]);
 
   // Load clients
   useEffect(() => {
@@ -847,7 +916,14 @@ function MasterDataSettingsContent() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">HSN or SAC Code *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">HSN or SAC Code *</label>
+                    {hsnLoading && (
+                      <span className="text-[11px] font-medium text-blue-600 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 animate-pulse" /> Finding suggestions...
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     required
@@ -855,6 +931,75 @@ function MasterDataSettingsContent() {
                     onChange={(e) => setEditingItem({ ...editingItem, hsn_or_sac_code: e.target.value })}
                     className="w-full bg-slate-50 border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono focus:outline-none focus:border-slate-900 focus:bg-white"
                   />
+
+                  {/* Inline type mismatch warning */}
+                  {typeMismatchWarning && (
+                    <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2 text-xs text-amber-900 font-medium">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <span>{typeMismatchWarning}</span>
+                    </div>
+                  )}
+
+                  {/* Auto-suggest dropdown */}
+                  {showHsnDropdown && hsnSuggestions.length > 0 && (
+                    <div className="mt-2 bg-slate-50 border border-gray-200 rounded-xl p-3 space-y-2 shadow-md">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 uppercase tracking-wider px-1">
+                        <span className="flex items-center gap-1.5 text-blue-600">
+                          <Sparkles className="w-3.5 h-3.5" /> Suggested HSN/SAC Codes
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowHsnDropdown(false)}
+                          className="text-slate-400 hover:text-slate-700"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                        {hsnSuggestions.map((sug) => (
+                          <button
+                            key={sug.code}
+                            type="button"
+                            onClick={() => {
+                              setEditingItem({
+                                ...editingItem,
+                                hsn_or_sac_code: sug.code,
+                                item_type: sug.item_type,
+                              });
+                              setShowHsnDropdown(false);
+                            }}
+                            className="w-full text-left p-2.5 bg-white hover:bg-blue-50/60 border border-gray-200/80 rounded-lg transition-colors group flex items-start justify-between gap-3 shadow-xs"
+                          >
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-xs text-slate-900 group-hover:text-blue-600">
+                                  {sug.code}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                                    sug.item_type === "goods"
+                                      ? "bg-emerald-100 text-emerald-800"
+                                      : "bg-blue-100 text-blue-800"
+                                  }`}
+                                >
+                                  {sug.item_type}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-600 font-medium line-clamp-2">{sug.description}</p>
+                            </div>
+                            <span className="text-xs font-semibold text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 pt-0.5">
+                              Select →
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+
+                      <p className="text-[11px] text-slate-500 italic px-1 pt-1 border-t border-gray-200">
+                        Suggested — please verify against your actual product/service classification.
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Unit (e.g. NOS, KG, HRS) *</label>
