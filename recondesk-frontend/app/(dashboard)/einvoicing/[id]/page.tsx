@@ -203,12 +203,14 @@ function InvoiceDetailContent() {
 
         {/* Action Buttons */}
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => window.print()}
-            className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl border border-gray-200 text-xs font-semibold shadow-sm"
+          <a
+            href={billingModuleApi.downloadInvoicePdfUrl(invoice.id, clientGstinId)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl border border-gray-200 text-xs font-semibold shadow-sm transition-colors"
           >
-            <Printer className="w-4 h-4 text-slate-500" /> Print / PDF
-          </button>
+            <Printer className="w-4 h-4 text-slate-500" /> Download PDF
+          </a>
 
           {isDraft && (
             <button

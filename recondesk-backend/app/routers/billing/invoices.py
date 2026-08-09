@@ -79,3 +79,25 @@ async def finalize_invoice(
 ):
     """Finalize invoice (locks editing)."""
     return invoice_service.finalize_invoice(db, id, client_gstin_id)
+
+
+@router.get("/{id}/pdf")
+async def download_invoice_pdf(
+    id: str,
+    client_gstin_id: str = Query(..., description="Client GSTIN ID"),
+    user: str = Depends(get_current_user),
+    db: Client = Depends(supabase_client),
+):
+    """Generate and return official GST-compliant tax invoice PDF."""
+    from fastapi import Response
+    from app.services.billing.invoice_pdf_service import build_gst_invoice_pdf
+
+    detail = invoice_service.get_invoice_detail(db, id, client_gstin_id)
+    pdf_bytes = build_gst_invoice_pdf(detail)
+    inv_num = (detail.get("invoice_number") or id).replace("/", "_")
+    filename = f"Tax_Invoice_{inv_num}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename={filename}"},
+    )

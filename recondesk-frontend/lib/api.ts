@@ -2767,5 +2767,8 @@ export const billingModuleApi = {
       `/api/einvoicing/invoices/${encodeURIComponent(id)}/irp-status?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
       { token }
     ),
+
+  downloadInvoicePdfUrl: (id: string, clientGstinId: string) =>
+    `/api/einvoicing/invoices/${encodeURIComponent(id)}/pdf?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
 };
 
