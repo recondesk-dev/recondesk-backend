@@ -16,6 +16,7 @@ from app.models.billing import (
     InvoiceStatus,
     InvoiceUpdateInput,
     ItemCreate,
+    ItemType,
     ItemUpdate,
 )
 from app.services.normalizer import NormalizationError, normalize_gstin
