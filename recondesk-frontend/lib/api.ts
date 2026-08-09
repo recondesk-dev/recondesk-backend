@@ -160,9 +160,6 @@ function formatApiErrorDetail(raw: unknown, fallback: string): string {
     const obj = raw as Record<string, unknown>;
     const errorKey =
       typeof obj.error === "string" && obj.error.trim() ? obj.error.trim() : "";
-    if (typeof obj.message === "string" && obj.message.trim()) {
-      return errorKey ? `${errorKey}: ${obj.message}` : obj.message;
-    }
     if (Array.isArray(obj.errors) && obj.errors.length > 0) {
       const errs = obj.errors
         .map((item) =>
@@ -174,6 +171,9 @@ function formatApiErrorDetail(raw: unknown, fallback: string): string {
         )
         .join("; ");
       return errorKey ? `${errorKey}: ${errs}` : errs;
+    }
+    if (typeof obj.message === "string" && obj.message.trim()) {
+      return errorKey ? `${errorKey}: ${obj.message}` : obj.message;
     }
     try {
       return JSON.stringify(raw);

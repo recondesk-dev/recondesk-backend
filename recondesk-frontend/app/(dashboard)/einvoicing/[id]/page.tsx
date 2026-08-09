@@ -79,12 +79,15 @@ function InvoiceDetailContent() {
       const updated = await billingModuleApi.submitToIrp(token, invoiceId, clientGstinId);
       setInvoice(updated);
     } catch (err: any) {
-      if (err?.detail?.errors && Array.isArray(err.detail.errors)) {
-        setValidationErrors(err.detail.errors);
-      } else if (err?.errors && Array.isArray(err.errors)) {
+      const raw = err?.rawDetail || err?.detail;
+      if (raw && typeof raw === "object" && Array.isArray(raw.errors)) {
+        setValidationErrors(raw.errors);
+      } else if (Array.isArray(err?.errors)) {
         setValidationErrors(err.errors);
+      } else if (typeof err?.detail === "string" && err.detail.includes("; ")) {
+        setValidationErrors(err.detail.split("; "));
       } else {
-        setValidationErrors([err.detail || err.message || "Failed to submit invoice to IRP portal"]);
+        setValidationErrors([err?.detail || err?.message || "Failed to submit invoice to IRP portal"]);
       }
     }
     setSubmittingIrp(false);
