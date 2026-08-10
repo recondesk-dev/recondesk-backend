@@ -190,3 +190,82 @@ def test_detect_rcm_deliberate_non_rcm_no_false_positives():
     ]
     res = detect_rcm_inward_supplies(records)
     assert len(res) == 0, f"Expected 0 false positives, got {len(res)}: {res}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Regression Tests for BUG 1, BUG 2, BUG 3
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_gta_forward_charge_with_tax_not_flagged_as_rcm():
+    """BUG 1: GTA row with hsn='9965', reverse_charge=False, and nonzero CGST+SGST
+
+    must NOT be flagged as RCM (valid forward-charge GTA option under Notification 11/2017).
+    """
+    records = [
+        {
+            "invoice_number": "MISC3029",
+            "supplier_gstin": "27BJASH1206W5ZK",
+            "supplier_name": "Speedway Roadlines",
+            "hsn": "9965",
+            "reverse_charge": "False",
+            "taxable_amount_paise": 2553145,
+            "cgst_paise": 229783,
+            "sgst_paise": 229783,
+            "total_tax_paise": 459566,
+            "ledger_name": "Freight Reimbursement - Forward Charge Opted",
+        }
+    ]
+    res = detect_rcm_inward_supplies(records)
+    assert len(res) == 0, f"Expected GTA forward-charge row NOT to be flagged, but got: {res}"
+
+
+def test_nan_string_supplier_gstin_flagged_as_unregistered():
+    """BUG 2: Supplier GSTIN 'NAN' (stringified pandas NaN) must be treated as missing
+
+    and flagged under unregistered-supplier RCM candidate (Section 9(4)).
+    """
+    records = [
+        {
+            "invoice_number": "UNREG3000",
+            "supplier_gstin": "NAN",
+            "supplier_name": "Local Kirana Store",
+            "taxable_amount_paise": 1442205,
+            "reverse_charge": "False",
+            "cgst_paise": 0,
+            "sgst_paise": 0,
+            "total_tax_paise": 0,
+        }
+    ]
+    res = detect_rcm_inward_supplies(records)
+    assert len(res) == 1, "Expected UNREG row with GSTIN 'NAN' to be flagged as unregistered supplier RCM"
+    assert res[0]["reason_code"] == "RCM_UNREGISTERED_SUPPLIER"
+    assert res[0]["flag_source"] == "unregistered"
+    assert res[0]["supplier_gstin"] == ""  # normalized to blank string
+
+
+def test_explicit_rcm_and_hsn_multi_signal_corroboration():
+    """BUG 3: Row with reverse_charge=True AND hsn='9983' (Import of Services)
+
+    must combine all matching signals into explanation and flag_source ('pr_flag+sac'),
+    not short-circuit on the explicit flag alone.
+    """
+    records = [
+        {
+            "invoice_number": "IMP2995",
+            "supplier_gstin": "NAN",
+            "supplier_name": "AWS Services LLC (USA)",
+            "hsn": "9983",
+            "reverse_charge": True,
+            "taxable_amount_paise": 10480829,
+            "ledger_name": "Cloud Subscriptions",
+        }
+    ]
+    res = detect_rcm_inward_supplies(records)
+    assert len(res) == 1
+    item = res[0]
+    assert "pr_flag" in item["flag_source"]
+    assert "sac" in item["flag_source"]
+    assert "Explicit PR reverse charge flag" in item["explanation"]
+    assert "SAC 9983" in item["explanation"]
+    assert item["confidence"] == CONFIDENCE_HIGH
+

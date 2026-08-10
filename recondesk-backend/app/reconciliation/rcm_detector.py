@@ -227,6 +227,8 @@ RCM_KEYWORD_RULES: list[tuple[str, str, str, str, bool]] = [
 ]
 
 _TRUE_VALUES = frozenset({"y", "yes", "true", "1", 1, True, "rcm"})
+_FALSE_VALUES = frozenset({"n", "no", "false", "0", 0, False})
+_INVALID_GSTIN_STRINGS = frozenset({"NAN", "NONE", "NULL", "N/A", "NA", "UNDEFINED", "UNKNOWN", "URP", ""})
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Helper Functions
@@ -263,7 +265,7 @@ def _extract_hsn_prefix(record: Mapping[str, Any]) -> str | None:
 
 
 def _is_explicit_rcm(record: Mapping[str, Any]) -> bool:
-    """Check if record has explicit RCM flag set in PR columns."""
+    """Check if record has explicit RCM flag set to Yes/True in PR columns."""
     for key in ("reverse_charge", "is_reverse_charge", "rcm", "reverse_charge_flag", "rcm_applicable"):
         val = record.get(key)
         if val is not None:
@@ -271,6 +273,33 @@ def _is_explicit_rcm(record: Mapping[str, Any]) -> bool:
             if s in _TRUE_VALUES:
                 return True
     return False
+
+
+def _is_explicit_non_rcm(record: Mapping[str, Any]) -> bool:
+    """Check if record explicitly sets reverse charge flag to No/False in PR columns."""
+    for key in ("reverse_charge", "is_reverse_charge", "rcm", "reverse_charge_flag", "rcm_applicable"):
+        val = record.get(key)
+        if val is not None:
+            s = str(val).strip().lower()
+            if s in _FALSE_VALUES:
+                return True
+    return False
+
+
+def _normalize_and_validate_gstin(raw: Any) -> tuple[str, bool]:
+    """Normalize supplier GSTIN and check if it conforms to valid 15-char GSTIN format.
+
+    Returns (clean_gstin_str, is_valid_gstin_format_bool).
+    Treats 'NAN', 'NONE', 'NULL', 'N/A', empty strings, and non-GSTIN patterns as invalid.
+    """
+    if raw is None:
+        return "", False
+    s = str(raw).strip().upper()
+    if s in _INVALID_GSTIN_STRINGS:
+        return "", False
+    if len(s) == 15 and re.match(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$", s):
+        return s, True
+    return s, False
 
 
 def _safe_amount_paise(record: Mapping[str, Any], *keys: str) -> int:
@@ -325,18 +354,9 @@ def detect_rcm_inward_supplies(
     """
     Scan purchase register records for RCM applicability.
 
-    Parameters
-    ----------
-    records : Sequence[Mapping[str, Any]]
-        Parsed purchase register rows.
-
-    Returns
-    -------
-    list[dict[str, Any]]
-        List of flagged RCM-applicable row objects containing:
-        - invoice_number, supplier_gstin, supplier_name, invoice_date
-        - taxable_value_paise, total_tax_paise, igst_paise, cgst_paise, sgst_paise, cess_paise
-        - category, reason_code, confidence, flag_source, pending_review, explanation
+    Uses multi-signal evidence aggregation (explicit PR flag, HSN/SAC rules,
+    keyword rules, unregistered supplier checks) and aggregates all corroborating
+    evidence into the record explanation and confidence tier.
     """
     flagged: list[dict[str, Any]] = []
 
@@ -349,12 +369,8 @@ def detect_rcm_inward_supplies(
             or rec.get("doc_no")
             or ""
         )
-        supplier_gstin = str(
-            rec.get("supplier_gstin")
-            or rec.get("gstin")
-            or rec.get("vendor_gstin")
-            or ""
-        ).strip().upper()
+        raw_gstin = rec.get("supplier_gstin") or rec.get("gstin") or rec.get("vendor_gstin")
+        clean_gstin, is_valid_gstin = _normalize_and_validate_gstin(raw_gstin)
 
         taxable_paise = _safe_amount_paise(rec, "taxable_amount_paise", "taxable_value_paise", "taxable_value", "taxable_amount")
         igst_paise = _safe_amount_paise(rec, "igst_paise", "igst")
@@ -370,77 +386,92 @@ def detect_rcm_inward_supplies(
         hsn = _extract_hsn_prefix(rec)
         desc_text = _build_description_string(rec)
         is_explicit = _is_explicit_rcm(rec)
+        is_explicit_no = _is_explicit_non_rcm(rec)
 
-        flag_info: dict[str, Any] | None = None
+        signals: list[dict[str, Any]] = []
 
-        # 1. Explicit PR reverse charge column flag
+        # Signal 1: Explicit PR reverse charge column flag == True
         if is_explicit:
-            flag_info = {
+            signals.append({
+                "source": "pr_flag",
                 "category": "Explicitly marked RCM in Purchase Register",
                 "reason_code": REASON_PR_REVERSE_CHARGE_FLAG,
                 "confidence": CONFIDENCE_HIGH,
-                "flag_source": "pr_flag",
-                "pending_review": False,
-                "explanation": "Purchase register row has reverse charge column set to Yes/True.",
-            }
+                "pending": False,
+                "explanation": "Explicit PR reverse charge flag = Yes",
+            })
 
-        # 2. HSN / SAC match against Notified Goods
-        elif hsn in NOTIFIED_GOODS_HSN:
-            rule = NOTIFIED_GOODS_HSN[hsn]
-            flag_info = {
-                "category": rule["category"],
-                "reason_code": rule["reason_code"],
-                "confidence": rule["confidence"],
-                "flag_source": "hsn",
-                "pending_review": False,
-                "explanation": f"HSN {hsn}: {rule['description']}",
-            }
+        # Forward-charge guard (BUG 1): if explicitly set to False/No AND tax is charged,
+        # skip HSN/SAC/keyword RCM rules (valid forward-charge GTA / supplier option).
+        is_forward_charge_option = is_explicit_no and total_tax_paise > 0
 
-        # 3. HSN / SAC match against Notified Services
-        elif hsn in NOTIFIED_SERVICES_SAC:
-            rule = NOTIFIED_SERVICES_SAC[hsn]
-            flag_info = {
-                "category": rule["category"],
-                "reason_code": rule["reason_code"],
-                "confidence": rule["confidence"],
-                "flag_source": "sac",
-                "pending_review": rule["confidence"] != CONFIDENCE_HIGH,
-                "explanation": f"SAC {hsn}: {rule['description']}",
-            }
+        if not is_forward_charge_option:
+            # Signal 2: HSN match against Notified Goods
+            if hsn in NOTIFIED_GOODS_HSN:
+                rule = NOTIFIED_GOODS_HSN[hsn]
+                signals.append({
+                    "source": "hsn",
+                    "category": rule["category"],
+                    "reason_code": rule["reason_code"],
+                    "confidence": rule["confidence"],
+                    "pending": False,
+                    "explanation": f"HSN {hsn}: {rule['description']}",
+                })
 
-        # 4. Text Keyword Scan
-        elif desc_text:
-            upper_desc = desc_text.upper()
-            for pattern, cat, reason, conf, pending in RCM_KEYWORD_RULES:
-                if re.search(pattern, upper_desc, re.IGNORECASE):
-                    clean_pattern = pattern.replace(r"\b", "").replace(r"\s+", " ")
-                    flag_info = {
-                        "category": cat,
-                        "reason_code": reason,
-                        "confidence": conf,
-                        "flag_source": "keyword",
-                        "pending_review": pending,
-                        "explanation": f"Matched keyword in description/ledger: '{clean_pattern}'",
-                    }
-                    break
+            # Signal 3: SAC match against Notified Services
+            if hsn in NOTIFIED_SERVICES_SAC:
+                rule = NOTIFIED_SERVICES_SAC[hsn]
+                signals.append({
+                    "source": "sac",
+                    "category": rule["category"],
+                    "reason_code": rule["reason_code"],
+                    "confidence": rule["confidence"],
+                    "pending": rule["confidence"] != CONFIDENCE_HIGH,
+                    "explanation": f"SAC {hsn}: {rule['description']}",
+                })
 
-        # 5. Unregistered supplier RCM check (if supplier GSTIN is missing/URP and taxable > 0)
-        elif not supplier_gstin and taxable_paise > 0 and str(rec.get("supplier_name", "")).upper() not in ("", "CASH"):
-            # Unregistered purchase check
-            if str(rec.get("supply_type", "")).upper() == "URP" or "URP" in desc_text.upper():
-                flag_info = {
+            # Signal 4: Text Keyword Scan
+            if desc_text:
+                upper_desc = desc_text.upper()
+                for pattern, cat, reason, conf, pending in RCM_KEYWORD_RULES:
+                    if re.search(pattern, upper_desc, re.IGNORECASE):
+                        clean_pattern = pattern.replace(r"\b", "").replace(r"\s+", " ")
+                        signals.append({
+                            "source": "keyword",
+                            "category": cat,
+                            "reason_code": reason,
+                            "confidence": conf,
+                            "pending": pending,
+                            "explanation": f"Matched keyword '{clean_pattern}' in description",
+                        })
+                        break
+
+            # Signal 5: Unregistered supplier RCM check (BUG 2)
+            if not is_valid_gstin and taxable_paise > 0 and str(rec.get("supplier_name", "")).upper() not in ("", "CASH", "NAN"):
+                signals.append({
+                    "source": "unregistered",
                     "category": "Unregistered Supplier Inward Supply -- Section 9(4)",
                     "reason_code": REASON_UNREGISTERED_SUPPLIER,
                     "confidence": CONFIDENCE_MEDIUM,
-                    "flag_source": "unregistered",
-                    "pending_review": True,
-                    "explanation": "Inward supply from unregistered person (URP). Verify applicability under Section 9(4).",
-                }
+                    "pending": True,
+                    "explanation": "Inward supply from unregistered supplier (Section 9(4))",
+                })
 
-        if flag_info:
+        if signals:
+            # Prefer specific rule category over general 'Explicitly marked' category if available
+            primary_cat = next((s["category"] for s in signals if s["source"] in ("hsn", "sac", "keyword")), signals[0]["category"])
+            primary_reason = next((s["reason_code"] for s in signals if s["source"] in ("hsn", "sac", "keyword")), signals[0]["reason_code"])
+            sources = [s["source"] for s in signals]
+            source_str = "+".join(dict.fromkeys(sources))
+
+            # BUG 3: Corroborated signals produce HIGH confidence and combine explanation parts
+            conf = CONFIDENCE_HIGH if len(signals) > 1 or any(s["confidence"] == CONFIDENCE_HIGH for s in signals) else signals[0]["confidence"]
+            pending = any(s["pending"] for s in signals) and conf != CONFIDENCE_HIGH
+            exp = "; ".join(s["explanation"] for s in signals)
+
             flagged.append({
                 "invoice_number": inv_num,
-                "supplier_gstin": supplier_gstin,
+                "supplier_gstin": clean_gstin,
                 "supplier_name": str(rec.get("supplier_name") or "").strip(),
                 "invoice_date": str(rec.get("invoice_date") or "").strip(),
                 "hsn_sac": hsn,
@@ -450,12 +481,12 @@ def detect_rcm_inward_supplies(
                 "sgst_paise": sgst_paise,
                 "cess_paise": cess_paise,
                 "total_tax_paise": total_tax_paise,
-                "category": flag_info["category"],
-                "reason_code": flag_info["reason_code"],
-                "confidence": flag_info["confidence"],
-                "flag_source": flag_info["flag_source"],
-                "pending_review": flag_info["pending_review"],
-                "explanation": flag_info["explanation"],
+                "category": primary_cat,
+                "reason_code": primary_reason,
+                "confidence": conf,
+                "flag_source": source_str,
+                "pending_review": pending,
+                "explanation": exp,
                 "raw_record": dict(rec),
             })
 
