@@ -5373,9 +5373,20 @@ async def reconcile_run_rcm_tie_out(
         sb = get_supabase()
         run_row = assert_run_accessible(sb, rid, current_user)
 
-        # Load PR records
+        # Load PR records and unwrap outcome dicts
         pr_map = ro.load_pr_map(sb, rid)
-        pr_records = list(pr_map.values()) if pr_map else []
+        pr_records = []
+        if pr_map:
+            for item in pr_map.values():
+                if isinstance(item, dict):
+                    rec = dict(item.get("record_data") or {})
+                    rec.update(item.get("matcher") or {})
+                    for k, v in item.items():
+                        if k not in ("matcher", "record_data") and k not in rec:
+                            rec[k] = v
+                    pr_records.append(rec)
+                else:
+                    pr_records.append(item)
 
         # Resolve client GSTIN
         client_gstin = str(run_row.get("client_gstin") or "")

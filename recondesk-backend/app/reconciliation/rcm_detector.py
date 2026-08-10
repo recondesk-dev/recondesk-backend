@@ -300,6 +300,21 @@ def _build_description_string(record: Mapping[str, Any]) -> str:
     return " ".join([p for p in parts if p]).strip()
 
 
+def _unwrap_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Unwrap outcome dictionary if wrapped in {"matcher": ..., "record_data": ...}."""
+    if not isinstance(record, dict):
+        return dict(record)
+    out: dict[str, Any] = {}
+    if "record_data" in record and isinstance(record["record_data"], dict):
+        out.update(record["record_data"])
+    if "matcher" in record and isinstance(record["matcher"], dict):
+        out.update(record["matcher"])
+    for k, v in record.items():
+        if k not in ("matcher", "record_data") and k not in out:
+            out[k] = v
+    return out or dict(record)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Main Detection Function
 # ══════════════════════════════════════════════════════════════════════════════
@@ -325,7 +340,8 @@ def detect_rcm_inward_supplies(
     """
     flagged: list[dict[str, Any]] = []
 
-    for rec in records:
+    for raw_rec in records:
+        rec = _unwrap_record(raw_rec)
         inv_num = (
             rec.get("invoice_number_normalized")
             or rec.get("invoice_number")
