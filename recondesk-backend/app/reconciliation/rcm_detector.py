@@ -344,6 +344,35 @@ def _unwrap_record(record: Mapping[str, Any]) -> dict[str, Any]:
     return out or dict(record)
 
 
+def _estimate_rcm_tax_paise(hsn: str | None, category: str, record: Mapping[str, Any], taxable_paise: int) -> int:
+    """Estimate self-assessed RCM tax liability in paise when PR invoice has 0 billed tax.
+
+    Uses explicit tax_rate / gst_rate from record if present; otherwise applies standard
+    GST RCM notification rates (5% for GTA / notified goods, 18% for services / unregistered).
+    """
+    for key in ("tax_rate", "gst_rate", "rate", "applicable_rate"):
+        val = record.get(key)
+        if val is not None:
+            try:
+                rate = float(val)
+                if rate > 0:
+                    return int(round(taxable_paise * (rate / 100.0)))
+            except (TypeError, ValueError):
+                pass
+
+    h = (hsn or "").strip()
+    cat = (category or "").upper()
+
+    if h == "9965" or "GTA" in cat or "FREIGHT" in cat or "TRANSPORT" in cat:
+        rate = 5.0  # 5% GTA RCM rate
+    elif h in ("0801", "2401", "5004", "5201", "1404") or "CASHEW" in cat or "COTTON" in cat or "SILK" in cat:
+        rate = 5.0  # 5% notified goods RCM rate
+    else:
+        rate = 18.0  # 18% standard services / unregistered RCM rate
+
+    return int(round(taxable_paise * (rate / 100.0)))
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Main Detection Function
 # ══════════════════════════════════════════════════════════════════════════════
@@ -469,6 +498,12 @@ def detect_rcm_inward_supplies(
             pending = any(s["pending"] for s in signals) and conf != CONFIDENCE_HIGH
             exp = "; ".join(s["explanation"] for s in signals)
 
+            # Self-assessed RCM liability calculation: supplier invoices under RCM show 0 tax billed;
+            # estimate recipient RCM liability from applicable GST rate if raw total_tax_paise == 0.
+            rcm_tax_paise = total_tax_paise
+            if rcm_tax_paise == 0 and taxable_paise > 0:
+                rcm_tax_paise = _estimate_rcm_tax_paise(hsn, primary_cat, rec, taxable_paise)
+
             flagged.append({
                 "invoice_number": inv_num,
                 "supplier_gstin": clean_gstin,
@@ -480,7 +515,7 @@ def detect_rcm_inward_supplies(
                 "cgst_paise": cgst_paise,
                 "sgst_paise": sgst_paise,
                 "cess_paise": cess_paise,
-                "total_tax_paise": total_tax_paise,
+                "total_tax_paise": rcm_tax_paise,
                 "category": primary_cat,
                 "reason_code": primary_reason,
                 "confidence": conf,
