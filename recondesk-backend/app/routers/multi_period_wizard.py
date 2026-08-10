@@ -16,6 +16,7 @@ from fastapi import (
     File,
     HTTPException,
     Query,
+    Response,
     UploadFile,
     status,
 )
@@ -24,6 +25,7 @@ from pydantic import BaseModel, Field
 from app.auth import get_current_active_user
 from app.database import get_supabase
 from app.services import multi_period_wizard as mpw
+from app.services.multi_period_export import build_multi_period_excel_export
 from app.services.reconciliation_import_wizard.wizard_service import assert_client_access
 
 logger = logging.getLogger(__name__)
@@ -278,3 +280,41 @@ async def list_multi_period_batches(
 
     batches = res.data or []
     return {"batches": batches}
+
+
+@router.get("/batches/{batch_id}/export/excel")
+async def export_multi_period_batch_excel(
+    batch_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Download multi-sheet XLSX export for an annual reconciliation batch."""
+    sb = get_supabase()
+    user_id = str(current_user.get("id") or "")
+
+    try:
+        batch = mpw.get_batch_with_items(sb, batch_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Batch not found",
+        )
+
+    _assert_client(sb, batch["client_gstin_id"], user_id)
+
+    try:
+        xlsx_bytes = build_multi_period_excel_export(sb, batch_id)
+        fy = batch.get("financial_year", "FY")
+        filename = f"recondesk_annual_recon_{fy}_{batch_id[:8]}.xlsx"
+
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        logger.exception("Failed to build multi-period excel export: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate Excel export",
+        ) from exc
+

@@ -11,11 +11,14 @@ import {
   TrendingUp,
   Layers,
   ExternalLink,
+  Download,
+  Loader2,
 } from "lucide-react";
 
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { formatINR } from "@/lib/format";
-import { getBatchSummary, type MultiPeriodBatch } from "@/lib/multiPeriodApi";
+import { downloadBlobAsFile } from "@/lib/download";
+import { getBatchSummary, downloadBatchExcelExport, type MultiPeriodBatch } from "@/lib/multiPeriodApi";
 
 function periodMonthName(period: string): string {
   const m = period.slice(5, 7);
@@ -37,6 +40,8 @@ export default function MultiPeriodSummaryPage() {
   const [batch, setBatch] = useState<MultiPeriodBatch | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [exporting, setExporting] = useState(false);
+
   useEffect(() => {
     if (!token || !batchId) return;
 
@@ -45,6 +50,20 @@ export default function MultiPeriodSummaryPage() {
       .catch((err) => console.error("Failed to load batch summary:", err))
       .finally(() => setLoading(false));
   }, [token, batchId]);
+
+  const handleExportExcel = async () => {
+    if (!token || !batchId) return;
+    setExporting(true);
+    try {
+      const blob = await downloadBatchExcelExport(batchId, token);
+      const fy = batch?.financial_year || "FY";
+      downloadBlobAsFile(blob, `recondesk_annual_recon_${fy}_${batchId.slice(0, 8)}.xlsx`);
+    } catch (err) {
+      console.error("Failed to export Excel workbook:", err);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -80,6 +99,23 @@ export default function MultiPeriodSummaryPage() {
             </p>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={handleExportExcel}
+          disabled={exporting}
+          className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {exporting ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" /> Exporting...
+            </>
+          ) : (
+            <>
+              <Download className="h-4 w-4" /> Export FY Workbook (Excel)
+            </>
+          )}
+        </button>
       </div>
 
       {/* Overview Stat Cards */}
