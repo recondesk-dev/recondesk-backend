@@ -86,6 +86,7 @@ async def save_gstr9_audit_overrides(
     _assert_client(sb, client_id, user_id)
 
     fy = body.financial_year.strip()
+    updater_uuid = user_id if (user_id and len(user_id) == 36) else None
 
     try:
         for item in body.overrides:
@@ -96,8 +97,10 @@ async def save_gstr9_audit_overrides(
                 "cell_key": item.cell_key.strip(),
                 "override_value": item.override_value,
                 "notes": item.notes,
-                "updated_by": user_id,
             }
+            if updater_uuid:
+                row["updated_by"] = updater_uuid
+
             sb.table("gstr9_audit_overrides").upsert(
                 row, on_conflict="client_gstin_id,financial_year,table_key,cell_key"
             ).execute()
@@ -105,10 +108,10 @@ async def save_gstr9_audit_overrides(
         comp = g9_svc.compute_gstr9(sb, client_id, fy)
         return comp
     except Exception as exc:
-        logger.exception("Failed to save GSTR-9 overrides: %s", exc)
+        logger.exception("Failed to save GSTR-9 overrides for client %s fy %s: %s", client_id, fy, exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to save audit overrides",
+            detail=f"Failed to save audit overrides: {exc}",
         ) from exc
 
 
