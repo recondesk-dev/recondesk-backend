@@ -108,10 +108,10 @@ NOTIFIED_SERVICES_SAC: dict[str, dict[str, Any]] = {
         "description": "Legal services directly or indirectly provided by an advocate or firm of advocates",
     },
     "9983": {
-        "category": "Director services / Sponsorship services -- Notification 13/2017-CT(Rate)",
-        "confidence": CONFIDENCE_MEDIUM,
-        "reason_code": REASON_NOTIFIED_SERVICES,
-        "description": "Services by a director to body corporate, or sponsorship services",
+        "category": "Import of Services -- Section 5(3) IGST Act / Notification 10/2017-IT(Rate)",
+        "confidence": CONFIDENCE_HIGH,
+        "reason_code": REASON_IMPORT_OF_SERVICES,
+        "description": "Inward supply of professional/technical services by a person located in non-taxable territory (Import of Services)",
     },
     "9966": {
         "category": "Renting of motor vehicle -- Notification 13/2017-CT(Rate)",
