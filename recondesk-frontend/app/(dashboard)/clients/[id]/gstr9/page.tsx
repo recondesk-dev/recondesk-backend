@@ -100,24 +100,32 @@ export default function Gstr9WorkspacePage() {
       .catch((err) => console.error("GSTR-9C fetch error:", err));
   }, [token, clientId, selectedFy, activeTab, auditedTurnover, auditedItc, auditedTax]);
 
+  // Track keys modified by user
+  const [modifiedKeys, setModifiedKeys] = useState<Set<string>>(new Set());
+
   const handleOverrideChange = (key: string, val: string) => {
     const num = parseFloat(val) || 0;
     setOverrides((prev) => ({ ...prev, [key]: num }));
+    setModifiedKeys((prev) => new Set(prev).add(key));
   };
 
   const handleSaveOverrides = async () => {
     if (!token || !clientId) return;
+    if (modifiedKeys.size === 0) {
+      toast("No cell values were changed", "info");
+      return;
+    }
     setSaving(true);
 
-    const items: AuditOverrideInput[] = Object.entries(overrides).map(([k, v]) => {
+    const items: AuditOverrideInput[] = Array.from(modifiedKeys).map((k) => {
       const [table_key, cell_key] = k.split(".");
-      return { table_key, cell_key, override_value: v };
+      return { table_key, cell_key, override_value: overrides[k] ?? 0 };
     });
 
     try {
       const updated = await saveGstr9Overrides(clientId, selectedFy, items, token);
       setComp(updated);
-      toast("Saved CA audit cell overrides", "success");
+      toast(`Saved ${items.length} CA audit cell override${items.length > 1 ? "s" : ""}`, "success");
     } catch (err: any) {
       toast(err?.detail || "Failed to save overrides", "error");
     } finally {
