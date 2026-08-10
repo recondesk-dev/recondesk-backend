@@ -205,7 +205,7 @@ export interface PeriodSyncDetail {
   reason: string;
 }
 
-export async function syncGstr9PortalData(
+export async function checkGstr9DataAvailability(
   clientId: string,
   fy: string,
   token: string
@@ -213,13 +213,31 @@ export async function syncGstr9PortalData(
   financial_year: string;
   total_periods: number;
   synced_periods_count: number;
-  synced_periods: string[];
-  failed_periods: string[];
   period_details: PeriodSyncDetail[];
   computation: Gstr9Computation;
 }> {
   return apiFetch(
-    `/api/gstr9/clients/${clientId}/portal-sync?fy=${encodeURIComponent(fy)}`,
+    `/api/gstr9/clients/${clientId}/availability?fy=${encodeURIComponent(fy)}`,
+    {
+      method: "POST",
+      token,
+    }
+  );
+}
+
+export async function fetchLiveGstr9PortalApi(
+  clientId: string,
+  fy: string,
+  token: string
+): Promise<{
+  financial_year: string;
+  total_periods: number;
+  synced_periods_count: number;
+  period_details: PeriodSyncDetail[];
+  computation: Gstr9Computation;
+}> {
+  return apiFetch(
+    `/api/gstr9/clients/${clientId}/live-fetch?fy=${encodeURIComponent(fy)}`,
     {
       method: "POST",
       token,

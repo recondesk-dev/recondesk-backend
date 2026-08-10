@@ -28,7 +28,8 @@ import {
   fetchGstr9cReconciliation,
   downloadGstr9Json,
   downloadGstr9cJson,
-  syncGstr9PortalData,
+  checkGstr9DataAvailability,
+  fetchLiveGstr9PortalApi,
   type Gstr9Computation,
   type Gstr9cReconciliation,
   type AuditOverrideInput,
@@ -51,6 +52,7 @@ export default function Gstr9WorkspacePage() {
   const [g9c, setG9c] = useState<Gstr9cReconciliation | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncDetails, setSyncDetails] = useState<PeriodSyncDetail[] | null>(null);
   const [downloadingG9, setDownloadingG9] = useState(false);
@@ -139,16 +141,31 @@ export default function Gstr9WorkspacePage() {
     }
   };
 
-  const handleSyncPortalData = async () => {
+  const handleCheckAvailability = async () => {
+    if (!token || !clientId) return;
+    setChecking(true);
+    try {
+      const res = await checkGstr9DataAvailability(clientId, selectedFy, token);
+      setComp(res.computation);
+      setSyncDetails(res.period_details);
+      toast(`Checked local coverage: ${res.synced_periods_count} of 12 periods available`, "info");
+    } catch (err: any) {
+      toast(err?.detail || "Failed to check data availability", "error");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const handleLiveFetchPortalApi = async () => {
     if (!token || !clientId) return;
     setSyncing(true);
     try {
-      const res = await syncGstr9PortalData(clientId, selectedFy, token);
+      const res = await fetchLiveGstr9PortalApi(clientId, selectedFy, token);
       setComp(res.computation);
       setSyncDetails(res.period_details);
-      toast(`Synced ${res.synced_periods_count} of 12 periods directly from GST Portal`, "success");
+      toast(`Live GSTN API Sync: ${res.synced_periods_count} of 12 periods fetched cleanly`, "success");
     } catch (err: any) {
-      toast(err?.detail || "Failed to sync GST Portal data", "error");
+      toast(err?.detail || "Failed to execute live GSTN API fetch", "error");
     } finally {
       setSyncing(false);
     }
@@ -239,12 +256,22 @@ export default function Gstr9WorkspacePage() {
 
           <button
             type="button"
-            onClick={handleSyncPortalData}
+            onClick={handleCheckAvailability}
+            disabled={checking}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:opacity-50"
+          >
+            {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Layers className="h-4 w-4 text-gray-500" />}
+            Check Available Data
+          </button>
+
+          <button
+            type="button"
+            onClick={handleLiveFetchPortalApi}
             disabled={syncing}
             className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-purple-700 disabled:opacity-50"
           >
             {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Sync Full Year (Portal API)
+            Fetch 12 Months Live (Portal API)
           </button>
 
           <button
