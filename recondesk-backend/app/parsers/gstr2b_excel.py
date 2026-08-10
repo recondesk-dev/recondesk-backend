@@ -63,10 +63,24 @@ def is_gstr2b_excel_bytes(raw: bytes) -> bool:
 
 def _sheet_kind(sheet_name: str) -> str | None:
     norm = normalize_header(str(sheet_name))
-    if norm in _INVOICE_SHEET_NAMES:
+    compact = norm.replace(" ", "")
+    if norm in _INVOICE_SHEET_NAMES or compact in _INVOICE_SHEET_NAMES:
         return "invoice"
-    if norm in _NOTE_SHEET_NAMES:
+    if norm in _NOTE_SHEET_NAMES or compact in _NOTE_SHEET_NAMES:
         return "note"
+    # GSTN portal uses compound names: "B2B-CDNR", "B2B, Credit/Debit Notes",
+    # "B2B, Credit/Debit Notes(Amendment)"
+    if compact.startswith("b2b") and ("cdnr" in compact or "credit" in compact or "debit" in compact):
+        return "note"
+    # "B2BA" = B2B amendment — treat as invoice
+    if compact in {"b2ba"}:
+        return "invoice"
+    # CDNRA = note amendment
+    if compact in {"cdnra"}:
+        return "note"
+    # Plain "b2b" prefix without cdnr/credit/debit is an invoice sheet
+    if compact.startswith("b2b"):
+        return "invoice"
     return None
 
 

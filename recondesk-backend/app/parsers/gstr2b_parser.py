@@ -1212,11 +1212,17 @@ def is_alt_gstr2b_schema(data: dict) -> bool:
     invoices = data.get("invoice")
     if not isinstance(invoices, list) or not invoices:
         return False
+    # Known column names that identify an alt-format invoice row.
+    _IDENTITY_KEYS = {
+        "gstin", "gstin of supplier", "supplier gstin", "ctin",
+        "invoice no", "invoice number", "invoice number", "inum",
+        "document number",
+    }
     for row in invoices[:20]:
         if not isinstance(row, dict):
             continue
         keys = {_alt_key_norm(k) for k in row.keys()}
-        if "gstin" in keys or "invoice no" in keys or "invoice number" in keys:
+        if keys & _IDENTITY_KEYS:
             return True
     return False
 
@@ -1346,54 +1352,121 @@ def _alt_extract_buyer_gstin(data: dict) -> str:
 def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     """Map one flat third-party invoice row → portal-ish inv object.
 
-    Returns ``None`` for blank-Sr totals/summary rows.
+    Returns ``None`` for blank-Sr totals/summary rows.  When no ``Sr``
+    column exists at all (e.g. GSTN portal Excel export), the row is kept
+    when it has an identifiable GSTIN **or** invoice number.
     """
-    sr = _alt_row_get(row, "Sr", "sr", "S.No", "S No")
-    if _alt_blank(sr):
-        return None
+    sr = _alt_row_get(row, "Sr", "sr", "S.No", "S No", "Sl", "Sl.", "Sl. No.")
 
-    gstin = str(_alt_row_get(row, "GSTIN", "gstin") or "").strip().upper()
+    gstin = str(
+        _alt_row_get(
+            row, "GSTIN", "gstin", "GSTIN of Supplier",
+            "Supplier GSTIN", "ctin",
+        ) or ""
+    ).strip().upper()
     inum = str(
-        _alt_row_get(row, "Invoice No", "Invoice Number", "invoice_no", "inum") or ""
+        _alt_row_get(
+            row, "Invoice No", "Invoice Number", "invoice_no", "inum",
+            "Document Number", "Doc No",
+        ) or ""
     ).strip()
+
+    # Blank-Sr rows are totals/summary — skip UNLESS the row has
+    # identifiable data (GSTIN or invoice number), which means the
+    # file simply has no Sr column (GSTN portal Excel).
+    if _alt_blank(sr):
+        if not gstin and not inum:
+            return None
+        # Has data but no Sr → check if the file genuinely lacks an Sr column
+        # by verifying the row has at least one of GSTIN or invoice number.
+        # (If both are blank on a blank-Sr row, it really is a totals row.)
+
     if not gstin and not inum:
         return None
 
-    party = str(_alt_row_get(row, "Party", "Supplier", "supplier_name") or "").strip()
+    party = str(
+        _alt_row_get(
+            row, "Party", "Supplier", "supplier_name",
+            "Trade/Legal Name", "Trade/Legal Name of Supplier",
+            "Trade Name", "Legal Name", "trdnm",
+        ) or ""
+    ).strip()
     return {
         "_supplier_gstin": gstin,
         "_supplier_name": party,
-        "_rtnprd": _alt_parse_period_to_rtnprd(_alt_row_get(row, "Period", "period")),
+        "_rtnprd": _alt_parse_period_to_rtnprd(
+            _alt_row_get(row, "Period", "period", "Return Period", "Filing Period")
+        ),
         "inum": inum,
         "dt": _alt_invoice_date_portal(
-            _alt_row_get(row, "Invoice Date", "invoice_date", "idt")
+            _alt_row_get(
+                row, "Invoice Date", "invoice_date", "idt",
+                "Document Date", "Doc Date",
+            )
         ),
-        "val": _alt_num(_alt_row_get(row, "Invoice Value", "invoice_value", "val")),
-        "txval": _alt_num(_alt_row_get(row, "Taxable Value", "taxable_value", "txval")),
-        "igst": _alt_num(_alt_row_get(row, "IGST", "igst", "iamt")),
-        "cgst": _alt_num(_alt_row_get(row, "CGST", "cgst", "camt")),
-        "sgst": _alt_num(_alt_row_get(row, "SGST", "sgst", "samt")),
-        "cess": _alt_num(_alt_row_get(row, "CESS", "cess", "csamt")),
-        "pos": _alt_pos_code(_alt_row_get(row, "POS", "pos")),
-        "rev": _alt_rc_to_rev(_alt_row_get(row, "RC", "rev", "rchrg")),
-        "itcavl": "Y",
+        "val": _alt_num(
+            _alt_row_get(
+                row, "Invoice Value", "invoice_value", "val",
+                "Document Value", "Total Value",
+            )
+        ),
+        "txval": _alt_num(
+            _alt_row_get(row, "Taxable Value", "taxable_value", "txval")
+        ),
+        "igst": _alt_num(
+            _alt_row_get(row, "IGST", "igst", "iamt", "Integrated Tax")
+        ),
+        "cgst": _alt_num(
+            _alt_row_get(row, "CGST", "cgst", "camt", "Central Tax")
+        ),
+        "sgst": _alt_num(
+            _alt_row_get(row, "SGST", "sgst", "samt", "State/UT Tax")
+        ),
+        "cess": _alt_num(
+            _alt_row_get(row, "CESS", "cess", "csamt")
+        ),
+        "pos": _alt_pos_code(
+            _alt_row_get(row, "POS", "pos", "Place of Supply", "Place Of Supply")
+        ),
+        "rev": _alt_rc_to_rev(
+            _alt_row_get(
+                row, "RC", "rev", "rchrg", "Reverse Charge",
+                "Applicable % of Tax Rate",
+            )
+        ),
+        "itcavl": str(
+            _alt_row_get(row, "ITC Available", "itcavl", "ITC Availability") or "Y"
+        ).strip().upper()[:1] or "Y",
     }
 
 
 def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     """Map one flat credit/debit note row → portal cdnr note object."""
-    sr = _alt_row_get(row, "Sr", "sr", "S.No", "S No")
-    if _alt_blank(sr):
-        return None
+    sr = _alt_row_get(row, "Sr", "sr", "S.No", "S No", "Sl", "Sl.", "Sl. No.")
 
-    gstin = str(_alt_row_get(row, "GSTIN", "gstin") or "").strip().upper()
+    gstin = str(
+        _alt_row_get(
+            row, "GSTIN", "gstin", "GSTIN of Supplier",
+            "Supplier GSTIN", "ctin",
+        ) or ""
+    ).strip().upper()
     nt_num = str(
-        _alt_row_get(row, "Note No", "Note Number", "nt_num", "ntnum") or ""
+        _alt_row_get(
+            row, "Note No", "Note Number", "nt_num", "ntnum",
+            "Document Number", "Doc No",
+        ) or ""
     ).strip()
+
+    if _alt_blank(sr):
+        if not gstin and not nt_num:
+            return None
+
     if not gstin and not nt_num:
         return None
 
-    ntty_raw = str(_alt_row_get(row, "Note Type", "ntty", "type") or "").strip().upper()
+    ntty_raw = str(
+        _alt_row_get(row, "Note Type", "ntty", "type", "Document Type") or ""
+    ).strip().upper()
     if ntty_raw.startswith("C") or "CREDIT" in ntty_raw:
         ntty = "C"
     elif ntty_raw.startswith("D") or "DEBIT" in ntty_raw:
@@ -1401,23 +1474,60 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     else:
         ntty = "C"
 
-    party = str(_alt_row_get(row, "Party", "Supplier", "supplier_name") or "").strip()
+    party = str(
+        _alt_row_get(
+            row, "Party", "Supplier", "supplier_name",
+            "Trade/Legal Name", "Trade/Legal Name of Supplier",
+            "Trade Name", "Legal Name", "trdnm",
+        ) or ""
+    ).strip()
     return {
         "_supplier_gstin": gstin,
         "_supplier_name": party,
-        "_rtnprd": _alt_parse_period_to_rtnprd(_alt_row_get(row, "Period", "period")),
+        "_rtnprd": _alt_parse_period_to_rtnprd(
+            _alt_row_get(row, "Period", "period", "Return Period", "Filing Period")
+        ),
         "nt_num": nt_num,
         "ntty": ntty,
-        "dt": _alt_invoice_date_portal(_alt_row_get(row, "Note Date", "note_date", "idt")),
-        "val": _alt_num(_alt_row_get(row, "Note Value", "note_value", "val")),
-        "txval": _alt_num(_alt_row_get(row, "Taxable Value", "taxable_value", "txval")),
-        "igst": _alt_num(_alt_row_get(row, "IGST", "igst", "iamt")),
-        "cgst": _alt_num(_alt_row_get(row, "CGST", "cgst", "camt")),
-        "sgst": _alt_num(_alt_row_get(row, "SGST", "sgst", "samt")),
-        "cess": _alt_num(_alt_row_get(row, "CESS", "cess", "csamt")),
-        "pos": _alt_pos_code(_alt_row_get(row, "POS", "pos")),
-        "rev": _alt_rc_to_rev(_alt_row_get(row, "RC", "rev", "rchrg")),
-        "itcavl": "Y",
+        "dt": _alt_invoice_date_portal(
+            _alt_row_get(
+                row, "Note Date", "note_date", "idt",
+                "Document Date", "Doc Date",
+            )
+        ),
+        "val": _alt_num(
+            _alt_row_get(
+                row, "Note Value", "note_value", "val",
+                "Document Value", "Total Value",
+            )
+        ),
+        "txval": _alt_num(
+            _alt_row_get(row, "Taxable Value", "taxable_value", "txval")
+        ),
+        "igst": _alt_num(
+            _alt_row_get(row, "IGST", "igst", "iamt", "Integrated Tax")
+        ),
+        "cgst": _alt_num(
+            _alt_row_get(row, "CGST", "cgst", "camt", "Central Tax")
+        ),
+        "sgst": _alt_num(
+            _alt_row_get(row, "SGST", "sgst", "samt", "State/UT Tax")
+        ),
+        "cess": _alt_num(
+            _alt_row_get(row, "CESS", "cess", "csamt")
+        ),
+        "pos": _alt_pos_code(
+            _alt_row_get(row, "POS", "pos", "Place of Supply", "Place Of Supply")
+        ),
+        "rev": _alt_rc_to_rev(
+            _alt_row_get(
+                row, "RC", "rev", "rchrg", "Reverse Charge",
+                "Applicable % of Tax Rate",
+            )
+        ),
+        "itcavl": str(
+            _alt_row_get(row, "ITC Available", "itcavl", "ITC Availability") or "Y"
+        ).strip().upper()[:1] or "Y",
     }
 
 

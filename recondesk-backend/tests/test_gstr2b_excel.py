@@ -113,3 +113,59 @@ def test_excel_detects_isd_impg_sheets_without_parsing():
     assert result["impg_present"] is True
     assert result["total_parsed"] >= 1
 
+
+def test_gstr2b_excel_handles_gstn_portal_headers_without_sr_column():
+    """GSTN portal GSTR-2B Excel downloads use sheet names like 'B2B', 'B2B-CDNR' and column headers
+    like 'GSTIN of Supplier', 'Trade/Legal Name of Supplier', 'Invoice Number', etc. without an 'Sr' column.
+    """
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "GSTIN of Supplier": "27AABCT1332L1ZV",
+                    "Trade/Legal Name of Supplier": "MAHARASHTRA LOGISTICS",
+                    "Invoice Number": "INV-2026-001",
+                    "Invoice Date": "15-06-2026",
+                    "Invoice Value": 11800.0,
+                    "Taxable Value": 10000.0,
+                    "Integrated Tax": 0.0,
+                    "Central Tax": 900.0,
+                    "State/UT Tax": 900.0,
+                    "Reverse Charge": "Y",
+                }
+            ]
+        ).to_excel(writer, sheet_name="B2B", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "GSTIN of Supplier": "27AABCT1332L1ZV",
+                    "Trade/Legal Name of Supplier": "MAHARASHTRA LOGISTICS",
+                    "Document Number": "CN-2026-001",
+                    "Document Date": "20-06-2026",
+                    "Document Type": "Credit Note",
+                    "Taxable Value": 1000.0,
+                    "Central Tax": 90.0,
+                    "State/UT Tax": 90.0,
+                }
+            ]
+        ).to_excel(writer, sheet_name="B2B-CDNR", index=False)
+
+    raw = buf.getvalue()
+    portal = parse_2b_excel(raw, "GSTR2B_27ISKPK1273H1ZF_2026-06.xlsx", fallback_buyer_gstin="27ISKPK1273H1ZF")
+    result = parse_gstr2b(portal)
+
+    assert result["total_parsed"] == 2
+    assert result["total_skipped"] == 0
+    records = result["records"]
+    inv = next(r for r in records if r["doc_type"] == "INVOICE")
+    assert inv["supplier_gstin"] == "27AABCT1332L1ZV"
+    assert inv["invoice_number_raw"] == "INV-2026-001"
+    assert inv["reverse_charge"] is True
+    cn = next(r for r in records if r["doc_type"] == "CREDIT_NOTE")
+    assert cn["invoice_number_raw"] == "CN-2026-001"
+
+
