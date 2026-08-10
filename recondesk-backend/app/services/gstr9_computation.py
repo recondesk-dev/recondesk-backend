@@ -30,6 +30,30 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
+def _ensure_table_exists(conn: Any) -> None:
+    import sqlalchemy as sa
+    conn.execute(
+        sa.text(
+            """
+            CREATE TABLE IF NOT EXISTS public.gstr9_audit_overrides (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                client_gstin_id UUID NOT NULL REFERENCES public.client_gstins(id) ON DELETE CASCADE,
+                financial_year TEXT NOT NULL,
+                table_key TEXT NOT NULL,
+                cell_key TEXT NOT NULL,
+                system_value NUMERIC(15, 2) DEFAULT 0.00,
+                override_value NUMERIC(15, 2) NOT NULL,
+                notes TEXT,
+                updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+                CONSTRAINT uq_gstr9_override_cell UNIQUE (client_gstin_id, financial_year, table_key, cell_key)
+            );
+            """
+        )
+    )
+    conn.commit()
+
+
 def load_gstr9_overrides(sb: Client, client_gstin_id: str, fy: str) -> dict[str, float]:
     """Load existing CA audit overrides for a client and FY as key-value pairs."""
     try:
@@ -52,6 +76,7 @@ def load_gstr9_overrides(sb: Client, client_gstin_id: str, fy: str) -> dict[str,
             if db_url:
                 eng = sa.create_engine(db_url)
                 with eng.connect() as conn:
+                    _ensure_table_exists(conn)
                     res = conn.execute(
                         sa.text(
                             "SELECT table_key, cell_key, override_value FROM public.gstr9_audit_overrides "

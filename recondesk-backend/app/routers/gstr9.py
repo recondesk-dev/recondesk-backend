@@ -114,6 +114,28 @@ async def save_gstr9_audit_overrides(
             if db_url:
                 eng = sa.create_engine(db_url)
                 with eng.connect() as conn:
+                    # Self-healing DDL: ensure table exists before insert
+                    conn.execute(
+                        sa.text(
+                            """
+                            CREATE TABLE IF NOT EXISTS public.gstr9_audit_overrides (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                client_gstin_id UUID NOT NULL REFERENCES public.client_gstins(id) ON DELETE CASCADE,
+                                financial_year TEXT NOT NULL,
+                                table_key TEXT NOT NULL,
+                                cell_key TEXT NOT NULL,
+                                system_value NUMERIC(15, 2) DEFAULT 0.00,
+                                override_value NUMERIC(15, 2) NOT NULL,
+                                notes TEXT,
+                                updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+                                updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+                                CONSTRAINT uq_gstr9_override_cell UNIQUE (client_gstin_id, financial_year, table_key, cell_key)
+                            );
+                            """
+                        )
+                    )
+                    conn.commit()
+
                     for item in body.overrides:
                         conn.execute(
                             sa.text(
