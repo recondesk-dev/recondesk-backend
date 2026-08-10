@@ -15,6 +15,7 @@ import {
   Layers,
   ShieldCheck,
   RefreshCw,
+  X,
 } from "lucide-react";
 
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
@@ -31,6 +32,7 @@ import {
   type Gstr9Computation,
   type Gstr9cReconciliation,
   type AuditOverrideInput,
+  type PeriodSyncDetail,
 } from "@/lib/gstr9Api";
 
 const FY_OPTIONS = ["2025-26", "2024-25", "2023-24"];
@@ -50,6 +52,7 @@ export default function Gstr9WorkspacePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncDetails, setSyncDetails] = useState<PeriodSyncDetail[] | null>(null);
   const [downloadingG9, setDownloadingG9] = useState(false);
   const [downloadingG9c, setDownloadingG9c] = useState(false);
 
@@ -142,6 +145,7 @@ export default function Gstr9WorkspacePage() {
     try {
       const res = await syncGstr9PortalData(clientId, selectedFy, token);
       setComp(res.computation);
+      setSyncDetails(res.period_details);
       toast(`Synced ${res.synced_periods_count} of 12 periods directly from GST Portal`, "success");
     } catch (err: any) {
       toast(err?.detail || "Failed to sync GST Portal data", "error");
@@ -483,6 +487,78 @@ export default function Gstr9WorkspacePage() {
                   {formatINR(g9c?.part_v_auditor_recommendation.total_recommended_payment || 0)}
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 12-Month Portal Sync Diagnostics Modal */}
+      {syncDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">FY {selectedFy} GST Portal Sync Report</h3>
+                <p className="text-xs text-gray-500">Per-period diagnostic breakdown for 12 tax periods</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSyncDetails(null)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto p-6 space-y-3">
+              {syncDetails.map((item) => (
+                <div
+                  key={item.period}
+                  className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-gray-50 p-4 transition hover:bg-white hover:shadow-sm"
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${
+                        item.status === "synced"
+                          ? "bg-green-100 text-green-800"
+                          : item.status === "missing"
+                          ? "bg-red-100 text-red-800"
+                          : "bg-amber-100 text-amber-800"
+                      }`}
+                    >
+                      {item.status === "synced"
+                        ? "Synced"
+                        : item.status === "missing"
+                        ? "No Portal Data"
+                        : "Partial Sync"}
+                    </span>
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-900">{item.month_label}</h4>
+                      <p className="text-xs text-gray-600 mt-0.5">{item.reason}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-xs font-semibold text-gray-500">
+                    <span className={item.has_2b ? "text-green-700 font-bold" : "text-gray-400"}>
+                      2B {item.has_2b ? "✓" : "✗"}
+                    </span>
+                    <span>•</span>
+                    <span className={item.has_3b ? "text-green-700 font-bold" : "text-gray-400"}>
+                      3B {item.has_3b ? "✓" : "✗"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t border-gray-200 bg-gray-50 px-6 py-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSyncDetails(null)}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+              >
+                Close Diagnostic Report
+              </button>
             </div>
           </div>
         </div>

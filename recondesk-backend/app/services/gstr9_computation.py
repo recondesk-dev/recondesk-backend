@@ -227,38 +227,111 @@ def compute_gstr9(sb: Client, client_gstin_id: str, fy: str) -> dict[str, Any]:
 
 def sync_full_year_portal_data(sb: Client, client_gstin_id: str, fy: str) -> dict[str, Any]:
     """Sync 12 periods of GSTR-1, GSTR-2B, and GSTR-3B data from GST portal via API."""
+    from app.services.gstr9c_itc_fy_rollup import (
+        select_latest_runs_with_summary,
+        fetch_gstr3b_by_period_for_gstin,
+        period_month_label,
+        normalize_period_yyyy_mm,
+    )
+
     start_year, _ = parse_fy_label(fy)
     periods = fy_periods(start_year)
+    period_set = set(periods)
 
+    # 1. Fetch client GSTIN
+    cg = (
+        sb.table("client_gstins")
+        .select("id, gstin")
+        .eq("id", client_gstin_id)
+        .limit(1)
+        .execute()
+    )
+    gstin = str(cg.data[0].get("gstin") or "").strip() if (cg.data and len(cg.data) > 0) else ""
+
+    # 2. Fetch latest 2B reconciliation runs
+    runs = select_latest_runs_with_summary(sb, client_gstin_id)
+    runs_by_period: dict[str, dict[str, Any]] = {}
+    for r in runs:
+        p_norm = normalize_period_yyyy_mm(r.get("period"))
+        if p_norm in period_set:
+            runs_by_period[p_norm] = r
+
+    # 3. Fetch 3B uploads
+    g3b_by_period = fetch_gstr3b_by_period_for_gstin(sb, gstin=gstin, periods=period_set) if gstin else {}
+
+    # 4. Fetch filing sessions
+    filing_sessions_by_period: dict[str, dict[str, Any]] = {}
+    try:
+        fs_res = (
+            sb.table("gstr3b_filing_sessions")
+            .select("id, period, status")
+            .eq("client_gstin_id", client_gstin_id)
+            .execute()
+        )
+        for fs in fs_res.data or []:
+            p_norm = normalize_period_yyyy_mm(fs.get("period"))
+            if p_norm in period_set:
+                filing_sessions_by_period[p_norm] = fs
+    except Exception as exc:
+        logger.warning("Filing sessions lookup warning for %s: %s", client_gstin_id, exc)
+
+    period_details: list[dict[str, Any]] = []
+    synced_count = 0
     synced_periods = []
     failed_periods = []
 
     for p in periods:
-        try:
-            # Check for live GST portal filing session or existing data
-            res = (
-                sb.table("gstr3b_filing_sessions")
-                .select("id, status")
-                .eq("client_gstin_id", client_gstin_id)
-                .eq("period", p)
-                .limit(1)
-                .execute()
-            )
-            if res.data:
-                synced_periods.append(p)
-            else:
-                synced_periods.append(p)
-        except Exception as exc:
-            logger.warning("Portal sync check error for period %s: %s", p, exc)
+        has_2b = p in runs_by_period
+        has_3b = p in g3b_by_period
+        has_session = p in filing_sessions_by_period
+        mlabel = period_month_label(p)
+
+        if has_2b and has_3b:
+            status = "synced"
+            reason = f"GSTR-2B reconciliation & GSTR-3B return synced for {mlabel}"
+            synced_count += 1
+            synced_periods.append(p)
+        elif has_2b:
+            status = "partial_2b"
+            reason = f"GSTR-2B reconciliation available; GSTR-3B return missing for {mlabel}"
+            synced_count += 1
+            synced_periods.append(p)
+        elif has_3b:
+            status = "partial_3b"
+            reason = f"GSTR-3B return available; GSTR-2B reconciliation run missing for {mlabel}"
+            synced_count += 1
+            synced_periods.append(p)
+        elif has_session:
+            status = "partial_session"
+            reason = f"GST Portal filing session active (status: {filing_sessions_by_period[p].get('status', 'pending')}) for {mlabel}"
+            synced_count += 1
+            synced_periods.append(p)
+        else:
+            status = "missing"
+            reason = f"No GST Portal filing session or uploaded returns found for {mlabel}"
             failed_periods.append(p)
 
+        period_details.append(
+            {
+                "period": p,
+                "month_label": mlabel,
+                "status": status,
+                "has_2b": has_2b,
+                "has_3b": has_3b,
+                "has_session": has_session,
+                "reason": reason,
+            }
+        )
+
     comp = compute_gstr9(sb, client_gstin_id, fy)
+
     return {
         "financial_year": fy,
         "total_periods": len(periods),
-        "synced_periods_count": len(synced_periods),
+        "synced_periods_count": synced_count,
         "synced_periods": synced_periods,
         "failed_periods": failed_periods,
+        "period_details": period_details,
         "computation": comp,
     }
 

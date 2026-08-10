@@ -195,6 +195,16 @@ export async function downloadGstr9cJson(
   return res.blob();
 }
 
+export interface PeriodSyncDetail {
+  period: string;
+  month_label: string;
+  status: "synced" | "partial_2b" | "partial_3b" | "partial_session" | "missing";
+  has_2b: boolean;
+  has_3b: boolean;
+  has_session: boolean;
+  reason: string;
+}
+
 export async function syncGstr9PortalData(
   clientId: string,
   fy: string,
@@ -205,6 +215,7 @@ export async function syncGstr9PortalData(
   synced_periods_count: number;
   synced_periods: string[];
   failed_periods: string[];
+  period_details: PeriodSyncDetail[];
   computation: Gstr9Computation;
 }> {
   return apiFetch(
