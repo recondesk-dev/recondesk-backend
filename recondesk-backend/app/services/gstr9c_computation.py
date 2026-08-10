@@ -68,12 +68,11 @@ def compute_gstr9c(
     }
 
     # ── Part V: Auditor Recommendation ─────────────────────────────────────────
+    # Auditor recommendations require CA rate-wise tax evaluation; default to 0.00
     auditor_recommendation = {
-        "additional_turnover_tax": max(0.0, turnover_variance * 0.18),
-        "additional_itc_reversal_tax": max(0.0, itc_variance * 0.18),
-        "total_recommended_payment": round(
-            max(0.0, turnover_variance * 0.18) + max(0.0, itc_variance * 0.18), 2
-        ),
+        "additional_turnover_tax": 0.0,
+        "additional_itc_reversal_tax": 0.0,
+        "total_recommended_payment": 0.0,
     }
 
     return {
