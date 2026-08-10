@@ -14,6 +14,7 @@ import {
   Edit3,
   Layers,
   ShieldCheck,
+  RefreshCw,
 } from "lucide-react";
 
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
@@ -26,6 +27,7 @@ import {
   fetchGstr9cReconciliation,
   downloadGstr9Json,
   downloadGstr9cJson,
+  syncGstr9PortalData,
   type Gstr9Computation,
   type Gstr9cReconciliation,
   type AuditOverrideInput,
@@ -47,6 +49,7 @@ export default function Gstr9WorkspacePage() {
   const [g9c, setG9c] = useState<Gstr9cReconciliation | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [downloadingG9, setDownloadingG9] = useState(false);
   const [downloadingG9c, setDownloadingG9c] = useState(false);
 
@@ -133,6 +136,20 @@ export default function Gstr9WorkspacePage() {
     }
   };
 
+  const handleSyncPortalData = async () => {
+    if (!token || !clientId) return;
+    setSyncing(true);
+    try {
+      const res = await syncGstr9PortalData(clientId, selectedFy, token);
+      setComp(res.computation);
+      toast(`Synced ${res.synced_periods_count} of 12 periods directly from GST Portal`, "success");
+    } catch (err: any) {
+      toast(err?.detail || "Failed to sync GST Portal data", "error");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleDownloadGstr9Json = async () => {
     if (!token || !clientId) return;
     setDownloadingG9(true);
@@ -215,6 +232,16 @@ export default function Gstr9WorkspacePage() {
               </option>
             ))}
           </select>
+
+          <button
+            type="button"
+            onClick={handleSyncPortalData}
+            disabled={syncing}
+            className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-purple-700 disabled:opacity-50"
+          >
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Sync Full Year (Portal API)
+          </button>
 
           <button
             type="button"

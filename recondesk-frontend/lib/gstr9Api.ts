@@ -194,3 +194,24 @@ export async function downloadGstr9cJson(
   if (!res.ok) throw new Error("Failed to download GSTR-9C JSON");
   return res.blob();
 }
+
+export async function syncGstr9PortalData(
+  clientId: string,
+  fy: string,
+  token: string
+): Promise<{
+  financial_year: string;
+  total_periods: number;
+  synced_periods_count: number;
+  synced_periods: string[];
+  failed_periods: string[];
+  computation: Gstr9Computation;
+}> {
+  return apiFetch(
+    `/api/gstr9/clients/${clientId}/portal-sync?fy=${encodeURIComponent(fy)}`,
+    {
+      method: "POST",
+      token,
+    }
+  );
+}

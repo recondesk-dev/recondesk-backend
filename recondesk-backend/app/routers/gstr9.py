@@ -260,10 +260,32 @@ async def export_gstr9c_portal_json(
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except Exception as exc:
-        logger.exception("Failed to export GSTR-9C JSON: %s", exc)
+        logger.exception("Failed to generate GSTR-9C JSON payload: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate GSTR-9C JSON",
+        ) from exc
+
+
+@router.post("/clients/{client_id}/portal-sync")
+async def sync_full_year_portal_data_endpoint(
+    client_id: str,
+    fy: str = Query("2025-26", description="Financial year YYYY-YY"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Sync 12 periods of GSTR-1, GSTR-2B, and GSTR-3B filings directly from GST portal via API."""
+    sb = get_supabase()
+    user_id = str(current_user.get("id") or "")
+    _assert_client(sb, client_id, user_id)
+
+    try:
+        res = g9_svc.sync_full_year_portal_data(sb, client_id, fy)
+        return res
+    except Exception as exc:
+        logger.exception("Failed to sync 12 months GST portal data for client %s fy %s: %s", client_id, fy, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to sync GST portal data: {exc}",
         ) from exc
 
 

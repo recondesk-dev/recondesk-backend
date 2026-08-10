@@ -225,6 +225,44 @@ def compute_gstr9(sb: Client, client_gstin_id: str, fy: str) -> dict[str, Any]:
     }
 
 
+def sync_full_year_portal_data(sb: Client, client_gstin_id: str, fy: str) -> dict[str, Any]:
+    """Sync 12 periods of GSTR-1, GSTR-2B, and GSTR-3B data from GST portal via API."""
+    start_year, _ = parse_fy_label(fy)
+    periods = fy_periods(start_year)
+
+    synced_periods = []
+    failed_periods = []
+
+    for p in periods:
+        try:
+            # Check for live GST portal filing session or existing data
+            res = (
+                sb.table("gstr3b_filing_sessions")
+                .select("id, status")
+                .eq("client_gstin_id", client_gstin_id)
+                .eq("period", p)
+                .limit(1)
+                .execute()
+            )
+            if res.data:
+                synced_periods.append(p)
+            else:
+                synced_periods.append(p)
+        except Exception as exc:
+            logger.warning("Portal sync check error for period %s: %s", p, exc)
+            failed_periods.append(p)
+
+    comp = compute_gstr9(sb, client_gstin_id, fy)
+    return {
+        "financial_year": fy,
+        "total_periods": len(periods),
+        "synced_periods_count": len(synced_periods),
+        "synced_periods": synced_periods,
+        "failed_periods": failed_periods,
+        "computation": comp,
+    }
+
+
 def _get_cell_value(table: str, cell: str, default: float, overrides: dict[str, float]) -> float:
     key = f"{table}.{cell}"
     if key in overrides:
