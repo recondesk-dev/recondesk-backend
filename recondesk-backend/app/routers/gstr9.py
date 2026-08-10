@@ -89,21 +89,56 @@ async def save_gstr9_audit_overrides(
     updater_uuid = user_id if (user_id and len(user_id) == 36) else None
 
     try:
-        for item in body.overrides:
-            row = {
-                "client_gstin_id": client_id,
-                "financial_year": fy,
-                "table_key": item.table_key.strip(),
-                "cell_key": item.cell_key.strip(),
-                "override_value": item.override_value,
-                "notes": item.notes,
-            }
-            if updater_uuid:
-                row["updated_by"] = updater_uuid
+        try:
+            for item in body.overrides:
+                row = {
+                    "client_gstin_id": client_id,
+                    "financial_year": fy,
+                    "table_key": item.table_key.strip(),
+                    "cell_key": item.cell_key.strip(),
+                    "override_value": item.override_value,
+                    "notes": item.notes,
+                }
+                if updater_uuid:
+                    row["updated_by"] = updater_uuid
 
-            sb.table("gstr9_audit_overrides").upsert(
-                row, on_conflict="client_gstin_id,financial_year,table_key,cell_key"
-            ).execute()
+                sb.table("gstr9_audit_overrides").upsert(
+                    row, on_conflict="client_gstin_id,financial_year,table_key,cell_key"
+                ).execute()
+        except Exception as postgrest_exc:
+            logger.warning("Supabase PostgREST upsert failed, executing via direct SQL fallback: %s", postgrest_exc)
+            from app.config import get_settings
+            import sqlalchemy as sa
+            s = get_settings()
+            db_url = s.SUPABASE_DATABASE_URL or s.DATABASE_URL
+            if db_url:
+                eng = sa.create_engine(db_url)
+                with eng.connect() as conn:
+                    for item in body.overrides:
+                        conn.execute(
+                            sa.text(
+                                """
+                                INSERT INTO public.gstr9_audit_overrides
+                                (client_gstin_id, financial_year, table_key, cell_key, override_value, notes, updated_by)
+                                VALUES (:cid, :fy, :tk, :ck, :ov, :notes, :ub)
+                                ON CONFLICT (client_gstin_id, financial_year, table_key, cell_key)
+                                DO UPDATE SET override_value = EXCLUDED.override_value, notes = EXCLUDED.notes, updated_at = NOW();
+                                """
+                            ),
+                            {
+                                "cid": client_id,
+                                "fy": fy,
+                                "tk": item.table_key.strip(),
+                                "ck": item.cell_key.strip(),
+                                "ov": item.override_value,
+                                "notes": item.notes,
+                                "ub": updater_uuid,
+                            },
+                        )
+                    # Notify PostgREST to reload schema
+                    conn.execute(sa.text("NOTIFY pgrst, 'reload schema';"))
+                    conn.commit()
+                eng.dispose()
 
         comp = g9_svc.compute_gstr9(sb, client_id, fy)
         return comp

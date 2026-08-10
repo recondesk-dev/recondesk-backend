@@ -43,7 +43,27 @@ def load_gstr9_overrides(sb: Client, client_gstin_id: str, fy: str) -> dict[str,
         rows = res.data or []
         return {f"{r['table_key']}.{r['cell_key']}": float(r['override_value']) for r in rows}
     except Exception as exc:
-        logger.warning("Failed to load GSTR-9 overrides: %s", exc)
+        logger.warning("Supabase PostgREST query failed for gstr9_audit_overrides, trying direct SQL: %s", exc)
+        try:
+            from app.config import get_settings
+            import sqlalchemy as sa
+            s = get_settings()
+            db_url = s.SUPABASE_DATABASE_URL or s.DATABASE_URL
+            if db_url:
+                eng = sa.create_engine(db_url)
+                with eng.connect() as conn:
+                    res = conn.execute(
+                        sa.text(
+                            "SELECT table_key, cell_key, override_value FROM public.gstr9_audit_overrides "
+                            "WHERE client_gstin_id = :cid AND financial_year = :fy"
+                        ),
+                        {"cid": client_gstin_id, "fy": fy},
+                    )
+                    rows = res.mappings().all()
+                    eng.dispose()
+                    return {f"{r['table_key']}.{r['cell_key']}": float(r['override_value']) for r in rows}
+        except Exception as sql_exc:
+            logger.warning("Direct SQL fallback failed for load_gstr9_overrides: %s", sql_exc)
         return {}
 
 
