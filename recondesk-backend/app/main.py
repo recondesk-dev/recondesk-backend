@@ -56,6 +56,7 @@ from app.routers.einvoice_recon import router as einvoice_recon_router
 from app.routers.filing import router as filing_router
 from app.routers.tally_sync import router as tally_sync_router
 from app.routers.multi_period_wizard import router as multi_period_wizard_router
+from app.routers.gstr9 import router as gstr9_router
 from app.routers.billing import masters as billing_masters_router
 from app.routers.billing import invoices as billing_invoices_router
 from app.routers.billing import irp as billing_irp_router
@@ -545,6 +546,17 @@ app.include_router(
     prefix="/api/tally-sync",
     tags=["Tally Bridge"],
 )
+app.include_router(
+    gstr9_router,
+    prefix="/api/gstr9",
+    tags=["GSTR-9 & GSTR-9C"],
+)
+app.include_router(
+    gstr9_router,
+    prefix="/api/gstr9c",
+    tags=["GSTR-9 & GSTR-9C"],
+)
+
 
 
 # ── Core endpoints ────────────────────────────────────────────────────────────
