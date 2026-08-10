@@ -5377,6 +5377,16 @@ async def reconcile_run_rcm_tie_out(
         pr_map = ro.load_pr_map(sb, rid)
         pr_records = list(pr_map.values()) if pr_map else []
 
+        # Resolve client GSTIN
+        client_gstin = str(run_row.get("client_gstin") or "")
+        if not client_gstin and run_row.get("client_id"):
+            try:
+                c_res = sb.table("clients").select("gstin").eq("id", run_row["client_id"]).limit(1).execute()
+                if c_res.data:
+                    client_gstin = str(c_res.data[0].get("gstin") or "")
+            except Exception as exc:
+                _log.debug("Could not fetch client GSTIN for RCM tie-out: %s", exc)
+
         # Load GSTR-3B data (from gstr3b_reconciliation or payload)
         g3b_raw = None
         try:
@@ -5396,8 +5406,8 @@ async def reconcile_run_rcm_tie_out(
         if not g3b_raw:
             p = ro.load_payload(sb, rid)
             g3b_raw = p.get("gstr3b") or p.get("raw_gstr3b") or {
-                "gstin": str(run_row.get("client_gstin") or p.get("gstin") or ""),
-                "ret_period": str(run_row.get("period") or p.get("period") or "2026-05"),
+                "gstin": client_gstin or str(p.get("gstin") or ""),
+                "ret_period": str(run_row.get("period") or p.get("period") or ""),
             }
 
         g3b_extracted = extract_gstr3b_rcm_data(g3b_raw)

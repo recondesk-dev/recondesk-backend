@@ -136,11 +136,21 @@ def extract_gstr3b_rcm_data(raw_or_parsed_3b: Mapping[str, Any]) -> GSTR3BRCMDat
     Extract Table 3.1(d) and Table 4(A)(3) RCM figures from GSTR-3B payload.
 
     Accepts raw GSTN JSON payload or normalized output from parse_gstr3b().
+    Returns zeroed GSTR3BRCMData if payload is empty, invalid, or unparseable.
     """
+    if not raw_or_parsed_3b:
+        return GSTR3BRCMData(gstin="", period="")
+
     if "isup_rev" in raw_or_parsed_3b and "itc_avl_by_source" in raw_or_parsed_3b:
         parsed = dict(raw_or_parsed_3b)
     else:
-        parsed = parse_gstr3b(dict(raw_or_parsed_3b))
+        try:
+            parsed = parse_gstr3b(dict(raw_or_parsed_3b))
+        except Exception as exc:
+            logger.warning("GSTR-3B parsing failed during RCM extraction: %s", exc)
+            gstin = str(raw_or_parsed_3b.get("gstin") or "").strip().upper()
+            period = str(raw_or_parsed_3b.get("ret_period") or raw_or_parsed_3b.get("period") or "")
+            return GSTR3BRCMData(gstin=gstin, period=period)
 
     gstin = str(parsed.get("gstin", "")).strip().upper()
     period = str(parsed.get("ret_period", ""))
