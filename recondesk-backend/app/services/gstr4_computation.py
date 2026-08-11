@@ -470,6 +470,12 @@ def compute_gstr4(
     rcm_inward_taxable_sys = table5["rcm_taxable"]["effective_value"]
     rcm_inward_tax_sys = table5["rcm_tax"]["effective_value"]
 
+    rcm_total_tax = rcm_inward_tax_sys if rcm_inward_tax_sys > 0 else table5["rcm_tax"]["effective_value"]
+    rcm_igst_val = table5["igst"]["effective_value"]
+    rcm_intra_tax = max(0.0, rcm_total_tax - rcm_igst_val)
+    rcm_cgst_val = round(rcm_intra_tax / 2.0, 2)
+    rcm_sgst_val = round(rcm_intra_tax / 2.0, 2)
+
     table6 = {
         "composition_category": category_key,
         "category_label": rate_info["label"],
@@ -489,17 +495,9 @@ def compute_gstr4(
             "tax_total": resolve_cell("table6", "rcm_tax_total", rcm_inward_tax_sys),
         },
         "total_tax_payable": {
-            "igst": resolve_cell("table6", "total_igst", table5["igst"]["effective_value"]),
-            "cgst": resolve_cell(
-                "table6",
-                "total_cgst",
-                round(outward_cgst_sys + (table5["cgst"]["effective_value"] / 2.0 if rcm_inward_tax_sys > 0 else 0.0), 2),
-            ),
-            "sgst": resolve_cell(
-                "table6",
-                "total_sgst",
-                round(outward_sgst_sys + (table5["sgst"]["effective_value"] / 2.0 if rcm_inward_tax_sys > 0 else 0.0), 2),
-            ),
+            "igst": resolve_cell("table6", "total_igst", rcm_igst_val),
+            "cgst": resolve_cell("table6", "total_cgst", round(outward_cgst_sys + rcm_cgst_val, 2)),
+            "sgst": resolve_cell("table6", "total_sgst", round(outward_sgst_sys + rcm_sgst_val, 2)),
             "cess": resolve_cell("table6", "total_cess", table5["cess"]["effective_value"]),
         },
     }

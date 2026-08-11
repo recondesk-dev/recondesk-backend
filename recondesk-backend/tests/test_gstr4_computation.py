@@ -160,3 +160,76 @@ def test_gstr4_due_date_and_late_fee_caps():
     comp_old = compute_gstr4(mock_sb, "11111111-1111-1111-1111-111111111111", "2023-24", "trader")
     assert comp_old["tables"]["table8"]["due_date"] == "2024-04-30"
 
+
+def test_gstr4_service_provider_6_percent_rate_math():
+    mock_sb = MagicMock()
+    mock_sb.table().select().eq().execute.return_value.data = []
+    mock_sb.table().select().eq().eq().execute.return_value.data = []
+    mock_sb.table().select().eq().in_().execute.return_value.data = []
+
+    comp = compute_gstr4(mock_sb, "11111111-1111-1111-1111-111111111111", "2025-26", "service")
+    assert comp["composition_category"] == "service"
+    table6 = comp["tables"]["table6"]
+    assert table6["rate_percentages"]["total_rate"] == 6.0
+    assert table6["rate_percentages"]["cgst_rate"] == 3.0
+    assert table6["rate_percentages"]["sgst_rate"] == 3.0
+
+
+def test_gstr4_multi_quarter_aggregation_full_year():
+    mock_sb = MagicMock()
+    cmp08_data = [
+        {"quarter": "Q1", "outward_taxable": 250000.0, "outward_tax": 2500.0, "rcm_taxable": 0.0, "rcm_tax": 0.0, "igst": 0.0, "cgst": 1250.0, "sgst": 1250.0, "cess": 0.0, "interest": 0.0, "late_fee": 0.0},
+        {"quarter": "Q2", "outward_taxable": 300000.0, "outward_tax": 3000.0, "rcm_taxable": 0.0, "rcm_tax": 0.0, "igst": 0.0, "cgst": 1500.0, "sgst": 1500.0, "cess": 0.0, "interest": 0.0, "late_fee": 0.0},
+        {"quarter": "Q3", "outward_taxable": 200000.0, "outward_tax": 2000.0, "rcm_taxable": 0.0, "rcm_tax": 0.0, "igst": 0.0, "cgst": 1000.0, "sgst": 1000.0, "cess": 0.0, "interest": 0.0, "late_fee": 0.0},
+        {"quarter": "Q4", "outward_taxable": 250000.0, "outward_tax": 2500.0, "rcm_taxable": 0.0, "rcm_tax": 0.0, "igst": 0.0, "cgst": 1250.0, "sgst": 1250.0, "cess": 0.0, "interest": 0.0, "late_fee": 0.0},
+    ]
+
+    def mock_table(table_name):
+        query_mock = MagicMock()
+        if table_name == "gstr4_cmp08_records":
+            query_mock.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = cmp08_data
+        else:
+            query_mock.select.return_value.eq.return_value.execute.return_value.data = []
+            query_mock.select.return_value.eq.return_value.in_().execute.return_value.data = []
+        return query_mock
+
+    mock_sb.table.side_effect = mock_table
+
+    comp = compute_gstr4(mock_sb, "11111111-1111-1111-1111-111111111111", "2025-26", "trader")
+    kpi = comp["kpi_summary"]
+    assert kpi["outward_turnover"] == 1000000.0 # ₹10,00,000 annual turnover
+    assert kpi["total_tax_payable"] == 10000.0  # ₹10,000 tax (1%)
+    assert kpi["cmp08_tax_paid"] == 10000.0    # ₹10,000 paid in CMP-08
+    assert kpi["balance_cash_payable"] == 0.0   # Fully reconciled
+    assert comp["tables"]["table8"]["is_nil_return"] is False
+    assert comp["tables"]["table8"]["late_fee_cap"] == 2000.0
+
+
+def test_gstr4_inward_rcm_tax_flow_to_table8():
+    mock_sb = MagicMock()
+    # Mock CMP-08 with RCM tax in Q1
+    cmp08_data = [
+        {"quarter": "Q1", "outward_taxable": 100000.0, "outward_tax": 1000.0, "rcm_taxable": 50000.0, "rcm_tax": 9000.0, "igst": 9000.0, "cgst": 500.0, "sgst": 500.0, "cess": 0.0, "interest": 0.0, "late_fee": 0.0},
+        {"quarter": "Q2", "outward_taxable": 0.0, "outward_tax": 0.0, "rcm_taxable": 0.0, "rcm_tax": 0.0, "igst": 0.0, "cgst": 0.0, "sgst": 0.0, "cess": 0.0, "interest": 0.0, "late_fee": 0.0},
+        {"quarter": "Q3", "outward_taxable": 0.0, "outward_tax": 0.0, "rcm_taxable": 0.0, "rcm_tax": 0.0, "igst": 0.0, "cgst": 0.0, "sgst": 0.0, "cess": 0.0, "interest": 0.0, "late_fee": 0.0},
+        {"quarter": "Q4", "outward_taxable": 0.0, "outward_tax": 0.0, "rcm_taxable": 0.0, "rcm_tax": 0.0, "igst": 0.0, "cgst": 0.0, "sgst": 0.0, "cess": 0.0, "interest": 0.0, "late_fee": 0.0},
+    ]
+
+    def mock_table(table_name):
+        query_mock = MagicMock()
+        if table_name == "gstr4_cmp08_records":
+            query_mock.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = cmp08_data
+        else:
+            query_mock.select.return_value.eq.return_value.execute.return_value.data = []
+            query_mock.select.return_value.eq.return_value.in_().execute.return_value.data = []
+        return query_mock
+
+    mock_sb.table.side_effect = mock_table
+
+    comp = compute_gstr4(mock_sb, "11111111-1111-1111-1111-111111111111", "2025-26", "trader")
+    t6 = comp["tables"]["table6"]
+    # Total tax payable should include both outward composition tax (1,000) and inward RCM tax (9,000)
+    assert t6["inward_rcm_supplies"]["taxable_value"]["effective_value"] == 50000.0
+    assert comp["kpi_summary"]["total_tax_payable"] == 10000.0
+
+
