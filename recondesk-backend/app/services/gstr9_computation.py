@@ -319,21 +319,35 @@ def fetch_live_portal_api(sb: Client, client_gstin_id: str, fy: str) -> dict[str
     start_year, _ = parse_fy_label(fy)
     periods = fy_periods(start_year)
 
-    # 1. Look for active taxpayer session / token
+    # 1. Look for active taxpayer session / token from client_gstins table
     auth_token = None
     try:
-        sess_res = (
-            sb.table("gstr3b_filing_sessions")
-            .select("auth_token, token_expires_at, gstin")
-            .eq("client_gstin_id", client_gstin_id)
-            .order("created_at", desc=True)
+        cg_res = (
+            sb.table("client_gstins")
+            .select("gstn_access_token, gstin")
+            .eq("id", client_gstin_id)
             .limit(1)
             .execute()
         )
-        if sess_res.data:
-            auth_token = str(sess_res.data[0].get("auth_token") or "").strip() or None
+        if cg_res.data and cg_res.data[0].get("gstn_access_token"):
+            auth_token = str(cg_res.data[0].get("gstn_access_token") or "").strip() or None
     except Exception as exc:
-        logger.warning("Auth session lookup warning: %s", exc)
+        logger.warning("client_gstins token lookup warning: %s", exc)
+
+    if not auth_token:
+        try:
+            sess_res = (
+                sb.table("gstr3b_filing_sessions")
+                .select("auth_token, token_expires_at, gstin")
+                .eq("client_gstin_id", client_gstin_id)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if sess_res.data:
+                auth_token = str(sess_res.data[0].get("auth_token") or "").strip() or None
+        except Exception as exc:
+            logger.warning("Auth session lookup warning: %s", exc)
 
     period_details: list[dict[str, Any]] = []
     live_success_count = 0
