@@ -361,7 +361,7 @@ export default function ClientDetailPage() {
                   </span>
                 </Link>
                 <Link
-                  href="/filing/gstr-4"
+                  href={id ? `/filing/gstr-4?client_id=${id}` : "/filing/gstr-4"}
                   title="Composition Scheme Annual Return"
                   className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[#F5F5F6] px-4 py-3 text-left ring-1 ring-[#F0F0F0] transition-colors hover:bg-gray-200/70"
                 >

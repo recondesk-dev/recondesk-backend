@@ -1,14 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import useSWR from "swr";
+import { useSearchParams } from "next/navigation";
 import {
   Calculator,
-  Download,
   Save,
   AlertTriangle,
   CheckCircle2,
-  HelpCircle,
   FileJson,
   Edit3,
   RefreshCw,
@@ -18,7 +17,8 @@ import {
   Percent,
   Layers,
 } from "lucide-react";
-import { gstr4Api, Gstr4ComputationResponse, Cmp08Record } from "@/lib/api";
+import { clientsApi, gstr4Api, ClientGstin, Gstr4ComputationResponse, Cmp08Record } from "@/lib/api";
+import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 const COMPOSITION_CATEGORIES = [
   { id: "trader", name: "Trader / Manufacturer", rateLabel: "1.0% (0.5% CGST + 0.5% SGST)", desc: "Taxpayers selling goods under Section 10(1)" },
@@ -28,12 +28,34 @@ const COMPOSITION_CATEGORIES = [
 
 const FINANCIAL_YEARS = ["2025-26", "2024-25", "2023-24"];
 
-export default function Gstr4AnnualReturnPage() {
-  const [clientId, setClientId] = useState<string>("");
-  const [clients, setClients] = useState<Array<{ id: string; gstin: string; legal_name: string }>>([]);
+function Gstr4WorkbenchContent() {
+  const token = useAccessToken();
+  const searchParams = useSearchParams();
+  const initialClientId = searchParams.get("client_id") || searchParams.get("client_gstin_id") || "";
+
+  const [clientId, setClientId] = useState<string>(initialClientId);
   const [financialYear, setFinancialYear] = useState<string>("2025-26");
   const [category, setCategory] = useState<string>("trader");
   const [activeTab, setActiveTab] = useState<"table4" | "table5" | "table6" | "table8" | "overrides">("table6");
+
+  // Fetch client GSTIN list using auth token
+  const { data: clientsData, isLoading: isClientsLoading, error: clientsError } = useSWR<ClientGstin[]>(
+    token ? ["backend-clients-list", token] : null,
+    ([, t]) => clientsApi.list(t as string)
+  );
+
+  const clients = clientsData || [];
+
+  // Auto-select client if query param or list changes
+  useEffect(() => {
+    if (clients.length > 0) {
+      if (initialClientId && clients.some((c) => c.id === initialClientId)) {
+        setClientId(initialClientId);
+      } else if (!clientId || !clients.some((c) => c.id === clientId)) {
+        setClientId(clients[0].id);
+      }
+    }
+  }, [clients, initialClientId, clientId]);
 
   // State for CA Overrides editing
   const [overrideDrafts, setOverrideDrafts] = useState<
@@ -47,33 +69,15 @@ export default function Gstr4AnnualReturnPage() {
   const [cmp08Drafts, setCmp08Drafts] = useState<Cmp08Record[]>([]);
   const [isSavingCmp08, setIsSavingCmp08] = useState(false);
 
-  // Fetch client GSTINs
-  useEffect(() => {
-    async function loadClients() {
-      try {
-        const res = await fetch("/api/clients");
-        if (res.ok) {
-          const data = await res.json();
-          const list = Array.isArray(data) ? data : data.data || [];
-          setClients(list);
-          if (list.length > 0 && !clientId) {
-            setClientId(list[0].id);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load clients:", err);
-      }
-    }
-    loadClients();
-  }, [clientId]);
-
-  // Fetch GSTR-4 computation using SWR
-  const { data: comp, error, isLoading, mutate } = useSWR(
-    clientId ? `gstr4-comp-${clientId}-${financialYear}-${category}` : null,
-    async () => {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-      return await gstr4Api.getComputation(token, clientId, financialYear, category);
-    }
+  // Fetch GSTR-4 computation using SWR with auth token
+  const {
+    data: comp,
+    error,
+    isLoading: isCompLoading,
+    mutate,
+  } = useSWR<Gstr4ComputationResponse>(
+    token && clientId ? ["gstr4-comp", clientId, financialYear, category, token] : null,
+    ([, cid, fy, cat, t]) => gstr4Api.getComputation(t as string, cid as string, fy as string, cat as string)
   );
 
   // Populate CMP-08 modal drafts when data loads
@@ -100,11 +104,10 @@ export default function Gstr4AnnualReturnPage() {
   };
 
   const handleSaveOverrides = async () => {
-    if (!clientId) return;
+    if (!clientId || typeof token !== "string") return;
     setIsSavingOverrides(true);
     setSaveStatus(null);
     try {
-      const token = localStorage.getItem("token") || "";
       const overridesList = Object.values(overrideDrafts);
       await gstr4Api.saveOverrides(token, clientId, financialYear, overridesList);
       setSaveStatus("CA Audit overrides saved successfully!");
@@ -118,10 +121,9 @@ export default function Gstr4AnnualReturnPage() {
   };
 
   const handleSaveCmp08Modal = async () => {
-    if (!clientId) return;
+    if (!clientId || typeof token !== "string") return;
     setIsSavingCmp08(true);
     try {
-      const token = localStorage.getItem("token") || "";
       await gstr4Api.saveCmp08(token, clientId, financialYear, cmp08Drafts);
       setIsCmp08ModalOpen(false);
       await mutate();
@@ -144,8 +146,8 @@ export default function Gstr4AnnualReturnPage() {
 
   return (
     <div className="min-h-screen p-6 font-sans">
-      {/* Top Header & Navigation Banner */}
       <div className="max-w-7xl mx-auto space-y-6">
+        {/* Top Header & Navigation Banner */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white border border-gray-200/80 rounded-2xl p-6 shadow-sm">
           <div>
             <div className="flex items-center gap-3">
@@ -179,7 +181,7 @@ export default function Gstr4AnnualReturnPage() {
               onClick={() => mutate()}
               className="flex items-center gap-2 px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-xl border border-gray-200 transition cursor-pointer"
             >
-              <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
+              <RefreshCw size={16} className={isCompLoading ? "animate-spin" : ""} />
             </button>
           </div>
         </div>
@@ -191,21 +193,26 @@ export default function Gstr4AnnualReturnPage() {
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
               Select Client GSTIN
             </label>
-            <select
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-emerald-600 focus:bg-white transition"
-            >
-              {clients.length === 0 ? (
-                <option value="">No clients found</option>
-              ) : (
-                clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.legal_name || c.gstin} ({c.gstin})
-                  </option>
-                ))
-              )}
-            </select>
+            {isClientsLoading ? (
+              <div className="h-10 bg-gray-100 animate-pulse rounded-xl" />
+            ) : (
+              <select
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-emerald-600 focus:bg-white transition"
+              >
+                {clients.length === 0 ? (
+                  <option value="">No clients found</option>
+                ) : (
+                  clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {(c as any).trade_name || (c as any).legal_name || c.gstin} ({c.gstin})
+                    </option>
+                  ))
+                )}
+              </select>
+            )}
+            {clientsError && <p className="mt-1 text-xs text-red-600">Failed to load clients list.</p>}
           </div>
 
           {/* Financial Year Selection */}
@@ -372,7 +379,7 @@ export default function Gstr4AnnualReturnPage() {
         </div>
 
         {/* Tab Contents */}
-        {isLoading ? (
+        {isCompLoading ? (
           <div className="bg-white border border-gray-200/80 rounded-2xl p-12 text-center text-gray-500">
             <RefreshCw size={28} className="animate-spin mx-auto text-emerald-600 mb-3" />
             Computing Form GSTR-4 annual return figures...
@@ -878,5 +885,13 @@ export default function Gstr4AnnualReturnPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function Gstr4AnnualReturnPage() {
+  return (
+    <Suspense fallback={<div className="p-12 text-center text-sm text-gray-500">Loading GSTR-4 Workbench...</div>}>
+      <Gstr4WorkbenchContent />
+    </Suspense>
   );
 }
