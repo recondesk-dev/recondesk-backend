@@ -57,6 +57,7 @@ from app.routers.filing import router as filing_router
 from app.routers.tally_sync import router as tally_sync_router
 from app.routers.multi_period_wizard import router as multi_period_wizard_router
 from app.routers.gstr9 import router as gstr9_router
+from app.routers.vendor_followup import router as vendor_followup_router
 from app.routers.billing import masters as billing_masters_router
 from app.routers.billing import invoices as billing_invoices_router
 from app.routers.billing import irp as billing_irp_router
@@ -436,6 +437,11 @@ app.include_router(
     vendors.router,
     prefix="/api/vendors",
     tags=["Vendors"],
+)
+app.include_router(
+    vendor_followup_router,
+    prefix="/api/vendors/followup",
+    tags=["Vendor Follow-up"],
 )
 app.include_router(upload.router, prefix="/api/v1/upload", tags=["Upload"])
 app.include_router(upload.public_router, prefix="/upload", tags=["Upload"])
