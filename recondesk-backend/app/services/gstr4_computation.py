@@ -606,6 +606,17 @@ def compute_gstr4(
     }
 
 
+def _val(x: Any) -> float:
+    if isinstance(x, dict):
+        if "effective_value" in x:
+            return float(x["effective_value"] or 0.0)
+        if "system_value" in x:
+            return float(x["system_value"] or 0.0)
+    if isinstance(x, (int, float)):
+        return float(x)
+    return 0.0
+
+
 def build_gstr4_gstn_json(
     sb: Client,
     client_gstin_id: str,
@@ -615,10 +626,44 @@ def build_gstr4_gstn_json(
     """Format Form GSTR-4 computed & overridden values into official GSTN portal JSON schema."""
     comp = compute_gstr4(sb, client_gstin_id, fy, composition_category)
     tables = comp["tables"]
-    tot_rate = tables["table6"]["rate_percentages"]["total_rate"]
-    txval_outward = tables["table6"]["outward_supplies"]["turnover"]["effective_value"]
-    cgst_outward = tables["table6"]["outward_supplies"]["cgst"]["effective_value"]
-    sgst_outward = tables["table6"]["outward_supplies"]["sgst"]["effective_value"]
+    tot_rate = _val(tables["table6"]["rate_percentages"]["total_rate"])
+    txval_outward = _val(tables["table6"]["outward_supplies"]["turnover"])
+    cgst_outward = _val(tables["table6"]["outward_supplies"]["cgst"])
+    sgst_outward = _val(tables["table6"]["outward_supplies"]["sgst"])
+
+    t4 = tables["table4"]
+    b2b_flat = {
+        "txval": _val(t4["4A_registered_non_rcm"]["taxable_value"]),
+        "iamt": _val(t4["4A_registered_non_rcm"]["igst"]),
+        "camt": _val(t4["4A_registered_non_rcm"]["cgst"]),
+        "samt": _val(t4["4A_registered_non_rcm"]["sgst"]),
+        "csamt": _val(t4["4A_registered_non_rcm"]["cess"]),
+    }
+    b2brcm_flat = {
+        "txval": _val(t4["4B_registered_rcm"]["taxable_value"]),
+        "iamt": 0.0,
+        "camt": round(_val(t4["4B_registered_rcm"]["tax_payable"]) / 2.0, 2),
+        "samt": round(_val(t4["4B_registered_rcm"]["tax_payable"]) / 2.0, 2),
+        "csamt": 0.0,
+    }
+    unregrcm_flat = {
+        "txval": _val(t4["4C_unregistered_rcm"]["taxable_value"]),
+        "iamt": 0.0,
+        "camt": round(_val(t4["4C_unregistered_rcm"]["tax_payable"]) / 2.0, 2),
+        "samt": round(_val(t4["4C_unregistered_rcm"]["tax_payable"]) / 2.0, 2),
+        "csamt": 0.0,
+    }
+    imps_flat = {
+        "txval": _val(t4["4D_import_services"]["taxable_value"]),
+        "iamt": _val(t4["4D_import_services"]["tax_payable"]),
+        "camt": 0.0,
+        "samt": 0.0,
+        "csamt": 0.0,
+    }
+
+    t5 = tables["table5"]
+    t6_tot = tables["table6"]["total_tax_payable"]
+    t8 = tables["table8"]
 
     gstn_json = {
         "gstin": comp["gstin"],
@@ -626,29 +671,17 @@ def build_gstr4_gstn_json(
         "fy": fy,
         "gross_turnover": 0.0,
         "table4": {
-            "b2b": tables["table4"]["4A_registered_non_rcm"],
-            "b2brcm": tables["table4"]["4B_registered_rcm"],
-            "unregrcm": tables["table4"]["4C_unregistered_rcm"],
-            "imps": tables["table4"]["4D_import_services"],
-            "inward_reg_non_rcm": tables["table4"]["4A_registered_non_rcm"],
-            "inward_reg_rcm": tables["table4"]["4B_registered_rcm"],
-            "inward_unreg_rcm": tables["table4"]["4C_unregistered_rcm"],
-            "import_services": tables["table4"]["4D_import_services"],
+            "b2b": b2b_flat,
+            "b2brcm": b2brcm_flat,
+            "unregrcm": unregrcm_flat,
+            "imps": imps_flat,
         },
         "table5": {
-            "txval": tables["table5"]["outward_taxable"]["effective_value"],
-            "iamt": tables["table5"]["igst"]["effective_value"],
-            "camt": tables["table5"]["cgst"]["effective_value"],
-            "samt": tables["table5"]["sgst"]["effective_value"],
-            "csamt": tables["table5"]["cess"]["effective_value"],
-            "outward_taxable": tables["table5"]["outward_taxable"]["effective_value"],
-            "outward_tax": tables["table5"]["outward_tax"]["effective_value"],
-            "rcm_taxable": tables["table5"]["rcm_taxable"]["effective_value"],
-            "rcm_tax": tables["table5"]["rcm_tax"]["effective_value"],
-            "igst": tables["table5"]["igst"]["effective_value"],
-            "cgst": tables["table5"]["cgst"]["effective_value"],
-            "sgst": tables["table5"]["sgst"]["effective_value"],
-            "cess": tables["table5"]["cess"]["effective_value"],
+            "txval": _val(t5["outward_taxable"]),
+            "iamt": _val(t5["igst"]),
+            "camt": _val(t5["cgst"]),
+            "samt": _val(t5["sgst"]),
+            "csamt": _val(t5["cess"]),
         },
         "table6": {
             "sec_details": [
@@ -665,17 +698,18 @@ def build_gstr4_gstn_json(
             "outward_turnover": txval_outward,
             "cgst": cgst_outward,
             "sgst": sgst_outward,
-            "total_tax_payable": tables["table6"]["total_tax_payable"],
+            "total_tax_payable": {
+                "igst": _val(t6_tot["igst"]),
+                "cgst": _val(t6_tot["cgst"]),
+                "sgst": _val(t6_tot["sgst"]),
+                "cess": _val(t6_tot["cess"]),
+            },
         },
         "table8": {
-            "tax_pay": tables["table8"]["tax_payable"]["effective_value"],
-            "tax_pad": tables["table8"]["cmp08_tax_paid"]["effective_value"],
-            "bal_pay": tables["table8"]["balance_tax_payable"]["effective_value"],
-            "ltfee_pay": tables["table8"]["late_fee_payable"]["effective_value"],
-            "tax_payable": tables["table8"]["tax_payable"]["effective_value"],
-            "cmp08_tax_paid": tables["table8"]["cmp08_tax_paid"]["effective_value"],
-            "balance_tax_payable": tables["table8"]["balance_tax_payable"]["effective_value"],
-            "late_fee": tables["table8"]["late_fee_payable"]["effective_value"],
+            "tax_pay": _val(t8["tax_payable"]),
+            "tax_pad": _val(t8["cmp08_tax_paid"]),
+            "bal_pay": _val(t8["balance_tax_payable"]),
+            "ltfee_pay": _val(t8["late_fee_payable"]),
         },
     }
     return gstn_json
