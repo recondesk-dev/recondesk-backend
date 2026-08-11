@@ -327,36 +327,36 @@ export default function ClientDetailPage() {
                 <Link
                   href={`/clients/${id}/multi-period`}
                   title="Annual FY Reconciliation — up to 12 periods in one flow"
-                  className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-indigo-600 px-4 py-3 text-left transition-opacity hover:opacity-90"
+                  className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[var(--ink)] px-4 py-3 text-left transition-opacity hover:opacity-90"
                 >
                   <span className="text-sm font-semibold text-white">
                     Run Annual Reconciliation
                   </span>
-                  <span className="text-[11px] font-medium leading-snug text-indigo-100">
+                  <span className="text-[11px] font-medium leading-snug text-white/70">
                     12-Month Batch — Auto 2B & Tally Bridge sync
                   </span>
                 </Link>
                 <Link
                   href={gstr1NewHref}
                   title="Sales Register ↔ GSTR-1 ↔ GSTR-3B tie-out"
-                  className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[#F5F5F6] px-4 py-3 text-left ring-1 ring-[#F0F0F0] transition-colors hover:bg-gray-200/70"
+                  className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[var(--ink)] px-4 py-3 text-left transition-opacity hover:opacity-90"
                 >
-                  <span className="text-sm font-semibold text-[var(--ink)]">
+                  <span className="text-sm font-semibold text-white">
                     GSTR-1 Reconciliation
                   </span>
-                  <span className="text-[11px] font-medium leading-snug text-gray-500">
+                  <span className="text-[11px] font-medium leading-snug text-white/70">
                     Sales Register vs GSTR-1 vs GSTR-3B — outward supply tie-out
                   </span>
                 </Link>
                 <Link
                   href={id ? `/clients/${id}/gstr9c` : "#"}
                   title="Annual FY ITC rollup — matched (2B) vs claimed (3B)"
-                  className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[#F5F5F6] px-4 py-3 text-left ring-1 ring-[#F0F0F0] transition-colors hover:bg-gray-200/70"
+                  className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[var(--ink)] px-4 py-3 text-left transition-opacity hover:opacity-90"
                 >
-                  <span className="text-sm font-semibold text-[var(--ink)]">
+                  <span className="text-sm font-semibold text-white">
                     GSTR-9C (ITC)
                   </span>
-                  <span className="text-[11px] font-medium leading-snug text-gray-500">
+                  <span className="text-[11px] font-medium leading-snug text-white/70">
                     Annual FY rollup — matched (2B) vs claimed (3B) ITC
                   </span>
                 </Link>
