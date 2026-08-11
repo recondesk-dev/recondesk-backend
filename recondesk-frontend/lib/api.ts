@@ -2977,6 +2977,8 @@ export interface Gstr4ComputationResponse {
       balance_tax_payable: Gstr4CellMeta;
       due_date: string;
       days_late: number;
+      is_nil_return?: boolean;
+      late_fee_cap?: number;
       late_fee_payable: Gstr4CellMeta;
       interest_payable: Gstr4CellMeta;
     };

@@ -515,13 +515,26 @@ def compute_gstr4(
     cmp08_tax_paid_total = table5["outward_tax"]["effective_value"] + table5["rcm_tax"]["effective_value"]
     tax_balance_sys = max(0.0, round(tax_payable_total - cmp08_tax_paid_total, 2))
 
-    # Calculate late fee if today > April 30 following FY end
-    due_date = date(end_year, 4, 30)
+    # Statutory GSTR-4 Due Date:
+    # Notification No. 12/2024-Central Tax (Rule 62(1)):
+    # FY 2024-25 onwards: June 30 following FY end (e.g., June 30, 2026 for FY 2025-26).
+    # FY 2023-24 and earlier: April 30 following FY end.
+    if start_year >= 2024:
+        due_date = date(end_year, 6, 30)
+    else:
+        due_date = date(end_year, 4, 30)
+
     today = date.today()
     days_late = max(0, (today - due_date).days) if today > due_date else 0
-    # Composition GSTR-4 late fee: ₹50 per day (₹25 CGST + ₹25 SGST), capped at ₹2,000 for nil or ₹5,000 for regular
+
+    # Late Fee Rationalization under Section 47 (Notification No. 21/2021-Central Tax):
+    # Daily rate: ₹50 per day (₹25 CGST + ₹25 SGST)
+    # Capped at ₹500 (₹250 CGST + ₹250 SGST) for Nil Returns (tax_payable_total == 0)
+    # Capped at ₹2,000 (₹1,000 CGST + ₹1,000 SGST) for Regular Returns (tax_payable_total > 0)
     late_fee_per_day = 50.0
-    calc_late_fee = min(5000.0, days_late * late_fee_per_day)
+    is_nil_return = (tax_payable_total == 0.0)
+    late_fee_cap = 500.0 if is_nil_return else 2000.0
+    calc_late_fee = min(late_fee_cap, days_late * late_fee_per_day)
 
     table8 = {
         "tax_payable": resolve_cell("table8", "tax_payable", tax_payable_total),
@@ -529,6 +542,8 @@ def compute_gstr4(
         "balance_tax_payable": resolve_cell("table8", "balance_tax_payable", tax_balance_sys),
         "due_date": due_date.isoformat(),
         "days_late": days_late,
+        "is_nil_return": is_nil_return,
+        "late_fee_cap": late_fee_cap,
         "late_fee_payable": resolve_cell("table8", "late_fee_payable", calc_late_fee),
         "interest_payable": resolve_cell("table8", "interest_payable", table5["interest"]["effective_value"]),
     }
@@ -547,10 +562,11 @@ def compute_gstr4(
             "severity": "WARNING",
         })
     if days_late > 0:
+        cap_type_label = "Nil Return ₹500 cap" if is_nil_return else "Normal Return ₹2,000 cap"
         warnings.append({
             "code": "FILING_DELAY",
-            "message": f"Filing is {days_late} days past due date ({due_date.strftime('%b %d, %Y')}). Estimated late fee: ₹{calc_late_fee:,.2f}.",
-            "severity": "INFO",
+            "message": f"Filing is {days_late} days past due date ({due_date.strftime('%b %d, %Y')}). Estimated late fee: ₹{calc_late_fee:,.2f} ({cap_type_label}).",
+            "severity": "WARNING" if not is_nil_return else "INFO",
         })
 
     return {

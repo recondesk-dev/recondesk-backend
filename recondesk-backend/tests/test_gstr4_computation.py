@@ -139,3 +139,24 @@ def test_build_gstr4_gstn_json():
     assert "table5" in gstn_json
     assert "table6" in gstn_json
     assert "table8" in gstn_json
+
+
+def test_gstr4_due_date_and_late_fee_caps():
+    mock_sb = MagicMock()
+    mock_sb.table().select().eq().execute.return_value.data = []
+    mock_sb.table().select().eq().eq().execute.return_value.data = []
+    mock_sb.table().select().eq().in_().execute.return_value.data = []
+
+    # Test FY 2025-26 (Rule 62(1) Notification 12/2024-CT: Due date June 30, 2026)
+    comp_nil = compute_gstr4(mock_sb, "11111111-1111-1111-1111-111111111111", "2025-26", "trader")
+    t8 = comp_nil["tables"]["table8"]
+    assert t8["due_date"] == "2026-06-30"
+    assert t8["is_nil_return"] is True
+    assert t8["late_fee_cap"] == 500.0
+    # For 42 days delay (from June 30 to August 11), 42 * 50 = 2100 -> capped at 500.0 for Nil return
+    assert t8["late_fee_payable"]["effective_value"] == 500.0
+
+    # Test FY 2023-24 (Older rule: Due date April 30, 2024)
+    comp_old = compute_gstr4(mock_sb, "11111111-1111-1111-1111-111111111111", "2023-24", "trader")
+    assert comp_old["tables"]["table8"]["due_date"] == "2024-04-30"
+
