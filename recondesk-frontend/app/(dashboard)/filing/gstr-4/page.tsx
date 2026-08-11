@@ -197,6 +197,24 @@ function Gstr4WorkbenchContent() {
           </div>
         </div>
 
+        {/* GSTR-4 Feature Gate / CA Preview Notice */}
+        <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-4 flex items-start gap-3 text-amber-900 shadow-sm">
+          <div className="p-1.5 bg-amber-100 rounded-lg text-amber-700 mt-0.5 shrink-0">
+            <AlertTriangle size={18} />
+          </div>
+          <div className="text-sm">
+            <div className="font-semibold flex items-center gap-2 text-amber-950">
+              <span>CA PREVIEW & BETA STAGING MODE</span>
+              <span className="px-2 py-0.5 bg-amber-200 text-amber-900 rounded-full text-[10px] font-bold uppercase tracking-wide">
+                GSTR4_FILING_ENABLED = FALSE
+              </span>
+            </div>
+            <p className="mt-0.5 text-amber-800 text-xs leading-relaxed">
+              Form GSTR-4 Annual Return module is currently in <strong>CA Beta Preview</strong>. Exported JSON files must be validated using the official <strong>GSTN GSTR-4 Offline Utility</strong> or GST Portal trial upload before submitting live filings.
+            </p>
+          </div>
+        </div>
+
         {/* Configuration Controls Bar */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white border border-gray-200/80 rounded-2xl p-5 shadow-sm">
           {/* Client Selection */}
