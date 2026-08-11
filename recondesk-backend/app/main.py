@@ -57,6 +57,7 @@ from app.routers.filing import router as filing_router
 from app.routers.tally_sync import router as tally_sync_router
 from app.routers.multi_period_wizard import router as multi_period_wizard_router
 from app.routers.gstr9 import router as gstr9_router
+from app.routers.gstr4 import router as gstr4_router
 from app.routers.vendor_followup import router as vendor_followup_router
 from app.routers.billing import masters as billing_masters_router
 from app.routers.billing import invoices as billing_invoices_router
@@ -561,6 +562,16 @@ app.include_router(
     gstr9_router,
     prefix="/api/gstr9c",
     tags=["GSTR-9 & GSTR-9C"],
+)
+app.include_router(
+    gstr4_router,
+    prefix="/api/gstr4",
+    tags=["GSTR-4 Composition Annual Return"],
+)
+app.include_router(
+    gstr4_router,
+    prefix="/api/v1/gstr4",
+    tags=["GSTR-4 Composition Annual Return"],
 )
 
 
