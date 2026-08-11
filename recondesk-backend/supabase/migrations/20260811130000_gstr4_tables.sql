@@ -26,8 +26,11 @@ ON public.gstr4_cmp08_records (client_gstin_id, financial_year);
 
 ALTER TABLE public.gstr4_cmp08_records ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow all access to gstr4_cmp08_records for authenticated users"
-ON public.gstr4_cmp08_records FOR ALL TO authenticated USING (true);
+DROP POLICY IF EXISTS "Allow all access to gstr4_cmp08_records for authenticated users" ON public.gstr4_cmp08_records;
+DROP POLICY IF EXISTS "Allow all access to gstr4_cmp08_records" ON public.gstr4_cmp08_records;
+
+CREATE POLICY "Allow all access to gstr4_cmp08_records"
+ON public.gstr4_cmp08_records FOR ALL TO authenticated, service_role, anon USING (true) WITH CHECK (true);
 
 
 CREATE TABLE IF NOT EXISTS public.gstr4_audit_overrides (
@@ -49,5 +52,8 @@ ON public.gstr4_audit_overrides (client_gstin_id, financial_year);
 
 ALTER TABLE public.gstr4_audit_overrides ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow all access to gstr4_audit_overrides for authenticated users"
-ON public.gstr4_audit_overrides FOR ALL TO authenticated USING (true);
+DROP POLICY IF EXISTS "Allow all access to gstr4_audit_overrides for authenticated users" ON public.gstr4_audit_overrides;
+DROP POLICY IF EXISTS "Allow all access to gstr4_audit_overrides" ON public.gstr4_audit_overrides;
+
+CREATE POLICY "Allow all access to gstr4_audit_overrides"
+ON public.gstr4_audit_overrides FOR ALL TO authenticated, service_role, anon USING (true) WITH CHECK (true);
