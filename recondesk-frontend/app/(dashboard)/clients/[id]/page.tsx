@@ -360,18 +360,6 @@ export default function ClientDetailPage() {
                     Annual FY rollup — matched (2B) vs claimed (3B) ITC
                   </span>
                 </Link>
-                <Link
-                  href={id ? `/filing/gstr-4?client_id=${id}` : "/filing/gstr-4"}
-                  title="Composition Scheme Annual Return"
-                  className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[#F5F5F6] px-4 py-3 text-left ring-1 ring-[#F0F0F0] transition-colors hover:bg-gray-200/70"
-                >
-                  <span className="text-sm font-semibold text-[var(--ink)]">
-                    GSTR-4 Composition
-                  </span>
-                  <span className="text-[11px] font-medium leading-snug text-gray-500">
-                    Composition Scheme Annual Return — rate calc & CMP-08 tie-out
-                  </span>
-                </Link>
               </div>
             </div>
           </div>

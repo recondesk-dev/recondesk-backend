@@ -5,15 +5,6 @@ import { FileText, Layers, FileCheck, RefreshCcw, Calculator, ArrowRight } from 
 
 const FILING_MODULES = [
   {
-    title: "Form GSTR-4 (Composition Annual)",
-    href: "/filing/gstr-4",
-    badge: "Composition Taxpayer",
-    badgeColor: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
-    desc: "Annual Return for taxpayers under Section 10 Composition Scheme & Notification 2/2019. Rate-wise calculation, CMP-08 reconciliation, CA audit cell overrides, and GSTN portal JSON export.",
-    icon: Calculator,
-    actionText: "Open GSTR-4 Workbench",
-  },
-  {
     title: "Form GSTR-1 (Outward Supplies)",
     href: "/filing/gstr-1",
     badge: "Monthly / Quarterly",

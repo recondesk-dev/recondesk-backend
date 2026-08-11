@@ -20,7 +20,6 @@ const NAV_ITEMS = [
   { href: "/clients", label: "Clients", icon: Users },
   { href: "/reconciliation", label: "Reconciliation", icon: RefreshCcw },
   { href: "/filing/batches", label: "Bulk Filing", icon: Layers },
-  { href: "/filing/gstr-4", label: "GSTR-4 Return", icon: FileCheck },
   { href: "/einvoicing", label: "E-Invoicing", icon: FileText },
   { href: "/billing", label: "Billing", icon: CreditCard },
   { href: "/team", label: "Team", icon: UsersRound },
