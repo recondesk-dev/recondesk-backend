@@ -26,7 +26,10 @@ def test_free_gstin_limit_is_one():
 
 
 def test_gstin_plan_catalog():
-    assert set(PLAN_CONFIG) == {"starter", "growth", "pro"}
+    assert set(PLAN_CONFIG) == {"monthly", "starter", "growth", "pro"}
+    assert PLAN_CONFIG["monthly"]["gstin_limit"] == 25
+    assert PLAN_CONFIG["monthly"]["period_days"] == 30
+    assert PLAN_CONFIG["monthly"]["base_paise"] == 999_00
     assert PLAN_CONFIG["starter"]["gstin_limit"] == 50
     assert PLAN_CONFIG["starter"]["period_days"] == 365
     assert PLAN_CONFIG["starter"]["base_paise"] == 599_900

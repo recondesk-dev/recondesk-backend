@@ -6,6 +6,7 @@ _client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_
 
 # Amounts in paise (INR). Matches billing_gate.PLAN_CONFIG base amounts.
 PLAN_PRICES = {
+    "monthly": {"monthly": 999_00},
     "starter": {"yearly": 599_900},
     "growth": {"yearly": 999_900},
     "pro": {"yearly": 999_900},

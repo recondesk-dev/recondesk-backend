@@ -250,323 +250,315 @@ export default function OnboardingPage() {
 
   return (
     <div className="recondesk-textured-bg flex min-h-screen flex-col">
-      <div className="fixed left-0 right-0 top-0 z-10 h-1 bg-violet-100">
+      <div className="fixed left-0 right-0 top-0 z-10 h-1 bg-gray-200">
         <div
-          className="h-full bg-violet-600 transition-all duration-300"
+          className="h-full bg-[var(--ink)] transition-all duration-300"
           style={{ width: `${progressPct}%` }}
         />
       </div>
 
-      <header className="border-b border-gray-100 px-6 py-4">
-        <div className="mx-auto flex max-w-[560px] items-center justify-between">
-          <Logo className="text-gray-900" height="1.125rem" />
-          <span className="text-xs text-gray-500">
+      <header className="border-b border-gray-200/60 bg-white/80 backdrop-blur-md px-6 py-4">
+        <div className="mx-auto flex max-w-[580px] items-center justify-between">
+          <Logo className="text-[var(--ink)]" height="1.25rem" />
+          <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
             Step {step} of {STEPS}
           </span>
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-[560px] flex-1 px-6 py-10">
-        {step === 1 && (
-          <div className="space-y-8">
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-900">
-                Welcome to ReconDesk, {firstName}!
-              </h1>
-              <p className="mt-2 text-sm text-gray-600">
-                Let&apos;s run your first reconciliation in 5 minutes.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
-              <div className="flex flex-col items-center gap-1 rounded-lg border border-gray-200 px-4 py-3">
-                <UserIcon />
-                <span className="text-center text-xs font-medium text-gray-700">
-                  Add your client
-                </span>
+      <main className="mx-auto w-full max-w-[580px] flex-1 px-4 py-8 sm:py-12">
+        <div className="landing-card rounded-[1.75rem] bg-white p-6 sm:p-10 shadow-[var(--shadow-soft)] border border-gray-100">
+          {step === 1 && (
+            <div className="space-y-8">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-[var(--ink)]">
+                  Welcome to ReconDesk, {firstName}!
+                </h1>
+                <p className="mt-2 text-sm text-gray-600">
+                  Let&apos;s run your first reconciliation in 5 minutes.
+                </p>
               </div>
-              <span className="text-gray-400" aria-hidden>
-                →
-              </span>
-              <div className="flex flex-col items-center gap-1 rounded-lg border border-gray-200 px-4 py-3">
-                <UploadIcon />
-                <span className="text-center text-xs font-medium text-gray-700">
-                  Upload files
+
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                <div className="flex flex-col items-center gap-1 rounded-xl border border-gray-200/80 bg-gray-50/50 px-4 py-3">
+                  <UserIcon />
+                  <span className="text-center text-xs font-semibold text-gray-700">
+                    Add your client
+                  </span>
+                </div>
+                <span className="text-gray-400 font-medium" aria-hidden>
+                  →
                 </span>
-              </div>
-              <span className="text-gray-400" aria-hidden>
-                →
-              </span>
-              <div className="flex flex-col items-center gap-1 rounded-lg border border-gray-200 px-4 py-3">
-                <ChartIcon />
-                <span className="text-center text-xs font-medium text-gray-700">
-                  See results
+                <div className="flex flex-col items-center gap-1 rounded-xl border border-gray-200/80 bg-gray-50/50 px-4 py-3">
+                  <UploadIcon />
+                  <span className="text-center text-xs font-semibold text-gray-700">
+                    Upload files
+                  </span>
+                </div>
+                <span className="text-gray-400 font-medium" aria-hidden>
+                  →
                 </span>
-              </div>
-            </div>
-
-            <p className="text-center text-xs text-gray-500">
-              No credit card needed — your first 2 reconciliations are free.
-            </p>
-
-            <button
-              type="button"
-              onClick={() => setStep(2)}
-              className="flex h-12 w-full items-center justify-center rounded-full bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2"
-            >
-              Get Started →
-            </button>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-6">
-            <button
-              type="button"
-              onClick={() => setStep(1)}
-              className="text-sm font-medium text-gray-600 hover:text-gray-900"
-            >
-              ← Back
-            </button>
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-900">
-                Add your first client
-              </h1>
-              <p className="mt-2 text-sm text-gray-600">
-                Enter the GSTIN of the business you want to reconcile.
-              </p>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
-                GSTIN
-              </label>
-              <div
-                className={`relative rounded-lg border ${
-                  gstinValid === true
-                    ? "border-emerald-500 ring-1 ring-emerald-500"
-                    : gstinValid === false
-                      ? "border-red-500 ring-1 ring-red-500"
-                      : "border-gray-300 focus-within:ring-2 focus-within:ring-violet-500"
-                }`}
-              >
-                <input
-                  className="w-full rounded-lg border-0 bg-transparent px-3 py-2.5 pr-10 text-sm outline-none"
-                  placeholder="27AABCU9603R1ZX"
-                  value={gstin}
-                  onChange={(e) => {
-                    setGstin(e.target.value.toUpperCase());
-                    setGstinValid(null);
-                    setGstinError("");
-                  }}
-                  onBlur={validateGstinRemote}
-                />
-                <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
-                  {gstinLoading ? (
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-violet-600 border-t-transparent" />
-                  ) : gstinValid === true ? (
-                    <span className="text-emerald-600" aria-hidden>
-                      ✓
-                    </span>
-                  ) : gstinValid === false ? (
-                    <span className="text-red-600" aria-hidden>
-                      ✕
-                    </span>
-                  ) : null}
+                <div className="flex flex-col items-center gap-1 rounded-xl border border-gray-200/80 bg-gray-50/50 px-4 py-3">
+                  <ChartIcon />
+                  <span className="text-center text-xs font-semibold text-gray-700">
+                    See results
+                  </span>
                 </div>
               </div>
-              {gstStateName && (
-                <p className="mt-1 text-xs text-gray-500">
-                  This GSTIN belongs to {gstStateName}
-                </p>
-              )}
-              {gstinValid === false && gstinError && (
-                <p className="mt-1 text-xs text-red-600">{gstinError}</p>
-              )}
-            </div>
 
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">
-                Trade name
-              </label>
-              <input
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-violet-500"
-                placeholder="e.g. Sharma Textiles Pvt Ltd"
-                value={tradeName}
-                onChange={(e) => setTradeName(e.target.value)}
-              />
-            </div>
-
-            {showAssignDropdown && (
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
-                  Assigned to
-                </label>
-                <select
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-violet-500"
-                  value={assignedTo}
-                  onChange={(e) => setAssignedTo(e.target.value)}
-                >
-                  {assignOptions.map((o) => (
-                    <option key={o.userId} value={o.userId}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+              <div className="rounded-xl bg-gray-50 px-4 py-3 text-center text-xs font-medium text-gray-600 border border-gray-200/60">
+                ✓ No credit card needed — your first 2 reconciliations are completely free.
               </div>
-            )}
 
-            {submitErr && <p className="text-sm text-red-600">{submitErr}</p>}
-
-            <button
-              type="button"
-              disabled={!canAddClient || submitBusy}
-              onClick={() => void onAddClient()}
-              className="flex h-12 w-full items-center justify-center rounded-full bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2"
-            >
-              {submitBusy ? "Saving…" : "Add Client →"}
-            </button>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="space-y-6">
-            <button
-              type="button"
-              onClick={() => setStep(2)}
-              className="text-sm font-medium text-gray-600 hover:text-gray-900"
-            >
-              ← Back
-            </button>
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-900">
-                Download your GSTR-2B file
-              </h1>
-              <p className="mt-2 text-sm text-gray-600">
-                You need the JSON file from the GST portal. Here&apos;s how:
-              </p>
+              <button
+                type="button"
+                onClick={() => setStep(2)}
+                className="flex h-12 w-full items-center justify-center rounded-full bg-[var(--ink)] text-sm font-semibold text-white shadow-md transition-opacity hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-black/10 focus:ring-offset-2"
+              >
+                Get Started →
+              </button>
             </div>
+          )}
 
-            <ol className="list-decimal space-y-2 pl-5 text-sm text-gray-700">
-              <li>
-                Go to{" "}
-                <a
-                  href="https://www.gst.gov.in"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-medium text-violet-600 underline"
+          {step === 2 && (
+            <div className="space-y-6">
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="text-xs font-semibold text-gray-500 hover:text-[var(--ink)] transition-colors"
+              >
+                ← Back
+              </button>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-[var(--ink)]">
+                  Add your first client
+                </h1>
+                <p className="mt-2 text-sm text-gray-600">
+                  Enter the GSTIN of the business you want to reconcile.
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-gray-700">
+                  GSTIN
+                </label>
+                <div
+                  className={`relative rounded-xl border ${
+                    gstinValid === true
+                      ? "border-emerald-500 ring-1 ring-emerald-500"
+                      : gstinValid === false
+                        ? "border-red-500 ring-1 ring-red-500"
+                        : "border-gray-300 focus-within:border-[var(--ink)] focus-within:ring-2 focus-within:ring-black/10"
+                  }`}
                 >
-                  gst.gov.in
-                </a>{" "}
-                and log in with your client&apos;s credentials
-              </li>
-              <li>Click Services → Returns → View Returns / Forms</li>
-              <li>Select GSTR-2B and choose the month you want to reconcile</li>
-              <li>Click Download → Download JSON</li>
-              <li>Save the file — you&apos;ll upload it in the next step</li>
-            </ol>
+                  <input
+                    className="w-full rounded-xl border-0 bg-transparent px-3.5 py-3 pr-10 text-sm outline-none text-[var(--ink)] placeholder:text-gray-400 font-mono tracking-wide"
+                    placeholder="27AABCU9603R1ZX"
+                    value={gstin}
+                    onChange={(e) => {
+                      setGstin(e.target.value.toUpperCase());
+                      setGstinValid(null);
+                      setGstinError("");
+                    }}
+                    onBlur={validateGstinRemote}
+                  />
+                  <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+                    {gstinLoading ? (
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--ink)] border-t-transparent" />
+                    ) : gstinValid === true ? (
+                      <span className="text-emerald-600 font-bold" aria-hidden>
+                        ✓
+                      </span>
+                    ) : gstinValid === false ? (
+                      <span className="text-red-600 font-bold" aria-hidden>
+                        ✕
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                {gstStateName && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    This GSTIN belongs to {gstStateName}
+                  </p>
+                )}
+                {gstinValid === false && gstinError && (
+                  <p className="mt-1 text-xs text-red-600 font-medium">{gstinError}</p>
+                )}
+              </div>
 
-            <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-900">
-              The JSON file is usually named GSTR2B_[GSTIN]_[period].json. File size is
-              typically 1–10 MB depending on invoice count.
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-gray-700">
+                  Trade name
+                </label>
+                <input
+                  className="w-full rounded-xl border border-gray-300 px-3.5 py-3 text-sm text-[var(--ink)] outline-none focus:border-[var(--ink)] focus:ring-2 focus:ring-black/10 transition-colors"
+                  placeholder="e.g. Sharma Textiles Pvt Ltd"
+                  value={tradeName}
+                  onChange={(e) => setTradeName(e.target.value)}
+                />
+              </div>
+
+              {showAssignDropdown && (
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-gray-700">
+                    Assigned to
+                  </label>
+                  <select
+                    className="w-full rounded-xl border border-gray-300 px-3.5 py-3 text-sm text-[var(--ink)] focus:border-[var(--ink)] focus:ring-2 focus:ring-black/10 transition-colors"
+                    value={assignedTo}
+                    onChange={(e) => setAssignedTo(e.target.value)}
+                  >
+                    {assignOptions.map((o) => (
+                      <option key={o.userId} value={o.userId}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {submitErr && <p className="text-sm font-medium text-red-600">{submitErr}</p>}
+
+              <button
+                type="button"
+                disabled={!canAddClient || submitBusy}
+                onClick={() => void onAddClient()}
+                className="flex h-12 w-full items-center justify-center rounded-full bg-[var(--ink)] text-sm font-semibold text-white shadow-md transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-black/10 focus:ring-offset-2"
+              >
+                {submitBusy ? "Saving…" : "Add Client →"}
+              </button>
             </div>
+          )}
 
-            <a
-              href="#"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-sm font-medium text-violet-600 hover:underline"
-            >
-              <PlayIcon />
-              Watch our step-by-step video guide (Hindi)
-            </a>
+          {step === 3 && (
+            <div className="space-y-6">
+              <button
+                type="button"
+                onClick={() => setStep(2)}
+                className="text-xs font-semibold text-gray-500 hover:text-[var(--ink)] transition-colors"
+              >
+                ← Back
+              </button>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-[var(--ink)]">
+                  Download your GSTR-2B file
+                </h1>
+                <p className="mt-2 text-sm text-gray-600">
+                  You need the JSON file from the GST portal. Here&apos;s how:
+                </p>
+              </div>
 
-            <button
-              type="button"
-              onClick={() => setStep(4)}
-              className="flex h-12 w-full items-center justify-center rounded-full bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700"
-            >
-              I have the file →
-            </button>
-          </div>
-        )}
+              <ol className="list-decimal space-y-2.5 pl-5 text-sm text-gray-700 leading-relaxed">
+                <li>
+                  Go to{" "}
+                  <a
+                    href="https://www.gst.gov.in"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold text-[var(--ink)] underline hover:opacity-80"
+                  >
+                    gst.gov.in
+                  </a>{" "}
+                  and log in with your client&apos;s credentials
+                </li>
+                <li>Click Services → Returns → View Returns / Forms</li>
+                <li>Select GSTR-2B and choose the month you want to reconcile</li>
+                <li>Click Download → Download JSON</li>
+                <li>Save the file — you&apos;ll upload it in the next step</li>
+              </ol>
 
-        {step === 4 && (
-          <div className="space-y-6">
-            <button
-              type="button"
-              onClick={() => setStep(3)}
-              className="text-sm font-medium text-gray-600 hover:text-gray-900"
-            >
-              ← Back
-            </button>
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-900">
-                Upload your files and run reconciliation
-              </h1>
-              <p className="mt-2 text-sm text-gray-600">
-                Upload the GSTR-2B JSON and your purchase register Excel.
+              <div className="rounded-xl bg-gray-50 px-4 py-3.5 text-xs text-gray-600 border border-gray-200/60 leading-relaxed">
+                The JSON file is usually named <code className="font-mono text-[var(--ink)] font-semibold">GSTR2B_[GSTIN]_[period].json</code>. File size is
+                typically 1–10 MB depending on invoice count.
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setStep(4)}
+                className="flex h-12 w-full items-center justify-center rounded-full bg-[var(--ink)] text-sm font-semibold text-white shadow-md transition-opacity hover:opacity-90"
+              >
+                I have the file →
+              </button>
+            </div>
+          )}
+
+          {step === 4 && (
+            <div className="space-y-6">
+              <button
+                type="button"
+                onClick={() => setStep(3)}
+                className="text-xs font-semibold text-gray-500 hover:text-[var(--ink)] transition-colors"
+              >
+                ← Back
+              </button>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-[var(--ink)]">
+                  Upload your files and run reconciliation
+                </h1>
+                <p className="mt-2 text-sm text-gray-600">
+                  Upload the GSTR-2B JSON and your purchase register Excel.
+                </p>
+              </div>
+
+              <FileDropZone
+                label="Drop GSTR-2B JSON or Excel here or click to browse"
+                accept=".json,.xlsx,.xls,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                file={gstrFile}
+                onFile={setGstrFile}
+              />
+              <FileDropZone
+                label="Drop Purchase Register Excel here or click to browse"
+                accept=".xlsx,.xls,.csv"
+                file={prFile}
+                onFile={setPrFile}
+              />
+
+              <button
+                type="button"
+                disabled={!clientId || !gstrFile || !prFile}
+                onClick={async () => {
+                  const id = clientIdRef.current || clientId;
+                  if (!id) return;
+
+                  console.log("button clicked, clientId:", clientId, "ref:", clientIdRef.current);
+
+                  const bearer = typeof accessToken === "string" ? accessToken : null;
+                  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+                  if (bearer) {
+                    try {
+                      const res = await fetch(`${apiBase}/api/v1/auth/onboarding-complete`, {
+                        method: "POST",
+                        headers: {
+                          Authorization: `Bearer ${bearer}`,
+                          "Content-Type": "application/json",
+                        },
+                      });
+                      if (!res.ok) {
+                        console.error("onboarding-complete failed:", res.status);
+                      } else if (me?.id) {
+                        setOnboardingDoneCookie(me.id);
+                      }
+                    } catch (e) {
+                      console.error("Failed to mark onboarding complete:", e);
+                    }
+                  }
+
+                  router.refresh();
+                  router.push(`/reconcile/${id}/new`);
+                }}
+                className="flex h-12 w-full items-center justify-center rounded-full bg-[var(--ink)] text-sm font-semibold text-white shadow-md transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Start Reconciliation →
+              </button>
+              <p className="text-center text-xs text-gray-500">
+                This will use 1 of your 2 free reconciliations.
+              </p>
+              <p className="text-center text-xs text-gray-500">
+                On the next screen, select the same files again to run the import wizard.
               </p>
             </div>
-
-            <FileDropZone
-              label="Drop GSTR-2B JSON or Excel here or click to browse"
-              accept=".json,.xlsx,.xls,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              file={gstrFile}
-              onFile={setGstrFile}
-            />
-            <FileDropZone
-              label="Drop Purchase Register Excel here or click to browse"
-              accept=".xlsx,.xls,.csv"
-              file={prFile}
-              onFile={setPrFile}
-            />
-
-            <button
-              type="button"
-              disabled={!clientId || !gstrFile || !prFile}
-              onClick={async () => {
-                const id = clientIdRef.current || clientId;
-                if (!id) return;
-
-                console.log("button clicked, clientId:", clientId, "ref:", clientIdRef.current);
-
-                const bearer = typeof accessToken === "string" ? accessToken : null;
-                const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-                if (bearer) {
-                  try {
-                    const res = await fetch(`${apiBase}/api/v1/auth/onboarding-complete`, {
-                      method: "POST",
-                      headers: {
-                        Authorization: `Bearer ${bearer}`,
-                        "Content-Type": "application/json",
-                      },
-                    });
-                    if (!res.ok) {
-                      console.error("onboarding-complete failed:", res.status);
-                    } else if (me?.id) {
-                      setOnboardingDoneCookie(me.id);
-                    }
-                  } catch (e) {
-                    console.error("Failed to mark onboarding complete:", e);
-                  }
-                }
-
-                router.refresh();
-                router.push(`/reconcile/${id}/new`);
-              }}
-              className="flex h-12 w-full items-center justify-center rounded-full bg-violet-600 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Start Reconciliation →
-            </button>
-            <p className="text-center text-xs text-gray-500">
-              This will use 1 of your 2 free reconciliations.
-            </p>
-            <p className="text-center text-xs text-gray-500">
-              On the next screen, select the same files again to run the import wizard.
-            </p>
-          </div>
-        )}
+          )}
+        </div>
       </main>
     </div>
   );
@@ -610,14 +602,6 @@ function ChartIcon() {
   );
 }
 
-function PlayIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M8 5v14l11-7z" />
-    </svg>
-  );
-}
-
 function FileDropZone({
   label,
   accept,
@@ -630,16 +614,16 @@ function FileDropZone({
   onFile: (f: File | null) => void;
 }) {
   return (
-    <label className="flex cursor-pointer flex-col rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-4 py-8 text-center hover:border-violet-400">
+    <label className="flex cursor-pointer flex-col rounded-xl border-2 border-dashed border-gray-300 bg-gray-50/50 px-4 py-7 text-center transition-colors hover:border-[var(--ink)] hover:bg-gray-50">
       <input
         type="file"
         accept={accept}
         className="hidden"
         onChange={(e) => onFile(e.target.files?.[0] ?? null)}
       />
-      <span className="text-sm text-gray-600">{label}</span>
+      <span className="text-sm font-medium text-gray-600">{label}</span>
       {file && (
-        <span className="mt-2 text-xs font-medium text-violet-700">{file.name}</span>
+        <span className="mt-2 text-xs font-semibold text-[var(--ink)]">{file.name}</span>
       )}
     </label>
   );

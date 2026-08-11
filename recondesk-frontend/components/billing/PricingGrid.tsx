@@ -4,14 +4,14 @@ import Link from "next/link";
 import { PRICING_PLANS, type PricingPlan } from "@/lib/pricing-data";
 
 type PricingGridProps = {
-  onSelectPlan?: (planId: "starter" | "growth") => void;
+  onSelectPlan?: (planId: "monthly" | "starter" | "growth") => void;
   loadingPlan?: string | null;
   isDashboard?: boolean;
 };
 
 export function PricingGrid({ onSelectPlan, loadingPlan, isDashboard = false }: PricingGridProps) {
   return (
-    <div className="mx-auto mt-8 grid max-w-7xl gap-6 lg:grid-cols-3 lg:gap-8">
+    <div className="mx-auto mt-8 grid max-w-7xl gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
       {PRICING_PLANS.map((plan) => (
         <PricingCard
           key={plan.id}
@@ -32,7 +32,7 @@ function PricingCard({
   isDashboard,
 }: {
   plan: PricingPlan;
-  onSelectPlan?: (planId: "starter" | "growth") => void;
+  onSelectPlan?: (planId: "monthly" | "starter" | "growth") => void;
   loadingPlan?: string | null;
   isDashboard?: boolean;
 }) {
@@ -45,7 +45,7 @@ function PricingCard({
         isGrowth ? "liquid-glass-card--featured ring-2 ring-[var(--ink)] shadow-lg scale-[1.02]" : ""
       } ${
         isCustom ? "border-slate-300/80 bg-gradient-to-b from-slate-50/90 to-white/70" : ""
-      } flex h-full flex-col p-6 sm:p-8 transition-all duration-300`}
+      } flex h-full flex-col p-6 transition-all duration-300`}
     >
       <span className="liquid-glass-card__blob liquid-glass-card__blob--a" aria-hidden />
       <span className="liquid-glass-card__blob liquid-glass-card__blob--b" aria-hidden />
@@ -154,7 +154,7 @@ function PricingCard({
           {isCustom ? (
             <a
               href={plan.ctaHref || "mailto:contact@recondesk.in?subject=Custom%20Enterprise%20Plan%20Enquiry"}
-              className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white transition-opacity hover:bg-slate-800 shadow-sm"
+              className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-6 py-2.5 text-sm font-semibold text-white shadow-md transition-opacity hover:opacity-90"
             >
               {plan.cta} →
             </a>
@@ -162,23 +162,15 @@ function PricingCard({
             <button
               type="button"
               disabled={loadingPlan !== null}
-              onClick={() => onSelectPlan(plan.id as "starter" | "growth")}
-              className={`inline-flex w-full min-h-[44px] items-center justify-center rounded-full px-6 py-2.5 text-sm font-semibold transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 ${
-                isGrowth
-                  ? "bg-[var(--ink)] text-white shadow-md hover:shadow-lg"
-                  : "bg-white/90 text-[var(--ink)] ring-1 ring-black/15 hover:bg-white"
-              }`}
+              onClick={() => onSelectPlan(plan.id as "monthly" | "starter" | "growth")}
+              className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-6 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loadingPlan === plan.id ? "Opening checkout…" : plan.cta}
             </button>
           ) : (
             <Link
               href={`/auth/signup?plan=${plan.id}`}
-              className={`inline-flex w-full min-h-[44px] items-center justify-center rounded-full px-6 py-2.5 text-sm font-semibold transition-all hover:opacity-90 ${
-                isGrowth
-                  ? "bg-[var(--ink)] text-white shadow-md hover:shadow-lg"
-                  : "bg-white/90 text-[var(--ink)] ring-1 ring-black/15 hover:bg-white"
-              }`}
+              className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-6 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90"
             >
               {plan.cta} →
             </Link>

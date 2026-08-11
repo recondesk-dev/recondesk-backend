@@ -426,9 +426,10 @@ function BillingBanner({
 
 function gstinsForPlan(plan: string | null | undefined): string {
   const p = (plan || "").toLowerCase();
-  if (p === "starter") return "25";
-  if (p === "growth") return "50";
-  if (p === "pro") return "75";
+  if (p === "monthly") return "25";
+  if (p === "starter") return "50";
+  if (p === "growth") return "100";
+  if (p === "pro") return "100";
   return "—";
 }
 

@@ -25,6 +25,12 @@ def _with_gst(base_paise: int) -> dict[str, int]:
 
 # GSTIN-based plans. Paid subscription = unlimited runs until subscription_ends_at.
 PLAN_CONFIG: dict[str, dict[str, int | str]] = {
+    "monthly": {
+        **_with_gst(999_00),
+        "gstin_limit": 25,
+        "period_days": 30,
+        "billing_period": "monthly",
+    },
     "starter": {
         **_with_gst(599_900),
         "gstin_limit": 50,

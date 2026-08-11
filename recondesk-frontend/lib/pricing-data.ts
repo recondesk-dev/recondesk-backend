@@ -1,5 +1,5 @@
 export type PricingPlan = {
-  id: "starter" | "growth" | "custom";
+  id: "monthly" | "starter" | "growth" | "custom";
   name: string;
   priceDisplay: string;
   periodLabel: string;
@@ -17,6 +17,50 @@ export type PricingPlan = {
 };
 
 export const PRICING_PLANS: PricingPlan[] = [
+  {
+    id: "monthly",
+    name: "Monthly",
+    priceDisplay: "₹999",
+    periodLabel: "/month",
+    gstinCapacity: "Up to 25 GSTINs",
+    blurb: "Flexible monthly GSTR-2B reconciliation & ITC risk protection for growing CA practices.",
+    cta: "Start Monthly",
+    featured: false,
+    features: [
+      {
+        header: "GSTR-2B vs Books reconciliation",
+        benefit: "Tiered smart matching from exact invoice match to fuzzy search",
+      },
+      {
+        header: "Decision Layer",
+        benefit: "See WHY every mismatch happened and WHAT to do next, not just raw errors",
+      },
+      {
+        header: "Missed ITC & ITC-at-Risk detection",
+        benefit: "Instantly surface unclaimed tax credits & high-risk vendor invoices",
+      },
+      {
+        header: "Rule 37 tracking",
+        benefit: "Never miss a 180-day reversal deadline again on unpaid invoices",
+      },
+      {
+        header: "Section 17(5) blocked credit detection",
+        benefit: "Auto-detect ineligible non-claimable supplier GST before filing",
+      },
+      {
+        header: "Duplicate invoice detection",
+        benefit: "Prevent accidental double-claiming on duplicate entries",
+      },
+      {
+        header: "Flexible ERP import",
+        benefit: "Import seamlessly from any ERP, Tally, Busy, or custom Excel format",
+      },
+      {
+        header: "Advanced filtered export",
+        benefit: "Comprehensive Excel audit workbooks & client-ready PDF reports",
+      },
+    ],
+  },
   {
     id: "starter",
     name: "Starter",

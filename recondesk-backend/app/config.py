@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "dev-local-secret-key-32b-minimum!!!!"
     ALLOWED_ORIGINS: str = "http://localhost:3000"
     FRONTEND_URL: str = ""
-    GSTR4_FILING_ENABLED: bool = False
+    GSTR4_FILING_ENABLED: bool = True
 
     # Secrets (load from environment; never log)
     JWT_SECRET: str = ""

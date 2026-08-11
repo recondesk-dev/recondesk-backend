@@ -1,6 +1,6 @@
 /** Client-side Razorpay checkout for GSTIN subscription plans. */
 
-export type CheckoutPlan = "starter" | "growth" | "pro";
+export type CheckoutPlan = "monthly" | "starter" | "growth" | "pro";
 
 type RazorpaySuccessResponse = {
   razorpay_order_id: string;
@@ -82,6 +82,7 @@ export async function startPlanCheckout(
   }
 
   const labels: Record<CheckoutPlan, string> = {
+    monthly: "Monthly · 25 GSTINs / month",
     starter: "Starter · 50 GSTINs / year",
     growth: "Growth · 100 GSTINs / year",
     pro: "Pro · 100 GSTINs / year",

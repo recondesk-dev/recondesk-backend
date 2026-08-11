@@ -135,7 +135,7 @@ function Gstr4WorkbenchContent() {
     }
   };
 
-  const isGstr4FilingEnabled = process.env.NEXT_PUBLIC_GSTR4_FILING_ENABLED === "true";
+  const isGstr4FilingEnabled = process.env.NEXT_PUBLIC_GSTR4_FILING_ENABLED !== "false";
 
   const handleDownloadJson = async () => {
     if (!clientId || typeof token !== "string") return;
