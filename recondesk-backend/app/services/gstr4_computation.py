@@ -615,19 +615,32 @@ def build_gstr4_gstn_json(
     """Format Form GSTR-4 computed & overridden values into official GSTN portal JSON schema."""
     comp = compute_gstr4(sb, client_gstin_id, fy, composition_category)
     tables = comp["tables"]
+    tot_rate = tables["table6"]["rate_percentages"]["total_rate"]
+    txval_outward = tables["table6"]["outward_supplies"]["turnover"]["effective_value"]
+    cgst_outward = tables["table6"]["outward_supplies"]["cgst"]["effective_value"]
+    sgst_outward = tables["table6"]["outward_supplies"]["sgst"]["effective_value"]
 
     gstn_json = {
         "gstin": comp["gstin"],
         "fp": f"{fy.split('-')[0][-2:]}{fy.split('-')[1]}", # e.g. "2526"
         "fy": fy,
-        "turnover_prev_fy": 0.0,
+        "gross_turnover": 0.0,
         "table4": {
+            "b2b": tables["table4"]["4A_registered_non_rcm"],
+            "b2brcm": tables["table4"]["4B_registered_rcm"],
+            "unregrcm": tables["table4"]["4C_unregistered_rcm"],
+            "imps": tables["table4"]["4D_import_services"],
             "inward_reg_non_rcm": tables["table4"]["4A_registered_non_rcm"],
             "inward_reg_rcm": tables["table4"]["4B_registered_rcm"],
             "inward_unreg_rcm": tables["table4"]["4C_unregistered_rcm"],
             "import_services": tables["table4"]["4D_import_services"],
         },
         "table5": {
+            "txval": tables["table5"]["outward_taxable"]["effective_value"],
+            "iamt": tables["table5"]["igst"]["effective_value"],
+            "camt": tables["table5"]["cgst"]["effective_value"],
+            "samt": tables["table5"]["sgst"]["effective_value"],
+            "csamt": tables["table5"]["cess"]["effective_value"],
             "outward_taxable": tables["table5"]["outward_taxable"]["effective_value"],
             "outward_tax": tables["table5"]["outward_tax"]["effective_value"],
             "rcm_taxable": tables["table5"]["rcm_taxable"]["effective_value"],
@@ -638,13 +651,27 @@ def build_gstr4_gstn_json(
             "cess": tables["table5"]["cess"]["effective_value"],
         },
         "table6": {
-            "composition_rate": tables["table6"]["rate_percentages"]["total_rate"],
-            "outward_turnover": tables["table6"]["outward_supplies"]["turnover"]["effective_value"],
-            "cgst": tables["table6"]["outward_supplies"]["cgst"]["effective_value"],
-            "sgst": tables["table6"]["outward_supplies"]["sgst"]["effective_value"],
+            "sec_details": [
+                {
+                    "rt": tot_rate,
+                    "txval": txval_outward,
+                    "iamt": 0.0,
+                    "camt": cgst_outward,
+                    "samt": sgst_outward,
+                    "csamt": 0.0,
+                }
+            ],
+            "composition_rate": tot_rate,
+            "outward_turnover": txval_outward,
+            "cgst": cgst_outward,
+            "sgst": sgst_outward,
             "total_tax_payable": tables["table6"]["total_tax_payable"],
         },
         "table8": {
+            "tax_pay": tables["table8"]["tax_payable"]["effective_value"],
+            "tax_pad": tables["table8"]["cmp08_tax_paid"]["effective_value"],
+            "bal_pay": tables["table8"]["balance_tax_payable"]["effective_value"],
+            "ltfee_pay": tables["table8"]["late_fee_payable"]["effective_value"],
             "tax_payable": tables["table8"]["tax_payable"]["effective_value"],
             "cmp08_tax_paid": tables["table8"]["cmp08_tax_paid"]["effective_value"],
             "balance_tax_payable": tables["table8"]["balance_tax_payable"]["effective_value"],

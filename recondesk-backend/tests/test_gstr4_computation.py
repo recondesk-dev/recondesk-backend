@@ -136,9 +136,15 @@ def test_build_gstr4_gstn_json():
     assert gstn_json["gstin"] == "27AAACG1234F1Z5"
     assert gstn_json["fy"] == "2025-26"
     assert "table4" in gstn_json
+    assert "b2b" in gstn_json["table4"]
     assert "table5" in gstn_json
+    assert "txval" in gstn_json["table5"]
     assert "table6" in gstn_json
+    assert "sec_details" in gstn_json["table6"]
+    assert gstn_json["table6"]["sec_details"][0]["rt"] == 1.0
     assert "table8" in gstn_json
+    assert "tax_pay" in gstn_json["table8"]
+    assert "ltfee_pay" in gstn_json["table8"]
 
 
 def test_gstr4_due_date_and_late_fee_caps():
