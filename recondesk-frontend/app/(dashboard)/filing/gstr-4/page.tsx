@@ -10,12 +10,10 @@ import {
   CheckCircle2,
   HelpCircle,
   FileJson,
-  FileSpreadsheet,
   Edit3,
   RefreshCw,
   Clock,
   ShieldAlert,
-  ArrowRight,
   TrendingUp,
   Percent,
   Layers,
@@ -145,23 +143,23 @@ export default function Gstr4AnnualReturnPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0C10] text-gray-100 p-6 font-sans">
+    <div className="min-h-screen p-6 font-sans">
       {/* Top Header & Navigation Banner */}
       <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#121621] border border-white/10 rounded-2xl p-6 shadow-2xl">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white border border-gray-200/80 rounded-2xl p-6 shadow-sm">
           <div>
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400">
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700">
                 <Calculator size={24} />
               </div>
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+                <h1 className="text-2xl font-bold tracking-tight text-[var(--ink)] flex items-center gap-2">
                   GSTR-4 Composition Annual Return
-                  <span className="px-2.5 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full">
+                  <span className="px-2.5 py-0.5 text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full">
                     Form GSTR-4
                   </span>
                 </h1>
-                <p className="text-sm text-gray-400 mt-0.5">
+                <p className="text-sm text-gray-500 mt-0.5">
                   Annual Return for Composition Taxpayers (Sec 10 & Notfn 2/2019-CT(R))
                 </p>
               </div>
@@ -172,14 +170,14 @@ export default function Gstr4AnnualReturnPage() {
             <button
               onClick={handleDownloadJson}
               disabled={!clientId}
-              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition shadow-lg shadow-emerald-900/20 cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition shadow-sm cursor-pointer"
             >
               <FileJson size={16} />
               Export Portal JSON
             </button>
             <button
               onClick={() => mutate()}
-              className="flex items-center gap-2 px-3 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 text-sm font-medium rounded-xl border border-white/10 transition"
+              className="flex items-center gap-2 px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-xl border border-gray-200 transition cursor-pointer"
             >
               <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
             </button>
@@ -187,16 +185,16 @@ export default function Gstr4AnnualReturnPage() {
         </div>
 
         {/* Configuration Controls Bar */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[#121621] border border-white/10 rounded-2xl p-5 shadow-xl">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white border border-gray-200/80 rounded-2xl p-5 shadow-sm">
           {/* Client Selection */}
           <div>
-            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
               Select Client GSTIN
             </label>
             <select
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
-              className="w-full bg-[#1A1F2C] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition"
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-emerald-600 focus:bg-white transition"
             >
               {clients.length === 0 ? (
                 <option value="">No clients found</option>
@@ -212,13 +210,13 @@ export default function Gstr4AnnualReturnPage() {
 
           {/* Financial Year Selection */}
           <div>
-            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
               Financial Year
             </label>
             <select
               value={financialYear}
               onChange={(e) => setFinancialYear(e.target.value)}
-              className="w-full bg-[#1A1F2C] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition"
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-emerald-600 focus:bg-white transition"
             >
               {FINANCIAL_YEARS.map((fy) => (
                 <option key={fy} value={fy}>
@@ -230,13 +228,13 @@ export default function Gstr4AnnualReturnPage() {
 
           {/* Composition Category */}
           <div>
-            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
               Composition Category & Tax Rate
             </label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="w-full bg-[#1A1F2C] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition"
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-emerald-600 focus:bg-white transition"
             >
               {COMPOSITION_CATEGORIES.map((cat) => (
                 <option key={cat.id} value={cat.id}>
@@ -255,11 +253,11 @@ export default function Gstr4AnnualReturnPage() {
                 key={i}
                 className={`p-4 rounded-xl border flex items-start gap-3 ${
                   w.severity === "WARNING"
-                    ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
-                    : "bg-blue-500/10 border-blue-500/30 text-blue-300"
+                    ? "bg-amber-50 border-amber-200 text-amber-800"
+                    : "bg-blue-50 border-blue-200 text-blue-800"
                 }`}
               >
-                <AlertTriangle size={20} className="mt-0.5 flex-shrink-0" />
+                <AlertTriangle size={20} className="mt-0.5 flex-shrink-0 text-amber-600" />
                 <div className="text-sm">
                   <span className="font-semibold mr-2">[{w.code}]</span>
                   {w.message}
@@ -271,47 +269,47 @@ export default function Gstr4AnnualReturnPage() {
 
         {/* KPI Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-[#121621] border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
-            <div className="flex items-center justify-between text-gray-400 text-xs font-semibold uppercase tracking-wider">
+          <div className="bg-white border border-gray-200/80 rounded-2xl p-5 shadow-sm relative overflow-hidden">
+            <div className="flex items-center justify-between text-gray-500 text-xs font-semibold uppercase tracking-wider">
               <span>Annual Outward Turnover</span>
-              <TrendingUp size={16} className="text-emerald-400" />
+              <TrendingUp size={16} className="text-emerald-600" />
             </div>
-            <div className="text-2xl font-bold text-white mt-3">
+            <div className="text-2xl font-bold text-gray-900 mt-3">
               {formatCurrency(comp?.kpi_summary?.outward_turnover || 0)}
             </div>
             <div className="text-xs text-gray-500 mt-1">Sum of CMP-08 Q1..Q4 Outward Sales</div>
           </div>
 
-          <div className="bg-[#121621] border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
-            <div className="flex items-center justify-between text-gray-400 text-xs font-semibold uppercase tracking-wider">
+          <div className="bg-white border border-gray-200/80 rounded-2xl p-5 shadow-sm relative overflow-hidden">
+            <div className="flex items-center justify-between text-gray-500 text-xs font-semibold uppercase tracking-wider">
               <span>Calculated Tax Liability</span>
-              <Percent size={16} className="text-blue-400" />
+              <Percent size={16} className="text-blue-600" />
             </div>
-            <div className="text-2xl font-bold text-white mt-3">
+            <div className="text-2xl font-bold text-gray-900 mt-3">
               {formatCurrency(comp?.kpi_summary?.total_tax_payable || 0)}
             </div>
-            <div className="text-xs text-blue-400/80 mt-1 font-medium">
+            <div className="text-xs text-blue-600 font-medium mt-1">
               Rate: {comp?.tables?.table6?.rate_percentages?.total_rate || 1}% Total Tax
             </div>
           </div>
 
-          <div className="bg-[#121621] border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
-            <div className="flex items-center justify-between text-gray-400 text-xs font-semibold uppercase tracking-wider">
+          <div className="bg-white border border-gray-200/80 rounded-2xl p-5 shadow-sm relative overflow-hidden">
+            <div className="flex items-center justify-between text-gray-500 text-xs font-semibold uppercase tracking-wider">
               <span>CMP-08 Tax Paid</span>
-              <CheckCircle2 size={16} className="text-purple-400" />
+              <CheckCircle2 size={16} className="text-purple-600" />
             </div>
-            <div className="text-2xl font-bold text-white mt-3">
+            <div className="text-2xl font-bold text-gray-900 mt-3">
               {formatCurrency(comp?.kpi_summary?.cmp08_tax_paid || 0)}
             </div>
-            <div className="text-xs text-purple-400/80 mt-1">Paid in quarterly statements</div>
+            <div className="text-xs text-purple-600 mt-1">Paid in quarterly statements</div>
           </div>
 
-          <div className="bg-[#121621] border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
-            <div className="flex items-center justify-between text-gray-400 text-xs font-semibold uppercase tracking-wider">
+          <div className="bg-white border border-gray-200/80 rounded-2xl p-5 shadow-sm relative overflow-hidden">
+            <div className="flex items-center justify-between text-gray-500 text-xs font-semibold uppercase tracking-wider">
               <span>Balance Cash Payable</span>
-              <ShieldAlert size={16} className={comp?.kpi_summary?.balance_cash_payable ? "text-amber-400" : "text-emerald-400"} />
+              <ShieldAlert size={16} className={comp?.kpi_summary?.balance_cash_payable ? "text-amber-600" : "text-emerald-600"} />
             </div>
-            <div className={`text-2xl font-bold mt-3 ${comp?.kpi_summary?.balance_cash_payable ? "text-amber-400" : "text-emerald-400"}`}>
+            <div className={`text-2xl font-bold mt-3 ${comp?.kpi_summary?.balance_cash_payable ? "text-amber-600" : "text-emerald-600"}`}>
               {formatCurrency(comp?.kpi_summary?.balance_cash_payable || 0)}
             </div>
             <div className="text-xs text-gray-500 mt-1">
@@ -321,11 +319,11 @@ export default function Gstr4AnnualReturnPage() {
         </div>
 
         {/* Workbench Tab Navigation */}
-        <div className="bg-[#121621] border border-white/10 rounded-2xl p-2 shadow-xl flex flex-wrap gap-2">
+        <div className="bg-white border border-gray-200/80 rounded-2xl p-2 shadow-sm flex flex-wrap gap-2">
           <button
             onClick={() => setActiveTab("table6")}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-              activeTab === "table6" ? "bg-emerald-600 text-white shadow-lg" : "text-gray-400 hover:bg-white/5 hover:text-white"
+              activeTab === "table6" ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
             }`}
           >
             <Percent size={15} />
@@ -335,7 +333,7 @@ export default function Gstr4AnnualReturnPage() {
           <button
             onClick={() => setActiveTab("table5")}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-              activeTab === "table5" ? "bg-emerald-600 text-white shadow-lg" : "text-gray-400 hover:bg-white/5 hover:text-white"
+              activeTab === "table5" ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
             }`}
           >
             <Layers size={15} />
@@ -345,7 +343,7 @@ export default function Gstr4AnnualReturnPage() {
           <button
             onClick={() => setActiveTab("table4")}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-              activeTab === "table4" ? "bg-emerald-600 text-white shadow-lg" : "text-gray-400 hover:bg-white/5 hover:text-white"
+              activeTab === "table4" ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
             }`}
           >
             <Calculator size={15} />
@@ -355,7 +353,7 @@ export default function Gstr4AnnualReturnPage() {
           <button
             onClick={() => setActiveTab("table8")}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-              activeTab === "table8" ? "bg-emerald-600 text-white shadow-lg" : "text-gray-400 hover:bg-white/5 hover:text-white"
+              activeTab === "table8" ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
             }`}
           >
             <Clock size={15} />
@@ -365,7 +363,7 @@ export default function Gstr4AnnualReturnPage() {
           <button
             onClick={() => setActiveTab("overrides")}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-              activeTab === "overrides" ? "bg-emerald-600 text-white shadow-lg" : "text-gray-400 hover:bg-white/5 hover:text-white"
+              activeTab === "overrides" ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
             }`}
           >
             <Edit3 size={15} />
@@ -375,32 +373,32 @@ export default function Gstr4AnnualReturnPage() {
 
         {/* Tab Contents */}
         {isLoading ? (
-          <div className="bg-[#121621] border border-white/10 rounded-2xl p-12 text-center text-gray-400">
-            <RefreshCw size={28} className="animate-spin mx-auto text-emerald-400 mb-3" />
+          <div className="bg-white border border-gray-200/80 rounded-2xl p-12 text-center text-gray-500">
+            <RefreshCw size={28} className="animate-spin mx-auto text-emerald-600 mb-3" />
             Computing Form GSTR-4 annual return figures...
           </div>
         ) : error ? (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-300 p-6 rounded-2xl text-center">
+          <div className="bg-red-50 border border-red-200 text-red-700 p-6 rounded-2xl text-center text-sm font-medium">
             Failed to compute GSTR-4: {error.message || String(error)}
           </div>
         ) : comp ? (
-          <div className="bg-[#121621] border border-white/10 rounded-2xl p-6 shadow-2xl space-y-6">
+          <div className="bg-white border border-gray-200/80 rounded-2xl p-6 shadow-sm space-y-6">
             {/* Table 6: Rate-Wise Tax Payable */}
             {activeTab === "table6" && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                     Table 6: Tax Payable on Outward Supplies & Inward Reverse Charge
                   </h3>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-gray-500 mt-1">
                     Rate-wise breakup of turnover and composition tax payable ({comp.tables.table6.category_label})
                   </p>
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-300 border-collapse">
+                  <table className="w-full text-left text-sm text-gray-800 border-collapse">
                     <thead>
-                      <tr className="border-b border-white/10 bg-white/5 text-xs uppercase text-gray-400 font-semibold">
+                      <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500 font-semibold">
                         <th className="p-3">Supply Type</th>
                         <th className="p-3">Taxable Turnover (₹)</th>
                         <th className="p-3">CGST Rate</th>
@@ -410,9 +408,9 @@ export default function Gstr4AnnualReturnPage() {
                         <th className="p-3 text-right">Total Tax (₹)</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
-                      <tr className="hover:bg-white/[0.02]">
-                        <td className="p-3 font-semibold text-white">Outward Supplies (Composition Rate)</td>
+                    <tbody className="divide-y divide-gray-100">
+                      <tr className="hover:bg-gray-50/50">
+                        <td className="p-3 font-semibold text-gray-900">Outward Supplies (Composition Rate)</td>
                         <td className="p-3 font-mono font-medium">
                           {formatCurrency(comp.tables.table6.outward_supplies.turnover.effective_value)}
                         </td>
@@ -424,25 +422,25 @@ export default function Gstr4AnnualReturnPage() {
                         <td className="p-3 font-mono">
                           {formatCurrency(comp.tables.table6.outward_supplies.sgst.effective_value)}
                         </td>
-                        <td className="p-3 text-right font-mono font-bold text-emerald-400">
+                        <td className="p-3 text-right font-mono font-bold text-emerald-600">
                           {formatCurrency(comp.tables.table6.outward_supplies.tax_total.effective_value)}
                         </td>
                       </tr>
 
-                      <tr className="hover:bg-white/[0.02]">
-                        <td className="p-3 font-semibold text-white">Inward Reverse Charge Supplies (RCM)</td>
+                      <tr className="hover:bg-gray-50/50">
+                        <td className="p-3 font-semibold text-gray-900">Inward Reverse Charge Supplies (RCM)</td>
                         <td className="p-3 font-mono font-medium">
                           {formatCurrency(comp.tables.table6.inward_rcm_supplies.taxable_value.effective_value)}
                         </td>
                         <td className="p-3" colSpan={4}>
                           Slab Rates (5%, 12%, 18%, 28%)
                         </td>
-                        <td className="p-3 text-right font-mono font-bold text-emerald-400">
+                        <td className="p-3 text-right font-mono font-bold text-emerald-600">
                           {formatCurrency(comp.tables.table6.inward_rcm_supplies.tax_total.effective_value)}
                         </td>
                       </tr>
 
-                      <tr className="bg-emerald-500/10 font-bold border-t border-emerald-500/30 text-white">
+                      <tr className="bg-emerald-50 font-bold border-t border-emerald-200 text-gray-900">
                         <td className="p-3.5">TOTAL ANNUAL TAX PAYABLE</td>
                         <td className="p-3.5 font-mono">
                           {formatCurrency(
@@ -451,7 +449,7 @@ export default function Gstr4AnnualReturnPage() {
                           )}
                         </td>
                         <td className="p-3.5" colSpan={4}></td>
-                        <td className="p-3.5 text-right font-mono text-lg text-emerald-400">
+                        <td className="p-3.5 text-right font-mono text-lg text-emerald-700">
                           {formatCurrency(comp.kpi_summary.total_tax_payable)}
                         </td>
                       </tr>
@@ -466,14 +464,14 @@ export default function Gstr4AnnualReturnPage() {
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-bold text-white">Table 5: Summary of Self-Assessed Tax Paid (CMP-08)</h3>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <h3 className="text-lg font-bold text-gray-900">Table 5: Summary of Self-Assessed Tax Paid (CMP-08)</h3>
+                    <p className="text-xs text-gray-500 mt-1">
                       Quarterly statement records aggregated for Q1, Q2, Q3, and Q4
                     </p>
                   </div>
                   <button
                     onClick={() => setIsCmp08ModalOpen(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-sm"
                   >
                     <Edit3 size={14} />
                     Edit Quarterly CMP-08 Figures
@@ -481,9 +479,9 @@ export default function Gstr4AnnualReturnPage() {
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-300 border-collapse">
+                  <table className="w-full text-left text-sm text-gray-800 border-collapse">
                     <thead>
-                      <tr className="border-b border-white/10 bg-white/5 text-xs uppercase text-gray-400 font-semibold">
+                      <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500 font-semibold">
                         <th className="p-3">Quarter</th>
                         <th className="p-3">Outward Taxable (₹)</th>
                         <th className="p-3">Outward Tax (₹)</th>
@@ -493,28 +491,28 @@ export default function Gstr4AnnualReturnPage() {
                         <th className="p-3 text-right">Total Tax Paid (₹)</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
+                    <tbody className="divide-y divide-gray-100">
                       {[comp.tables.table5.q1, comp.tables.table5.q2, comp.tables.table5.q3, comp.tables.table5.q4].map((q) => (
-                        <tr key={q.quarter} className="hover:bg-white/[0.02]">
-                          <td className="p-3 font-bold text-white">{q.quarter}</td>
+                        <tr key={q.quarter} className="hover:bg-gray-50/50">
+                          <td className="p-3 font-bold text-gray-900">{q.quarter}</td>
                           <td className="p-3 font-mono">{formatCurrency(q.outward_taxable)}</td>
                           <td className="p-3 font-mono">{formatCurrency(q.outward_tax)}</td>
                           <td className="p-3 font-mono">{formatCurrency(q.rcm_taxable)}</td>
                           <td className="p-3 font-mono">{formatCurrency(q.rcm_tax)}</td>
                           <td className="p-3 font-mono">{formatCurrency(q.interest)}</td>
-                          <td className="p-3 text-right font-mono font-bold text-purple-300">
+                          <td className="p-3 text-right font-mono font-bold text-purple-700">
                             {formatCurrency(q.outward_tax + q.rcm_tax)}
                           </td>
                         </tr>
                       ))}
-                      <tr className="bg-purple-500/10 font-bold border-t border-purple-500/30 text-white">
+                      <tr className="bg-purple-50 font-bold border-t border-purple-200 text-gray-900">
                         <td className="p-3.5">TOTAL CMP-08 PAID</td>
                         <td className="p-3.5 font-mono">{formatCurrency(comp.tables.table5.outward_taxable.effective_value)}</td>
                         <td className="p-3.5 font-mono">{formatCurrency(comp.tables.table5.outward_tax.effective_value)}</td>
                         <td className="p-3.5 font-mono">{formatCurrency(comp.tables.table5.rcm_taxable.effective_value)}</td>
                         <td className="p-3.5 font-mono">{formatCurrency(comp.tables.table5.rcm_tax.effective_value)}</td>
                         <td className="p-3.5 font-mono">{formatCurrency(comp.tables.table5.interest.effective_value)}</td>
-                        <td className="p-3.5 text-right font-mono text-lg text-purple-300">
+                        <td className="p-3.5 text-right font-mono text-lg text-purple-700">
                           {formatCurrency(comp.kpi_summary.cmp08_tax_paid)}
                         </td>
                       </tr>
@@ -528,43 +526,43 @@ export default function Gstr4AnnualReturnPage() {
             {activeTab === "table4" && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-lg font-bold text-white">Table 4: Inward Supplies on which Tax is Payable</h3>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <h3 className="text-lg font-bold text-gray-900">Table 4: Inward Supplies on which Tax is Payable</h3>
+                  <p className="text-xs text-gray-500 mt-1">
                     Inward purchases from registered/unregistered suppliers and imports
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-4 bg-white/5 border border-white/10 rounded-xl space-y-2">
-                    <div className="text-xs font-bold text-emerald-400 uppercase">4A. Registered Suppliers (Non-RCM)</div>
-                    <div className="text-xl font-bold text-white">
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                    <div className="text-xs font-bold text-emerald-700 uppercase">4A. Registered Suppliers (Non-RCM)</div>
+                    <div className="text-xl font-bold text-gray-900">
                       {formatCurrency(comp.tables.table4["4A_registered_non_rcm"].taxable_value.effective_value)}
                     </div>
-                    <div className="text-xs text-gray-400">Normal inward purchases from registered dealers</div>
+                    <div className="text-xs text-gray-500">Normal inward purchases from registered dealers</div>
                   </div>
 
-                  <div className="p-4 bg-white/5 border border-white/10 rounded-xl space-y-2">
-                    <div className="text-xs font-bold text-blue-400 uppercase">4B. Registered Suppliers (Attracting RCM)</div>
-                    <div className="text-xl font-bold text-white">
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                    <div className="text-xs font-bold text-blue-700 uppercase">4B. Registered Suppliers (Attracting RCM)</div>
+                    <div className="text-xl font-bold text-gray-900">
                       {formatCurrency(comp.tables.table4["4B_registered_rcm"].taxable_value.effective_value)}
                     </div>
-                    <div className="text-xs text-gray-400">RCM inward supplies from registered suppliers</div>
+                    <div className="text-xs text-gray-500">RCM inward supplies from registered suppliers</div>
                   </div>
 
-                  <div className="p-4 bg-white/5 border border-white/10 rounded-xl space-y-2">
-                    <div className="text-xs font-bold text-purple-400 uppercase">4C. Unregistered Suppliers (RCM)</div>
-                    <div className="text-xl font-bold text-white">
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                    <div className="text-xs font-bold text-purple-700 uppercase">4C. Unregistered Suppliers (RCM)</div>
+                    <div className="text-xl font-bold text-gray-900">
                       {formatCurrency(comp.tables.table4["4C_unregistered_rcm"].taxable_value.effective_value)}
                     </div>
-                    <div className="text-xs text-gray-400">Supplies received from unregistered entities</div>
+                    <div className="text-xs text-gray-500">Supplies received from unregistered entities</div>
                   </div>
 
-                  <div className="p-4 bg-white/5 border border-white/10 rounded-xl space-y-2">
-                    <div className="text-xs font-bold text-amber-400 uppercase">4D. Import of Services</div>
-                    <div className="text-xl font-bold text-white">
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                    <div className="text-xs font-bold text-amber-700 uppercase">4D. Import of Services</div>
+                    <div className="text-xl font-bold text-gray-900">
                       {formatCurrency(comp.tables.table4["4D_import_services"].taxable_value.effective_value)}
                     </div>
-                    <div className="text-xs text-gray-400">Cross-border service imports under reverse charge</div>
+                    <div className="text-xs text-gray-500">Cross-border service imports under reverse charge</div>
                   </div>
                 </div>
               </div>
@@ -574,44 +572,44 @@ export default function Gstr4AnnualReturnPage() {
             {activeTab === "table8" && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-lg font-bold text-white">Table 8: Tax, Interest, and Late Fee Payable & Paid</h3>
-                  <p className="text-xs text-gray-400 mt-1">Reconciliation between Annual Liability and CMP-08 Paid amounts</p>
+                  <h3 className="text-lg font-bold text-gray-900">Table 8: Tax, Interest, and Late Fee Payable & Paid</h3>
+                  <p className="text-xs text-gray-500 mt-1">Reconciliation between Annual Liability and CMP-08 Paid amounts</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="p-5 bg-white/5 border border-white/10 rounded-xl space-y-2">
-                    <span className="text-xs font-semibold text-gray-400 uppercase">Annual Tax Liability (Table 6)</span>
-                    <div className="text-2xl font-bold text-white">{formatCurrency(comp.tables.table8.tax_payable.effective_value)}</div>
+                  <div className="p-5 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                    <span className="text-xs font-semibold text-gray-500 uppercase">Annual Tax Liability (Table 6)</span>
+                    <div className="text-2xl font-bold text-gray-900">{formatCurrency(comp.tables.table8.tax_payable.effective_value)}</div>
                   </div>
 
-                  <div className="p-5 bg-white/5 border border-white/10 rounded-xl space-y-2">
-                    <span className="text-xs font-semibold text-gray-400 uppercase">CMP-08 Tax Paid (Table 5)</span>
-                    <div className="text-2xl font-bold text-purple-300">
+                  <div className="p-5 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                    <span className="text-xs font-semibold text-gray-500 uppercase">CMP-08 Tax Paid (Table 5)</span>
+                    <div className="text-2xl font-bold text-purple-700">
                       {formatCurrency(comp.tables.table8.cmp08_tax_paid.effective_value)}
                     </div>
                   </div>
 
-                  <div className="p-5 bg-white/5 border border-white/10 rounded-xl space-y-2">
-                    <span className="text-xs font-semibold text-gray-400 uppercase">Balance Tax Payable in Cash</span>
-                    <div className={`text-2xl font-bold ${comp.tables.table8.balance_tax_payable.effective_value > 0 ? "text-amber-400" : "text-emerald-400"}`}>
+                  <div className="p-5 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                    <span className="text-xs font-semibold text-gray-500 uppercase">Balance Tax Payable in Cash</span>
+                    <div className={`text-2xl font-bold ${comp.tables.table8.balance_tax_payable.effective_value > 0 ? "text-amber-600" : "text-emerald-600"}`}>
                       {formatCurrency(comp.tables.table8.balance_tax_payable.effective_value)}
                     </div>
                   </div>
                 </div>
 
-                <div className="p-5 bg-[#1A1F2C] border border-white/10 rounded-xl space-y-3">
-                  <div className="text-sm font-bold text-white flex items-center justify-between">
+                <div className="p-5 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
+                  <div className="text-sm font-bold text-gray-900 flex items-center justify-between">
                     <span>Filing Timeline & Late Fee Status</span>
-                    <span className="text-xs text-gray-400 font-mono">Due Date: {comp.tables.table8.due_date}</span>
+                    <span className="text-xs text-gray-500 font-mono">Due Date: {comp.tables.table8.due_date}</span>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-gray-300 pt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-gray-700 pt-2">
                     <div>
-                      <span className="text-gray-400">Days Delay Past Due Date:</span>
-                      <span className="font-bold text-white ml-2">{comp.tables.table8.days_late} Days</span>
+                      <span className="text-gray-500">Days Delay Past Due Date:</span>
+                      <span className="font-bold text-gray-900 ml-2">{comp.tables.table8.days_late} Days</span>
                     </div>
                     <div>
-                      <span className="text-gray-400">Estimated Late Fee Payable:</span>
-                      <span className="font-bold text-amber-400 ml-2">
+                      <span className="text-gray-500">Estimated Late Fee Payable:</span>
+                      <span className="font-bold text-amber-600 ml-2">
                         {formatCurrency(comp.tables.table8.late_fee_payable.effective_value)}
                       </span>
                     </div>
@@ -625,13 +623,13 @@ export default function Gstr4AnnualReturnPage() {
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                       CA Audit Cell Overrides
-                      <span className="px-2.5 py-0.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-full font-semibold">
+                      <span className="px-2.5 py-0.5 text-xs bg-blue-100 text-blue-800 border border-blue-200 rounded-full font-semibold">
                         Audit Trail Active
                       </span>
                     </h3>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       Override system calculated values cell-by-cell with mandatory CA observation notes
                     </p>
                   </div>
@@ -639,7 +637,7 @@ export default function Gstr4AnnualReturnPage() {
                   <button
                     onClick={handleSaveOverrides}
                     disabled={isSavingOverrides}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-50"
+                    className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-50 shadow-sm"
                   >
                     <Save size={15} />
                     {isSavingOverrides ? "Saving..." : "Save Audit Overrides"}
@@ -647,15 +645,15 @@ export default function Gstr4AnnualReturnPage() {
                 </div>
 
                 {saveStatus && (
-                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl font-medium">
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl font-medium">
                     {saveStatus}
                   </div>
                 )}
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-300 border-collapse">
+                  <table className="w-full text-left text-sm text-gray-800 border-collapse">
                     <thead>
-                      <tr className="border-b border-white/10 bg-white/5 text-xs uppercase text-gray-400 font-semibold">
+                      <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500 font-semibold">
                         <th className="p-3">Table & Cell Identifier</th>
                         <th className="p-3">System Computed Value</th>
                         <th className="p-3">CA Override Value</th>
@@ -663,11 +661,11 @@ export default function Gstr4AnnualReturnPage() {
                         <th className="p-3 text-right">Status</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
+                    <tbody className="divide-y divide-gray-100">
                       {/* Table 5 Outward Taxable */}
-                      <tr className="hover:bg-white/[0.02]">
+                      <tr className="hover:bg-gray-50/50">
                         <td className="p-3">
-                          <div className="font-bold text-white">Table 5: Outward Taxable Turnover</div>
+                          <div className="font-bold text-gray-900">Table 5: Outward Taxable Turnover</div>
                           <div className="text-xs font-mono text-gray-500">table5.outward_taxable</div>
                         </td>
                         <td className="p-3 font-mono">{formatCurrency(comp.tables.table5.outward_taxable.system_value)}</td>
@@ -679,7 +677,7 @@ export default function Gstr4AnnualReturnPage() {
                             onChange={(e) =>
                               handleCellOverrideChange("table5", "outward_taxable", comp.tables.table5.outward_taxable.system_value, e.target.value)
                             }
-                            className="bg-[#1A1F2C] border border-white/10 rounded-lg px-3 py-1.5 font-mono text-xs text-white w-36 focus:outline-none focus:border-emerald-500"
+                            className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 font-mono text-xs text-gray-900 w-36 focus:outline-none focus:border-emerald-600 focus:bg-white"
                           />
                         </td>
                         <td className="p-3">
@@ -696,22 +694,22 @@ export default function Gstr4AnnualReturnPage() {
                                 e.target.value
                               )
                             }
-                            className="bg-[#1A1F2C] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white w-full focus:outline-none focus:border-emerald-500"
+                            className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-900 w-full focus:outline-none focus:border-emerald-600 focus:bg-white"
                           />
                         </td>
                         <td className="p-3 text-right">
                           {comp.tables.table5.outward_taxable.is_overridden ? (
-                            <span className="px-2 py-1 text-xs bg-amber-500/20 text-amber-300 rounded font-semibold">Overridden</span>
+                            <span className="px-2 py-1 text-xs bg-amber-100 text-amber-800 rounded font-semibold">Overridden</span>
                           ) : (
-                            <span className="px-2 py-1 text-xs bg-white/5 text-gray-400 rounded">System</span>
+                            <span className="px-2 py-1 text-xs bg-gray-100 text-gray-500 rounded">System</span>
                           )}
                         </td>
                       </tr>
 
                       {/* Table 5 RCM Taxable */}
-                      <tr className="hover:bg-white/[0.02]">
+                      <tr className="hover:bg-gray-50/50">
                         <td className="p-3">
-                          <div className="font-bold text-white">Table 5: Inward RCM Taxable Turnover</div>
+                          <div className="font-bold text-gray-900">Table 5: Inward RCM Taxable Turnover</div>
                           <div className="text-xs font-mono text-gray-500">table5.rcm_taxable</div>
                         </td>
                         <td className="p-3 font-mono">{formatCurrency(comp.tables.table5.rcm_taxable.system_value)}</td>
@@ -723,7 +721,7 @@ export default function Gstr4AnnualReturnPage() {
                             onChange={(e) =>
                               handleCellOverrideChange("table5", "rcm_taxable", comp.tables.table5.rcm_taxable.system_value, e.target.value)
                             }
-                            className="bg-[#1A1F2C] border border-white/10 rounded-lg px-3 py-1.5 font-mono text-xs text-white w-36 focus:outline-none focus:border-emerald-500"
+                            className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 font-mono text-xs text-gray-900 w-36 focus:outline-none focus:border-emerald-600 focus:bg-white"
                           />
                         </td>
                         <td className="p-3">
@@ -740,14 +738,14 @@ export default function Gstr4AnnualReturnPage() {
                                 e.target.value
                               )
                             }
-                            className="bg-[#1A1F2C] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white w-full focus:outline-none focus:border-emerald-500"
+                            className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-900 w-full focus:outline-none focus:border-emerald-600 focus:bg-white"
                           />
                         </td>
                         <td className="p-3 text-right">
                           {comp.tables.table5.rcm_taxable.is_overridden ? (
-                            <span className="px-2 py-1 text-xs bg-amber-500/20 text-amber-300 rounded font-semibold">Overridden</span>
+                            <span className="px-2 py-1 text-xs bg-amber-100 text-amber-800 rounded font-semibold">Overridden</span>
                           ) : (
-                            <span className="px-2 py-1 text-xs bg-white/5 text-gray-400 rounded">System</span>
+                            <span className="px-2 py-1 text-xs bg-gray-100 text-gray-500 rounded">System</span>
                           )}
                         </td>
                       </tr>
@@ -762,22 +760,22 @@ export default function Gstr4AnnualReturnPage() {
 
       {/* Edit CMP-08 Modal */}
       {isCmp08ModalOpen && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#121621] border border-white/10 rounded-2xl max-w-4xl w-full p-6 space-y-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <Edit3 size={18} className="text-blue-400" />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-gray-200 rounded-2xl max-w-4xl w-full p-6 space-y-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Edit3 size={18} className="text-blue-600" />
                 Edit Quarterly CMP-08 Summary Records
               </h3>
-              <button onClick={() => setIsCmp08ModalOpen(false)} className="text-gray-400 hover:text-white">
+              <button onClick={() => setIsCmp08ModalOpen(false)} className="text-gray-400 hover:text-gray-700">
                 ✕
               </button>
             </div>
 
             <div className="overflow-x-auto space-y-4">
-              <table className="w-full text-left text-xs text-gray-300">
+              <table className="w-full text-left text-xs text-gray-800">
                 <thead>
-                  <tr className="border-b border-white/10 bg-white/5 uppercase text-gray-400 font-semibold">
+                  <tr className="border-b border-gray-200 bg-gray-50 uppercase text-gray-500 font-semibold">
                     <th className="p-2">Quarter</th>
                     <th className="p-2">Outward Taxable (₹)</th>
                     <th className="p-2">Outward Tax (₹)</th>
@@ -786,10 +784,10 @@ export default function Gstr4AnnualReturnPage() {
                     <th className="p-2">Interest (₹)</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/5">
+                <tbody className="divide-y divide-gray-100">
                   {cmp08Drafts.map((row, index) => (
                     <tr key={row.quarter}>
-                      <td className="p-2 font-bold text-white">{row.quarter}</td>
+                      <td className="p-2 font-bold text-gray-900">{row.quarter}</td>
                       <td className="p-2">
                         <input
                           type="number"
@@ -800,7 +798,7 @@ export default function Gstr4AnnualReturnPage() {
                             next[index] = { ...next[index], outward_taxable: val };
                             setCmp08Drafts(next);
                           }}
-                          className="w-full bg-[#1A1F2C] border border-white/10 rounded px-2 py-1 font-mono text-xs text-white"
+                          className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 font-mono text-xs text-gray-900 focus:bg-white focus:border-emerald-600"
                         />
                       </td>
                       <td className="p-2">
@@ -813,7 +811,7 @@ export default function Gstr4AnnualReturnPage() {
                             next[index] = { ...next[index], outward_tax: val };
                             setCmp08Drafts(next);
                           }}
-                          className="w-full bg-[#1A1F2C] border border-white/10 rounded px-2 py-1 font-mono text-xs text-white"
+                          className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 font-mono text-xs text-gray-900 focus:bg-white focus:border-emerald-600"
                         />
                       </td>
                       <td className="p-2">
@@ -826,7 +824,7 @@ export default function Gstr4AnnualReturnPage() {
                             next[index] = { ...next[index], rcm_taxable: val };
                             setCmp08Drafts(next);
                           }}
-                          className="w-full bg-[#1A1F2C] border border-white/10 rounded px-2 py-1 font-mono text-xs text-white"
+                          className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 font-mono text-xs text-gray-900 focus:bg-white focus:border-emerald-600"
                         />
                       </td>
                       <td className="p-2">
@@ -839,7 +837,7 @@ export default function Gstr4AnnualReturnPage() {
                             next[index] = { ...next[index], rcm_tax: val };
                             setCmp08Drafts(next);
                           }}
-                          className="w-full bg-[#1A1F2C] border border-white/10 rounded px-2 py-1 font-mono text-xs text-white"
+                          className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 font-mono text-xs text-gray-900 focus:bg-white focus:border-emerald-600"
                         />
                       </td>
                       <td className="p-2">
@@ -852,7 +850,7 @@ export default function Gstr4AnnualReturnPage() {
                             next[index] = { ...next[index], interest: val };
                             setCmp08Drafts(next);
                           }}
-                          className="w-full bg-[#1A1F2C] border border-white/10 rounded px-2 py-1 font-mono text-xs text-white"
+                          className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 font-mono text-xs text-gray-900 focus:bg-white focus:border-emerald-600"
                         />
                       </td>
                     </tr>
@@ -861,17 +859,17 @@ export default function Gstr4AnnualReturnPage() {
               </table>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
               <button
                 onClick={() => setIsCmp08ModalOpen(false)}
-                className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 text-xs font-semibold rounded-xl"
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-xl"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveCmp08Modal}
                 disabled={isSavingCmp08}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition disabled:opacity-50"
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition disabled:opacity-50 shadow-sm"
               >
                 {isSavingCmp08 ? "Saving..." : "Save Quarterly Figures"}
               </button>
