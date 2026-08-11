@@ -179,6 +179,7 @@ def load_gstr4_cmp08_records(sb: Client, client_gstin_id: str, fy: str) -> list[
         for q in quarters
     }
 
+    has_saved_data = False
     try:
         res = (
             sb.table("gstr4_cmp08_records")
@@ -187,7 +188,10 @@ def load_gstr4_cmp08_records(sb: Client, client_gstin_id: str, fy: str) -> list[
             .eq("financial_year", fy)
             .execute()
         )
-        for row in (res.data or []):
+        data = res.data or []
+        if data:
+            has_saved_data = True
+        for row in data:
             q = row.get("quarter")
             if q in default_cmp08:
                 default_cmp08[q] = {
@@ -206,7 +210,7 @@ def load_gstr4_cmp08_records(sb: Client, client_gstin_id: str, fy: str) -> list[
     except Exception as exc:
         logger.warning("Could not fetch CMP-08 records from Supabase: %s", exc)
 
-    return [default_cmp08[q] for q in quarters]
+    return [default_cmp08[q] for q in quarters], has_saved_data
 
 
 def save_cmp08_records(
@@ -251,7 +255,8 @@ def save_cmp08_records(
         except Exception as exc:
             logger.error("Failed to upsert CMP-08 record for %s %s: %s", fy, q, exc)
 
-    return saved if saved else load_gstr4_cmp08_records(sb, client_gstin_id, fy)
+    recs, _ = load_gstr4_cmp08_records(sb, client_gstin_id, fy)
+    return saved if saved else recs
 
 
 def save_gstr4_audit_overrides(
@@ -346,7 +351,7 @@ def compute_gstr4(
         }
 
     # 2. Load CMP-08 Quarterly Figures (Table 5)
-    cmp08_rows = load_gstr4_cmp08_records(sb, client_gstin_id, fy)
+    cmp08_rows, has_cmp08_data = load_gstr4_cmp08_records(sb, client_gstin_id, fy)
     cmp08_q1 = cmp08_rows[0]
     cmp08_q2 = cmp08_rows[1]
     cmp08_q3 = cmp08_rows[2]
@@ -555,6 +560,12 @@ def compute_gstr4(
 
     # Discrepancy warning checks
     warnings = []
+    if not has_cmp08_data:
+        warnings.append({
+            "code": "CMP08_DATA_PENDING",
+            "message": f"No quarterly CMP-08 figures saved for FY {fy} yet. Values default to ₹0.00 until Q1–Q4 figures are entered.",
+            "severity": "INFO",
+        })
     if tax_balance_sys > 0:
         warnings.append({
             "code": "CMP08_SHORTFALL",
@@ -591,6 +602,7 @@ def compute_gstr4(
             "balance_cash_payable": tax_balance_sys,
             "days_late": days_late,
             "late_fee_payable": table8["late_fee_payable"]["effective_value"],
+            "has_cmp08_data": has_cmp08_data,
         },
         "warnings": warnings,
     }
