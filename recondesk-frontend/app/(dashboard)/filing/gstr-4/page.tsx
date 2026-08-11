@@ -16,6 +16,7 @@ import {
   TrendingUp,
   Percent,
   Layers,
+  Lock,
 } from "lucide-react";
 import { clientsApi, gstr4Api, ClientGstin, Gstr4ComputationResponse, Cmp08Record } from "@/lib/api";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
@@ -134,8 +135,14 @@ function Gstr4WorkbenchContent() {
     }
   };
 
+  const isGstr4FilingEnabled = process.env.NEXT_PUBLIC_GSTR4_FILING_ENABLED === "true";
+
   const handleDownloadJson = async () => {
     if (!clientId || typeof token !== "string") return;
+    if (!isGstr4FilingEnabled) {
+      alert("HTTP 503 GSTR4_FILING_DISABLED: Form GSTR-4 JSON export is currently disabled. End-to-end GSTN Offline Utility validation has not been completed.");
+      return;
+    }
     try {
       const blob = await gstr4Api.downloadJson(token, clientId, financialYear, category);
       const url = window.URL.createObjectURL(blob);
@@ -182,11 +189,16 @@ function Gstr4WorkbenchContent() {
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={handleDownloadJson}
-              disabled={!clientId}
-              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition shadow-sm cursor-pointer"
+              disabled={!clientId || !isGstr4FilingEnabled}
+              title={!isGstr4FilingEnabled ? "Disabled: GSTR4_FILING_ENABLED = false" : "Export Portal JSON"}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl transition shadow-sm ${
+                !isGstr4FilingEnabled
+                  ? "bg-gray-100 border border-gray-300 text-gray-400 cursor-not-allowed"
+                  : "bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white cursor-pointer"
+              }`}
             >
-              <FileJson size={16} />
-              Export Portal JSON
+              {!isGstr4FilingEnabled ? <Lock size={16} /> : <FileJson size={16} />}
+              Export Portal JSON {!isGstr4FilingEnabled && "(Disabled)"}
             </button>
             <button
               onClick={() => mutate()}

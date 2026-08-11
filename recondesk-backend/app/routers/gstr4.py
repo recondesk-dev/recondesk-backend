@@ -145,7 +145,25 @@ async def save_cmp08_records(
         ) from exc
 
 
-@router.get("/clients/{client_id}/export-json")
+from app.config import get_settings
+
+
+def require_gstr4_filing_enabled() -> None:
+    """Block GSTR-4 JSON export & filing endpoints when GSTR4_FILING_ENABLED feature flag is False."""
+    if not get_settings().GSTR4_FILING_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "GSTR4_FILING_DISABLED",
+                "message": (
+                    "Form GSTR-4 JSON export is currently disabled (GSTR4_FILING_ENABLED = false). "
+                    "End-to-end GSTN Offline Utility validation has not been completed."
+                ),
+            },
+        )
+
+
+@router.get("/clients/{client_id}/export-json", dependencies=[Depends(require_gstr4_filing_enabled)])
 async def export_gstr4_json(
     client_id: str,
     fy: str = Query("2025-26", description="Financial year YYYY-YY"),
