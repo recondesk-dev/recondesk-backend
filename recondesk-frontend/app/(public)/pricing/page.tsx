@@ -11,8 +11,8 @@ const pricingFaq = [
     a: "You pay an annual subscription based on your firm's GSTIN capacity (Starter: up to 50 GSTINs, Growth: up to 100 GSTINs, Custom: 100+ GSTINs). Every plan includes unlimited reconciliation runs during the subscription period.",
   },
   {
-    q: "What is the difference between Starter and Growth?",
-    a: "Starter delivers complete GSTR-2B vs Books reconciliation, Decision Layer, Missed ITC, Rule 37 tracking, Section 17(5) blocked credit, and exports for up to 50 GSTINs. Growth expands capacity to 100 GSTINs and unlocks advanced features including GSTR-3B tie-outs, GSTR-1 sales-side recon, E-Invoice verification, Multi-Period FY Wizard, IMS direct writeback, Vendor Scorecards, Live Tally Bridge sync, and priority support.",
+    q: "What is the difference between the plans?",
+    a: "Every plan includes 100% of ReconDesk features — zero feature gating. The only difference is GSTIN capacity and billing cycle: Monthly (25 GSTINs, month-to-month), Starter (50 GSTINs/year), Growth (100 GSTINs/year), and Custom (100+ GSTINs with tailored SLAs). Choose the tier that fits your firm's current client portfolio.",
   },
   {
     q: "Can I upgrade my plan anytime?",
