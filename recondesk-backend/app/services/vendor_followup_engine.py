@@ -229,6 +229,7 @@ def log_followup_action(
     dispatched_by: Optional[str] = None,
 ) -> dict[str, Any]:
     """Persist follow-up dispatch event into vendor_followup_logs."""
+    status_label = "LINK_OPENED" if channel == "WHATSAPP" else "NOTICE_GENERATED"
     payload = {
         "client_gstin_id": client_gstin_id,
         "supplier_gstin": supplier_gstin,
@@ -238,7 +239,7 @@ def log_followup_action(
         "channel": channel,
         "template_type": template_type,
         "at_risk_itc_rupees": at_risk_itc_rupees,
-        "status": "SENT",
+        "status": status_label,
     }
     if dispatched_by:
         payload["dispatched_by"] = dispatched_by
@@ -263,7 +264,7 @@ def log_followup_action(
                             """
                             INSERT INTO public.vendor_followup_logs
                             (client_gstin_id, supplier_gstin, supplier_name, vendor_phone, vendor_email, channel, template_type, at_risk_itc_rupees, status)
-                            VALUES (:cid, :sgstin, :sname, :phone, :email, :chan, :ttype, :amt, 'SENT')
+                            VALUES (:cid, :sgstin, :sname, :phone, :email, :chan, :ttype, :amt, :stat)
                             """
                         ),
                         {
@@ -275,6 +276,7 @@ def log_followup_action(
                             "chan": channel,
                             "ttype": template_type,
                             "amt": at_risk_itc_rupees,
+                            "stat": status_label,
                         },
                     )
                     conn.commit()

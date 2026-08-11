@@ -425,8 +425,12 @@ export default function VendorFollowupHubPage() {
                         </td>
                         <td className="px-4 py-3 font-bold text-gray-900">{formatINR(log.at_risk_itc_rupees)}</td>
                         <td className="px-4 py-3">
-                          <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-bold text-green-800">
-                            {log.status}
+                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-800">
+                            {log.status === "LINK_OPENED"
+                              ? "Link Opened"
+                              : log.status === "NOTICE_GENERATED"
+                              ? "Notice Generated"
+                              : log.status}
                           </span>
                         </td>
                       </tr>
