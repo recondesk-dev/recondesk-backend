@@ -52,11 +52,8 @@ function PricingCard({
 
       <div className="liquid-glass-card__content flex h-full flex-col">
         {/* Header & Badge */}
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-[var(--ink)]">{plan.name}</h2>
-            <p className="mt-1 text-xs text-gray-500 min-h-[36px] leading-relaxed">{plan.blurb}</p>
-          </div>
+        <div className="flex items-center justify-between gap-2 min-h-[28px]">
+          <h2 className="text-xl font-bold tracking-tight text-[var(--ink)]">{plan.name}</h2>
           {isGrowth && (
             <span className="shrink-0 rounded-full bg-[var(--ink)] px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-white shadow-sm flex items-center gap-1">
               <svg className="w-3 h-3 fill-amber-400" viewBox="0 0 20 20">
@@ -71,6 +68,7 @@ function PricingCard({
             </span>
           )}
         </div>
+        <p className="mt-2 text-xs text-gray-500 min-h-[36px] leading-relaxed">{plan.blurb}</p>
 
         {/* Pricing & GSTIN Capacity framing */}
         <div className="mt-6 border-b border-gray-200/60 pb-6">
