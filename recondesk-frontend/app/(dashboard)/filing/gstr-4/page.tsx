@@ -134,10 +134,21 @@ function Gstr4WorkbenchContent() {
     }
   };
 
-  const handleDownloadJson = () => {
-    if (!clientId) return;
-    const url = gstr4Api.getExportJsonUrl(clientId, financialYear, category);
-    window.open(url, "_blank");
+  const handleDownloadJson = async () => {
+    if (!clientId || typeof token !== "string") return;
+    try {
+      const blob = await gstr4Api.downloadJson(token, clientId, financialYear, category);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `GSTR4_${comp?.gstin || "CLIENT"}_${financialYear.replace("-", "_")}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(`Failed to download GSTR-4 JSON: ${err?.message || err}`);
+    }
   };
 
   const formatCurrency = (val: number) => {

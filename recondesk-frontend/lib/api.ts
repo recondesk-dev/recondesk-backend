@@ -3039,6 +3039,19 @@ export const gstr4Api = {
       }
     ),
 
+  downloadJson: async (token: string, clientId: string, fy: string = "2025-26", category: string = "trader"): Promise<Blob> => {
+    const baseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
+    const res = await fetch(
+      `${baseUrl}/api/v1/gstr4/clients/${encodeURIComponent(clientId)}/export-json?fy=${encodeURIComponent(fy)}&category=${encodeURIComponent(category)}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+    if (!res.ok) throw new Error("Failed to export GSTR-4 JSON from backend");
+    return res.blob();
+  },
+
   getExportJsonUrl: (clientId: string, fy: string = "2025-26", category: string = "trader") =>
     `/api/v1/gstr4/clients/${encodeURIComponent(clientId)}/export-json?fy=${encodeURIComponent(fy)}&category=${encodeURIComponent(category)}`,
 };
