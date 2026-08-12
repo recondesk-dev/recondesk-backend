@@ -23,10 +23,10 @@ export async function middleware(request: NextRequest) {
   try {
     const pathname = request.nextUrl.pathname;
 
-    // Legacy /onboarding route redirect directly to /clients
+    // Legacy /onboarding route redirect directly to /dashboard
     if (pathname.startsWith("/onboarding")) {
       const url = request.nextUrl.clone();
-      url.pathname = "/clients";
+      url.pathname = "/dashboard";
       url.search = "";
       return NextResponse.redirect(url);
     }
@@ -85,37 +85,30 @@ export async function middleware(request: NextRequest) {
 
     response = withOnboardingCookie(response, user.id);
 
-    // Check showcase_seen status in user_profiles
-    try {
-      const { data: profile } = await supabase
-        .from("user_profiles")
-        .select("showcase_seen")
-        .eq("id", user.id)
-        .maybeSingle();
+    // Root URL redirect check
+    if (pathname === "/") {
+      try {
+        const { data: profile } = await supabase
+          .from("user_profiles")
+          .select("showcase_seen")
+          .eq("id", user.id)
+          .maybeSingle();
 
-      const showcaseSeen = (profile as { showcase_seen?: boolean | null })?.showcase_seen === true;
-
-      if (!showcaseSeen) {
-        if (pathname !== "/welcome") {
-          const url = request.nextUrl.clone();
-          url.pathname = "/welcome";
-          url.search = "";
-          return NextResponse.redirect(url);
-        }
-        return response;
+        const showcaseSeen = (profile as { showcase_seen?: boolean | null })?.showcase_seen === true;
+        const url = request.nextUrl.clone();
+        url.pathname = showcaseSeen ? "/dashboard" : "/welcome";
+        url.search = "";
+        return NextResponse.redirect(url);
+      } catch {
+        const url = request.nextUrl.clone();
+        url.pathname = "/dashboard";
+        url.search = "";
+        return NextResponse.redirect(url);
       }
-    } catch {
-      /* fail open on DB error */
     }
 
-    // Showcase already seen: home / or /welcome redirects directly to /clients
-    if (pathname === "/" || pathname === "/welcome") {
-      const url = request.nextUrl.clone();
-      url.pathname = "/clients";
-      url.search = "";
-      return NextResponse.redirect(url);
-    }
-
+    // NO ROUTE GUARD BLOCKS ACCESS TO THE REST OF THE APP.
+    // A CA can skip the showcase and go straight to /dashboard or /clients immediately.
     return response;
   } catch {
     return passThrough(request);

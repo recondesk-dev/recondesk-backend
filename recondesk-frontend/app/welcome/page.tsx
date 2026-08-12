@@ -17,19 +17,17 @@ export default function WelcomeShowcasePage() {
   const [isFinishing, setIsFinishing] = useState(false);
 
   const markSeenAndRedirect = useCallback(
-    async (targetUrl = "/clients?add=1") => {
-      if (isFinishing) return;
-      setIsFinishing(true);
+    (targetUrl = "/clients?add=1") => {
       if (authToken) {
-        try {
-          await usersApi.setShowcaseSeen(authToken);
-        } catch {
-          /* ignore error, proceed to navigate */
-        }
+        void usersApi.setShowcaseSeen(authToken).catch(() => {});
       }
-      router.replace(targetUrl);
+      if (typeof window !== "undefined") {
+        window.location.href = targetUrl;
+      } else {
+        router.push(targetUrl);
+      }
     },
-    [authToken, isFinishing, router]
+    [authToken, router]
   );
 
   const handleNext = () => {
