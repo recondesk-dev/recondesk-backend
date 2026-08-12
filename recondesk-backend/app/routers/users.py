@@ -69,6 +69,16 @@ async def onboarding_complete(current_user: dict = Depends(get_current_active_us
     return {"success": True}
 
 
+@router.post("/demo-tour-seen")
+@router.patch("/demo-tour-seen")
+async def set_demo_tour_seen(current_user: dict = Depends(get_current_active_user)):
+    uid = str(current_user.get("id", "")).strip()
+    get_supabase().table("user_profiles").update({"demo_tour_seen": True}).eq(
+        "id", uid
+    ).execute()
+    return {"success": True}
+
+
 @router.patch("/profile", response_model=UserProfileResponse)
 async def update_profile(
     payload: ProfileUpdateRequest,

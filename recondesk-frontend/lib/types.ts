@@ -31,6 +31,7 @@ export interface Client {
   registrationType: "Regular" | "Composition" | "SEZ";
   assignedStaffId: string;
   createdAt: string;
+  isDemo?: boolean;
 }
 
 export interface ReconciliationRun {

@@ -47,6 +47,7 @@ export type Database = {
           icai_membership_number: string | null;
           firm_gstin: string | null;
           onboarding_completed: boolean | null;
+          demo_tour_seen: boolean | null;
           created_at: string | null;
         };
         Insert: {
@@ -65,6 +66,8 @@ export type Database = {
           firm_city?: string | null;
           icai_membership_number?: string | null;
           firm_gstin?: string | null;
+          onboarding_completed?: boolean | null;
+          demo_tour_seen?: boolean | null;
           created_at?: string | null;
         };
         Update: {
@@ -85,6 +88,7 @@ export type Database = {
           icai_membership_number?: string | null;
           firm_gstin?: string | null;
           onboarding_completed?: boolean | null;
+          demo_tour_seen?: boolean | null;
         };
         Relationships: [];
       };
@@ -99,6 +103,7 @@ export type Database = {
           state_code: string | null;
           registration_type: string | null;
           assigned_to: string | null;
+          is_demo: boolean;
           is_active: boolean;
           added_at: string;
         };
@@ -111,6 +116,7 @@ export type Database = {
           state_code?: string | null;
           registration_type?: string | null;
           assigned_to?: string | null;
+          is_demo?: boolean;
           is_active?: boolean;
           added_at?: string;
         };
@@ -121,6 +127,7 @@ export type Database = {
           state_code?: string | null;
           registration_type?: string | null;
           assigned_to?: string | null;
+          is_demo?: boolean;
           is_active?: boolean;
         };
         Relationships: [];

@@ -1872,9 +1872,11 @@ export default function NewReconcileWizardPage() {
                 onChange={(e) => void onPrFileSelected(e.target.files?.[0] ?? null)}
                 className="text-sm"
               />
+              <div className="rounded-xl border border-brand-dim bg-brand-dim/30 p-3 text-xs text-gray-800">
+                <span className="font-semibold text-brand">✨ Low-effort upload:</span> We auto-detect Tally, Busy, and Excel layouts automatically — no template or formatting needed!
+              </div>
               <p className="text-[12px] text-[var(--text-secondary)]">
-                Accepts Tally Purchase Register exports (Excel/CSV) and other columnar
-                books exports. Sales Registers belong on GSTR-1 Check.
+                Accepts Tally Purchase Register exports (Excel/CSV) and custom accounting books. (Optional for GSTR-2B compliance views; upload for full GSTR ↔ PR matching).
               </p>
               {preDetectBusy ? (
                 <p className="text-sm text-[var(--text-secondary)]">Reading columns…</p>

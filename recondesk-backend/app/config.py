@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     # Explicit true/false always wins.
     GSTR3B_FILING_ENABLED: Optional[bool] = None
 
+    # Demo onboarding: auto-provision demo workspace post signup.
+    # Default: on in dev/local, off in production until explicitly toggled.
+    DEMO_ONBOARDING_ENABLED: Optional[bool] = None
+
     @computed_field  # type: ignore[misc]
     @property
     def ENV(self) -> str:  # noqa: N802
@@ -164,6 +168,17 @@ class Settings(BaseSettings):
         """
         if self.GSTR3B_FILING_ENABLED is not None:
             return bool(self.GSTR3B_FILING_ENABLED)
+        return (self.APP_ENV or "").lower() != "production"
+
+    @property
+    def demo_onboarding_enabled(self) -> bool:
+        """Whether post-signup demo workspace auto-provisioning is enabled.
+
+        Default: off in production until verified, on in local/dev.
+        Override with ``DEMO_ONBOARDING_ENABLED=true|false``.
+        """
+        if self.DEMO_ONBOARDING_ENABLED is not None:
+            return bool(self.DEMO_ONBOARDING_ENABLED)
         return (self.APP_ENV or "").lower() != "production"
 
 

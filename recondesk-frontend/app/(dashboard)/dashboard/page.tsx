@@ -32,6 +32,9 @@ const ReturnPeriodBoard = dynamic(
   { ssr: false, loading: () => <div className="h-[340px] animate-pulse rounded-[1.5rem] bg-gray-100" /> }
 );
 
+import { DemoBanner } from "@/components/demo/DemoBanner";
+import { DemoSpotlightTour } from "@/components/demo/DemoSpotlightTour";
+import { OnboardingChecklistWidget } from "@/components/demo/OnboardingChecklistWidget";
 import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
@@ -538,8 +541,28 @@ export default function PortfolioDashboardPage() {
     );
   }
 
+  const hasDemoClient = baseRows.some((r) => r.client.isDemo);
+  const hasRealClient = baseRows.some((r) => !r.client.isDemo);
+
   return (
     <div className="space-y-7">
+      {hasDemoClient && (
+        <DemoBanner onAddRealClient={() => router.push("/clients?add=1")} />
+      )}
+
+      {hasDemoClient && me && me.demo_tour_seen !== true && (
+        <DemoSpotlightTour token={authToken} />
+      )}
+
+      {hasDemoClient && (
+        <OnboardingChecklistWidget
+          hasRealClient={hasRealClient}
+          isGstinConnected={hasRealClient}
+          onAddRealClient={() => router.push("/clients?add=1")}
+          onConnectGstin={() => router.push("/clients")}
+        />
+      )}
+
       {!statsLoading && failedClientCount > 0 && (
         <div className="flex items-center justify-between rounded-[1.25rem] bg-red-50/90 px-5 py-4 text-sm text-red-900">
           <span>
@@ -573,7 +596,7 @@ export default function PortfolioDashboardPage() {
         </div>
       )}
 
-      <section>
+      <section data-tour="dashboard-summary">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
@@ -646,18 +669,20 @@ export default function PortfolioDashboardPage() {
               )
             }
           />
-          <StatCard
-            label="Missed ITC"
-            hint="Missed ITC across latest client reconciliations"
-            icon={<IconFail />}
-            value={
-              statsLoading ? (
-                <span className="inline-block h-8 w-20 animate-pulse rounded bg-gray-100" />
-              ) : (
-                formatInrCompact(itcAtRiskTotal)
-              )
-            }
-          />
+          <div data-tour="itc-at-risk">
+            <StatCard
+              label="Missed ITC"
+              hint="Missed ITC across latest client reconciliations"
+              icon={<IconFail />}
+              value={
+                statsLoading ? (
+                  <span className="inline-block h-8 w-20 animate-pulse rounded bg-gray-100" />
+                ) : (
+                  formatInrCompact(itcAtRiskTotal)
+                )
+              }
+            />
+          </div>
           <StatCard
             label="Team Members"
             hint="People who can be assigned reconciliations"
@@ -687,12 +712,14 @@ export default function PortfolioDashboardPage() {
       )}
 
       <section className="grid gap-4 lg:grid-cols-[1.45fr_0.85fr]">
-        <ReturnPeriodBoard
-          runs={(runs ?? []) as ReconcileRunListRow[]}
-          loading={portfolioLoading}
-        />
+        <div data-tour="rule37-tracker">
+          <ReturnPeriodBoard
+            runs={(runs ?? []) as ReconcileRunListRow[]}
+            loading={portfolioLoading}
+          />
+        </div>
 
-        <div className="dashboard-card flex flex-col p-6">
+        <div className="dashboard-card flex flex-col p-6" data-tour="mismatch-drawer">
           <div className="mb-5 flex items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
@@ -822,21 +849,25 @@ export default function PortfolioDashboardPage() {
         )}
 
         {(portfolioLoading || (portfolio && portfolio.total > 0)) && (
-          <ClientTable
-            rows={portfolio?.data ?? []}
-            loading={portfolioLoading}
-            page={page}
-            pageSize={PAGE_SIZE}
-            total={portfolio?.total ?? 0}
-            onPageChange={setPage}
-            sort={sort}
-            onSortToggle={onSortToggle}
-            selectedIds={selectedIds}
-            onToggleSelect={toggleSelect}
-            onToggleAllOnPage={toggleAllOnPage}
-            onRetryConfirm={onRetryConfirm}
-            onFinalizeConfirm={(row) => void onFinalizeConfirm(row)}
-          />
+          <div data-tour="ims-recommendations">
+            <div data-tour="vendor-followup">
+              <ClientTable
+                rows={portfolio?.data ?? []}
+                loading={portfolioLoading}
+                page={page}
+                pageSize={PAGE_SIZE}
+                total={portfolio?.total ?? 0}
+                onPageChange={setPage}
+                sort={sort}
+                onSortToggle={onSortToggle}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
+                onToggleAllOnPage={toggleAllOnPage}
+                onRetryConfirm={onRetryConfirm}
+                onFinalizeConfirm={(row) => void onFinalizeConfirm(row)}
+              />
+            </div>
+          </div>
         )}
       </section>
 

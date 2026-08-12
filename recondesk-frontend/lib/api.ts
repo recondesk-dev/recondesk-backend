@@ -70,6 +70,7 @@ export interface AuthMeProfile {
   icai_membership_number?: string | null;
   firm_gstin?: string | null;
   onboarding_completed?: boolean | null;
+  demo_tour_seen?: boolean | null;
   auto_approve_confidence_threshold?: number | null;
 }
 
@@ -1095,6 +1096,13 @@ export const usersApi = {
   onboardingComplete: (token: string) =>
     apiFetch<{ success: boolean }>("/api/users/onboarding-complete", {
       method: "PATCH",
+      body: JSON.stringify({}),
+      token,
+    }),
+
+  setDemoTourSeen: (token: string) =>
+    apiFetch<{ success: boolean }>("/api/users/demo-tour-seen", {
+      method: "POST",
       body: JSON.stringify({}),
       token,
     }),

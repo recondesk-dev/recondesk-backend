@@ -169,6 +169,7 @@ export function clientGstinToClient(row: ClientGstin): Client {
     registrationType,
     assignedStaffId: row.assigned_to ?? "",
     createdAt: row.added_at,
+    isDemo: Boolean((row as any).is_demo),
   };
 }
 

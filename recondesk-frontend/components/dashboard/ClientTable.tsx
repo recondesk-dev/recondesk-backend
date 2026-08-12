@@ -236,9 +236,14 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
       <td className="px-4 py-3.5">
         <Link
           href={`/clients/${row.client.id}`}
-          className="font-medium text-[var(--ink)] hover:underline cursor-pointer"
+          className="font-medium text-[var(--ink)] hover:underline cursor-pointer inline-flex items-center gap-2"
         >
-          {row.client.tradeName}
+          <span>{row.client.tradeName}</span>
+          {row.client.isDemo && (
+            <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-700 border border-amber-500/20">
+              Demo
+            </span>
+          )}
         </Link>
       </td>
       <td className="hidden px-4 py-3.5 font-mono text-[11px] text-gray-400 xl:table-cell">

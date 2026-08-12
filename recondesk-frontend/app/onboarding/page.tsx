@@ -55,11 +55,13 @@ export default function OnboardingPage() {
     const supabase = createClient();
     let cancelled = false;
 
-    async function hydrateClients(authToken: string) {
+    async function hydrateClients(authToken: string, userId: string) {
       try {
         const clients = await clientsApi.list(authToken);
         if (!cancelled && clients?.length > 0) {
-          setClientId((prev) => prev ?? clients[0].id);
+          if (userId) setOnboardingDoneCookie(userId);
+          router.replace("/dashboard");
+          return;
         }
       } catch {
         /* ignore */
@@ -82,7 +84,7 @@ export default function OnboardingPage() {
       const access = await resolveTokenFromSession(session);
       if (access) {
         setAccessToken(access);
-        await hydrateClients(access);
+        await hydrateClients(access, session?.user?.id ?? "");
       } else {
         setAccessToken(false);
       }

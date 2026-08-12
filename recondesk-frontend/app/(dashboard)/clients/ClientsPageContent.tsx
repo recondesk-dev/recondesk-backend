@@ -6,6 +6,7 @@ import useSWR from "swr";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Modal } from "@/components/ui/Modal";
+import { ConnectGstnModal } from "@/components/clients/ConnectGstnModal";
 import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import { GstinInput, validateGstin } from "@/components/ui/GstinInput";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -179,6 +180,9 @@ export function ClientsPageContent() {
     }
   }, [addOpen, assignOptions, formAssignedTo]);
 
+  const [connectTarget, setConnectTarget] = useState<{ id: string; gstin: string } | null>(null);
+
+
   const gstinOk = validateGstin(formGstin).status === "valid";
   const canSubmitAdd =
     gstinOk &&
@@ -279,9 +283,10 @@ export function ClientsPageContent() {
       if (result.gstin_verification_warning) {
         setSaveWarning(result.gstin_verification_warning);
       } else {
-        toast("Client added", "success");
+        toast("Client added. Connect GSTN via OTP next!", "success");
         setAddOpen(false);
         resetAddForm();
+        setConnectTarget({ id: result.id, gstin: result.gstin });
       }
       await mutateClients();
       void mutateBilling();
@@ -667,6 +672,21 @@ export function ClientsPageContent() {
           </div>
         </div>
       </Modal>
+
+      {connectTarget && (
+        <ConnectGstnModal
+          open={connectTarget !== null}
+          onClose={() => setConnectTarget(null)}
+          clientGstinId={connectTarget.id}
+          defaultGstin={connectTarget.gstin}
+          authToken={authToken ?? ""}
+          onSuccess={() => {
+            toast("GSTN connected successfully!", "success");
+            setConnectTarget(null);
+            void mutateClients();
+          }}
+        />
+      )}
     </div>
   );
 }
