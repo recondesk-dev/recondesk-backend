@@ -3,15 +3,8 @@ import { type NextRequest, NextResponse } from "next/server";
 
 import {
   ONBOARDING_DONE_COOKIE,
-  isOnboardingDoneForUser,
   onboardingDoneCookieOptions,
 } from "@/lib/onboarding-cookie";
-
-const API_ME = (base: string) =>
-  `${base.replace(/\/+$/, "")}/api/v1/auth/me`;
-
-/** Keep well under Vercel middleware limits; cold Railway must not hang the edge. */
-const AUTH_ME_TIMEOUT_MS = 2500;
 
 /** Plain pass-through; use on errors so we never reuse a response that may be in a bad state. */
 function passThrough(request: NextRequest) {
@@ -51,8 +44,15 @@ export async function middleware(request: NextRequest) {
   try {
     const pathname = request.nextUrl.pathname;
 
+    // Hard redirect /onboarding to /dashboard — onboarding page is completely removed
+    if (pathname.startsWith("/onboarding")) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/dashboard";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+
     const skipRedirect =
-      pathname.startsWith("/onboarding") ||
       pathname.startsWith("/login") ||
       pathname.startsWith("/signup") ||
       pathname.startsWith("/auth") ||
@@ -99,70 +99,9 @@ export async function middleware(request: NextRequest) {
       return response;
     }
 
-    // Fast path: already confirmed onboarded for this user — no profile / API round-trip.
-    if (isOnboardingDoneForUser(request.cookies.get(ONBOARDING_DONE_COOKIE)?.value, user.id)) {
-      return redirectHomeToDashboard(request, response);
-    }
-
-    // Prefer Supabase (usually warm) over Railway `/auth/me` (cold starts cause 504s).
-    try {
-      const { data: profile, error: profileError } = await supabase
-        .from("user_profiles")
-        .select("onboarding_completed")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (!profileError && profile) {
-        const done = (profile as { onboarding_completed?: boolean | null })
-          .onboarding_completed === true;
-        if (!done) {
-          const url = request.nextUrl.clone();
-          url.pathname = "/onboarding";
-          url.search = "";
-          return NextResponse.redirect(url);
-        }
-        response = withOnboardingCookie(response, user.id);
-        return redirectHomeToDashboard(request, response);
-      }
-    } catch {
-      // Fall through to timed Railway check.
-    }
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData.session?.access_token;
-    if (!token) {
-      return response;
-    }
-
-    const apiBase =
-      process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000";
-
-    try {
-      const meRes = await fetch(API_ME(apiBase), {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-        signal: AbortSignal.timeout(AUTH_ME_TIMEOUT_MS),
-      });
-      if (!meRes.ok) {
-        return response;
-      }
-      const me = (await meRes.json()) as {
-        onboarding_completed?: boolean | null;
-      };
-      const done = me.onboarding_completed === true;
-      if (!done) {
-        const url = request.nextUrl.clone();
-        url.pathname = "/onboarding";
-        url.search = "";
-        return NextResponse.redirect(url);
-      }
-
-      response = withOnboardingCookie(response, user.id);
-      return redirectHomeToDashboard(request, response);
-    } catch {
-      // Timeout / network: fail open so Vercel never returns MIDDLEWARE_INVOCATION_TIMEOUT.
-      return response;
-    }
+    // Authenticated user: always mark onboarding done & redirect home to /dashboard
+    response = withOnboardingCookie(response, user.id);
+    return redirectHomeToDashboard(request, response);
   } catch {
     return passThrough(request);
   }
