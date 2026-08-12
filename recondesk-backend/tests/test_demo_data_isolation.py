@@ -28,13 +28,13 @@ def test_demo_feature_flag_defaults(monkeypatch):
     s_dev = _settings(APP_ENV="development", DEMO_ONBOARDING_ENABLED=None)
     assert s_dev.demo_onboarding_enabled is True
 
-    # Production environment -> False by default
+    # Production environment -> True by default
     s_prod = _settings(APP_ENV="production", DEMO_ONBOARDING_ENABLED=None)
-    assert s_prod.demo_onboarding_enabled is False
+    assert s_prod.demo_onboarding_enabled is True
 
-    # Explicit override in production -> True
-    s_prod_override = _settings(APP_ENV="production", DEMO_ONBOARDING_ENABLED=True)
-    assert s_prod_override.demo_onboarding_enabled is True
+    # Explicit override in production -> False
+    s_prod_override = _settings(APP_ENV="production", DEMO_ONBOARDING_ENABLED=False)
+    assert s_prod_override.demo_onboarding_enabled is False
 
     # Explicit override in dev -> False
     s_dev_override = _settings(APP_ENV="development", DEMO_ONBOARDING_ENABLED=False)

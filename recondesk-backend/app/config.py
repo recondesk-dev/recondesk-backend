@@ -174,12 +174,12 @@ class Settings(BaseSettings):
     def demo_onboarding_enabled(self) -> bool:
         """Whether post-signup demo workspace auto-provisioning is enabled.
 
-        Default: off in production until verified, on in local/dev.
-        Override with ``DEMO_ONBOARDING_ENABLED=true|false``.
+        Default: True in all environments.
+        Override with ``DEMO_ONBOARDING_ENABLED=false`` if needed.
         """
         if self.DEMO_ONBOARDING_ENABLED is not None:
             return bool(self.DEMO_ONBOARDING_ENABLED)
-        return (self.APP_ENV or "").lower() != "production"
+        return True
 
 
 @lru_cache
