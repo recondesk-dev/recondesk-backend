@@ -71,6 +71,7 @@ export interface AuthMeProfile {
   firm_gstin?: string | null;
   onboarding_completed?: boolean | null;
   demo_tour_seen?: boolean | null;
+  showcase_seen?: boolean | null;
   auto_approve_confidence_threshold?: number | null;
 }
 
@@ -1102,6 +1103,13 @@ export const usersApi = {
 
   setDemoTourSeen: (token: string) =>
     apiFetch<{ success: boolean }>("/api/users/demo-tour-seen", {
+      method: "POST",
+      body: JSON.stringify({}),
+      token,
+    }),
+
+  setShowcaseSeen: (token: string) =>
+    apiFetch<{ success: boolean }>("/api/users/showcase-seen", {
       method: "POST",
       body: JSON.stringify({}),
       token,

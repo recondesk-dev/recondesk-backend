@@ -91,6 +91,7 @@ class UserProfileResponse(StrictModel):
     firm_gstin: Optional[str] = Field(default=None, max_length=15)
     onboarding_completed: Optional[bool] = None
     demo_tour_seen: Optional[bool] = None
+    showcase_seen: Optional[bool] = None
     auto_approve_confidence_threshold: Optional[int] = Field(
         default=95, ge=0, le=100
     )

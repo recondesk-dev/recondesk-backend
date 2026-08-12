@@ -213,7 +213,7 @@ function SignupForm() {
     await invalidateAuthProfileCache();
 
     setLoading(false);
-    router.replace("/dashboard");
+    router.replace("/welcome");
   };
 
   return (

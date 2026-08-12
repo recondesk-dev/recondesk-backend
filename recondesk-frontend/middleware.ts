@@ -6,7 +6,6 @@ import {
   onboardingDoneCookieOptions,
 } from "@/lib/onboarding-cookie";
 
-/** Plain pass-through; use on errors so we never reuse a response that may be in a bad state. */
 function passThrough(request: NextRequest) {
   return NextResponse.next({ request: { headers: request.headers } });
 }
@@ -20,34 +19,14 @@ function withOnboardingCookie(response: NextResponse, userId: string): NextRespo
   return response;
 }
 
-function redirectHomeToDashboard(request: NextRequest, response: NextResponse) {
-  const pathname = request.nextUrl.pathname;
-  if (pathname !== "/" && pathname !== "") {
-    return response;
-  }
-  const url = request.nextUrl.clone();
-  url.pathname = "/dashboard";
-  url.search = "";
-  const redirect = NextResponse.redirect(url);
-  const done = response.cookies.get(ONBOARDING_DONE_COOKIE);
-  if (done?.value) {
-    redirect.cookies.set(
-      ONBOARDING_DONE_COOKIE,
-      done.value,
-      onboardingDoneCookieOptions()
-    );
-  }
-  return redirect;
-}
-
 export async function middleware(request: NextRequest) {
   try {
     const pathname = request.nextUrl.pathname;
 
-    // Hard redirect /onboarding to /dashboard — onboarding page is completely removed
+    // Legacy /onboarding route redirect directly to /clients
     if (pathname.startsWith("/onboarding")) {
       const url = request.nextUrl.clone();
-      url.pathname = "/dashboard";
+      url.pathname = "/clients";
       url.search = "";
       return NextResponse.redirect(url);
     }
@@ -96,12 +75,48 @@ export async function middleware(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) {
+      if (pathname === "/welcome") {
+        const url = request.nextUrl.clone();
+        url.pathname = "/login";
+        return NextResponse.redirect(url);
+      }
       return response;
     }
 
-    // Authenticated user: always mark onboarding done & redirect home to /dashboard
     response = withOnboardingCookie(response, user.id);
-    return redirectHomeToDashboard(request, response);
+
+    // Check showcase_seen status in user_profiles
+    try {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("showcase_seen")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      const showcaseSeen = (profile as { showcase_seen?: boolean | null })?.showcase_seen === true;
+
+      if (!showcaseSeen) {
+        if (pathname !== "/welcome") {
+          const url = request.nextUrl.clone();
+          url.pathname = "/welcome";
+          url.search = "";
+          return NextResponse.redirect(url);
+        }
+        return response;
+      }
+    } catch {
+      /* fail open on DB error */
+    }
+
+    // Showcase already seen: home / or /welcome redirects directly to /clients
+    if (pathname === "/" || pathname === "/welcome") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/clients";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+
+    return response;
   } catch {
     return passThrough(request);
   }

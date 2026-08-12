@@ -17,7 +17,6 @@ from app.auth import get_current_active_user, get_current_user, require_admin
 from app.database import get_supabase, get_user_profile
 from app.routers.reconciliation_api import _parse_uuid
 from app.services.billing_gate import assert_gstin_capacity
-from app.services.demo_seeding import provision_demo_workspace_if_needed
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.services.carry_forward import get_chronic_risks
 from app.services.gstin_verification import verify_gstin as _verify_gstin
@@ -154,20 +153,6 @@ async def list_clients(current_user: dict = Depends(get_current_active_user)):
             .limit(500)
             .execute()
         )
-        if not res.data:
-            try:
-                provision_demo_workspace_if_needed(uid)
-                res = (
-                    sb.table("client_gstins")
-                    .select("*")
-                    .eq("firm_owner_id", uid)
-                    .eq("is_active", True)
-                    .order("added_at", desc=True)
-                    .limit(500)
-                    .execute()
-                )
-            except Exception:
-                _log.exception("Failed inline demo provisioning in list_clients for user_id=%s", uid)
     else:
         res = (
             sb.table("client_gstins")

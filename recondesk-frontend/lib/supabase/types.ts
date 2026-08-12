@@ -48,6 +48,7 @@ export type Database = {
           firm_gstin: string | null;
           onboarding_completed: boolean | null;
           demo_tour_seen: boolean | null;
+          showcase_seen: boolean | null;
           created_at: string | null;
         };
         Insert: {

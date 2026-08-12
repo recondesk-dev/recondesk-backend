@@ -32,9 +32,6 @@ const ReturnPeriodBoard = dynamic(
   { ssr: false, loading: () => <div className="h-[340px] animate-pulse rounded-[1.5rem] bg-gray-100" /> }
 );
 
-import { DemoBanner } from "@/components/demo/DemoBanner";
-import { DemoSpotlightTour } from "@/components/demo/DemoSpotlightTour";
-import { OnboardingChecklistWidget } from "@/components/demo/OnboardingChecklistWidget";
 import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
@@ -541,28 +538,8 @@ export default function PortfolioDashboardPage() {
     );
   }
 
-  const hasDemoClient = baseRows.some((r) => r.client.isDemo);
-  const hasRealClient = baseRows.some((r) => !r.client.isDemo);
-
   return (
     <div className="space-y-7">
-      {hasDemoClient && (
-        <DemoBanner onAddRealClient={() => router.push("/clients?add=1")} />
-      )}
-
-      {hasDemoClient && me && me.demo_tour_seen !== true && (
-        <DemoSpotlightTour token={authToken} />
-      )}
-
-      {hasDemoClient && (
-        <OnboardingChecklistWidget
-          hasRealClient={hasRealClient}
-          isGstinConnected={hasRealClient}
-          onAddRealClient={() => router.push("/clients?add=1")}
-          onConnectGstin={() => router.push("/clients")}
-        />
-      )}
-
       {!statsLoading && failedClientCount > 0 && (
         <div className="flex items-center justify-between rounded-[1.25rem] bg-red-50/90 px-5 py-4 text-sm text-red-900">
           <span>

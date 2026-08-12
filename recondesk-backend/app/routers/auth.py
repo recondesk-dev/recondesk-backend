@@ -21,7 +21,6 @@ from app.models.user import (
     SignupResponse,
     UserProfileResponse,
 )
-from app.services.demo_seeding import provision_demo_workspace_if_needed
 from app.utils.audit import log_action
 from app.utils.email import (
     send_monthly_reminder_email,
@@ -179,11 +178,6 @@ async def signup(
         db.table("user_profiles").update(
             {"role": "admin", "full_name": full_name or None}
         ).eq("id", user_id).execute()
-
-        try:
-            provision_demo_workspace_if_needed(user_id)
-        except Exception:
-            _log.exception("Failed to provision demo workspace on signup for user_id=%s", user_id)
     except Exception as exc:  # noqa: BLE001
         _log.error("Profile insert failed: %s", type(exc).__name__)
         raise HTTPException(
@@ -403,10 +397,6 @@ async def get_me(
 ):
     """Return the authenticated user's profile including their role."""
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-    try:
-        provision_demo_workspace_if_needed(user_id)
-    except Exception:
-        _log.exception("Failed to provision demo workspace on get_me for user_id=%s", user_id)
 
     profile = get_user_profile(user_id)
     if profile is None:

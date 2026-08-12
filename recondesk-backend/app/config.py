@@ -87,9 +87,20 @@ class Settings(BaseSettings):
     # Explicit true/false always wins.
     GSTR3B_FILING_ENABLED: Optional[bool] = None
 
-    # Demo onboarding: auto-provision demo workspace post signup.
-    # Default: on in dev/local, off in production until explicitly toggled.
-    DEMO_ONBOARDING_ENABLED: Optional[bool] = None
+    # Feature Showcase: static 7-screen post-signup showcase.
+    SHOWCASE_ONBOARDING_ENABLED: Optional[bool] = None
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def showcase_onboarding_enabled(self) -> bool:
+        """Whether post-signup /welcome feature showcase is enabled.
+
+        Unset → enabled outside production, enabled in production unless explicitly set to False.
+        Override with ``SHOWCASE_ONBOARDING_ENABLED=false|true``.
+        """
+        if self.SHOWCASE_ONBOARDING_ENABLED is not None:
+            return bool(self.SHOWCASE_ONBOARDING_ENABLED)
+        return True
 
     @computed_field  # type: ignore[misc]
     @property
@@ -169,17 +180,6 @@ class Settings(BaseSettings):
         if self.GSTR3B_FILING_ENABLED is not None:
             return bool(self.GSTR3B_FILING_ENABLED)
         return (self.APP_ENV or "").lower() != "production"
-
-    @property
-    def demo_onboarding_enabled(self) -> bool:
-        """Whether post-signup demo workspace auto-provisioning is enabled.
-
-        Default: True in all environments.
-        Override with ``DEMO_ONBOARDING_ENABLED=false`` if needed.
-        """
-        if self.DEMO_ONBOARDING_ENABLED is not None:
-            return bool(self.DEMO_ONBOARDING_ENABLED)
-        return True
 
 
 @lru_cache

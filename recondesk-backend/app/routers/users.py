@@ -79,6 +79,16 @@ async def set_demo_tour_seen(current_user: dict = Depends(get_current_active_use
     return {"success": True}
 
 
+@router.post("/showcase-seen")
+@router.patch("/showcase-seen")
+async def set_showcase_seen(current_user: dict = Depends(get_current_active_user)):
+    uid = str(current_user.get("id", "")).strip()
+    get_supabase().table("user_profiles").update({"showcase_seen": True}).eq(
+        "id", uid
+    ).execute()
+    return {"success": True}
+
+
 @router.patch("/profile", response_model=UserProfileResponse)
 async def update_profile(
     payload: ProfileUpdateRequest,
