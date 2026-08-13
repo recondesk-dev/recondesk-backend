@@ -734,20 +734,38 @@ class SandboxFilingClient:
         *,
         period: str,
         pan: str,
-        otp: str,
+        otp: str | None = None,
+        signature: str | None = None,
+        signing_method: str = "evc",
         file_body: Mapping[str, Any],
     ) -> FilingApiResult:
-        """``POST .../gstr-1/{year}/{month}/file?pan=&otp=`` — OTP never logged."""
+        """``POST .../gstr-1/{year}/{month}/file`` with EVC or DSC."""
+        method = (signing_method or "evc").strip().lower()
+        if method == "evc":
+            if not otp or not otp.strip():
+                raise FilingClientError("EVC filing requires an OTP")
+            params = {"pan": pan.strip().upper(), "otp": otp.strip()}
+            body_payload = dict(file_body)
+        elif method == "dsc":
+            if not signature or not signature.strip():
+                raise FilingClientError("DSC filing requires a PKCS7 signature string")
+            params = {"pan": pan.strip().upper()}
+            body_payload = dict(file_body)
+            body_payload["pkcs7_signature"] = signature.strip()
+        else:
+            raise FilingClientError(f"Unsupported signing_method {signing_method!r}; must be 'evc' or 'dsc'")
+
         year, month = period_to_year_month(period)
         path = f"/gst/compliance/tax-payer/gstrs/gstr-1/{year}/{month}/file"
         envelope = self._request(
             "POST",
             path,
             authorization=taxpayer_token,
-            params={"pan": pan.strip().upper(), "otp": otp.strip()},
-            json_body=dict(file_body),
+            params=params,
+            json_body=body_payload,
             require_gstn_success=True,
             sensitive_params=True,
+            redact_body=(method == "dsc"),
         )
         _raise_if_inner_gstn_failure(envelope, context="File GSTR-1")
         data = envelope.get("data") if isinstance(envelope, dict) else None
@@ -921,23 +939,41 @@ class SandboxFilingClient:
         *,
         period: str,
         pan: str,
-        otp: str,
+        otp: str | None = None,
+        signature: str | None = None,
+        signing_method: str = "evc",
         file_body: Mapping[str, Any],
     ) -> FilingApiResult:
-        """``POST .../gstr-3b/{year}/{month}/file?pan=&otp=`` — OTP never logged.
+        """``POST .../gstr-3b/{year}/{month}/file`` with EVC or DSC.
 
         ``file_body`` must include post-Offset ``tx_pmt`` from Get Details.
         """
+        method = (signing_method or "evc").strip().lower()
+        if method == "evc":
+            if not otp or not otp.strip():
+                raise FilingClientError("EVC filing requires an OTP")
+            params = {"pan": pan.strip().upper(), "otp": otp.strip()}
+            body_payload = dict(file_body)
+        elif method == "dsc":
+            if not signature or not signature.strip():
+                raise FilingClientError("DSC filing requires a PKCS7 signature string")
+            params = {"pan": pan.strip().upper()}
+            body_payload = dict(file_body)
+            body_payload["pkcs7_signature"] = signature.strip()
+        else:
+            raise FilingClientError(f"Unsupported signing_method {signing_method!r}; must be 'evc' or 'dsc'")
+
         year, month = period_to_year_month(period)
         path = f"/gst/compliance/tax-payer/gstrs/gstr-3b/{year}/{month}/file"
         envelope = self._request(
             "POST",
             path,
             authorization=taxpayer_token,
-            params={"pan": pan.strip().upper(), "otp": otp.strip()},
-            json_body=dict(file_body),
+            params=params,
+            json_body=body_payload,
             require_gstn_success=True,
             sensitive_params=True,
+            redact_body=(method == "dsc"),
         )
         _raise_if_inner_gstn_failure(envelope, context="File GSTR-3B")
         data = envelope.get("data") if isinstance(envelope, dict) else None

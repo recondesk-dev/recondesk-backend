@@ -482,22 +482,61 @@ def apply_tally_bridge_sync(
 
         # Hard party gate at the settle call site — do not upsert without it.
         if not party_ok:
-            needs_manual_confirmation.append(
-                {
-                    "reason": "party_confidence_below_gate",
-                    "bill_ref": bill_ref,
-                    "party": party,
-                    "supplier_name": supplier_name,
-                    "invoice_number": best.get("invoice_number"),
-                    "record_id": record_id,
-                    "run_id": best.get("run_id"),
-                    "bill_ref_score": round(score, 4),
-                    "party_sim": round(party_sim, 4),
-                    "party_gate_min": _PARTY_AUTO_SETTLE_MIN,
-                    "amount_paid": amount_paid,
-                    "payment_date": group.get("payment_date"),
+            item = {
+                "reason": "party_confidence_below_gate",
+                "bill_ref": bill_ref,
+                "party": party,
+                "supplier_name": supplier_name,
+                "invoice_number": best.get("invoice_number"),
+                "record_id": record_id,
+                "run_id": best.get("run_id"),
+                "bill_ref_score": round(score, 4),
+                "party_sim": round(party_sim, 4),
+                "party_gate_min": _PARTY_AUTO_SETTLE_MIN,
+                "amount_paid": amount_paid,
+                "payment_date": group.get("payment_date"),
+            }
+            needs_manual_confirmation.append(item)
+
+            best_run_id = str(best["run_id"])
+            try:
+                from app.routers.reconciliation_api import (
+                    _rule37_record_hash,
+                )
+
+                rec_hash = _rule37_record_hash(record_id)
+                existing = (
+                    sb.table("rule37_actions")
+                    .select("status")
+                    .eq("run_id", best_run_id)
+                    .eq("record_hash", rec_hash)
+                    .execute()
+                )
+                existing_statuses = {
+                    str(r.get("status") or "").lower() for r in (existing.data or [])
                 }
-            )
+            except Exception:
+                existing_statuses = set()
+
+            # Skip if already resolved or rejected by CA
+            if not (existing_statuses & {"resolved", "rejected"}):
+                settled_date = _parse_settled_date(group.get("payment_date"))
+                _upsert_rule37_action(
+                    sb,
+                    run_id=best_run_id,
+                    record_id=record_id,
+                    status_value="pending_review",
+                    user_id=account_id,
+                    amount_paid=float(amount_paid),
+                    tds_deducted=0.0,
+                    tds_confirmed=False,
+                    total_settled=None,
+                    remaining_unpaid_amount=None,
+                    payment_coverage="pending_review",
+                    source="tally_bridge",
+                    settled_date=settled_date,
+                    review_metadata=item,
+                )
             continue
 
         invoice_amount = float(best.get("invoice_amount") or 0)
@@ -586,19 +625,25 @@ def apply_tally_bridge_sync(
         )
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        q = sb.table("tally_bridge_keys").update({"last_synced_at": now_iso})
-        if key_id:
-            q = q.eq("id", key_id)
-        else:
-            q = q.eq("account_id", account_id)
-            if company_name:
-                q = q.eq("company_name", company_name)
-        q.execute()
-    except Exception:
-        _log.exception(
-            "tally_bridge: failed updating last_synced_at account_id=%s", account_id
-        )
+    rows_imported = (
+        len(settled) > 0
+        or len(still_outstanding) > 0
+        or len(needs_manual_confirmation) > 0
+    )
+    if rows_imported:
+        try:
+            q = sb.table("tally_bridge_keys").update({"last_synced_at": now_iso})
+            if key_id:
+                q = q.eq("id", key_id)
+            else:
+                q = q.eq("account_id", account_id)
+                if company_name:
+                    q = q.eq("company_name", company_name)
+            q.execute()
+        except Exception:
+            _log.exception(
+                "tally_bridge: failed updating last_synced_at account_id=%s", account_id
+            )
 
     return {
         "open_candidates": len(open_rows) + len(claimed),
@@ -614,6 +659,7 @@ def apply_tally_bridge_sync(
         "still_outstanding": still_outstanding[:50],
         "needs_manual_confirmation": needs_manual_confirmation[:50],
         "skipped": skipped[:50],
-        "last_synced_at": now_iso,
+        "last_synced_at": now_iso if rows_imported else None,
+        "sync_status": "ok" if rows_imported else "no_rows_imported",
     }
 

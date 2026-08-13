@@ -157,9 +157,11 @@ def test_payment_strong_party_settles_with_payment_amount_and_tds_unconfirmed():
     assert result["settled"][0]["tds_confirmed"] is False
 
 
-def test_payment_weak_party_flags_manual_and_does_not_upsert():
+def test_payment_weak_party_flags_manual_and_upserts_pending_review():
     open_rows = [_open_row()]
     upsert = MagicMock()
+    mock_sb = MagicMock()
+    mock_sb.table().select().eq().eq().execute.return_value.data = []
     with (
         patch(
             "app.services.tally_bridge_sync.load_open_rule37_for_account",
@@ -175,7 +177,7 @@ def test_payment_weak_party_flags_manual_and_does_not_upsert():
         ),
     ):
         result = apply_tally_bridge_sync(
-            MagicMock(),
+            mock_sb,
             account_id="acct-1",
             outstanding=[],
             payments=[
@@ -190,7 +192,10 @@ def test_payment_weak_party_flags_manual_and_does_not_upsert():
             key_id="key-1",
         )
 
-    upsert.assert_not_called()
+    upsert.assert_called_once()
+    kwargs = upsert.call_args.kwargs
+    assert kwargs["status_value"] == "pending_review"
+    assert kwargs["review_metadata"]["reason"] == "party_confidence_below_gate"
     assert result["settled_count"] == 0
     assert result["needs_manual_confirmation_count"] == 1
     assert (
@@ -231,7 +236,8 @@ def test_payment_missing_party_flags_manual_not_settle():
             company_name="Demo Co",
         )
 
-    upsert.assert_not_called()
+    upsert.assert_called_once()
+    assert upsert.call_args.kwargs["status_value"] == "pending_review"
     assert result["needs_manual_confirmation_count"] == 1
 
 

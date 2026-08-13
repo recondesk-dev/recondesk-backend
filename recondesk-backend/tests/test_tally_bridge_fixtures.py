@@ -408,7 +408,8 @@ class TestOverlappingSupplierInvoices:
             }
         ]
         result, upsert = _run_sync([], moonrise_payment, open_rows)
-        upsert.assert_not_called()
+        upsert.assert_called_once()
+        assert upsert.call_args.kwargs["status_value"] == "pending_review"
         assert result["settled_count"] == 0
         assert result["needs_manual_confirmation_count"] == 1
         assert (
@@ -477,7 +478,8 @@ class TestNoPartyName:
         ]
         payments = parse_payment_records(PAYMENTS_NO_PARTY)
         result, upsert = _run_sync([], payments, open_rows)
-        upsert.assert_not_called()
+        upsert.assert_called_once()
+        assert upsert.call_args.kwargs["status_value"] == "pending_review"
         assert result["settled_count"] == 0
         assert result["needs_manual_confirmation_count"] == 1
         mc = result["needs_manual_confirmation"][0]

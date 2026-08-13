@@ -1562,6 +1562,20 @@ export const tallyBridgeApi = {
   agentExeDownloadUrl: () => `${API_URL}/api/tally-sync/agent-exe`,
   configExampleDownloadUrl: () =>
     `${API_URL}/api/tally-sync/agent-config-example`,
+
+  resolveReview: (
+    token: string,
+    actionId: string,
+    body: { status: "resolved" | "rejected" | "approve" | "reject"; amount_paid?: number }
+  ) =>
+    apiFetch<{ ok: boolean; action_id: string; status: string }>(
+      `/api/tally-sync/review/${encodeURIComponent(actionId)}/resolve`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
 };
 
 // ─── GSTR-1 filing (Sandbox / GSTN) ───────────────────────────────────────────
@@ -1843,7 +1857,9 @@ export const filingApi = {
     period: string,
     body: {
       pan: string;
-      otp: string;
+      signing_method?: "evc" | "dsc";
+      otp?: string;
+      signature?: string;
       session_id?: string | null;
       run_id?: string | null;
     }
@@ -2234,7 +2250,9 @@ export const gstr3bFilingApi = {
     period: string,
     body: {
       pan: string;
-      otp: string;
+      signing_method?: "evc" | "dsc";
+      otp?: string;
+      signature?: string;
       session_id?: string | null;
       run_id?: string | null;
       file_body?: Record<string, unknown> | null;

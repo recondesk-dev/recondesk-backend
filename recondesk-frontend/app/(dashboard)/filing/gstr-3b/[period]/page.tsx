@@ -336,6 +336,7 @@ function Gstr3bFilingPageContent() {
         <Gstr3bEvcAndFilePanel
           token={token}
           period={period}
+          gstin={gstin}
           sessionId={sessionId}
           runState={runState}
           onRunState={setRunState}

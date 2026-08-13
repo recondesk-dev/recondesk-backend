@@ -1238,6 +1238,7 @@ _RULE37_SETTLEMENT_COLUMNS = frozenset(
         "payment_coverage",
         "source",
         "settled_date",
+        "review_metadata",
     }
 )
 
@@ -1256,6 +1257,7 @@ def _rule37_action_insert_payload(
     payment_coverage: Optional[str] = None,
     source: Optional[str] = None,
     settled_date: Optional[str] = None,
+    review_metadata: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "run_id": run_id,
@@ -1287,16 +1289,22 @@ def _rule37_action_insert_payload(
     else:
         payload.update(
             {
-                "amount_paid": None,
+                "amount_paid": (
+                    round(float(amount_paid), 2)
+                    if amount_paid is not None
+                    else None
+                ),
                 "tds_deducted": 0,
                 "tds_confirmed": False,
                 "total_settled": None,
                 "remaining_unpaid_amount": None,
-                "payment_coverage": None,
+                "payment_coverage": payment_coverage,
                 "source": (str(source).strip() if source else None),
-                "settled_date": None,
+                "settled_date": settled_date,
             }
         )
+    if review_metadata is not None:
+        payload["review_metadata"] = review_metadata
     return payload
 
 
@@ -1358,6 +1366,7 @@ def _upsert_rule37_action(
     payment_coverage: Optional[str] = None,
     source: Optional[str] = None,
     settled_date: Optional[str] = None,
+    review_metadata: Optional[dict[str, Any]] = None,
 ) -> None:
     """Persist a Rule 37 action in the dedicated ``rule37_actions`` table.
 
@@ -1367,6 +1376,9 @@ def _upsert_rule37_action(
 
     Optional ``source`` / ``settled_date`` support Tally Bridge auto-settle
     without duplicating this path (dashboard Mark as Settled omits them).
+
+    Optional ``review_metadata`` stores Tally Bridge weak-match context
+    (party_sim, bill_ref_score, reason) for pending_review rows.
     """
     record_hash = _rule37_record_hash(record_id)
     _log.debug(
@@ -1386,6 +1398,7 @@ def _upsert_rule37_action(
         payment_coverage=payment_coverage,
         source=source,
         settled_date=settled_date,
+        review_metadata=review_metadata,
     )
     _persist_rule37_action_row(sb, payload)
 
@@ -1457,8 +1470,8 @@ def _rule37_action_details_for_run(sb, run_id: str) -> dict[str, dict[str, Any]]
         r = (
             sb.table("rule37_actions")
             .select(
-                "record_hash, status, amount_paid, tds_deducted, tds_confirmed, "
-                "total_settled, remaining_unpaid_amount, payment_coverage"
+                "id, record_hash, status, amount_paid, tds_deducted, tds_confirmed, "
+                "total_settled, remaining_unpaid_amount, payment_coverage, review_metadata, source"
             )
             .eq("run_id", run_id)
             .execute()
@@ -1470,7 +1483,7 @@ def _rule37_action_details_for_run(sb, run_id: str) -> dict[str, dict[str, Any]]
     for row in r.data or []:
         record_hash = str(row.get("record_hash") or "").strip()
         status = str(row.get("status") or "").strip().lower()
-        if not record_hash or status not in {"resolved", "acknowledged"}:
+        if not record_hash or status not in {"resolved", "acknowledged", "pending_review", "rejected"}:
             continue
         api_id = record_hash if record_hash.startswith("r37:") else f"r37:{record_hash}"
         out[api_id] = row
@@ -1485,22 +1498,25 @@ def _all_rule37_rows_for_run(
 ) -> list[dict[str, Any]]:
     """Return all Rule 37 rows for a run (unpaginated)."""
     actions = _rule37_actions_for_run(sb, rid)
+    action_details = _rule37_action_details_for_run(sb, rid)
     for col in ("reconciliation_run_id", "run_id"):
         try:
             qr = sb.table("rule37_warnings").select("*").eq(col, rid)  # type: ignore[arg-type]
             exe = qr.execute()
             chunk = exe.data or []
             if chunk:
-                action_details = _rule37_action_details_for_run(sb, rid)
                 body = [_db_rule37_warning_to_frontend(row) for row in chunk]
                 for row in body:
                     record_id = str(row.get("id") or "")
                     if record_id in actions:
                         row["rule37_action_status"] = actions[record_id]
                     detail = action_details.get(record_id, {})
+                    if detail:
+                        row["rule37_action_id"] = detail.get("id")
+                        row["rule37_review_metadata"] = detail.get("review_metadata")
                     coverage = str(detail.get("payment_coverage") or "").strip().lower()
                     row["rule37_payment_coverage"] = (
-                        coverage if coverage in {"full", "partial"} else None
+                        coverage if coverage in {"full", "partial", "pending_review"} else None
                     )
                 return body
         except Exception:
@@ -1757,7 +1773,7 @@ def _rule37_actions_for_run(sb, run_id: str) -> dict[str, str]:
     for row in r.data or []:
         record_hash = str(row.get("record_hash") or "").strip()
         status = str(row.get("status") or "").strip().lower()
-        if record_hash and status in {"resolved", "acknowledged"}:
+        if record_hash and status in {"resolved", "acknowledged", "pending_review", "rejected"}:
             api_id = record_hash if record_hash.startswith("r37:") else f"r37:{record_hash}"
             out[api_id] = status
     return out
@@ -3511,8 +3527,11 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
                 "invoice_date": str(ru.get("invoice_date") or "")[:40],
                 "amount": amt,
                 "invoice_amount": invoice_amt,
+                "rule37_action_status": action_status,
+                "rule37_action_id": detail.get("id"),
+                "rule37_review_metadata": detail.get("review_metadata"),
                 "rule37_payment_coverage": (
-                    coverage if coverage in {"full", "partial"} else None
+                    coverage if coverage in {"full", "partial", "pending_review"} else None
                 ),
                 "match_level": "UNMATCHED",
                 "confidence_score": 0.0,

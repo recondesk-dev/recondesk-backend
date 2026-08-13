@@ -118,7 +118,7 @@ import {
   topSuppliersThTotal,
   topSuppliersThTradeName,
 } from "@/components/reconcile/ResultsUi";
-import { apiFetch, isApiError, reconcileSettingsApi } from "@/lib/api";
+import { apiFetch, isApiError, reconcileSettingsApi, tallyBridgeApi } from "@/lib/api";
 import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
@@ -156,7 +156,22 @@ type MatchLevel = "EXACT" | "FUZZY" | "MANUAL" | "UNMATCHED";
 type DecisionStatus = "pending" | "acted" | "ignored";
 type DecisionType = "claim" | "follow_up" | "escalate" | "ignore" | null;
 type Rule37Urgency = "CRITICAL" | "HIGH" | "MEDIUM";
-type Rule37ActionStatus = "resolved" | "acknowledged";
+type Rule37ActionStatus = "resolved" | "acknowledged" | "pending_review" | "rejected";
+
+type Rule37ReviewMetadata = {
+  reason?: string;
+  bill_ref?: string;
+  party?: string;
+  supplier_name?: string;
+  invoice_number?: string;
+  record_id?: string;
+  run_id?: string;
+  bill_ref_score?: number;
+  party_sim?: number;
+  party_gate_min?: number;
+  amount_paid?: number;
+  payment_date?: string;
+};
 
 type ComparedField = {
   field_name: string;
@@ -191,8 +206,10 @@ type ReconcileRow = {
   purchase_register_data: Record<string, string | number>;
   rule37_urgency?: Rule37Urgency;
   rule37_action_status?: Rule37ActionStatus | null;
+  rule37_action_id?: string | null;
+  rule37_review_metadata?: Rule37ReviewMetadata | null;
   invoice_amount?: number;
-  rule37_payment_coverage?: "full" | "partial" | null;
+  rule37_payment_coverage?: "full" | "partial" | "pending_review" | null;
   section_17_5_category?: string;
   match_confidence?: number | null;
   compared_fields?: ComparedField[] | null;
@@ -2253,7 +2270,7 @@ export default function ReconcileResultsPage() {
     return rows.filter((row) => {
       const status =
         localRule37ActionStatus.get(row.id) ?? row.rule37_action_status;
-      return status !== "resolved" && status !== "acknowledged";
+      return status !== "resolved" && status !== "acknowledged" && status !== "rejected";
     }).length;
   }, [localRule37ActionStatus, rule37Data?.data]);
 
@@ -5064,11 +5081,19 @@ export default function ReconcileResultsPage() {
                     null;
                   const acted =
                     actionStatus === "resolved" ||
-                    actionStatus === "acknowledged";
+                    actionStatus === "acknowledged" ||
+                    actionStatus === "rejected";
+                  const isPendingReview = actionStatus === "pending_review";
+                  const meta = row.rule37_review_metadata;
+
                   return (
                     <div
                       key={row.id}
-                      className={`mb-3 rounded-2xl border border-[#F0F0F0] border-l-4 bg-white p-5 ${rule37BorderClass(u, acted)}`}
+                      className={`mb-3 rounded-2xl border border-l-4 p-5 ${
+                        isPendingReview
+                          ? "border-amber-200 border-l-amber-500 bg-amber-50/20"
+                          : `border-[#F0F0F0] bg-white ${rule37BorderClass(u, acted)}`
+                      }`}
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
@@ -5084,8 +5109,69 @@ export default function ReconcileResultsPage() {
                           </span>
                           <AmountDisplay amount={row.amount} />
                         </div>
-                        {!acted && <Rule37SeverityLabel urgency={u} />}
+                        {isPendingReview ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                            ⚠️ Pending Tally Review
+                          </span>
+                        ) : actionStatus === "rejected" ? (
+                          <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
+                            Match Rejected ✗
+                          </span>
+                        ) : !acted ? (
+                          <Rule37SeverityLabel urgency={u} />
+                        ) : null}
                       </div>
+
+                      {isPendingReview && (
+                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/80 p-3.5 text-xs text-amber-900">
+                          <p className="font-semibold text-amber-950">
+                            ⚠️ Tally Payment Match — Manual Confirmation Required
+                          </p>
+                          <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
+                            <div>
+                              <span className="text-amber-700">Tally Ledger Party:</span>{" "}
+                              <strong className="font-medium text-amber-950">
+                                {meta?.party || "—"}
+                              </strong>
+                            </div>
+                            <div>
+                              <span className="text-amber-700">PR Supplier Name:</span>{" "}
+                              <strong className="font-medium text-amber-950">
+                                {meta?.supplier_name || "—"}
+                              </strong>
+                            </div>
+                            <div>
+                              <span className="text-amber-700">Party Name Confidence:</span>{" "}
+                              <strong className="font-medium text-amber-950">
+                                {meta?.party_sim != null
+                                  ? `${Math.round(meta.party_sim * 100)}%`
+                                  : "0%"}
+                              </strong>{" "}
+                              <span className="text-amber-600">
+                                (Auto-settle gate:{" "}
+                                {Math.round((meta?.party_gate_min || 0.82) * 100)}%)
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-amber-700">Bill Ref Match Score:</span>{" "}
+                              <strong className="font-medium text-amber-950">
+                                {meta?.bill_ref_score != null
+                                  ? `${Math.round(meta.bill_ref_score * 100)}%`
+                                  : "—"}
+                              </strong>
+                            </div>
+                            {meta?.amount_paid != null && (
+                              <div>
+                                <span className="text-amber-700">Payment Amount:</span>{" "}
+                                <strong className="font-medium text-amber-950">
+                                  ₹{Number(meta.amount_paid).toLocaleString("en-IN")}
+                                </strong>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
                       <p className="mt-3 text-[13px] font-medium text-gray-700">
                         {row.decision_what ?? "—"}
                       </p>
@@ -5097,7 +5183,88 @@ export default function ReconcileResultsPage() {
                       </p>
                       <DecisionDiagnosticsBlock row={row} />
                       <div className="mt-4 flex flex-wrap justify-end gap-2">
-                        {actionStatus === "resolved" && (
+                        {isPendingReview ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={rule37UpdatingIds.has(row.id)}
+                              className="rounded-lg bg-amber-600 px-4 py-2 text-[13px] font-medium text-white shadow-sm transition-all duration-150 hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => {
+                                const actionId = row.rule37_action_id;
+                                setRule37UpdatingIds((prev) => new Set(prev).add(row.id));
+                                const promise = actionId
+                                  ? tallyBridgeApi.resolveReview(authToken!, actionId, { status: "resolved" })
+                                  : apiFetch(`/api/tally-sync/review/${encodeURIComponent(row.id)}/resolve`, {
+                                      method: "POST",
+                                      token: authToken!,
+                                      body: JSON.stringify({ status: "resolved" }),
+                                    });
+                                promise
+                                  .then(() => {
+                                    setLocalRule37ActionStatus((prev) => {
+                                      const next = new Map(prev);
+                                      next.set(row.id, "resolved");
+                                      return next;
+                                    });
+                                    addToast("Match approved & settled", "success");
+                                    setRule37SummaryRefreshKey((k) => k + 1);
+                                    void mutateRule37();
+                                  })
+                                  .catch((err) => {
+                                    addToast(err.message || "Failed to resolve review", "error");
+                                  })
+                                  .finally(() => {
+                                    setRule37UpdatingIds((prev) => {
+                                      const next = new Set(prev);
+                                      next.delete(row.id);
+                                      return next;
+                                    });
+                                  });
+                              }}
+                            >
+                              Approve & Settle
+                            </button>
+                            <button
+                              type="button"
+                              disabled={rule37UpdatingIds.has(row.id)}
+                              className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-[13px] font-medium text-gray-700 transition-all duration-150 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => {
+                                const actionId = row.rule37_action_id;
+                                setRule37UpdatingIds((prev) => new Set(prev).add(row.id));
+                                const promise = actionId
+                                  ? tallyBridgeApi.resolveReview(authToken!, actionId, { status: "rejected" })
+                                  : apiFetch(`/api/tally-sync/review/${encodeURIComponent(row.id)}/resolve`, {
+                                      method: "POST",
+                                      token: authToken!,
+                                      body: JSON.stringify({ status: "rejected" }),
+                                    });
+                                promise
+                                  .then(() => {
+                                    setLocalRule37ActionStatus((prev) => {
+                                      const next = new Map(prev);
+                                      next.set(row.id, "rejected");
+                                      return next;
+                                    });
+                                    addToast("Match rejected", "success");
+                                    setRule37SummaryRefreshKey((k) => k + 1);
+                                    void mutateRule37();
+                                  })
+                                  .catch((err) => {
+                                    addToast(err.message || "Failed to resolve review", "error");
+                                  })
+                                  .finally(() => {
+                                    setRule37UpdatingIds((prev) => {
+                                      const next = new Set(prev);
+                                      next.delete(row.id);
+                                      return next;
+                                    });
+                                  });
+                              }}
+                            >
+                              Reject Match
+                            </button>
+                          </>
+                        ) : actionStatus === "resolved" ? (
                           <span className="inline-flex items-center rounded-lg bg-gray-100 px-4 py-2 text-[13px] text-gray-400">
                             Marked as Settled ✓
                             {row.rule37_payment_coverage === "partial" ? (
@@ -5106,13 +5273,15 @@ export default function ReconcileResultsPage() {
                               </span>
                             ) : null}
                           </span>
-                        )}
-                        {actionStatus === "acknowledged" && (
+                        ) : actionStatus === "acknowledged" ? (
                           <span className="inline-flex items-center rounded-lg bg-gray-100 px-4 py-2 text-[13px] text-gray-400">
                             ITC Reversal Noted ✓
                           </span>
-                        )}
-                        {!acted && (
+                        ) : actionStatus === "rejected" ? (
+                          <span className="inline-flex items-center rounded-lg bg-gray-100 px-4 py-2 text-[13px] text-gray-400">
+                            Match Rejected ✗
+                          </span>
+                        ) : (
                           <>
                             <button
                               type="button"

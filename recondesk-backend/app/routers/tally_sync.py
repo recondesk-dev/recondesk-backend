@@ -396,12 +396,13 @@ async def tally_sync_purchase_register(
         _log.exception("import job dispatch failed run_id=%s", run_id)
 
     # ── 6. Update last_synced_at on the bridge key ────────────────────────
-    try:
-        sb.table("tally_bridge_keys").update(
-            {"last_synced_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", str(key_row.get("id"))).execute()
-    except Exception:
-        pass
+    if len(body.rows) > 0:
+        try:
+            sb.table("tally_bridge_keys").update(
+                {"last_synced_at": datetime.now(timezone.utc).isoformat()}
+            ).eq("id", str(key_row.get("id"))).execute()
+        except Exception:
+            pass
 
     return {"run_id": run_id, "status": "importing"}
 
@@ -577,12 +578,13 @@ def tally_sync_sales_register(
         _log.exception("import job dispatch failed run_id=%s", run_id)
 
     # ── 6. Update last_synced_at on the bridge key ────────────────────────
-    try:
-        sb.table("tally_bridge_keys").update(
-            {"last_synced_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", str(key_row.get("id"))).execute()
-    except Exception:
-        pass
+    if len(body.rows) > 0:
+        try:
+            sb.table("tally_bridge_keys").update(
+                {"last_synced_at": datetime.now(timezone.utc).isoformat()}
+            ).eq("id", str(key_row.get("id"))).execute()
+        except Exception:
+            pass
 
     return {"run_id": run_id, "status": "importing"}
 
@@ -722,3 +724,139 @@ async def tally_bridge_download_config_example(
         filename="tally_bridge.config.example.json",
         media_type="application/json",
     )
+
+
+class TallyReviewResolveBody(BaseModel):
+    status: str = Field(..., pattern="^(resolved|rejected|approve|reject)$")
+    amount_paid: Optional[float] = None
+
+
+@router.post("/review/{action_id}/resolve")
+async def tally_bridge_resolve_review(
+    action_id: str,
+    body: TallyReviewResolveBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """CA approves (-> resolved) or rejects (-> rejected) a weak party-match row.
+
+    Approving executes full Rule 37 settlement (calculating payment coverage
+    and remaining unpaid amount against invoice amount via _upsert_rule37_action),
+    making it 100% equivalent in effect to auto-settle and Mark as Settled.
+    """
+    account_id = _account_id_for_user(current_user)
+    sb = get_supabase()
+
+    res = (
+        sb.table("rule37_actions")
+        .select("*")
+        .eq("id", action_id)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Review action not found",
+        )
+    row = res.data[0]
+    if str(row.get("user_id") or "") != account_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Unauthorized access to review item",
+        )
+
+    target_status = "resolved" if body.status in ("resolved", "approve") else "rejected"
+    run_id = str(row["run_id"])
+    record_hash = str(row["record_hash"])
+    record_id = f"r37:{record_hash}" if not record_hash.startswith("r37:") else record_hash
+
+    if target_status == "rejected":
+        from app.routers.reconciliation_api import _upsert_rule37_action
+
+        _upsert_rule37_action(
+            sb,
+            run_id=run_id,
+            record_id=record_id,
+            status_value="rejected",
+            user_id=account_id,
+            source=str(row.get("source") or "tally_bridge"),
+            settled_date=row.get("settled_date"),
+            review_metadata=row.get("review_metadata"),
+        )
+        return {
+            "ok": True,
+            "action_id": action_id,
+            "status": "rejected",
+            "payment_coverage": None,
+        }
+
+    # Approving -> execute full settlement logic
+    from app.routers.reconciliation_api import (
+        _build_rule37_rows,
+        _notes_count_for_run,
+        _payload_or_404,
+        _rule37_payment_coverage,
+        _upsert_rule37_action,
+    )
+
+    amount_paid = (
+        round(float(body.amount_paid), 2)
+        if body.amount_paid is not None
+        else round(float(row.get("amount_paid") or 0.0), 2)
+    )
+
+    # Fetch invoice amount from run payload/warnings to calculate remaining & coverage
+    invoice_amount = 0.0
+    try:
+        p = _payload_or_404(sb, run_id)
+        notes = _notes_count_for_run(sb, run_id)
+        for r in _build_rule37_rows(sb, run_id, p, notes):
+            rec_id_clean = str(r.get("id") or "").replace("r37:", "")
+            if rec_id_clean == record_hash.replace("r37:", ""):
+                invoice_amount = float(r.get("invoice_amount") or r.get("amount") or 0)
+                break
+    except Exception:
+        _log.warning(
+            "Could not resolve invoice_amount for run_id=%s record_hash=%s",
+            run_id,
+            record_hash,
+        )
+
+    total_settled = amount_paid
+    remaining_unpaid = (
+        round(max(invoice_amount - total_settled, 0.0), 2)
+        if invoice_amount > 0
+        else 0.0
+    )
+    coverage = (
+        _rule37_payment_coverage(total_settled, invoice_amount)
+        if invoice_amount > 0
+        else "full"
+    )
+
+    _upsert_rule37_action(
+        sb,
+        run_id=run_id,
+        record_id=record_id,
+        status_value="resolved",
+        user_id=account_id,
+        amount_paid=amount_paid,
+        tds_deducted=0.0,
+        tds_confirmed=False,
+        total_settled=total_settled,
+        remaining_unpaid_amount=remaining_unpaid,
+        payment_coverage=coverage,
+        source="tally_bridge_manual_confirmation",
+        settled_date=row.get("settled_date"),
+        review_metadata=row.get("review_metadata"),
+    )
+
+    return {
+        "ok": True,
+        "action_id": action_id,
+        "status": "resolved",
+        "amount_paid": amount_paid,
+        "total_settled": total_settled,
+        "remaining_unpaid_amount": remaining_unpaid,
+        "payment_coverage": coverage,
+    }

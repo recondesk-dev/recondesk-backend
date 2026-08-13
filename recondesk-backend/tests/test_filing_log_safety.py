@@ -25,10 +25,18 @@ def test_scrub_url_redacts_otp_and_pan():
 
 
 def test_scrub_params_dict():
-    assert scrub_query_params({"otp": "123456", "pan": "ABCDE1234F", "gstr": "gstr-1"}) == {
+    assert scrub_query_params({
+        "otp": "123456",
+        "pan": "ABCDE1234F",
+        "gstr": "gstr-1",
+        "signature": "MIIK...BASE64",
+        "pkcs7_signature": "MIIK...BASE64",
+    }) == {
         "otp": "[REDACTED]",
         "pan": "[REDACTED]",
         "gstr": "gstr-1",
+        "signature": "[REDACTED]",
+        "pkcs7_signature": "[REDACTED]",
     }
 
 

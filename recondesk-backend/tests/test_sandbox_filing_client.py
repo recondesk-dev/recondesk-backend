@@ -156,6 +156,82 @@ def test_file_gstr1_puts_otp_in_query_params_only():
     assert "otp" not in (req.call_args.kwargs.get("json") or {})
 
 
+def test_file_gstr1_dsc_flow():
+    c = _client()
+    with patch.object(c._http, "request") as req:
+        req.return_value = _resp(
+            200,
+            {
+                "code": 200,
+                "data": {
+                    "status_cd": "1",
+                    "data": {"ack_num": "ACK-DSC-1"},
+                },
+            },
+            url="https://api.sandbox.co.in/gst/compliance/tax-payer/gstrs/gstr-1/2025/04/file?pan=AAACQ3770E",
+        )
+        result = c.file_gstr1(
+            "tok",
+            period="2025-04",
+            pan="AAACQ3770E",
+            signing_method="dsc",
+            signature="BASE64_PKCS7_SIGNATURE_STRING",
+            file_body={"gstin": "27ISKPK1273H1ZF", "chksum": "abc", "sec_sum": []},
+        )
+    assert result.ack_number == "ACK-DSC-1"
+    assert req.call_args.kwargs["params"] == {"pan": "AAACQ3770E"}
+    assert "otp" not in req.call_args.kwargs["params"]
+    assert req.call_args.kwargs["json"]["pkcs7_signature"] == "BASE64_PKCS7_SIGNATURE_STRING"
+
+
+def test_file_gstr3b_dsc_flow():
+    c = _client()
+    with patch.object(c._http, "request") as req:
+        req.return_value = _resp(
+            200,
+            {
+                "code": 200,
+                "data": {
+                    "status_cd": "1",
+                    "data": {"ack_num": "ACK-DSC-3B"},
+                },
+            },
+            url="https://api.sandbox.co.in/gst/compliance/tax-payer/gstrs/gstr-3b/2026/07/file?pan=AAACQ3770E",
+        )
+        result = c.file_gstr3b(
+            "tok",
+            period="2026-07",
+            pan="AAACQ3770E",
+            signing_method="dsc",
+            signature="BASE64_PKCS7_3B_SIGNATURE",
+            file_body={"gstin": "27ISKPK1273H1ZF", "ret_period": "072026", "tx_pmt": {}},
+        )
+    assert result.ack_number == "ACK-DSC-3B"
+    assert req.call_args.kwargs["params"] == {"pan": "AAACQ3770E"}
+    assert "otp" not in req.call_args.kwargs["params"]
+    assert req.call_args.kwargs["json"]["pkcs7_signature"] == "BASE64_PKCS7_3B_SIGNATURE"
+
+
+def test_file_gstr3b_missing_credentials_raises():
+    c = _client()
+    with pytest.raises(Exception, match="EVC filing requires an OTP"):
+        c.file_gstr3b(
+            "tok",
+            period="2026-07",
+            pan="AAACQ3770E",
+            signing_method="evc",
+            file_body={},
+        )
+    with pytest.raises(Exception, match="DSC filing requires a PKCS7 signature"):
+        c.file_gstr3b(
+            "tok",
+            period="2026-07",
+            pan="AAACQ3770E",
+            signing_method="dsc",
+            file_body={},
+        )
+
+
 def test_gstn_error_on_save_raises():
     c = _client()
     with patch.object(c._http, "request") as req:

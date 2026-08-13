@@ -905,7 +905,7 @@ def _normalize_date(raw: str) -> str | None:
         return s[:10]
 
     # Split on any of the common Tally separators: - / .
-    for sep in ("-", "/", "."):
+    for sep in ("-", "/", ".", " "):
         parts = s.split(sep)
         if len(parts) != 3 or not all(parts):
             continue
@@ -1276,6 +1276,8 @@ def parse_purchase_register_records(xml_text: str) -> list:
     for voucher in root.iter():
         if _local(voucher.tag).upper() != "VOUCHER":
             continue
+        if not voucher.attrib:
+            continue  # Skip CMPINFO metadata counters like <VOUCHER>0</VOUCHER>
 
         is_cancelled = _is_voucher_cancelled_or_deleted(voucher)
         guid = (
@@ -1384,6 +1386,8 @@ def parse_sales_register_records(xml_text: str) -> list:
     for voucher in root.iter():
         if _local(voucher.tag).upper() != "VOUCHER":
             continue
+        if not voucher.attrib:
+            continue  # Skip CMPINFO metadata counters like <VOUCHER>0</VOUCHER>
 
         is_cancelled = _is_voucher_cancelled_or_deleted(voucher)
         guid = (
@@ -1511,6 +1515,8 @@ def parse_credit_debit_note_records(xml_text: str) -> list:
     for voucher in root.iter():
         if _local(voucher.tag).upper() != "VOUCHER":
             continue
+        if not voucher.attrib:
+            continue  # Skip CMPINFO metadata counters like <VOUCHER>0</VOUCHER>
 
         is_cancelled = _is_voucher_cancelled_or_deleted(voucher)
         guid = (
@@ -2477,8 +2483,17 @@ def run_once(
         print(f"Day Book Payments: {payments_n} Agst Ref payment row(s)  [{payments_path.name}]")
         print(f"Ledger Master:     {ledgers_n} record(s)  [{ledgers_path.name}]")
         print(f"Sales Register:    {sales_n} row(s) across {len(sales_by_period)} period(s) {sorted(sales_by_period.keys())}  [{sales_path.name}]")
-        if outstanding_n == 0 or payments_n == 0:
-            print("WARNING: one or both exports returned zero parsed rows — do not enable push until fixed.")
+        zero_exports = []
+        if outstanding_n == 0:
+            zero_exports.append("Bills Payable")
+        if payments_n == 0:
+            zero_exports.append("Day Book Payments")
+        if len(purchase_rows) == 0:
+            zero_exports.append("Purchase Register")
+        if ledgers_n == 0:
+            zero_exports.append("Ledger Masters")
+        if zero_exports:
+            print(f"WARNING: zero parsed rows in: {', '.join(zero_exports)} — do not enable push until fixed.")
         print(f"Parsed JSON:       {parsed_path.name}")
         print("--- Bills Payable XML preview (first 2k) ---")
         print(outstanding_xml[:2000] or "(empty)")

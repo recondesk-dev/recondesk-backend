@@ -19,6 +19,12 @@ SENSITIVE_QUERY_KEYS = frozenset({
     "evc_otp",
     "evcotp",
     "pan",  # authorized-signatory PAN on File / EVC calls
+    "signature",
+    "pkcs7_signature",
+    "pkcs7",
+    "dsc_signature",
+    "sig",
+    "dsc",
 })
 
 

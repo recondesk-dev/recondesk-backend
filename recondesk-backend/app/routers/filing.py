@@ -7,7 +7,7 @@ import logging
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.auth import get_current_active_user
 from app.config import get_settings
@@ -192,19 +192,45 @@ class EvcOtpBody(_StripModel):
 
 class FileGstr1Body(_StripModel):
     pan: str
-    otp: str
+    signing_method: str = "evc"
+    otp: Optional[str] = None
+    signature: Optional[str] = None
     session_id: Optional[str] = None
     run_id: Optional[str] = None
     # Optional override; otherwise built from GET summary on the run.
     file_body: Optional[dict[str, Any]] = None
 
-    @field_validator("pan", "otp")
+    @field_validator("pan")
     @classmethod
-    def _req(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("must not be empty")
+    def _pan(cls, v: str) -> str:
+        v = v.strip().upper()
+        if len(v) != 10:
+            raise ValueError("pan must be 10 characters")
         return v
+
+    @field_validator("signing_method")
+    @classmethod
+    def _method(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v not in ("evc", "dsc"):
+            raise ValueError("signing_method must be 'evc' or 'dsc'")
+        return v
+
+    @field_validator("otp", "signature")
+    @classmethod
+    def _strip_opt(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        s = v.strip()
+        return s if s else None
+
+    @model_validator(mode="after")
+    def _validate_signing_credentials(self) -> "FileGstr1Body":
+        if self.signing_method == "evc" and not self.otp:
+            raise ValueError("otp is required when signing_method is 'evc'")
+        if self.signing_method == "dsc" and not self.signature:
+            raise ValueError("signature is required when signing_method is 'dsc'")
+        return self
 
 
 class SaveGstr3bBody(_StripModel):
@@ -249,19 +275,45 @@ class EvcOtpGstr3bBody(EvcOtpBody):
 
 class FileGstr3bBody(_StripModel):
     pan: str
-    otp: str
+    signing_method: str = "evc"
+    otp: Optional[str] = None
+    signature: Optional[str] = None
     session_id: Optional[str] = None
     run_id: Optional[str] = None
     # Must include post-Offset ``tx_pmt``; when omitted, re-fetched from Get Details.
     file_body: Optional[dict[str, Any]] = None
 
-    @field_validator("pan", "otp")
+    @field_validator("pan")
     @classmethod
-    def _req(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("must not be empty")
+    def _pan(cls, v: str) -> str:
+        v = v.strip().upper()
+        if len(v) != 10:
+            raise ValueError("pan must be 10 characters")
         return v
+
+    @field_validator("signing_method")
+    @classmethod
+    def _method(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v not in ("evc", "dsc"):
+            raise ValueError("signing_method must be 'evc' or 'dsc'")
+        return v
+
+    @field_validator("otp", "signature")
+    @classmethod
+    def _strip_opt(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        s = v.strip()
+        return s if s else None
+
+    @model_validator(mode="after")
+    def _validate_signing_credentials(self) -> "FileGstr3bBody":
+        if self.signing_method == "evc" and not self.otp:
+            raise ValueError("otp is required when signing_method is 'evc'")
+        if self.signing_method == "dsc" and not self.signature:
+            raise ValueError("signature is required when signing_method is 'dsc'")
+        return self
 
 
 class CreateBatchBody(_StripModel):
@@ -1029,6 +1081,8 @@ def file_gstr1(
                 period=period,
                 pan=body.pan,
                 otp=body.otp,
+                signature=body.signature,
+                signing_method=body.signing_method,
                 file_body=file_body,
             )
     except FilingClientError as exc:
@@ -1583,6 +1637,8 @@ def file_gstr3b(
                 period=period,
                 pan=body.pan,
                 otp=body.otp,
+                signature=body.signature,
+                signing_method=body.signing_method,
                 file_body=file_body,
             )
     except FilingClientError as exc:
