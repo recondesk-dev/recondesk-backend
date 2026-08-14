@@ -116,3 +116,37 @@ def test_gstr1_vs_3b_qrmp_quarter_end_checked():
     qrmp_res = reconcile_gstr1_vs_3b([], parsed_3b, filing_frequency="qrmp")
     assert qrmp_res.is_clean is False
     assert len(qrmp_res.variances) > 0
+
+
+def test_qrmp_full_quarter_tie_out_flow():
+    """Across a full quarter (Apr, May, Jun):
+    - Apr (m1) & May (m2): No GSTR-3B slot / missing 3B flag; tie-out returns clean with 0 variances.
+    - Jun (m3): Consolidated quarterly GSTR-3B + GSTR-2B tie-out runs and detects variances if mismatched.
+    """
+    sample_gstr1 = [{
+        "invoice_number": "INV-101",
+        "invoice_date": "2025-04-10",
+        "taxable_amount_paise": 10000000,
+        "igst_paise": 1800000,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "cess_paise": 0,
+    }]
+    parsed_3b_m1 = {"ret_period": "042025", "outward_supply": {"taxable_value": 100000.0, "igst": 18000.0}}
+    parsed_3b_m2 = {"ret_period": "052025", "outward_supply": {"taxable_value": 50000.0, "igst": 9000.0}}
+    parsed_3b_m3 = {"ret_period": "062025", "outward_supply": {"taxable_value": 300000.0, "igst": 54000.0}}
+
+    # Month 1 (April) -> QRMP tie-out suppressed completely
+    res_m1 = reconcile_gstr1_vs_3b(sample_gstr1, parsed_3b_m1, filing_frequency="qrmp")
+    assert res_m1.is_clean is True
+    assert len(res_m1.variances) == 0
+
+    # Month 2 (May) -> QRMP tie-out suppressed completely
+    res_m2 = reconcile_gstr1_vs_3b([], parsed_3b_m2, filing_frequency="qrmp")
+    assert res_m2.is_clean is True
+    assert len(res_m2.variances) == 0
+
+    # Month 3 (June - quarter-end) -> Tie-out executed against GSTR-3B quarterly return
+    res_m3 = reconcile_gstr1_vs_3b(sample_gstr1, parsed_3b_m3, filing_frequency="qrmp")
+    assert res_m3.is_clean is False
+    assert len(res_m3.variances) > 0

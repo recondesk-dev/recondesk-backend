@@ -586,16 +586,17 @@ def reconcile_gstr1_vs_3b(
     ff = (filing_frequency or "monthly").lower().strip()
 
     # QRMP tie-out timing gate: In non-quarter-end months (months other than 03, 06, 09, 12),
-    # QRMP taxpayers are not required to file GSTR-1 (IFF is optional). Suppress missing GSTR-1 flag.
+    # QRMP taxpayers do not file GSTR-3B or GSTR-1 returns (tax is deposited via PMT-06 challan).
+    # Suppress all missing GSTR-1 and GSTR-3B tie-out variance checks for months 1-2.
     if ff == "qrmp":
         mm = _extract_month_from_period(ret_period)
-        if mm and mm not in ("03", "06", "09", "12") and len(gstr1_records) == 0:
+        if mm and mm not in ("03", "06", "09", "12"):
             _log.info(
-                "gstr1_vs_3b: QRMP filer period=%s (month %s) — GSTR-1 not due in month 1/2 of quarter. Tie-out suppressed.",
+                "gstr1_vs_3b: QRMP filer period=%s (month %s) — GSTR-3B/GSTR-1 not filed in month 1/2 of quarter (filed quarterly at quarter-end). Tie-out suppressed.",
                 ret_period, mm,
             )
-            gstr1_agg = aggregate_gstr1([], include_cdn=include_cdn, include_zero_rated=include_zero_rated)
-            gstr1_by_rate = aggregate_gstr1_by_rate([])
+            gstr1_agg = aggregate_gstr1(gstr1_records, include_cdn=include_cdn, include_zero_rated=include_zero_rated)
+            gstr1_by_rate = aggregate_gstr1_by_rate(gstr1_records)
             gstr3b_summary = gstr3b_to_summary(parsed_gstr3b)
             return TieOutResult(
                 ret_period=ret_period,
