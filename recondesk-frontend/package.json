@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "ulimit -n 65536 2>/dev/null || true; next dev",
+    "dev:test": "ulimit -n 65536 2>/dev/null || true; set -a; source .env.local.test; set +a; next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

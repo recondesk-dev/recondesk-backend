@@ -527,6 +527,22 @@ class TieOutResult:
         }
 
 
+def _extract_month_from_period(ret_period: str) -> str | None:
+    """Extract 2-digit month string (e.g. '04') from ret_period like '042025', '2025-04', '04-2025'."""
+    p = str(ret_period or "").strip()
+    if not p or p == "?":
+        return None
+    if len(p) == 6 and p.isdigit():
+        return p[:2]
+    if "-" in p:
+        parts = p.split("-")
+        if len(parts[0]) == 4 and parts[0].isdigit():
+            return parts[1]
+        if len(parts[0]) == 2 and parts[0].isdigit():
+            return parts[0]
+    return None
+
+
 def reconcile_gstr1_vs_3b(
     gstr1_records: Sequence[Mapping[str, Any]],
     parsed_gstr3b: Mapping[str, Any],
@@ -534,6 +550,7 @@ def reconcile_gstr1_vs_3b(
     tolerance_paise: int = DEFAULT_TOLERANCE_PAISE,
     include_cdn: bool = True,
     include_zero_rated: bool = False,
+    filing_frequency: str = "monthly",
 ) -> TieOutResult:
     """Compare GSTR-1 invoice-level records against GSTR-3B summary.
 
@@ -555,6 +572,9 @@ def reconcile_gstr1_vs_3b(
         Include credit/debit notes in the GSTR-1 aggregate (default True).
     include_zero_rated : bool
         Include exports/zero-rated in the GSTR-1 aggregate (default False).
+    filing_frequency : str
+        Filing frequency ('monthly' or 'qrmp'). Under QRMP, GSTR-1 is filed quarterly
+        (due at quarter-end). In months 1 and 2 of a quarter, missing GSTR-1 is not flagged.
 
     Returns
     -------
@@ -563,6 +583,29 @@ def reconcile_gstr1_vs_3b(
         decision-layer-compatible mismatches.
     """
     ret_period = str(parsed_gstr3b.get("ret_period", "?"))
+    ff = (filing_frequency or "monthly").lower().strip()
+
+    # QRMP tie-out timing gate: In non-quarter-end months (months other than 03, 06, 09, 12),
+    # QRMP taxpayers are not required to file GSTR-1 (IFF is optional). Suppress missing GSTR-1 flag.
+    if ff == "qrmp":
+        mm = _extract_month_from_period(ret_period)
+        if mm and mm not in ("03", "06", "09", "12") and len(gstr1_records) == 0:
+            _log.info(
+                "gstr1_vs_3b: QRMP filer period=%s (month %s) — GSTR-1 not due in month 1/2 of quarter. Tie-out suppressed.",
+                ret_period, mm,
+            )
+            gstr1_agg = aggregate_gstr1([], include_cdn=include_cdn, include_zero_rated=include_zero_rated)
+            gstr1_by_rate = aggregate_gstr1_by_rate([])
+            gstr3b_summary = gstr3b_to_summary(parsed_gstr3b)
+            return TieOutResult(
+                ret_period=ret_period,
+                gstr1_aggregate=gstr1_agg,
+                gstr3b_summary=gstr3b_summary,
+                gstr1_by_rate=gstr1_by_rate,
+                variances=[],
+                mismatches=[],
+                is_clean=True,
+            )
 
     # Aggregate GSTR-1
     gstr1_agg = aggregate_gstr1(

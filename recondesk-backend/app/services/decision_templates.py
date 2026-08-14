@@ -46,6 +46,14 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "Invoice number format difference between supplier system and {source_software}",
         "next": "Compare physical invoice against GSTR-2B entry. Correct purchase register if supplier number is authoritative.",
     },
+    "COMPOSITION_SCHEME_NO_ITC": {
+        "what": "Composition Scheme — Ineligible for ITC",
+        "why": (
+            "Taxpayers registered under the Composition Scheme (Section 10) pay tax at a flat rate "
+            "and are legally prohibited from claiming Input Tax Credit on purchases under Section 10(4)."
+        ),
+        "next": "No ITC can be claimed. Treat total invoice value as purchase expense/cost.",
+    },
     "MISSED_ITC": {
         "what": "Available in 2B but Missing in Books",
         "why": "Invoice not entered in {source_software} or entered under a different GSTIN",

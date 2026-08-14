@@ -1,9 +1,9 @@
 /**
  * Auto-generated from the live Supabase project schema.
- * Project: lkoiavdtazkqmqsmxvpv
+ * Project: avhaubudivhyhcvankfi
  *
  * To regenerate:
- *   npx supabase gen types typescript --project-id lkoiavdtazkqmqsmxvpv > lib/supabase/types.ts
+ *   npx supabase gen types typescript --project-id avhaubudivhyhcvankfi > lib/supabase/types.ts
  *   (requires: supabase login)
  */
 
@@ -104,6 +104,8 @@ export type Database = {
           state_code: string | null;
           registration_type: string | null;
           assigned_to: string | null;
+          scheme_type: 'regular' | 'composition' | 'casual' | 'nrtp' | 'isd' | 'tds_tcs_deductor';
+          filing_frequency: 'monthly' | 'qrmp';
           is_demo: boolean;
           is_active: boolean;
           added_at: string;
@@ -117,6 +119,8 @@ export type Database = {
           state_code?: string | null;
           registration_type?: string | null;
           assigned_to?: string | null;
+          scheme_type?: 'regular' | 'composition' | 'casual' | 'nrtp' | 'isd' | 'tds_tcs_deductor';
+          filing_frequency?: 'monthly' | 'qrmp';
           is_demo?: boolean;
           is_active?: boolean;
           added_at?: string;
@@ -128,6 +132,8 @@ export type Database = {
           state_code?: string | null;
           registration_type?: string | null;
           assigned_to?: string | null;
+          scheme_type?: 'regular' | 'composition' | 'casual' | 'nrtp' | 'isd' | 'tds_tcs_deductor';
+          filing_frequency?: 'monthly' | 'qrmp';
           is_demo?: boolean;
           is_active?: boolean;
         };

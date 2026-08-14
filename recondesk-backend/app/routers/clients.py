@@ -94,6 +94,17 @@ async def validate_gstin_endpoint(
         return {"valid": False, "error": _validate_gstin_error_message(exc.reason)}
 
 
+VALID_SCHEME_TYPES = {
+    "regular",
+    "composition",
+    "casual",
+    "nrtp",
+    "isd",
+    "tds_tcs_deductor",
+}
+VALID_FILING_FREQUENCIES = {"monthly", "qrmp"}
+
+
 class ClientCreate(BaseModel):
     gstin: str
     trade_name: str
@@ -103,6 +114,8 @@ class ClientCreate(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     assigned_to: Optional[str] = None
+    scheme_type: Optional[str] = "regular"
+    filing_frequency: Optional[str] = "monthly"
 
 
 class ClientUpdate(BaseModel):
@@ -111,6 +124,8 @@ class ClientUpdate(BaseModel):
     state_code: Optional[str] = None
     registration_type: Optional[str] = None
     assigned_to: Optional[str] = None
+    scheme_type: Optional[str] = None
+    filing_frequency: Optional[str] = None
 
 
 class AssignClientBody(BaseModel):
@@ -181,6 +196,19 @@ async def create_client(
     uid = str(current_user.get("id", ""))
     owner = _resolve_firm_owner(sb, uid)
 
+    st = (body.scheme_type or "regular").lower().strip()
+    if st not in VALID_SCHEME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"invalid scheme_type. Must be one of: {sorted(VALID_SCHEME_TYPES)}",
+        )
+    ff = (body.filing_frequency or "monthly").lower().strip()
+    if ff not in VALID_FILING_FREQUENCIES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"invalid filing_frequency. Must be one of: {sorted(VALID_FILING_FREQUENCIES)}",
+        )
+
     # Soft-deleted row for this GSTIN: restore it (does not consume a new free slot).
     existing = (
         sb.table("client_gstins")
@@ -202,6 +230,8 @@ async def create_client(
             "trade_name": body.trade_name,
             "legal_name": body.legal_name,
             "state_code": g[:2],
+            "scheme_type": st,
+            "filing_frequency": ff,
             "added_at": datetime.now(timezone.utc).isoformat(),
         }
         if body.assigned_to:
@@ -255,6 +285,8 @@ async def create_client(
         "trade_name": body.trade_name,
         "legal_name": body.legal_name,
         "state_code": g[:2],
+        "scheme_type": st,
+        "filing_frequency": ff,
         "firm_owner_id": owner,
         "is_active": True,
         "added_at": datetime.now(timezone.utc).isoformat(),
@@ -421,10 +453,20 @@ async def update_client(
     elif str(row.get("assigned_to", "")) != uid:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not allowed")
     updates: dict[str, Any] = {}
-    for k in ("trade_name", "legal_name", "state_code", "registration_type"):
+    for k in ("trade_name", "legal_name", "state_code", "registration_type", "scheme_type", "filing_frequency"):
         v = getattr(body, k, None)
         if v is not None:
-            updates[k] = v
+            if k == "scheme_type" and str(v).lower().strip() not in VALID_SCHEME_TYPES:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"invalid scheme_type. Must be one of: {sorted(VALID_SCHEME_TYPES)}",
+                )
+            if k == "filing_frequency" and str(v).lower().strip() not in VALID_FILING_FREQUENCIES:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"invalid filing_frequency. Must be one of: {sorted(VALID_FILING_FREQUENCIES)}",
+                )
+            updates[k] = str(v).lower().strip() if k in ("scheme_type", "filing_frequency") else v
     if body.assigned_to is not None:
         if role != "admin":
             raise HTTPException(

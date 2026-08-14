@@ -19,6 +19,9 @@ export const STATUS_POLL_REQUEST_TIMEOUT_MS = 10_000;
 
 // ─── Re-export DB row types for convenience ───────────────────────────────────
 
+export type SchemeType = 'regular' | 'composition' | 'casual' | 'nrtp' | 'isd' | 'tds_tcs_deductor';
+export type FilingFrequency = 'monthly' | 'qrmp';
+
 export type ClientGstin =
   Database["public"]["Tables"]["client_gstins"]["Row"] & {
     gstn_access_token?: string | null;
@@ -330,6 +333,8 @@ export interface ClientCreatePayload {
   contact_email?: string | null;
   contact_phone?: string | null;
   assigned_to?: string | null;
+  scheme_type?: SchemeType | null;
+  filing_frequency?: FilingFrequency | null;
 }
 
 export const clientsApi = {

@@ -640,7 +640,17 @@ async def _run_pipeline(
     # ── Step 4: GSTR-1 vs 3B tie-out ─────────────────────────────────────
     # Tie-out still sees all parsed rows; aggregate exclusions live inside
     # reconcile_gstr1_vs_3b (hsn/nil/at are skipped there too).
-    tie_out = reconcile_gstr1_vs_3b(gstr1_records_all, parsed_gstr3b)
+    filing_freq = "monthly"
+    if client_gstin_id:
+        try:
+            sb = get_supabase()
+            cg_res = sb.table("client_gstins").select("filing_frequency").eq("id", client_gstin_id).limit(1).execute()
+            if cg_res.data:
+                filing_freq = str(cg_res.data[0].get("filing_frequency") or "monthly").lower().strip()
+        except Exception:
+            pass
+
+    tie_out = reconcile_gstr1_vs_3b(gstr1_records_all, parsed_gstr3b, filing_frequency=filing_freq)
 
     _log.info(
         "gstr1_reconcile: tie-out period=%s clean=%s variances=%d",

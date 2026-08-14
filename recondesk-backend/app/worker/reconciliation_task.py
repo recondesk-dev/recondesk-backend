@@ -1376,8 +1376,23 @@ def execute_reconciliation(run_id: str) -> None:
                 run_id,
             )
 
+        scheme_type = "regular"
+        try:
+            st_res = (
+                client.table("client_gstins")
+                .select("scheme_type")
+                .eq("id", client_gstin_id)
+                .limit(1)
+                .execute()
+            )
+            if st_res.data:
+                scheme_type = str(st_res.data[0].get("scheme_type") or "regular").lower().strip()
+        except Exception:
+            _log.warning("Could not fetch scheme_type for client_gstin_id=%s", client_gstin_id)
+
         decision_payload = populate_decisions(
             state.clean_matched,
+            scheme_type=scheme_type,
             rule37=merged_rule37,
             section_175_warnings=s175,
             credit_note_adjustment=cn_net,

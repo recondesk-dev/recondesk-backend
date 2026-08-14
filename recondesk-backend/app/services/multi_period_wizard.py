@@ -34,6 +34,22 @@ from app.worker.tasks import run_import_job
 logger = logging.getLogger(__name__)
 
 
+def is_gstr1_due_in_period(period: str, filing_frequency: str) -> bool:
+    """Return True if GSTR-1 filing is mandatory for *period*.
+
+    Monthly filers: mandatory every month.
+    QRMP filers: mandatory in quarter-end months (06, 09, 12, 03).
+    Non-quarter-end months under QRMP use optional Invoice Furnishing Facility (IFF).
+    """
+    if (filing_frequency or "").lower().strip() != "qrmp":
+        return True
+    try:
+        month = period.split("-")[1]
+        return month in ("06", "09", "12", "03")
+    except Exception:
+        return True
+
+
 def create_batch(
     sb: Client,
     client_id: str,
@@ -41,6 +57,17 @@ def create_batch(
     user_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a new multi-period batch for a client and FY with 12 period slots (Apr–Mar)."""
+    cg_res = (
+        sb.table("client_gstins")
+        .select("filing_frequency, scheme_type")
+        .eq("id", client_id)
+        .limit(1)
+        .execute()
+    )
+    filing_freq = "monthly"
+    if cg_res.data:
+        filing_freq = str(cg_res.data[0].get("filing_frequency") or "monthly").lower().strip()
+
     start_year, end_year = parse_fy_label(financial_year)
     
     # 12 periods: Apr-Dec of start_year, Jan-Mar of end_year
@@ -70,6 +97,11 @@ def create_batch(
         pr_path = pr_avail.get("pr_file_path")
         run_id = pr_avail.get("reconciliation_run_id")
 
+        g1_required = is_gstr1_due_in_period(period, filing_freq)
+        init_note = None
+        if filing_freq == "qrmp" and not g1_required:
+            init_note = "QRMP: GSTR-1 quarterly slot (IFF optional for month 1/2 of quarter)"
+
         items_to_insert.append({
             "id": str(uuid4()),
             "batch_id": batch_id,
@@ -80,7 +112,7 @@ def create_batch(
             "pr_file_path": pr_path,
             "reconciliation_run_id": run_id,
             "status": "pending",
-            "error_message": None,
+            "error_message": init_note,
             "created_at": now,
             "updated_at": now,
         })
@@ -147,6 +179,16 @@ def get_batch_with_items(sb: Client, batch_id: str) -> dict[str, Any]:
         raise ValueError(f"Batch {batch_id} not found")
 
     batch = batch_res.data[0]
+    client_id = batch.get("client_gstin_id")
+    filing_freq = "monthly"
+    if client_id:
+        try:
+            cg = sb.table("client_gstins").select("filing_frequency").eq("id", client_id).limit(1).execute()
+            if cg.data:
+                filing_freq = str(cg.data[0].get("filing_frequency") or "monthly").lower().strip()
+        except Exception:
+            pass
+
     items_res = (
         sb.table("multi_period_recon_batch_items")
         .select("*")
@@ -154,7 +196,18 @@ def get_batch_with_items(sb: Client, batch_id: str) -> dict[str, Any]:
         .order("period", desc=False)
         .execute()
     )
-    batch["items"] = items_res.data or []
+    raw_items = items_res.data or []
+    enriched_items = []
+    for item in raw_items:
+        p = str(item.get("period") or "")
+        g1_req = is_gstr1_due_in_period(p, filing_freq)
+        enriched_items.append({
+            **item,
+            "filing_frequency": filing_freq,
+            "gstr1_required": g1_req,
+        })
+    batch["filing_frequency"] = filing_freq
+    batch["items"] = enriched_items
     return batch
 
 

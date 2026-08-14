@@ -157,9 +157,10 @@ export function initialsFromDisplayName(name: string): string {
 }
 
 export function clientGstinToClient(row: ClientGstin): Client {
+  const st = (row.scheme_type || "regular").toLowerCase();
   const rt = (row.registration_type || "").toUpperCase();
   let registrationType: Client["registrationType"] = "Regular";
-  if (rt.includes("COMPOSITION")) registrationType = "Composition";
+  if (st === "composition" || rt.includes("COMPOSITION")) registrationType = "Composition";
   else if (rt.includes("SEZ")) registrationType = "SEZ";
 
   return {
@@ -167,6 +168,8 @@ export function clientGstinToClient(row: ClientGstin): Client {
     tradeName: (row.trade_name || row.legal_name || row.gstin || "Client").trim(),
     gstin: row.gstin,
     registrationType,
+    schemeType: (row.scheme_type || "regular") as Client["schemeType"],
+    filingFrequency: (row.filing_frequency || "monthly") as Client["filingFrequency"],
     assignedStaffId: row.assigned_to ?? "",
     createdAt: row.added_at,
     isDemo: Boolean((row as any).is_demo),

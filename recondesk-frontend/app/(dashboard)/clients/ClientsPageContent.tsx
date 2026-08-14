@@ -146,6 +146,8 @@ export function ClientsPageContent() {
   const [formContactEmail, setFormContactEmail] = useState("");
   const [formContactPhone, setFormContactPhone] = useState("");
   const [formAssignedTo, setFormAssignedTo] = useState("");
+  const [formSchemeType, setFormSchemeType] = useState<"regular" | "composition" | "casual" | "nrtp" | "isd" | "tds_tcs_deductor">("regular");
+  const [formFilingFrequency, setFormFilingFrequency] = useState<"monthly" | "qrmp">("monthly");
   const [addBusy, setAddBusy] = useState(false);
 
   // ── GSTIN verification state ──────────────────────────────────────────────
@@ -217,6 +219,8 @@ export function ClientsPageContent() {
     setFormContactEmail("");
     setFormContactPhone("");
     setFormAssignedTo(assignOptions[0]?.userId ?? "");
+    setFormSchemeType("regular");
+    setFormFilingFrequency("monthly");
     setVerifyResult(null);
     setVerifyBusy(false);
     setVerifyError(null);
@@ -279,6 +283,8 @@ export function ClientsPageContent() {
         contact_email: formContactEmail.trim(),
         contact_phone: formContactPhone.trim(),
         assigned_to: formAssignedTo || undefined,
+        scheme_type: formSchemeType,
+        filing_frequency: formFilingFrequency,
       });
       if (result.gstin_verification_warning) {
         setSaveWarning(result.gstin_verification_warning);
@@ -655,6 +661,34 @@ export function ClientsPageContent() {
               onChange={(e) => setFormContactEmail(e.target.value)}
               className="min-h-[44px] w-full rounded-lg border border-[var(--border)] px-3 text-sm"
             />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium">GST Tax Scheme</label>
+              <select
+                value={formSchemeType}
+                onChange={(e) => setFormSchemeType(e.target.value as any)}
+                className="min-h-[44px] w-full rounded-lg border border-[var(--border)] px-3 text-sm"
+              >
+                <option value="regular">Regular</option>
+                <option value="composition">Composition Scheme</option>
+                <option value="casual">Casual Taxable Person</option>
+                <option value="nrtp">Non-Resident (NRTP)</option>
+                <option value="isd">Input Service Distributor (ISD)</option>
+                <option value="tds_tcs_deductor">TDS / TCS Deductor</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Filing Frequency</label>
+              <select
+                value={formFilingFrequency}
+                onChange={(e) => setFormFilingFrequency(e.target.value as any)}
+                className="min-h-[44px] w-full rounded-lg border border-[var(--border)] px-3 text-sm"
+              >
+                <option value="monthly">Monthly</option>
+                <option value="qrmp">QRMP (Quarterly Return Monthly Payment)</option>
+              </select>
+            </div>
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium">Assign To</label>

@@ -86,7 +86,8 @@ def _amount_fields_present(row: dict[str, Any]) -> list[str]:
     return out
 
 
-def _decision_for_row(row: dict[str, Any]) -> DecisionOutput:
+def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> DecisionOutput:
+    st = (row.get("scheme_type") or scheme_type or "regular").lower().strip()
     level = row.get("match_level") or row.get("level")
     mismatch_type = row.get("mismatch_type", "")
     supplier_gstin = row.get("supplier_gstin", "?")
@@ -94,6 +95,20 @@ def _decision_for_row(row: dict[str, Any]) -> DecisionOutput:
     itc_amount = row.get("itc_amount") or row.get("total_tax_paise", 0)
     if isinstance(itc_amount, int):
         itc_amount = f"₹{itc_amount / 100:,.2f}"
+
+    if st == "composition":
+        if (
+            row.get("is_missed_itc")
+            or row.get("is_wrongful_itc")
+            or mismatch_type in ("MISSED_ITC", "WRONGFUL_ITC", "RULE37_OVERDUE", "BLOCKED_CREDIT")
+        ):
+            return generate_decision(
+                "COMPOSITION_SCHEME_NO_ITC",
+                confidence="HIGH",
+                matched_fields=_row_identity_fields(row),
+                differed_fields=[],
+                normalized_pairs=[],
+            )
 
     if row.get("is_missed_itc") or mismatch_type == "MISSED_ITC":
         return generate_decision(
@@ -249,13 +264,17 @@ def _enrich_with_decision(row: dict[str, Any], decision: DecisionOutput) -> dict
 def populate_decisions(
     matched_rows: list[dict[str, Any]],
     *,
+    scheme_type: str = "regular",
     rule37: list[dict[str, Any]] | None = None,
     section_175_warnings: list[dict[str, Any]] | None = None,
     credit_note_adjustment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    st = (scheme_type or "regular").lower().strip()
+    is_comp = st == "composition"
+
     enriched_rows = []
     for row in matched_rows:
-        decision = _decision_for_row(row)
+        decision = _decision_for_row(row, scheme_type=st)
         enriched_rows.append(_enrich_with_decision(row, decision))
 
     enriched_rule37 = []
@@ -264,8 +283,16 @@ def populate_decisions(
         mf = _row_identity_fields(r)
         if r.get("itc_at_risk_paise") is not None:
             mf = list(dict.fromkeys(mf + ["itc_at_risk_paise"]))
-            
-        if status == "LATE_FILING":
+
+        if is_comp:
+            decision = generate_decision(
+                "COMPOSITION_SCHEME_NO_ITC",
+                confidence="HIGH",
+                matched_fields=mf,
+                differed_fields=[],
+                normalized_pairs=[],
+            )
+        elif status == "LATE_FILING":
             decision = generate_decision(
                 "RULE37_LATE_FILING",
                 confidence="HIGH",
@@ -315,8 +342,15 @@ def populate_decisions(
             mf.append("hsn_code")
         if category:
             mf.append("blocked_credit_category")
-        # Never pass literal "?" placeholders — missing HSN uses a no-HSN template.
-        if hsn:
+        if is_comp:
+            decision = generate_decision(
+                "COMPOSITION_SCHEME_NO_ITC",
+                confidence="HIGH",
+                matched_fields=mf,
+                differed_fields=[],
+                normalized_pairs=[],
+            )
+        elif hsn:
             decision = generate_decision(
                 "BLOCKED_CREDIT",
                 confidence="LOW",

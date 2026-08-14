@@ -29,6 +29,8 @@ export interface Client {
   tradeName: string;
   gstin: string;
   registrationType: "Regular" | "Composition" | "SEZ";
+  schemeType?: 'regular' | 'composition' | 'casual' | 'nrtp' | 'isd' | 'tds_tcs_deductor';
+  filingFrequency?: 'monthly' | 'qrmp';
   assignedStaffId: string;
   createdAt: string;
   isDemo?: boolean;
