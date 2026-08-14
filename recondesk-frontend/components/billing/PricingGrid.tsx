@@ -12,19 +12,6 @@ type PricingGridProps = {
 export function PricingGrid({ onSelectPlan, loadingPlan, isDashboard = false }: PricingGridProps) {
   return (
     <div className="space-y-8">
-      {/* 4 Pricing Cards */}
-      <div className="mx-auto mt-8 grid max-w-7xl gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
-        {PRICING_PLANS.map((plan) => (
-          <PricingCard
-            key={plan.id}
-            plan={plan}
-            onSelectPlan={onSelectPlan}
-            loadingPlan={loadingPlan}
-            isDashboard={isDashboard}
-          />
-        ))}
-      </div>
-
       {/* Shared "Included in ALL Plans" Bar */}
       <div className="mx-auto max-w-7xl rounded-2xl border border-slate-200/80 bg-white/70 p-5 shadow-sm backdrop-blur-md">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/60 pb-3 mb-4">
@@ -105,6 +92,19 @@ export function PricingGrid({ onSelectPlan, loadingPlan, isDashboard = false }: 
             <span className="font-semibold text-slate-800">Rule 37 & 17(5) Reversals</span>
           </div>
         </div>
+      </div>
+
+      {/* 4 Pricing Cards */}
+      <div className="mx-auto grid max-w-7xl gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
+        {PRICING_PLANS.map((plan) => (
+          <PricingCard
+            key={plan.id}
+            plan={plan}
+            onSelectPlan={onSelectPlan}
+            loadingPlan={loadingPlan}
+            isDashboard={isDashboard}
+          />
+        ))}
       </div>
     </div>
   );
