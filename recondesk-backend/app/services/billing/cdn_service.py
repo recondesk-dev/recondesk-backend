@@ -270,12 +270,10 @@ def submit_cdn_to_irp(
     """Submit finalized Credit/Debit note to Sandbox IRP portal for IRN generation."""
     _assert_access(db, client_gstin_id, user_or_id)
 
-    cdn = get_cdn_detail(db, cdn_id, client_gstin_id)
-    if cdn["status"] != "finalized":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="CDN must be finalized before submitting to IRP.",
-        )
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="CDN submission to IRP is not yet functional — known issue.",
+    )
 
     company = cdn["company_profile"]
     customer = cdn["customer"]

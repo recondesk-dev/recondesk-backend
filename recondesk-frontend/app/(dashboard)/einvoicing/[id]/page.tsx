@@ -273,6 +273,19 @@ function InvoiceDetailContent() {
         </div>
       )}
 
+      {/* Persisted IRP Submission Rejection Error Card */}
+      {invoice?.irp_error_detail && validationErrors.length === 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 space-y-2 text-xs text-red-900 shadow-sm">
+          <div className="flex items-center gap-2 font-bold text-red-800 text-sm">
+            <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" /> IRP Portal Rejection Detail
+          </div>
+          <p className="text-red-700">The last IRP submission for this invoice was rejected with the following government response:</p>
+          <div className="font-mono text-red-950 bg-red-100/70 p-3 rounded-xl border border-red-200/80 whitespace-pre-wrap break-words text-[11px] leading-relaxed">
+            {invoice.irp_error_detail}
+          </div>
+        </div>
+      )}
+
       {/* Active IRN Card (when Registered) */}
       {isIrpRegistered && (
         <div className="bg-emerald-950 text-white rounded-2xl p-6 space-y-5 shadow-md border border-emerald-800">

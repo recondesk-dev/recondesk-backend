@@ -171,16 +171,25 @@ function CdnDetailContent() {
 
           {isFinalized && !isIrpRegistered && (
             <button
-              onClick={handleSubmitToIrp}
-              disabled={submittingIrp}
-              className="flex items-center gap-1.5 px-4.5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl shadow-sm transition-all disabled:opacity-50"
+              disabled={true}
+              title="CDN submission to IRP is not yet functional — known issue."
+              className="flex items-center gap-1.5 px-4.5 py-2 bg-slate-200 text-slate-500 text-xs font-semibold rounded-xl cursor-not-allowed border border-slate-300 shadow-none"
             >
-              <Send className="w-4 h-4" />
-              {submittingIrp ? "Submitting to IRP..." : "Submit to IRP"}
+              <Send className="w-4 h-4 text-slate-400" />
+              Submit to IRP
             </button>
           )}
         </div>
       </div>
+
+      {isFinalized && !isIrpRegistered && (
+        <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 flex items-start gap-3 text-amber-900 text-xs shadow-sm">
+          <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="leading-relaxed">
+            <span className="font-bold text-amber-950">Notice:</span> CDN submission to IRP is not yet functional — known issue.
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-900 p-4 rounded-2xl text-xs font-semibold flex items-center gap-2">
