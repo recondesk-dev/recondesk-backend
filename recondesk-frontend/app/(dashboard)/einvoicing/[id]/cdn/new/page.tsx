@@ -125,6 +125,13 @@ function CdnFormContent() {
       return;
     }
 
+    const confirmed = window.confirm(
+      "IRP Integration Notice — Pending Verification:\n\n" +
+      "Credit/Debit Note processing is implemented against the Government Sandbox API but has not yet been verified end-to-end with a live GSTIN. Use with caution.\n\n" +
+      "Do you wish to proceed with generating this Credit/Debit Note?"
+    );
+    if (!confirmed) return;
+
     setSubmitting(true);
     setError(null);
 

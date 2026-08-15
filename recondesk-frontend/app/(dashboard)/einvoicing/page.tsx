@@ -91,14 +91,14 @@ function EInvoicingDashboardContent() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
-      {/* Live IRP Integration Notice Banner */}
-      <div className="bg-indigo-50 border border-indigo-200/80 rounded-2xl p-4 flex items-start gap-3.5 text-indigo-900 shadow-sm">
-        <Send className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" />
+      {/* IRP Integration Verification Notice Banner */}
+      <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 flex items-start gap-3.5 text-amber-900 shadow-sm">
+        <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
         <div className="text-sm leading-relaxed">
-          <span className="font-semibold text-indigo-950">
-            Live IRP Portal Integration Active:
+          <span className="font-semibold text-amber-950">
+            IRP Integration — Built, Pending Verification:
           </span>{" "}
-          Direct API submission to the Government IRP portal for legal e-Invoice IRN generation, digital signing, and QR code registration is now active in Test Mode. Finalize an invoice and click <span className="font-semibold text-indigo-700">"Submit to IRP"</span> on the invoice detail page to generate an official IRN.
+          IRN generation is implemented against the Government Sandbox API but has not yet been verified end-to-end with a live GSTIN. Use with caution until verification is complete.
         </div>
       </div>
 

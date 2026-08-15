@@ -73,6 +73,13 @@ function InvoiceDetailContent() {
 
   const handleSubmitToIrp = async () => {
     if (!token || !invoiceId || !clientGstinId) return;
+    const confirmed = window.confirm(
+      "IRP Integration Notice — Pending Verification:\n\n" +
+      "IRN generation is implemented against the Government Sandbox API but has not yet been verified end-to-end with a live GSTIN. Use with caution.\n\n" +
+      "Do you wish to proceed with submitting this invoice to the Sandbox IRP?"
+    );
+    if (!confirmed) return;
+
     setSubmittingIrp(true);
     setValidationErrors([]);
     try {
