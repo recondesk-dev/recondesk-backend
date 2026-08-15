@@ -98,7 +98,7 @@ function EInvoicingDashboardContent() {
           <span className="font-semibold text-amber-950">
             IRP Integration — Built, Pending Verification:
           </span>{" "}
-          IRN generation is implemented against the Government Sandbox API but has not yet been verified end-to-end with a live GSTIN. Use with caution until verification is complete.
+          IRN generation is implemented in Test Mode but has not yet been verified end-to-end with a live GSTIN. Use with caution until verification is complete.
         </div>
       </div>
 

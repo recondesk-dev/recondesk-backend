@@ -75,8 +75,8 @@ function InvoiceDetailContent() {
     if (!token || !invoiceId || !clientGstinId) return;
     const confirmed = window.confirm(
       "IRP Integration Notice — Pending Verification:\n\n" +
-      "IRN generation is implemented against the Government Sandbox API but has not yet been verified end-to-end with a live GSTIN. Use with caution.\n\n" +
-      "Do you wish to proceed with submitting this invoice to the Sandbox IRP?"
+      "IRN generation is implemented in Test Mode but has not yet been verified end-to-end with a live GSTIN. Use with caution.\n\n" +
+      "Do you wish to proceed with submitting this invoice to the IRP portal in Test Mode?"
     );
     if (!confirmed) return;
 
