@@ -27,6 +27,7 @@ from app.utils.email import (
     send_team_invite_email,
     send_welcome_email,
 )
+from app.utils.email_domain import validate_email_mx
 from app.utils.login_throttle import (
     is_login_locked,
     record_login_failure,
@@ -101,6 +102,9 @@ async def signup(
     background_tasks: BackgroundTasks,
 ):
     """Register a new user and create their profile row."""
+    # Check domain MX records to reject invalid/nonexistent domains before creating account
+    validate_email_mx(str(payload.email))
+
     db = get_db()
     ip = _client_ip(request)
     full_name = str(payload.full_name or "").strip()

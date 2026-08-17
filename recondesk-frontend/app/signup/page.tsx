@@ -17,6 +17,7 @@ import {
   isValidEmail,
   isValidPassword,
 } from "@/lib/auth-validation";
+import { suggestEmailCorrection } from "@/lib/email-typo";
 import { Eye, EyeOff, UserPlus } from "lucide-react";
 
 const DEFAULT_API_URL = "http://localhost:8000";
@@ -95,6 +96,7 @@ function SignupForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<SignupFieldErrors>({});
+  const [emailSuggestion, setEmailSuggestion] = useState<string | null>(null);
 
   const inviteRoleRaw =
     searchParams.get("invite_role")?.trim().toLowerCase() ?? "";
@@ -120,6 +122,21 @@ function SignupForm() {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
     clearFieldError(name as keyof SignupFieldErrors);
+    if (name === "email" && emailSuggestion) {
+      setEmailSuggestion(null);
+    }
+  };
+
+  const handleEmailBlur = () => {
+    const suggestion = suggestEmailCorrection(form.email);
+    setEmailSuggestion(suggestion);
+  };
+
+  const handleApplyEmailSuggestion = () => {
+    if (!emailSuggestion) return;
+    setForm((prev) => ({ ...prev, email: emailSuggestion }));
+    setEmailSuggestion(null);
+    clearFieldError("email");
   };
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -306,9 +323,28 @@ function SignupForm() {
                 autoComplete="email"
                 value={form.email}
                 onChange={handleChange}
+                onBlur={handleEmailBlur}
                 className={`input-field${fieldErrors.email ? ` ${INPUT_ERROR_CLASS}` : ""}`}
                 aria-invalid={fieldErrors.email ? true : undefined}
               />
+              {emailSuggestion && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                >
+                  <span className="truncate">
+                    Did you mean <strong className="font-semibold">{emailSuggestion}</strong>?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleApplyEmailSuggestion}
+                    className="shrink-0 rounded px-2 py-0.5 font-medium text-brand hover:text-brand-hover hover:bg-brand-dim/50 focus:outline-none transition-colors"
+                  >
+                    Use this
+                  </button>
+                </div>
+              )}
               {fieldErrors.email && (
                 <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
               )}
