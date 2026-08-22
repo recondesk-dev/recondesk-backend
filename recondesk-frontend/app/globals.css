@@ -585,22 +585,3 @@
     transition: none;
   }
 }
-
-/* ── Landing page 3D ────────────────────────────────────────── */
-
-.landing-nums {
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum' on;
-}
-
-/* Ensure the 3D canvas doesn't interfere with text selection */
-.landing-3d-canvas {
-  touch-action: none;
-  user-select: none;
-}
-
-/* Smooth scrolling for landing anchor links */
-html:has(.landing-3d-canvas) {
-  scroll-behavior: smooth;
-}
-
