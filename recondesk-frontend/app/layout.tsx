@@ -33,6 +33,18 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${jakarta.variable} ${spaceMono.variable} scroll-smooth`}>
+      <head>
+        {/* General Sans — display font for landing page headlines */}
+        <link
+          href="https://api.fontshare.com/v2/css?f[]=general-sans@200,300,400,500,600,700&display=swap"
+          rel="stylesheet"
+        />
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `:root { --font-general-sans: 'General Sans', sans-serif; }`,
+          }}
+        />
+      </head>
       <body className={`${jakarta.className} min-w-0 font-sans antialiased`}>
         <RootProviders>{children}</RootProviders>
         <KeepAlive />
