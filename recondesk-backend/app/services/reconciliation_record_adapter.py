@@ -118,6 +118,25 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "ims_status": (
             str(rd.get("ims_status") or "").strip() or "no_action_taken"
         ),
+        "itc_available": (
+            rd.get("itc_available")
+            if isinstance(rd.get("itc_available"), bool)
+            else (
+                str(rd.get("itcavl") or "Y").strip().upper()[:1] in ("Y", "T", "1")
+                if rd.get("itcavl") is not None
+                else True
+            )
+        ),
+        "itc_reason": (
+            str(
+                rd.get("itc_reason")
+                or rd.get("rsn")
+                or rd.get("reason")
+                or rd.get("ineligibility_reason")
+                or ""
+            ).strip()
+            or None
+        ),
     }
 
 

@@ -151,6 +151,7 @@ def build_recommendations_for_run(
                 section=section,
                 writeback_payload=writeback,
                 rule37_flag=bool(row.rule37_flag),
+                rule37a_flag=bool(getattr(row, "rule37a_flag", False)),
                 blocked_credit_flag=bool(row.blocked_credit_flag),
                 rule37_days_remaining=days_remaining,
                 rule37_status=r37_status,

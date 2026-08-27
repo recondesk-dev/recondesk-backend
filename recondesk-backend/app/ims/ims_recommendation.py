@@ -307,19 +307,8 @@ def recommend_invoice(
             why=why,
         )
 
-    # Active Rule 37 → Hold with real day-count when enriched.
-    if inp.rule37_flag or category == "rule37_warnings":
-        return _rec(
-            inp,
-            action="hold",
-            score=score,
-            conf_source=conf_source,
-            codes=(REASON_RULE37_BREACH,),
-            why=_rule37_why(inp),
-        )
-
     # Active Rule 37A → Hold (supplier GSTR-3B non-filing risk)
-    if inp.rule37a_flag:
+    if inp.rule37a_flag or (category == "rule37_warnings" and inp.match_status == "RULE37A"):
         return _rec(
             inp,
             action="hold",
@@ -330,6 +319,17 @@ def recommend_invoice(
                 "Supplier has not filed GSTR-3B for the tax period (Rule 37A risk). "
                 "Hold on IMS until supplier files GSTR-3B to prevent mandatory ITC reversal."
             ),
+        )
+
+    # Active Rule 37 → Hold with real day-count when enriched.
+    if inp.rule37_flag or category == "rule37_warnings":
+        return _rec(
+            inp,
+            action="hold",
+            score=score,
+            conf_source=conf_source,
+            codes=(REASON_RULE37_BREACH,),
+            why=_rule37_why(inp),
         )
 
     match_status = (inp.match_status or "").strip().upper()

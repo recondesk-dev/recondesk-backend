@@ -262,3 +262,41 @@ class TestAllTemplatesRender:
     def test_populate_decisions_empty_inputs_does_not_crash(self):
         result = populate_decisions([], rule37=[], section_175_warnings=[], credit_note_adjustment=None)
         assert isinstance(result, dict), "populate_decisions must return a dict."
+
+
+class TestRule37ANonFiler:
+    def test_rule37a_non_filer_decision_template(self):
+        d = generate_decision("RULE37A_NON_FILER", supplier_gstin="27ABCDE1234F1Z0")
+        assert "Rule 37A" in d.what
+        assert "GSTR-3B" in d.why
+        assert "27ABCDE1234F1Z0" in d.next
+        assert "Hold on IMS" in d.next
+
+    def test_itc_not_available_decision_template(self):
+        d = generate_decision("ITC_NOT_AVAILABLE", reason="Section 16(4) time limit exceeded")
+        assert "Section 16(4)" in d.what
+        assert "Do not claim" in d.next
+
+    def test_decision_layer_rule37a_flag(self):
+        row = {
+            "match_level": 1,
+            "rule37a_flag": True,
+            "itc_available": False,
+            "itc_reason": "Supplier has not filed GSTR-3B for the said period",
+            "supplier_gstin": "27ABCDE1234F1Z0",
+        }
+        d = _decision_for_row(row)
+        assert "Rule 37A" in d.what
+        assert "Hold on IMS" in d.next
+
+    def test_decision_layer_custom_ineligibility_reason(self):
+        row = {
+            "match_level": 1,
+            "itc_available": False,
+            "itc_reason": "POS outside recipient state",
+            "supplier_gstin": "27ABCDE1234F1Z0",
+        }
+        d = _decision_for_row(row)
+        assert "POS outside recipient state" in d.what
+        assert "Do not claim" in d.next
+

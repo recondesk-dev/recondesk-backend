@@ -500,9 +500,21 @@ def build_excel_workbook_bytes(
             c.font = hdr_font
             c.fill = hdr_fill
         ws5.freeze_panes = "A2"
-        combined: list[tuple[str, dict[str, Any]]] = [
-            ("Rule 37", r) for r in rule37_rows if isinstance(r, dict)
-        ]
+        combined: list[tuple[str, dict[str, Any]]] = []
+        for r in rule37_rows:
+            if not isinstance(r, dict):
+                continue
+            typ = (
+                "Rule 37A"
+                if (
+                    r.get("rule37a_flag")
+                    or r.get("status") == "RULE37A"
+                    or "37A" in str(r.get("decision_what") or "")
+                    or "Non-Filer" in str(r.get("decision_what") or "")
+                )
+                else "Rule 37"
+            )
+            combined.append((typ, r))
         for r in section17_rows:
             if not isinstance(r, dict):
                 continue
@@ -533,8 +545,10 @@ def build_excel_workbook_bytes(
             fill_white = PatternFill("solid", fgColor="FFFFFF")
             for typ, row in combined:
                 urg = ""
-                if typ == "Rule 37":
+                if typ in ("Rule 37", "Rule 37A"):
                     urg = str(row.get("rule37_urgency") or "")
+                    if typ == "Rule 37A" and not urg:
+                        urg = "HIGH"
                     u = urg.upper()
                     if u == "CRITICAL":
                         rf = fill_crit

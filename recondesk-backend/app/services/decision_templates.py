@@ -89,6 +89,22 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "GSTR-1 filed after the statutory due date (11th of following month)",
         "next": "Evaluate supplier compliance. {itc_amount} ITC at risk due to late filing.",
     },
+    "RULE37A_NON_FILER": {
+        "what": "ITC unavailable in GSTR-2B (Supplier GSTR-3B Non-Filer / Rule 37A)",
+        "why": (
+            "GSTR-2B marks ITC Availability as 'No'. Supplier has not filed GSTR-3B "
+            "for the said period (Rule 37A risk). Ineligible to claim ITC until supplier files return."
+        ),
+        "next": (
+            "Hold on IMS and do not claim in GSTR-3B. Follow up with {supplier_gstin} to file GSTR-3B. "
+            "Claiming prior to filing triggers mandatory reversal under Rule 37A."
+        ),
+    },
+    "ITC_NOT_AVAILABLE": {
+        "what": "ITC marked unavailable in GSTR-2B: {reason}",
+        "why": "GSTR-2B explicitly marks ITC Availability as 'No' ({reason}). Ineligible for input tax credit.",
+        "next": "Do not claim ITC in GSTR-3B. Verify ineligibility reason ({reason}) with supplier.",
+    },
     "BLOCKED_CREDIT": {
         "what": "Invoice may be under Section 17(5) blocked credit: {category}",
         "why": "HSN {hsn_code} commonly associated with {category} -- ineligible for ITC",

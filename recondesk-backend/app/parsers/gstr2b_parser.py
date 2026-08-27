@@ -343,15 +343,33 @@ def _itc_available_value(invoice: dict) -> bool:
     third-party exports emit JSON booleans ``true`` / ``false``. The previous
     check (``== "Y"``) treated every boolean ``true`` as ineligible.
     """
-    raw = invoice.get("itcavl", "N")
+    raw = invoice.get("itcavl")
+    if raw is None:
+        raw = invoice.get("itc_available")
+    if raw is None:
+        raw = "N"
     if isinstance(raw, bool):
         return raw
-    if raw is None:
-        return False
     s = str(raw).strip().upper()
     if s in ("Y", "YES", "TRUE", "1"):
         return True
     return False
+
+
+def _itc_reason_value(invoice: dict) -> str | None:
+    """Parse GSTR-2B ITC ineligibility reason (e.g. 'rsn' in GSTN JSON)."""
+    raw = _first_present(
+        invoice,
+        "rsn",
+        "reason",
+        "itc_reason",
+        "ineligibility_reason",
+        "itc_ineligibility_reason",
+    )
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    return s or None
 
 
 def _item_tax_value(itm: dict, field: str) -> str:
@@ -504,6 +522,7 @@ def _build_invoice_record(
     gstin_format_invalid: bool = False,
     filing_status: str | None = None,
     invoice_level_paise: dict[str, int] | None = None,
+    itc_reason: str | None = None,
 ) -> dict:
     invoice_date_norm = (
         invoice_date.isoformat()
@@ -538,6 +557,7 @@ def _build_invoice_record(
         "pos": pos,
         "reverse_charge": reverse_charge,
         "itc_available": itc_available,
+        "itc_reason": itc_reason,
         "supprd": supprd,
         "unique_key": None,
         "items": items,
@@ -668,6 +688,7 @@ def _parse_b2b_invoice(
         gstin_format_invalid=gstin_format_invalid,
         filing_status=filing_status,
         invoice_level_paise=invoice_level_paise,
+        itc_reason=_itc_reason_value(invoice),
     )
 
 
@@ -779,6 +800,7 @@ def _parse_cdnr_invoice(
         normalization_notes=normalization_notes,
         gstin_format_invalid=gstin_format_invalid,
         invoice_level_paise=invoice_level_paise,
+        itc_reason=_itc_reason_value(invoice),
     )
 
 
@@ -1453,8 +1475,27 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             )
         ),
         "itcavl": str(
-            _alt_row_get(row, "ITC Available", "itcavl", "ITC Availability") or "Y"
+            _alt_row_get(
+                row,
+                "ITC Available",
+                "itcavl",
+                "ITC Availability",
+                "ITC Eligibility",
+                "itc_available",
+                "itc_avl",
+            )
+            or "Y"
         ).strip().upper()[:1] or "Y",
+        "rsn": _alt_row_get(
+            row,
+            "Reason",
+            "rsn",
+            "ITC Ineligibility Reason",
+            "Reason for Ineligibility",
+            "Ineligibility Reason",
+            "itc_reason",
+            "reason",
+        ),
     }
 
 
@@ -1544,8 +1585,27 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             )
         ),
         "itcavl": str(
-            _alt_row_get(row, "ITC Available", "itcavl", "ITC Availability") or "Y"
+            _alt_row_get(
+                row,
+                "ITC Available",
+                "itcavl",
+                "ITC Availability",
+                "ITC Eligibility",
+                "itc_available",
+                "itc_avl",
+            )
+            or "Y"
         ).strip().upper()[:1] or "Y",
+        "rsn": _alt_row_get(
+            row,
+            "Reason",
+            "rsn",
+            "ITC Ineligibility Reason",
+            "Reason for Ineligibility",
+            "Ineligibility Reason",
+            "itc_reason",
+            "reason",
+        ),
     }
 
 

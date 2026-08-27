@@ -144,6 +144,32 @@ def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> Deci
             late_months=row.get("late_months", "?"),
         )
 
+    if row.get("rule37a_flag") or row.get("itc_available") is False:
+        reason = row.get("itc_reason")
+        if (
+            not reason
+            or "3b" in str(reason).lower()
+            or "filed" in str(reason).lower()
+            or "rule 37a" in str(reason).lower()
+            or "non-filer" in str(reason).lower()
+        ):
+            return generate_decision(
+                "RULE37A_NON_FILER",
+                confidence="HIGH",
+                matched_fields=_row_identity_fields(row),
+                differed_fields=[],
+                normalized_pairs=[],
+                supplier_gstin=supplier_gstin,
+            )
+        return generate_decision(
+            "ITC_NOT_AVAILABLE",
+            confidence="HIGH",
+            matched_fields=_row_identity_fields(row),
+            differed_fields=[],
+            normalized_pairs=[],
+            reason=str(reason),
+        )
+
     ident = _row_identity_fields(row)
     amt_meta = _amount_fields_present(row)
     adiff = _row_amount_diff_paise(row)

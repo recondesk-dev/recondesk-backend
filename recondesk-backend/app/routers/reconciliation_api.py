@@ -3510,12 +3510,38 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
         if stable in uniq:
             continue
         uniq[stable] = item
+
+    # Also include rule37_warnings from outcome rows (e.g. Rule 37A non-filers)
+    outcome_rows, _cc, _st = ro.build_outcome_rows(sb, rid, payload)
+    for oc in outcome_rows:
+        if oc.category == "rule37_warnings":
+            row_id = oc.id
+            if row_id in uniq:
+                continue
+            uniq[row_id] = {
+                "id": row_id,
+                "supplier_gstin": oc.supplier_gstin,
+                "invoice_number": oc.invoice_number,
+                "invoice_date": oc.invoice_date,
+                "itc_at_risk_paise": oc.amount,
+                "decision_what": oc.decision_what,
+                "decision_why": oc.decision_why,
+                "decision_next": oc.decision_next,
+                "status": oc.match_status or "RULE37A",
+                "rule37a_flag": oc.rule37a_flag,
+            }
+
     out: list[dict[str, Any]] = []
     action_details = _rule37_action_details_for_run(sb, rid)
     for row_id, ru in uniq.items():
         amt = _paise_to_rupees(int(ru.get("itc_at_risk_paise") or 0))
         invoice_amt = _rule37_invoice_amount_from_item(ru)
-        ur = _rule37_urgency_from_status(ru.get("status"))
+        st = ru.get("status")
+        ur = (
+            "HIGH"
+            if (ru.get("rule37a_flag") or st == "RULE37A")
+            else _rule37_urgency_from_status(st)
+        )
         action_status = actions.get(row_id)
         detail = action_details.get(row_id, {})
         coverage = str(detail.get("payment_coverage") or "").strip().lower()
@@ -3545,7 +3571,7 @@ def _build_rule37_rows(sb, rid: str, payload: dict[str, Any], note_counts: Count
                 "gstr2b_data": {},
                 "purchase_register_data": {},
                 "rule37_urgency": ur,
-                "rule37_action_status": action_status,
+                "rule37a_flag": bool(ru.get("rule37a_flag") or st == "RULE37A"),
             }
         )
     out.sort(key=lambda x: (-x["amount"], x["id"]))
