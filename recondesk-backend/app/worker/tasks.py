@@ -166,6 +166,7 @@ def _load_and_normalize_gstr2b_body_for_parse(
     *,
     filename: str | None = None,
     fallback_buyer_gstin: str | None = None,
+    fallback_period: str | None = None,
 ) -> dict[str, Any]:
     from app.parsers.gstr2b_excel import load_gstr2b_upload_payload
     from app.parsers.gstr2b_parser import (
@@ -176,12 +177,17 @@ def _load_and_normalize_gstr2b_body_for_parse(
     )
 
     data = load_gstr2b_upload_payload(
-        body, filename, fallback_buyer_gstin=fallback_buyer_gstin
+        body,
+        filename,
+        fallback_buyer_gstin=fallback_buyer_gstin,
+        fallback_period=fallback_period,
     )
     if "data" not in data:
         if is_alt_gstr2b_schema(data):
             data = normalize_alt_2b_schema(
-                data, fallback_buyer_gstin=fallback_buyer_gstin
+                data,
+                fallback_buyer_gstin=fallback_buyer_gstin,
+                fallback_period=fallback_period,
             )
         else:
             raise ValueError(_UNSUPPORTED_GSTR2B_SCHEMA)
@@ -281,8 +287,13 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
                 body,
                 filename=os.path.basename(r2_key) if r2_key else None,
                 fallback_buyer_gstin=client_gstin_fallback or None,
+                fallback_period=period,
             )
-            parsed = parse_gstr2b(gstr_payload)
+            parsed = parse_gstr2b(
+                gstr_payload,
+                fallback_buyer_gstin=client_gstin_fallback or None,
+                fallback_period=period,
+            )
             records = list(parsed.get("records") or [])
             for_sanity = _gstr_records_for_sanity(records)
 

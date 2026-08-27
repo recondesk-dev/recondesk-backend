@@ -13,6 +13,8 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
+import re
 from typing import Any
 
 import pandas as pd
@@ -21,6 +23,7 @@ from app.parsers.gstr2b_parser import (
     _GSTIN_IN_TEXT_RE,
     _UNPARSED_IMPG_COUNT_KEY,
     _UNPARSED_ISD_COUNT_KEY,
+    _alt_parse_period_to_rtnprd,
     normalize_alt_2b_schema,
 )
 from app.parsers.purchase_register_parser import (
@@ -101,7 +104,7 @@ def _unparsed_sheet_kind(sheet_name: str) -> str | None:
 def _count_nonempty_sheet_rows(xl: pd.ExcelFile, sheet_name: str) -> int:
     """Count data rows on an unparsed sheet (header-aware when possible)."""
     try:
-        rows, _gstin, _hdr = _read_named_sheet(xl, sheet_name)
+        rows, _gstin, _period, _hdr = _read_named_sheet(xl, sheet_name)
         if rows:
             return len(rows)
     except Exception as exc:
@@ -192,23 +195,64 @@ def _extract_gstin_from_title_rows(raw_df: pd.DataFrame, header_row: int) -> str
     return ""
 
 
+def _extract_period_from_title_or_filename(
+    raw_df: pd.DataFrame, header_row: int, filename: str = ""
+) -> str:
+    """Scan title rows or filename for return period."""
+    if header_row < 0:
+        header_row = 0
+    limit = min(header_row, len(raw_df))
+    for r in range(limit):
+        for c in range(min(8, raw_df.shape[1])):
+            val = raw_df.iat[r, c]
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                continue
+            text = str(val).strip()
+            if not text:
+                continue
+            m = re.search(
+                r"(?:return\s*period|filing\s*period|period|month)\s*[:\-]?\s*([A-Za-z]{3,9}\s*,?\s*\d{4}|\d{1,2}[-/]\d{4}|\d{4}[-/]\d{1,2})",
+                text,
+                re.IGNORECASE,
+            )
+            if m:
+                p = _alt_parse_period_to_rtnprd(m.group(1))
+                if p:
+                    return p
+    if filename:
+        fn = os.path.basename(filename)
+        m_fn = re.search(
+            r"(?:_|-|\b)(\d{4}[-_]\d{2}|\d{2}[-_]\d{4}|\d{6})(?:_|-|\.|\b)", fn
+        )
+        if m_fn:
+            token = m_fn.group(1).replace("_", "-")
+            p = _alt_parse_period_to_rtnprd(token)
+            if p:
+                return p
+    return ""
+
+
 def _read_named_sheet(
-    xl: pd.ExcelFile, sheet_name: str
-) -> tuple[list[dict[str, Any]], str, int]:
-    """Return (row dicts, title_gstin, header_row) for one workbook sheet."""
+    xl: pd.ExcelFile, sheet_name: str, filename: str = ""
+) -> tuple[list[dict[str, Any]], str, str, int]:
+    """Return (row dicts, title_gstin, title_period, header_row) for one workbook sheet."""
     raw_df = pd.read_excel(xl, sheet_name=sheet_name, header=None, dtype=object)
     if raw_df is None or raw_df.empty:
-        return [], "", -1
+        return [], "", "", -1
 
     body_df, _mapping, header_row = _find_best_header_from_raw(raw_df)
     if body_df is None:
         title = _extract_gstin_from_title_rows(raw_df, max(header_row, 0))
-        return [], title, header_row
+        period = _extract_period_from_title_or_filename(
+            raw_df, max(header_row, 0), filename
+        )
+        return [], title, period, header_row
 
     title = _extract_gstin_from_title_rows(raw_df, header_row)
+    period = _extract_period_from_title_or_filename(raw_df, header_row, filename)
     if body_df.empty:
-        return [], title, header_row
-    return _dataframe_to_row_dicts(body_df), title, header_row
+        return [], title, period, header_row
+    return _dataframe_to_row_dicts(body_df), title, period, header_row
 
 
 def excel_to_alt_2b_dict(file_content: bytes, filename: str = "gstr2b.xlsx") -> dict:
@@ -220,11 +264,11 @@ def excel_to_alt_2b_dict(file_content: bytes, filename: str = "gstr2b.xlsx") -> 
           "invoice": [...],
           "note": [...],
           "gstin": "<optional from title>",
+          "period": "<optional from title/filename>",
           "_unparsed_isd_count": int,
           "_unparsed_impg_count": int,
         }
     """
-    del filename  # reserved for future engine hints; extension handled by callers
     if not file_content:
         raise ValueError("empty_gstr2b_excel")
 
@@ -236,6 +280,7 @@ def excel_to_alt_2b_dict(file_content: bytes, filename: str = "gstr2b.xlsx") -> 
     invoice_rows: list[dict[str, Any]] = []
     note_rows: list[dict[str, Any]] = []
     title_gstin = ""
+    title_period = ""
     isd_count = 0
     impg_count = 0
 
@@ -249,12 +294,16 @@ def excel_to_alt_2b_dict(file_content: bytes, filename: str = "gstr2b.xlsx") -> 
                 impg_count += _count_nonempty_sheet_rows(xl, sheet_name)
             continue
         try:
-            rows, gstin, _hdr = _read_named_sheet(xl, sheet_name)
+            rows, gstin, period, _hdr = _read_named_sheet(
+                xl, sheet_name, filename=filename
+            )
         except Exception as exc:
             logger.warning("GSTR-2B Excel sheet %r failed: %s", sheet_name, exc)
             continue
         if gstin and not title_gstin:
             title_gstin = gstin
+        if period and not title_period:
+            title_period = period
         if kind == "invoice":
             invoice_rows.extend(rows)
         else:
@@ -274,6 +323,8 @@ def excel_to_alt_2b_dict(file_content: bytes, filename: str = "gstr2b.xlsx") -> 
     }
     if title_gstin:
         payload["gstin"] = title_gstin
+    if title_period:
+        payload["period"] = title_period
     return payload
 
 
@@ -282,6 +333,7 @@ def parse_2b_excel(
     filename: str = "gstr2b.xlsx",
     *,
     fallback_buyer_gstin: str | None = None,
+    fallback_period: str | None = None,
 ) -> dict:
     """Parse alt-schema GSTR-2B Excel into portal-shaped ``{"data": ...}``.
 
@@ -291,7 +343,11 @@ def parse_2b_excel(
     alt = excel_to_alt_2b_dict(file_content, filename)
     isd_count = int(alt.pop(_UNPARSED_ISD_COUNT_KEY, 0) or 0)
     impg_count = int(alt.pop(_UNPARSED_IMPG_COUNT_KEY, 0) or 0)
-    portal = normalize_alt_2b_schema(alt, fallback_buyer_gstin=fallback_buyer_gstin)
+    portal = normalize_alt_2b_schema(
+        alt,
+        fallback_buyer_gstin=fallback_buyer_gstin,
+        fallback_period=fallback_period,
+    )
     portal[_UNPARSED_ISD_COUNT_KEY] = isd_count
     portal[_UNPARSED_IMPG_COUNT_KEY] = impg_count
     return portal
@@ -302,6 +358,7 @@ def load_gstr2b_upload_payload(
     filename: str | None = None,
     *,
     fallback_buyer_gstin: str | None = None,
+    fallback_period: str | None = None,
 ) -> dict:
     """Load GSTR-2B upload bytes (JSON or Excel) into a parse-ready dict.
 
@@ -314,7 +371,10 @@ def load_gstr2b_upload_payload(
         not name.lower().endswith(".json") and is_gstr2b_excel_bytes(body)
     ):
         return parse_2b_excel(
-            body, name or "gstr2b.xlsx", fallback_buyer_gstin=fallback_buyer_gstin
+            body,
+            name or "gstr2b.xlsx",
+            fallback_buyer_gstin=fallback_buyer_gstin,
+            fallback_period=fallback_period,
         )
 
     try:
@@ -322,13 +382,19 @@ def load_gstr2b_upload_payload(
     except UnicodeDecodeError as e:
         if is_gstr2b_excel_bytes(body):
             return parse_2b_excel(
-                body, name or "gstr2b.xlsx", fallback_buyer_gstin=fallback_buyer_gstin
+                body,
+                name or "gstr2b.xlsx",
+                fallback_buyer_gstin=fallback_buyer_gstin,
+                fallback_period=fallback_period,
             )
         raise ValueError(f"invalid_utf8: {e}") from e
     except json.JSONDecodeError as e:
         if is_gstr2b_excel_bytes(body):
             return parse_2b_excel(
-                body, name or "gstr2b.xlsx", fallback_buyer_gstin=fallback_buyer_gstin
+                body,
+                name or "gstr2b.xlsx",
+                fallback_buyer_gstin=fallback_buyer_gstin,
+                fallback_period=fallback_period,
             )
         raise ValueError(
             f"invalid_json at line {e.lineno}, column {e.colno}: {e.msg}"

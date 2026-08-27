@@ -34,6 +34,12 @@ from app.services.matcher import normalize_invoice
 SCHEMA_VERSION = "gstr2b_v1"
 
 
+class AltGstr2bMissingPeriodError(ValueError):
+    """Raised when an alt-format GSTR-2B file lacks period info and no fallback was given."""
+
+    pass
+
+
 # Private keys attached by the Excel adapter (and preserved through parse).
 _UNPARSED_ISD_COUNT_KEY = "_unparsed_isd_count"
 _UNPARSED_IMPG_COUNT_KEY = "_unparsed_impg_count"
@@ -1250,7 +1256,7 @@ def _alt_blank(val: Any) -> bool:
 
 
 def _alt_parse_period_to_rtnprd(raw: Any) -> str | None:
-    """Convert ``Jun,2026`` / ``Jun 2026`` / ``06-2026`` → ``MMYYYY``."""
+    """Convert ``Jun,2026`` / ``Jun 2026`` / ``06-2026`` / ``2026-06`` / ``2026-06-01`` → ``MMYYYY``."""
     if _alt_blank(raw):
         return None
     s = str(raw).strip()
@@ -1267,8 +1273,20 @@ def _alt_parse_period_to_rtnprd(raw: Any) -> str | None:
         mon = int(m2.group(1))
         if 1 <= mon <= 12:
             return f"{mon:02d}{m2.group(2)}"
+    m3 = re.match(r"^(\d{4})[-/](\d{1,2})(?:[-/]\d{1,2})?$", s)
+    if m3:
+        year = m3.group(1)
+        mon = int(m3.group(2))
+        if 1 <= mon <= 12:
+            return f"{mon:02d}{year}"
     digits = "".join(ch for ch in s if ch.isdigit())
     if len(digits) == 6:
+        m_part, y_part = int(digits[:2]), int(digits[2:])
+        if 1 <= m_part <= 12 and 1900 <= y_part <= 2100:
+            return digits
+        y_part, m_part = int(digits[:4]), int(digits[4:])
+        if 1900 <= y_part <= 2100 and 1 <= m_part <= 12:
+            return f"{m_part:02d}{y_part}"
         return digits
     return None
 
@@ -1552,6 +1570,7 @@ def normalize_alt_2b_schema(
     data: dict,
     *,
     fallback_buyer_gstin: str | None = None,
+    fallback_period: str | None = None,
 ) -> dict:
     """Convert third-party flat GSTR-2B JSON into portal-shaped ``{"data": ...}``.
 
@@ -1566,6 +1585,10 @@ def normalize_alt_2b_schema(
     ``client_gstins.gstin`` for the run's client) is used. If that is also empty,
     ``ALT_2B_PLACEHOLDER_BUYER_GSTIN`` is used and
     ``_alt_buyer_gstin_source`` is ``"placeholder"``.
+
+    When the export has no return period, ``fallback_period`` (from the CA's
+    explicit run period selection) is used. If neither is available, raises
+    ``AltGstr2bMissingPeriodError``.
     """
     if not isinstance(data, dict):
         raise ValueError("invalid_data_structure")
@@ -1609,6 +1632,13 @@ def normalize_alt_2b_schema(
         rtnprd = (
             _alt_parse_period_to_rtnprd(data.get("period") or data.get("rtnprd")) or ""
         )
+    if not rtnprd and fallback_period:
+        rtnprd = _alt_parse_period_to_rtnprd(fallback_period) or ""
+
+    if not rtnprd:
+        raise AltGstr2bMissingPeriodError(
+            "Could not detect return period from this file — please select the period manually"
+        )
 
     buyer = _alt_extract_buyer_gstin(data)
     if buyer:
@@ -1624,7 +1654,7 @@ def normalize_alt_2b_schema(
 
     root: dict[str, Any] = {
         "gstin": buyer,
-        "rtnprd": rtnprd or "012000",
+        "rtnprd": rtnprd,
         "b2b": _alt_group_by_supplier(mapped_inv) if mapped_inv else [],
     }
     if mapped_notes:
@@ -1661,6 +1691,7 @@ def parse_gstr2b(
     file_content,
     *,
     fallback_buyer_gstin: str | None = None,
+    fallback_period: str | None = None,
 ) -> dict:
     """Parse GSTR-2B JSON file content into structured records.
 
@@ -1668,6 +1699,9 @@ def parse_gstr2b(
 
     ``fallback_buyer_gstin`` is used only for the alt flat-export schema when the
     JSON has no extractable buyer GSTIN (typically ``client_gstins.gstin``).
+
+    ``fallback_period`` is used when the alt flat-export schema has no extractable
+    return period (typically from the CA's selected run period).
 
     Raises:
         ValueError: For top-level structural errors (invalid JSON, missing
@@ -1710,7 +1744,9 @@ def parse_gstr2b(
                 excel_impg_count, int(data.pop(_UNPARSED_IMPG_COUNT_KEY, 0) or 0)
             )
             data = normalize_alt_2b_schema(
-                data, fallback_buyer_gstin=fallback_buyer_gstin
+                data,
+                fallback_buyer_gstin=fallback_buyer_gstin,
+                fallback_period=fallback_period,
             )
             buyer_gstin_source = str(
                 data.pop("_alt_buyer_gstin_source", BUYER_GSTIN_SOURCE_FILE)
@@ -1747,6 +1783,11 @@ def parse_gstr2b(
 
     if not isinstance(root, dict):
         raise ValueError("invalid_data_structure")
+
+    if not root.get("rtnprd") and fallback_period:
+        parsed_fp = _alt_parse_period_to_rtnprd(fallback_period)
+        if parsed_fp:
+            root["rtnprd"] = parsed_fp
 
     if not root.get("gstin"):
         raise ValueError("missing_gstin")

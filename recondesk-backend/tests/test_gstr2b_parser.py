@@ -18,6 +18,7 @@ from pathlib import Path
 
 from app.parsers.gstr2b_parser import (
     ALT_2B_PLACEHOLDER_BUYER_GSTIN,
+    AltGstr2bMissingPeriodError,
     BUYER_GSTIN_MISSING_WARNING,
     BUYER_GSTIN_SOURCE_CLIENT,
     BUYER_GSTIN_SOURCE_PLACEHOLDER,
@@ -29,6 +30,7 @@ from app.parsers.gstr2b_parser import (
     SKIP_MISSING_INVOICE_DATE,
     SKIP_MISSING_INVOICE_NUMBER,
     SKIP_UNSUPPORTED_SCHEMA,
+    _alt_parse_period_to_rtnprd,
     _make_skip_entry,
     is_alt_gstr2b_schema,
     normalize_alt_2b_schema,
@@ -743,6 +745,91 @@ def test_alt_schema_placeholder_when_no_file_or_client_gstin():
     assert result["buyer_gstin_source"] == BUYER_GSTIN_SOURCE_PLACEHOLDER
     assert result["warnings"] == [BUYER_GSTIN_MISSING_WARNING]
     assert result["records"][0]["buyer_gstin"] == ALT_2B_PLACEHOLDER_BUYER_GSTIN
+
+
+def test_alt_parse_period_to_rtnprd_formats():
+    """Verify various human-readable and standard date/period string parsing."""
+    assert _alt_parse_period_to_rtnprd("Jun,2026") == "062026"
+    assert _alt_parse_period_to_rtnprd("Jun 2026") == "062026"
+    assert _alt_parse_period_to_rtnprd("June 2026") == "062026"
+    assert _alt_parse_period_to_rtnprd("September, 2026") == "092026"
+    assert _alt_parse_period_to_rtnprd("07-2026") == "072026"
+    assert _alt_parse_period_to_rtnprd("7/2026") == "072026"
+    assert _alt_parse_period_to_rtnprd("2026-07") == "072026"
+    assert _alt_parse_period_to_rtnprd("2026-07-01") == "072026"
+    assert _alt_parse_period_to_rtnprd("042026") == "042026"
+    assert _alt_parse_period_to_rtnprd("202604") == "042026"
+    assert _alt_parse_period_to_rtnprd("") is None
+    assert _alt_parse_period_to_rtnprd(None) is None
+
+
+def test_alt_schema_missing_period_raises_error_without_fallback():
+    """When alt export has no Period column and no fallback is given, raise AltGstr2bMissingPeriodError."""
+    import pytest
+
+    payload = {
+        "invoice": [
+            {
+                "Sr": 1,
+                "GSTIN": "27AACCV1726H1ZE",
+                "Invoice No": "INV-101",
+                "Invoice Date": "15-06-2026",
+                "Invoice Value": 1000.0,
+                "Taxable Value": 1000.0,
+                "IGST": 180.0,
+            }
+        ]
+    }
+    with pytest.raises(AltGstr2bMissingPeriodError, match="Could not detect return period"):
+        normalize_alt_2b_schema(payload)
+
+    with pytest.raises(AltGstr2bMissingPeriodError, match="Could not detect return period"):
+        parse_gstr2b(payload)
+
+
+def test_alt_schema_uses_fallback_period_when_file_lacks_period():
+    """When alt export lacks period, use fallback_period from the CA's selection."""
+    payload = {
+        "invoice": [
+            {
+                "Sr": 1,
+                "GSTIN": "27AACCV1726H1ZE",
+                "Invoice No": "INV-101",
+                "Invoice Date": "15-06-2026",
+                "Invoice Value": 1000.0,
+                "Taxable Value": 1000.0,
+                "IGST": 180.0,
+            }
+        ]
+    }
+    normalized = normalize_alt_2b_schema(payload, fallback_period="2026-07")
+    assert normalized["data"]["rtnprd"] == "072026"
+
+    result = parse_gstr2b(payload, fallback_period="2026-07-01")
+    assert result["period"] == "2026-07-01"
+
+
+def test_alt_schema_row_period_takes_precedence_over_fallback():
+    """When alt export has period info in rows, file period takes precedence over fallback."""
+    payload = {
+        "invoice": [
+            {
+                "Sr": 1,
+                "GSTIN": "27AACCV1726H1ZE",
+                "Period": "Jun,2026",
+                "Invoice No": "INV-101",
+                "Invoice Date": "15-06-2026",
+                "Invoice Value": 1000.0,
+                "Taxable Value": 1000.0,
+                "IGST": 180.0,
+            }
+        ]
+    }
+    normalized = normalize_alt_2b_schema(payload, fallback_period="2026-07")
+    assert normalized["data"]["rtnprd"] == "062026"
+
+    result = parse_gstr2b(payload, fallback_period="2026-07")
+    assert result["period"] == "2026-06-01"
 
 
 def test_b2b_not_a_list_treated_as_empty_no_crash():

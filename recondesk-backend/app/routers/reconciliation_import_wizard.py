@@ -438,6 +438,7 @@ async def sanity_check_gstr2b(
         raw,
         filename=r.get("gstr2b_file_name") or key,
         fallback_buyer_gstin=client_gstin_fallback or None,
+        fallback_period=r.get("period"),
     )
     checks = ws.preserve_check_acknowledgments(
         r.get("sanity_check_results"), checks

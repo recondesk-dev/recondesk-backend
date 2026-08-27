@@ -1,11 +1,10 @@
-
 {
 
   "api_key": "rdb_gDIKvhpePa6YxTfoUFNYdO6TbEJRDIdF6Vq5MyPNST0",
 
-  "recondesk_endpoint": "https://recondesk-backend-production.up.railway.app/api/tally-sync/outstanding",
+  "recondesk_endpoint": "https://api.recondesk.in/api/tally-sync/outstanding",
 
-  "pr_sync_endpoint": "https://recondesk-backend-production.up.railway.app/api/tally-sync/purchase-register",
+  "pr_sync_endpoint": "https://api.recondesk.in/api/tally-sync/purchase-register",
 
   "tally_host": "192.168.64.2",
 

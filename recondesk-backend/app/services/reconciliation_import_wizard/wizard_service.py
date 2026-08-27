@@ -243,6 +243,7 @@ def run_sanity_gstr2b_json(
     *,
     filename: str | None = None,
     fallback_buyer_gstin: str | None = None,
+    fallback_period: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Return checks list per API contract and parsed invoice record count.
 
@@ -267,7 +268,10 @@ def run_sanity_gstr2b_json(
 
     try:
         payload = load_gstr2b_upload_payload(
-            raw, name, fallback_buyer_gstin=fallback_buyer_gstin
+            raw,
+            name,
+            fallback_buyer_gstin=fallback_buyer_gstin,
+            fallback_period=fallback_period,
         )
     except ValueError as exc:
         detail = str(exc)
@@ -297,7 +301,11 @@ def run_sanity_gstr2b_json(
     )
 
     try:
-        parsed = parse_gstr2b(payload, fallback_buyer_gstin=fallback_buyer_gstin)
+        parsed = parse_gstr2b(
+            payload,
+            fallback_buyer_gstin=fallback_buyer_gstin,
+            fallback_period=fallback_period,
+        )
     except ValueError as exc:
         checks.append(
             {

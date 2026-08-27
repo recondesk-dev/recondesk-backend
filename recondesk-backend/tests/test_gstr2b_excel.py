@@ -105,8 +105,8 @@ def test_excel_detects_isd_impg_sheets_without_parsing():
     assert alt[_UNPARSED_ISD_COUNT_KEY] == 2
     assert alt[_UNPARSED_IMPG_COUNT_KEY] == 1
 
-    portal = parse_2b_excel(raw, "mixed.xlsx")
-    result = parse_gstr2b(portal)
+    portal = parse_2b_excel(raw, "mixed.xlsx", fallback_period="2024-04")
+    result = parse_gstr2b(portal, fallback_period="2024-04")
     assert result["isd_count"] == 2
     assert result["impg_count"] == 1
     assert result["isd_present"] is True

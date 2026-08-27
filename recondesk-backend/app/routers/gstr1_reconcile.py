@@ -312,6 +312,7 @@ async def _run_pipeline(
     gstr3b_file_content: bytes,
     gstr1_filing_period: str | None,
     prior_gstr1_file_content: bytes | None = None,
+    client_gstin_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute the full GSTR-1 reconciliation pipeline.
 
@@ -1087,6 +1088,7 @@ async def reconcile_gstr1(
             gstr3b_file_content=gstr3b_content,
             gstr1_filing_period=gstr1_filing_period,
             prior_gstr1_file_content=prior_gstr1_content,
+            client_gstin_id=client_gstin_id,
         )
     except HTTPException as exc:
         if exc.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT:
