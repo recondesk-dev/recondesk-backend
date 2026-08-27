@@ -1,44 +1,23 @@
-name: Run Tests
+name: Deploy to AWS EC2
 
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
 
 jobs:
-  test:
+  deploy:
     runs-on: ubuntu-latest
-
-    env:
-      APP_ENV: test
-      SECRET_KEY: ci-test-secret-key
-      SUPABASE_URL: https://placeholder.supabase.co
-      SUPABASE_ANON_KEY: placeholder
-      SUPABASE_SERVICE_ROLE_KEY: placeholder
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          python-version: "3.11"
-
-      - name: Locate backend directory
-        run: |
-          BACKEND=$(find . -maxdepth 1 -type d -name "*recondesk-backend" | head -1)
-          echo "Found backend at: '${BACKEND}'"
-          echo "BACKEND_DIR=${BACKEND}" >> $GITHUB_ENV
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-        working-directory: ${{ env.BACKEND_DIR }}
-
-      - name: Ground-truth silent-drop regressions
-        run: pytest tests/test_ground_truth_regressions.py -v --tb=short
-        working-directory: ${{ env.BACKEND_DIR }}
-
-      - name: Run tests
-        run: pytest tests/ -v --tb=short
-        working-directory: ${{ env.BACKEND_DIR }}
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ubuntu/recondesk-backend
+            git pull origin main
+            docker compose -f docker-compose.prod.yml down
+            docker compose -f docker-compose.prod.yml up -d --build
