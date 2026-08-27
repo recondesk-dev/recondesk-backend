@@ -125,11 +125,12 @@ async def create_run(
     user_id: str = Depends(get_current_user_id),
 ):
     sb = get_supabase()
-    ws.assert_client_access(sb, str(body.client_id), user_id)
+    client_row = ws.assert_client_access(sb, str(body.client_id), user_id)
     period_iso = _period_date_iso(body.period)
+    firm_owner = client_row.get("firm_owner_id") or user_id
     row = {
         "client_id": str(body.client_id),
-        "firm_owner_id": user_id,
+        "firm_owner_id": str(firm_owner),
         "period": period_iso,
         "status": "draft",
         "current_step": 1,

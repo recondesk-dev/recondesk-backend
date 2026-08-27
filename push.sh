@@ -31,5 +31,5 @@ git subtree push --prefix recondesk-frontend frontend main
 
 echo ""
 echo "========================================="
-echo "SUCCESS! Both backend (Railway) and frontend (Vercel) have been built and deployed!"
+echo "SUCCESS! Both backend (AWS EC2) and frontend (Vercel) have been built and deployed!"
 echo "========================================="

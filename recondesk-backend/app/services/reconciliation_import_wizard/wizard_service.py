@@ -206,16 +206,22 @@ def fetch_run(sb: Client, run_id: str) -> dict:
 def assert_client_access(sb: Client, client_id: str, user_id: str) -> dict:
     c = (
         sb.table("client_gstins")
-        .select("id, firm_owner_id, gstin, trade_name")
+        .select("id, firm_owner_id, assigned_to, gstin, trade_name, is_active")
         .eq("id", client_id)
         .single()
         .execute()
     ).data
-    if not c:
+    if not c or not c.get("is_active", True):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
-    if str(c.get("firm_owner_id")) != str(user_id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
-    return c
+    fo = str(c.get("firm_owner_id") or "").strip()
+    assigned = str(c.get("assigned_to") or "").strip()
+    user_str = str(user_id or "").strip()
+    if fo == user_str or assigned == user_str:
+        return c
+    from app.services.firm_access import user_can_access_firm
+    if fo and user_can_access_firm(sb, {"id": user_str}, fo):
+        return c
+    raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
 
 
 def another_processing_run(sb: Client, client_id: str, period_iso: str, exclude_run_id: str) -> bool:
