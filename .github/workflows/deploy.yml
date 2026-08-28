@@ -17,7 +17,7 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd /home/ubuntu/recondesk-backend
+            cd /home/ubuntu/recondesk-backend/recondesk-backend
             git pull origin main
             docker compose -f docker-compose.prod.yml down
             docker compose -f docker-compose.prod.yml up -d --build
