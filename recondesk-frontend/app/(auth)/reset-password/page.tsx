@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Logo } from "@/components/ui/Logo";
-import { createClient } from "@/lib/supabase/client";
+import { createClient, fetchAccessTokenFromServer } from "@/lib/supabase/client";
 import { Eye, EyeOff, KeyRound } from "lucide-react";
 
 export default function ResetPasswordPage() {
@@ -79,16 +79,21 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      // 4. Fallback: check existing active session
+      // 4. Fallback: check existing active session (via browser or server cookie)
       const { data: sessionData, error: getSessionError } =
         await supabase.auth.getSession();
 
-      if (getSessionError) {
-        setError(getSessionError.message);
-      } else if (sessionData.session) {
+      if (sessionData?.session) {
         setSessionReady(true);
       } else {
-        setError("Invalid or expired reset link. Please request a new one.");
+        const token = await fetchAccessTokenFromServer();
+        if (token) {
+          setSessionReady(true);
+        } else if (getSessionError) {
+          setError(getSessionError.message);
+        } else {
+          setError("Invalid or expired reset link. Please request a new one.");
+        }
       }
 
       setSessionLoading(false);
