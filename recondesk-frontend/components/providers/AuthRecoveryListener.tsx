@@ -29,7 +29,7 @@ export function AuthRecoveryListener() {
       const searchParams = new URLSearchParams(window.location.search);
       const code = searchParams.get("code");
       if (code) {
-        router.push(`/reset-password?code=${encodeURIComponent(code)}`);
+        window.location.href = `/auth/callback?code=${encodeURIComponent(code)}&redirectTo=/reset-password`;
       }
     }
 

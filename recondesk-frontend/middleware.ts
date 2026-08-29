@@ -23,12 +23,13 @@ export async function middleware(request: NextRequest) {
   try {
     const pathname = request.nextUrl.pathname;
 
-    // If user lands on root with an auth code (e.g. from password recovery email), redirect to /reset-password
-    if (pathname === "/" && request.nextUrl.searchParams.has("code")) {
+    // If user lands on root or /reset-password with an auth code, route through /auth/callback to establish server session cookies
+    if ((pathname === "/" || pathname === "/reset-password") && request.nextUrl.searchParams.has("code")) {
       const code = request.nextUrl.searchParams.get("code");
       const url = request.nextUrl.clone();
-      url.pathname = "/reset-password";
+      url.pathname = "/auth/callback";
       url.searchParams.set("code", code!);
+      url.searchParams.set("redirectTo", "/reset-password");
       return NextResponse.redirect(url);
     }
 

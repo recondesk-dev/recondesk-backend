@@ -51,19 +51,10 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      // 2. Handle PKCE code in query params (?code=...)
+      // 2. Handle PKCE code in query params (?code=...) by delegating to server /auth/callback
       const code = searchParams.get("code");
       if (code) {
-        const { error: exchangeError } =
-          await supabase.auth.exchangeCodeForSession(code);
-        if (exchangeError) {
-          setError(exchangeError.message);
-          setSessionLoading(false);
-          return;
-        }
-        setSessionReady(true);
-        setSessionLoading(false);
-        window.history.replaceState(null, "", window.location.pathname);
+        window.location.href = `/auth/callback?code=${encodeURIComponent(code)}&redirectTo=/reset-password`;
         return;
       }
 
