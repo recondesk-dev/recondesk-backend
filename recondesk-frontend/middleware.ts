@@ -23,6 +23,15 @@ export async function middleware(request: NextRequest) {
   try {
     const pathname = request.nextUrl.pathname;
 
+    // If user lands on root with an auth code (e.g. from password recovery email), redirect to /reset-password
+    if (pathname === "/" && request.nextUrl.searchParams.has("code")) {
+      const code = request.nextUrl.searchParams.get("code");
+      const url = request.nextUrl.clone();
+      url.pathname = "/reset-password";
+      url.searchParams.set("code", code!);
+      return NextResponse.redirect(url);
+    }
+
     // Legacy /onboarding route redirect directly to /dashboard
     if (pathname.startsWith("/onboarding")) {
       const url = request.nextUrl.clone();
