@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Logo } from "@/components/ui/Logo";
 import {
   LayoutDashboard,
   Users,
@@ -49,33 +50,14 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
       {/* Logo */}
       <div className="flex items-center justify-between px-4 h-16 border-b border-white/10 flex-shrink-0">
         {!collapsed && (
-          <Link href="/dashboard" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-brand rounded-lg flex items-center justify-center flex-shrink-0">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white">
-                <path
-                  d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
-            <span className="font-brand text-white font-bold text-sm tracking-widest">RECONDESK</span>
+          <Link href="/dashboard" className="flex items-center text-white">
+            <Logo height={24} className="text-white" />
           </Link>
         )}
         {collapsed && (
-          <div className="w-8 h-8 bg-brand rounded-lg flex items-center justify-center mx-auto">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white">
-              <path
-                d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
+          <Link href="/dashboard" className="flex items-center justify-center mx-auto text-white">
+            <Logo height={20} className="text-white" />
+          </Link>
         )}
         {onToggle && !collapsed && (
           <button

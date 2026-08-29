@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Logo } from "@/components/ui/Logo";
 import { createClient } from "@/lib/supabase/client";
 import { Eye, EyeOff, KeyRound } from "lucide-react";
 
@@ -98,20 +99,10 @@ export default function ResetPasswordPage() {
   return (
     <div className="recondesk-textured-bg min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-brand rounded-xl mb-4">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-white">
-              <path
-                d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-          <h1 className="font-brand text-2xl font-bold text-gray-900 tracking-tight">RECONDESK</h1>
-          <p className="text-sm text-gray-500 mt-1">Reconciliation made simple</p>
+        {/* Logo */}
+        <div className="mb-10 text-center flex flex-col items-center">
+          <Logo width={280} height={50} className="mb-2" />
+          <p className="mt-2 text-sm text-gray-900">Protect your clients&apos; ITC. Every month.</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
