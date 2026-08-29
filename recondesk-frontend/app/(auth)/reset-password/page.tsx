@@ -22,33 +22,75 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     const supabase = createClient();
 
-    async function establishSessionFromHash() {
-      const hash = window.location.hash.startsWith("#")
-        ? window.location.hash.slice(1)
-        : window.location.hash;
-
-      if (hash) {
-        const params = new URLSearchParams(hash);
-        const access_token = params.get("access_token");
-        const refresh_token = params.get("refresh_token");
-
-        if (access_token && refresh_token) {
-          const { error: sessionError } = await supabase.auth.setSession({
-            access_token,
-            refresh_token,
-          });
-
-          if (sessionError) {
-            setError(sessionError.message);
-            setSessionLoading(false);
-            return;
-          }
-
-          window.history.replaceState(null, "", window.location.pathname);
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (event === "PASSWORD_RECOVERY" || (session && event === "SIGNED_IN")) {
+          setSessionReady(true);
+          setSessionLoading(false);
+          setError(null);
         }
       }
+    );
 
-      const { data: sessionData, error: getSessionError } = await supabase.auth.getSession();
+    async function establishSession() {
+      // 1. Check for errors in query params or hash
+      const searchParams = new URLSearchParams(window.location.search);
+      const hashParams = new URLSearchParams(
+        window.location.hash.startsWith("#")
+          ? window.location.hash.slice(1)
+          : window.location.hash
+      );
+
+      const errorDesc =
+        searchParams.get("error_description") ||
+        hashParams.get("error_description") ||
+        searchParams.get("error");
+      if (errorDesc) {
+        setError(decodeURIComponent(errorDesc.replace(/\+/g, " ")));
+        setSessionLoading(false);
+        return;
+      }
+
+      // 2. Handle PKCE code in query params (?code=...)
+      const code = searchParams.get("code");
+      if (code) {
+        const { error: exchangeError } =
+          await supabase.auth.exchangeCodeForSession(code);
+        if (exchangeError) {
+          setError(exchangeError.message);
+          setSessionLoading(false);
+          return;
+        }
+        setSessionReady(true);
+        setSessionLoading(false);
+        window.history.replaceState(null, "", window.location.pathname);
+        return;
+      }
+
+      // 3. Handle access_token / refresh_token in hash (#access_token=...)
+      const access_token = hashParams.get("access_token");
+      const refresh_token = hashParams.get("refresh_token");
+      if (access_token && refresh_token) {
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token,
+          refresh_token,
+        });
+
+        if (sessionError) {
+          setError(sessionError.message);
+          setSessionLoading(false);
+          return;
+        }
+
+        setSessionReady(true);
+        setSessionLoading(false);
+        window.history.replaceState(null, "", window.location.pathname);
+        return;
+      }
+
+      // 4. Fallback: check existing active session
+      const { data: sessionData, error: getSessionError } =
+        await supabase.auth.getSession();
 
       if (getSessionError) {
         setError(getSessionError.message);
@@ -61,7 +103,11 @@ export default function ResetPasswordPage() {
       setSessionLoading(false);
     }
 
-    void establishSessionFromHash();
+    void establishSession();
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
