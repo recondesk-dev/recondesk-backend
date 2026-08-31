@@ -88,24 +88,36 @@ async def list_plans(request: Request):  # noqa: ARG001
     """Return available subscription plans with pricing."""
     return {
         "plans": [
-            {"id": "free", "name": "Free", "yearly": 0, "gstin_limit": 1},
+            {"id": "free", "name": "Free", "monthly": 0, "yearly": 0, "gstin_limit": 1},
             {
                 "id": "starter",
                 "name": "Starter",
-                "yearly": 5999,
-                "gstin_limit": 50,
+                "monthly": 1199,
+                "yearly": 9999,
+                "gstin_limit": 25,
             },
             {
                 "id": "growth",
                 "name": "Growth",
-                "yearly": 9999,
+                "monthly": 1799,
+                "yearly": 14999,
+                "gstin_limit": 50,
+            },
+            {
+                "id": "pro",
+                "name": "Pro",
+                "monthly": 2399,
+                "yearly": 19999,
                 "gstin_limit": 100,
             },
             {
-                "id": "custom",
-                "name": "Custom",
-                "yearly": None,
-                "gstin_limit": None,
+                "id": "firm",
+                "name": "Firm",
+                "monthly": 2399,
+                "yearly": 19999,
+                "gstin_limit": 100,
+                "overage_monthly": 25,
+                "overage_yearly": 200,
             },
         ]
     }

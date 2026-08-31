@@ -2,14 +2,32 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import Razorpay from "razorpay";
 
-const PLANS: Record<
-  string,
-  { priceInr: number; gstinLimit: number; periodDays: number; billingPeriod: string }
-> = {
-  monthly: { priceInr: 999, gstinLimit: 25, periodDays: 30, billingPeriod: "monthly" },
-  starter: { priceInr: 5999, gstinLimit: 50, periodDays: 365, billingPeriod: "yearly" },
-  growth: { priceInr: 9999, gstinLimit: 100, periodDays: 365, billingPeriod: "yearly" },
-  pro: { priceInr: 9999, gstinLimit: 100, periodDays: 365, billingPeriod: "yearly" },
+type PlanPricing = {
+  monthly: { priceInr: number; gstinLimit: number; periodDays: number; overagePerGstin?: number };
+  yearly: { priceInr: number; gstinLimit: number; periodDays: number; overagePerGstin?: number };
+};
+
+const PLAN_CATALOG: Record<string, PlanPricing> = {
+  starter: {
+    monthly: { priceInr: 1199, gstinLimit: 25, periodDays: 30 },
+    yearly: { priceInr: 9999, gstinLimit: 25, periodDays: 365 },
+  },
+  growth: {
+    monthly: { priceInr: 1799, gstinLimit: 50, periodDays: 30 },
+    yearly: { priceInr: 14999, gstinLimit: 50, periodDays: 365 },
+  },
+  pro: {
+    monthly: { priceInr: 2399, gstinLimit: 100, periodDays: 30 },
+    yearly: { priceInr: 19999, gstinLimit: 100, periodDays: 365 },
+  },
+  firm: {
+    monthly: { priceInr: 2399, gstinLimit: 100, periodDays: 30, overagePerGstin: 25 },
+    yearly: { priceInr: 19999, gstinLimit: 100, periodDays: 365, overagePerGstin: 200 },
+  },
+  monthly: {
+    monthly: { priceInr: 1199, gstinLimit: 25, periodDays: 30 },
+    yearly: { priceInr: 9999, gstinLimit: 25, periodDays: 365 },
+  },
 };
 
 export async function POST(request: Request) {
@@ -29,20 +47,37 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { plan_name } = body;
+    const { plan_name, billing_cycle = "yearly", custom_gstin_limit } = body;
 
     if (!plan_name || typeof plan_name !== "string") {
       return NextResponse.json({ error: "Invalid plan_name" }, { status: 400 });
     }
 
     const planNameLower = plan_name.toLowerCase();
-    const planConfig = PLANS[planNameLower];
+    const tierConfig = PLAN_CATALOG[planNameLower];
 
-    if (!planConfig) {
+    if (!tierConfig) {
       return NextResponse.json({ error: "Invalid plan selected" }, { status: 400 });
     }
 
-    const baseAmountPaise = planConfig.priceInr * 100;
+    const cycleKey = billing_cycle === "monthly" ? "monthly" : "yearly";
+    const cycleConfig = tierConfig[cycleKey];
+
+    let baseAmountInr = cycleConfig.priceInr;
+    let gstinLimit = cycleConfig.gstinLimit;
+    let overageGstins = 0;
+    const overageRateInr = cycleConfig.overagePerGstin || 0;
+
+    if (planNameLower === "firm") {
+      const requestedLimit = parseInt(String(custom_gstin_limit), 10);
+      if (!Number.isNaN(requestedLimit) && requestedLimit > 100) {
+        overageGstins = requestedLimit - 100;
+        gstinLimit = requestedLimit;
+        baseAmountInr += overageGstins * overageRateInr;
+      }
+    }
+
+    const baseAmountPaise = baseAmountInr * 100;
     const gstPaise = Math.round(baseAmountPaise * 0.18);
     const totalAmountPaise = baseAmountPaise + gstPaise;
 
@@ -62,12 +97,14 @@ export async function POST(request: Request) {
     const orderOptions = {
       amount: totalAmountPaise,
       currency: "INR",
-      receipt: `receipt_${user.id}_${Date.now()}`.substring(0, 40),
+      receipt: `rcpt_${user.id.replace(/-/g, "").slice(0, 8)}_${Date.now()}`.substring(0, 40),
       notes: {
         plan: planNameLower,
-        gstin_limit: String(planConfig.gstinLimit),
-        period_days: String(planConfig.periodDays),
-        billing_period: planConfig.billingPeriod,
+        plan_version: "2",
+        billing_cycle: cycleKey,
+        gstin_limit: String(gstinLimit),
+        period_days: String(cycleConfig.periodDays),
+        overage_gstins: String(overageGstins),
       },
     };
 
@@ -79,21 +116,39 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to create order with payment gateway" }, { status: 500 });
     }
 
-    const { error: dbError } = await supabase.from("payments").insert({
+    const paymentRow = {
       firm_owner_id: user.id,
       razorpay_order_id: razorpayOrder.id,
       plan: planNameLower,
+      plan_version: 2,
+      billing_cycle: cycleKey,
+      gstin_limit: gstinLimit,
+      overage_gstins: overageGstins,
+      overage_rate_paise: overageRateInr * 100,
       runs_purchased: 0,
       base_amount_paise: baseAmountPaise,
       gst_paise: gstPaise,
       total_amount_paise: totalAmountPaise,
       amount_paise: totalAmountPaise,
-      status: "created",
-    });
+      status: "created" as const,
+    };
+
+    const { error: dbError } = await (supabase.from("payments") as any).insert(paymentRow);
 
     if (dbError) {
-      console.error("Database error while inserting order:", dbError);
-      return NextResponse.json({ error: "Failed to record order" }, { status: 500 });
+      console.warn("Database insert with v2 fields failed, falling back to core columns:", dbError);
+      const fallbackRow = {
+        firm_owner_id: user.id,
+        razorpay_order_id: razorpayOrder.id,
+        plan: planNameLower,
+        runs_purchased: 0,
+        base_amount_paise: baseAmountPaise,
+        gst_paise: gstPaise,
+        total_amount_paise: totalAmountPaise,
+        amount_paise: totalAmountPaise,
+        status: "created" as const,
+      };
+      await (supabase.from("payments") as any).insert(fallbackRow);
     }
 
     return NextResponse.json({
@@ -101,8 +156,12 @@ export async function POST(request: Request) {
       amount: razorpayOrder.amount,
       currency: razorpayOrder.currency,
       plan: planNameLower,
-      gstin_limit: planConfig.gstinLimit,
-      billing_period: planConfig.billingPeriod,
+      billing_cycle: cycleKey,
+      gstin_limit: gstinLimit,
+      period_days: cycleConfig.periodDays,
+      base_paise: baseAmountPaise,
+      gst_paise: gstPaise,
+      overage_gstins: overageGstins,
     });
   } catch (error: unknown) {
     console.error("Create order error:", error);

@@ -1,6 +1,8 @@
 /** Client-side Razorpay checkout for GSTIN subscription plans. */
 
-export type CheckoutPlan = "monthly" | "starter" | "growth" | "pro";
+import type { BillingCycle, PricingTierId } from "@/lib/pricing-data";
+
+export type CheckoutPlan = PricingTierId | "monthly";
 
 type RazorpaySuccessResponse = {
   razorpay_order_id: string;
@@ -54,23 +56,35 @@ function loadRazorpayScript(): Promise<void> {
 
 export async function startPlanCheckout(
   plan: CheckoutPlan,
-  opts?: { onSuccess?: () => void; onDismiss?: () => void }
+  opts?: {
+    billingCycle?: BillingCycle;
+    customGstinLimit?: number;
+    onSuccess?: () => void;
+    onDismiss?: () => void;
+  }
 ): Promise<void> {
   const key = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
   if (!key) {
     throw new Error("Payment is not configured");
   }
 
+  const cycle = opts?.billingCycle || (plan === "monthly" ? "monthly" : "yearly");
+
   const orderRes = await fetch("/api/billing/create-order", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ plan_name: plan }),
+    body: JSON.stringify({
+      plan_name: plan,
+      billing_cycle: cycle,
+      custom_gstin_limit: opts?.customGstinLimit,
+    }),
   });
   const orderBody = (await orderRes.json().catch(() => ({}))) as {
     error?: string;
     order_id?: string;
     amount?: number;
     currency?: string;
+    gstin_limit?: number;
   };
   if (!orderRes.ok || !orderBody.order_id || orderBody.amount == null) {
     throw new Error(orderBody.error || "Failed to create order");
@@ -81,12 +95,8 @@ export async function startPlanCheckout(
     throw new Error("Razorpay failed to initialize");
   }
 
-  const labels: Record<CheckoutPlan, string> = {
-    monthly: "Monthly · 25 GSTINs / month",
-    starter: "Starter · 50 GSTINs / year",
-    growth: "Growth · 100 GSTINs / year",
-    pro: "Pro · 100 GSTINs / year",
-  };
+  const limit = orderBody.gstin_limit || (plan === "starter" ? 25 : plan === "growth" ? 50 : 100);
+  const description = `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan · ${limit} GSTINs / ${cycle}`;
 
   await new Promise<void>((resolve, reject) => {
     const rzp = new window.Razorpay!({
@@ -94,7 +104,7 @@ export async function startPlanCheckout(
       amount: Number(orderBody.amount),
       currency: orderBody.currency || "INR",
       name: "ReconDesk",
-      description: labels[plan],
+      description,
       order_id: orderBody.order_id!,
       theme: { color: "#111111" },
       modal: {

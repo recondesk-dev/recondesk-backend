@@ -3,13 +3,12 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import crypto from "crypto";
 
-const PLAN_ENTITLEMENTS: Record<
-  string,
-  { gstinLimit: number; periodDays: number }
-> = {
-  starter: { gstinLimit: 25, periodDays: 30 },
-  growth: { gstinLimit: 50, periodDays: 365 },
-  pro: { gstinLimit: 75, periodDays: 365 },
+const DEFAULT_TIER_LIMITS: Record<string, number> = {
+  starter: 25,
+  growth: 50,
+  pro: 100,
+  firm: 100,
+  monthly: 25,
 };
 
 export async function POST(request: Request) {
@@ -71,11 +70,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, message: "Order already processed" });
     }
 
-    const plan = String(order.plan || "starter").toLowerCase();
-    const entitlement = PLAN_ENTITLEMENTS[plan];
-    if (!entitlement) {
-      return NextResponse.json({ error: "Invalid plan on order" }, { status: 400 });
-    }
+    const orderRec = order as any;
+    const plan = String(orderRec.plan || "starter").toLowerCase();
+    const cycle = String(orderRec.billing_cycle || (plan === "monthly" ? "monthly" : "yearly")).toLowerCase();
+    const periodDays = cycle === "monthly" ? 30 : 365;
+    const gstinLimit = orderRec.gstin_limit || DEFAULT_TIER_LIMITS[plan] || 25;
 
     const { error: updateOrderError } = await adminDb
       .from("payments")
@@ -107,17 +106,40 @@ export async function POST(request: Request) {
       }
     }
     const endsAt = new Date(base.getTime());
-    endsAt.setDate(endsAt.getDate() + entitlement.periodDays);
+    endsAt.setDate(endsAt.getDate() + periodDays);
 
-    const { data: updatedProfile, error: updateProfileError } = await adminDb
-      .from("user_profiles")
-      .update({
-        plan,
-        gstin_limit: entitlement.gstinLimit,
-        subscription_ends_at: endsAt.toISOString(),
-      })
+    const updateProfilePayload: Record<string, unknown> = {
+      plan,
+      plan_version: orderRec.plan_version || 2,
+      billing_cycle: cycle,
+      gstin_limit: gstinLimit,
+      subscription_ends_at: endsAt.toISOString(),
+    };
+    if (orderRec.overage_gstins && orderRec.overage_gstins > 0) {
+      updateProfilePayload.overage_gstin_count = orderRec.overage_gstins;
+    }
+
+    let { data: updatedProfile, error: updateProfileError } = await (adminDb
+      .from("user_profiles") as any)
+      .update(updateProfilePayload)
       .eq("id", user.id)
       .select("id, plan, gstin_limit, subscription_ends_at");
+
+    if (updateProfileError) {
+      console.warn("Update profile with v2 columns failed, falling back to core columns:", updateProfileError);
+      const fallbackPayload = {
+        plan,
+        gstin_limit: gstinLimit,
+        subscription_ends_at: endsAt.toISOString(),
+      };
+      const res = await (adminDb
+        .from("user_profiles") as any)
+        .update(fallbackPayload)
+        .eq("id", user.id)
+        .select("id, plan, gstin_limit, subscription_ends_at");
+      updatedProfile = res.data;
+      updateProfileError = res.error;
+    }
 
     if (updateProfileError) {
       console.error("Failed to activate subscription (DB error):", updateProfileError);
@@ -128,9 +150,7 @@ export async function POST(request: Request) {
     }
 
     if (!updatedProfile || updatedProfile.length === 0) {
-      console.error(
-        `[verify-payment] ZERO ROWS UPDATED on user_profiles. user.id=${user.id}`
-      );
+      console.error(`[verify-payment] ZERO ROWS UPDATED on user_profiles. user.id=${user.id}`);
       return NextResponse.json(
         { error: "Payment recorded but subscription matched no profile row — contact support" },
         { status: 500 }
@@ -138,8 +158,8 @@ export async function POST(request: Request) {
     }
 
     console.log(
-      `[verify-payment] Activated ${plan} for user ${user.id}. ` +
-        `GSTIN limit ${entitlement.gstinLimit}, ends ${endsAt.toISOString()}. Order: ${order.id}`
+      `[verify-payment] Activated ${plan} (${cycle}) for user ${user.id}. ` +
+        `GSTIN limit ${gstinLimit}, ends ${endsAt.toISOString()}. Order: ${order.id}`
     );
 
     try {
@@ -176,7 +196,8 @@ export async function POST(request: Request) {
       success: true,
       message: "Payment verified and subscription activated",
       plan,
-      gstin_limit: entitlement.gstinLimit,
+      billing_cycle: cycle,
+      gstin_limit: gstinLimit,
       subscription_ends_at: endsAt.toISOString(),
     });
   } catch (error: unknown) {

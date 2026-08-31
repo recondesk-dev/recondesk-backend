@@ -8,27 +8,27 @@ const pricingFaq = [
   },
   {
     q: "What am I paying for?",
-    a: "You pay an annual subscription based on your firm's GSTIN capacity (Starter: up to 50 GSTINs, Growth: up to 100 GSTINs, Custom: 100+ GSTINs). Every plan includes unlimited reconciliation runs during the subscription period.",
+    a: "You pay a subscription based on your firm's GSTIN capacity (Starter: up to 25 GSTINs, Growth: up to 50 GSTINs, Pro: up to 100 GSTINs, Firm: 100+ GSTINs). Every plan includes unlimited reconciliation runs during the subscription period.",
   },
   {
     q: "What is the difference between the plans?",
-    a: "Every plan includes 100% of ReconDesk features — zero feature gating. The only difference is GSTIN capacity and billing cycle: Monthly (25 GSTINs, month-to-month), Starter (50 GSTINs/year), Growth (100 GSTINs/year), and Custom (100+ GSTINs with tailored SLAs). Choose the tier that fits your firm's current client portfolio.",
+    a: "Every plan includes 100% of ReconDesk features — zero feature gating. All tiers include the full matching engine, IMS recommendations, Rule 37/17(5) engine, RCM reconciliation, audit observations, supplier scorecard, and Tally Bridge. Tiers differ ONLY by GSTIN capacity.",
   },
   {
     q: "Can I upgrade my plan anytime?",
-    a: "Yes. You can upgrade from Starter to Growth or to a Custom plan whenever your firm expands client capacity. Purchasing an upgrade extends your subscription period.",
+    a: "Yes. You can upgrade from Starter to Growth, Pro, or Firm whenever your firm expands client capacity. Purchasing an upgrade immediately extends your capacity and period.",
   },
   {
     q: "How does billing work?",
-    a: "Manual annual payment via Razorpay. No automatic debit mandates or surprise credit card charges.",
+    a: "Payments are processed securely via Razorpay. Choose monthly or save ~30% with yearly billing. Yearly plans are manual one-time payments per annual cycle.",
   },
   {
     q: "Are prices inclusive of GST?",
-    a: "Listed prices exclude 18% GST. Standard 18% GST is added at checkout with tax invoice provided for input credit.",
+    a: "Listed prices exclude 18% GST. Standard 18% GST is added at checkout with a formal tax invoice provided for input tax credit.",
   },
   {
     q: "What if my firm manages more than 100 GSTINs?",
-    a: "Select our Custom tier or email contact@recondesk.in. We provide tailored volume pricing, multi-partner onboarding, dedicated account management, and custom SLAs.",
+    a: "Select our Firm tier (₹2,399/mo + ₹25 per GSTIN beyond 100, or ₹19,999/yr + ₹200 per GSTIN beyond 100) or email contact@recondesk.in for tailored enterprise SLAs.",
   },
 ] as const;
 

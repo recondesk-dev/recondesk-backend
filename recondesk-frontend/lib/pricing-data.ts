@@ -1,16 +1,25 @@
+export type BillingCycle = "monthly" | "yearly";
+
+export type PricingTierId = "starter" | "growth" | "pro" | "firm";
+
 export type PricingPlan = {
-  id: "monthly" | "starter" | "growth" | "custom";
+  id: PricingTierId;
   name: string;
   badge?: string;
-  valueTag?: string;
-  priceDisplay: string;
-  periodLabel: string;
+  badgeYearly?: string;
+  valueTagMonthly?: string;
+  valueTagYearly?: string;
+  priceMonthly: number;
+  priceYearly: number;
+  overageMonthlyPerGstin?: number;
+  overageYearlyPerGstin?: number;
   gstinCapacity: string;
+  gstinLimit: number;
   blurb: string;
   cta: string;
   ctaHref?: string;
   featured?: boolean;
-  isCustom?: boolean;
+  isFirm?: boolean;
   highlights: {
     header: string;
     benefit: string;
@@ -19,54 +28,30 @@ export type PricingPlan = {
 
 export const PRICING_PLANS: PricingPlan[] = [
   {
-    id: "monthly",
-    name: "Monthly",
-    badge: "Flexible",
-    valueTag: "Pay-as-you-go",
-    priceDisplay: "₹999",
-    periodLabel: "/month",
+    id: "starter",
+    name: "Starter",
+    badgeYearly: "Save ~30%",
+    valueTagMonthly: "₹48 / GSTIN / mo",
+    valueTagYearly: "₹400 / GSTIN / yr",
+    priceMonthly: 1199,
+    priceYearly: 9999,
     gstinCapacity: "Up to 25 GSTINs",
-    blurb: "Flexible month-to-month access with zero long-term commitment.",
-    cta: "Start Monthly",
+    gstinLimit: 25,
+    blurb: "Essential full-featured reconciliation suite for solo CAs & boutique practices.",
+    cta: "Start Starter",
     featured: false,
     highlights: [
       {
         header: "100% Full Desk Access",
-        benefit: "Zero feature gating — all 15+ audit & matching tools included",
-      },
-      {
-        header: "Pay Month-to-Month",
-        benefit: "Ideal for short-term projects or trying out ReconDesk",
+        benefit: "Zero feature gating — all 15+ matching & compliance tools included",
       },
       {
         header: "Up to 25 Client GSTINs",
-        benefit: "Manage up to 25 active GSTINs with unlimited period runs",
-      },
-    ],
-  },
-  {
-    id: "starter",
-    name: "Starter",
-    badge: "Save 50%",
-    valueTag: "₹120 / GSTIN / yr",
-    priceDisplay: "₹5,999",
-    periodLabel: "/year",
-    gstinCapacity: "Up to 50 GSTINs",
-    blurb: "Essential annual capacity for growing individual CA practices.",
-    cta: "Start with Starter",
-    featured: false,
-    highlights: [
-      {
-        header: "100% Full Desk Access",
-        benefit: "Zero feature gating — all 15+ audit & matching tools included",
+        benefit: "Manage up to 25 active GSTINs with unlimited reconciliation runs",
       },
       {
-        header: "Save 50% vs Monthly",
-        benefit: "Save ₹5,989/yr compared to paying monthly",
-      },
-      {
-        header: "Up to 50 Client GSTINs",
-        benefit: "Manage up to 50 active GSTINs with unlimited annual runs",
+        header: "Save ~30% on Annual",
+        benefit: "Save ₹4,389/year with yearly billing compared to monthly",
       },
     ],
   },
@@ -74,55 +59,129 @@ export const PRICING_PLANS: PricingPlan[] = [
     id: "growth",
     name: "Growth",
     badge: "Most Popular",
-    valueTag: "Best Value (~₹100/GSTIN)",
-    priceDisplay: "₹9,999",
-    periodLabel: "/year",
-    gstinCapacity: "Up to 100 GSTINs",
-    blurb: "High-capacity annual suite for mid-size firms & active tax teams.",
+    badgeYearly: "Save ~31%",
+    valueTagMonthly: "₹36 / GSTIN / mo",
+    valueTagYearly: "₹300 / GSTIN / yr",
+    priceMonthly: 1799,
+    priceYearly: 14999,
+    gstinCapacity: "Up to 50 GSTINs",
+    gstinLimit: 50,
+    blurb: "High-capacity suite for growing CA practices with active tax teams.",
     cta: "Go Growth",
     featured: true,
     highlights: [
       {
         header: "100% Full Desk Access",
-        benefit: "Zero feature gating — all 15+ audit & matching tools included",
+        benefit: "Zero feature gating — all 15+ matching & compliance tools included",
       },
       {
-        header: "2x Capacity for +₹4,000",
-        benefit: "Double your GSTIN capacity from 50 to 100 at our lowest rate per GSTIN",
+        header: "Up to 50 Client GSTINs",
+        benefit: "Double your client capacity with unlimited monthly/annual runs",
       },
       {
-        header: "Up to 100 Client GSTINs",
-        benefit: "Built for expanding CA practices with growing client portfolios",
+        header: "Save ~31% on Annual",
+        benefit: "Save ₹6,589/year with yearly billing compared to monthly",
       },
     ],
   },
   {
-    id: "custom",
-    name: "Custom",
-    badge: "Enterprise",
-    valueTag: "Custom SLA & Volume",
-    priceDisplay: "Let's Talk",
-    periodLabel: "",
-    gstinCapacity: "100+ GSTINs",
-    blurb: "Bespoke volume, SLAs & dedicated support for multi-partner firms.",
-    cta: "Talk to us",
-    ctaHref: "mailto:contact@recondesk.in?subject=Custom%20Enterprise%20Plan%20Enquiry",
+    id: "pro",
+    name: "Pro",
+    badgeYearly: "Save ~30%",
+    valueTagMonthly: "₹24 / GSTIN / mo",
+    valueTagYearly: "₹200 / GSTIN / yr",
+    priceMonthly: 2399,
+    priceYearly: 19999,
+    gstinCapacity: "Up to 100 GSTINs",
+    gstinLimit: 100,
+    blurb: "Comprehensive capacity for large CA firms and dedicated compliance teams.",
+    cta: "Choose Pro",
     featured: false,
-    isCustom: true,
     highlights: [
       {
         header: "100% Full Desk Access",
-        benefit: "Zero feature gating + bespoke volume sizing (100+ GSTINs)",
+        benefit: "Zero feature gating — all 15+ matching & compliance tools included",
       },
       {
-        header: "Dedicated Account Manager",
-        benefit: "Direct escalation channel & guaranteed SLA response times",
+        header: "Up to 100 Client GSTINs",
+        benefit: "Best rate per GSTIN with unlimited reconciliation runs for all clients",
       },
       {
-        header: "Custom Onboarding & Integrations",
-        benefit: "Multi-partner team training & tailored ERP data pipelines",
+        header: "Multi-Staff Collaboration",
+        benefit: "Team invites, client assignments, and complete audit trail",
+      },
+    ],
+  },
+  {
+    id: "firm",
+    name: "Firm",
+    badge: "Scale",
+    valueTagMonthly: "+₹25/GSTIN > 100",
+    valueTagYearly: "+₹200/GSTIN > 100",
+    priceMonthly: 2399,
+    priceYearly: 19999,
+    overageMonthlyPerGstin: 25,
+    overageYearlyPerGstin: 200,
+    gstinCapacity: "100+ GSTINs",
+    gstinLimit: 100,
+    blurb: "Dynamic usage-scaled pricing for multi-partner firms managing over 100 GSTINs.",
+    cta: "Talk to us",
+    ctaHref: "mailto:contact@recondesk.in?subject=Firm%20Plan%20Enquiry",
+    featured: false,
+    isFirm: true,
+    highlights: [
+      {
+        header: "100% Full Desk Access",
+        benefit: "Zero feature gating with unlimited GSTIN capacity scaling",
+      },
+      {
+        header: "Usage-Scaled Beyond 100",
+        benefit: "₹25/mo or ₹200/yr per additional GSTIN beyond 100 clients",
+      },
+      {
+        header: "Dedicated Account Support",
+        benefit: "Priority support, onboarding training, and custom ERP integration assistance",
       },
     ],
   },
 ];
 
+export function formatInr(amount: number): string {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+export function calculateFirmPrice(
+  cycle: BillingCycle,
+  totalGstinCount: number
+): {
+  basePrice: number;
+  extraGstins: number;
+  overageRate: number;
+  overageAmount: number;
+  totalBeforeGst: number;
+  gstAmount: number;
+  totalWithGst: number;
+} {
+  const isYearly = cycle === "yearly";
+  const basePrice = isYearly ? 19999 : 2399;
+  const overageRate = isYearly ? 200 : 25;
+  const extraGstins = Math.max(0, totalGstinCount - 100);
+  const overageAmount = extraGstins * overageRate;
+  const totalBeforeGst = basePrice + overageAmount;
+  const gstAmount = Math.round(totalBeforeGst * 0.18);
+  const totalWithGst = totalBeforeGst + gstAmount;
+
+  return {
+    basePrice,
+    extraGstins,
+    overageRate,
+    overageAmount,
+    totalBeforeGst,
+    gstAmount,
+    totalWithGst,
+  };
+}

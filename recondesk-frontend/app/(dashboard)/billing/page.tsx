@@ -128,11 +128,13 @@ export default function BillingPage() {
     document.getElementById("choose-plan")?.scrollIntoView({ behavior: "smooth" });
   }
 
-  async function onBuyPlan(plan: CheckoutPlan) {
+  async function onBuyPlan(plan: CheckoutPlan, cycle: "monthly" | "yearly" = "yearly", customGstinLimit?: number) {
     setCheckoutError(null);
     setCheckoutPlan(plan);
     try {
       await startPlanCheckout(plan, {
+        billingCycle: cycle,
+        customGstinLimit,
         onSuccess: () => {
           void mutateStatus();
           void mutateHistory();
@@ -282,8 +284,8 @@ export default function BillingPage() {
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Choose a plan</h2>
           <p className="mt-1 max-w-3xl text-sm text-gray-500">
-            One product. Three capacities. Every plan includes the full desk — you only scale
-            GSTINs. Prices exclude 18% GST.
+            One product. Four tiers (Starter, Growth, Pro, Firm). Every plan includes the full desk — you only scale
+            GSTIN capacity. All prices exclude 18% GST.
           </p>
         </div>
 
@@ -292,7 +294,8 @@ export default function BillingPage() {
         <PricingGrid
           isDashboard
           loadingPlan={checkoutPlan}
-          onSelectPlan={(planId) => void onBuyPlan(planId)}
+          connectedGstins={status?.gstins_used || 100}
+          onSelectPlan={(planId, cycle, customLimit) => void onBuyPlan(planId, cycle, customLimit)}
         />
       </section>
 
@@ -426,10 +429,11 @@ function BillingBanner({
 
 function gstinsForPlan(plan: string | null | undefined): string {
   const p = (plan || "").toLowerCase();
-  if (p === "monthly") return "25";
-  if (p === "starter") return "50";
-  if (p === "growth") return "100";
+  if (p === "starter") return "25";
+  if (p === "growth") return "50";
   if (p === "pro") return "100";
+  if (p === "firm") return "100+";
+  if (p === "monthly") return "25";
   return "—";
 }
 

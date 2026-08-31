@@ -23,33 +23,90 @@ def _with_gst(base_paise: int) -> dict[str, int]:
     }
 
 
-# GSTIN-based plans. Paid subscription = unlimited runs until subscription_ends_at.
-PLAN_CONFIG: dict[str, dict[str, int | str]] = {
-    "monthly": {
-        **_with_gst(999_00),
-        "gstin_limit": 25,
-        "period_days": 30,
-        "billing_period": "monthly",
-    },
+# GSTIN-based plans (V2 pricing). Paid subscription = unlimited runs until subscription_ends_at.
+PLAN_CONFIG: dict[str, dict[str, Any]] = {
     "starter": {
-        **_with_gst(599_900),
+        **_with_gst(9999_00),
+        "gstin_limit": 25,
+        "period_days": 365,
+        "billing_period": "yearly",
+        "monthly": {**_with_gst(1199_00), "period_days": 30, "gstin_limit": 25},
+        "yearly": {**_with_gst(9999_00), "period_days": 365, "gstin_limit": 25},
+    },
+    "growth": {
+        **_with_gst(14999_00),
         "gstin_limit": 50,
         "period_days": 365,
         "billing_period": "yearly",
-    },
-    "growth": {
-        **_with_gst(999_900),
-        "gstin_limit": 100,
-        "period_days": 365,
-        "billing_period": "yearly",
+        "monthly": {**_with_gst(1799_00), "period_days": 30, "gstin_limit": 50},
+        "yearly": {**_with_gst(14999_00), "period_days": 365, "gstin_limit": 50},
     },
     "pro": {
-        **_with_gst(999_900),
+        **_with_gst(19999_00),
         "gstin_limit": 100,
         "period_days": 365,
         "billing_period": "yearly",
+        "monthly": {**_with_gst(2399_00), "period_days": 30, "gstin_limit": 100},
+        "yearly": {**_with_gst(19999_00), "period_days": 365, "gstin_limit": 100},
+    },
+    "firm": {
+        **_with_gst(19999_00),
+        "gstin_limit": 100,
+        "period_days": 365,
+        "billing_period": "yearly",
+        "monthly": {**_with_gst(2399_00), "period_days": 30, "gstin_limit": 100, "overage_rate_paise": 25_00},
+        "yearly": {**_with_gst(19999_00), "period_days": 365, "gstin_limit": 100, "overage_rate_paise": 200_00},
+    },
+    # Backward compatibility for legacy 'monthly' key
+    "monthly": {
+        **_with_gst(1199_00),
+        "gstin_limit": 25,
+        "period_days": 30,
+        "billing_period": "monthly",
+        "monthly": {**_with_gst(1199_00), "period_days": 30, "gstin_limit": 25},
+        "yearly": {**_with_gst(9999_00), "period_days": 365, "gstin_limit": 25},
     },
 }
+
+
+def get_plan_details(
+    plan: str,
+    billing_period: str = "yearly",
+    total_gstins: int | None = None,
+) -> dict[str, Any]:
+    """Calculate pricing, GST, entitlements, and overages for a plan and billing period."""
+    plan_key = (plan or "starter").strip().lower()
+    if plan_key not in PLAN_CONFIG:
+        plan_key = "starter"
+    period_key = "monthly" if (billing_period or "").strip().lower() == "monthly" else "yearly"
+
+    cfg = PLAN_CONFIG[plan_key]
+    sub_cfg = cfg.get(period_key, cfg)
+    base_paise = int(sub_cfg.get("base_paise", 9999_00))
+    period_days = int(sub_cfg.get("period_days", 365 if period_key == "yearly" else 30))
+    gstin_limit = int(cfg.get("gstin_limit", 25))
+
+    overage_gstins = 0
+    overage_rate_paise = 0
+    if plan_key == "firm":
+        overage_rate_paise = int(sub_cfg.get("overage_rate_paise", 200_00 if period_key == "yearly" else 25_00))
+        if total_gstins is not None and total_gstins > 100:
+            overage_gstins = total_gstins - 100
+            gstin_limit = total_gstins
+            base_paise += overage_gstins * overage_rate_paise
+
+    gst_info = _with_gst(base_paise)
+    return {
+        "plan": plan_key,
+        "billing_period": period_key,
+        "base_paise": gst_info["base_paise"],
+        "gst_paise": gst_info["gst_paise"],
+        "total_paise": gst_info["total_paise"],
+        "gstin_limit": gstin_limit,
+        "period_days": period_days,
+        "overage_gstins": overage_gstins,
+        "overage_rate_paise": overage_rate_paise,
+    }
 
 FREE_GSTIN_LIMIT = 1
 BATCH_VALID_DAYS = 30  # legacy run-credit batches
@@ -380,15 +437,16 @@ async def activate_subscription(
     plan: str,
     payment_id: str | None,
     *,
+    billing_cycle: str = "yearly",
+    plan_version: int = 2,
+    custom_gstin_limit: int | None = None,
     log_ip: str | None = None,
 ) -> dict[str, Any]:
-    """Activate or extend a GSTIN subscription for the firm owner."""
-    if plan not in PLAN_CONFIG:
-        raise ValueError("invalid plan")
-    cfg = PLAN_CONFIG[plan]
+    """Activate or extend a GSTIN subscription for the firm owner with V2 plan and cycle support."""
+    details = get_plan_details(plan, billing_cycle, custom_gstin_limit)
+    period_days = int(details["period_days"])
+    gstin_limit = custom_gstin_limit if custom_gstin_limit is not None else int(details["gstin_limit"])
     sb = get_supabase()
-    period_days = int(cfg["period_days"])
-    gstin_limit = int(cfg["gstin_limit"])
 
     existing_end = None
     try:
@@ -412,18 +470,29 @@ async def activate_subscription(
     ends_at = base + timedelta(days=period_days)
     ends_iso = ends_at.isoformat()
 
+    update_payload: dict[str, Any] = {
+        "plan": details["plan"],
+        "plan_version": plan_version,
+        "billing_cycle": details["billing_period"],
+        "gstin_limit": gstin_limit,
+        "subscription_ends_at": ends_iso,
+    }
+    if details.get("overage_gstins", 0) > 0:
+        update_payload["overage_gstin_count"] = details["overage_gstins"]
+
     try:
-        sb.table("user_profiles").update(
-            {
-                "plan": plan,
+        sb.table("user_profiles").update(update_payload).eq("id", user_id).execute()
+    except Exception as exc:  # noqa: BLE001
+        # Fallback if columns are not migrated
+        _log.warning("activate_subscription full update failed, falling back: %s", exc)
+        try:
+            sb.table("user_profiles").update({
+                "plan": details["plan"],
                 "gstin_limit": gstin_limit,
                 "subscription_ends_at": ends_iso,
-            }
-        ).eq("id", user_id).execute()
-    except Exception as exc:  # noqa: BLE001
-        # Migration may not be applied yet — still mark plan so UI reflects purchase.
-        _log.warning("activate_subscription full update failed, falling back: %s", exc)
-        sb.table("user_profiles").update({"plan": plan}).eq("id", user_id).execute()
+            }).eq("id", user_id).execute()
+        except Exception:
+            sb.table("user_profiles").update({"plan": details["plan"]}).eq("id", user_id).execute()
 
     await log_action(
         user_id,
@@ -431,7 +500,9 @@ async def activate_subscription(
         "user_profile",
         payment_id or user_id,
         {
-            "plan": plan,
+            "plan": details["plan"],
+            "plan_version": plan_version,
+            "billing_cycle": details["billing_period"],
             "gstin_limit": gstin_limit,
             "period_days": period_days,
             "subscription_ends_at": ends_iso,
@@ -440,7 +511,9 @@ async def activate_subscription(
         ip_address=log_ip,
     )
     return {
-        "plan": plan,
+        "plan": details["plan"],
+        "plan_version": plan_version,
+        "billing_cycle": details["billing_period"],
         "gstin_limit": gstin_limit,
         "subscription_ends_at": ends_iso,
         "period_days": period_days,

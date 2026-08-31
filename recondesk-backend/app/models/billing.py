@@ -15,6 +15,8 @@ class PlanType(str, Enum):
     STARTER = "starter"
     GROWTH = "growth"
     PRO = "pro"
+    FIRM = "firm"
+    MONTHLY = "monthly"
     ENTERPRISE = "enterprise"
 
 

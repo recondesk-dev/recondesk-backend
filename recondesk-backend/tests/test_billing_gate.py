@@ -5,6 +5,7 @@ from app.services.billing_gate import (
     FREE_RUNS_ALLOCATION,
     PLAN_CONFIG,
     _is_successful_run_status,
+    get_plan_details,
 )
 
 
@@ -25,22 +26,44 @@ def test_free_gstin_limit_is_one():
     assert FREE_GSTIN_LIMIT == 1
 
 
-def test_gstin_plan_catalog():
-    assert set(PLAN_CONFIG) == {"monthly", "starter", "growth", "pro"}
-    assert PLAN_CONFIG["monthly"]["gstin_limit"] == 25
-    assert PLAN_CONFIG["monthly"]["period_days"] == 30
-    assert PLAN_CONFIG["monthly"]["base_paise"] == 999_00
-    assert PLAN_CONFIG["starter"]["gstin_limit"] == 50
-    assert PLAN_CONFIG["starter"]["period_days"] == 365
-    assert PLAN_CONFIG["starter"]["base_paise"] == 599_900
-    assert PLAN_CONFIG["growth"]["gstin_limit"] == 100
-    assert PLAN_CONFIG["growth"]["period_days"] == 365
-    assert PLAN_CONFIG["growth"]["base_paise"] == 999_900
-    assert PLAN_CONFIG["pro"]["gstin_limit"] == 100
-    assert PLAN_CONFIG["pro"]["period_days"] == 365
-    assert PLAN_CONFIG["pro"]["base_paise"] == 999_900
-    for cfg in PLAN_CONFIG.values():
-        assert cfg["total_paise"] == cfg["base_paise"] + cfg["gst_paise"]
+def test_gstin_plan_catalog_v2():
+    assert {"starter", "growth", "pro", "firm"}.issubset(set(PLAN_CONFIG))
+    # Starter
+    st_yr = get_plan_details("starter", "yearly")
+    assert st_yr["gstin_limit"] == 25
+    assert st_yr["period_days"] == 365
+    assert st_yr["base_paise"] == 9999_00
+    st_mo = get_plan_details("starter", "monthly")
+    assert st_mo["gstin_limit"] == 25
+    assert st_mo["period_days"] == 30
+    assert st_mo["base_paise"] == 1199_00
+
+    # Growth
+    gr_yr = get_plan_details("growth", "yearly")
+    assert gr_yr["gstin_limit"] == 50
+    assert gr_yr["base_paise"] == 14999_00
+    gr_mo = get_plan_details("growth", "monthly")
+    assert gr_mo["gstin_limit"] == 50
+    assert gr_mo["base_paise"] == 1799_00
+
+    # Pro
+    pro_yr = get_plan_details("pro", "yearly")
+    assert pro_yr["gstin_limit"] == 100
+    assert pro_yr["base_paise"] == 19999_00
+    pro_mo = get_plan_details("pro", "monthly")
+    assert pro_mo["gstin_limit"] == 100
+    assert pro_mo["base_paise"] == 2399_00
+
+    # Firm base and overage
+    firm_yr = get_plan_details("firm", "yearly", total_gstins=120)
+    assert firm_yr["gstin_limit"] == 120
+    assert firm_yr["overage_gstins"] == 20
+    assert firm_yr["base_paise"] == 19999_00 + 20 * 200_00
+
+    firm_mo = get_plan_details("firm", "monthly", total_gstins=110)
+    assert firm_mo["gstin_limit"] == 110
+    assert firm_mo["overage_gstins"] == 10
+    assert firm_mo["base_paise"] == 2399_00 + 10 * 25_00
 
 
 def test_expected_free_runs_after_successful_runs():

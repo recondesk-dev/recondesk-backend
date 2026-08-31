@@ -4,12 +4,12 @@ from app.config import settings
 
 _client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
-# Amounts in paise (INR). Matches billing_gate.PLAN_CONFIG base amounts.
 PLAN_PRICES = {
-    "monthly": {"monthly": 999_00},
-    "starter": {"yearly": 599_900},
-    "growth": {"yearly": 999_900},
-    "pro": {"yearly": 999_900},
+    "starter": {"monthly": 1199_00, "yearly": 9999_00},
+    "growth": {"monthly": 1799_00, "yearly": 14999_00},
+    "pro": {"monthly": 2399_00, "yearly": 19999_00},
+    "firm": {"monthly": 2399_00, "yearly": 19999_00},
+    "monthly": {"monthly": 1199_00, "yearly": 9999_00},
 }
 
 

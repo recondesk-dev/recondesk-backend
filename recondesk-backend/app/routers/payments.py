@@ -28,6 +28,7 @@ from app.services.billing_gate import (
     count_gstins_toward_limit,
     forfeit_expired_credit_batches,
     get_gstin_limit,
+    get_plan_details,
     has_active_subscription,
     resolve_firm_owner_for_billing,
     sync_billing_credits,
@@ -58,6 +59,8 @@ def _verify_webhook(body: bytes, signature: str) -> bool:
 class CreateOrderBody(BaseModel):
     plan: str = Field(..., min_length=1)
     run_id: str = Field(..., min_length=1)
+    billing_period: str = Field(default="yearly")
+    custom_gstin_limit: int | None = None
 
 
 class VerifyBody(BaseModel):
@@ -66,6 +69,8 @@ class VerifyBody(BaseModel):
     signature: str = Field(..., min_length=1)
     run_id: str = Field(..., min_length=1)
     plan: str = Field(..., min_length=1)
+    billing_period: str = Field(default="yearly")
+    custom_gstin_limit: int | None = None
 
 
 def _parse_uuid(run_id: str, field: str = "run_id") -> str:
@@ -87,11 +92,7 @@ async def payments_create_order(
     db: Client = Depends(supabase_client),
 ):
     plan = payload.plan.strip().lower()
-    if plan not in PLAN_CONFIG:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="invalid plan",
-        )
+    billing_period = payload.billing_period.strip().lower()
     run_id = _parse_uuid(payload.run_id)
     row = assert_run_accessible(db, run_id, current_user)
     if row.get("paid_at"):
@@ -118,21 +119,24 @@ async def payments_create_order(
             "free_runs_remaining": free_left,
         }
 
-    cfg = PLAN_CONFIG[plan]
+    details = get_plan_details(plan, billing_period, payload.custom_gstin_limit)
     receipt = run_id.replace("-", "")[:8]
     try:
         order = _client.order.create(
             {
-                "amount": int(cfg["total_paise"]),
+                "amount": int(details["total_paise"]),
                 "currency": "INR",
                 "payment_capture": 1,
                 "receipt": receipt[:8],
                 "notes": {
                     "user_id": firm_owner,
                     "run_id": run_id,
-                    "plan": plan,
-                    "gstin_limit": str(cfg["gstin_limit"]),
-                    "period_days": str(cfg["period_days"]),
+                    "plan": details["plan"],
+                    "plan_version": "2",
+                    "billing_period": details["billing_period"],
+                    "gstin_limit": str(details["gstin_limit"]),
+                    "period_days": str(details["period_days"]),
+                    "overage_gstins": str(details["overage_gstins"]),
                 },
             }
         )
@@ -148,20 +152,22 @@ async def payments_create_order(
         "PAYMENT_ORDER_CREATED",
         "razorpay_order",
         str(order.get("id")),
-        {"plan": plan, "amount": int(cfg["total_paise"]), "run_id": run_id},
+        {"plan": details["plan"], "amount": int(details["total_paise"]), "run_id": run_id},
         ip_address=(request.client.host if request.client else None),
     )
 
     return {
         "order_id": order["id"],
-        "amount": int(cfg["total_paise"]),
+        "amount": int(details["total_paise"]),
         "currency": order.get("currency", "INR"),
         "key": settings.RAZORPAY_KEY_ID,
-        "plan": plan,
-        "gstin_limit": int(cfg["gstin_limit"]),
-        "period_days": int(cfg["period_days"]),
-        "base": int(cfg["base_paise"]),
-        "gst": int(cfg["gst_paise"]),
+        "plan": details["plan"],
+        "billing_period": details["billing_period"],
+        "gstin_limit": int(details["gstin_limit"]),
+        "period_days": int(details["period_days"]),
+        "base": int(details["base_paise"]),
+        "gst": int(details["gst_paise"]),
+        "overage_gstins": int(details["overage_gstins"]),
     }
 
 
@@ -174,8 +180,7 @@ async def payments_verify(
     db: Client = Depends(supabase_client),
 ):
     plan = payload.plan.strip().lower()
-    if plan not in PLAN_CONFIG:
-        raise HTTPException(status_code=400, detail="invalid plan")
+    billing_period = payload.billing_period.strip().lower()
     run_id = _parse_uuid(payload.run_id)
     if not verify_payment_signature(
         payload.order_id.strip(),
@@ -217,29 +222,55 @@ async def payments_verify(
     from app.services.firm_access import get_firm_owner_for_client
 
     firm_owner = get_firm_owner_for_client(db, str(row["client_gstin_id"]))
-    cfg = PLAN_CONFIG[plan]
+    details = get_plan_details(plan, billing_period, payload.custom_gstin_limit)
 
     pay_row = {
         "firm_owner_id": firm_owner,
         "run_id": run_id,
         "razorpay_order_id": payload.order_id.strip(),
         "razorpay_payment_id": pay_id,
-        "amount_paise": int(cfg["total_paise"]),
+        "amount_paise": int(details["total_paise"]),
         "status": "paid",
-        "plan": plan,
+        "plan": details["plan"],
+        "plan_version": 2,
+        "billing_cycle": details["billing_period"],
+        "gstin_limit": int(details["gstin_limit"]),
+        "overage_gstins": int(details["overage_gstins"]),
+        "overage_rate_paise": int(details["overage_rate_paise"]),
         "runs_purchased": 0,
-        "base_amount_paise": int(cfg["base_paise"]),
-        "gst_paise": int(cfg["gst_paise"]),
-        "total_amount_paise": int(cfg["total_paise"]),
+        "base_amount_paise": int(details["base_paise"]),
+        "gst_paise": int(details["gst_paise"]),
+        "total_amount_paise": int(details["total_paise"]),
     }
-    ins = db.table("payments").insert(pay_row).execute()
+    try:
+        ins = db.table("payments").insert(pay_row).execute()
+    except Exception as exc:
+        _log.warning("payments insert with v2 fields failed, falling back: %s", exc)
+        fallback_row = {
+            "firm_owner_id": firm_owner,
+            "run_id": run_id,
+            "razorpay_order_id": payload.order_id.strip(),
+            "razorpay_payment_id": pay_id,
+            "amount_paise": int(details["total_paise"]),
+            "status": "paid",
+            "plan": details["plan"],
+            "runs_purchased": 0,
+            "base_amount_paise": int(details["base_paise"]),
+            "gst_paise": int(details["gst_paise"]),
+            "total_amount_paise": int(details["total_paise"]),
+        }
+        ins = db.table("payments").insert(fallback_row).execute()
+
     payment_rec = (ins.data or [{}])[0]
     payment_uuid = str(payment_rec.get("id", ""))
 
     sub = await activate_subscription(
         firm_owner,
-        plan,
+        details["plan"],
         payment_uuid if payment_uuid else None,
+        billing_cycle=details["billing_period"],
+        plan_version=2,
+        custom_gstin_limit=details["gstin_limit"],
         log_ip=(request.client.host if request.client else None),
     )
     await consume_run_credit(firm_owner)
@@ -260,8 +291,8 @@ async def payments_verify(
                     send_payment_receipt_email(
                         owner_email,
                         owner_name,
-                        plan,
-                        int(cfg["total_paise"]),
+                        details["plan"],
+                        int(details["total_paise"]),
                         payment_uuid,
                     )
                 )
@@ -273,7 +304,7 @@ async def payments_verify(
         "PAYMENT_VERIFIED",
         "payment",
         payment_uuid,
-        {"razorpay_payment_id": pay_id, "plan": plan, "run_id": run_id},
+        {"razorpay_payment_id": pay_id, "plan": details["plan"], "run_id": run_id},
         ip_address=(request.client.host if request.client else None),
     )
 

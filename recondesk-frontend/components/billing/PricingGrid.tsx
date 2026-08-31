@@ -1,8 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, type ReactNode } from "react";
-import { PRICING_PLANS, type PricingPlan } from "@/lib/pricing-data";
+import { Fragment, useState, type ReactNode } from "react";
+import {
+  PRICING_PLANS,
+  formatInr,
+  calculateFirmPrice,
+  type BillingCycle,
+  type PricingPlan,
+  type PricingTierId,
+} from "@/lib/pricing-data";
 
 function formatRupeeText(text: string | undefined): ReactNode {
   if (!text) return text;
@@ -25,14 +32,65 @@ function formatRupeeText(text: string | undefined): ReactNode {
 }
 
 type PricingGridProps = {
-  onSelectPlan?: (planId: "monthly" | "starter" | "growth") => void;
+  onSelectPlan?: (planId: PricingTierId, cycle: BillingCycle, customGstinLimit?: number) => void;
   loadingPlan?: string | null;
   isDashboard?: boolean;
+  connectedGstins?: number;
 };
 
-export function PricingGrid({ onSelectPlan, loadingPlan, isDashboard = false }: PricingGridProps) {
+export function PricingGrid({
+  onSelectPlan,
+  loadingPlan,
+  isDashboard = false,
+  connectedGstins = 100,
+}: PricingGridProps) {
+  const [cycle, setCycle] = useState<BillingCycle>("yearly");
+  const [firmGstinCount, setFirmGstinCount] = useState<number>(Math.max(100, connectedGstins || 100));
+
   return (
     <div className="space-y-8">
+      {/* Monthly / Yearly Billing Toggle Switch */}
+      <div className="flex flex-col items-center justify-center gap-3 pt-2">
+        <div className="inline-flex items-center rounded-full bg-slate-100 p-1.5 shadow-inner ring-1 ring-slate-200">
+          <button
+            type="button"
+            onClick={() => setCycle("monthly")}
+            className={`relative rounded-full px-5 py-2 text-sm font-semibold transition-all duration-200 ${
+              cycle === "monthly"
+                ? "bg-white text-[var(--ink)] shadow-md"
+                : "text-gray-600 hover:text-[var(--ink)]"
+            }`}
+          >
+            Monthly
+          </button>
+          <button
+            type="button"
+            onClick={() => setCycle("yearly")}
+            className={`relative flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold transition-all duration-200 ${
+              cycle === "yearly"
+                ? "bg-[var(--ink)] text-white shadow-md"
+                : "text-gray-600 hover:text-[var(--ink)]"
+            }`}
+          >
+            <span>Yearly</span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider ${
+                cycle === "yearly"
+                  ? "bg-emerald-500 text-white"
+                  : "bg-emerald-100 text-emerald-800"
+              }`}
+            >
+              Save ~30%
+            </span>
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">
+          {cycle === "yearly"
+            ? "Annual subscription — lowest effective rate per client GSTIN"
+            : "Flexible month-to-month access with zero lock-in"}
+        </p>
+      </div>
+
       {/* Shared "Included in ALL Plans" Bar */}
       <div className="mx-auto max-w-7xl rounded-2xl border border-slate-200/80 bg-white/70 p-5 shadow-sm backdrop-blur-md">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/60 pb-3 mb-4">
@@ -62,7 +120,7 @@ export function PricingGrid({ onSelectPlan, loadingPlan, isDashboard = false }: 
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </span>
-            <span className="font-semibold text-slate-800">Decision Layer AI</span>
+            <span className="font-semibold text-slate-800">IMS Recommendations</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="shrink-0 rounded-full bg-emerald-100 p-1 text-emerald-700">
@@ -70,7 +128,7 @@ export function PricingGrid({ onSelectPlan, loadingPlan, isDashboard = false }: 
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </span>
-            <span className="font-semibold text-slate-800">GSTR-3B & 1A Tie-outs</span>
+            <span className="font-semibold text-slate-800">Rule 37 & 17(5) Engine</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="shrink-0 rounded-full bg-emerald-100 p-1 text-emerald-700">
@@ -78,7 +136,7 @@ export function PricingGrid({ onSelectPlan, loadingPlan, isDashboard = false }: 
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </span>
-            <span className="font-semibold text-slate-800">E-Invoice & IRN Lookup</span>
+            <span className="font-semibold text-slate-800">RCM Reconciliation</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="shrink-0 rounded-full bg-emerald-100 p-1 text-emerald-700">
@@ -86,7 +144,7 @@ export function PricingGrid({ onSelectPlan, loadingPlan, isDashboard = false }: 
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </span>
-            <span className="font-semibold text-slate-800">IMS Direct Writeback</span>
+            <span className="font-semibold text-slate-800">Audit Observations</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="shrink-0 rounded-full bg-emerald-100 p-1 text-emerald-700">
@@ -94,7 +152,7 @@ export function PricingGrid({ onSelectPlan, loadingPlan, isDashboard = false }: 
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </span>
-            <span className="font-semibold text-slate-800">Live Tally Bridge Sync</span>
+            <span className="font-semibold text-slate-800">Supplier Scorecard</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="shrink-0 rounded-full bg-emerald-100 p-1 text-emerald-700">
@@ -102,7 +160,7 @@ export function PricingGrid({ onSelectPlan, loadingPlan, isDashboard = false }: 
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </span>
-            <span className="font-semibold text-slate-800">Multi-Period Audit (9C)</span>
+            <span className="font-semibold text-slate-800">GSTR-1 & 3B Filing</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="shrink-0 rounded-full bg-emerald-100 p-1 text-emerald-700">
@@ -110,7 +168,7 @@ export function PricingGrid({ onSelectPlan, loadingPlan, isDashboard = false }: 
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </span>
-            <span className="font-semibold text-slate-800">Rule 37 & 17(5) Reversals</span>
+            <span className="font-semibold text-slate-800">Live Tally Bridge</span>
           </div>
         </div>
       </div>
@@ -121,9 +179,12 @@ export function PricingGrid({ onSelectPlan, loadingPlan, isDashboard = false }: 
           <PricingCard
             key={plan.id}
             plan={plan}
+            cycle={cycle}
             onSelectPlan={onSelectPlan}
             loadingPlan={loadingPlan}
             isDashboard={isDashboard}
+            firmGstinCount={firmGstinCount}
+            onFirmGstinChange={setFirmGstinCount}
           />
         ))}
       </div>
@@ -133,24 +194,49 @@ export function PricingGrid({ onSelectPlan, loadingPlan, isDashboard = false }: 
 
 function PricingCard({
   plan,
+  cycle,
   onSelectPlan,
   loadingPlan,
   isDashboard,
+  firmGstinCount,
+  onFirmGstinChange,
 }: {
   plan: PricingPlan;
-  onSelectPlan?: (planId: "monthly" | "starter" | "growth") => void;
+  cycle: BillingCycle;
+  onSelectPlan?: (planId: PricingTierId, cycle: BillingCycle, customGstinLimit?: number) => void;
   loadingPlan?: string | null;
   isDashboard?: boolean;
+  firmGstinCount: number;
+  onFirmGstinChange: (count: number) => void;
 }) {
   const isGrowth = plan.id === "growth";
-  const isCustom = plan.id === "custom";
+  const isFirm = plan.id === "firm";
+  const isYearly = cycle === "yearly";
+
+  const rawPrice = isYearly ? plan.priceYearly : plan.priceMonthly;
+  const periodLabel = isYearly ? "/year" : "/month";
+
+  // Dynamic Firm calculation
+  const firmCalc = calculateFirmPrice(cycle, firmGstinCount);
+
+  // Badge logic
+  const displayedBadge = isYearly ? (plan.badgeYearly || plan.badge) : plan.badge;
+  const displayedValueTag = isYearly ? plan.valueTagYearly : plan.valueTagMonthly;
+
+  const displayPriceText = isFirm
+    ? isDashboard
+      ? formatInr(firmCalc.totalBeforeGst)
+      : isYearly
+        ? "₹19,999"
+        : "₹2,399"
+    : formatInr(rawPrice);
 
   return (
     <article
       className={`liquid-glass-card ${
         isGrowth ? "liquid-glass-card--featured ring-2 ring-[var(--ink)] shadow-xl scale-[1.02]" : ""
       } ${
-        isCustom ? "border-slate-300/80 bg-gradient-to-b from-slate-50/90 to-white/70" : ""
+        isFirm ? "border-slate-300/80 bg-gradient-to-b from-slate-50/90 to-white/70" : ""
       } flex h-full flex-col p-6 transition-all duration-300`}
     >
       <span className="liquid-glass-card__blob liquid-glass-card__blob--a" aria-hidden />
@@ -160,12 +246,12 @@ function PricingCard({
         {/* Header & Badge */}
         <div className="flex items-center justify-between gap-2 min-h-[28px]">
           <h2 className="text-xl font-bold tracking-tight text-[var(--ink)]">{plan.name}</h2>
-          {plan.badge && (
+          {displayedBadge && (
             <span
               className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider shadow-sm flex items-center gap-1 ${
                 isGrowth
                   ? "bg-[var(--ink)] text-white"
-                  : isCustom
+                  : isFirm
                   ? "bg-slate-200/90 text-slate-800"
                   : plan.id === "starter"
                   ? "bg-amber-100 text-amber-900 border border-amber-200"
@@ -177,7 +263,7 @@ function PricingCard({
                   <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                 </svg>
               )}
-              {plan.badge}
+              {displayedBadge}
             </span>
           )}
         </div>
@@ -185,14 +271,51 @@ function PricingCard({
 
         {/* Pricing & GSTIN Capacity framing */}
         <div className="mt-5 border-b border-gray-200/60 pb-5">
-          <div className="flex items-baseline gap-1">
-            <span className="text-4xl font-extrabold tracking-tight text-[var(--ink)] tabular-nums">
-              {formatRupeeText(plan.priceDisplay)}
-            </span>
-            {plan.periodLabel && (
-              <span className="text-sm font-medium text-gray-500">{plan.periodLabel}</span>
-            )}
-          </div>
+          {isFirm && !isDashboard ? (
+            <div>
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Starting at</p>
+              <div className="flex items-baseline gap-1">
+                <span className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[var(--ink)] tabular-nums">
+                  {formatRupeeText(displayPriceText)}
+                </span>
+                <span className="text-sm font-medium text-gray-500">{periodLabel}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-baseline gap-1">
+              <span className="text-4xl font-extrabold tracking-tight text-[var(--ink)] tabular-nums">
+                {formatRupeeText(displayPriceText)}
+              </span>
+              <span className="text-sm font-medium text-gray-500">{periodLabel}</span>
+            </div>
+          )}
+
+          {/* Dynamic GSTIN scaling selector for Firm in dashboard */}
+          {isFirm && isDashboard && (
+            <div className="mt-3 rounded-xl bg-slate-50 p-2.5 text-xs text-gray-700 ring-1 ring-slate-200">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="firm-gstins" className="font-semibold text-slate-800">
+                  Total GSTINs:
+                </label>
+                <input
+                  id="firm-gstins"
+                  type="number"
+                  min={100}
+                  step={5}
+                  value={firmGstinCount}
+                  onChange={(e) => onFirmGstinChange(Math.max(100, parseInt(e.target.value, 10) || 100))}
+                  className="w-20 rounded border border-gray-300 bg-white px-2 py-1 text-right font-bold text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-black"
+                />
+              </div>
+              {firmCalc.extraGstins > 0 ? (
+                <p className="mt-1 text-[11px] text-gray-500">
+                  Includes 100 base + {firmCalc.extraGstins} extra @ ₹{firmCalc.overageRate}/{isYearly ? "yr" : "mo"}
+                </p>
+              ) : (
+                <p className="mt-1 text-[11px] text-gray-500">Base capacity for 100 GSTINs</p>
+              )}
+            </div>
+          )}
 
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-[var(--ink)] ring-1 ring-slate-200">
@@ -209,9 +332,9 @@ function PricingCard({
                   d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5m0 0h4m-4 0V11m0 0T9.5 9.5M12 11t2.5-1.5"
                 />
               </svg>
-              {plan.gstinCapacity}
+              {isFirm && isDashboard ? `${firmGstinCount} GSTINs` : plan.gstinCapacity}
             </span>
-            {plan.valueTag && (
+            {displayedValueTag && (
               <span
                 className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
                   isGrowth
@@ -221,22 +344,20 @@ function PricingCard({
                     : "bg-slate-100 text-slate-600"
                 }`}
               >
-                {formatRupeeText(plan.valueTag)}
+                {formatRupeeText(displayedValueTag)}
               </span>
             )}
           </div>
 
-          <p className="mt-2 text-xs text-gray-500">
-            {isCustom
-              ? "Tailored agreement · Custom billing cycles"
-              : "Excl. 18% GST · Unlimited runs in period"}
+          <p className="mt-2 text-xs font-semibold text-slate-600">
+            +18% GST · Unlimited runs in period
           </p>
 
           {/* Primary Call to Action Button */}
           <div className="mt-4">
-            {isCustom ? (
+            {isFirm && !isDashboard ? (
               <a
-                href={plan.ctaHref || "mailto:contact@recondesk.in?subject=Custom%20Enterprise%20Plan%20Enquiry"}
+                href={plan.ctaHref || "mailto:contact@recondesk.in?subject=Firm%20Plan%20Enquiry"}
                 className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-6 py-2.5 text-sm font-semibold text-white shadow-md transition-opacity hover:opacity-90"
               >
                 {plan.cta} →
@@ -245,14 +366,14 @@ function PricingCard({
               <button
                 type="button"
                 disabled={loadingPlan !== null}
-                onClick={() => onSelectPlan(plan.id as "monthly" | "starter" | "growth")}
+                onClick={() => onSelectPlan(plan.id, cycle, isFirm ? firmGstinCount : undefined)}
                 className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-6 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loadingPlan === plan.id ? "Opening checkout…" : `${plan.cta} →`}
               </button>
             ) : (
               <Link
-                href={`/auth/signup?plan=${plan.id}`}
+                href={`/auth/signup?plan=${plan.id}&cycle=${cycle}`}
                 className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-6 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90"
               >
                 {plan.cta} →

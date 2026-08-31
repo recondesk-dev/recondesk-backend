@@ -25,11 +25,11 @@ const FAQ_ITEMS = [
   },
   {
     q: "How is pricing structured?",
-    a: "Plans are priced by GSTIN capacity — Starter ₹999/month (25 GSTINs), Growth ₹7,999/year (50), Pro ₹11,999/year (75). Every plan includes the full product.",
+    a: "Plans are priced strictly by GSTIN capacity — Starter up to 25 GSTINs (₹1,199/mo · ₹9,999/yr), Growth up to 50 GSTINs (₹1,799/mo · ₹14,999/yr), Pro up to 100 GSTINs (₹2,399/mo · ₹19,999/yr), and Firm 100+ GSTINs (+₹25/mo or +₹200/yr per extra GSTIN). Every plan includes 100% of product features with zero feature gating.",
   },
   {
     q: "How does billing work?",
-    a: "Manual payment via Razorpay. Starter is monthly; Growth and Pro are yearly. No auto-debit — you choose when to renew.",
+    a: "Payments are processed securely via Razorpay. Choose flexible monthly billing or save ~30% with yearly billing. All listed prices exclude 18% GST.",
   },
 ] as const;
 
