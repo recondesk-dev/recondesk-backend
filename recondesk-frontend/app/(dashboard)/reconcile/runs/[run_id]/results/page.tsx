@@ -150,6 +150,20 @@ const DEFAULT_AUTO_APPROVE_THRESHOLD = 95;
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+function formatPeriod(period: string): string {
+  if (!period) return "";
+  const parts = period.split("-");
+  if (parts.length !== 2) return period;
+  const [year, month] = parts;
+  const y = parseInt(year, 10);
+  const m = parseInt(month, 10);
+  if (isNaN(y) || isNaN(m)) return period;
+  const date = new Date(y, m - 1);
+  return isNaN(date.getTime())
+    ? period
+    : date.toLocaleString("en-IN", { month: "long", year: "numeric" });
+}
+
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 type MatchLevel = "EXACT" | "FUZZY" | "MANUAL" | "UNMATCHED";
@@ -2608,8 +2622,11 @@ export default function ReconcileResultsPage() {
           <>
             <div className="flex w-full flex-wrap items-center justify-between gap-3">
               <div className="min-w-0 shrink">
-                <p className="text-[1.8rem] font-bold tracking-tight text-[#1a1a1a]">
-                  {summary.period}
+                <p
+                  className="text-[1.8rem] font-bold tracking-tight text-[#1a1a1a]"
+                  style={{ fontFamily: "'DM Sans', sans-serif" }}
+                >
+                  {formatPeriod(summary.period)}
                 </p>
                 <p className="mt-1 text-[0.85rem] font-normal text-[#9ca3af]">
                   Assigned to:{" "}
@@ -2749,7 +2766,10 @@ export default function ReconcileResultsPage() {
                 emphasis="danger"
                 value={
                   isProcessing ? (
-                    <span className="text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums text-gray-300">
+                    <span
+                      className="text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums text-gray-300"
+                      style={{ fontFamily: "'DM Sans', sans-serif" }}
+                    >
                       —
                     </span>
                   ) : (
@@ -2767,7 +2787,10 @@ export default function ReconcileResultsPage() {
                 emphasis="danger"
                 value={
                   isProcessing ? (
-                    <span className="text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums text-gray-300">
+                    <span
+                      className="text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums text-gray-300"
+                      style={{ fontFamily: "'DM Sans', sans-serif" }}
+                    >
                       —
                     </span>
                   ) : (

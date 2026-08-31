@@ -233,9 +233,17 @@ export function InrAmount({
   numberStyle?: CSSProperties;
 }) {
   return (
-    <span className={`inline-flex tabular-nums ${sizeClass}`}>
-      <span className={`text-gray-400 ${sizeClass}`}>₹</span>
-      <span className={numberColorClass} style={numberStyle}>
+    <span className={`inline-flex tabular-nums ${sizeClass}`} style={{ fontFamily: "'DM Sans', sans-serif" }}>
+      <span
+        className={`text-gray-400 ${sizeClass}`}
+        style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: "inherit" }}
+      >
+        ₹
+      </span>
+      <span
+        className={numberColorClass}
+        style={{ fontFamily: "'DM Sans', sans-serif", ...numberStyle }}
+      >
         {formatINRNumber(amount)}
       </span>
     </span>
@@ -267,12 +275,24 @@ export function CompactStatAmount({
     ? "text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tracking-tight"
     : "text-[clamp(1rem,1.6vw,1.25rem)] font-semibold tracking-tight";
 
+  const isNeg = display.startsWith("-");
+  const core = isNeg ? display.slice(1) : display;
+  const hasRupee = core.startsWith("₹");
+  const formattedNumber = hasRupee ? core.slice(1) : core;
+
   return (
     <span
       className={`inline-block whitespace-nowrap tabular-nums ${size} ${className}`}
+      style={{ fontFamily: "'DM Sans', sans-serif" }}
       title={full}
     >
-      {display}
+      {isNeg ? "-" : ""}
+      {hasRupee ? (
+        <span style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: "inherit" }}>
+          ₹
+        </span>
+      ) : null}
+      {formattedNumber}
     </span>
   );
 }
@@ -315,20 +335,19 @@ type StatAccent =
 
 type StatEmphasis = "default" | "secondary" | "attention" | "danger";
 
-/** Top border accent color and number color per accent type */
 const statAccentMeta: Record<
   StatAccent,
-  { numberColor: string; topBorder: string }
+  { numberColor: string }
 > = {
-  neutral: { numberColor: "#1a1a1a", topBorder: "#e5e7eb" },
-  matched: { numberColor: "#16a34a", topBorder: "#86efac" },
-  missed: { numberColor: "#e53935", topBorder: "#fca5a5" },
-  risk: { numberColor: "#e53935", topBorder: "#fca5a5" },
-  saved: { numberColor: "#1a1a1a", topBorder: "#86efac" },
-  reversed: { numberColor: "#e53935", topBorder: "#fca5a5" },
-  pending: { numberColor: "#1a1a1a", topBorder: "#e5e7eb" },
-  review_required: { numberColor: "#ea580c", topBorder: "#fdba74" },
-  linked: { numberColor: "#1a1a1a", topBorder: "#e5e7eb" },
+  neutral: { numberColor: "#1a1a1a" },
+  matched: { numberColor: "#16a34a" },
+  missed: { numberColor: "#e53935" },
+  risk: { numberColor: "#e53935" },
+  saved: { numberColor: "#1a1a1a" },
+  reversed: { numberColor: "#e53935" },
+  pending: { numberColor: "#1a1a1a" },
+  review_required: { numberColor: "#ea580c" },
+  linked: { numberColor: "#1a1a1a" },
 };
 
 export function StatCard({
@@ -361,20 +380,19 @@ export function StatCard({
 
   return (
     <div
-      className={`box-border flex min-w-0 w-full flex-col gap-2 rounded-xl border border-[#f3f4f6] bg-white p-6 transition-shadow duration-200 hover:shadow-md ${
+      className={`box-border flex min-w-0 w-full flex-col gap-2 rounded-xl border border-[#f0f0f0] bg-white p-6 transition-shadow duration-200 hover:shadow-md ${
         isSecondary ? "opacity-90" : ""
       }`}
       style={{
         minHeight: 120,
-        borderTopWidth: 3,
-        borderTopColor: colors.topBorder,
-        boxShadow: "0 1px 6px rgba(0, 0, 0, 0.06)",
+        boxShadow: "0 1px 4px rgba(0, 0, 0, 0.05)",
+        fontFamily: "'DM Sans', sans-serif",
       }}
       title={titleAttr}
     >
       <p
-        className="min-w-0 truncate font-mono text-[0.7rem] font-medium uppercase text-[#9ca3af]"
-        style={{ letterSpacing: "0.08em" }}
+        className="min-w-0 truncate text-[0.8rem] font-medium text-[#6b7280]"
+        style={{ fontFamily: "'DM Sans', sans-serif" }}
       >
         {label}
       </p>
@@ -384,17 +402,19 @@ export function StatCard({
             ? `${isDanger ? "text-[2rem]" : isSecondary ? "text-[1.75rem]" : "text-[2rem]"} font-bold tabular-nums tracking-tight`
             : ""
         }`}
-        style={
-          typeof value === "string" || typeof value === "number"
+        style={{
+          fontFamily: "'DM Sans', sans-serif",
+          ...(typeof value === "string" || typeof value === "number"
             ? { color: colors.numberColor }
-            : undefined
-        }
+            : {}),
+        }}
       >
         {value}
       </div>
       {subtext && (
         <p
-          className="truncate text-[0.75rem] leading-snug text-[#d1d5db]"
+          className="truncate text-[0.75rem] leading-snug text-[#9ca3af]"
+          style={{ fontFamily: "'DM Sans', sans-serif" }}
           title={subtext}
         >
           {subtext}
