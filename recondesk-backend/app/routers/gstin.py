@@ -93,12 +93,12 @@ async def verify_gstin_endpoint(
             ),
         ) from exc
     except httpx.TimeoutException as exc:
-        _log.error("gstin_verify: Sandbox API timed out – %s", exc)
+        _log.error("gstin_verify: API timed out – %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
                 "GSTIN verification timed out. "
-                "The Sandbox API may be temporarily unavailable. "
+                "The GST portal service may be temporarily unavailable. "
                 "You may proceed manually."
             ),
         ) from exc

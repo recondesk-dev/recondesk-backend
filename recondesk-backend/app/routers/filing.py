@@ -37,6 +37,7 @@ from app.filing.sandbox_filing_client import (
     get_filing_client,
     period_to_fp,
 )
+from app.integrations.gstn_error_mapper import gstn_http_exception, map_gstn_error
 
 # File / EVC require a GSTN-confirmed Save (inner status_cd P) or later.
 _EVC_OR_FILE_STATUSES = frozenset({"saved", "proceeded", "evc_pending"})
@@ -403,19 +404,21 @@ def _resolve_token(
 
 
 def _map_client_error(exc: FilingClientError) -> HTTPException:
+    err_cd = getattr(exc, "error_cd", None)
+    clean_msg = map_gstn_error(exc, error_code=err_cd)
     if isinstance(exc, FilingAuthError):
-        return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+        return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=clean_msg)
     if isinstance(exc, FilingGstnError):
         return HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={"message": str(exc), "error_cd": exc.error_cd},
+            detail={"message": clean_msg, "error_cd": exc.error_cd},
         )
     if isinstance(exc, FilingApiError):
         return HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
+            detail=clean_msg,
         )
-    return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    return gstn_http_exception(exc, error_code=err_cd)
 
 
 def _raise_gstr3b_locked(exc: filing_store.Gstr3bPeriodLockedError) -> None:
@@ -605,11 +608,11 @@ def logout_session(
             if not result.ok:
                 sandbox_error = {
                     "error_cd": result.error_cd,
-                    "message": result.error_message,
+                    "message": map_gstn_error(result.error_message, error_code=result.error_cd),
                 }
         except Exception as exc:
             _log.warning("logout unexpected error (non-fatal): %s", exc)
-            sandbox_error = {"message": str(exc)}
+            sandbox_error = {"message": map_gstn_error(exc)}
 
     filing_store.mark_session_logged_out(sb, body.session_id)
     return {
@@ -727,11 +730,12 @@ def _execute_save(
                 token, period=period, save_body=save_body,
             )
     except FilingClientError as exc:
+        err_cd = getattr(exc, "error_cd", None)
         filing_store.mark_run_failed(
             sb,
             run["id"],
-            error_code=getattr(exc, "error_cd", None),
-            error_message=str(exc),
+            error_code=err_cd,
+            error_message=map_gstn_error(exc, error_code=err_cd),
             raw_response=getattr(exc, "envelope", None),
         )
         raise _map_client_error(exc) from exc
@@ -923,7 +927,11 @@ def return_status(
         "gstn_failed": bool(info and info.is_failed),
         "run_status": run_status,
         "error_cd": info.error_cd if info else None,
-        "error_message": info.error_message if info else None,
+        "error_message": (
+            map_gstn_error(info.error_message, error_code=info.error_cd)
+            if (info and info.error_message)
+            else None
+        ),
     }
 
 
@@ -946,11 +954,12 @@ def proceed_to_file(
             )
     except FilingClientError as exc:
         if body.run_id:
+            err_cd = getattr(exc, "error_cd", None)
             filing_store.mark_run_failed(
                 sb,
                 body.run_id,
-                error_code=getattr(exc, "error_cd", None),
-                error_message=str(exc),
+                error_code=err_cd,
+                error_message=map_gstn_error(exc, error_code=err_cd),
                 raw_response=getattr(exc, "envelope", None),
             )
         raise _map_client_error(exc) from exc
@@ -972,7 +981,11 @@ def proceed_to_file(
         "gstn_status_cd": info.gstn_status_cd if info else None,
         "outer_status_cd": info.outer_status_cd if info else None,
         "error_cd": info.error_cd if info else None,
-        "error_message": info.error_message if info else None,
+        "error_message": (
+            map_gstn_error(info.error_message, error_code=info.error_cd)
+            if (info and info.error_message)
+            else None
+        ),
     }
 
 
@@ -1087,11 +1100,12 @@ def file_gstr1(
             )
     except FilingClientError as exc:
         if body.run_id:
+            err_cd = getattr(exc, "error_cd", None)
             filing_store.mark_run_failed(
                 sb,
                 body.run_id,
-                error_code=getattr(exc, "error_cd", None),
-                error_message=str(exc),
+                error_code=err_cd,
+                error_message=map_gstn_error(exc, error_code=err_cd),
                 raw_response=getattr(exc, "envelope", None),
             )
         raise _map_client_error(exc) from exc
@@ -1370,11 +1384,12 @@ def save_gstr3b(
     except filing_store.Gstr3bPeriodLockedError as exc:
         _raise_gstr3b_locked(exc)
     except FilingClientError as exc:
+        err_cd = getattr(exc, "error_cd", None)
         filing_store.mark_run_failed(
             sb,
             run_id,
-            error_code=getattr(exc, "error_cd", None),
-            error_message=str(exc),
+            error_code=err_cd,
+            error_message=map_gstn_error(exc, error_code=err_cd),
             raw_response=getattr(exc, "envelope", None),
         )
         raise _map_client_error(exc) from exc
@@ -1474,7 +1489,11 @@ def gstr3b_return_status(
         "run_status": run_status,
         "action": info.action if info else None,
         "error_cd": info.error_cd if info else None,
-        "error_message": info.error_message if info else None,
+        "error_message": (
+            map_gstn_error(info.error_message, error_code=info.error_cd)
+            if (info and info.error_message)
+            else None
+        ),
     }
 
 
@@ -1533,11 +1552,12 @@ def offset_gstr3b(
     except filing_store.Gstr3bPeriodLockedError as exc:
         _raise_gstr3b_locked(exc)
     except FilingClientError as exc:
+        err_cd = getattr(exc, "error_cd", None)
         filing_store.mark_run_failed(
             sb,
             body.run_id,
-            error_code=getattr(exc, "error_cd", None),
-            error_message=str(exc),
+            error_code=err_cd,
+            error_message=map_gstn_error(exc, error_code=err_cd),
             raw_response=getattr(exc, "envelope", None),
         )
         raise _map_client_error(exc) from exc
@@ -1643,11 +1663,12 @@ def file_gstr3b(
             )
     except FilingClientError as exc:
         if body.run_id:
+            err_cd = getattr(exc, "error_cd", None)
             filing_store.mark_run_failed(
                 sb,
                 body.run_id,
-                error_code=getattr(exc, "error_cd", None),
-                error_message=str(exc),
+                error_code=err_cd,
+                error_message=map_gstn_error(exc, error_code=err_cd),
                 raw_response=getattr(exc, "envelope", None),
             )
         raise _map_client_error(exc) from exc

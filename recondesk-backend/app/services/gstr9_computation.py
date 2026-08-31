@@ -314,6 +314,7 @@ def check_data_availability(sb: Client, client_gstin_id: str, fy: str) -> dict[s
 def fetch_live_portal_api(sb: Client, client_gstin_id: str, fy: str) -> dict[str, Any]:
     """Execute REAL live GSTN Portal Sandbox API calls across all 12 tax periods."""
     from app.filing.sandbox_filing_client import get_filing_client, FilingApiError
+    from app.integrations.gstn_error_mapper import map_gstn_error
     from app.services.gstr9c_itc_fy_rollup import period_month_label, normalize_period_yyyy_mm
 
     start_year, _ = parse_fy_label(fy)
@@ -382,7 +383,9 @@ def fetch_live_portal_api(sb: Client, client_gstin_id: str, fy: str) -> dict[str
                     "reason": f"GSTN Portal API success for {mlabel}: GSTR-3B payload retrieved cleanly from GSTN",
                 })
             else:
-                err_msg = g3b_res.return_status.error_message if g3b_res.return_status else "GSTN API returned status pending or error"
+                raw_err = g3b_res.return_status.error_message if g3b_res.return_status else "GSTN API returned status pending or error"
+                err_cd = g3b_res.return_status.error_cd if g3b_res.return_status else None
+                err_msg = map_gstn_error(raw_err, error_code=err_cd)
                 period_details.append({
                     "period": p,
                     "month_label": mlabel,
@@ -393,6 +396,7 @@ def fetch_live_portal_api(sb: Client, client_gstin_id: str, fy: str) -> dict[str
                     "reason": f"GSTN Portal API response for {mlabel}: {err_msg}",
                 })
         except FilingApiError as api_err:
+            clean_api_err = map_gstn_error(api_err)
             period_details.append({
                 "period": p,
                 "month_label": mlabel,
@@ -400,9 +404,10 @@ def fetch_live_portal_api(sb: Client, client_gstin_id: str, fy: str) -> dict[str
                 "has_2b": False,
                 "has_3b": False,
                 "has_session": False,
-                "reason": f"GSTN API error for {mlabel}: {api_err.message} (code: {api_err.code})",
+                "reason": f"GSTN API error for {mlabel}: {clean_api_err}",
             })
         except Exception as exc:
+            clean_exc = map_gstn_error(exc)
             period_details.append({
                 "period": p,
                 "month_label": mlabel,
@@ -410,7 +415,7 @@ def fetch_live_portal_api(sb: Client, client_gstin_id: str, fy: str) -> dict[str
                 "has_2b": False,
                 "has_3b": False,
                 "has_session": False,
-                "reason": f"GSTN API call failed for {mlabel}: {exc}",
+                "reason": f"GSTN API call failed for {mlabel}: {clean_exc}",
             })
 
     comp = compute_gstr9(sb, client_gstin_id, fy)

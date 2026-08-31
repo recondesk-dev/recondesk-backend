@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.auth import get_current_active_user
 from app.database import get_supabase
+from app.integrations.gstn_error_mapper import gstn_http_exception, map_gstn_error
 from app.integrations.gstr2b_autofetch import (
     SandboxGstnError,
     extract_sandbox_txn,
@@ -207,36 +208,9 @@ def _token_expiry_from_ms(token_expiry_ms: Any) -> datetime | None:
 def _raise_sandbox_http_error(
     exc: httpx.HTTPStatusError,
     *,
-    context: str = "Sandbox GST API request failed",
+    context: str = "GST API request failed",
 ) -> None:
-    sandbox_msg = None
-    try:
-        body = exc.response.json()
-        if isinstance(body, dict):
-            err = body.get("error")
-            if isinstance(err, dict) and err.get("message"):
-                sandbox_msg = str(err["message"])
-            else:
-                sandbox_msg = str(body.get("message") or body.get("error") or "") or None
-    except Exception:
-        sandbox_msg = None
-
-    code = exc.response.status_code
-    # Never pass through bare Sandbox/FastAPI-style "Not Found" — callers confuse
-    # it with a missing ReconDesk route or client row.
-    if code == 404:
-        detail = (
-            f"{context}: Sandbox returned 404"
-            + (f" ({sandbox_msg})" if sandbox_msg else "")
-            + ". Check GSTN session and return period."
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=detail,
-        ) from exc
-
-    detail = f"{context}: {sandbox_msg}" if sandbox_msg else context
-    raise HTTPException(status_code=code, detail=detail) from exc
+    raise gstn_http_exception(exc, context=context) from exc
 
 
 @router.post("/{client_id}/gstn/send-otp")
@@ -253,18 +227,12 @@ async def gstn_send_otp(
         sandbox_token = await asyncio.to_thread(get_sandbox_token)
         envelope = await asyncio.to_thread(send_otp, sandbox_token, body.gstin, body.username)
     except SandboxGstnError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=exc.message,
-        ) from exc
+        raise gstn_http_exception(exc, error_code=exc.error_cd, context=f"send-otp client_id={cid}") from exc
     except httpx.HTTPStatusError as exc:
-        _raise_sandbox_http_error(exc)
+        _raise_sandbox_http_error(exc, context=f"send-otp client_id={cid}")
     except Exception as exc:
         _log.exception("GSTN send-otp failed for client %s", cid)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="failed to send OTP via Sandbox API",
-        ) from exc
+        raise gstn_http_exception(exc, context=f"send-otp client_id={cid}") from exc
 
     txn = extract_sandbox_txn(envelope)
     response: dict[str, Any] = {"message": "OTP sent"}
@@ -289,24 +257,18 @@ async def gstn_verify_otp(
             verify_otp, sandbox_token, body.gstin, body.username, body.otp
         )
     except SandboxGstnError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=exc.message,
-        ) from exc
+        raise gstn_http_exception(exc, error_code=exc.error_cd, context=f"verify-otp client_id={cid}") from exc
     except httpx.HTTPStatusError as exc:
-        _raise_sandbox_http_error(exc)
+        _raise_sandbox_http_error(exc, context=f"verify-otp client_id={cid}")
     except Exception as exc:
         _log.exception("GSTN verify-otp failed for client %s", cid)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="failed to verify OTP via Sandbox API",
-        ) from exc
+        raise gstn_http_exception(exc, context=f"verify-otp client_id={cid}") from exc
 
     access_token = data.get("access_token")
     if not access_token:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Sandbox verify-otp response missing access_token",
+            detail="GST session verification response missing access token",
         )
 
     expiry_dt = _token_expiry_from_ms(data.get("token_expiry"))
@@ -360,13 +322,10 @@ async def gstn_fetch_gstr2b(
             get_gstr2b, access_token, gstin, body.year, body.month
         )
     except SandboxGstnError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=exc.message,
-        ) from exc
+        raise gstn_http_exception(exc, error_code=exc.error_cd, context=f"GSTR-2B fetch client_id={cid}") from exc
     except httpx.HTTPStatusError as exc:
         _log.warning(
-            "GSTR-2B Sandbox HTTP error client_id=%s status=%s body=%s",
+            "GSTR-2B HTTP error client_id=%s status=%s body=%s",
             cid,
             exc.response.status_code,
             (exc.response.text or "")[:300],
@@ -377,10 +336,7 @@ async def gstn_fetch_gstr2b(
         )
     except Exception as exc:
         _log.exception("GSTR-2B fetch failed for client %s", cid)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="failed to fetch GSTR-2B via Sandbox API",
-        ) from exc
+        raise gstn_http_exception(exc, context=f"GSTR-2B fetch client_id={cid}") from exc
 
     try:
         payload = _gstr2b_payload_for_parser(
@@ -394,9 +350,11 @@ async def gstn_fetch_gstr2b(
         msg = str(exc)
         if msg == "missing_gstin":
             msg = (
-                "Sandbox GSTR-2B payload missing buyer gstin after normalize; "
-                f"client gstin={gstin!r}"
+                "GSTR-2B payload missing buyer GSTIN after normalization; "
+                f"client GSTIN={gstin!r}"
             )
+        else:
+            msg = map_gstn_error(msg)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=msg,
@@ -463,13 +421,10 @@ async def gstn_fetch_ims(
             fetch_ims_overlay, str(access_token), gstin, year, month
         )
     except SandboxClientError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
-        ) from exc
+        raise gstn_http_exception(exc, context=f"IMS fetch client_id={cid}") from exc
     except httpx.HTTPStatusError as exc:
         _log.warning(
-            "IMS Sandbox HTTP error client_id=%s status=%s body=%s",
+            "IMS HTTP error client_id=%s status=%s body=%s",
             cid,
             exc.response.status_code,
             (exc.response.text or "")[:300],
@@ -480,10 +435,7 @@ async def gstn_fetch_ims(
         )
     except Exception as exc:
         _log.exception("IMS fetch failed for client %s", cid)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="failed to fetch IMS via Sandbox API",
-        ) from exc
+        raise gstn_http_exception(exc, context=f"IMS fetch client_id={cid}") from exc
 
     pending = int(result.status_counts.get("pending", 0)) + int(
         result.status_counts.get("no_action_taken", 0)

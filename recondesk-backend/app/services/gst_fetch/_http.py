@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 import httpx
 
+from app.integrations.gstn_error_mapper import map_gstn_error
 from app.integrations.gstr2b_autofetch import SandboxGstnError
 
 BASE_URL = "https://api.sandbox.co.in"
@@ -89,7 +90,7 @@ def get_section(
                 return SectionResult(
                     section=section,
                     status="error",
-                    error_message="Unexpected Sandbox response (not a JSON object)",
+                    error_message=map_gstn_error("Unexpected GST portal response"),
                 )
 
             err_cd, err_msg = _gstn_business_error(envelope)
@@ -99,7 +100,7 @@ def get_section(
                     section=section,
                     status="error",
                     error_cd=err_cd,
-                    error_message=f"{err_cd}: {err_msg}" if err_cd else err_msg,
+                    error_message=map_gstn_error(err_msg, error_code=err_cd),
                 )
 
             data = envelope.get("data")
@@ -107,7 +108,7 @@ def get_section(
                 return SectionResult(
                     section=section,
                     status="error",
-                    error_message="Sandbox response missing data",
+                    error_message=map_gstn_error("GST portal response missing data"),
                 )
             if not isinstance(data, dict):
                 # Some endpoints may return a list; wrap for uniform storage.
@@ -119,7 +120,7 @@ def get_section(
             last_exc = exc
             if attempt == 0 and _is_transient(exc):
                 _log.warning(
-                    "Transient Sandbox error section=%s; retrying once: %s",
+                    "Transient error section=%s; retrying once: %s",
                     section,
                     exc,
                 )
@@ -129,23 +130,22 @@ def get_section(
 
     assert last_exc is not None
     if isinstance(last_exc, httpx.HTTPStatusError):
-        body = (last_exc.response.text or "")[:300]
         return SectionResult(
             section=section,
             status="error",
-            error_message=f"HTTP {last_exc.response.status_code}: {body}",
+            error_message=map_gstn_error(last_exc),
         )
     if isinstance(last_exc, SandboxGstnError):
         return SectionResult(
             section=section,
             status="error",
             error_cd=last_exc.error_cd,
-            error_message=last_exc.message,
+            error_message=map_gstn_error(last_exc.message, error_code=last_exc.error_cd),
         )
     return SectionResult(
         section=section,
         status="error",
-        error_message=str(last_exc) or last_exc.__class__.__name__,
+        error_message=map_gstn_error(last_exc),
     )
 
 

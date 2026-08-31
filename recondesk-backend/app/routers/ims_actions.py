@@ -29,6 +29,7 @@ from app.ims.ims_writeback_client import (
 from app.services.firm_access import assert_run_accessible
 from app.services.gst_fetch.token import ensure_fresh_gstn_token, load_client_gstin
 from app.services.sandbox_gst_client import SandboxClientError
+from app.integrations.gstn_error_mapper import gstn_http_exception
 
 _log = logging.getLogger(__name__)
 
@@ -229,10 +230,7 @@ async def confirm_ims_actions_route(
             detail=str(exc),
         ) from exc
     except SandboxClientError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
-        ) from exc
+        raise gstn_http_exception(exc, context="IMS action confirm") from exc
 
     payload = result.as_dict()
     payload["run_id"] = str(run_row.get("id") or run_id)
@@ -270,10 +268,7 @@ async def get_ims_action_status(
             reference_id=reference_id.strip(),
         )
     except SandboxClientError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
-        ) from exc
+        raise gstn_http_exception(exc, context="IMS action status poll") from exc
 
     payload = result.as_dict()
     payload["run_id"] = str(run_row.get("id") or run_id)
