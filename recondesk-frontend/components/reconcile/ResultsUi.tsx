@@ -52,7 +52,8 @@ export const statCardsGridClass =
 export const resultsSummaryGridClass =
   "mt-5 grid w-full min-w-0 grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5";
 
-export const statCardValueClass = "text-xl font-semibold tabular-nums tracking-tight";
+export const statCardValueClass =
+  "text-[2rem] font-bold tabular-nums tracking-tight";
 
 export const tableWrapClass = "w-full min-w-0 overflow-x-auto rounded-[1.25rem] ring-1 ring-[#F0F0F0]";
 
@@ -257,10 +258,11 @@ export function AmountDisplay({ amount }: { amount: number }) {
  */
 export function CompactStatAmount({
   amount,
-  emphasize = false,
+  sizeClass = statCardValueClass,
   className = "",
 }: {
   amount: number;
+  sizeClass?: string;
   emphasize?: boolean;
   className?: string;
 }) {
@@ -268,9 +270,6 @@ export function CompactStatAmount({
   const abs = Math.abs(amount);
   const useCompact = abs >= 1e5;
   const display = useCompact ? formatInrCompact(amount) : full;
-  const size = emphasize
-    ? "text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tracking-tight"
-    : "text-[clamp(1rem,1.6vw,1.25rem)] font-semibold tracking-tight";
 
   const isNeg = display.startsWith("-");
   const core = isNeg ? display.slice(1) : display;
@@ -279,7 +278,7 @@ export function CompactStatAmount({
 
   return (
     <span
-      className={`inline-block whitespace-nowrap tabular-nums ${size} ${className}`}
+      className={`inline-block whitespace-nowrap tabular-nums ${sizeClass} ${className}`}
       title={full}
     >
       {isNeg ? "-" : ""}
@@ -391,16 +390,8 @@ export function StatCard({
         {label}
       </p>
       <div
-        className={`min-w-0 overflow-visible whitespace-nowrap ${
-          typeof value === "string" || typeof value === "number"
-            ? `${isDanger ? "text-[2rem]" : isSecondary ? "text-[1.75rem]" : "text-[2rem]"} font-bold tabular-nums tracking-tight`
-            : ""
-        }`}
-        style={
-          typeof value === "string" || typeof value === "number"
-            ? { color: colors.numberColor }
-            : undefined
-        }
+        className={`min-w-0 overflow-visible whitespace-nowrap ${statCardValueClass}`}
+        style={{ color: colors.numberColor }}
       >
         {typeof value === "string" && value.includes("₹") ? (
           <>

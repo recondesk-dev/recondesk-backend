@@ -2766,13 +2766,10 @@ export default function ReconcileResultsPage() {
                 emphasis="danger"
                 value={
                   isProcessing ? (
-                    <span className="text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums text-gray-300">
-                      —
-                    </span>
+                    <span className="text-gray-300">—</span>
                   ) : (
                     <CompactStatAmount
                       amount={summary.missed_itc_total_amount}
-                      emphasize
                       className="text-[#e53935]"
                     />
                   )
@@ -2784,13 +2781,10 @@ export default function ReconcileResultsPage() {
                 emphasis="danger"
                 value={
                   isProcessing ? (
-                    <span className="text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums text-gray-300">
-                      —
-                    </span>
+                    <span className="text-gray-300">—</span>
                   ) : (
                     <CompactStatAmount
                       amount={summary.wrongful_risk_total_amount}
-                      emphasize
                       className="text-[#e53935]"
                     />
                   )
