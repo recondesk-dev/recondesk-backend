@@ -29,6 +29,7 @@ const config: Config = {
       },
       fontFamily: {
         sans: [
+          "'DM Sans'",
           "var(--font-plus-jakarta)",
           "system-ui",
           "-apple-system",
