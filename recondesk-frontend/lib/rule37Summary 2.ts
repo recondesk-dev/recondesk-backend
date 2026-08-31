@@ -1,0 +1,219 @@
+/** Rule 37 summary and action history types. */
+
+import { formatINR } from "@/lib/format";
+
+export type Rule37SummaryStats = {
+  total_itc_at_risk: number;
+  itc_saved: number;
+  itc_reversed: number;
+  pending_action: number;
+  /** Past-180 invoices with blank payment_status (not in confirmed at-risk). */
+  pending_verification_count?: number;
+  /** Upper-bound ITC if those unverified invoices turn out unpaid. */
+  pending_verification_exposure?: number;
+  claimed_invoice_count?: number;
+  payment_status_known_count?: number;
+  payment_status_unknown_count?: number;
+  /** False for older runs that predate coverage metrics. */
+  coverage_available?: boolean;
+};
+
+export type Rule37ActionHistoryRow = {
+  id: string;
+  invoice_number: string;
+  supplier_gstin: string;
+  amount: number;
+  action: "mark_paid" | "reverse_itc";
+  created_at: string;
+  generated_by: string;
+  generated_by_name: string;
+  amount_paid?: number | null;
+  tds_deducted?: number;
+  total_settled?: number | null;
+  remaining_unpaid_amount?: number | null;
+  payment_coverage?: "full" | "partial" | null;
+};
+
+export type Rule37SummaryResponse = {
+  summary: Rule37SummaryStats;
+  action_history: Rule37ActionHistoryRow[];
+};
+
+export function formatRule37ActionTimeIst(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+}
+
+const ACTION_LABELS: Record<Rule37ActionHistoryRow["action"], string> = {
+  mark_paid: "Marked as Settled",
+  reverse_itc: "Reverse ITC",
+};
+
+export function formatRule37ActionLabel(
+  action: Rule37ActionHistoryRow["action"]
+): string {
+  return ACTION_LABELS[action] ?? action;
+}
+
+export function formatRule37OptionalInr(
+  value: number | null | undefined
+): string {
+  if (value == null) return "—";
+  return formatINR(value);
+}
+
+export function formatRule37NetPaid(
+  value: number | null | undefined
+): string {
+  if (value == null) return "—";
+  return formatINR(value);
+}
+
+export function formatRule37StatutoryDeduction(
+  value: number | null | undefined
+): string {
+  if (value == null || value <= 0) return "—";
+  return formatINR(value);
+}
+
+export function formatRule37SettlementConsidered(
+  row: Rule37ActionHistoryRow
+): string {
+  if (row.action !== "mark_paid") return "—";
+  if (row.total_settled != null) return formatINR(row.total_settled);
+  if (row.amount_paid != null) {
+    return formatINR(row.amount_paid + (row.tds_deducted ?? 0));
+  }
+  return "—";
+}
+
+export function formatRule37RemainingUnpaid(
+  row: Rule37ActionHistoryRow
+): string {
+  if (row.action !== "mark_paid") return "—";
+  if (row.remaining_unpaid_amount != null) {
+    return formatINR(row.remaining_unpaid_amount);
+  }
+  return "—";
+}
+
+/** PDF / compact settlement line for mark-settled actions. */
+export function formatRule37PaymentPdfLine(row: Rule37ActionHistoryRow): string {
+  if (row.action !== "mark_paid") return "—";
+  const net = row.amount_paid;
+  const statutory = row.tds_deducted ?? 0;
+  const settled =
+    row.total_settled ??
+    (net != null ? Math.round((net + statutory) * 100) / 100 : null);
+  if (net == null || settled == null) return "—";
+  if (statutory > 0) {
+    return `Net: ${formatINR(net)} + Statutory: ${formatINR(statutory)} = Settlement: ${formatINR(settled)} (CA verified)`;
+  }
+  return formatINR(net);
+}
+
+/** Coverage line for the Rule 37 summary card / section header. */
+export function formatRule37CoverageLine(summary: Rule37SummaryStats): string | null {
+  if (!summary.coverage_available) {
+    return "Payment-status coverage not recorded for this run — re-reconcile to verify.";
+  }
+  const known = summary.payment_status_known_count ?? 0;
+  const claimed = summary.claimed_invoice_count ?? 0;
+  if (claimed <= 0) return "No ITC-claimed matched invoices in this period.";
+  return `Payment status known for ${known} of ${claimed} ITC-claimed invoices`;
+}
+
+/** Share of claimed invoices with explicit payment_status and/or payment_date. */
+export function rule37CoverageRatio(
+  summary: Rule37SummaryStats | null | undefined
+): number | null {
+  if (!summary?.coverage_available) return null;
+  const claimed = summary.claimed_invoice_count ?? 0;
+  if (claimed <= 0) return null;
+  return (summary.payment_status_known_count ?? 0) / claimed;
+}
+
+/**
+ * Empty-state copy when the at-risk list is empty — distinguishes verified-clean
+ * from "never had payment data." High coverage = ≥80% known.
+ */
+export function formatRule37EmptyStateMessage(
+  summary: Rule37SummaryStats | null | undefined
+): string {
+  if (!summary) {
+    return "No confirmed Rule 37 at-risk invoices for this period.";
+  }
+  const pendingCount = summary.pending_verification_count ?? 0;
+  const unknown = summary.payment_status_unknown_count ?? 0;
+  const claimed = summary.claimed_invoice_count ?? 0;
+  const coverageOk = Boolean(summary.coverage_available);
+  const ratio = rule37CoverageRatio(summary);
+  const highCoverage = ratio != null && ratio >= 0.8;
+
+  // Legacy runs: do not imply "0 unknown" or "verified clean."
+  if (!coverageOk) {
+    if (pendingCount > 0) {
+      return (
+        `0 confirmed at-risk flags, but ${pendingCount} invoice${pendingCount === 1 ? "" : "s"} ` +
+        `past 180 days still need payment verification. Coverage metrics were not recorded ` +
+        `for this run — re-reconcile after uploading payment dates.`
+      );
+    }
+    return (
+      "No confirmed Rule 37 at-risk invoices. Payment-status coverage was not recorded " +
+      "for this run — re-reconcile to distinguish verified-clean from unchecked."
+    );
+  }
+
+  if (pendingCount > 0 || (unknown > 0 && !highCoverage)) {
+    const n = pendingCount > 0 ? pendingCount : unknown;
+    return (
+      `0 flagged, but payment status is unknown for ${n} invoice${n === 1 ? "" : "s"} ` +
+      `— upload payment dates or verify manually to check Rule 37 exposure.`
+    );
+  }
+  if (claimed > 0 && highCoverage) {
+    if (unknown === 0) {
+      return (
+        `No Rule 37 warnings — payment status confirmed for all ` +
+        `${claimed} claimed invoice${claimed === 1 ? "" : "s"}.`
+      );
+    }
+    return (
+      `No Rule 37 warnings — payment status confirmed for most claimed invoices ` +
+      `(${summary.payment_status_known_count ?? 0} of ${claimed}).`
+    );
+  }
+  if (claimed > 0 && unknown > 0) {
+    return (
+      `0 flagged, but payment status is unknown for ${unknown} invoice${unknown === 1 ? "" : "s"} ` +
+      `— upload payment dates or verify manually to check Rule 37 exposure.`
+    );
+  }
+  if (claimed === 0) {
+    return "No ITC-claimed matched invoices subject to Rule 37 in this period.";
+  }
+  return "No confirmed Rule 37 at-risk invoices for this period.";
+}
+
+/** Caption under Rule 37 summary — clock start + interest lower bound. */
+export const RULE37_METHODOLOGY_CAPTION =
+  "180-day clock starts from invoice date (not ITC availment). Interest shown is a lower-bound estimate from the 180-day due date.";
+
+/** Short sublabel under the section header ₹0 badge. */
+export function formatRule37HeaderCoverageSublabel(
+  summary: Rule37SummaryStats | null | undefined
+): string | undefined {
+  if (!summary) return undefined;
+  if (!summary.coverage_available) {
+    return "Coverage not recorded — re-reconcile to verify";
+  }
+  const line = formatRule37CoverageLine(summary);
+  if (line) return line;
+  const pending = summary.pending_verification_count ?? 0;
+  if (pending > 0) {
+    return `${pending} invoice${pending === 1 ? "" : "s"} need payment verification`;
+  }
+  return undefined;
+}
