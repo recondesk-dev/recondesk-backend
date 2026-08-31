@@ -2756,7 +2756,7 @@ export default function ReconcileResultsPage() {
                     <CompactStatAmount
                       amount={summary.missed_itc_total_amount}
                       emphasize
-                      className="text-[#ef4444]"
+                      className="text-[#e53935]"
                     />
                   )
                 }
@@ -2774,7 +2774,7 @@ export default function ReconcileResultsPage() {
                     <CompactStatAmount
                       amount={summary.wrongful_risk_total_amount}
                       emphasize
-                      className="text-[#ef4444]"
+                      className="text-[#e53935]"
                     />
                   )
                 }

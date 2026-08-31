@@ -320,15 +320,15 @@ const statAccentMeta: Record<
   StatAccent,
   { numberColor: string; topBorder: string }
 > = {
-  neutral: { numberColor: "#1a1a1a", topBorder: "transparent" },
-  matched: { numberColor: "#16a34a", topBorder: "#16a34a" },
-  missed: { numberColor: "#ef4444", topBorder: "#ef4444" },
-  risk: { numberColor: "#ef4444", topBorder: "#ef4444" },
-  saved: { numberColor: "#1a1a1a", topBorder: "#16a34a" },
-  reversed: { numberColor: "#ef4444", topBorder: "#ef4444" },
-  pending: { numberColor: "#1a1a1a", topBorder: "transparent" },
-  review_required: { numberColor: "#f97316", topBorder: "#f97316" },
-  linked: { numberColor: "#1a1a1a", topBorder: "transparent" },
+  neutral: { numberColor: "#1a1a1a", topBorder: "#e5e7eb" },
+  matched: { numberColor: "#16a34a", topBorder: "#86efac" },
+  missed: { numberColor: "#e53935", topBorder: "#fca5a5" },
+  risk: { numberColor: "#e53935", topBorder: "#fca5a5" },
+  saved: { numberColor: "#1a1a1a", topBorder: "#86efac" },
+  reversed: { numberColor: "#e53935", topBorder: "#fca5a5" },
+  pending: { numberColor: "#1a1a1a", topBorder: "#e5e7eb" },
+  review_required: { numberColor: "#ea580c", topBorder: "#fdba74" },
+  linked: { numberColor: "#1a1a1a", topBorder: "#e5e7eb" },
 };
 
 export function StatCard({
@@ -361,18 +361,19 @@ export function StatCard({
 
   return (
     <div
-      className={`box-border flex min-w-0 w-full flex-col gap-2 rounded-xl border border-[#e5e7eb] bg-white p-6 transition-shadow duration-200 hover:shadow-md ${
+      className={`box-border flex min-w-0 w-full flex-col gap-2 rounded-xl border border-[#f3f4f6] bg-white p-6 transition-shadow duration-200 hover:shadow-md ${
         isSecondary ? "opacity-90" : ""
       }`}
       style={{
         minHeight: 120,
         borderTopWidth: 3,
         borderTopColor: colors.topBorder,
+        boxShadow: "0 1px 6px rgba(0, 0, 0, 0.06)",
       }}
       title={titleAttr}
     >
       <p
-        className="min-w-0 truncate font-mono text-[0.7rem] font-medium uppercase text-[#6b7280]"
+        className="min-w-0 truncate font-mono text-[0.7rem] font-medium uppercase text-[#9ca3af]"
         style={{ letterSpacing: "0.08em" }}
       >
         {label}
@@ -393,7 +394,7 @@ export function StatCard({
       </div>
       {subtext && (
         <p
-          className="truncate text-[0.75rem] leading-snug text-[#9ca3af]"
+          className="truncate text-[0.75rem] leading-snug text-[#d1d5db]"
           title={subtext}
         >
           {subtext}
