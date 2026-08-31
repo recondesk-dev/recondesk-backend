@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 
 type StatTone = "default" | "emphasis";
 
@@ -126,7 +126,27 @@ export function StatCard({
               emphasized ? "text-white" : "text-[var(--ink)]"
             }`}
           >
-            {value}
+            {typeof value === "string" && value.includes("₹") ? (
+              <>
+                {value.split("₹").map((part, idx) => (
+                  <Fragment key={idx}>
+                    {idx > 0 && (
+                      <span
+                        style={{
+                          fontFamily: "Arial, system-ui, -apple-system, sans-serif",
+                          fontWeight: "inherit",
+                        }}
+                      >
+                        ₹
+                      </span>
+                    )}
+                    {part}
+                  </Fragment>
+                ))}
+              </>
+            ) : (
+              value
+            )}
           </p>
         )}
         <p

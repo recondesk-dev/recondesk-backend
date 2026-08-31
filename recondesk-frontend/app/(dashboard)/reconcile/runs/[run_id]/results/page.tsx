@@ -2766,10 +2766,7 @@ export default function ReconcileResultsPage() {
                 emphasis="danger"
                 value={
                   isProcessing ? (
-                    <span
-                      className="text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums text-gray-300"
-                      style={{ fontFamily: "'DM Sans', sans-serif" }}
-                    >
+                    <span className="text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums text-gray-300">
                       —
                     </span>
                   ) : (
@@ -2787,10 +2784,7 @@ export default function ReconcileResultsPage() {
                 emphasis="danger"
                 value={
                   isProcessing ? (
-                    <span
-                      className="text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums text-gray-300"
-                      style={{ fontFamily: "'DM Sans', sans-serif" }}
-                    >
+                    <span className="text-[clamp(1.125rem,2.1vw,1.625rem)] font-semibold tabular-nums text-gray-300">
                       —
                     </span>
                   ) : (

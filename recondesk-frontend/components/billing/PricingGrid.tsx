@@ -1,7 +1,28 @@
 "use client";
 
 import Link from "next/link";
+import { Fragment, type ReactNode } from "react";
 import { PRICING_PLANS, type PricingPlan } from "@/lib/pricing-data";
+
+function formatRupeeText(text: string | undefined): ReactNode {
+  if (!text) return text;
+  if (!text.includes("₹")) return text;
+  const parts = text.split("₹");
+  return (
+    <>
+      {parts.map((part, i) => (
+        <Fragment key={i}>
+          {i > 0 && (
+            <span style={{ fontFamily: "Arial, system-ui, -apple-system, sans-serif", fontWeight: "inherit" }}>
+              ₹
+            </span>
+          )}
+          {part}
+        </Fragment>
+      ))}
+    </>
+  );
+}
 
 type PricingGridProps = {
   onSelectPlan?: (planId: "monthly" | "starter" | "growth") => void;
@@ -166,7 +187,7 @@ function PricingCard({
         <div className="mt-5 border-b border-gray-200/60 pb-5">
           <div className="flex items-baseline gap-1">
             <span className="text-4xl font-extrabold tracking-tight text-[var(--ink)] tabular-nums">
-              {plan.priceDisplay}
+              {formatRupeeText(plan.priceDisplay)}
             </span>
             {plan.periodLabel && (
               <span className="text-sm font-medium text-gray-500">{plan.periodLabel}</span>
@@ -200,7 +221,7 @@ function PricingCard({
                     : "bg-slate-100 text-slate-600"
                 }`}
               >
-                {plan.valueTag}
+                {formatRupeeText(plan.valueTag)}
               </span>
             )}
           </div>
@@ -262,8 +283,8 @@ function PricingCard({
                   </svg>
                 </span>
                 <div>
-                  <span className="font-semibold text-[var(--ink)] block">{feat.header}</span>
-                  <span className="text-gray-500 leading-normal block mt-0.5">{feat.benefit}</span>
+                  <span className="font-semibold text-[var(--ink)] block">{formatRupeeText(feat.header)}</span>
+                  <span className="text-gray-500 leading-normal block mt-0.5">{formatRupeeText(feat.benefit)}</span>
                 </div>
               </li>
             ))}

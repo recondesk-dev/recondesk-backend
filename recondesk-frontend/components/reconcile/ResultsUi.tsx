@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { Inbox } from "lucide-react";
 
 import { formatINR, formatINRNumber, formatInrCompact } from "@/lib/format";
@@ -233,17 +233,14 @@ export function InrAmount({
   numberStyle?: CSSProperties;
 }) {
   return (
-    <span className={`inline-flex tabular-nums ${sizeClass}`} style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <span className={`inline-flex tabular-nums ${sizeClass}`}>
       <span
         className={`text-gray-400 ${sizeClass}`}
-        style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: "inherit" }}
+        style={{ fontFamily: "Arial, system-ui, -apple-system, sans-serif", fontWeight: "inherit" }}
       >
         ₹
       </span>
-      <span
-        className={numberColorClass}
-        style={{ fontFamily: "'DM Sans', sans-serif", ...numberStyle }}
-      >
+      <span className={numberColorClass} style={numberStyle}>
         {formatINRNumber(amount)}
       </span>
     </span>
@@ -283,12 +280,11 @@ export function CompactStatAmount({
   return (
     <span
       className={`inline-block whitespace-nowrap tabular-nums ${size} ${className}`}
-      style={{ fontFamily: "'DM Sans', sans-serif" }}
       title={full}
     >
       {isNeg ? "-" : ""}
       {hasRupee ? (
-        <span style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: "inherit" }}>
+        <span style={{ fontFamily: "Arial, system-ui, -apple-system, sans-serif", fontWeight: "inherit" }}>
           ₹
         </span>
       ) : null}
@@ -386,13 +382,11 @@ export function StatCard({
       style={{
         minHeight: 120,
         boxShadow: "0 1px 4px rgba(0, 0, 0, 0.05)",
-        fontFamily: "'DM Sans', sans-serif",
       }}
       title={titleAttr}
     >
       <p
         className="min-w-0 truncate text-[0.8rem] font-medium text-[#6b7280]"
-        style={{ fontFamily: "'DM Sans', sans-serif" }}
       >
         {label}
       </p>
@@ -402,19 +396,37 @@ export function StatCard({
             ? `${isDanger ? "text-[2rem]" : isSecondary ? "text-[1.75rem]" : "text-[2rem]"} font-bold tabular-nums tracking-tight`
             : ""
         }`}
-        style={{
-          fontFamily: "'DM Sans', sans-serif",
-          ...(typeof value === "string" || typeof value === "number"
+        style={
+          typeof value === "string" || typeof value === "number"
             ? { color: colors.numberColor }
-            : {}),
-        }}
+            : undefined
+        }
       >
-        {value}
+        {typeof value === "string" && value.includes("₹") ? (
+          <>
+            {value.split("₹").map((part, idx) => (
+              <Fragment key={idx}>
+                {idx > 0 && (
+                  <span
+                    style={{
+                      fontFamily: "Arial, system-ui, -apple-system, sans-serif",
+                      fontWeight: "inherit",
+                    }}
+                  >
+                    ₹
+                  </span>
+                )}
+                {part}
+              </Fragment>
+            ))}
+          </>
+        ) : (
+          value
+        )}
       </div>
       {subtext && (
         <p
           className="truncate text-[0.75rem] leading-snug text-[#9ca3af]"
-          style={{ fontFamily: "'DM Sans', sans-serif" }}
           title={subtext}
         >
           {subtext}
