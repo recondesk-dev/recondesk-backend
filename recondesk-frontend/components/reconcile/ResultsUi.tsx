@@ -42,7 +42,7 @@ export const sectionContainerClass =
   "mb-6 box-border w-full max-w-full rounded-[1.5rem] bg-white p-6 shadow-[var(--shadow-soft)]";
 
 export const pageContentClass =
-  "box-border w-full max-w-full space-y-5 overflow-x-hidden px-8 pt-5 pb-32";
+  "box-border w-full max-w-full space-y-6 overflow-x-hidden px-10 pt-5 pb-32";
 
 /** Default grid for secondary panels (GSTR-3B, etc.) */
 export const statCardsGridClass =
@@ -50,7 +50,7 @@ export const statCardsGridClass =
 
 /** Results summary: secondary metrics + dominant money cards */
 export const resultsSummaryGridClass =
-  "mt-5 grid w-full min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5";
+  "mt-5 grid w-full min-w-0 grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5";
 
 export const statCardValueClass = "text-xl font-semibold tabular-nums tracking-tight";
 
@@ -315,43 +315,20 @@ type StatAccent =
 
 type StatEmphasis = "default" | "secondary" | "attention" | "danger";
 
+/** Top border accent color and number color per accent type */
 const statAccentMeta: Record<
   StatAccent,
-  { value: string; dot: string; surface?: string }
+  { numberColor: string; topBorder: string }
 > = {
-  neutral: { value: "text-[var(--ink)]", dot: "bg-gray-300" },
-  matched: { value: "text-[var(--ink)]", dot: "bg-[var(--ink)]" },
-  missed: {
-    value: "text-red-700",
-    dot: "bg-red-500",
-    surface: "bg-[#FFFBFB]",
-  },
-  risk: {
-    value: "text-amber-800",
-    dot: "bg-amber-500",
-    surface: "bg-[#FFFCFA]",
-  },
-  saved: {
-    value: "text-[var(--ink)]",
-    dot: "bg-[var(--ink)]",
-  },
-  reversed: {
-    value: "text-red-600",
-    dot: "bg-red-500",
-    surface: "bg-[#FFFBFB]",
-  },
-  pending: {
-    value: "text-gray-700",
-    dot: "bg-gray-400",
-  },
-  review_required: {
-    value: "text-[var(--ink)]",
-    dot: "bg-amber-500",
-  },
-  linked: {
-    value: "text-[var(--ink)]",
-    dot: "bg-gray-400",
-  },
+  neutral: { numberColor: "#1a1a1a", topBorder: "transparent" },
+  matched: { numberColor: "#16a34a", topBorder: "#16a34a" },
+  missed: { numberColor: "#ef4444", topBorder: "#ef4444" },
+  risk: { numberColor: "#ef4444", topBorder: "#ef4444" },
+  saved: { numberColor: "#1a1a1a", topBorder: "#16a34a" },
+  reversed: { numberColor: "#ef4444", topBorder: "#ef4444" },
+  pending: { numberColor: "#1a1a1a", topBorder: "transparent" },
+  review_required: { numberColor: "#f97316", topBorder: "#f97316" },
+  linked: { numberColor: "#1a1a1a", topBorder: "transparent" },
 };
 
 export function StatCard({
@@ -374,7 +351,6 @@ export function StatCard({
 }) {
   const colors = statAccentMeta[accent];
   const isDanger = emphasis === "danger";
-  // Auto-elevate saved/reversed/pending when callers omit emphasis (Rule 37, etc.)
   const resolvedEmphasis: StatEmphasis =
     emphasis !== "default"
       ? emphasis
@@ -382,38 +358,42 @@ export function StatCard({
         ? "attention"
         : "default";
   const isSecondary = resolvedEmphasis === "secondary";
-  const isEmphasized = isDanger || accent === "matched";
 
   return (
     <div
-      className={`box-border flex min-w-0 w-full flex-col rounded-[1.25rem] px-4 py-4 shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5 ${
-        isEmphasized
-          ? `${colors.surface ?? "bg-white"} gap-2.5`
-          : "gap-1.5 bg-white"
-      } ${isSecondary ? "opacity-90" : ""}`}
+      className={`box-border flex min-w-0 w-full flex-col gap-2 rounded-xl border border-[#e5e7eb] bg-white p-6 transition-shadow duration-200 hover:shadow-md ${
+        isSecondary ? "opacity-90" : ""
+      }`}
+      style={{
+        minHeight: 120,
+        borderTopWidth: 3,
+        borderTopColor: colors.topBorder,
+      }}
       title={titleAttr}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${colors.dot}`}
-          aria-hidden
-        />
-        <p className="min-w-0 truncate text-[10px] font-medium uppercase tracking-[0.08em] text-gray-500">
-          {label}
-        </p>
-      </div>
+      <p
+        className="min-w-0 truncate font-mono text-[0.7rem] font-medium uppercase text-[#6b7280]"
+        style={{ letterSpacing: "0.08em" }}
+      >
+        {label}
+      </p>
       <div
         className={`min-w-0 overflow-visible whitespace-nowrap ${
           typeof value === "string" || typeof value === "number"
-            ? `${isDanger ? "text-[clamp(1.125rem,2.1vw,1.625rem)]" : isSecondary ? "text-lg" : "text-xl"} font-semibold tabular-nums tracking-tight ${colors.value}`
+            ? `${isDanger ? "text-[2rem]" : isSecondary ? "text-[1.75rem]" : "text-[2rem]"} font-bold tabular-nums tracking-tight`
             : ""
         }`}
+        style={
+          typeof value === "string" || typeof value === "number"
+            ? { color: colors.numberColor }
+            : undefined
+        }
       >
         {value}
       </div>
       {subtext && (
         <p
-          className="truncate text-[11px] leading-snug text-gray-400"
+          className="truncate text-[0.75rem] leading-snug text-[#9ca3af]"
           title={subtext}
         >
           {subtext}
@@ -670,6 +650,14 @@ export const SALES_RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string 
   { id: "diagnostics", label: "Diagnostics" },
 ];
 
+/** IDs treated as primary (first row) tabs on purchase pages */
+const PRIMARY_TAB_IDS = new Set<ResultsBucketTabId>([
+  "matched",
+  "review_required",
+  "itc",
+  "risk",
+]);
+
 export function ResultsBucketTabs({
   active,
   onChange,
@@ -691,44 +679,77 @@ export function ResultsBucketTabs({
   ariaLabel?: string;
 }) {
   const tabList = tabs ?? RESULTS_BUCKET_TABS;
+  const isCustomTabs = tabs != null;
+
+  // Split into primary / secondary only for default (purchase) tabs
+  const primaryTabs = isCustomTabs
+    ? tabList
+    : tabList.filter((t) => PRIMARY_TAB_IDS.has(t.id));
+  const secondaryTabs = isCustomTabs
+    ? []
+    : tabList.filter((t) => !PRIMARY_TAB_IDS.has(t.id));
+
+  const renderTab = (
+    { id, label }: { id: ResultsBucketTabId; label: string },
+    isSecondary: boolean,
+  ) => {
+    const isActive = active === id;
+    const count = tabCounts?.[id];
+
+    const activeClass = isSecondary
+      ? "inline-flex items-center gap-1.5 rounded-md bg-[#1a1a1a] px-3 py-1.5 text-[0.75rem] font-semibold text-white"
+      : "inline-flex items-center gap-1.5 rounded-lg bg-[#1a1a1a] px-3.5 py-2 text-[13px] font-semibold text-white";
+
+    const inactiveClass = isSecondary
+      ? "inline-flex items-center gap-1.5 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-3 py-1.5 text-[0.75rem] font-medium text-[#6b7280] transition-colors hover:bg-[#f3f4f6] hover:text-[#1a1a1a]"
+      : "inline-flex items-center gap-1.5 rounded-lg bg-[#f3f4f6] px-3.5 py-2 text-[13px] font-medium text-[#6b7280] transition-colors hover:bg-[#e5e7eb] hover:text-[#1a1a1a]";
+
+    return (
+      <button
+        key={id}
+        type="button"
+        role="tab"
+        aria-selected={isActive}
+        className={isActive ? activeClass : inactiveClass}
+        onClick={() => onChange(id)}
+      >
+        <span>{label}</span>
+        {count != null ? (
+          <span
+            className={
+              isActive
+                ? "inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-white/20 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white"
+                : `inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${
+                    isSecondary
+                      ? "bg-[#f3f4f6] text-[#6b7280]"
+                      : "bg-[#e5e7eb] text-[#6b7280]"
+                  }`
+            }
+          >
+            {count.toLocaleString("en-IN")}
+          </span>
+        ) : null}
+      </button>
+    );
+  };
+
   return (
-    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <nav
-        className="flex flex-wrap gap-1.5"
+        className="flex min-w-0 flex-col gap-3"
         role="tablist"
         aria-label={ariaLabel}
       >
-        {tabList.map(({ id, label }) => {
-          const isActive = active === id;
-          const count = tabCounts?.[id];
-          return (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              className={
-                isActive
-                  ? "inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm"
-                  : "inline-flex items-center gap-1.5 rounded-full bg-white px-3.5 py-2 text-[13px] font-medium text-gray-500 shadow-[var(--shadow-soft)] transition-colors hover:text-[var(--ink)]"
-              }
-              onClick={() => onChange(id)}
-            >
-              <span>{label}</span>
-              {count != null ? (
-                <span
-                  className={
-                    isActive
-                      ? "inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white"
-                      : "inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-[#F0F0F0] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-gray-500"
-                  }
-                >
-                  {count.toLocaleString("en-IN")}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
+        {/* Primary tabs row */}
+        <div className="flex flex-wrap gap-2">
+          {primaryTabs.map((tab) => renderTab(tab, false))}
+        </div>
+        {/* Secondary tabs row */}
+        {secondaryTabs.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {secondaryTabs.map((tab) => renderTab(tab, true))}
+          </div>
+        )}
       </nav>
       {rightContent && <div className="shrink-0">{rightContent}</div>}
     </div>

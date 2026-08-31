@@ -7,7 +7,6 @@ import {
   csvDownloadBtnClass,
   filterDropdownClass,
   filterToolbarClass,
-  sectionContainerClass,
 } from "@/components/reconcile/ResultsUi";
 import { downloadBlobAsFile } from "@/lib/download";
 
@@ -181,7 +180,10 @@ export function AdvancedExportPanel({
   );
 
   return (
-    <section className={`${sectionContainerClass} !mb-0`} aria-label="Advanced Export">
+    <section
+      className="box-border w-full max-w-full rounded-xl border border-[#e5e7eb] bg-white px-6 py-5 shadow-[var(--shadow-soft)]"
+      aria-label="Advanced Export"
+    >
       <button
         type="button"
         className="flex w-full items-center justify-between gap-3 text-left"
@@ -197,7 +199,7 @@ export function AdvancedExportPanel({
           </p>
         </div>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${
+          className={`h-4 w-4 shrink-0 text-[#6b7280] transition-transform ${
             open ? "rotate-180" : ""
           }`}
         />

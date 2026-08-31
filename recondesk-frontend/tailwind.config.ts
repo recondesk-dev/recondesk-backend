@@ -18,6 +18,14 @@ const config: Config = {
           dim: brandColors.dim,
         },
         sidebar: "#0F1117",
+        // Scrollstory design system
+        story: {
+          dark: "#0a0a0a",
+          light: "#ffffff",
+          red: "#ef4444",
+          green: "#16a34a",
+          muted: "#888888",
+        },
       },
       fontFamily: {
         sans: [
@@ -36,7 +44,9 @@ const config: Config = {
           "system-ui",
           "sans-serif",
         ],
-        mono: ["var(--font-space-mono)", "ui-monospace", "monospace"],
+        mono: ["var(--font-jetbrains-mono)", "var(--font-space-mono)", "ui-monospace", "monospace"],
+        // Scrollstory body font
+        story: ["var(--font-inter)", "Inter", "system-ui", "sans-serif"],
       },
     },
   },
@@ -44,3 +54,4 @@ const config: Config = {
 };
 
 export default config;
+

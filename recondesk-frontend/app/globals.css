@@ -2,6 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Scrollstory fonts ─────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+/* ─── Scrollstory design tokens ─────────────────────────────────────────── */
+:root {
+  --story-bg-dark: #0a0a0a;
+  --story-bg-light: #ffffff;
+  --story-text-dark: #f0f0f0;
+  --story-text-light: #0a0a0a;
+  --story-accent-red: #ef4444;
+  --story-accent-green: #16a34a;
+  --story-muted-dark: #888888;
+  --story-border-dark: #1f1f1f;
+  --font-inter: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-jetbrains-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+}
+
+/* Scrollstory font utilities */
+.font-story { font-family: var(--font-inter); }
+.font-mono  { font-family: var(--font-jetbrains-mono); }
+
+/* Custom range input styling for Chapter 04 */
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ef4444;
+  cursor: pointer;
+}
+input[type='range']::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ef4444;
+  border: none;
+  cursor: pointer;
+}
+
 @layer base {
   :root {
     --sidebar: #0f1117;

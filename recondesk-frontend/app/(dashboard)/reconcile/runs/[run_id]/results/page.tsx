@@ -495,9 +495,9 @@ function ConfidenceSummaryCard({ data }: { data: ConfidenceSummary }) {
 
 /** Shared action button styles for results header / exports */
 const actionBtnBase =
-  "inline-flex h-9 items-center justify-center gap-2 text-[13px] font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-50";
-const exportToolbarBtn = `${actionBtnBase} rounded-full bg-[#F5F5F6] px-4 text-gray-700 hover:bg-gray-200/70`;
-const deleteRunBtn = `${actionBtnBase} rounded-full bg-[#F5F5F6] px-4 text-gray-700 hover:bg-red-50 hover:text-red-600`;
+  "inline-flex items-center justify-center gap-2 text-[13px] font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-50";
+const exportToolbarBtn = `${actionBtnBase} h-9 rounded-lg border border-[#e5e7eb] bg-white px-4 text-[#1a1a1a] hover:bg-[#f9fafb]`;
+const deleteRunBtn = `inline-flex items-center gap-1.5 text-[0.8rem] font-normal text-[#9ca3af] transition-colors hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50`;
 
 type Paginated<T> = {
   data: T[];
@@ -2608,10 +2608,10 @@ export default function ReconcileResultsPage() {
           <>
             <div className="flex w-full flex-wrap items-center justify-between gap-3">
               <div className="min-w-0 shrink">
-                <p className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
+                <p className="text-[1.8rem] font-bold tracking-tight text-[#1a1a1a]">
                   {summary.period}
                 </p>
-                <p className="mt-1 text-[13px] text-gray-500">
+                <p className="mt-1 text-[0.85rem] font-normal text-[#9ca3af]">
                   Assigned to:{" "}
                   {summary.assigned_to_name?.trim() ? (
                     summary.assigned_to_name
@@ -2629,45 +2629,43 @@ export default function ReconcileResultsPage() {
                   )}
               </div>
 
-              <div className="flex shrink-0 flex-col items-end gap-1.5">
-                <div className="flex items-center gap-2">
-                  <div
-                    className="inline-flex items-center gap-2"
-                    role="group"
-                    aria-label="Export reports"
-                  >
-                    <button
-                      type="button"
-                      disabled={excelDownloading}
-                      className={exportToolbarBtn}
-                      onClick={() => void downloadExcelReport()}
-                    >
-                      {excelDownloading ? (
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" />
-                      ) : (
-                        <FileSpreadsheet className="h-4 w-4 shrink-0 text-gray-500" />
-                      )}
-                      Excel
-                    </button>
-                  </div>
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                <div
+                  className="inline-flex items-center gap-2"
+                  role="group"
+                  aria-label="Export reports"
+                >
                   <button
                     type="button"
-                    className={deleteRunBtn}
-                    disabled={!canDeleteRun}
-                    title={
-                      canDeleteRun ? undefined : "Only admins can delete runs"
-                    }
-                    aria-disabled={!canDeleteRun}
-                    onClick={() => {
-                      if (!canDeleteRun) return;
-                      setDeleteError(null);
-                      setDeleteModalOpen(true);
-                    }}
+                    disabled={excelDownloading}
+                    className={exportToolbarBtn}
+                    onClick={() => void downloadExcelReport()}
                   >
-                    <Trash2 className="h-4 w-4 shrink-0" />
-                    Delete run
+                    {excelDownloading ? (
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" />
+                    ) : (
+                      <FileSpreadsheet className="h-4 w-4 shrink-0 text-gray-500" />
+                    )}
+                    Excel
                   </button>
                 </div>
+                <button
+                  type="button"
+                  className={deleteRunBtn}
+                  disabled={!canDeleteRun}
+                  title={
+                    canDeleteRun ? undefined : "Only admins can delete runs"
+                  }
+                  aria-disabled={!canDeleteRun}
+                  onClick={() => {
+                    if (!canDeleteRun) return;
+                    setDeleteError(null);
+                    setDeleteModalOpen(true);
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                  Delete run
+                </button>
                 {exportScopeLabel}
               </div>
             </div>
@@ -2758,7 +2756,7 @@ export default function ReconcileResultsPage() {
                     <CompactStatAmount
                       amount={summary.missed_itc_total_amount}
                       emphasize
-                      className="text-red-700"
+                      className="text-[#ef4444]"
                     />
                   )
                 }
@@ -2776,7 +2774,7 @@ export default function ReconcileResultsPage() {
                     <CompactStatAmount
                       amount={summary.wrongful_risk_total_amount}
                       emphasize
-                      className="text-amber-800"
+                      className="text-[#ef4444]"
                     />
                   )
                 }
@@ -2873,7 +2871,7 @@ export default function ReconcileResultsPage() {
                 <button
                   type="button"
                   disabled={pdfDownloading || !summary}
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-full bg-[var(--ink)] px-4 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-auto items-center justify-center gap-2 rounded-[10px] bg-[var(--ink)] px-5 py-2.5 text-[0.875rem] font-medium text-white transition-colors hover:bg-[#1f1f1f] disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={() => void downloadPdfReport()}
                 >
                   {pdfDownloading ? (
@@ -5734,7 +5732,7 @@ export default function ReconcileResultsPage() {
             </div>
             <button
               type="button"
-              className="inline-flex shrink-0 items-center gap-2 rounded-full bg-[var(--ink)] px-5 py-2.5 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
+              className="inline-flex shrink-0 items-center gap-2 rounded-[10px] bg-[var(--ink)] px-5 py-2.5 text-[0.875rem] font-semibold text-white transition-all duration-200 ease-in-out hover:scale-[1.01] hover:bg-[#1f1f1f]"
               onClick={() => setFinalizeModalOpen(true)}
             >
               Finalize Reconciliation
