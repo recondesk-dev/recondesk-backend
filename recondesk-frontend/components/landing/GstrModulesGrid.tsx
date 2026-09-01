@@ -58,7 +58,7 @@ export function GstrModulesGrid() {
         <div className="mt-14 grid grid-cols-1 gap-6 md:grid-cols-2">
           
           {/* ─── Card 1: GSTR-2B ↔ Purchase Register (ITC Engine) ─── */}
-          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-[#7B5CFA]/40 hover:shadow-[0_16px_40px_rgba(123,92,250,0.08)]">
+          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] border-b-transparent bg-white p-6 sm:p-7 shadow-[0_4px_24px_rgba(0,0,0,0.02)] transition-all duration-300 hover:-translate-y-1 hover:border-[#7B5CFA]/40 hover:shadow-[0_16px_40px_rgba(123,92,250,0.08)]">
             <div className="absolute top-0 left-0 right-0 h-1 bg-[#7B5CFA]" />
 
             <div>
@@ -135,7 +135,7 @@ export function GstrModulesGrid() {
             </div>
 
             {/* Interactive Link that triggers Modal */}
-            <div className="mt-6 pt-4 border-t border-[#E5E5E2] flex items-center justify-between">
+            <div className="relative z-10 mt-6 pt-4 border-t border-[#E5E5E2] flex items-center justify-between">
               <button
                 type="button"
                 onClick={() => setActiveModal("itc")}
@@ -145,10 +145,16 @@ export function GstrModulesGrid() {
                 <ArrowRight className="h-3 w-3" />
               </button>
             </div>
+
+            {/* Faint white cloud fade overlay at bottom to dissolve sharp bottom edge */}
+            <div
+              className="pointer-events-none absolute -bottom-1 -left-1 -right-1 h-14 bg-gradient-to-t from-white via-white/85 to-transparent"
+              aria-hidden="true"
+            />
           </div>
 
           {/* ─── Card 2: GSTR-1 ↔ Sales Register (Revenue Tie-Out) ─── */}
-          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-[#10B981]/40 hover:shadow-[0_16px_40px_rgba(16,185,129,0.08)]">
+          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] border-b-transparent bg-white p-6 sm:p-7 shadow-[0_4px_24px_rgba(0,0,0,0.02)] transition-all duration-300 hover:-translate-y-1 hover:border-[#10B981]/40 hover:shadow-[0_16px_40px_rgba(16,185,129,0.08)]">
             <div className="absolute top-0 left-0 right-0 h-1 bg-[#10B981]" />
 
             <div>
@@ -227,7 +233,7 @@ export function GstrModulesGrid() {
             </div>
 
             {/* Interactive Link that triggers Modal */}
-            <div className="mt-6 pt-4 border-t border-[#E5E5E2] flex items-center justify-between">
+            <div className="relative z-10 mt-6 pt-4 border-t border-[#E5E5E2] flex items-center justify-between">
               <button
                 type="button"
                 onClick={() => setActiveModal("gstr1")}
@@ -237,10 +243,16 @@ export function GstrModulesGrid() {
                 <ArrowRight className="h-3 w-3" />
               </button>
             </div>
+
+            {/* Faint white cloud fade overlay at bottom to dissolve sharp bottom edge */}
+            <div
+              className="pointer-events-none absolute -bottom-1 -left-1 -right-1 h-14 bg-gradient-to-t from-white via-white/85 to-transparent"
+              aria-hidden="true"
+            />
           </div>
 
           {/* ─── Card 3: GSTR-3B vs Books & 2B (Notice Shield) ─── */}
-          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-[#F59E0B]/40 hover:shadow-[0_16px_40px_rgba(245,158,11,0.08)]">
+          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] border-b-transparent bg-white p-6 sm:p-7 shadow-[0_4px_24px_rgba(0,0,0,0.02)] transition-all duration-300 hover:-translate-y-1 hover:border-[#F59E0B]/40 hover:shadow-[0_16px_40px_rgba(245,158,11,0.08)]">
             <div className="absolute top-0 left-0 right-0 h-1 bg-[#F59E0B]" />
 
             <div>
@@ -319,7 +331,7 @@ export function GstrModulesGrid() {
             </div>
 
             {/* Interactive Link that triggers Modal */}
-            <div className="mt-6 pt-4 border-t border-[#E5E5E2] flex items-center justify-between">
+            <div className="relative z-10 mt-6 pt-4 border-t border-[#E5E5E2] flex items-center justify-between">
               <button
                 type="button"
                 onClick={() => setActiveModal("gstr3b")}
@@ -329,10 +341,16 @@ export function GstrModulesGrid() {
                 <ArrowRight className="h-3 w-3" />
               </button>
             </div>
+
+            {/* Faint white cloud fade overlay at bottom to dissolve sharp bottom edge */}
+            <div
+              className="pointer-events-none absolute -bottom-1 -left-1 -right-1 h-14 bg-gradient-to-t from-white via-white/85 to-transparent"
+              aria-hidden="true"
+            />
           </div>
 
           {/* ─── Card 4: GSTR-9C Annual Audit Workpapers ─── */}
-          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-[#3B82F6]/40 hover:shadow-[0_16px_40px_rgba(59,130,246,0.08)]">
+          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] border-b-transparent bg-white p-6 sm:p-7 shadow-[0_4px_24px_rgba(0,0,0,0.02)] transition-all duration-300 hover:-translate-y-1 hover:border-[#3B82F6]/40 hover:shadow-[0_16px_40px_rgba(59,130,246,0.08)]">
             <div className="absolute top-0 left-0 right-0 h-1 bg-[#3B82F6]" />
 
             <div>
@@ -411,7 +429,7 @@ export function GstrModulesGrid() {
             </div>
 
             {/* Interactive Link that triggers Modal */}
-            <div className="mt-6 pt-4 border-t border-[#E5E5E2] flex items-center justify-between">
+            <div className="relative z-10 mt-6 pt-4 border-t border-[#E5E5E2] flex items-center justify-between">
               <button
                 type="button"
                 onClick={() => setActiveModal("gstr9c")}
@@ -421,6 +439,12 @@ export function GstrModulesGrid() {
                 <ArrowRight className="h-3 w-3" />
               </button>
             </div>
+
+            {/* Faint white cloud fade overlay at bottom to dissolve sharp bottom edge */}
+            <div
+              className="pointer-events-none absolute -bottom-1 -left-1 -right-1 h-14 bg-gradient-to-t from-white via-white/85 to-transparent"
+              aria-hidden="true"
+            />
           </div>
 
         </div>
