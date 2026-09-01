@@ -8,6 +8,7 @@ import useSWR, { mutate } from "swr";
 import { Avatar } from "@/components/ui/Avatar";
 import { LanguageToggle } from "@/components/ui/LanguageToggle";
 import { useToast } from "@/components/providers/ToastProvider";
+import { useTranslations } from "next-intl";
 import {
   billingApi,
   isApiError,
@@ -401,17 +402,20 @@ export default function DashboardShellLayout({
     router.push("/login");
   }
 
+  const tNav = useTranslations("nav");
+  const tNotif = useTranslations("notifications");
+
   const nav = [
-    { href: "/dashboard", label: "Dashboard", Icon: NavIconDashboard },
-    { href: "/clients", label: "Clients", Icon: NavIconUsers },
-    { href: "/vendors", label: "Vendors", Icon: NavIconVendors },
-    { href: "/reconciliations", label: "Reconciliations", Icon: NavIconRefresh },
-    { href: "/einvoicing", label: "E-Invoicing", Icon: NavIconFileText },
+    { href: "/dashboard", label: tNav("dashboard"), Icon: NavIconDashboard },
+    { href: "/clients", label: tNav("clients"), Icon: NavIconUsers },
+    { href: "/vendors", label: tNav("vendors"), Icon: NavIconVendors },
+    { href: "/reconciliations", label: tNav("reconciliations"), Icon: NavIconRefresh },
+    { href: "/einvoicing", label: tNav("einvoicing"), Icon: NavIconFileText },
     ...(currentUser.role === "ADMIN"
-      ? [{ href: "/manage-data", label: "Manage Data", Icon: NavIconDatabase }]
+      ? [{ href: "/manage-data", label: tNav("manageData"), Icon: NavIconDatabase }]
       : []),
-    { href: "/billing", label: "Billing", Icon: NavIconCredit },
-    { href: "/settings", label: "Settings", Icon: NavIconGear },
+    { href: "/billing", label: tNav("billing"), Icon: NavIconCredit },
+    { href: "/settings", label: tNav("settings"), Icon: NavIconGear },
   ];
 
   return (
@@ -484,7 +488,7 @@ export default function DashboardShellLayout({
                     router.push("/settings");
                   }}
                 >
-                  Settings
+                  {tNav("settings")}
                 </button>
                 <button
                   type="button"
@@ -492,7 +496,7 @@ export default function DashboardShellLayout({
                   className="flex w-full px-4 py-2.5 text-left text-sm text-red-500 transition-colors hover:bg-red-50"
                   onClick={() => void handleSignOut()}
                 >
-                  Sign Out
+                  {tNav("signOut")}
                 </button>
               </div>
             )}
@@ -525,7 +529,7 @@ export default function DashboardShellLayout({
             <button
               type="button"
               className="relative rounded-full bg-white p-2.5 text-gray-500 shadow-[var(--shadow-soft)] transition-colors hover:text-gray-900"
-              aria-label="Notifications"
+              aria-label={tNav("notifications")}
               onClick={() => setPanelOpen(true)}
             >
               <BellIcon />
@@ -540,7 +544,7 @@ export default function DashboardShellLayout({
                 onClick={() => setHeaderProfileOpen((o) => !o)}
                 aria-expanded={headerProfileOpen}
                 aria-haspopup="menu"
-                aria-label="Open profile menu"
+                aria-label={tNav("openProfileMenu")}
               >
                 <Avatar initials={currentUser.initials} />
               </button>
@@ -581,7 +585,7 @@ export default function DashboardShellLayout({
                         <line x1="19" y1="8" x2="19" y2="14" />
                         <line x1="22" y1="11" x2="16" y2="11" />
                       </svg>
-                      Invite team member
+                      {tNav("inviteTeamMember")}
                     </button>
                   )}
 
@@ -597,7 +601,7 @@ export default function DashboardShellLayout({
                       <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
                       <line x1="12" y1="17" x2="12.01" y2="17" />
                     </svg>
-                    Help &amp; Support
+                    {tNav("helpSupport")}
                   </a>
 
                   {/* ── Settings ── */}
@@ -614,7 +618,7 @@ export default function DashboardShellLayout({
                       <circle cx="12" cy="12" r="3" />
                       <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
                     </svg>
-                    Settings
+                    {tNav("settings")}
                   </button>
 
                   {/* ── Separator + Sign Out ── */}
@@ -630,7 +634,7 @@ export default function DashboardShellLayout({
                         <polyline points="16 17 21 12 16 7" />
                         <line x1="21" y1="12" x2="9" y2="12" />
                       </svg>
-                      Sign out
+                      {tNav("signOut")}
                     </button>
                   </div>
                 </div>
@@ -649,18 +653,18 @@ export default function DashboardShellLayout({
           <button
             type="button"
             className="fixed inset-0 z-[80] bg-black/20 backdrop-blur-[2px]"
-            aria-label="Close notifications"
+            aria-label={tNotif("close")}
             onClick={() => setPanelOpen(false)}
           />
           <div className="fixed inset-y-3 right-3 z-[90] flex w-full max-w-md flex-col overflow-hidden rounded-[1.75rem] bg-white shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04]">
             <div className="flex items-center justify-between px-5 pb-3 pt-5">
               <div>
                 <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
-                  Failed reconciliations
+                  {tNotif("failedReconciliations")}
                 </h2>
                 {failedCount > 0 && (
                   <p className="mt-0.5 text-sm text-gray-500">
-                    {failedCount} reconciliation{failedCount === 1 ? "" : "s"} need a retry
+                    {failedCount} {tNotif("reconciliationsNeedRetry")}
                   </p>
                 )}
               </div>
@@ -668,7 +672,7 @@ export default function DashboardShellLayout({
                 type="button"
                 className="rounded-full bg-[#F5F5F6] p-2 text-gray-500 transition-colors hover:bg-gray-200/70 hover:text-[var(--ink)]"
                 onClick={() => setPanelOpen(false)}
-                aria-label="Close"
+                aria-label={tNotif("close")}
               >
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -685,13 +689,13 @@ export default function DashboardShellLayout({
               )}
               {failuresError && (
                 <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800">
-                  Could not load failures.{" "}
+                  {tNotif("couldNotLoad")}{" "}
                   <button
                     type="button"
                     className="font-semibold text-[var(--ink)] underline"
                     onClick={() => void mutateFailures()}
                   >
-                    Retry
+                    {tNotif("retry")}
                   </button>
                 </div>
               )}
@@ -700,8 +704,8 @@ export default function DashboardShellLayout({
                 failures &&
                 failures.items.length === 0 && (
                   <div className="rounded-2xl bg-[#F7F7F8] px-4 py-10 text-center">
-                    <p className="text-sm font-medium text-[var(--ink)]">No failed reconciliations</p>
-                    <p className="mt-1 text-xs text-gray-400">You’re all clear for now</p>
+                    <p className="text-sm font-medium text-[var(--ink)]">{tNotif("noFailed")}</p>
+                    <p className="mt-1 text-xs text-gray-400">{tNotif("allClear")}</p>
                   </div>
                 )}
               <ul className="space-y-2.5">
@@ -725,17 +729,17 @@ export default function DashboardShellLayout({
                           void (async () => {
                             try {
                               await reconcileRunsApi.retryFailed(accessToken, item.runId);
-                              toast("Retry queued", "success");
+                              toast(tNotif("retryQueued"), "success");
                               await mutateFailures();
                               await invalidateDw();
                               setPanelOpen(false);
                             } catch (e: unknown) {
-                              toast(isApiError(e) ? e.detail : "Retry failed", "error");
+                              toast(isApiError(e) ? e.detail : tNotif("retryFailed"), "error");
                             }
                           })();
                         }}
                       >
-                        Retry
+                        {tNotif("retry")}
                       </button>
                     </div>
                     <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-red-600">

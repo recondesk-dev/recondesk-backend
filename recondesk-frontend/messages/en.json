@@ -19,6 +19,21 @@
     "manageData": "Manage Data",
     "billing": "Billing",
     "settings": "Settings",
-    "signOut": "Sign Out"
+    "signOut": "Sign Out",
+    "helpSupport": "Help & Support",
+    "inviteTeamMember": "Invite team member",
+    "notifications": "Notifications",
+    "openProfileMenu": "Open profile menu"
+  },
+  "notifications": {
+    "failedReconciliations": "Failed reconciliations",
+    "reconciliationsNeedRetry": "reconciliation(s) need a retry",
+    "couldNotLoad": "Could not load failures.",
+    "retry": "Retry",
+    "noFailed": "No failed reconciliations",
+    "allClear": "You’re all clear for now",
+    "retryQueued": "Retry queued",
+    "retryFailed": "Retry failed",
+    "close": "Close"
   }
 }

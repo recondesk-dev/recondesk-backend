@@ -19,6 +19,21 @@
     "manageData": "डेटा प्रबंधन",
     "billing": "बिलिंग",
     "settings": "सेटिंग्स",
-    "signOut": "साइन आउट"
+    "signOut": "साइन आउट",
+    "helpSupport": "सहायता और समर्थन",
+    "inviteTeamMember": "टीम सदस्य को आमंत्रित करें",
+    "notifications": "सूचनाएं",
+    "openProfileMenu": "प्रोफाइल मेनू खोलें"
+  },
+  "notifications": {
+    "failedReconciliations": "विफल रिकॉन्सिलिएशन",
+    "reconciliationsNeedRetry": "रिकॉन्सिलिएशन को पुनः प्रयास की आवश्यकता है",
+    "couldNotLoad": "विफलताएं लोड नहीं की जा सकीं।",
+    "retry": "पुनः प्रयास करें",
+    "noFailed": "कोई विफल रिकॉन्सिलिएशन नहीं",
+    "allClear": "अभी सब कुछ सही है",
+    "retryQueued": "पुनः प्रयास कतारबद्ध किया गया",
+    "retryFailed": "पुनः प्रयास विफल रहा",
+    "close": "बंद करें"
   }
 }
