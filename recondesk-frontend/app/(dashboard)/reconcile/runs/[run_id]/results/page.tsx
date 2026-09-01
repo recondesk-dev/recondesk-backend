@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, FileSpreadsheet, FileText, Info, Loader2, Shield, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, FileSpreadsheet, FileText, Info, Loader2, Shield, Trash2, Upload, X } from "lucide-react";
 import {
   Rule37MarkPaidModal,
   type Rule37MarkPaidTarget,
@@ -142,6 +142,7 @@ import {
 } from "@/lib/reconcileTablePageSize";
 import {
   formatINR,
+  formatInrCompact,
   formatTaxDifferenceDisplay,
 } from "@/lib/format";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
@@ -365,16 +366,15 @@ function WhyRationaleButton({
     <button
       type="button"
       onClick={onToggle}
-      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-black/15 ${
+      className={`inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
         expanded
-          ? "bg-[var(--ink)] text-white"
-          : "text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+          ? "bg-[#2563EB] text-white"
+          : "bg-[#EFF6FF] border border-[#BFDBFE] text-[#2563EB] hover:bg-[#DBEAFE]"
       }`}
       title={expanded ? "Hide match rationale" : "Why this decision?"}
       aria-expanded={expanded}
       aria-label="Why this match decision"
     >
-      <Info className="h-3 w-3" />
       why?
     </button>
   );
@@ -922,16 +922,29 @@ function supplierRiskImpactLabel(
 // ─── Small UI bits ─────────────────────────────────────────────────────────
 
 function MatchLevelBadge({ level }: { level: MatchLevel }) {
-  const map: Record<MatchLevel, string> = {
-    EXACT: "bg-gray-100 text-gray-600",
-    FUZZY: "bg-amber-50 text-amber-600",
-    MANUAL: "bg-gray-100 text-gray-600",
-    UNMATCHED: "bg-red-50 text-red-600",
-  };
+  if (level === "EXACT") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-semibold bg-[#DCFCE7] text-[#166534]">
+        Exact L1
+      </span>
+    );
+  }
+  if (level === "FUZZY") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-semibold bg-[#FEF9C3] text-[#713F12]">
+        Fuzzy L3
+      </span>
+    );
+  }
+  if (level === "MANUAL") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-semibold bg-[#F0F9FF] text-[#0369A1]">
+        Soft L2
+      </span>
+    );
+  }
   return (
-    <span
-      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${map[level]}`}
-    >
+    <span className="inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-semibold bg-[#F1F5F9] text-[#475569]">
       {level}
     </span>
   );
@@ -2596,10 +2609,11 @@ export default function ReconcileResultsPage() {
   }
 
   return (
-    <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden pb-32">
+    <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden pb-28 bg-[#F1F5F9]">
+      {/* Context bar */}
       <div
         ref={summaryRef}
-        className="sticky top-0 z-30 box-border w-full min-w-0 overflow-x-hidden bg-[var(--bg)]/90 px-8 py-5 backdrop-blur-md"
+        className="sticky top-0 z-30 box-border w-full min-w-0 overflow-x-hidden border-b border-[#E2E8F0] bg-white px-6 py-2.5 shadow-sm"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
@@ -2619,284 +2633,254 @@ export default function ReconcileResultsPage() {
           <SummarySkeleton />
         )}
         {summary && !summaryError && (
-          <>
-            <div className="flex w-full flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0 shrink">
-                <p
-                  className="text-[1.8rem] font-bold tracking-tight text-[#1a1a1a]"
-                  style={{ fontFamily: "'DM Sans', sans-serif" }}
-                >
+          <div className="flex w-full flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 text-xs text-[#94A3B8]">
+                <Link href="/clients" className="hover:text-[#0F172A] transition-colors">
+                  Clients
+                </Link>
+                <span className="text-[#CBD5E1]">›</span>
+                <span className="font-semibold text-[#0F172A]">
+                  {summary.client_name || "—"}
+                </span>
+                <span className="text-[#CBD5E1]">›</span>
+                <span className="font-medium text-[#475569]">
                   {formatPeriod(summary.period)}
-                </p>
-                <p className="mt-1 text-[0.85rem] font-normal text-[#9ca3af]">
-                  Assigned to:{" "}
-                  {summary.assigned_to_name?.trim() ? (
-                    summary.assigned_to_name
-                  ) : (
-                    <span className="italic text-gray-400">Unassigned</span>
-                  )}
-                </p>
-                {isRunFinalized &&
-                  summary.finalized_by_name &&
-                  summary.finalized_at && (
-                    <span className="mt-2 inline-flex rounded-full bg-[var(--ink)] px-2.5 py-0.5 text-[11px] font-medium text-white">
-                      Finalized by {summary.finalized_by_name} on{" "}
-                      {formatDate(summary.finalized_at)}
-                    </span>
-                  )}
+                </span>
               </div>
+              {(summary.client_gstin || summary.client_gstin_id) && (
+                <span className="rounded border border-[#E2E8F0] bg-[#F8FAFC] px-1.5 py-0.5 font-mono text-[11px] tracking-wide text-[#94A3B8]">
+                  {summary.client_gstin || summary.client_gstin_id}
+                </span>
+              )}
+            </div>
 
-              <div className="flex shrink-0 flex-col items-end gap-2">
-                <div
-                  className="inline-flex items-center gap-2"
-                  role="group"
-                  aria-label="Export reports"
-                >
-                  <button
-                    type="button"
-                    disabled={excelDownloading}
-                    className={exportToolbarBtn}
-                    onClick={() => void downloadExcelReport()}
-                  >
-                    {excelDownloading ? (
-                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" />
-                    ) : (
-                      <FileSpreadsheet className="h-4 w-4 shrink-0 text-gray-500" />
-                    )}
-                    Excel
-                  </button>
-                </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={excelDownloading}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-3 py-1.5 text-xs font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void downloadExcelReport()}
+              >
+                {excelDownloading ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-gray-400" />
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M2 9h8M6 1v6M3 4l3-3 3 3" />
+                  </svg>
+                )}
+                Export
+              </button>
+              <button
+                type="button"
+                disabled={pdfDownloading}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-3 py-1.5 text-xs font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void downloadPdfReport()}
+              >
+                {pdfDownloading ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-gray-400" />
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M2 2h8v8H2z" />
+                    <path d="M4 5h4M4 7h2" />
+                  </svg>
+                )}
+                PDF Report
+              </button>
+              {canDeleteRun && (
                 <button
                   type="button"
-                  className={deleteRunBtn}
-                  disabled={!canDeleteRun}
-                  title={
-                    canDeleteRun ? undefined : "Only admins can delete runs"
-                  }
-                  aria-disabled={!canDeleteRun}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50"
+                  title="Delete run"
                   onClick={() => {
-                    if (!canDeleteRun) return;
                     setDeleteError(null);
                     setDeleteModalOpen(true);
                   }}
                 >
-                  <Trash2 className="h-3.5 w-3.5 shrink-0" />
-                  Delete run
+                  <Trash2 className="h-3 w-3 shrink-0" />
                 </button>
-                {exportScopeLabel}
-              </div>
-            </div>
-
-            {(summary.isd_count ?? 0) > 0 || (summary.impg_count ?? 0) > 0 ? (
-              <div
-                className="mt-3 rounded-[1.25rem] border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm"
-                role="alert"
-              >
-                <p className="font-semibold tracking-tight">
-                  ISD / Import of goods not included in this reconciliation
-                </p>
-                <p className="mt-1 leading-relaxed">
-                  {summary.isd_impg_warning?.trim() ||
-                    `This GSTR-2B file contains ${(summary.isd_count ?? 0) > 0 ? `${summary.isd_count!.toLocaleString("en-IN")} ISD credit line(s)` : ""}${(summary.isd_count ?? 0) > 0 && (summary.impg_count ?? 0) > 0 ? " and " : ""}${(summary.impg_count ?? 0) > 0 ? `${summary.impg_count!.toLocaleString("en-IN")} import-of-goods line(s)` : ""} that are NOT included in this reconciliation. Verify these separately.`}
-                </p>
-              </div>
-            ) : null}
-
-            {(summary.unmatched_notes_count ?? 0) > 0 ? (
-              <div
-                className="mt-3 rounded-[1.25rem] border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm"
-                role="alert"
-              >
-                <p className="font-semibold tracking-tight">
-                  Credit/debit notes not automatically reconciled
-                </p>
-                <p className="mt-1 leading-relaxed">
-                  {(summary.unmatched_notes_count ?? 0).toLocaleString("en-IN")}{" "}
-                  purchase-register credit/debit note
-                  {(summary.unmatched_notes_count ?? 0) === 1 ? "" : "s"}{" "}
-                  {(summary.unmatched_notes_count ?? 0) === 1 ? "was" : "were"}{" "}
-                  excluded from invoice matching. CDN↔GSTR-2B note matching is
-                  not implemented — review them separately under Notes — Not
-                  Auto-Matched.
-                </p>
+              )}
+              {!isRunFinalized ? (
                 <button
                   type="button"
-                  className="mt-2 text-[13px] font-semibold text-amber-950 underline underline-offset-2 hover:text-amber-900"
-                  onClick={() => setResultsTab("unmatched_notes")}
+                  className="rounded-md bg-[#DC2626] px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700"
+                  onClick={() => setFinalizeModalOpen(true)}
                 >
-                  View quarantined notes
+                  Finalize Run
                 </button>
-              </div>
-            ) : null}
-
-            {(summary.pr_skipped_count ?? 0) > 0 ? (
-              <div
-                className="mt-3 rounded-[1.25rem] bg-amber-50 px-4 py-2.5 text-sm text-amber-950"
-                role="status"
-              >
-                {summary.pr_skipped_detail?.trim() ||
-                  `${summary.pr_skipped_count!.toLocaleString("en-IN")} skipped: missing invoice number`}
-                . These purchase register rows were not matched to GSTR-2B.
-              </div>
-            ) : null}
-
-            <div className={resultsSummaryGridClass}>
-              <StatCard
-                label="Total GSTR"
-                value={summary.total_gstr_records.toLocaleString("en-IN")}
-                emphasis="secondary"
-              />
-              <StatCard
-                label="Matched"
-                accent="matched"
-                value={(summary.clean_matched_count ?? summary.matched_count).toLocaleString("en-IN")}
-                subtext="Clean matched"
-                title={`Total linked (matched + review): ${((summary.clean_matched_count ?? summary.matched_count) + (summary.review_required_count ?? 0)).toLocaleString("en-IN")} · Unresolved: ${(summary.total_gstr_records - ((summary.clean_matched_count ?? summary.matched_count) + (summary.review_required_count ?? 0))).toLocaleString("en-IN")}`}
-              />
-              <StatCard
-                label="Review Required"
-                accent="review_required"
-                value={(summary.review_required_count ?? 0).toLocaleString("en-IN")}
-                subtext="Needs verification"
-                emphasis="attention"
-              />
-              <StatCard
-                label={itcHasCdnRows ? "Net 2B Difference" : "Missed ITC"}
-                accent="missed"
-                emphasis="danger"
-                value={
-                  isProcessing ? (
-                    <span className="text-gray-300">—</span>
-                  ) : (
-                    <CompactStatAmount
-                      amount={summary.missed_itc_total_amount}
-                      className="text-[#e53935]"
-                    />
-                  )
-                }
-              />
-              <StatCard
-                label="ITC at Risk — Not in GSTR-2B"
-                accent="risk"
-                emphasis="danger"
-                value={
-                  isProcessing ? (
-                    <span className="text-gray-300">—</span>
-                  ) : (
-                    <CompactStatAmount
-                      amount={summary.wrongful_risk_total_amount}
-                      className="text-[#e53935]"
-                    />
-                  )
-                }
-              />
+              ) : (
+                <span className="rounded-md bg-emerald-100 px-3 py-1.5 text-xs font-medium text-emerald-800">
+                  Finalized
+                </span>
+              )}
             </div>
-          </>
+          </div>
         )}
-        {summary && !summaryError && (() => {
-          const cleanCount = summary.clean_matched_count ?? summary.matched_count;
-          const reviewCount = summary.review_required_count ?? 0;
-          const totalLinked = cleanCount + reviewCount;
-          const total = summary.total_gstr_records || 1;
-          const cleanPct = Math.round((cleanCount / total) * 1000) / 10;
-          const linkedPct = Math.round((totalLinked / total) * 1000) / 10;
-          return (
-            <div className="mt-4 space-y-2">
-              {/* Clean match rate bar */}
-              <div className="flex w-full items-center gap-3">
-                <div className="min-w-0 flex-1 overflow-hidden">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white">
-                    <div
-                      className="h-1.5 max-w-full rounded-full bg-[var(--ink)] transition-all duration-150"
-                      style={{ width: `${Math.min(100, Math.max(0, cleanPct))}%` }}
-                    />
-                  </div>
-                </div>
-                <p className="shrink-0 whitespace-nowrap text-[11px] text-gray-400">
-                  Clean Match Rate
-                </p>
-              </div>
-              {/* Total linked rate bar */}
-              <div className="flex w-full items-center gap-3">
-                <div className="min-w-0 flex-1 overflow-hidden">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white">
-                    <div
-                      className="h-1.5 max-w-full rounded-full bg-gray-400 transition-all duration-150"
-                      style={{ width: `${Math.min(100, Math.max(0, linkedPct))}%` }}
-                    />
-                  </div>
-                </div>
-                <p className="shrink-0 whitespace-nowrap text-[11px] text-gray-400">
-                  Total Linked Rate
-                </p>
-              </div>
-              {/* Combined label */}
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ink)] px-2.5 py-0.5 text-[11px] font-medium text-white">
-                  {cleanPct}% clean
-                </span>
-                <span className="text-[11px] text-gray-300">·</span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-0.5 text-[11px] font-medium text-gray-600 shadow-sm">
-                  {linkedPct}% linked
-                </span>
-              </div>
-              {confidenceSummary ? (
-                <ConfidenceSummaryCard data={confidenceSummary} />
-              ) : null}
-            </div>
-          );
-        })}
       </div>
 
       <div className={pageContentClass}>
-        {summary && authToken && (
-          <AdvancedExportPanel
-            runId={runId}
-            authToken={authToken}
-            clientName={summary.client_name}
-            period={summary.period}
-            onError={(message) => addToast(message, "error")}
-          />
+        {summary && (summary.isd_count ?? 0) > 0 && (
+          <div
+            className="rounded-[10px] border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs text-amber-950"
+            role="alert"
+          >
+            <strong>ISD / Import of goods:</strong>{" "}
+            {summary.isd_impg_warning?.trim() ||
+              `This GSTR-2B file contains ${(summary.isd_count ?? 0) > 0 ? `${summary.isd_count!.toLocaleString("en-IN")} ISD credit line(s)` : ""} not included in reconciliation.`}
+          </div>
         )}
-        {summary && (
-          <ResultsBucketTabs
-            active={resultsTab}
-            onChange={setResultsTab}
-            tabCounts={{
-              matched: summary.clean_matched_count ?? summary.matched_count,
-              review_required: summary.review_required_count ?? 0,
-              duplicate_entry: summary.duplicate_entry_count ?? 0,
-              unmatched_notes: summary.unmatched_notes_count ?? 0,
-              risk: summary.wrongful_risk_count ?? 0,
-              itc: summary.missed_itc_count ?? 0,
-              ...(section17Data != null
-                ? { section17: section17Data.total }
-                : {}),
-              ...(rule37Data != null ? { rule37: rule37Data.total } : {}),
-              ...(einvoiceResData?.summary != null
-                ? { einvoice: einvoiceResData.summary.total_records }
-                : {}),
-            }}
-            rightContent={
-              <div className="flex flex-col items-end gap-1.5">
-                <button
-                  type="button"
-                  disabled={pdfDownloading || !summary}
-                  className="inline-flex h-auto items-center justify-center gap-2 rounded-[10px] bg-[var(--ink)] px-5 py-2.5 text-[0.875rem] font-medium text-white transition-colors hover:bg-[#1f1f1f] disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => void downloadPdfReport()}
-                >
-                  {pdfDownloading ? (
-                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white" />
-                  ) : (
-                    <FileText className="h-4 w-4 shrink-0 text-white" />
-                  )}
-                  Download Report (PDF)
-                </button>
-                {exportScopeLabel}
+
+        {summary && (summary.unmatched_notes_count ?? 0) > 0 && (
+          <div
+            className="flex items-center justify-between rounded-[10px] border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs text-amber-950"
+            role="alert"
+          >
+            <span>
+              {(summary.unmatched_notes_count ?? 0).toLocaleString("en-IN")} credit/debit notes were excluded from invoice matching.
+            </span>
+            <button
+              type="button"
+              className="ml-2 font-semibold underline hover:text-amber-900"
+              onClick={() => setResultsTab("unmatched_notes")}
+            >
+              View notes
+            </button>
+          </div>
+        )}
+
+        {summary && (summary.pr_skipped_count ?? 0) > 0 && (
+          <div
+            className="rounded-[10px] bg-amber-50 px-4 py-2 text-xs text-amber-950"
+            role="status"
+          >
+            {summary.pr_skipped_detail?.trim() ||
+              `${summary.pr_skipped_count!.toLocaleString("en-IN")} purchase register rows skipped (missing invoice number).`}
+          </div>
+        )}
+
+        {/* KPI section */}
+        {summary && !summaryError && (
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {/* Left: Run summary */}
+            <div className="flex items-center gap-5 rounded-[10px] border border-[#E2E8F0] bg-white p-4 px-5">
+              <div className="min-w-[72px] text-center">
+                <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.4px] text-[#94A3B8]">
+                  Run total
+                </div>
+                <div className="text-[28px] font-bold leading-none text-[#0F172A]">
+                  {summary.total_gstr_records.toLocaleString("en-IN")}
+                </div>
+                <div className="mt-1 text-[11px] text-[#94A3B8]">invoices</div>
               </div>
-            }
-          />
+              <div className="h-12 w-[1px] bg-[#F1F5F9]" />
+              <div className="flex-1">
+                <div className="mb-1.5 flex justify-between text-[11px] text-[#94A3B8]">
+                  <span className="font-medium uppercase tracking-[0.4px]">Matched</span>
+                  <span className="font-bold text-[#16A34A]">
+                    {(summary.clean_matched_count ?? summary.matched_count).toLocaleString("en-IN")} · {Math.round(((summary.clean_matched_count ?? summary.matched_count) / Math.max(summary.total_gstr_records, 1)) * 100)}%
+                  </span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F1F5F9]">
+                  <div
+                    className="h-full rounded-full bg-[#16A34A] transition-all duration-150"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, Math.round(((summary.clean_matched_count ?? summary.matched_count) / Math.max(summary.total_gstr_records, 1)) * 100)))}%`,
+                    }}
+                  />
+                </div>
+                <div className="mt-1.5 text-[11px] text-[#94A3B8]">
+                  {summary.total_gstr_records - (summary.clean_matched_count ?? summary.matched_count) > 0
+                    ? `${(summary.total_gstr_records - (summary.clean_matched_count ?? summary.matched_count)).toLocaleString("en-IN")} invoices need attention`
+                    : "All invoices clean matched"}
+                </div>
+              </div>
+              <div className="h-12 w-[1px] bg-[#F1F5F9]" />
+              <div className="min-w-[60px] text-center">
+                <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.4px] text-[#94A3B8]">
+                  Assigned
+                </div>
+                <div className="mt-1 text-[13px] font-medium text-[#0F172A]">
+                  {summary.assigned_to_name?.trim() ? summary.assigned_to_name : "Unassigned"}
+                </div>
+                <div className="mt-1 text-[11px] text-[#94A3B8]">
+                  {formatPeriod(summary.period)}
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Action required */}
+            <div className="overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-white">
+              <div className="flex items-center gap-1.5 border-b border-[#FEF2F2] bg-[#FFF7F7] px-4 py-2.5">
+                <div className="h-1.5 w-1.5 rounded-full bg-[#DC2626]" />
+                <div className="text-[11px] font-semibold uppercase tracking-[0.4px] text-[#991B1B]">
+                  {((summary.review_required_count ?? 0) + (summary.missed_itc_count ?? 0) + (summary.wrongful_risk_count ?? 0)).toLocaleString("en-IN")} invoices need action
+                </div>
+              </div>
+              <div
+                className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-4 py-2.5 transition-colors hover:bg-[#FAFAFA]"
+                onClick={() => setResultsTab("review_required")}
+              >
+                <div className="flex-1 text-xs text-[#475569]">Review Required</div>
+                <span className="rounded border border-[#FCD34D] bg-[#FFFBEB] px-1.5 py-0.5 text-[11px] font-semibold text-[#92400E]">
+                  {(summary.review_required_count ?? 0).toLocaleString("en-IN")}
+                </span>
+                <div className="ml-2 text-sm text-[#CBD5E1]">›</div>
+              </div>
+              <div
+                className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-4 py-2.5 transition-colors hover:bg-[#FAFAFA]"
+                onClick={() => setResultsTab("itc")}
+              >
+                <div className="flex-1 text-xs text-[#475569]">
+                  {itcHasCdnRows ? "Net 2B Difference" : "Missed ITC"}
+                </div>
+                <span className="rounded border border-[#FECACA] bg-[#FEF2F2] px-1.5 py-0.5 text-[11px] font-semibold text-[#991B1B]">
+                  {(summary.missed_itc_count ?? 0).toLocaleString("en-IN")}
+                </span>
+                <div className="ml-3 text-[13px] font-bold text-[#DC2626]">
+                  {formatInrCompact(summary.missed_itc_total_amount)}
+                </div>
+                <div className="ml-2 text-sm text-[#CBD5E1]">›</div>
+              </div>
+              <div
+                className="flex cursor-pointer items-center px-4 py-2.5 transition-colors hover:bg-[#FAFAFA]"
+                onClick={() => setResultsTab("risk")}
+              >
+                <div className="flex-1 text-xs text-[#475569]">ITC at Risk — Not in GSTR-2B</div>
+                <span className="rounded border border-[#FECACA] bg-[#FEF2F2] px-1.5 py-0.5 text-[11px] font-semibold text-[#991B1B]">
+                  {(summary.wrongful_risk_count ?? 0).toLocaleString("en-IN")}
+                </span>
+                <div className="ml-3 text-[13px] font-bold text-[#DC2626]">
+                  {formatInrCompact(summary.wrongful_risk_total_amount)}
+                </div>
+                <div className="ml-2 text-sm text-[#CBD5E1]">›</div>
+              </div>
+            </div>
+          </div>
         )}
+
+        {/* Tabs & Table Card Wrapper */}
+        <div className="overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-white">
+          {summary && (
+            <ResultsBucketTabs
+              active={resultsTab}
+              onChange={setResultsTab}
+              tabCounts={{
+                matched: summary.clean_matched_count ?? summary.matched_count,
+                review_required: summary.review_required_count ?? 0,
+                duplicate_entry: summary.duplicate_entry_count ?? 0,
+                unmatched_notes: summary.unmatched_notes_count ?? 0,
+                risk: summary.wrongful_risk_count ?? 0,
+                itc: summary.missed_itc_count ?? 0,
+                ...(section17Data != null
+                  ? { section17: section17Data.total }
+                  : {}),
+                ...(rule37Data != null ? { rule37: rule37Data.total } : {}),
+                ...(einvoiceResData?.summary != null
+                  ? { einvoice: einvoiceResData.summary.total_records }
+                  : {}),
+              }}
+            />
+          )}
 
         {/* ITC */}
         {resultsTab === "itc" &&
@@ -4009,33 +3993,12 @@ export default function ReconcileResultsPage() {
 
         {/* Matched */}
         {resultsTab === "matched" && (
-        <div className={sectionContainerClass}>
-          <h2 className="mb-1 text-[15px] font-semibold tracking-tight text-gray-900">
-            Matched{" "}
-            {summary != null && (
-              <span className="font-normal text-gray-500">
-                ({(summary.clean_matched_count ?? summary.matched_count).toLocaleString("en-IN")})
-              </span>
-            )}
-          </h2>
-          {/* Requirement 4: info line */}
-          <p className="mb-5 text-[12px] leading-relaxed text-gray-500">
-            Showing auto-matched records with no discrepancies. Records requiring review are in the{" "}
-            <button
-              type="button"
-              className="font-medium text-[#D97706] hover:underline"
-              onClick={() => setResultsTab("review_required")}
-            >
-              Review Required tab
-            </button>
-            .
-          </p>
-
+        <div className="p-0">
           <div className={filterToolbarClass}>
             <input
               type="search"
-              className={`w-full ${filterInputClass}`}
-              placeholder="Search by supplier GSTIN or invoice number..."
+              className={`w-full sm:w-72 ${filterInputClass}`}
+              placeholder="Search supplier GSTIN or invoice number…"
               value={matchedSearch}
               onChange={(e) => setMatchedSearch(e.target.value)}
             />
@@ -4045,7 +4008,7 @@ export default function ReconcileResultsPage() {
                 value={docTypeFilterMatched}
                 onChange={(e) => setDocTypeFilterMatched(e.target.value)}
               >
-                <option value="">All Document Types</option>
+                <option value="">All types</option>
                 <option value="Invoice">Invoice</option>
                 <option value="Credit Note">Credit Note</option>
                 <option value="Debit Note">Debit Note</option>
@@ -4065,29 +4028,6 @@ export default function ReconcileResultsPage() {
                 <option value="FUZZY">FUZZY</option>
                 <option value="MANUAL">MANUAL</option>
               </select>
-              <input
-                className={filterAmountInputClass}
-                placeholder="₹ Min"
-                value={matchedFilters.amount_min}
-                onChange={(e) =>
-                  setMatchedFilters((f) => ({
-                    ...f,
-                    amount_min: e.target.value,
-                  }))
-                }
-              />
-              <input
-                className={filterAmountInputClass}
-                placeholder="₹ Max"
-                value={matchedFilters.amount_max}
-                onBlur={() => setMatchedPage(1)}
-                onChange={(e) =>
-                  setMatchedFilters((f) => ({
-                    ...f,
-                    amount_max: e.target.value,
-                  }))
-                }
-              />
               <select
                 className={filterDropdownClass}
                 value={matchedFilters.ims_status}
@@ -4099,10 +4039,10 @@ export default function ReconcileResultsPage() {
                 }
               >
                 <option value="">All IMS</option>
-                <option value="accepted">IMS Accepted</option>
-                <option value="rejected">IMS Rejected</option>
-                <option value="pending">IMS Pending</option>
-                <option value="no_action_taken">IMS No action</option>
+                <option value="accepted">Accepted</option>
+                <option value="rejected">Rejected</option>
+                <option value="pending">Pending</option>
+                <option value="no_action_taken">No action</option>
               </select>
               <select
                 className={filterSortDropdownClass}
@@ -4118,43 +4058,10 @@ export default function ReconcileResultsPage() {
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                className={`${filterToggleClass} ${
-                  matchedFilters.has_notes
-                    ? filterToggleActiveClass
-                    : filterToggleIdleClass
-                }`}
-                onClick={() =>
-                  setMatchedFilters((f) => ({
-                    ...f,
-                    has_notes: !f.has_notes,
-                  }))
-                }
-              >
-                Has Notes
-              </button>
-
-              <button
-                type="button"
-                className={`${filterToggleClass} ${
-                  matchedFilters.section_17_5
-                    ? "border-gray-800 bg-gray-900/[0.04] text-gray-800"
-                    : filterToggleIdleClass
-                }`}
-                onClick={() =>
-                  setMatchedFilters((f) => ({
-                    ...f,
-                    section_17_5: !f.section_17_5,
-                  }))
-                }
-              >
-                Section 17(5)
-              </button>
               {(hasActiveMatchedFilters(debouncedMatchedSearch, matchedFilters) || !!docTypeFilterMatched) && (
                 <button
                   type="button"
-                  className="h-9 text-[13px] font-medium text-[var(--ink)] hover:underline"
+                  className="h-8 text-[12px] font-medium text-[#2563EB] hover:underline"
                   onClick={() => {
                     setMatchedSearch("");
                     setDebouncedMatchedSearch("");
@@ -4170,43 +4077,21 @@ export default function ReconcileResultsPage() {
                     setMatchedPage(1);
                   }}
                 >
-                  Clear all filters
+                  Clear filters
                 </button>
               )}
             </div>
             
             {summary && (
-              <div className="flex flex-wrap items-center gap-2 text-[13px] font-medium w-fit">
-                <button
-                  type="button"
-                  onClick={() => setMatchedFilters((f) => ({
-                    ...f,
-                    match_level: f.match_level === "EXACT" ? "" : "EXACT"
-                  }))}
-                  className={`flex h-8 items-center gap-2 rounded-full border px-3 text-[12px] transition-colors ${
-                    matchedFilters.match_level === "EXACT" 
-                      ? "bg-[#22C55E]/10 border-[#22C55E]/30 text-[#22C55E]" 
-                      : "bg-white border-[#E8E8EC] text-gray-600 hover:bg-gray-50"
-                  }`}
-                >
-                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${matchedFilters.match_level === "EXACT" ? "bg-[#22C55E]" : "bg-gray-300"}`} aria-hidden />
+              <div className="ml-auto flex items-center gap-2">
+                <div className="flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-2.5 py-1 text-[11px] font-medium text-[#475569]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#16A34A]" aria-hidden />
                   {(summary?.clean_matched_count ?? summary?.matched_count ?? 0).toLocaleString("en-IN")} Matched
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMatchedFilters((f) => ({
-                    ...f,
-                    match_level: f.match_level === "FUZZY" ? "" : "FUZZY"
-                  }))}
-                  className={`flex h-8 items-center gap-2 rounded-full border px-3 text-[12px] transition-colors ${
-                    matchedFilters.match_level === "FUZZY" 
-                      ? "bg-[#F59E0B]/10 border-[#F59E0B]/30 text-[#F59E0B]" 
-                      : "bg-white border-[#E8E8EC] text-gray-600 hover:bg-gray-50"
-                  }`}
-                >
-                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${matchedFilters.match_level === "FUZZY" ? "bg-[#F59E0B]" : "bg-gray-300"}`} aria-hidden />
-                  {((summary?.clean_matched_count ?? summary?.matched_count ?? 0) - (summary?.exact_match_count ?? 0)).toLocaleString("en-IN")} Non-exact match
-                </button>
+                </div>
+                <div className="flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-2.5 py-1 text-[11px] font-medium text-[#475569]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#D97706]" aria-hidden />
+                  {((summary?.clean_matched_count ?? summary?.matched_count ?? 0) - (summary?.exact_match_count ?? 0)).toLocaleString("en-IN")} Non-exact
+                </div>
               </div>
             )}
           </div>
@@ -4218,7 +4103,7 @@ export default function ReconcileResultsPage() {
             />
           )}
           {matchedLoading && !matchedData && !matchedError && (
-            <div className="animate-pulse space-y-2 py-4">
+            <div className="animate-pulse space-y-2 p-4">
               <div className="h-8 rounded bg-gray-100" />
               <div className="h-8 rounded bg-gray-100/80" />
             </div>
@@ -4260,17 +4145,10 @@ export default function ReconcileResultsPage() {
                   <thead className={tableHeadClass}>
                     <tr>
                       <th className={matchedThGstin}>Supplier GSTIN</th>
-                      <th className={matchedThInvoice}>Invoice#</th>
+                      <th className={matchedThInvoice}>Invoice #</th>
                       <th className={matchedThDate}>Date</th>
                       <th className={matchedThAmount}>Amount</th>
-                      <th className={matchedThMatchLevel}>
-                        <div className="flex items-center gap-1">
-                          Match Method
-                          <span title="L1 = Exact GSTIN + Invoice Number match&#10;L2 = GSTIN match + fuzzy invoice number&#10;L3 = GSTIN match + amount match&#10;L4 = Fuzzy vendor name + amount match&#10;L5 = Partial / manual review needed">
-                            <Info className="h-3.5 w-3.5 text-gray-400 cursor-help" />
-                          </span>
-                        </div>
-                      </th>
+                      <th className={matchedThMatchLevel}>Match</th>
                       <th className={matchedThConfidence}>Confidence</th>
                       <th className={matchedThIms}>IMS</th>
                       <th className={matchedThDiscrepancy}>Discrepancy</th>
@@ -4292,17 +4170,6 @@ export default function ReconcileResultsPage() {
                         taxDiff = { display: titleCased, tooltip: row.discrepancy_reason };
                       }
 
-                      // NOTE: a client-side "gstrAmt vs raw PR invoice value" recompute
-                      // used to run here for FUZZY/EXACT rows. It compared row.amount
-                      // (the GSTR record's total_tax_paise — the TAX portion only) against
-                      // a raw "Invoice Amount"/"Total"/"Grand Total" field pulled from the
-                      // uploaded Purchase Register (the FULL invoice value, taxable + tax).
-                      // Those two figures are not comparable, so the "diff" it produced was
-                      // effectively the PR's own invoice value, not a real discrepancy. The
-                      // server-computed row.tax_difference_paise above is always the correct
-                      // abs(gstr_taxable - pr_taxable) (or the ₹0/N-A discrepancy_reason
-                      // fallback for non-financial mismatches), so it is used as-is.
-
                       return (
                       <Fragment key={row.id}>
                       <tr
@@ -4319,7 +4186,7 @@ export default function ReconcileResultsPage() {
                         <td className={matchedTdInvoice}>
                           <HoverTextCell
                             text={row.invoice_number}
-                            displayClassName="text-[13px] font-medium text-gray-800"
+                            displayClassName="text-[12px] font-medium text-[#2563EB] hover:underline"
                           />
                         </td>
                         <td className={matchedTdDate}>
@@ -4333,49 +4200,54 @@ export default function ReconcileResultsPage() {
                             <MatchLevelBadge level={row.match_level} />
                             {row.auto_approved ? (
                               <span
-                                className="inline-flex items-center whitespace-nowrap rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20"
+                                className="inline-flex items-center whitespace-nowrap rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20"
                                 title="Promoted from Review Required by confidence threshold"
                               >
-                                Auto-Approved
+                                Auto
                               </span>
                             ) : null}
+                          </div>
+                        </td>
+                        <td className={matchedTdConfidence}>
+                          <div className="flex items-center gap-1.5">
+                            <div className="h-1 w-8 overflow-hidden rounded-full bg-[#F1F5F9] shrink-0">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{
+                                  width: `${Math.round(Math.min(100, Math.max(0, row.confidence_score)))}%`,
+                                  backgroundColor: row.match_level === "MANUAL" ? "#2563EB" : "#16A34A",
+                                }}
+                              />
+                            </div>
+                            <span className="text-[11px] text-[#64748B]">
+                              {Math.round(
+                                Math.min(100, Math.max(0, row.confidence_score))
+                              )}
+                              %
+                            </span>
                             {(row.compared_fields?.length ?? 0) > 0 && (
                               <WhyRationaleButton
                                 expanded={rationaleExpandedId === row.id}
                                 onToggle={(e) => toggleRationale(e, row.id)}
                               />
                             )}
-                            {row.match_confidence != null && (
-                              <MatchConfidenceBadge
-                                score={row.match_confidence}
-                                onClick={(e) => toggleRationale(e, row.id)}
-                              />
-                            )}
                           </div>
-                        </td>
-                        <td className={matchedTdConfidence}>
-                          {Math.round(
-                            Math.min(100, Math.max(0, row.confidence_score))
-                          )}
-                          %
                         </td>
                         <td className={matchedTdIms}>
                           <ImsStatusBadge status={row.ims_status} />
                         </td>
                         <td className={matchedTdDiscrepancy}>
-                          <HoverTextCell
-                            text={taxDiff.display}
-                            tooltipText={taxDiff.tooltip}
-                            displayClassName="text-[13px] text-gray-600"
-                          />
+                          <span className={taxDiff.display === "₹0.00" || taxDiff.display === "₹0" ? "text-xs text-[#94A3B8]" : "text-xs font-semibold text-[#DC2626]"}>
+                            {taxDiff.display}
+                          </span>
                         </td>
                         <td className={matchedTdNotes}>
                           {row.notes_count > 0 ? (
-                            <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
-                              {row.notes_count} notes
+                            <span className="inline-flex rounded bg-[#F1F5F9] px-1.5 py-0.5 text-[10px] font-medium text-[#64748B]">
+                              {row.notes_count}
                             </span>
                           ) : (
-                            "—"
+                            <span className="text-xs text-[#CBD5E1]">—</span>
                           )}
                         </td>
                       </tr>
@@ -5507,6 +5379,7 @@ export default function ReconcileResultsPage() {
         )}
         </>
         )}
+        </div>
       </div>
 
       {/* Drawer */}
@@ -5726,41 +5599,59 @@ export default function ReconcileResultsPage() {
         </>
       )}
 
-      {/* Finalize bar */}
-      {finalizeBarVisible && (
-        <div className="fixed bottom-3 left-[256px] right-3 z-40">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 rounded-[1.5rem] bg-white/95 px-5 py-3.5 shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04] backdrop-blur-xl">
-            <div className="flex min-w-0 items-start gap-2.5 rounded-2xl bg-[#F7F7F8] px-3.5 py-2.5">
-              <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden />
-              <div className="min-w-0">
-                <p className="text-[12px] font-medium text-[var(--ink)]">
-                  Checklist before finalize
-                </p>
-                <p className="mt-0.5 text-[11px] leading-snug text-gray-500">
-                  Review Matched, Review Required, Missed ITC, and ITC at Risk — Not in GSTR-2B before locking this run.
-                </p>
-              </div>
-            </div>
+      {/* Sticky bottom bar */}
+      <div className="fixed bottom-0 left-0 md:left-[256px] right-0 z-40 flex items-center justify-between border-t border-[#E2E8F0] bg-white px-6 py-2.5 shadow-md">
+        <div className="flex items-center gap-5">
+          <div className="flex items-center gap-1.5 text-[11px] text-[#64748B]">
+            <span className="font-bold text-[#16A34A]">✓</span> Matched reviewed
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px] text-[#64748B]">
+            {(summary?.review_required_count ?? 0) > 0 ? (
+              <>
+                <span className="text-[#D97706]">○</span> Review Required — {summary?.review_required_count} pending
+              </>
+            ) : (
+              <>
+                <span className="font-bold text-[#16A34A]">✓</span> Review Required reviewed
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px] text-[#64748B]">
+            {(summary?.missed_itc_count ?? 0) > 0 ? (
+              <>
+                <span className="text-[#D97706]">○</span> Missed ITC — {summary?.missed_itc_count} pending
+              </>
+            ) : (
+              <>
+                <span className="font-bold text-[#16A34A]">✓</span> Missed ITC reviewed
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2.5">
+          <div className="text-[11px] text-[#94A3B8]">
+            {isRunFinalized
+              ? `Finalized by ${summary?.finalized_by_name || "Admin"}`
+              : summary?.user_role === "staff"
+                ? "Only admin can lock run"
+                : "Complete all reviews before locking"}
+          </div>
+          {!isRunFinalized ? (
             <button
               type="button"
-              className="inline-flex shrink-0 items-center gap-2 rounded-[10px] bg-[var(--ink)] px-5 py-2.5 text-[0.875rem] font-semibold text-white transition-all duration-200 ease-in-out hover:scale-[1.01] hover:bg-[#1f1f1f]"
+              disabled={summary?.user_role !== "admin"}
+              className="rounded-md bg-[#0F172A] px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1E293B] disabled:cursor-not-allowed disabled:opacity-40"
               onClick={() => setFinalizeModalOpen(true)}
             >
-              Finalize Reconciliation
+              Lock Run
             </button>
-          </div>
+          ) : (
+            <span className="rounded-md bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+              Locked
+            </span>
+          )}
         </div>
-      )}
-
-      {staffFinalizeMessageVisible && (
-        <div className="fixed bottom-3 left-[256px] right-3 z-40">
-          <div className="flex items-center justify-center rounded-[1.5rem] bg-white/95 px-6 py-4 shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04] backdrop-blur-xl">
-            <p className="text-center text-[13px] text-gray-500">
-              Only your CA principal (admin) can finalize this reconciliation.
-            </p>
-          </div>
-        </div>
-      )}
+      </div>
 
       {followupLetterRows && summary && authToken && (
         <SupplierFollowupLetterModal

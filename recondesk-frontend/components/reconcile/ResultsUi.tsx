@@ -8,41 +8,41 @@ import { formatINR, formatINRNumber, formatInrCompact } from "@/lib/format";
 // ─── Shared class tokens ─────────────────────────────────────────────────────
 
 export const filterInputClass =
-  "h-9 rounded-full border-0 bg-[#F5F5F6] px-4 text-[13px] font-medium text-gray-700 placeholder:text-gray-400 outline-none transition-shadow focus:ring-2 focus:ring-black/10";
+  "h-7 rounded-[5px] border border-[#E2E8F0] bg-white px-2.5 text-[11px] text-[#0F172A] placeholder:text-[#CBD5E1] outline-none transition-colors focus:border-[#94A3B8]";
 
 export const filterRowClass =
   "flex w-full flex-wrap items-center gap-2";
 
-export const filterToolbarClass = "mb-5 space-y-2.5";
+export const filterToolbarClass = "mb-3 space-y-2";
 
-export const filterAmountInputClass = `${filterInputClass} w-[96px] shrink-0`;
+export const filterAmountInputClass = `${filterInputClass} w-[84px] shrink-0`;
 
-export const filterDateInputClass = `${filterInputClass} w-[138px] shrink-0`;
+export const filterDateInputClass = `${filterInputClass} w-[120px] shrink-0`;
 
 export const filterGstinInputClass = `${filterInputClass} min-w-[140px] max-w-full flex-1`;
 
-export const filterDropdownClass = `${filterInputClass} w-[148px] shrink-0 appearance-none`;
+export const filterDropdownClass = `${filterInputClass} min-w-[110px] shrink-0 cursor-pointer text-[#64748B] hover:border-[#94A3B8]`;
 
 /** Wider pill select for “Sort by” labels like “Amount: High to Low”. */
-export const filterSortDropdownClass = `${filterInputClass} w-[200px] shrink-0 appearance-none`;
+export const filterSortDropdownClass = `${filterInputClass} min-w-[150px] shrink-0 cursor-pointer text-[#64748B] hover:border-[#94A3B8]`;
 
 export const filterToggleClass =
-  "inline-flex h-9 items-center rounded-full px-3.5 text-[13px] font-medium transition-colors duration-150";
+  "inline-flex h-7 items-center rounded-[5px] px-2.5 text-[11px] font-medium transition-colors duration-150";
 
 export const filterToggleActiveClass =
-  "bg-[var(--ink)] text-white";
+  "bg-[#0F172A] text-white";
 
 export const filterToggleIdleClass =
-  "bg-[#F5F5F6] text-gray-600 hover:bg-gray-200/70";
+  "border border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]";
 
 export const csvDownloadBtnClass =
-  "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-full bg-[#F5F5F6] px-4 text-[13px] font-semibold text-gray-700 transition-colors duration-150 hover:bg-gray-200/70 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-[#E2E8F0] bg-white px-2.5 text-[11px] font-medium text-[#475569] transition-colors duration-150 hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50";
 
 export const sectionContainerClass =
-  "mb-6 box-border w-full max-w-full rounded-[1.5rem] bg-white p-6 shadow-[var(--shadow-soft)]";
+  "box-border w-full max-w-full bg-white";
 
 export const pageContentClass =
-  "box-border w-full max-w-full space-y-6 overflow-x-hidden px-10 pt-5 pb-32";
+  "box-border w-full max-w-full space-y-4 overflow-x-hidden px-6 pt-5 pb-28 bg-[#F1F5F9]";
 
 /** Default grid for secondary panels (GSTR-3B, etc.) */
 export const statCardsGridClass =
@@ -55,7 +55,7 @@ export const resultsSummaryGridClass =
 export const statCardValueClass =
   "text-[2rem] font-bold tabular-nums tracking-tight";
 
-export const tableWrapClass = "w-full min-w-0 overflow-x-auto rounded-[1.25rem] ring-1 ring-[#F0F0F0]";
+export const tableWrapClass = "w-full min-w-0 overflow-x-auto";
 
 export const tableClass = "w-full table-auto border-collapse text-left";
 
@@ -65,65 +65,65 @@ export const decisionTableClass =
   "w-full min-w-[1100px] table-auto border-collapse text-left";
 
 export const tableHeadClass =
-  "text-[11px] font-medium uppercase tracking-widest text-gray-400";
+  "text-[10px] font-semibold uppercase tracking-[0.4px] text-[#94A3B8]";
 
 export const tableHeadCellClass =
-  "px-4 py-3.5 text-left overflow-hidden text-ellipsis whitespace-nowrap";
+  "px-3 py-2 text-left bg-[#FAFAFA] border-b border-[#F1F5F9] font-semibold text-[10px] uppercase tracking-[0.4px] text-[#94A3B8] whitespace-nowrap";
 
 export const tableRowClass =
-  "border-b border-[#F0F0F0] bg-white transition-colors duration-100 last:border-b-0 hover:bg-[#F7F7F8]";
+  "border-b border-[#F8FAFC] bg-white transition-colors duration-100 last:border-b-0 hover:bg-[#F8FAFC]";
 
-export const tableCellClass = "px-4 py-3 align-middle";
+export const tableCellClass = "px-3 py-2.5 align-middle text-xs text-[#475569]";
 
 export const tableTruncateCellClass =
   `${tableCellClass} overflow-hidden text-ellipsis whitespace-nowrap`;
 
 export const tableStickyCheckboxHeadClass =
-  "sticky left-0 z-10 w-8 bg-white px-3 py-3.5";
+  "sticky left-0 z-10 w-8 bg-[#FAFAFA] border-b border-[#F1F5F9] px-2.5 py-2";
 
 export const tableStickyCheckboxCellClass =
-  "sticky left-0 z-10 w-8 bg-white px-3 py-3 transition-colors duration-100 group-hover:bg-[#F7F7F8]";
+  "sticky left-0 z-10 w-8 bg-white px-2.5 py-2 transition-colors duration-100 group-hover:bg-[#F8FAFC]";
 
 export const topSuppliersTableClass = decisionTableClass;
 
 export const topSuppliersThGstin = `${tableHeadCellClass} w-[18%]`;
-export const topSuppliersTdGstin = `${tableCellClass} max-w-0 overflow-visible font-mono text-[12px] text-gray-500`;
+export const topSuppliersTdGstin = `${tableCellClass} max-w-0 overflow-visible font-mono text-[11px] text-[#0F172A] tracking-[0.2px]`;
 export const topSuppliersThTradeName = `${tableHeadCellClass} w-[32%]`;
-export const topSuppliersTdTradeName = `${tableCellClass} max-w-0 overflow-visible`;
+export const topSuppliersTdTradeName = `${tableCellClass} max-w-0 overflow-visible text-xs text-[#475569]`;
 export const topSuppliersThInvoiceCount = `${tableHeadCellClass} w-[14%] text-center`;
-export const topSuppliersTdInvoiceCount = `${tableCellClass} text-center text-[13px] text-gray-600 tabular-nums`;
+export const topSuppliersTdInvoiceCount = `${tableCellClass} text-center text-xs text-[#475569] tabular-nums`;
 export const topSuppliersThTotal = `${tableHeadCellClass} w-[22%] text-right`;
-export const topSuppliersTdTotal = `${tableCellClass} text-right font-semibold`;
+export const topSuppliersTdTotal = `${tableCellClass} text-right text-xs font-semibold text-[#0F172A]`;
 export const topSuppliersThImpact = `${tableHeadCellClass} w-[14%] text-right`;
-export const topSuppliersTdImpact = `${tableCellClass} text-right`;
+export const topSuppliersTdImpact = `${tableCellClass} text-right text-xs`;
 
 export const matchedTableClass =
   "w-full min-w-[1080px] table-auto border-collapse text-left";
 
-export const matchedThGstin = `${tableHeadCellClass} min-w-[150px] whitespace-nowrap`;
-export const matchedTdGstin = `${tableCellClass} font-mono text-[12px] text-gray-500`;
+export const matchedThGstin = `${tableHeadCellClass} min-w-[140px] whitespace-nowrap`;
+export const matchedTdGstin = `${tableCellClass} font-mono text-[11px] text-[#0F172A] tracking-[0.2px]`;
 export const matchedThInvoice = `${tableHeadCellClass} min-w-[110px] whitespace-nowrap`;
 export const matchedTdInvoice = `${tableCellClass}`;
-export const matchedThDate = `${tableHeadCellClass} min-w-[110px] whitespace-nowrap`;
-export const matchedTdDate = `${tableCellClass} whitespace-nowrap text-[13px] text-gray-500`;
+export const matchedThDate = `${tableHeadCellClass} min-w-[100px] whitespace-nowrap`;
+export const matchedTdDate = `${tableCellClass} whitespace-nowrap text-xs text-[#475569]`;
 export const matchedThAmount = `${tableHeadCellClass} min-w-[100px] whitespace-nowrap text-right`;
-export const matchedTdAmount = `${tableCellClass} whitespace-nowrap text-right`;
-export const matchedThMatchLevel = `${tableHeadCellClass} min-w-[180px] whitespace-nowrap`;
+export const matchedTdAmount = `${tableCellClass} whitespace-nowrap text-right text-xs font-semibold text-[#0F172A]`;
+export const matchedThMatchLevel = `${tableHeadCellClass} min-w-[120px] whitespace-nowrap`;
 export const matchedTdMatchLevel = `${tableCellClass}`;
-export const matchedThConfidence = `${tableHeadCellClass} min-w-[100px] whitespace-nowrap text-center`;
-export const matchedTdConfidence = `${tableCellClass} whitespace-nowrap text-center text-[13px] text-gray-600`;
-export const matchedThDiscrepancy = `${tableHeadCellClass} min-w-[140px] whitespace-nowrap`;
-export const matchedTdDiscrepancy = `${tableCellClass} text-[13px] text-gray-600`;
+export const matchedThConfidence = `${tableHeadCellClass} min-w-[110px] whitespace-nowrap`;
+export const matchedTdConfidence = `${tableCellClass} whitespace-nowrap`;
+export const matchedThDiscrepancy = `${tableHeadCellClass} min-w-[100px] whitespace-nowrap text-right`;
+export const matchedTdDiscrepancy = `${tableCellClass} text-xs text-right`;
 export const matchedThGuidanceWhat = `${tableHeadCellClass} min-w-[160px] whitespace-nowrap`;
-export const matchedTdGuidanceWhat = `${tableCellClass} text-[13px] text-gray-600`;
+export const matchedTdGuidanceWhat = `${tableCellClass} text-xs text-[#475569]`;
 export const matchedThGuidanceWhy = `${tableHeadCellClass} min-w-[140px] whitespace-nowrap`;
-export const matchedTdGuidanceWhy = `${tableCellClass} text-[13px] italic text-gray-400`;
+export const matchedTdGuidanceWhy = `${tableCellClass} text-xs italic text-gray-400`;
 export const matchedThGuidanceNext = `${tableHeadCellClass} min-w-[140px] whitespace-nowrap`;
-export const matchedTdGuidanceNext = `${tableCellClass} text-[13px] font-medium text-[var(--ink)]`;
-export const matchedThNotes = `${tableHeadCellClass} min-w-[80px] whitespace-nowrap`;
-export const matchedTdNotes = `${tableCellClass} whitespace-nowrap`;
-export const matchedThIms = `${tableHeadCellClass} min-w-[100px] whitespace-nowrap text-center`;
-export const matchedTdIms = `${tableCellClass} whitespace-nowrap text-center`;
+export const matchedTdGuidanceNext = `${tableCellClass} text-xs font-medium text-[var(--ink)]`;
+export const matchedThNotes = `${tableHeadCellClass} min-w-[80px] whitespace-nowrap text-right`;
+export const matchedTdNotes = `${tableCellClass} whitespace-nowrap text-right text-xs text-gray-400`;
+export const matchedThIms = `${tableHeadCellClass} min-w-[90px] whitespace-nowrap`;
+export const matchedTdIms = `${tableCellClass} whitespace-nowrap`;
 
 export type ImsStatusValue =
   | "accepted"
@@ -144,15 +144,15 @@ export function ImsStatusBadge({ status }: { status?: string | null }) {
           : "No action";
   const tone =
     raw === "accepted"
-      ? "bg-[var(--ink)] text-white"
+      ? "bg-[#DCFCE7] text-[#166534]"
       : raw === "rejected"
-        ? "bg-[#FEF2F2] text-[#EF4444]"
+        ? "bg-[#FEF2F2] text-[#991B1B]"
         : raw === "pending"
-          ? "bg-[#F0F0F0] text-gray-600"
-          : "bg-[#F0F0F0] text-gray-500";
+          ? "bg-[#FFFBEB] text-[#92400E]"
+          : "bg-[#F1F5F9] text-[#64748B]";
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${tone}`}
+      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${tone}`}
     >
       {label}
     </span>
@@ -380,12 +380,12 @@ export function StatCard({
       }`}
       style={{
         minHeight: 120,
-        boxShadow: "0 1px 4px rgba(0, 0, 0, 0.05)",
+        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.07)",
       }}
       title={titleAttr}
     >
       <p
-        className="min-w-0 truncate text-[0.8rem] font-medium text-[#6b7280]"
+        className="min-w-0 whitespace-normal text-[0.8rem] font-medium text-[#6b7280]"
       >
         {label}
       </p>
@@ -702,80 +702,260 @@ export function ResultsBucketTabs({
   tabs?: { id: ResultsBucketTabId; label: string }[];
   ariaLabel?: string;
 }) {
-  const tabList = tabs ?? RESULTS_BUCKET_TABS;
   const isCustomTabs = tabs != null;
 
-  // Split into primary / secondary only for default (purchase) tabs
-  const primaryTabs = isCustomTabs
-    ? tabList
-    : tabList.filter((t) => PRIMARY_TAB_IDS.has(t.id));
-  const secondaryTabs = isCustomTabs
-    ? []
-    : tabList.filter((t) => !PRIMARY_TAB_IDS.has(t.id));
-
-  const renderTab = (
-    { id, label }: { id: ResultsBucketTabId; label: string },
-    isSecondary: boolean,
-  ) => {
-    const isActive = active === id;
-    const count = tabCounts?.[id];
-
-    const activeClass = isSecondary
-      ? "inline-flex items-center gap-1.5 rounded-md bg-[#1a1a1a] px-3 py-1.5 text-[0.75rem] font-semibold text-white"
-      : "inline-flex items-center gap-1.5 rounded-lg bg-[#1a1a1a] px-3.5 py-2 text-[13px] font-semibold text-white";
-
-    const inactiveClass = isSecondary
-      ? "inline-flex items-center gap-1.5 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-3 py-1.5 text-[0.75rem] font-medium text-[#6b7280] transition-colors hover:bg-[#f3f4f6] hover:text-[#1a1a1a]"
-      : "inline-flex items-center gap-1.5 rounded-lg bg-[#f3f4f6] px-3.5 py-2 text-[13px] font-medium text-[#6b7280] transition-colors hover:bg-[#e5e7eb] hover:text-[#1a1a1a]";
-
+  if (isCustomTabs) {
     return (
-      <button
-        key={id}
-        type="button"
-        role="tab"
-        aria-selected={isActive}
-        className={isActive ? activeClass : inactiveClass}
-        onClick={() => onChange(id)}
-      >
-        <span>{label}</span>
-        {count != null ? (
-          <span
-            className={
-              isActive
-                ? "inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-white/20 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white"
-                : `inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${
-                    isSecondary
-                      ? "bg-[#f3f4f6] text-[#6b7280]"
-                      : "bg-[#e5e7eb] text-[#6b7280]"
-                  }`
-            }
-          >
-            {count.toLocaleString("en-IN")}
-          </span>
-        ) : null}
-      </button>
+      <div className="border-b border-[#F1F5F9] bg-white px-2">
+        <nav className="flex flex-wrap gap-1" role="tablist" aria-label={ariaLabel}>
+          {tabs.map(({ id, label }) => {
+            const isActive = active === id;
+            const count = tabCounts?.[id];
+            return (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => onChange(id)}
+                className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap ${
+                  isActive
+                    ? "border-[#2563EB] text-[#0F172A] font-semibold"
+                    : "border-transparent text-[#94A3B8] hover:text-[#0F172A]"
+                }`}
+              >
+                <span>{label}</span>
+                {count != null && (
+                  <span className="rounded-full bg-[#F1F5F9] px-1.5 py-0.5 text-[10px] font-semibold text-[#475569]">
+                    {count.toLocaleString("en-IN")}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
     );
+  }
+
+  const primaryBadgeStyle: Record<string, string> = {
+    matched: "bg-[#DCFCE7] text-[#166534]",
+    review_required: "bg-[#FFFBEB] text-[#92400E]",
+    risk: "bg-[#FEF2F2] text-[#991B1B]",
+    itc: "bg-[#FEF2F2] text-[#991B1B]",
+    duplicate_entry: "bg-[#F1F5F9] text-[#475569]",
   };
 
   return (
-    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <nav
-        className="flex min-w-0 flex-col gap-3"
-        role="tablist"
-        aria-label={ariaLabel}
-      >
-        {/* Primary tabs row */}
-        <div className="flex flex-wrap gap-2">
-          {primaryTabs.map((tab) => renderTab(tab, false))}
-        </div>
-        {/* Secondary tabs row */}
-        {secondaryTabs.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {secondaryTabs.map((tab) => renderTab(tab, true))}
-          </div>
-        )}
-      </nav>
-      {rightContent && <div className="shrink-0">{rightContent}</div>}
+    <div className="border-b border-[#F1F5F9] bg-white">
+      {/* Primary tabs */}
+      <div className="flex items-center border-b border-[#F1F5F9] px-1 overflow-x-auto">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={active === "matched"}
+          onClick={() => onChange("matched")}
+          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap ${
+            active === "matched"
+              ? "border-[#2563EB] text-[#0F172A] font-semibold"
+              : "border-transparent text-[#94A3B8] hover:text-[#0F172A]"
+          }`}
+        >
+          Matched
+          {tabCounts?.matched != null && (
+            <span className={`rounded-[10px] px-1.5 py-0.5 text-[10px] font-semibold ${primaryBadgeStyle.matched}`}>
+              {tabCounts.matched.toLocaleString("en-IN")}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={active === "review_required"}
+          onClick={() => onChange("review_required")}
+          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap ${
+            active === "review_required"
+              ? "border-[#2563EB] text-[#0F172A] font-semibold"
+              : "border-transparent text-[#94A3B8] hover:text-[#0F172A]"
+          }`}
+        >
+          Review Required
+          {tabCounts?.review_required != null && (
+            <span className={`rounded-[10px] px-1.5 py-0.5 text-[10px] font-semibold ${primaryBadgeStyle.review_required}`}>
+              {tabCounts.review_required.toLocaleString("en-IN")}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={active === "risk"}
+          onClick={() => onChange("risk")}
+          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap ${
+            active === "risk"
+              ? "border-[#2563EB] text-[#0F172A] font-semibold"
+              : "border-transparent text-[#94A3B8] hover:text-[#0F172A]"
+          }`}
+        >
+          ITC at Risk
+          {tabCounts?.risk != null && (
+            <span className={`rounded-[10px] px-1.5 py-0.5 text-[10px] font-semibold ${primaryBadgeStyle.risk}`}>
+              {tabCounts.risk.toLocaleString("en-IN")}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={active === "itc"}
+          onClick={() => onChange("itc")}
+          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap ${
+            active === "itc"
+              ? "border-[#2563EB] text-[#0F172A] font-semibold"
+              : "border-transparent text-[#94A3B8] hover:text-[#0F172A]"
+          }`}
+        >
+          Missed ITC
+          {tabCounts?.itc != null && (
+            <span className={`rounded-[10px] px-1.5 py-0.5 text-[10px] font-semibold ${primaryBadgeStyle.itc}`}>
+              {tabCounts.itc.toLocaleString("en-IN")}
+            </span>
+          )}
+        </button>
+
+        <div className="flex-1 min-w-4" />
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={active === "duplicate_entry"}
+          onClick={() => onChange("duplicate_entry")}
+          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[11px] font-medium transition-colors whitespace-nowrap ${
+            active === "duplicate_entry"
+              ? "border-[#2563EB] text-[#0F172A] font-semibold"
+              : "border-transparent text-[#94A3B8] hover:text-[#0F172A]"
+          }`}
+        >
+          Duplicate Entries
+          {tabCounts?.duplicate_entry != null && (
+            <span className={`rounded-[10px] px-1.5 py-0.5 text-[10px] font-semibold ${primaryBadgeStyle.duplicate_entry}`}>
+              {tabCounts.duplicate_entry.toLocaleString("en-IN")}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* Secondary module tabs */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-[#F8FAFC] px-3 py-1.5">
+        <span className="flex items-center px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.5px] text-[#CBD5E1]">
+          Modules →
+        </span>
+
+        <button
+          type="button"
+          onClick={() => onChange("rule37")}
+          className={`cursor-pointer rounded-[5px] border px-2.5 py-1 text-[11px] whitespace-nowrap transition-all ${
+            active === "rule37"
+              ? "border-[#BFDBFE] bg-[#EFF6FF] font-medium text-[#2563EB]"
+              : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
+          }`}
+        >
+          Rule 37 <span className="ml-1 text-[10px] text-[#94A3B8]">Unpaid 180d</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChange("section17")}
+          className={`cursor-pointer rounded-[5px] border px-2.5 py-1 text-[11px] whitespace-nowrap transition-all ${
+            active === "section17"
+              ? "border-[#BFDBFE] bg-[#EFF6FF] font-medium text-[#2563EB]"
+              : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
+          }`}
+        >
+          Section 17(5)
+          {tabCounts?.section17 != null && (
+            <span className="ml-1 text-[10px] text-[#94A3B8]">{tabCounts.section17}</span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChange("rcm")}
+          className={`cursor-pointer rounded-[5px] border px-2.5 py-1 text-[11px] whitespace-nowrap transition-all ${
+            active === "rcm"
+              ? "border-[#BFDBFE] bg-[#EFF6FF] font-medium text-[#2563EB]"
+              : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
+          }`}
+        >
+          RCM
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChange("gstr3b")}
+          className={`cursor-pointer rounded-[5px] border px-2.5 py-1 text-[11px] whitespace-nowrap transition-all ${
+            active === "gstr3b"
+              ? "border-[#BFDBFE] bg-[#EFF6FF] font-medium text-[#2563EB]"
+              : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
+          }`}
+        >
+          GSTR-3B Tie-out
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChange("einvoice")}
+          className={`cursor-pointer rounded-[5px] border px-2.5 py-1 text-[11px] whitespace-nowrap transition-all ${
+            active === "einvoice"
+              ? "border-[#BFDBFE] bg-[#EFF6FF] font-medium text-[#2563EB]"
+              : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
+          }`}
+        >
+          E-Invoice Check
+          {tabCounts?.einvoice != null && (
+            <span className="ml-1 text-[10px] text-[#94A3B8]">{tabCounts.einvoice}</span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChange("ims")}
+          className={`cursor-pointer rounded-[5px] border px-2.5 py-1 text-[11px] whitespace-nowrap transition-all ${
+            active === "ims"
+              ? "border-[#BFDBFE] bg-[#EFF6FF] font-medium text-[#2563EB]"
+              : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
+          }`}
+        >
+          IMS Actions
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChange("followup")}
+          className={`cursor-pointer rounded-[5px] border px-2.5 py-1 text-[11px] whitespace-nowrap transition-all ${
+            active === "followup"
+              ? "border-[#BFDBFE] bg-[#EFF6FF] font-medium text-[#2563EB]"
+              : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
+          }`}
+        >
+          Follow-up Log
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChange("unmatched_notes")}
+          className={`cursor-pointer rounded-[5px] border px-2.5 py-1 text-[11px] whitespace-nowrap transition-all ${
+            active === "unmatched_notes"
+              ? "border-[#BFDBFE] bg-[#EFF6FF] font-medium text-[#2563EB]"
+              : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
+          }`}
+        >
+          Notes <span className="ml-1 text-[10px] text-[#94A3B8]">{tabCounts?.unmatched_notes ?? 0}</span>
+        </button>
+      </div>
     </div>
   );
 }
