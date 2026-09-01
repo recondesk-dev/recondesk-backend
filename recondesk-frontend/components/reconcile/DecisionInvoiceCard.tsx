@@ -17,17 +17,17 @@ function DecisionField({
   const text = value?.trim() || "—";
   const toneClass =
     tone === "action"
-      ? "font-medium text-[var(--ink)]"
+      ? "font-semibold text-[var(--ink)]"
       : tone === "muted"
         ? "text-gray-500"
         : "text-gray-700";
 
   return (
-    <div className="min-w-0 rounded-[8px] border border-[#F1F5F9] bg-[#F8FAFC] px-3.5 py-2.5">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.4px] text-[#94A3B8]">
+    <div className="min-w-0 rounded-[8px] border border-[#F1F5F9] bg-[#F8FAFC] px-4 py-3">
+      <p className="text-[11px] font-bold uppercase tracking-[0.5px] text-[#64748B]">
         {label}
       </p>
-      <p className={`mt-1 text-[12px] leading-relaxed ${toneClass}`}>{text}</p>
+      <p className={`mt-1 text-[13px] leading-relaxed ${toneClass}`}>{text}</p>
     </div>
   );
 }
@@ -81,7 +81,7 @@ export function DecisionInvoiceCard({
           : "border-[#E2E8F0] shadow-sm hover:shadow-md"
       }`}
     >
-      <div className="flex flex-col gap-3.5 p-4 sm:p-4.5">
+      <div className="flex flex-col gap-3.5 p-5">
         {/* Identity row */}
         <div className="flex flex-wrap items-start gap-3">
           <div className="mt-1 flex shrink-0 items-center gap-2">
@@ -96,7 +96,7 @@ export function DecisionInvoiceCard({
                 aria-label={`Select invoice ${invoiceNumber}`}
               />
             ) : null}
-            <span className="w-6 text-[12px] tabular-nums text-gray-400">#{index}</span>
+            <span className="w-6 text-[13px] font-semibold tabular-nums text-gray-400">#{index}</span>
           </div>
 
           <div
@@ -115,20 +115,20 @@ export function DecisionInvoiceCard({
             role={onOpen ? "button" : undefined}
             tabIndex={onOpen ? 0 : undefined}
           >
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1.5">
               <GstinCell
                 gstin={gstin}
                 truncate={false}
-                className="font-mono text-[12px] text-gray-500"
+                className="font-mono text-xs sm:text-[13px] font-semibold text-gray-600"
               />
-              <span className="text-[13px] font-semibold tracking-tight text-[#0F172A]">
+              <span className="text-sm sm:text-[15px] font-bold tracking-tight text-[#0F172A]">
                 {invoiceNumber}
               </span>
-              <span className="text-[12px] text-[#64748B]">{invoiceDate}</span>
+              <span className="text-xs sm:text-[13px] text-[#64748B]">{invoiceDate}</span>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <div className="rounded-full bg-[#F1F5F9] px-2.5 py-0.5">
-                <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-[#94A3B8]">
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <div className="rounded-full bg-[#F1F5F9] px-3 py-0.5">
+                <span className="mr-1 text-[11px] font-bold uppercase tracking-wide text-[#94A3B8]">
                   {amountCaption}
                 </span>
                 <AmountDisplay amount={amount} />

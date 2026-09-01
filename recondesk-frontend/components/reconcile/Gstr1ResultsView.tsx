@@ -751,7 +751,7 @@ export function Gstr1ResultsView({
       </div>
 
       {/* Sticky footer — sales analogue of purchase finalize bar */}
-      <div className="fixed bottom-3 left-[256px] right-3 z-40 max-lg:left-3">
+      <div className="fixed bottom-3 left-[216px] right-3 z-40 max-lg:left-3">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 rounded-[1.5rem] bg-white/95 px-5 py-3.5 shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04] backdrop-blur-xl">
           <div className="flex min-w-0 items-start gap-2.5 rounded-2xl bg-[#F7F7F8] px-3.5 py-2.5">
             <Check

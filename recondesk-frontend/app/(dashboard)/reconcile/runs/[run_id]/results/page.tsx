@@ -2763,24 +2763,24 @@ export default function ReconcileResultsPage() {
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {/* Left: Run summary */}
             <div className="flex items-center gap-6 rounded-[10px] border border-[#E2E8F0] bg-white p-5 px-6">
-              <div className="min-w-[80px] text-center">
-                <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.4px] text-[#94A3B8]">
+              <div className="min-w-[84px] text-center">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-[#94A3B8]">
                   Run total
                 </div>
-                <div className="text-[30px] font-bold leading-none text-[#0F172A]">
+                <div className="text-[36px] font-black leading-none text-[#0F172A]">
                   {summary.total_gstr_records.toLocaleString("en-IN")}
                 </div>
-                <div className="mt-1.5 text-[11px] text-[#94A3B8]">invoices</div>
+                <div className="mt-1.5 text-xs font-medium text-[#94A3B8]">invoices</div>
               </div>
-              <div className="h-12 w-[1px] bg-[#F1F5F9]" />
+              <div className="h-14 w-[1px] bg-[#F1F5F9]" />
               <div className="flex-1">
-                <div className="mb-1.5 flex justify-between text-[11px] text-[#94A3B8]">
-                  <span className="font-medium uppercase tracking-[0.4px]">Matched</span>
-                  <span className="font-bold text-[#16A34A]">
+                <div className="mb-1.5 flex justify-between text-xs text-[#94A3B8]">
+                  <span className="font-semibold uppercase tracking-wider">Matched</span>
+                  <span className="text-base sm:text-lg font-bold text-[#16A34A]">
                     {(summary.clean_matched_count ?? summary.matched_count).toLocaleString("en-IN")} · {Math.round(((summary.clean_matched_count ?? summary.matched_count) / Math.max(summary.total_gstr_records, 1)) * 100)}%
                   </span>
                 </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F1F5F9]">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-[#F1F5F9]">
                   <div
                     className="h-full rounded-full bg-[#16A34A] transition-all duration-150"
                     style={{
@@ -2788,21 +2788,21 @@ export default function ReconcileResultsPage() {
                     }}
                   />
                 </div>
-                <div className="mt-1.5 text-[11px] text-[#94A3B8]">
+                <div className="mt-1.5 text-xs font-medium text-[#64748B]">
                   {summary.total_gstr_records - (summary.clean_matched_count ?? summary.matched_count) > 0
                     ? `${(summary.total_gstr_records - (summary.clean_matched_count ?? summary.matched_count)).toLocaleString("en-IN")} invoices need attention`
                     : "All invoices clean matched"}
                 </div>
               </div>
-              <div className="h-12 w-[1px] bg-[#F1F5F9]" />
-              <div className="min-w-[70px] text-center">
-                <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.4px] text-[#94A3B8]">
+              <div className="h-14 w-[1px] bg-[#F1F5F9]" />
+              <div className="min-w-[76px] text-center">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-[#94A3B8]">
                   Assigned
                 </div>
-                <div className="mt-1 text-[13px] font-medium text-[#0F172A]">
+                <div className="mt-1 text-sm font-bold text-[#0F172A]">
                   {summary.assigned_to_name?.trim() ? summary.assigned_to_name : "Unassigned"}
                 </div>
-                <div className="mt-1 text-[11px] text-[#94A3B8]">
+                <div className="mt-1 text-xs text-[#94A3B8]">
                   {formatPeriod(summary.period)}
                 </div>
               </div>
@@ -2811,48 +2811,48 @@ export default function ReconcileResultsPage() {
             {/* Right: Action required */}
             <div className="overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-white">
               <div className="flex items-center gap-2 border-b border-[#FEF2F2] bg-[#FFF7F7] px-6 py-3">
-                <div className="h-1.5 w-1.5 rounded-full bg-[#DC2626]" />
-                <div className="text-[11px] font-semibold uppercase tracking-[0.4px] text-[#991B1B]">
+                <div className="h-2 w-2 rounded-full bg-[#DC2626]" />
+                <div className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#991B1B]">
                   {((summary.review_required_count ?? 0) + (summary.missed_itc_count ?? 0) + (summary.wrongful_risk_count ?? 0)).toLocaleString("en-IN")} invoices need action
                 </div>
               </div>
               <div
-                className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-6 py-3 transition-colors hover:bg-[#FAFAFA]"
+                className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
                 onClick={() => setResultsTab("review_required")}
               >
-                <div className="flex-1 text-xs text-[#475569]">Review Required</div>
-                <span className="rounded border border-[#FCD34D] bg-[#FFFBEB] px-1.5 py-0.5 text-[11px] font-semibold text-[#92400E]">
+                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#334155]">Review Required</div>
+                <span className="rounded-[5px] border border-[#FCD34D] bg-[#FFFBEB] px-2 py-0.5 text-xs font-bold text-[#92400E]">
                   {(summary.review_required_count ?? 0).toLocaleString("en-IN")}
                 </span>
-                <div className="ml-2 text-sm text-[#CBD5E1]">›</div>
+                <div className="ml-2 text-base font-bold text-[#CBD5E1]">›</div>
               </div>
               <div
-                className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-6 py-3 transition-colors hover:bg-[#FAFAFA]"
+                className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
                 onClick={() => setResultsTab("itc")}
               >
-                <div className="flex-1 text-xs text-[#475569]">
+                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#334155]">
                   {itcHasCdnRows ? "Net 2B Difference" : "Missed ITC"}
                 </div>
-                <span className="rounded border border-[#FECACA] bg-[#FEF2F2] px-1.5 py-0.5 text-[11px] font-semibold text-[#991B1B]">
+                <span className="rounded-[5px] border border-[#FECACA] bg-[#FEF2F2] px-2 py-0.5 text-xs font-bold text-[#991B1B]">
                   {(summary.missed_itc_count ?? 0).toLocaleString("en-IN")}
                 </span>
-                <div className="ml-3 text-[13px] font-bold text-[#DC2626]">
+                <div className="ml-3 text-sm sm:text-[15px] font-black text-[#DC2626]">
                   {formatInrCompact(summary.missed_itc_total_amount)}
                 </div>
-                <div className="ml-2 text-sm text-[#CBD5E1]">›</div>
+                <div className="ml-2 text-base font-bold text-[#CBD5E1]">›</div>
               </div>
               <div
-                className="flex cursor-pointer items-center px-6 py-3 transition-colors hover:bg-[#FAFAFA]"
+                className="flex cursor-pointer items-center px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
                 onClick={() => setResultsTab("risk")}
               >
-                <div className="flex-1 text-xs text-[#475569]">ITC at Risk — Not in GSTR-2B</div>
-                <span className="rounded border border-[#FECACA] bg-[#FEF2F2] px-1.5 py-0.5 text-[11px] font-semibold text-[#991B1B]">
+                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#334155]">ITC at Risk — Not in GSTR-2B</div>
+                <span className="rounded-[5px] border border-[#FECACA] bg-[#FEF2F2] px-2 py-0.5 text-xs font-bold text-[#991B1B]">
                   {(summary.wrongful_risk_count ?? 0).toLocaleString("en-IN")}
                 </span>
-                <div className="ml-3 text-[13px] font-bold text-[#DC2626]">
+                <div className="ml-3 text-sm sm:text-[15px] font-black text-[#DC2626]">
                   {formatInrCompact(summary.wrongful_risk_total_amount)}
                 </div>
-                <div className="ml-2 text-sm text-[#CBD5E1]">›</div>
+                <div className="ml-2 text-base font-bold text-[#CBD5E1]">›</div>
               </div>
             </div>
           </div>
@@ -4480,7 +4480,7 @@ export default function ReconcileResultsPage() {
         {/* Review Required */}
         {resultsTab === "review_required" && (
         <div className={sectionContainerClass}>
-          <h2 className="mb-1 text-[15px] font-semibold tracking-tight text-gray-900">
+          <h2 className="mb-1 text-base sm:text-lg font-bold tracking-tight text-gray-900">
             Review Required{" "}
             {summary != null && (
               <span className="font-normal text-gray-500">
@@ -4488,16 +4488,16 @@ export default function ReconcileResultsPage() {
               </span>
             )}
           </h2>
-          <p className="mb-3 text-[12px] leading-relaxed text-gray-500">
+          <p className="mb-3.5 text-xs sm:text-[13px] leading-relaxed text-gray-500">
             These records were matched but have discrepancies or low confidence that need manual verification before finalizing.
           </p>
 
-          <div className="mb-5 flex flex-col gap-2 rounded-xl border border-[#EFEFF2] bg-[#FAFAFA] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-5 flex flex-col gap-2.5 rounded-xl border border-[#EFEFF2] bg-[#FAFAFA] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <p className="text-[12px] font-medium text-[var(--ink)]">
+              <p className="text-xs sm:text-[13px] font-semibold text-[var(--ink)]">
                 Auto-approve confidence threshold
               </p>
-              <p className="mt-0.5 text-[11px] leading-relaxed text-gray-500">
+              <p className="mt-0.5 text-xs leading-relaxed text-gray-500">
                 Records at or above this confidence are Auto-Approved into
                 Matched on the next reconciliation run.{" "}
                 <Link
@@ -4534,15 +4534,15 @@ export default function ReconcileResultsPage() {
                       : DEFAULT_AUTO_APPROVE_THRESHOLD
                   )
                 }
-                className="h-8 w-14 rounded-lg border border-[#E5E5EA] bg-white px-2 text-center text-[12px] tabular-nums text-[var(--ink)] disabled:opacity-50"
+                className="h-8 w-14 rounded-lg border border-[#E5E5EA] bg-white px-2 text-center text-xs font-semibold tabular-nums text-[var(--ink)] disabled:opacity-50"
                 aria-label="Auto-approve threshold percent"
               />
-              <span className="text-[12px] text-gray-500">%</span>
+              <span className="text-xs text-gray-500 font-medium">%</span>
               <button
                 type="button"
                 disabled={!canEditAutoApproveThreshold || autoApproveSaving}
                 onClick={() => void saveAutoApproveThreshold()}
-                className="inline-flex h-8 items-center rounded-full bg-[var(--ink)] px-3 text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-8 items-center rounded-full bg-[var(--ink)] px-3.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {autoApproveSaving ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -5598,15 +5598,15 @@ export default function ReconcileResultsPage() {
       )}
 
       {/* Sticky bottom bar */}
-      <div className="fixed bottom-0 left-0 md:left-[256px] right-0 z-40 flex items-center justify-between border-t border-[#E2E8F0] bg-white px-6 py-2.5 shadow-md">
-        <div className="flex items-center gap-5">
-          <div className="flex items-center gap-1.5 text-[11px] text-[#64748B]">
+      <div className="fixed bottom-0 left-0 md:left-[216px] right-0 z-40 flex items-center justify-between border-t border-[#E2E8F0] bg-white px-6 py-3 shadow-md">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-[#475569]">
             <span className="font-bold text-[#16A34A]">✓</span> Matched reviewed
           </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-[#64748B]">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-[#475569]">
             {(summary?.review_required_count ?? 0) > 0 ? (
               <>
-                <span className="text-[#D97706]">○</span> Review Required — {summary?.review_required_count} pending
+                <span className="font-bold text-[#D97706]">○</span> Review Required — {summary?.review_required_count} pending
               </>
             ) : (
               <>
@@ -5614,10 +5614,10 @@ export default function ReconcileResultsPage() {
               </>
             )}
           </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-[#64748B]">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-[#475569]">
             {(summary?.missed_itc_count ?? 0) > 0 ? (
               <>
-                <span className="text-[#D97706]">○</span> Missed ITC — {summary?.missed_itc_count} pending
+                <span className="font-bold text-[#D97706]">○</span> Missed ITC — {summary?.missed_itc_count} pending
               </>
             ) : (
               <>
@@ -5626,8 +5626,8 @@ export default function ReconcileResultsPage() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2.5">
-          <div className="text-[11px] text-[#94A3B8]">
+        <div className="flex items-center gap-3">
+          <div className="text-xs text-[#94A3B8]">
             {isRunFinalized
               ? `Finalized by ${summary?.finalized_by_name || "Admin"}`
               : summary?.user_role === "staff"
@@ -5638,13 +5638,13 @@ export default function ReconcileResultsPage() {
             <button
               type="button"
               disabled={summary?.user_role !== "admin"}
-              className="rounded-md bg-[#0F172A] px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1E293B] disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-[6px] bg-[#0F172A] px-4 py-2 text-xs sm:text-[13px] font-bold text-white transition-colors hover:bg-[#1E293B] disabled:cursor-not-allowed disabled:opacity-40"
               onClick={() => setFinalizeModalOpen(true)}
             >
               Lock Run
             </button>
           ) : (
-            <span className="rounded-md bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+            <span className="rounded-[6px] bg-emerald-100 px-3.5 py-1.5 text-xs font-bold text-emerald-800">
               Locked
             </span>
           )}

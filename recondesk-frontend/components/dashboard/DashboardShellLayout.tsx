@@ -415,13 +415,13 @@ export default function DashboardShellLayout({
 
   return (
     <div className="dashboard-soft-bg flex min-h-screen w-full min-w-0 text-[var(--text-primary)]">
-      <aside className="fixed inset-y-3 left-3 z-50 flex w-[232px] flex-col rounded-[1.75rem] bg-white shadow-[var(--shadow-soft)]">
-        <div className="px-5 pb-4 pt-6">
+      <aside className="fixed inset-y-3 left-3 z-50 flex w-[196px] flex-col rounded-[1.75rem] bg-white shadow-[var(--shadow-soft)]">
+        <div className="px-4 pb-3 pt-5">
           <Link href="/dashboard" className="flex items-center">
-            <Logo width={180} height={34} />
+            <Logo width={150} height={28} />
           </Link>
         </div>
-        <nav className="flex-1 space-y-1 px-3">
+        <nav className="flex-1 space-y-0.5 px-2">
           {nav.map(({ href, label, Icon }) => {
             const isActive =
               href === "/dashboard"
@@ -431,19 +431,19 @@ export default function DashboardShellLayout({
               <Link
                 key={href}
                 href={href}
-                className={`flex items-center gap-3 rounded-full px-3.5 py-2.5 text-sm transition-all duration-200 ${
+                className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-[13px] transition-all duration-200 ${
                   isActive
                     ? "bg-[var(--ink)] font-semibold text-white shadow-sm"
                     : "font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-900"
                 }`}
               >
-                <Icon className={`shrink-0 ${isActive ? "text-white" : "text-gray-400"}`} />
+                <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-white" : "text-gray-400"}`} />
                 {label}
               </Link>
             );
           })}
         </nav>
-        <div className="p-4">
+        <div className="p-3">
           <div className="relative" ref={profileRef}>
             {profileOpen && (
               <div
@@ -497,7 +497,7 @@ export default function DashboardShellLayout({
             )}
             <button
               type="button"
-              className="flex w-full items-center gap-3 rounded-2xl p-2 text-left transition-colors hover:bg-gray-50"
+              className="flex w-full items-center gap-2.5 rounded-2xl p-1.5 text-left transition-colors hover:bg-gray-50"
               onClick={() => setProfileOpen((open) => !open)}
               aria-expanded={profileOpen}
               aria-haspopup="menu"
@@ -506,8 +506,8 @@ export default function DashboardShellLayout({
                 <Avatar initials={currentUser.initials} />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-gray-900">{currentUser.name}</p>
-                <p className="truncate text-xs text-gray-400">
+                <p className="truncate text-xs font-semibold text-gray-900">{currentUser.name}</p>
+                <p className="truncate text-[11px] text-gray-400">
                   {currentUser.email || currentUser.role}
                 </p>
               </div>
@@ -516,7 +516,7 @@ export default function DashboardShellLayout({
         </div>
       </aside>
 
-      <div className="ml-[256px] flex min-h-screen min-w-0 w-[calc(100%-256px)] max-w-[calc(100%-256px)] flex-1 flex-col overflow-x-hidden">
+      <div className="ml-[216px] flex min-h-screen min-w-0 w-[calc(100%-216px)] max-w-[calc(100%-216px)] flex-1 flex-col overflow-x-hidden">
         <header className="relative z-[60] flex h-16 shrink-0 items-center justify-between px-6 pt-2">
           <div />
           <div className="flex items-center gap-3">
