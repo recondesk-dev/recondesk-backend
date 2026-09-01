@@ -41,7 +41,7 @@ export function HeroProductPanel() {
   return (
     <div className="relative z-10 mx-auto w-full max-w-6xl px-1 sm:px-2">
       {/* Outer Window Chrome Frame with soft drop shadow */}
-      <div className="overflow-hidden rounded-[16px] border border-[#E2E8F0] bg-[#F1F5F9] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.14)]">
+      <div className="relative overflow-hidden rounded-[16px] border border-[#E2E8F0] bg-[#F1F5F9] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.14)]">
         
         {/* Browser Top Window Bar */}
         <div className="flex h-10 items-center justify-between border-b border-[#E2E8F0] bg-white px-4">
@@ -549,7 +549,18 @@ export function HeroProductPanel() {
           </main>
         </div>
 
+        {/* Soft bottom white cloud fade overlay (dissolves sharp bottom edges into pure white up to row 2) */}
+        <div
+          className="pointer-events-none absolute bottom-0 left-0 right-0 z-30 h-44 sm:h-52 bg-gradient-to-t from-white via-white/85 to-transparent"
+          aria-hidden="true"
+        />
       </div>
+
+      {/* Ambient bottom blend overlay */}
+      <div
+        className="pointer-events-none absolute -bottom-4 left-0 right-0 z-20 h-20 bg-gradient-to-t from-white via-white/90 to-transparent"
+        aria-hidden="true"
+      />
     </div>
   );
 }
