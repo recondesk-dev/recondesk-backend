@@ -2,6 +2,7 @@
 
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { Inbox } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 import { formatINR, formatINRNumber, formatInrCompact } from "@/lib/format";
 
@@ -746,6 +747,8 @@ export function ResultsBucketTabs({
     duplicate_entry: "bg-[#F1F5F9] text-[#475569]",
   };
 
+  const tResults = useTranslations("results");
+
   return (
     <div className="border-b border-[#F1F5F9] bg-white">
       {/* Primary tabs */}
@@ -761,7 +764,7 @@ export function ResultsBucketTabs({
               : "border-transparent text-[#64748B] hover:text-[#0F172A]"
           }`}
         >
-          Matched
+          {tResults("matched")}
           {tabCounts?.matched != null && (
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.matched}`}>
               {tabCounts.matched.toLocaleString("en-IN")}
@@ -780,7 +783,7 @@ export function ResultsBucketTabs({
               : "border-transparent text-[#64748B] hover:text-[#0F172A]"
           }`}
         >
-          Review Required
+          {tResults("reviewRequired")}
           {tabCounts?.review_required != null && (
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.review_required}`}>
               {tabCounts.review_required.toLocaleString("en-IN")}
@@ -799,7 +802,7 @@ export function ResultsBucketTabs({
               : "border-transparent text-[#64748B] hover:text-[#0F172A]"
           }`}
         >
-          ITC at Risk
+          {tResults("itcAtRiskShort")}
           {tabCounts?.risk != null && (
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.risk}`}>
               {tabCounts.risk.toLocaleString("en-IN")}
@@ -818,7 +821,7 @@ export function ResultsBucketTabs({
               : "border-transparent text-[#64748B] hover:text-[#0F172A]"
           }`}
         >
-          Missed ITC
+          {tResults("missedItc")}
           {tabCounts?.itc != null && (
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.itc}`}>
               {tabCounts.itc.toLocaleString("en-IN")}
@@ -839,7 +842,7 @@ export function ResultsBucketTabs({
               : "border-transparent text-[#64748B] hover:text-[#0F172A]"
           }`}
         >
-          Duplicate Entries
+          {tResults("duplicateEntries")}
           {tabCounts?.duplicate_entry != null && (
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.duplicate_entry}`}>
               {tabCounts.duplicate_entry.toLocaleString("en-IN")}
@@ -851,7 +854,7 @@ export function ResultsBucketTabs({
       {/* Secondary module tabs */}
       <div className="flex flex-wrap items-center gap-2 border-b border-[#F8FAFC] px-6 py-3">
         <span className="flex items-center px-1 text-[11px] font-bold uppercase tracking-wider text-[#94A3B8]">
-          Modules →
+          {tResults("modules")} →
         </span>
 
         <button
@@ -863,7 +866,7 @@ export function ResultsBucketTabs({
               : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
           }`}
         >
-          Rule 37 <span className="ml-1 text-[11px] font-medium text-[#94A3B8]">Unpaid 180d</span>
+          {tResults("rule37")} <span className="ml-1 text-[11px] font-medium text-[#94A3B8]">{tResults("rule37Sub")}</span>
         </button>
 
         <button
@@ -875,7 +878,7 @@ export function ResultsBucketTabs({
               : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
           }`}
         >
-          Section 17(5)
+          {tResults("section17_5")}
           {tabCounts?.section17 != null && (
             <span className="ml-1 text-[11px] font-bold text-[#64748B]">({tabCounts.section17})</span>
           )}
@@ -890,7 +893,7 @@ export function ResultsBucketTabs({
               : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
           }`}
         >
-          RCM
+          {tResults("rcm")}
         </button>
 
         <button
@@ -902,7 +905,7 @@ export function ResultsBucketTabs({
               : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
           }`}
         >
-          GSTR-3B Tie-out
+          {tResults("gstr3bTieOut")}
         </button>
 
         <button
@@ -914,7 +917,7 @@ export function ResultsBucketTabs({
               : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
           }`}
         >
-          E-Invoice Check
+          {tResults("einvoiceCheck")}
           {tabCounts?.einvoice != null && (
             <span className="ml-1 text-[11px] font-bold text-[#64748B]">({tabCounts.einvoice})</span>
           )}
@@ -929,7 +932,7 @@ export function ResultsBucketTabs({
               : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
           }`}
         >
-          IMS Actions
+          {tResults("imsActions")}
         </button>
 
         <button
@@ -941,7 +944,7 @@ export function ResultsBucketTabs({
               : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
           }`}
         >
-          Follow-up Log
+          {tResults("followupLog")}
         </button>
 
         <button
@@ -953,7 +956,10 @@ export function ResultsBucketTabs({
               : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
           }`}
         >
-          Notes <span className="ml-1 text-[11px] font-bold text-[#64748B]">({tabCounts?.unmatched_notes ?? 0})</span>
+          {tResults("notes")}{" "}
+          <span className="ml-1 text-[11px] font-bold text-[#64748B]">
+            ({tabCounts?.unmatched_notes ?? 0})
+          </span>
         </button>
       </div>
     </div>

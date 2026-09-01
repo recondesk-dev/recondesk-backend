@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useTranslations } from "next-intl";
 
 import { AmountDisplay } from "@/components/reconcile/ResultsUi";
 import { GstinCell } from "@/components/ui/GstinCell";
@@ -38,7 +39,7 @@ export function DecisionInvoiceCard({
   invoiceNumber,
   invoiceDate,
   amount,
-  amountCaption = "Amount",
+  amountCaption,
   selected = false,
   onSelectChange,
   checkboxDisabled = false,
@@ -72,6 +73,8 @@ export function DecisionInvoiceCard({
   onOpen?: () => void;
 }) {
   const selectable = typeof onSelectChange === "function";
+  const t = useTranslations("decisionCard");
+  const resolvedAmountCaption = amountCaption ?? t("amount");
 
   return (
     <article
@@ -129,7 +132,7 @@ export function DecisionInvoiceCard({
             <div className="mt-2.5 flex flex-wrap items-center gap-2">
               <div className="rounded-full bg-[#F1F5F9] px-3 py-0.5">
                 <span className="mr-1 text-[11px] font-bold uppercase tracking-wide text-[#94A3B8]">
-                  {amountCaption}
+                  {resolvedAmountCaption}
                 </span>
                 <AmountDisplay amount={amount} />
               </div>
@@ -148,9 +151,9 @@ export function DecisionInvoiceCard({
 
         {/* Decision block — structured for CAs */}
         <div className="grid gap-2 sm:grid-cols-3">
-          <DecisionField label="What is wrong" value={what} />
-          <DecisionField label="Why it happened" value={why} tone="muted" />
-          <DecisionField label="What to do next" value={next} tone="action" />
+          <DecisionField label={t("whatIsWrong")} value={what} />
+          <DecisionField label={t("whyItHappened")} value={why} tone="muted" />
+          <DecisionField label={t("whatToDoNext")} value={next} tone="action" />
         </div>
 
         {expandedContent ? (

@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, ChevronDown, FileSpreadsheet, FileText, Info, Loader2, Shield, Trash2, Upload, X } from "lucide-react";
+import { useTranslations } from "next-intl";
 import {
   Rule37MarkPaidModal,
   type Rule37MarkPaidTarget,
@@ -985,6 +986,8 @@ function SummarySkeleton() {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function ReconcileResultsPage() {
+  const tResults = useTranslations("results");
+  const tCommon = useTranslations("common");
   const params = useParams();
   const router = useRouter();
   const runId = typeof params.run_id === "string" ? params.run_id : "";
@@ -2765,17 +2768,17 @@ export default function ReconcileResultsPage() {
             <div className="flex items-center gap-6 rounded-[10px] border border-[#E2E8F0] bg-white p-5 px-6">
               <div className="min-w-[84px] text-center">
                 <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-[#94A3B8]">
-                  Run total
+                  {tResults("runTotal")}
                 </div>
                 <div className="text-[36px] font-black leading-none text-[#0F172A]">
                   {summary.total_gstr_records.toLocaleString("en-IN")}
                 </div>
-                <div className="mt-1.5 text-xs font-medium text-[#94A3B8]">invoices</div>
+                <div className="mt-1.5 text-xs font-medium text-[#94A3B8]">{tResults("invoices")}</div>
               </div>
               <div className="h-14 w-[1px] bg-[#F1F5F9]" />
               <div className="flex-1">
                 <div className="mb-1.5 flex justify-between text-xs text-[#94A3B8]">
-                  <span className="font-semibold uppercase tracking-wider">Matched</span>
+                  <span className="font-semibold uppercase tracking-wider">{tResults("matched")}</span>
                   <span className="text-base sm:text-lg font-bold text-[#16A34A]">
                     {(summary.clean_matched_count ?? summary.matched_count).toLocaleString("en-IN")} · {Math.round(((summary.clean_matched_count ?? summary.matched_count) / Math.max(summary.total_gstr_records, 1)) * 100)}%
                   </span>
@@ -2790,17 +2793,17 @@ export default function ReconcileResultsPage() {
                 </div>
                 <div className="mt-1.5 text-xs font-medium text-[#64748B]">
                   {summary.total_gstr_records - (summary.clean_matched_count ?? summary.matched_count) > 0
-                    ? `${(summary.total_gstr_records - (summary.clean_matched_count ?? summary.matched_count)).toLocaleString("en-IN")} invoices need attention`
-                    : "All invoices clean matched"}
+                    ? `${(summary.total_gstr_records - (summary.clean_matched_count ?? summary.matched_count)).toLocaleString("en-IN")} ${tResults("invoicesNeedAttention")}`
+                    : tResults("allInvoicesCleanMatched")}
                 </div>
               </div>
               <div className="h-14 w-[1px] bg-[#F1F5F9]" />
               <div className="min-w-[76px] text-center">
                 <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-[#94A3B8]">
-                  Assigned
+                  {tResults("assigned")}
                 </div>
                 <div className="mt-1 text-sm font-bold text-[#0F172A]">
-                  {summary.assigned_to_name?.trim() ? summary.assigned_to_name : "Unassigned"}
+                  {summary.assigned_to_name?.trim() ? summary.assigned_to_name : tResults("unassigned")}
                 </div>
                 <div className="mt-1 text-xs text-[#94A3B8]">
                   {formatPeriod(summary.period)}
@@ -2813,14 +2816,14 @@ export default function ReconcileResultsPage() {
               <div className="flex items-center gap-2 border-b border-[#FEF2F2] bg-[#FFF7F7] px-6 py-3">
                 <div className="h-2 w-2 rounded-full bg-[#DC2626]" />
                 <div className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#991B1B]">
-                  {((summary.review_required_count ?? 0) + (summary.missed_itc_count ?? 0) + (summary.wrongful_risk_count ?? 0)).toLocaleString("en-IN")} invoices need action
+                  {((summary.review_required_count ?? 0) + (summary.missed_itc_count ?? 0) + (summary.wrongful_risk_count ?? 0)).toLocaleString("en-IN")} {tResults("invoicesNeedAction")}
                 </div>
               </div>
               <div
                 className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
                 onClick={() => setResultsTab("review_required")}
               >
-                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#334155]">Review Required</div>
+                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#334155]">{tResults("reviewRequired")}</div>
                 <span className="rounded-[5px] border border-[#FCD34D] bg-[#FFFBEB] px-2 py-0.5 text-xs font-bold text-[#92400E]">
                   {(summary.review_required_count ?? 0).toLocaleString("en-IN")}
                 </span>
@@ -2831,7 +2834,7 @@ export default function ReconcileResultsPage() {
                 onClick={() => setResultsTab("itc")}
               >
                 <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#334155]">
-                  {itcHasCdnRows ? "Net 2B Difference" : "Missed ITC"}
+                  {itcHasCdnRows ? tResults("net2bDifference") : tResults("missedItc")}
                 </div>
                 <span className="rounded-[5px] border border-[#FECACA] bg-[#FEF2F2] px-2 py-0.5 text-xs font-bold text-[#991B1B]">
                   {(summary.missed_itc_count ?? 0).toLocaleString("en-IN")}
@@ -2845,7 +2848,7 @@ export default function ReconcileResultsPage() {
                 className="flex cursor-pointer items-center px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
                 onClick={() => setResultsTab("risk")}
               >
-                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#334155]">ITC at Risk — Not in GSTR-2B</div>
+                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#334155]">{tResults("itcAtRisk")}</div>
                 <span className="rounded-[5px] border border-[#FECACA] bg-[#FEF2F2] px-2 py-0.5 text-xs font-bold text-[#991B1B]">
                   {(summary.wrongful_risk_count ?? 0).toLocaleString("en-IN")}
                 </span>
@@ -4481,7 +4484,7 @@ export default function ReconcileResultsPage() {
         {resultsTab === "review_required" && (
         <div className={sectionContainerClass}>
           <h2 className="mb-1 text-base sm:text-lg font-bold tracking-tight text-gray-900">
-            Review Required{" "}
+            {tResults("reviewRequired")}{" "}
             {summary != null && (
               <span className="font-normal text-gray-500">
                 ({(summary.review_required_count ?? 0).toLocaleString("en-IN")})
@@ -4495,16 +4498,15 @@ export default function ReconcileResultsPage() {
           <div className="mb-5 flex flex-col gap-2.5 rounded-xl border border-[#EFEFF2] bg-[#FAFAFA] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="text-xs sm:text-[13px] font-semibold text-[var(--ink)]">
-                Auto-approve confidence threshold
+                {tResults("autoApproveThreshold")}
               </p>
               <p className="mt-0.5 text-xs leading-relaxed text-gray-500">
-                Records at or above this confidence are Auto-Approved into
-                Matched on the next reconciliation run.{" "}
+                {tResults("autoApproveDesc")}{" "}
                 <Link
                   href="/settings/reconciliation"
                   className="font-medium text-gray-700 underline underline-offset-2 hover:text-[var(--ink)]"
                 >
-                  Full settings
+                  {tResults("fullSettings")}
                 </Link>
               </p>
             </div>
@@ -4547,7 +4549,7 @@ export default function ReconcileResultsPage() {
                 {autoApproveSaving ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  "Save"
+                  tResults("saveThreshold")
                 )}
               </button>
             </div>
@@ -4557,7 +4559,7 @@ export default function ReconcileResultsPage() {
             <input
               type="search"
               className={`w-full ${filterInputClass}`}
-              placeholder="Search by supplier GSTIN or invoice number..."
+              placeholder={tResults("searchPlaceholder")}
               value={reviewRequiredSearch}
               onChange={(e) => setReviewRequiredSearch(e.target.value)}
             />
@@ -4567,10 +4569,10 @@ export default function ReconcileResultsPage() {
                 value={docTypeFilterReviewRequired}
                 onChange={(e) => setDocTypeFilterReviewRequired(e.target.value)}
               >
-                <option value="">All Document Types</option>
-                <option value="Invoice">Invoice</option>
-                <option value="Credit Note">Credit Note</option>
-                <option value="Debit Note">Debit Note</option>
+                <option value="">{tResults("allTypes")}</option>
+                <option value="Invoice">{tResults("typeInvoice")}</option>
+                <option value="Credit Note">{tResults("typeCreditNote")}</option>
+                <option value="Debit Note">{tResults("typeDebitNote")}</option>
               </select>
               <select
                 className={filterDropdownClass}
@@ -4582,7 +4584,7 @@ export default function ReconcileResultsPage() {
                   }))
                 }
               >
-                <option value="">All levels</option>
+                <option value="">{tResults("allLevels")}</option>
                 <option value="EXACT">EXACT</option>
                 <option value="FUZZY">FUZZY</option>
                 <option value="MANUAL">MANUAL</option>
@@ -5601,27 +5603,27 @@ export default function ReconcileResultsPage() {
       <div className="fixed bottom-0 left-0 md:left-[216px] right-0 z-40 flex items-center justify-between border-t border-[#E2E8F0] bg-white px-6 py-3 shadow-md">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-1.5 text-xs font-medium text-[#475569]">
-            <span className="font-bold text-[#16A34A]">✓</span> Matched reviewed
+            <span className="font-bold text-[#16A34A]">✓</span> {tResults("matchedReviewed")}
           </div>
           <div className="flex items-center gap-1.5 text-xs font-medium text-[#475569]">
             {(summary?.review_required_count ?? 0) > 0 ? (
               <>
-                <span className="font-bold text-[#D97706]">○</span> Review Required — {summary?.review_required_count} pending
+                <span className="font-bold text-[#D97706]">○</span> {tResults("reviewRequiredPending", { count: summary?.review_required_count ?? 0 })}
               </>
             ) : (
               <>
-                <span className="font-bold text-[#16A34A]">✓</span> Review Required reviewed
+                <span className="font-bold text-[#16A34A]">✓</span> {tResults("reviewRequiredReviewed")}
               </>
             )}
           </div>
           <div className="flex items-center gap-1.5 text-xs font-medium text-[#475569]">
             {(summary?.missed_itc_count ?? 0) > 0 ? (
               <>
-                <span className="font-bold text-[#D97706]">○</span> Missed ITC — {summary?.missed_itc_count} pending
+                <span className="font-bold text-[#D97706]">○</span> {tResults("missedItcPending", { count: summary?.missed_itc_count ?? 0 })}
               </>
             ) : (
               <>
-                <span className="font-bold text-[#16A34A]">✓</span> Missed ITC reviewed
+                <span className="font-bold text-[#16A34A]">✓</span> {tResults("missedItcReviewed")}
               </>
             )}
           </div>
@@ -5629,10 +5631,10 @@ export default function ReconcileResultsPage() {
         <div className="flex items-center gap-3">
           <div className="text-xs text-[#94A3B8]">
             {isRunFinalized
-              ? `Finalized by ${summary?.finalized_by_name || "Admin"}`
+              ? tResults("finalizedBy", { name: summary?.finalized_by_name || "Admin" })
               : summary?.user_role === "staff"
-                ? "Only admin can lock run"
-                : "Complete all reviews before locking"}
+                ? tResults("onlyAdminCanLock")
+                : tResults("completeAllReviews")}
           </div>
           {!isRunFinalized ? (
             <button
@@ -5641,11 +5643,11 @@ export default function ReconcileResultsPage() {
               className="rounded-[6px] bg-[#0F172A] px-4 py-2 text-xs sm:text-[13px] font-bold text-white transition-colors hover:bg-[#1E293B] disabled:cursor-not-allowed disabled:opacity-40"
               onClick={() => setFinalizeModalOpen(true)}
             >
-              Lock Run
+              {tResults("lockRun")}
             </button>
           ) : (
             <span className="rounded-[6px] bg-emerald-100 px-3.5 py-1.5 text-xs font-bold text-emerald-800">
-              Locked
+              {tResults("locked")}
             </span>
           )}
         </div>
