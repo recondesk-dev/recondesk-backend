@@ -111,7 +111,7 @@ export function LandingNavbar() {
                 className="flex w-full items-center justify-center gap-1.5 rounded-full bg-[#0A0A0A] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                <span>Start Free — First 2 Runs Free</span>
+                <span>Start Free — One GSTIN, Forever</span>
                 <span>→</span>
               </Link>
             </div>

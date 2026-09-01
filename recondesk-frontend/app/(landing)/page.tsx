@@ -127,9 +127,9 @@ export default function LandingPage() {
       {/* 9. Final High-Converting CTA Banner */}
       <Section className="py-16 sm:py-24">
         <div className="relative mx-auto max-w-4xl overflow-hidden rounded-[14px] border border-[#E5E5E2] bg-white p-8 text-center sm:p-14 shadow-sm">
-          {/* Subtle warm accent glow in background */}
+          {/* Subtle brand purple accent glow in background */}
           <div
-            className="absolute -top-24 left-1/2 -translate-x-1/2 h-48 w-96 rounded-full bg-[#F97316]/10 blur-3xl pointer-events-none"
+            className="absolute -top-24 left-1/2 -translate-x-1/2 h-48 w-96 rounded-full bg-[#7B5CFA]/10 blur-3xl pointer-events-none"
             aria-hidden="true"
           />
 
@@ -137,22 +137,23 @@ export default function LandingPage() {
             Stop Losing ITC. Start Recovering It.
           </h2>
           <p className="relative mx-auto mt-4 max-w-xl text-sm leading-relaxed text-[#6B6B6B] sm:text-base">
-            First 2 reconciliations free. Upload your GSTR portal files and purchase register now to see results in 60 seconds.
+            One GSTIN 100% free forever. Upload your GSTR portal files and purchase register now to see results in 60 seconds.
           </p>
           
           <div className="relative mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
             <Link
               href="/auth/signup"
-              className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-[8px] bg-[#0A0A0A] px-8 text-sm font-semibold text-white transition-opacity hover:opacity-90 active:scale-[0.99] sm:w-auto"
+              className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-[8px] bg-[#7B5CFA] px-8 text-sm font-semibold text-white transition-colors hover:bg-[#6C4DE6] active:scale-[0.99] sm:w-auto"
             >
-              <span>Get Started Free — First 2 Runs Free</span>
+              <span>Start Free — One GSTIN, Forever</span>
               <span>→</span>
             </Link>
             <a
-              href="#how-it-works"
-              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-[8px] border border-[#E5E5E2] bg-white px-6 text-sm font-semibold text-[#0A0A0A] transition hover:bg-[#F5F5F3] sm:w-auto"
+              href="#modules"
+              className="inline-flex min-h-[48px] w-full items-center justify-center gap-1.5 rounded-[8px] border border-[#7B5CFA] bg-white px-6 text-sm font-semibold text-[#7B5CFA] transition-colors hover:bg-[#7B5CFA]/5 active:scale-[0.99] sm:w-auto"
             >
-              See How It Works
+              <span>Explore GSTR Modules</span>
+              <span>↓</span>
             </a>
           </div>
 

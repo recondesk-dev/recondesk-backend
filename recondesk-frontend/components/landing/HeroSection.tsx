@@ -72,7 +72,7 @@ export function HeroSection() {
           </span>
           <span className="hidden text-[#E5E5E2] sm:inline">•</span>
           <span className="flex items-center gap-1.5">
-            <Check className="h-3.5 w-3.5 text-emerald-600" /> First 2 reconciliations 100% free
+            <Check className="h-3.5 w-3.5 text-emerald-600" /> One GSTIN 100% free forever
           </span>
         </div>
 
