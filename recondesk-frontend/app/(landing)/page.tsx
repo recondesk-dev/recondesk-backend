@@ -38,51 +38,10 @@ export default function LandingPage() {
       {/* 4. Security & Trust Strip */}
       <SecurityTrustStrip />
 
-      {/* 5. Pain Points: Sound familiar? */}
-      <Section className="py-12 sm:py-16">
-        <div className="text-center">
-          <p className="text-xs font-bold uppercase tracking-widest text-[#F97316]">
-            The CA Dilemma
-          </p>
-          <h2 className="mt-2 text-2xl font-bold tracking-tight text-[#0A0A0A] sm:text-3xl">
-            Sound familiar?
-          </h2>
-          <p className="mx-auto mt-3 max-w-xl text-sm text-[#6B6B6B]">
-            Manual reconciliation drains hundreds of billable hours every month and exposes your clients to tax notices.
-          </p>
-        </div>
-
-        <div className="mt-10 grid gap-4 md:grid-cols-3">
-          {[
-            {
-              title: "3–8 hours per client",
-              desc: "Spent on manual VLOOKUP spreadsheets trying to reconcile mismatched invoice numbers and formats.",
-            },
-            {
-              title: "ITC mismatches discovered late",
-              desc: "Found after the filing deadline — interest and Section 50 penalties have already started accumulating.",
-            },
-            {
-              title: "30–50 clients. One wrong cell.",
-              desc: "No audit trail, no rule documentation, and no automated follow-up with defaulting suppliers.",
-            },
-          ].map((item) => (
-            <div
-              key={item.title}
-              className="rounded-[10px] border border-[#E5E5E2] bg-white p-6 transition-all hover:border-[#6B6B6B]/40"
-            >
-              <div className="h-1 w-8 rounded-full bg-[#F97316] mb-4" />
-              <h3 className="text-base font-bold text-[#0A0A0A]">{item.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[#6B6B6B]">{item.desc}</p>
-            </div>
-          ))}
-        </div>
-      </Section>
-
-      {/* 6. How It Works (Upload -> Match -> Decide) */}
+      {/* 5. How It Works (Upload -> Match -> Decide) */}
       <Section id="how-it-works" className="scroll-mt-20 py-12 sm:scroll-mt-24 sm:py-20 border-t border-[#E5E5E2]">
         <div className="text-center mb-10">
-          <p className="text-xs font-bold uppercase tracking-widest text-[#F97316]">
+          <p className="text-xs font-bold uppercase tracking-widest text-[#7B5CFA]">
             Streamlined Workflow
           </p>
           <h2 className="mt-2 text-2xl font-bold tracking-tight text-[#0A0A0A] sm:text-3xl">
@@ -95,10 +54,10 @@ export default function LandingPage() {
         <HowItWorksSteps />
       </Section>
 
-      {/* 7. Simple, Transparent Pricing */}
+      {/* 6. Simple, Transparent Pricing */}
       <Section id="pricing" className="py-12 sm:py-20 border-t border-[#E5E5E2]">
         <div className="text-center mb-12">
-          <p className="text-xs font-bold uppercase tracking-widest text-[#F97316]">
+          <p className="text-xs font-bold uppercase tracking-widest text-[#7B5CFA]">
             Transparent Plans
           </p>
           <h2 className="mt-2 text-2xl font-bold tracking-tight text-[#0A0A0A] sm:text-3xl">
@@ -111,10 +70,10 @@ export default function LandingPage() {
         <PricingGrid />
       </Section>
 
-      {/* 8. FAQ Accordion */}
+      {/* 7. FAQ Accordion */}
       <Section id="faq" className="pt-8 pb-16 sm:pt-10 sm:pb-20 border-t border-[#E5E5E2]">
         <div className="text-center mb-10">
-          <p className="text-xs font-bold uppercase tracking-widest text-[#F97316]">
+          <p className="text-xs font-bold uppercase tracking-widest text-[#7B5CFA]">
             Got Questions?
           </p>
           <h2 className="mt-2 text-2xl font-bold tracking-tight text-[#0A0A0A] sm:text-3xl">
