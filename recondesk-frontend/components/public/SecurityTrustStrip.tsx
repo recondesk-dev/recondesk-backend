@@ -27,13 +27,13 @@ const SECURITY_BADGES: SecurityBadge[] = [
 
 function SecurityBadgeCard({ icon: Icon, label, subtitle }: SecurityBadge) {
   return (
-    <div className="landing-trust-badge mx-[3px] flex shrink-0 items-center gap-2 rounded-2xl bg-white px-5 py-2.5 shadow-[var(--shadow-soft)]">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#F3F4F6] text-gray-700">
+    <div className="landing-trust-badge mx-2 flex shrink-0 items-center gap-3 rounded-[10px] border border-[#E5E5E2] bg-white px-4 py-2.5 shadow-xs">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[#F5F5F3] text-[#0A0A0A]">
         <Icon className="h-4 w-4" aria-hidden />
       </span>
       <div className="whitespace-nowrap">
-        <p className="text-[13px] font-medium leading-tight text-[var(--ink)]">{label}</p>
-        <p className="text-[11px] leading-tight text-gray-500">{subtitle}</p>
+        <p className="text-xs font-semibold leading-tight text-[#0A0A0A]">{label}</p>
+        <p className="text-[11px] leading-tight text-[#6B6B6B]">{subtitle}</p>
       </div>
     </div>
   );
@@ -43,11 +43,11 @@ export function SecurityTrustStrip() {
   const badges = [...SECURITY_BADGES, ...SECURITY_BADGES];
 
   return (
-    <section className="landing-trust-strip py-6" aria-label="Security and data protection">
-      <p className="text-center text-[11px] font-medium uppercase tracking-[0.08em] text-gray-500">
+    <section className="landing-trust-strip py-10" aria-label="Security and data protection">
+      <p className="text-center text-xs font-bold uppercase tracking-widest text-[#6B6B6B]">
         YOUR CLIENTS&apos; DATA IS PROTECTED
       </p>
-      <div className="landing-trust-marquee relative mt-4 overflow-hidden">
+      <div className="landing-trust-marquee relative mt-5 overflow-hidden">
         <div className="landing-trust-track flex w-max">
           {badges.map((badge, index) => (
             <SecurityBadgeCard key={`${badge.label}-${index}`} {...badge} />

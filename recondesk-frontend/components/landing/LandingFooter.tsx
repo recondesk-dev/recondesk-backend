@@ -1,37 +1,114 @@
 import React from "react";
 import Link from "next/link";
+import { ShieldCheck } from "lucide-react";
 
 export function LandingFooter() {
   return (
-    <footer className="border-t border-[#E5E5E2] bg-white py-12 text-sm text-[#6B6B6B]">
+    <footer className="border-t border-[#E5E5E2] bg-white pt-16 pb-12 text-sm text-[#6B6B6B]">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col items-center justify-between gap-6 sm:flex-row">
-          {/* Logo + Copyright */}
-          <div className="flex items-center gap-3">
-            <div className="flex h-7 w-7 items-center justify-center rounded-[6px] bg-[#0A0A0A] text-white">
-              <span className="text-xs font-bold">R</span>
+        <div className="grid grid-cols-2 gap-8 md:grid-cols-5 lg:gap-12">
+          {/* Brand Col */}
+          <div className="col-span-2 space-y-4">
+            <Link href="/" className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-[#0A0A0A] text-white">
+                <span className="font-bold text-sm">R</span>
+              </div>
+              <span className="text-lg font-bold tracking-tight text-[#0A0A0A]">
+                ReconDesk
+              </span>
+            </Link>
+            <p className="max-w-sm text-xs leading-relaxed text-[#6B6B6B]">
+              The intelligent GSTR-2B reconciliation decision engine built specifically for Indian Chartered Accountants and tax professionals.
+            </p>
+            <div className="flex items-center gap-2 text-xs text-[#0A0A0A] font-medium">
+              <ShieldCheck className="h-4 w-4 text-emerald-600" />
+              <span>SOC-2 Certified Infrastructure • AES-256</span>
             </div>
-            <span className="font-semibold text-[#0A0A0A]">ReconDesk</span>
-            <span className="text-xs text-[#6B6B6B]">
-              © {new Date().getFullYear()} ReconDesk Inc. All rights reserved.
-            </span>
           </div>
 
-          {/* Quick links */}
-          <div className="flex flex-wrap items-center gap-6 text-xs sm:text-sm font-medium">
-            <Link href="/privacy" className="hover:text-[#0A0A0A] transition-colors">
-              Privacy Policy
-            </Link>
-            <Link href="/terms" className="hover:text-[#0A0A0A] transition-colors">
-              Terms of Service
-            </Link>
-            <Link href="/security" className="hover:text-[#0A0A0A] transition-colors">
-              Security
-            </Link>
-            <a href="mailto:support@recondesk.com" className="hover:text-[#0A0A0A] transition-colors">
-              Contact Support
-            </a>
+          {/* Product Links */}
+          <div className="space-y-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-[#0A0A0A]">Product</p>
+            <ul className="space-y-2 text-xs">
+              <li>
+                <a href="#how-it-works" className="hover:text-[#0A0A0A] transition-colors">
+                  How It Works
+                </a>
+              </li>
+              <li>
+                <a href="#features" className="hover:text-[#0A0A0A] transition-colors">
+                  5-Level Matching
+                </a>
+              </li>
+              <li>
+                <a href="#features" className="hover:text-[#0A0A0A] transition-colors">
+                  Rule 37 Tracking
+                </a>
+              </li>
+              <li>
+                <a href="#pricing" className="hover:text-[#0A0A0A] transition-colors">
+                  Pricing Plans
+                </a>
+              </li>
+            </ul>
           </div>
+
+          {/* Resources & Support */}
+          <div className="space-y-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-[#0A0A0A]">Resources</p>
+            <ul className="space-y-2 text-xs">
+              <li>
+                <a href="#faq" className="hover:text-[#0A0A0A] transition-colors">
+                  FAQ
+                </a>
+              </li>
+              <li>
+                <Link href="/auth/login" className="hover:text-[#0A0A0A] transition-colors">
+                  Sign In
+                </Link>
+              </li>
+              <li>
+                <Link href="/auth/signup" className="hover:text-[#0A0A0A] transition-colors">
+                  Free Trial
+                </Link>
+              </li>
+              <li>
+                <a href="mailto:support@recondesk.com" className="hover:text-[#0A0A0A] transition-colors">
+                  Contact Support
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          {/* Legal */}
+          <div className="space-y-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-[#0A0A0A]">Legal</p>
+            <ul className="space-y-2 text-xs">
+              <li>
+                <Link href="/privacy" className="hover:text-[#0A0A0A] transition-colors">
+                  Privacy Policy
+                </Link>
+              </li>
+              <li>
+                <Link href="/terms" className="hover:text-[#0A0A0A] transition-colors">
+                  Terms of Service
+                </Link>
+              </li>
+              <li>
+                <Link href="/security" className="hover:text-[#0A0A0A] transition-colors">
+                  Security Guarantee
+                </Link>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        {/* Bottom Bar */}
+        <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-[#E5E5E2] pt-8 text-xs text-[#6B6B6B] sm:flex-row">
+          <p>© {new Date().getFullYear()} ReconDesk Inc. All rights reserved.</p>
+          <p className="text-[11px] text-[#6B6B6B]">
+            Built with precision for Chartered Accountants across India.
+          </p>
         </div>
       </div>
     </footer>

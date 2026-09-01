@@ -4,23 +4,23 @@ import { useEffect, useState } from "react";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
 
-const RULE_COUNT_FALLBACK = "90+";
+const RULE_COUNT_FALLBACK = "103+";
 
 const STATIC_STATS = [
   {
     value: "5-Level",
     label: "Matching Engine",
-    description: "L1 exact to L5 probable",
+    description: "L1 exact to L4 PAN & L6 review",
   },
   {
     value: "17(5)",
     label: "Blocked Credit Flags",
-    description: "All categories detected",
+    description: "All restricted categories detected",
   },
   {
     value: "180-Day",
     label: "Rule 37 Tracking",
-    description: "Payment deadline alerts",
+    description: "Payment deadline & reversal alerts",
   },
 ] as const;
 
@@ -34,10 +34,10 @@ function StatCard({
   description: string;
 }) {
   return (
-    <div className="flex flex-col rounded-[1.25rem] bg-white px-5 py-5 shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5">
-      <p className="text-2xl font-semibold tracking-tight text-[var(--ink)] sm:text-3xl">{value}</p>
-      <p className="mt-1 text-sm font-medium text-[var(--ink)]">{label}</p>
-      <p className="mt-2 text-xs leading-relaxed text-gray-500">{description}</p>
+    <div className="flex flex-col rounded-[10px] border border-[#E5E5E2] bg-white p-5 transition-transform duration-200 hover:-translate-y-0.5">
+      <p className="text-2xl font-bold tracking-tight text-[#0A0A0A] sm:text-3xl">{value}</p>
+      <p className="mt-1 text-sm font-semibold text-[#0A0A0A]">{label}</p>
+      <p className="mt-1.5 text-xs leading-relaxed text-[#6B6B6B]">{description}</p>
     </div>
   );
 }
@@ -71,13 +71,13 @@ export function FeatureStatsStrip() {
 
   return (
     <section
-      className="mx-auto mt-16 mb-4 max-w-4xl px-4"
+      className="mx-auto mt-20 mb-8 max-w-5xl px-4 sm:px-6 lg:px-8"
       aria-label="Product capabilities"
     >
-      <p className="text-center text-[11px] font-semibold uppercase tracking-widest text-gray-400">
+      <p className="text-center text-xs font-bold uppercase tracking-widest text-[#6B6B6B]">
         WHAT&apos;S UNDER THE HOOD
       </p>
-      <div className="mt-6 grid grid-cols-2 gap-3 text-left md:grid-cols-4">
+      <div className="mt-6 grid grid-cols-2 gap-3.5 text-left md:grid-cols-4">
         <StatCard
           value={ruleCount}
           label="Logic Rules"
