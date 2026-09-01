@@ -42,19 +42,19 @@ export function HeroSection() {
 
         {/* 4. Two CTA Buttons Side by Side (Orchestrated Step 4: ~540ms delay) */}
         <div className="hero-animate-ctas mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
-          {/* Solid accent-colored button (#F97316) */}
+          {/* Solid brand purple button (#7B5CFA) */}
           <Link
             href="/auth/signup"
-            className="inline-flex min-h-[46px] w-full items-center justify-center gap-1.5 rounded-[8px] bg-[#F97316] px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#EA580C] active:scale-[0.99] sm:w-auto"
+            className="inline-flex min-h-[46px] w-full items-center justify-center gap-1.5 rounded-[8px] bg-[#7B5CFA] px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#6C4DE6] active:scale-[0.99] sm:w-auto"
           >
-            <span>Start Free — First 2 Runs Free</span>
+            <span>Start Free — One GSTIN, Forever</span>
             <span>→</span>
           </Link>
 
-          {/* Black-outline ghost button */}
+          {/* Purple-outline ghost button */}
           <a
             href="#modules"
-            className="inline-flex min-h-[46px] w-full items-center justify-center gap-1.5 rounded-[8px] border border-[#0A0A0A] bg-white px-6 py-2.5 text-sm font-semibold text-[#0A0A0A] transition-colors hover:bg-[#F5F5F3] active:scale-[0.99] sm:w-auto"
+            className="inline-flex min-h-[46px] w-full items-center justify-center gap-1.5 rounded-[8px] border border-[#7B5CFA] bg-white px-6 py-2.5 text-sm font-semibold text-[#7B5CFA] transition-colors hover:bg-[#7B5CFA]/5 active:scale-[0.99] sm:w-auto"
           >
             <span>Explore GSTR Modules</span>
             <span>↓</span>
