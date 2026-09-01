@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Logo } from "@/components/ui/Logo";
 import { Menu, ShieldCheck, X } from "lucide-react";
 
 export function LandingNavbar() {
@@ -18,32 +19,27 @@ export function LandingNavbar() {
   }, []);
 
   const navLinks = [
-    { label: "Home", href: "#" },
-    { label: "Features", href: "#features" },
-    { label: "About", href: "#about" },
+    { label: "GSTR Modules", href: "#modules" },
+    { label: "How It Works", href: "#how-it-works" },
     { label: "Pricing", href: "#pricing" },
-    { label: "Blog", href: "#blog" },
-    { label: "Contact", href: "#contact" },
+    { label: "FAQ", href: "#faq" },
   ];
 
   return (
     <header
       className={`sticky top-0 z-50 w-full transition-colors duration-200 border-b border-[#E5E5E2] ${
-        scrolled ? "bg-white/85 backdrop-blur-md shadow-[0_2px_12px_rgba(0,0,0,0.03)]" : "bg-white/95 backdrop-blur-sm"
+        scrolled
+          ? "bg-white/90 backdrop-blur-md shadow-[0_2px_12px_rgba(0,0,0,0.03)]"
+          : "bg-white/95 backdrop-blur-sm"
       }`}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        {/* Left: Logo mark + Wordmark */}
-        <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-[#0A0A0A] text-white shadow-sm transition-transform duration-150 group-hover:scale-105">
-            <span className="font-bold text-sm tracking-tighter">R</span>
-          </div>
-          <span className="text-lg font-bold tracking-tight text-[#0A0A0A]">
-            ReconDesk
-          </span>
+        {/* Left: Official Brand Logo with purple dot */}
+        <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-90">
+          <Logo height={30} />
         </Link>
 
-        {/* Center: Desktop Navigation Links */}
+        {/* Center: Functional Navigation Links */}
         <nav className="hidden items-center gap-8 md:flex">
           {navLinks.map((link) => (
             <a
@@ -56,20 +52,20 @@ export function LandingNavbar() {
           ))}
         </nav>
 
-        {/* Right: Utility icon + Solid Black Pill Button */}
-        <div className="hidden items-center gap-4 md:flex">
-          <div
-            title="Enterprise Security Verified"
-            className="flex h-9 w-9 items-center justify-center rounded-full text-[#6B6B6B] hover:text-[#0A0A0A] hover:bg-[#F5F5F3] transition-colors cursor-pointer"
+        {/* Right: Security Trust + Sign In + Start Free CTA */}
+        <div className="hidden items-center gap-5 md:flex">
+          <Link
+            href="/auth/login"
+            className="text-sm font-medium text-[#6B6B6B] transition-colors hover:text-[#0A0A0A]"
           >
-            <ShieldCheck className="h-4 w-4" />
-          </div>
+            Sign In
+          </Link>
 
           <Link
             href="/auth/signup"
             className="inline-flex items-center justify-center gap-1.5 rounded-full bg-[#0A0A0A] px-5 py-2 text-sm font-semibold text-white transition-all hover:bg-[#262626] active:scale-[0.98]"
           >
-            <span>Book a Demo</span>
+            <span>Start Free</span>
             <span className="text-xs font-bold">→</span>
           </Link>
         </div>
@@ -102,13 +98,20 @@ export function LandingNavbar() {
                 {link.label}
               </a>
             ))}
-            <div className="pt-2 border-t border-[#E5E5E2]">
+            <div className="pt-3 border-t border-[#E5E5E2] flex flex-col gap-2">
+              <Link
+                href="/auth/login"
+                className="flex w-full items-center justify-center py-2 text-sm font-medium text-[#6B6B6B] hover:text-[#0A0A0A]"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Sign In
+              </Link>
               <Link
                 href="/auth/signup"
                 className="flex w-full items-center justify-center gap-1.5 rounded-full bg-[#0A0A0A] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                <span>Book a Demo</span>
+                <span>Start Free — First 2 Runs Free</span>
                 <span>→</span>
               </Link>
             </div>

@@ -1,13 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { Logo } from "@/components/ui/Logo";
 import {
   AlertTriangle,
-  ArrowUpRight,
   BarChart3,
   Bell,
   CheckCircle2,
-  ChevronRight,
   Clock,
   FileCheck2,
   Filter,
@@ -15,20 +14,19 @@ import {
   RefreshCw,
   Search,
   Settings,
-  ShieldCheck,
   Sparkles,
   Users,
 } from "lucide-react";
 
 export function HeroProductPanel() {
-  const [activeTab, setActiveTab] = useState("Reconciliation");
+  const [activeTab, setActiveTab] = useState("GSTR-2B Recon");
 
   const navTabs = [
-    { label: "Overview", icon: BarChart3 },
-    { label: "Reconciliation", icon: Layers },
+    { label: "GSTR-2B Recon", icon: Layers },
+    { label: "GSTR-1 Sales", icon: BarChart3 },
+    { label: "GSTR-3B vs Books", icon: FileCheck2 },
+    { label: "Rule 37 Tracker", icon: Clock },
     { label: "Clients", icon: Users },
-    { label: "Decisions", icon: FileCheck2 },
-    { label: "Settings", icon: Settings },
   ];
 
   return (
@@ -38,19 +36,12 @@ export function HeroProductPanel() {
         
         {/* Internal Top Bar / App Chrome */}
         <div className="flex h-14 items-center justify-between border-b border-[#E5E5E2] bg-white px-3 sm:px-5">
-          {/* Left: App Logo & Workspace Name */}
+          {/* Left: Official Brand Logo with purple dot */}
           <div className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-[6px] bg-[#0A0A0A] text-white">
-              <span className="text-xs font-bold">R</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-semibold tracking-tight text-[#0A0A0A] sm:text-sm">
-                ReconDesk
-              </span>
-              <span className="hidden rounded-full bg-[#F5F5F3] px-2 py-0.5 text-[10px] font-medium text-[#6B6B6B] sm:inline-block">
-                Workspace
-              </span>
-            </div>
+            <Logo height={22} />
+            <span className="hidden rounded-full bg-[#F5F5F3] px-2 py-0.5 text-[10px] font-semibold text-[#6B6B6B] sm:inline-block">
+              Workspace
+            </span>
           </div>
 
           {/* Center: Top bar nav icons/labels (collapses on mobile) */}
@@ -65,7 +56,7 @@ export function HeroProductPanel() {
                   onClick={() => setActiveTab(tab.label)}
                   className={`flex items-center gap-1.5 rounded-[8px] px-3 py-1.5 text-xs font-medium transition-colors ${
                     isActive
-                      ? "bg-[#F5F5F3] text-[#0A0A0A] font-semibold"
+                      ? "bg-[#0A0A0A] text-white font-semibold"
                       : "text-[#6B6B6B] hover:bg-[#FAF9F7] hover:text-[#0A0A0A]"
                   }`}
                 >
@@ -110,11 +101,11 @@ export function HeroProductPanel() {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base sm:text-lg font-bold text-[#0A0A0A]">
-                  GSTR-2B vs Purchase Register Run
+                  Active Reconciliation Run
                 </h3>
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-200">
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 border border-emerald-200">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
-                  Live Sync OK
+                  Ready to Finalize
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-[#6B6B6B]">
@@ -146,9 +137,9 @@ export function HeroProductPanel() {
             <div className="rounded-[10px] border border-[#E5E5E2] bg-white p-4 sm:p-5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-[#6B6B6B]">
-                  ITC Claimable & Matched
+                  ITC Claimable &amp; Matched
                 </span>
-                <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
                   98.4% Matched
                 </span>
               </div>
@@ -159,7 +150,7 @@ export function HeroProductPanel() {
               </div>
               <p className="mt-1 text-xs text-[#6B6B6B] flex items-center gap-1">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 inline" />
-                <span>1,280 exact L1 + L2 pairs verified</span>
+                <span>1,280 clean exact + normalized pairs</span>
               </p>
             </div>
 
@@ -169,7 +160,7 @@ export function HeroProductPanel() {
                 <span className="text-xs font-medium text-[#6B6B6B]">
                   Missed / Unclaimed ITC
                 </span>
-                <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
                   14 Invoices
                 </span>
               </div>
@@ -211,10 +202,10 @@ export function HeroProductPanel() {
             <div className="flex items-center justify-between text-xs font-semibold text-[#0A0A0A] mb-2.5">
               <span className="flex items-center gap-1.5">
                 <Sparkles className="h-3.5 w-3.5 text-[#F97316]" />
-                Multi-Level Match Breakdown
+                Multi-Level Match Hierarchy Distribution
               </span>
               <span className="text-[#6B6B6B] font-normal text-[11px]">
-                Auto-classified in 4.2 seconds
+                Processed in 3.8 seconds
               </span>
             </div>
 

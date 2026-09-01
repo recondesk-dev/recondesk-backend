@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { HeroSection } from "@/components/landing/HeroSection";
+import { GstrModulesGrid } from "@/components/landing/GstrModulesGrid";
 import { FeatureStatsStrip } from "@/components/public/FeatureStatsStrip";
 import { SecurityTrustStrip } from "@/components/public/SecurityTrustStrip";
 import { HowItWorksSteps } from "@/components/public/HowItWorksSteps";
-import { LandingDashboardPreview } from "@/components/public/LandingDashboardPreview";
 import { PricingGrid } from "@/components/billing/PricingGrid";
 import { FaqAccordion } from "@/components/public/FaqAccordion";
 
@@ -26,16 +26,19 @@ function Section({
 export default function LandingPage() {
   return (
     <div className="bg-white text-[#0A0A0A]">
-      {/* 1. Hero Section with Staggered Load Entrance, Glow Arc, and Browser Chrome Panel */}
+      {/* 1. Hero Section with Glow Arc and Browser Chrome Panel */}
       <HeroSection />
 
-      {/* 2. Feature Stats: What's Under The Hood */}
+      {/* 2. Supported GSTR Modules Grid (2B, 1, 3B, 9C) */}
+      <GstrModulesGrid />
+
+      {/* 3. Feature Stats: What's Under The Hood */}
       <FeatureStatsStrip />
 
-      {/* 3. Security & Trust Strip */}
+      {/* 4. Security & Trust Strip */}
       <SecurityTrustStrip />
 
-      {/* 4. Pain Points: Sound familiar? */}
+      {/* 5. Pain Points: Sound familiar? */}
       <Section className="py-12 sm:py-16">
         <div className="text-center">
           <p className="text-xs font-bold uppercase tracking-widest text-[#F97316]">
@@ -45,7 +48,7 @@ export default function LandingPage() {
             Sound familiar?
           </h2>
           <p className="mx-auto mt-3 max-w-xl text-sm text-[#6B6B6B]">
-            Manual reconciliation drains hundreds of billable hours every month and exposes your clients to notices.
+            Manual reconciliation drains hundreds of billable hours every month and exposes your clients to tax notices.
           </p>
         </div>
 
@@ -76,8 +79,8 @@ export default function LandingPage() {
         </div>
       </Section>
 
-      {/* 5. How It Works */}
-      <Section id="how-it-works" className="scroll-mt-20 py-12 sm:scroll-mt-24 sm:py-20">
+      {/* 6. How It Works (Upload -> Match -> Decide) */}
+      <Section id="how-it-works" className="scroll-mt-20 py-12 sm:scroll-mt-24 sm:py-20 border-t border-[#E5E5E2]">
         <div className="text-center mb-10">
           <p className="text-xs font-bold uppercase tracking-widest text-[#F97316]">
             Streamlined Workflow
@@ -90,22 +93,6 @@ export default function LandingPage() {
           </p>
         </div>
         <HowItWorksSteps />
-      </Section>
-
-      {/* 6. Product Showcase / Interactive Deep Dive */}
-      <Section id="features" className="py-12 sm:py-16">
-        <div className="text-center mb-10">
-          <p className="text-xs font-bold uppercase tracking-widest text-[#F97316]">
-            Interactive Showcase
-          </p>
-          <h2 className="mt-2 text-2xl font-bold tracking-tight text-[#0A0A0A] sm:text-3xl">
-            Decision-Ready Intelligence
-          </h2>
-          <p className="mx-auto mt-3 max-w-xl text-sm text-[#6B6B6B]">
-            Explore each layer of the reconciliation engine built specifically for Indian GST workflows.
-          </p>
-        </div>
-        <LandingDashboardPreview />
       </Section>
 
       {/* 7. Simple, Transparent Pricing */}
@@ -150,7 +137,7 @@ export default function LandingPage() {
             Stop Losing ITC. Start Recovering It.
           </h2>
           <p className="relative mx-auto mt-4 max-w-xl text-sm leading-relaxed text-[#6B6B6B] sm:text-base">
-            First 2 reconciliations free. Upload your GSTR-2B and purchase register now to see results in 60 seconds.
+            First 2 reconciliations free. Upload your GSTR portal files and purchase register now to see results in 60 seconds.
           </p>
           
           <div className="relative mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
@@ -158,7 +145,7 @@ export default function LandingPage() {
               href="/auth/signup"
               className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-[8px] bg-[#0A0A0A] px-8 text-sm font-semibold text-white transition-opacity hover:opacity-90 active:scale-[0.99] sm:w-auto"
             >
-              <span>Get Started Free</span>
+              <span>Get Started Free — First 2 Runs Free</span>
               <span>→</span>
             </Link>
             <a

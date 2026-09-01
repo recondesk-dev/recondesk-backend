@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import { Logo } from "@/components/ui/Logo";
 import { ShieldCheck } from "lucide-react";
 
 export function LandingFooter() {
@@ -9,16 +10,11 @@ export function LandingFooter() {
         <div className="grid grid-cols-2 gap-8 md:grid-cols-5 lg:gap-12">
           {/* Brand Col */}
           <div className="col-span-2 space-y-4">
-            <Link href="/" className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-[#0A0A0A] text-white">
-                <span className="font-bold text-sm">R</span>
-              </div>
-              <span className="text-lg font-bold tracking-tight text-[#0A0A0A]">
-                ReconDesk
-              </span>
+            <Link href="/" className="inline-flex items-center gap-2">
+              <Logo height={28} />
             </Link>
             <p className="max-w-sm text-xs leading-relaxed text-[#6B6B6B]">
-              The intelligent GSTR-2B reconciliation decision engine built specifically for Indian Chartered Accountants and tax professionals.
+              The intelligent GST reconciliation decision engine built specifically for Chartered Accountants and tax professionals in India.
             </p>
             <div className="flex items-center gap-2 text-xs text-[#0A0A0A] font-medium">
               <ShieldCheck className="h-4 w-4 text-emerald-600" />
@@ -28,26 +24,26 @@ export function LandingFooter() {
 
           {/* Product Links */}
           <div className="space-y-3">
-            <p className="text-xs font-bold uppercase tracking-wider text-[#0A0A0A]">Product</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-[#0A0A0A]">GSTR Modules</p>
             <ul className="space-y-2 text-xs">
               <li>
-                <a href="#how-it-works" className="hover:text-[#0A0A0A] transition-colors">
-                  How It Works
+                <a href="#modules" className="hover:text-[#0A0A0A] transition-colors">
+                  GSTR-2B ↔ PR (ITC)
                 </a>
               </li>
               <li>
-                <a href="#features" className="hover:text-[#0A0A0A] transition-colors">
-                  5-Level Matching
+                <a href="#modules" className="hover:text-[#0A0A0A] transition-colors">
+                  GSTR-1 ↔ Sales
                 </a>
               </li>
               <li>
-                <a href="#features" className="hover:text-[#0A0A0A] transition-colors">
-                  Rule 37 Tracking
+                <a href="#modules" className="hover:text-[#0A0A0A] transition-colors">
+                  GSTR-3B vs Books
                 </a>
               </li>
               <li>
-                <a href="#pricing" className="hover:text-[#0A0A0A] transition-colors">
-                  Pricing Plans
+                <a href="#modules" className="hover:text-[#0A0A0A] transition-colors">
+                  GSTR-9C Rollups
                 </a>
               </li>
             </ul>
@@ -55,8 +51,18 @@ export function LandingFooter() {
 
           {/* Resources & Support */}
           <div className="space-y-3">
-            <p className="text-xs font-bold uppercase tracking-wider text-[#0A0A0A]">Resources</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-[#0A0A0A]">Quick Links</p>
             <ul className="space-y-2 text-xs">
+              <li>
+                <a href="#how-it-works" className="hover:text-[#0A0A0A] transition-colors">
+                  How It Works
+                </a>
+              </li>
+              <li>
+                <a href="#pricing" className="hover:text-[#0A0A0A] transition-colors">
+                  Pricing Plans
+                </a>
+              </li>
               <li>
                 <a href="#faq" className="hover:text-[#0A0A0A] transition-colors">
                   FAQ
@@ -69,20 +75,15 @@ export function LandingFooter() {
               </li>
               <li>
                 <Link href="/auth/signup" className="hover:text-[#0A0A0A] transition-colors">
-                  Free Trial
+                  Start Free Trial
                 </Link>
-              </li>
-              <li>
-                <a href="mailto:support@recondesk.com" className="hover:text-[#0A0A0A] transition-colors">
-                  Contact Support
-                </a>
               </li>
             </ul>
           </div>
 
           {/* Legal */}
           <div className="space-y-3">
-            <p className="text-xs font-bold uppercase tracking-wider text-[#0A0A0A]">Legal</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-[#0A0A0A]">Legal &amp; Trust</p>
             <ul className="space-y-2 text-xs">
               <li>
                 <Link href="/privacy" className="hover:text-[#0A0A0A] transition-colors">
