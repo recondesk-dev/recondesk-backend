@@ -19,7 +19,6 @@ export function LandingNavbar() {
   }, []);
 
   const navLinks = [
-    { label: "GSTR Modules", href: "#modules" },
     { label: "How It Works", href: "#how-it-works" },
     { label: "Pricing", href: "#pricing" },
     { label: "FAQ", href: "#faq" },
@@ -36,7 +35,7 @@ export function LandingNavbar() {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Left: Official Brand Logo with purple dot */}
         <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-90">
-          <Logo height={30} />
+          <Logo height={34} />
         </Link>
 
         {/* Center: Functional Navigation Links */}
@@ -108,7 +107,7 @@ export function LandingNavbar() {
               </Link>
               <Link
                 href="/auth/signup"
-                className="flex w-full items-center justify-center gap-1.5 rounded-full bg-[#0A0A0A] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                className="flex w-full items-center justify-center gap-1.5 rounded-full bg-[#7B5CFA] py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6C4DE6]"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <span>Start Free — One GSTIN, Forever</span>
