@@ -39,7 +39,7 @@ export const csvDownloadBtnClass =
   "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-[#E2E8F0] bg-white px-2.5 text-[11px] font-medium text-[#475569] transition-colors duration-150 hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50";
 
 export const sectionContainerClass =
-  "box-border w-full max-w-full bg-white p-4 sm:p-5";
+  "box-border w-full max-w-full bg-white p-6";
 
 export const pageContentClass =
   "box-border w-full max-w-full space-y-3";
@@ -68,40 +68,40 @@ export const tableHeadClass =
   "text-[10px] font-semibold uppercase tracking-[0.4px] text-[#94A3B8]";
 
 export const tableHeadCellClass =
-  "px-3 py-2 text-left bg-[#FAFAFA] border-b border-[#F1F5F9] font-semibold text-[10px] uppercase tracking-[0.4px] text-[#94A3B8] whitespace-nowrap";
+  "px-3.5 py-2.5 text-left bg-[#FAFAFA] border-b border-[#F1F5F9] font-semibold text-[10px] uppercase tracking-[0.4px] text-[#94A3B8] whitespace-nowrap";
 
 export const tableRowClass =
   "border-b border-[#F8FAFC] bg-white transition-colors duration-100 last:border-b-0 hover:bg-[#F8FAFC]";
 
-export const tableCellClass = "px-3 py-2.5 align-middle text-xs text-[#475569]";
+export const tableCellClass = "px-3.5 py-3 align-middle text-xs text-[#475569]";
 
 export const tableTruncateCellClass =
   `${tableCellClass} overflow-hidden text-ellipsis whitespace-nowrap`;
 
 export const tableStickyCheckboxHeadClass =
-  "sticky left-0 z-10 w-8 bg-[#FAFAFA] border-b border-[#F1F5F9] px-2.5 py-2";
+  "sticky left-0 z-10 w-8 bg-[#FAFAFA] border-b border-[#F1F5F9] px-3 py-2";
 
 export const tableStickyCheckboxCellClass =
-  "sticky left-0 z-10 w-8 bg-white px-2.5 py-2 transition-colors duration-100 group-hover:bg-[#F8FAFC]";
+  "sticky left-0 z-10 w-8 bg-white px-3 py-2 transition-colors duration-100 group-hover:bg-[#F8FAFC]";
 
 export const topSuppliersTableClass = "w-full table-auto border-collapse text-left";
 
-export const topSuppliersThGstin = `${tableHeadCellClass} w-[18%]`;
-export const topSuppliersTdGstin = `${tableCellClass} max-w-0 overflow-visible font-mono text-[11px] text-[#0F172A] tracking-[0.2px]`;
+export const topSuppliersThGstin = `${tableHeadCellClass} pl-6 w-[18%]`;
+export const topSuppliersTdGstin = `${tableCellClass} pl-6 max-w-0 overflow-visible font-mono text-[11px] text-[#0F172A] tracking-[0.2px]`;
 export const topSuppliersThTradeName = `${tableHeadCellClass} w-[32%]`;
 export const topSuppliersTdTradeName = `${tableCellClass} max-w-0 overflow-visible text-xs text-[#475569]`;
 export const topSuppliersThInvoiceCount = `${tableHeadCellClass} w-[14%] text-center`;
 export const topSuppliersTdInvoiceCount = `${tableCellClass} text-center text-xs text-[#475569] tabular-nums`;
 export const topSuppliersThTotal = `${tableHeadCellClass} w-[22%] text-right`;
 export const topSuppliersTdTotal = `${tableCellClass} text-right text-xs font-semibold text-[#0F172A]`;
-export const topSuppliersThImpact = `${tableHeadCellClass} w-[14%] text-right`;
-export const topSuppliersTdImpact = `${tableCellClass} text-right text-xs`;
+export const topSuppliersThImpact = `${tableHeadCellClass} pr-6 w-[14%] text-right`;
+export const topSuppliersTdImpact = `${tableCellClass} pr-6 text-right text-xs`;
 
 export const matchedTableClass =
   "w-full min-w-[800px] table-auto border-collapse text-left";
 
-export const matchedThGstin = `${tableHeadCellClass} min-w-[140px] whitespace-nowrap`;
-export const matchedTdGstin = `${tableCellClass} font-mono text-[11px] text-[#0F172A] tracking-[0.2px]`;
+export const matchedThGstin = `${tableHeadCellClass} pl-6 min-w-[140px] whitespace-nowrap`;
+export const matchedTdGstin = `${tableCellClass} pl-6 font-mono text-[11px] text-[#0F172A] tracking-[0.2px]`;
 export const matchedThInvoice = `${tableHeadCellClass} min-w-[110px] whitespace-nowrap`;
 export const matchedTdInvoice = `${tableCellClass}`;
 export const matchedThDate = `${tableHeadCellClass} min-w-[100px] whitespace-nowrap`;
@@ -120,8 +120,8 @@ export const matchedThGuidanceWhy = `${tableHeadCellClass} min-w-[140px] whitesp
 export const matchedTdGuidanceWhy = `${tableCellClass} text-xs italic text-gray-400`;
 export const matchedThGuidanceNext = `${tableHeadCellClass} min-w-[140px] whitespace-nowrap`;
 export const matchedTdGuidanceNext = `${tableCellClass} text-xs font-medium text-[var(--ink)]`;
-export const matchedThNotes = `${tableHeadCellClass} min-w-[80px] whitespace-nowrap text-right`;
-export const matchedTdNotes = `${tableCellClass} whitespace-nowrap text-right text-xs text-gray-400`;
+export const matchedThNotes = `${tableHeadCellClass} pr-6 min-w-[80px] whitespace-nowrap text-right`;
+export const matchedTdNotes = `${tableCellClass} pr-6 whitespace-nowrap text-right text-xs text-gray-400`;
 export const matchedThIms = `${tableHeadCellClass} min-w-[90px] whitespace-nowrap`;
 export const matchedTdIms = `${tableCellClass} whitespace-nowrap`;
 
@@ -749,7 +749,7 @@ export function ResultsBucketTabs({
   return (
     <div className="border-b border-[#F1F5F9] bg-white">
       {/* Primary tabs */}
-      <div className="flex items-center border-b border-[#F1F5F9] px-1 overflow-x-auto">
+      <div className="flex items-center border-b border-[#F1F5F9] px-4 overflow-x-auto">
         <button
           type="button"
           role="tab"
@@ -849,7 +849,7 @@ export function ResultsBucketTabs({
       </div>
 
       {/* Secondary module tabs */}
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-[#F8FAFC] px-3 py-1.5">
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-[#F8FAFC] px-6 py-2.5">
         <span className="flex items-center px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.5px] text-[#CBD5E1]">
           Modules →
         </span>

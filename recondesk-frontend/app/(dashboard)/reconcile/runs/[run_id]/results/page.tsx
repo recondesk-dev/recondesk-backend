@@ -2613,7 +2613,7 @@ export default function ReconcileResultsPage() {
       {/* Context bar */}
       <div
         ref={summaryRef}
-        className="box-border w-full min-w-0 rounded-[10px] border border-[#E2E8F0] bg-white px-5 py-2.5 shadow-sm"
+        className="box-border w-full min-w-0 rounded-[10px] border border-[#E2E8F0] bg-white px-6 py-3.5 shadow-sm"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
@@ -2633,9 +2633,9 @@ export default function ReconcileResultsPage() {
           <SummarySkeleton />
         )}
         {summary && !summaryError && (
-          <div className="flex w-full flex-wrap items-center justify-between gap-2.5">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <div className="flex min-w-0 items-center gap-1 text-xs text-[#94A3B8]">
+          <div className="flex w-full flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+              <div className="flex min-w-0 items-center gap-1.5 text-xs text-[#94A3B8]">
                 <Link href="/clients" className="shrink-0 hover:text-[#0F172A] transition-colors">
                   Clients
                 </Link>
@@ -2649,7 +2649,7 @@ export default function ReconcileResultsPage() {
                 </span>
               </div>
               {(summary.client_gstin || summary.client_gstin_id) && (
-                <span className="shrink-0 rounded border border-[#E2E8F0] bg-[#F8FAFC] px-1.5 py-0.5 font-mono text-[11px] tracking-wide text-[#94A3B8]">
+                <span className="shrink-0 rounded border border-[#E2E8F0] bg-[#F8FAFC] px-2 py-0.5 font-mono text-[11px] tracking-wide text-[#94A3B8]">
                   {summary.client_gstin || summary.client_gstin_id}
                 </span>
               )}
@@ -2659,7 +2659,7 @@ export default function ReconcileResultsPage() {
               <button
                 type="button"
                 disabled={excelDownloading}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-2.5 py-1.5 text-xs font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-3 py-1.5 text-xs font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void downloadExcelReport()}
               >
                 {excelDownloading ? (
@@ -2674,7 +2674,7 @@ export default function ReconcileResultsPage() {
               <button
                 type="button"
                 disabled={pdfDownloading}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-2.5 py-1.5 text-xs font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-3 py-1.5 text-xs font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void downloadPdfReport()}
               >
                 {pdfDownloading ? (
@@ -2762,15 +2762,15 @@ export default function ReconcileResultsPage() {
         {summary && !summaryError && (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {/* Left: Run summary */}
-            <div className="flex items-center gap-5 rounded-[10px] border border-[#E2E8F0] bg-white p-4 px-5">
-              <div className="min-w-[72px] text-center">
+            <div className="flex items-center gap-6 rounded-[10px] border border-[#E2E8F0] bg-white p-5 px-6">
+              <div className="min-w-[80px] text-center">
                 <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.4px] text-[#94A3B8]">
                   Run total
                 </div>
-                <div className="text-[28px] font-bold leading-none text-[#0F172A]">
+                <div className="text-[30px] font-bold leading-none text-[#0F172A]">
                   {summary.total_gstr_records.toLocaleString("en-IN")}
                 </div>
-                <div className="mt-1 text-[11px] text-[#94A3B8]">invoices</div>
+                <div className="mt-1.5 text-[11px] text-[#94A3B8]">invoices</div>
               </div>
               <div className="h-12 w-[1px] bg-[#F1F5F9]" />
               <div className="flex-1">
@@ -2795,7 +2795,7 @@ export default function ReconcileResultsPage() {
                 </div>
               </div>
               <div className="h-12 w-[1px] bg-[#F1F5F9]" />
-              <div className="min-w-[60px] text-center">
+              <div className="min-w-[70px] text-center">
                 <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.4px] text-[#94A3B8]">
                   Assigned
                 </div>
@@ -2810,14 +2810,14 @@ export default function ReconcileResultsPage() {
 
             {/* Right: Action required */}
             <div className="overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-white">
-              <div className="flex items-center gap-1.5 border-b border-[#FEF2F2] bg-[#FFF7F7] px-4 py-2.5">
+              <div className="flex items-center gap-2 border-b border-[#FEF2F2] bg-[#FFF7F7] px-6 py-3">
                 <div className="h-1.5 w-1.5 rounded-full bg-[#DC2626]" />
                 <div className="text-[11px] font-semibold uppercase tracking-[0.4px] text-[#991B1B]">
                   {((summary.review_required_count ?? 0) + (summary.missed_itc_count ?? 0) + (summary.wrongful_risk_count ?? 0)).toLocaleString("en-IN")} invoices need action
                 </div>
               </div>
               <div
-                className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-4 py-2.5 transition-colors hover:bg-[#FAFAFA]"
+                className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-6 py-3 transition-colors hover:bg-[#FAFAFA]"
                 onClick={() => setResultsTab("review_required")}
               >
                 <div className="flex-1 text-xs text-[#475569]">Review Required</div>
@@ -2827,7 +2827,7 @@ export default function ReconcileResultsPage() {
                 <div className="ml-2 text-sm text-[#CBD5E1]">›</div>
               </div>
               <div
-                className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-4 py-2.5 transition-colors hover:bg-[#FAFAFA]"
+                className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-6 py-3 transition-colors hover:bg-[#FAFAFA]"
                 onClick={() => setResultsTab("itc")}
               >
                 <div className="flex-1 text-xs text-[#475569]">
@@ -2842,7 +2842,7 @@ export default function ReconcileResultsPage() {
                 <div className="ml-2 text-sm text-[#CBD5E1]">›</div>
               </div>
               <div
-                className="flex cursor-pointer items-center px-4 py-2.5 transition-colors hover:bg-[#FAFAFA]"
+                className="flex cursor-pointer items-center px-6 py-3 transition-colors hover:bg-[#FAFAFA]"
                 onClick={() => setResultsTab("risk")}
               >
                 <div className="flex-1 text-xs text-[#475569]">ITC at Risk — Not in GSTR-2B</div>
@@ -3994,93 +3994,91 @@ export default function ReconcileResultsPage() {
         {/* Matched */}
         {resultsTab === "matched" && (
         <div className="p-0">
-          <div className={filterToolbarClass}>
+          <div className="flex flex-wrap items-center gap-2.5 border-b border-[#F1F5F9] bg-[#FAFAFA] px-6 py-3">
             <input
               type="search"
-              className={`w-full sm:w-72 ${filterInputClass}`}
+              className={`w-64 ${filterInputClass}`}
               placeholder="Search supplier GSTIN or invoice number…"
               value={matchedSearch}
               onChange={(e) => setMatchedSearch(e.target.value)}
             />
-            <div className={filterRowClass}>
-              <select
-                className={filterDropdownClass}
-                value={docTypeFilterMatched}
-                onChange={(e) => setDocTypeFilterMatched(e.target.value)}
+            <select
+              className={filterDropdownClass}
+              value={docTypeFilterMatched}
+              onChange={(e) => setDocTypeFilterMatched(e.target.value)}
+            >
+              <option value="">All types</option>
+              <option value="Invoice">Invoice</option>
+              <option value="Credit Note">Credit Note</option>
+              <option value="Debit Note">Debit Note</option>
+            </select>
+            <select
+              className={filterDropdownClass}
+              value={matchedFilters.match_level}
+              onChange={(e) =>
+                setMatchedFilters((f) => ({
+                  ...f,
+                  match_level: e.target.value,
+                }))
+              }
+            >
+              <option value="">All levels</option>
+              <option value="EXACT">EXACT</option>
+              <option value="FUZZY">FUZZY</option>
+              <option value="MANUAL">MANUAL</option>
+            </select>
+            <select
+              className={filterDropdownClass}
+              value={matchedFilters.ims_status}
+              onChange={(e) =>
+                setMatchedFilters((f) => ({
+                  ...f,
+                  ims_status: e.target.value,
+                }))
+              }
+            >
+              <option value="">All IMS</option>
+              <option value="accepted">Accepted</option>
+              <option value="rejected">Rejected</option>
+              <option value="pending">Pending</option>
+              <option value="no_action_taken">No action</option>
+            </select>
+            <select
+              className={filterSortDropdownClass}
+              aria-label="Sort by"
+              value={matchedSort}
+              onChange={(e) =>
+                setMatchedSort(e.target.value as ReconcileSortValue)
+              }
+            >
+              {RECONCILE_SORT_OPTIONS_WITH_CONFIDENCE.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            {(hasActiveMatchedFilters(debouncedMatchedSearch, matchedFilters) || !!docTypeFilterMatched) && (
+              <button
+                type="button"
+                className="h-8 text-[12px] font-medium text-[#2563EB] hover:underline"
+                onClick={() => {
+                  setMatchedSearch("");
+                  setDebouncedMatchedSearch("");
+                  setDocTypeFilterMatched("");
+                  setMatchedFilters({
+                    match_level: "",
+                    has_notes: false,
+                    section_17_5: false,
+                    amount_min: "",
+                    amount_max: "",
+                    ims_status: "",
+                  });
+                  setMatchedPage(1);
+                }}
               >
-                <option value="">All types</option>
-                <option value="Invoice">Invoice</option>
-                <option value="Credit Note">Credit Note</option>
-                <option value="Debit Note">Debit Note</option>
-              </select>
-              <select
-                className={filterDropdownClass}
-                value={matchedFilters.match_level}
-                onChange={(e) =>
-                  setMatchedFilters((f) => ({
-                    ...f,
-                    match_level: e.target.value,
-                  }))
-                }
-              >
-                <option value="">All levels</option>
-                <option value="EXACT">EXACT</option>
-                <option value="FUZZY">FUZZY</option>
-                <option value="MANUAL">MANUAL</option>
-              </select>
-              <select
-                className={filterDropdownClass}
-                value={matchedFilters.ims_status}
-                onChange={(e) =>
-                  setMatchedFilters((f) => ({
-                    ...f,
-                    ims_status: e.target.value,
-                  }))
-                }
-              >
-                <option value="">All IMS</option>
-                <option value="accepted">Accepted</option>
-                <option value="rejected">Rejected</option>
-                <option value="pending">Pending</option>
-                <option value="no_action_taken">No action</option>
-              </select>
-              <select
-                className={filterSortDropdownClass}
-                aria-label="Sort by"
-                value={matchedSort}
-                onChange={(e) =>
-                  setMatchedSort(e.target.value as ReconcileSortValue)
-                }
-              >
-                {RECONCILE_SORT_OPTIONS_WITH_CONFIDENCE.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              {(hasActiveMatchedFilters(debouncedMatchedSearch, matchedFilters) || !!docTypeFilterMatched) && (
-                <button
-                  type="button"
-                  className="h-8 text-[12px] font-medium text-[#2563EB] hover:underline"
-                  onClick={() => {
-                    setMatchedSearch("");
-                    setDebouncedMatchedSearch("");
-                    setDocTypeFilterMatched("");
-                    setMatchedFilters({
-                      match_level: "",
-                      has_notes: false,
-                      section_17_5: false,
-                      amount_min: "",
-                      amount_max: "",
-                      ims_status: "",
-                    });
-                    setMatchedPage(1);
-                  }}
-                >
-                  Clear filters
-                </button>
-              )}
-            </div>
+                Clear filters
+              </button>
+            )}
             
             {summary && (
               <div className="ml-auto flex items-center gap-2">

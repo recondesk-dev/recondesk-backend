@@ -517,7 +517,7 @@ export default function DashboardShellLayout({
       </aside>
 
       <div className="ml-[256px] flex min-h-screen min-w-0 w-[calc(100%-256px)] max-w-[calc(100%-256px)] flex-1 flex-col overflow-x-hidden">
-        <header className="relative z-[60] flex h-16 shrink-0 items-center justify-between px-8 pt-2">
+        <header className="relative z-[60] flex h-16 shrink-0 items-center justify-between px-6 pt-2">
           <div />
           <div className="flex items-center gap-3">
             <button
@@ -637,7 +637,7 @@ export default function DashboardShellLayout({
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-8 pb-10 pt-2">
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-6 pb-10 pt-2">
           {children}
         </main>
       </div>
