@@ -4,338 +4,392 @@ import { useState } from "react";
 import { Logo } from "@/components/ui/Logo";
 import {
   AlertTriangle,
-  BarChart3,
-  Bell,
+  ArrowDownToLine,
+  Check,
   CheckCircle2,
+  ChevronRight,
   Clock,
-  FileCheck2,
+  Download,
+  FileSpreadsheet,
+  FileText,
   Filter,
   Layers,
-  RefreshCw,
   Search,
-  Settings,
+  ShieldAlert,
   Sparkles,
   Users,
 } from "lucide-react";
 
 export function HeroProductPanel() {
-  const [activeTab, setActiveTab] = useState("GSTR-2B Recon");
+  const [activeTab, setActiveTab] = useState<
+    "matched" | "review_required" | "itc" | "risk" | "rule37" | "ims"
+  >("matched");
 
-  const navTabs = [
-    { label: "GSTR-2B Recon", icon: Layers },
-    { label: "GSTR-1 Sales", icon: BarChart3 },
-    { label: "GSTR-3B vs Books", icon: FileCheck2 },
-    { label: "Rule 37 Tracker", icon: Clock },
-    { label: "Clients", icon: Users },
+  const tabs = [
+    { id: "matched" as const, label: "Matched", count: 1280, color: "text-[#16A34A]" },
+    { id: "review_required" as const, label: "Review Required", count: 38, color: "text-[#D97706]" },
+    { id: "itc" as const, label: "Missed ITC", count: 14, color: "text-[#DC2626]" },
+    { id: "risk" as const, label: "ITC at Risk", count: 6, color: "text-[#DC2626]" },
+    { id: "rule37" as const, label: "Rule 37", count: 3, color: "text-[#EA580C]" },
+    { id: "ims" as const, label: "IMS Actions", count: 8, color: "text-[#7B5CFA]" },
   ];
 
   return (
-    <div className="relative z-10 mx-auto w-full max-w-6xl px-2 sm:px-4">
+    <div className="relative z-10 mx-auto w-full max-w-6xl px-1 sm:px-4">
       {/* Outer Panel Chrome Frame with soft drop shadow lifting off white page */}
-      <div className="overflow-hidden rounded-[12px] sm:rounded-[14px] border border-[#E5E5E2] bg-white shadow-[0_20px_50px_-12px_rgba(0,0,0,0.09)] transition-all duration-300">
+      <div className="overflow-hidden rounded-[14px] border border-[#E2E8F0] bg-white shadow-[0_25px_60px_-15px_rgba(0,0,0,0.12)] transition-all duration-300">
         
-        {/* Internal Top Bar / App Chrome */}
-        <div className="flex h-14 items-center justify-between border-b border-[#E5E5E2] bg-white px-3 sm:px-5">
-          {/* Left: Official Brand Logo with purple dot */}
-          <div className="flex items-center gap-2.5">
-            <Logo height={22} />
-            <span className="hidden rounded-full bg-[#F5F5F3] px-2 py-0.5 text-[10px] font-semibold text-[#6B6B6B] sm:inline-block">
-              Workspace
+        {/* App Chrome Top Navigation / Context Bar */}
+        <div className="flex flex-wrap items-center justify-between border-b border-[#E2E8F0] bg-[#FAFAFA] px-4 py-3 sm:px-6">
+          {/* Breadcrumb & Client Info */}
+          <div className="flex min-w-0 items-center gap-2 text-xs">
+            <Logo height={20} />
+            <span className="text-[#CBD5E1]">/</span>
+            <span className="font-semibold text-[#0F172A] truncate max-w-[150px] sm:max-w-none">
+              Aarav Textiles Ltd
+            </span>
+            <span className="text-[#CBD5E1]">/</span>
+            <span className="font-medium text-[#64748B]">Q2 FY 2026–27</span>
+            <span className="hidden rounded border border-[#E2E8F0] bg-white px-2 py-0.5 font-mono text-[11px] text-[#64748B] sm:inline-block">
+              27AABCT3921P1ZK
             </span>
           </div>
 
-          {/* Center: Top bar nav icons/labels (collapses on mobile) */}
-          <nav className="hidden items-center gap-1 md:flex">
-            {navTabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.label;
-              return (
-                <button
-                  key={tab.label}
-                  type="button"
-                  onClick={() => setActiveTab(tab.label)}
-                  className={`flex items-center gap-1.5 rounded-[8px] px-3 py-1.5 text-xs font-medium transition-colors ${
-                    isActive
-                      ? "bg-[#0A0A0A] text-white font-semibold"
-                      : "text-[#6B6B6B] hover:bg-[#FAF9F7] hover:text-[#0A0A0A]"
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* Right: Search, Notification Bell, User Avatar */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="hidden items-center gap-1.5 rounded-[6px] border border-[#E5E5E2] bg-[#FAFAFA] px-2 py-1 text-[11px] text-[#6B6B6B] sm:flex">
-              <Search className="h-3 w-3" />
-              <span>Search invoices</span>
-              <kbd className="rounded bg-white px-1 font-mono text-[9px] text-[#6B6B6B] shadow-xs">
-                ⌘K
-              </kbd>
-            </div>
-
+          {/* Action Toolbar */}
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              className="relative flex h-8 w-8 items-center justify-center rounded-full text-[#6B6B6B] transition hover:bg-[#F5F5F3] hover:text-[#0A0A0A]"
-              aria-label="Notifications"
+              className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-2.5 py-1 text-xs font-semibold text-[#334155] hover:bg-[#F8FAFC]"
             >
-              <Bell className="h-4 w-4" />
-              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[#F97316]" />
+              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+              <span>Export XLSX</span>
             </button>
-
-            <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-[#0A0A0A] text-xs font-semibold text-white">
-              <span>CA</span>
-              <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white bg-[#16A34A]" />
-            </div>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-2.5 py-1 text-xs font-semibold text-[#334155] hover:bg-[#F8FAFC]"
+            >
+              <FileText className="h-3.5 w-3.5 text-blue-600" />
+              <span>PDF Report</span>
+            </button>
+            <span className="inline-flex items-center gap-1 rounded-md bg-[#DC2626] px-3 py-1 text-xs font-semibold text-white">
+              Finalize Run
+            </span>
           </div>
         </div>
 
-        {/* Dashboard Content Area */}
-        <div className="p-4 sm:p-6 md:p-8 bg-white space-y-6">
+        {/* Dashboard Body Area */}
+        <div className="p-4 sm:p-6 space-y-4 bg-[#F8FAFC]">
           
-          {/* Subheader: Run Controls & Period Context */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-[#E5E5E2] pb-5">
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-bold text-[#0A0A0A]">
-                  Active Reconciliation Run
-                </h3>
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 border border-emerald-200">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
-                  Ready to Finalize
-                </span>
+          {/* 1. Real KPI Grid (Run Summary + Action Required Split) */}
+          <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
+            
+            {/* Left Card: Run Total & Progress */}
+            <div className="flex items-center gap-4 sm:gap-6 rounded-[10px] border border-[#E2E8F0] bg-white p-4 sm:p-5 shadow-xs">
+              <div className="min-w-[76px] text-center">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-[#94A3B8]">
+                  Run Total
+                </div>
+                <div className="mt-1 text-3xl font-black text-[#0F172A] tabular-nums">
+                  1,438
+                </div>
+                <div className="text-[11px] text-[#94A3B8]">invoices</div>
               </div>
-              <p className="mt-0.5 text-xs text-[#6B6B6B]">
-                Period: Q2 FY 2026–27 • 1,438 Invoices Evaluated across 42 Suppliers
-              </p>
+
+              <div className="h-12 w-[1px] bg-[#F1F5F9]" />
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between text-xs text-[#64748B] mb-1.5">
+                  <span className="font-bold uppercase tracking-wider text-[#94A3B8]">
+                    Clean Matched
+                  </span>
+                  <span className="font-bold text-[#16A34A] tabular-nums">
+                    1,280 · 89.0%
+                  </span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-[#F1F5F9]">
+                  <div
+                    className="h-full rounded-full bg-[#16A34A] transition-all"
+                    style={{ width: "89%" }}
+                  />
+                </div>
+                <div className="mt-1.5 text-[11px] font-medium text-[#64748B]">
+                  158 invoices require CA decision
+                </div>
+              </div>
+
+              <div className="hidden sm:block h-12 w-[1px] bg-[#F1F5F9]" />
+
+              <div className="hidden sm:block min-w-[70px] text-center">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-[#94A3B8]">
+                  Assigned
+                </div>
+                <div className="mt-1 text-xs font-bold text-[#0F172A]">
+                  CA Team
+                </div>
+                <div className="text-[10px] text-emerald-600 font-medium">● Verified</div>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 self-start sm:self-auto">
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-[8px] border border-[#E5E5E2] bg-white px-3 py-1.5 text-xs font-medium text-[#0A0A0A] hover:bg-[#F5F5F3] transition"
-              >
-                <Filter className="h-3.5 w-3.5 text-[#6B6B6B]" />
-                <span>Filter Mismatches</span>
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-[8px] bg-[#0A0A0A] px-3.5 py-1.5 text-xs font-medium text-white hover:bg-[#262626] transition"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                <span>Rerun Matcher</span>
-              </button>
+            {/* Right Card: Action Required Drilldown */}
+            <div className="overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-white shadow-xs">
+              <div className="flex items-center justify-between border-b border-[#FEE2E2] bg-[#FFF7F7] px-4 py-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[#DC2626]" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#991B1B]">
+                    158 Invoices Need Action
+                  </span>
+                </div>
+                <span className="text-[11px] font-bold text-[#DC2626]">
+                  ₹4,58,200 at stake
+                </span>
+              </div>
+
+              <div className="divide-y divide-[#F8FAFC] text-xs">
+                <div className="flex items-center justify-between px-4 py-2 hover:bg-[#FAF9F7] transition-colors">
+                  <span className="font-medium text-[#334155]">Review Required (Tolerances &amp; Formats)</span>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded border border-[#FCD34D] bg-[#FFFBEB] px-2 py-0.5 font-bold text-[#92400E]">
+                      38
+                    </span>
+                    <span className="text-[#CBD5E1]">›</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between px-4 py-2 hover:bg-[#FAF9F7] transition-colors">
+                  <span className="font-medium text-[#334155]">Missed ITC (In Books, Missing in 2B)</span>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded border border-[#FECACA] bg-[#FEF2F2] px-2 py-0.5 font-bold text-[#991B1B]">
+                      14
+                    </span>
+                    <span className="font-bold text-[#DC2626] tabular-nums">₹3,42,800</span>
+                    <span className="text-[#CBD5E1]">›</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between px-4 py-2 hover:bg-[#FAF9F7] transition-colors">
+                  <span className="font-medium text-[#334155]">Rule 37 (180-Day Payment Risk)</span>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded border border-[#FED7AA] bg-[#FFF7ED] px-2 py-0.5 font-bold text-[#C2410C]">
+                      3
+                    </span>
+                    <span className="font-bold text-[#EA580C] tabular-nums">₹1,15,400</span>
+                    <span className="text-[#CBD5E1]">›</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Metric Stats Cards Row */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {/* Card 1: Matched ITC */}
-            <div className="rounded-[10px] border border-[#E5E5E2] bg-white p-4 sm:p-5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-[#6B6B6B]">
-                  ITC Claimable &amp; Matched
-                </span>
-                <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                  98.4% Matched
-                </span>
-              </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#0A0A0A]">
-                  ₹48,24,650
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-[#6B6B6B] flex items-center gap-1">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 inline" />
-                <span>1,280 clean exact + normalized pairs</span>
-              </p>
+          {/* 2. Results Bucket Tabs & Table Container */}
+          <div className="overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-white shadow-xs">
+            
+            {/* Real Results Bucket Tabs Strip */}
+            <div className="flex overflow-x-auto border-b border-[#E2E8F0] bg-[#FAFAFA] px-2">
+              {tabs.map((tab) => {
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-xs font-semibold transition-all ${
+                      isActive
+                        ? "border-[#0F172A] bg-white text-[#0F172A]"
+                        : "border-transparent text-[#64748B] hover:text-[#0F172A]"
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                        isActive
+                          ? "bg-[#0F172A] text-white"
+                          : "bg-[#E2E8F0] text-[#475569]"
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Card 2: Missed ITC */}
-            <div className="rounded-[10px] border border-[#E5E5E2] bg-white p-4 sm:p-5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-[#6B6B6B]">
-                  Missed / Unclaimed ITC
-                </span>
-                <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
-                  14 Invoices
+            {/* Filter Toolbar (Matches Real Results Page) */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#F1F5F9] bg-white px-4 py-2.5 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 rounded-[6px] border border-[#E2E8F0] bg-white px-2.5 py-1.5 text-[#64748B]">
+                  <Search className="h-3 w-3" />
+                  <span className="text-[11px]">Filter by GSTIN or Invoice #</span>
+                </div>
+                <div className="rounded-[6px] border border-[#E2E8F0] bg-white px-2.5 py-1.5 text-[11px] font-medium text-[#475569]">
+                  Match: Exact (L1) &amp; Soft (L2)
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-[11px] text-[#64748B]">
+                <span>Showing 1–4 of 1,280</span>
+                <span className="rounded bg-[#F1F5F9] px-2 py-1 font-semibold text-[#0F172A]">
+                  Page 1 of 32
                 </span>
               </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#0A0A0A]">
-                  ₹3,42,800
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-[#6B6B6B] flex items-center gap-1">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-600 inline" />
-                <span>Missing in supplier GSTR-1 filings</span>
-              </p>
             </div>
 
-            {/* Card 3: Rule 37 180-Day Risk */}
-            <div className="rounded-[10px] border border-[#E5E5E2] bg-white p-4 sm:p-5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-[#6B6B6B]">
-                  Rule 37 Reversal Alert
-                </span>
-                <span className="rounded-full bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold text-[#F97316]">
-                  Action Needed
-                </span>
-              </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#0A0A0A]">
-                  ₹1,15,400
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-[#6B6B6B] flex items-center gap-1">
-                <Clock className="h-3.5 w-3.5 text-[#F97316] inline" />
-                <span>3 invoices crossing 180 days unpaid</span>
-              </p>
-            </div>
-          </div>
-
-          {/* 5-Level Match Hierarchy Distribution Bar */}
-          <div className="rounded-[10px] border border-[#E5E5E2] bg-[#FAF9F7] p-4">
-            <div className="flex items-center justify-between text-xs font-semibold text-[#0A0A0A] mb-2.5">
-              <span className="flex items-center gap-1.5">
-                <Sparkles className="h-3.5 w-3.5 text-[#F97316]" />
-                Multi-Level Match Hierarchy Distribution
-              </span>
-              <span className="text-[#6B6B6B] font-normal text-[11px]">
-                Processed in 3.8 seconds
-              </span>
-            </div>
-
-            {/* Segmented Distribution Bar */}
-            <div className="h-3 w-full overflow-hidden rounded-full bg-[#E5E5E2] flex">
-              <div style={{ width: "88%" }} className="bg-[#0A0A0A]" title="L1 Exact: 88%" />
-              <div style={{ width: "6%" }} className="bg-[#F97316]" title="L2 Normalized: 6%" />
-              <div style={{ width: "3%" }} className="bg-amber-400" title="L3 Toleranced: 3%" />
-              <div style={{ width: "2%" }} className="bg-blue-500" title="L4 PAN Match: 2%" />
-              <div style={{ width: "1%" }} className="bg-rose-500" title="L6 Review: 1%" />
-            </div>
-
-            {/* Legend */}
-            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-[#6B6B6B]">
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-[#0A0A0A]" />
-                <strong className="text-[#0A0A0A]">L1 Exact:</strong> 88%
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-[#F97316]" />
-                <strong className="text-[#0A0A0A]">L2 Normalized:</strong> 6%
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-amber-400" />
-                <strong className="text-[#0A0A0A]">L3 Toleranced:</strong> 3%
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-blue-500" />
-                <strong className="text-[#0A0A0A]">L4 PAN Match:</strong> 2%
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-rose-500" />
-                <strong className="text-[#0A0A0A]">L6 Unmatched:</strong> 1%
-              </span>
-            </div>
-          </div>
-
-          {/* Decision-Ready Invoices Table */}
-          <div className="overflow-hidden rounded-[10px] border border-[#E5E5E2]">
-            <div className="border-b border-[#E5E5E2] bg-[#FAF9F7] px-4 py-2.5 text-xs font-semibold text-[#0A0A0A]">
-              Actionable Invoice Decisions (WHAT / WHY / NEXT)
-            </div>
+            {/* Decision & Matched Rows Table (Real ReconDesk Columns) */}
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="border-b border-[#E5E5E2] bg-white text-[#6B6B6B]">
-                    <th className="px-4 py-2.5 font-medium">Supplier &amp; GSTIN</th>
-                    <th className="px-4 py-2.5 font-medium">Invoice #</th>
-                    <th className="px-4 py-2.5 font-medium text-right">Taxable Value</th>
-                    <th className="px-4 py-2.5 font-medium">Diagnosis</th>
-                    <th className="px-4 py-2.5 font-medium text-right">Next Step</th>
+                  <tr className="border-b border-[#F1F5F9] bg-[#FAFAFA] text-[11px] font-bold uppercase tracking-[0.5px] text-[#64748B]">
+                    <th className="px-4 py-2.5">Supplier GSTIN &amp; Name</th>
+                    <th className="px-4 py-2.5">Invoice # &amp; Date</th>
+                    <th className="px-4 py-2.5 text-right">Taxable Value</th>
+                    <th className="px-4 py-2.5 text-center">Match Level</th>
+                    <th className="px-4 py-2.5 text-right">Discrepancy</th>
+                    <th className="px-4 py-2.5 text-center">IMS Status</th>
+                    <th className="px-4 py-2.5 text-right">Decision / Next Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#E5E5E2]">
-                  {/* Row 1 */}
-                  <tr className="hover:bg-[#FAF9F7]/60 transition-colors">
+                <tbody className="divide-y divide-[#F8FAFC] text-[13px]">
+                  
+                  {/* Row 1: Clean L1 Match */}
+                  <tr className="hover:bg-[#F8FAFC] transition-colors">
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-[#0A0A0A]">Tata Steel Ltd</div>
-                      <div className="text-[11px] text-[#6B6B6B]">27AAACT0012P1ZR</div>
+                      <div className="font-semibold text-[#0F172A]">Tata Steel Ltd</div>
+                      <div className="font-mono text-[11px] text-[#64748B]">27AAACT0012P1ZR</div>
                     </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-[#0A0A0A]">
-                      INV/2026/8841
+                    <td className="px-4 py-3 font-mono">
+                      <div className="font-bold text-[#1D4ED8]">INV/2026/8841</div>
+                      <div className="text-[11px] text-[#64748B]">14 Mar 2026</div>
                     </td>
-                    <td className="px-4 py-3 font-semibold text-[#0A0A0A] text-right">
+                    <td className="px-4 py-3 text-right font-bold text-[#0F172A] tabular-nums">
                       ₹14,80,000
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                        <CheckCircle2 className="h-3 w-3" /> L1 Clean Match
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold bg-[#DCFCE7] text-[#166534]">
+                        Exact L1
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-emerald-600 font-semibold text-xs tabular-nums">
+                      ₹0.00
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-[#DCFCE7] text-[#166534]">
+                        Accepted
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="rounded-[6px] bg-[#0A0A0A] px-2.5 py-1 text-[11px] font-semibold text-white">
-                        Auto Claimed
+                      <span className="inline-flex items-center gap-1 rounded bg-[#0F172A] px-2.5 py-1 text-[11px] font-semibold text-white shadow-xs">
+                        <Check className="h-3 w-3 text-emerald-400" />
+                        Claim in 3B
                       </span>
                     </td>
                   </tr>
 
-                  {/* Row 2 */}
-                  <tr className="hover:bg-[#FAF9F7]/60 transition-colors">
+                  {/* Row 2: Normalized L2 Match */}
+                  <tr className="hover:bg-[#F8FAFC] transition-colors">
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-[#0A0A0A]">Infosys Technologies</div>
-                      <div className="text-[11px] text-[#6B6B6B]">29AAACI4916D1ZY</div>
+                      <div className="font-semibold text-[#0F172A]">Infosys Technologies</div>
+                      <div className="font-mono text-[11px] text-[#64748B]">29AAACI4916D1ZY</div>
                     </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-[#0A0A0A]">
-                      INF-0941 <span className="text-[#6B6B6B]">↔ INF-941</span>
+                    <td className="px-4 py-3 font-mono">
+                      <div className="font-bold text-[#1D4ED8]">INF-0941 <span className="text-[#94A3B8]">↔ INF-941</span></div>
+                      <div className="text-[11px] text-[#64748B]">12 Mar 2026</div>
                     </td>
-                    <td className="px-4 py-3 font-semibold text-[#0A0A0A] text-right">
+                    <td className="px-4 py-3 text-right font-bold text-[#0F172A] tabular-nums">
                       ₹4,20,500
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                        L2 Number Prefix
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold bg-[#F0F9FF] text-[#0369A1]">
+                        Soft L2
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-emerald-600 font-semibold text-xs tabular-nums">
+                      ₹0.00 (Prefix)
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-[#FFFBEB] text-[#92400E]">
+                        Pending
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="rounded-[6px] border border-[#E5E5E2] bg-white px-2.5 py-1 text-[11px] font-medium text-[#0A0A0A]">
+                      <span className="inline-flex items-center rounded border border-[#CBD5E1] bg-white px-2.5 py-1 text-[11px] font-medium text-[#334155] hover:bg-[#F8FAFC]">
                         Approve Match
                       </span>
                     </td>
                   </tr>
 
-                  {/* Row 3 */}
-                  <tr className="hover:bg-[#FAF9F7]/60 transition-colors">
+                  {/* Row 3: Missed ITC */}
+                  <tr className="hover:bg-[#F8FAFC] transition-colors">
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-[#0A0A0A]">Reliance Retail Ltd</div>
-                      <div className="text-[11px] text-[#6B6B6B]">27AABCR0412R1ZU</div>
+                      <div className="font-semibold text-[#0F172A]">Reliance Retail Ltd</div>
+                      <div className="font-mono text-[11px] text-[#64748B]">27AABCR0412R1ZU</div>
                     </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-[#0A0A0A]">
-                      RR/88329
+                    <td className="px-4 py-3 font-mono">
+                      <div className="font-bold text-[#DC2626]">RR/88329</div>
+                      <div className="text-[11px] text-[#64748B]">08 Mar 2026</div>
                     </td>
-                    <td className="px-4 py-3 font-semibold text-[#0A0A0A] text-right">
+                    <td className="px-4 py-3 text-right font-bold text-[#DC2626] tabular-nums">
                       ₹2,95,000
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
-                        Missing in 2B
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold bg-[#FEF2F2] text-[#991B1B]">
+                        Missed in 2B
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-[#DC2626] font-bold text-xs tabular-nums">
+                      -₹2,95,000
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-[#FEF2F2] text-[#991B1B]">
+                        Action Needed
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="rounded-[6px] bg-[#F97316] px-2.5 py-1 text-[11px] font-semibold text-white">
-                        Send Notice
+                      <span className="inline-flex items-center gap-1 rounded bg-[#7B5CFA] px-2.5 py-1 text-[11px] font-semibold text-white shadow-xs">
+                        Send Vendor Notice
                       </span>
                     </td>
                   </tr>
+
+                  {/* Row 4: Rule 37 180-Day Warning */}
+                  <tr className="hover:bg-[#F8FAFC] transition-colors">
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-[#0F172A]">Kalyani Heavy Motors</div>
+                      <div className="font-mono text-[11px] text-[#64748B]">27AABCK1928L1ZM</div>
+                    </td>
+                    <td className="px-4 py-3 font-mono">
+                      <div className="font-bold text-[#EA580C]">KM/7710</div>
+                      <div className="text-[11px] text-[#64748B]">18 Sep 2025</div>
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold text-[#0F172A] tabular-nums">
+                      ₹1,15,400
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold bg-[#FFF7ED] text-[#C2410C]">
+                        Rule 37 (178d)
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-[#EA580C] font-semibold text-xs tabular-nums">
+                      Reversal Risk
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-[#DCFCE7] text-[#166534]">
+                        Accepted
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="inline-flex items-center gap-1 rounded border border-[#FED7AA] bg-[#FFF7ED] px-2.5 py-1 text-[11px] font-bold text-[#C2410C]">
+                        <Clock className="h-3 w-3" />
+                        Due in 2 Days
+                      </span>
+                    </td>
+                  </tr>
+
                 </tbody>
               </table>
             </div>
+
           </div>
         </div>
+
       </div>
     </div>
   );
