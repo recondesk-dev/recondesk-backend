@@ -1,0 +1,24 @@
+{
+  "common": {
+    "language": "Language",
+    "english": "English",
+    "hindi": "Hindi",
+    "loading": "Loading...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "retry": "Retry",
+    "export": "Export",
+    "search": "Search"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "clients": "Clients",
+    "vendors": "Vendors",
+    "reconciliations": "Reconciliations",
+    "einvoicing": "E-Invoicing",
+    "manageData": "Manage Data",
+    "billing": "Billing",
+    "settings": "Settings",
+    "signOut": "Sign Out"
+  }
+}

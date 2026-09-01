@@ -1,0 +1,24 @@
+{
+  "common": {
+    "language": "भाषा",
+    "english": "English",
+    "hindi": "हिंदी",
+    "loading": "लोड हो रहा है...",
+    "save": "सुरक्षित करें",
+    "cancel": "रद्द करें",
+    "retry": "पुनः प्रयास करें",
+    "export": "एक्सपोर्ट",
+    "search": "खोजें"
+  },
+  "nav": {
+    "dashboard": "डैशबोर्ड",
+    "clients": "क्लाइंट्स",
+    "vendors": "वेंडर्स",
+    "reconciliations": "रिकॉन्सिलिएशन",
+    "einvoicing": "ई-इनवॉइसिंग",
+    "manageData": "डेटा प्रबंधन",
+    "billing": "बिलिंग",
+    "settings": "सेटिंग्स",
+    "signOut": "साइन आउट"
+  }
+}

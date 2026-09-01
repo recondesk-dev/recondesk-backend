@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { Logo } from "@/components/ui/Logo";
 import useSWR, { mutate } from "swr";
 import { Avatar } from "@/components/ui/Avatar";
+import { LanguageToggle } from "@/components/ui/LanguageToggle";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
   billingApi,
@@ -520,6 +521,7 @@ export default function DashboardShellLayout({
         <header className="relative z-[60] flex h-16 shrink-0 items-center justify-between px-6 pt-2">
           <div />
           <div className="flex items-center gap-3">
+            <LanguageToggle />
             <button
               type="button"
               className="relative rounded-full bg-white p-2.5 text-gray-500 shadow-[var(--shadow-soft)] transition-colors hover:text-gray-900"
