@@ -94,13 +94,13 @@ export function HeroProductPanel() {
             </div>
 
             {/* User Profile Pill at Bottom */}
-            <div className="flex items-center gap-2.5 rounded-[8px] border border-[#E2E8F0] bg-[#FAFAFA] p-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#E2E8F0] text-[11px] font-bold text-[#0F172A]">
-                OK
+            <div className="flex items-center gap-2.5 rounded-[8px] border border-[#E2E8F0] bg-[#FAFAFA] p-2 opacity-80">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#E2E8F0] text-[11px] font-bold text-[#64748B]">
+                CA
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-bold text-[#0F172A]">Omkar Kadam</p>
-                <p className="truncate text-[10px] text-[#94A3B8]">kadamomkar9988@...</p>
+                <p className="truncate text-xs font-semibold text-[#475569]">CA Partner</p>
+                <p className="truncate text-[10px] text-[#94A3B8]">audit@ca-firm.in</p>
               </div>
             </div>
           </aside>
@@ -113,11 +113,11 @@ export function HeroProductPanel() {
               <div className="flex items-center gap-2 text-xs">
                 <span className="text-[#94A3B8]">Clients</span>
                 <span className="text-[#CBD5E1]">/</span>
-                <span className="font-bold text-[#0F172A]">Taneja</span>
+                <span className="font-bold text-[#0F172A]">Apex Technologies Ltd</span>
                 <span className="text-[#CBD5E1]">/</span>
                 <span className="text-[#64748B]">July 2026</span>
                 <span className="rounded border border-[#E2E8F0] bg-[#F8FAFC] px-2 py-0.5 font-mono text-[11px] text-[#94A3B8]">
-                  24QWERT5678L1Z9
+                  27AAACT0012P1ZR
                 </span>
               </div>
 
@@ -192,8 +192,8 @@ export function HeroProductPanel() {
                   <div className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8]">
                     Assigned
                   </div>
-                  <div className="mt-1 text-xs font-bold text-[#0F172A]">
-                    Omkar Kadam
+                  <div className="mt-1 text-xs font-bold text-[#475569]">
+                    CA Team
                   </div>
                   <div className="text-[10px] text-[#94A3B8]">July 2026</div>
                 </div>
@@ -537,8 +537,8 @@ export function HeroProductPanel() {
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2 font-medium">
-                  <span>Finalized by Omkar Kadam</span>
+                <div className="flex items-center gap-2 font-medium text-[#94A3B8]">
+                  <span>Finalized by CA Reviewer</span>
                   <span className="rounded bg-[#DCFCE7] px-2 py-0.5 font-bold text-[#166534]">
                     Locked
                   </span>
