@@ -27,7 +27,7 @@ echo ""
 echo "========================================="
 echo "4. Pushing Frontend to GitHub (frontend/main)..."
 echo "========================================="
-git subtree push --prefix recondesk-frontend frontend main
+git push frontend main
 
 echo ""
 echo "========================================="
