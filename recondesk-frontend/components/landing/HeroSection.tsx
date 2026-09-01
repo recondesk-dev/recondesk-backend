@@ -75,20 +75,17 @@ export function HeroSection() {
             <Check className="h-3.5 w-3.5 text-emerald-600" /> One GSTIN 100% free forever
           </span>
         </div>
-
-        {/* 5. Generous spacing (~80-100px) before the hero visual */}
-        <div className="h-16 sm:h-20 lg:h-24" />
       </div>
 
-      {/* Hero Visual Container: Glow Arc + Product Preview Panel */}
-      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        {/* Glow Arc Visual (Orchestrated Step 5: ~720ms delay) */}
+      {/* Hero Visual Container: Glow Aura + Product Preview Panel */}
+      <div className="relative mx-auto mt-12 sm:mt-16 lg:mt-20 max-w-7xl px-2 sm:px-6 lg:px-8">
+        {/* Glow Aura Visual behind the panel */}
         <div className="hero-animate-glow">
           <GlowArcVisual />
         </div>
 
-        {/* Product Preview Panel (Orchestrated Step 6: ~900ms delay) */}
-        <div className="hero-animate-panel">
+        {/* Product Preview Panel */}
+        <div className="relative z-10 hero-animate-panel">
           <HeroProductPanel />
         </div>
       </div>
