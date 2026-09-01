@@ -131,12 +131,16 @@
     "exportPdfReport": "PDF रिपोर्ट",
     "finalizeRun": "रन फाइनल करें",
     "assigned": "असाइंड",
-    "unassigned": "अनअसाइंड"
+    "unassigned": "अनअसाइंड",
+    "percentConfidence": "{score}% कॉन्फिडेंस",
+    "whyButton": "कारण?",
+    "autoApproved": "ऑटो-अप्रूव्ड",
+    "notesCount": "{count} नोट्स"
   },
   "decisionCard": {
-    "whatIsWrong": "समस्या क्या है (What is wrong)",
-    "whyItHappened": "कारण क्या है (Why it happened)",
-    "whatToDoNext": "आगे की कार्रवाई (What to do next)",
+    "whatIsWrong": "समस्या क्या है",
+    "whyItHappened": "कारण क्या है",
+    "whatToDoNext": "आगे क्या करें",
     "amount": "राशि"
   },
   "clients": {

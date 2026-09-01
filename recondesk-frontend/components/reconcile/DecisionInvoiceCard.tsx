@@ -1,10 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 import { AmountDisplay } from "@/components/reconcile/ResultsUi";
 import { GstinCell } from "@/components/ui/GstinCell";
+import { localizeDecisionText } from "@/lib/decision-translations";
 
 function DecisionField({
   label,
@@ -74,7 +75,12 @@ export function DecisionInvoiceCard({
 }) {
   const selectable = typeof onSelectChange === "function";
   const t = useTranslations("decisionCard");
+  const locale = useLocale();
   const resolvedAmountCaption = amountCaption ?? t("amount");
+
+  const localizedWhat = localizeDecisionText(what, locale);
+  const localizedWhy = localizeDecisionText(why, locale);
+  const localizedNext = localizeDecisionText(next, locale);
 
   return (
     <article
@@ -151,9 +157,9 @@ export function DecisionInvoiceCard({
 
         {/* Decision block — structured for CAs */}
         <div className="grid gap-2 sm:grid-cols-3">
-          <DecisionField label={t("whatIsWrong")} value={what} />
-          <DecisionField label={t("whyItHappened")} value={why} tone="muted" />
-          <DecisionField label={t("whatToDoNext")} value={next} tone="action" />
+          <DecisionField label={t("whatIsWrong")} value={localizedWhat} />
+          <DecisionField label={t("whyItHappened")} value={localizedWhy} tone="muted" />
+          <DecisionField label={t("whatToDoNext")} value={localizedNext} tone="action" />
         </div>
 
         {expandedContent ? (

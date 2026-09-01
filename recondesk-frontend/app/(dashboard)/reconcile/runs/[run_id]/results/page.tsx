@@ -1,7 +1,8 @@
 "use client";
 
 import { Check, ChevronDown, FileSpreadsheet, FileText, Info, Loader2, Shield, Trash2, Upload, X } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { localizeDiscrepancyReason } from "@/lib/decision-translations";
 import {
   Rule37MarkPaidModal,
   type Rule37MarkPaidTarget,
@@ -363,6 +364,7 @@ function WhyRationaleButton({
   expanded: boolean;
   onToggle: (e: MouseEvent) => void;
 }) {
+  const tResults = useTranslations("results");
   return (
     <button
       type="button"
@@ -376,7 +378,7 @@ function WhyRationaleButton({
       aria-expanded={expanded}
       aria-label="Why this match decision"
     >
-      why?
+      {tResults("whyButton")}
     </button>
   );
 }
@@ -988,6 +990,7 @@ function SummarySkeleton() {
 export default function ReconcileResultsPage() {
   const tResults = useTranslations("results");
   const tCommon = useTranslations("common");
+  const locale = useLocale();
   const params = useParams();
   const router = useRouter();
   const runId = typeof params.run_id === "string" ? params.run_id : "";
@@ -4750,13 +4753,8 @@ export default function ReconcileResultsPage() {
                     );
 
                     if (taxDiff.display === "₹0.00" && row.discrepancy_reason) {
-                      const reasonDisplay = row.discrepancy_reason.replace(/_/g, " ");
-                      const titleCased =
-                        reasonDisplay === reasonDisplay.toUpperCase()
-                          ? reasonDisplay.charAt(0).toUpperCase() +
-                            reasonDisplay.slice(1).toLowerCase()
-                          : reasonDisplay;
-                      taxDiff = { display: titleCased, tooltip: row.discrepancy_reason };
+                      const localizedReason = localizeDiscrepancyReason(row.discrepancy_reason, locale);
+                      taxDiff = { display: localizedReason, tooltip: row.discrepancy_reason };
                     }
 
                     return (
@@ -4780,19 +4778,20 @@ export default function ReconcileResultsPage() {
                           <div className="flex flex-wrap items-center gap-2">
                             <MatchLevelBadge level={row.match_level} />
                             <span className="rounded-full bg-[#F5F5F6] px-2.5 py-0.5 text-[11px] font-semibold text-gray-600">
-                              {Math.round(
-                                Math.min(100, Math.max(0, row.confidence_score))
-                              )}
-                              % confidence
+                              {tResults("percentConfidence", {
+                                score: Math.round(
+                                  Math.min(100, Math.max(0, row.confidence_score))
+                                ),
+                              })}
                             </span>
                             {row.auto_approved ? (
                               <span className="inline-flex items-center whitespace-nowrap rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                                Auto-Approved
+                                {tResults("autoApproved")}
                               </span>
                             ) : null}
                             {row.notes_count > 0 ? (
                               <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                                {row.notes_count} notes
+                                {tResults("notesCount", { count: row.notes_count })}
                               </span>
                             ) : null}
                           </div>

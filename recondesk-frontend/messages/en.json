@@ -131,7 +131,11 @@
     "exportPdfReport": "PDF Report",
     "finalizeRun": "Finalize Run",
     "assigned": "Assigned",
-    "unassigned": "Unassigned"
+    "unassigned": "Unassigned",
+    "percentConfidence": "{score}% confidence",
+    "whyButton": "why?",
+    "autoApproved": "Auto-Approved",
+    "notesCount": "{count} notes"
   },
   "decisionCard": {
     "whatIsWrong": "What is wrong",
