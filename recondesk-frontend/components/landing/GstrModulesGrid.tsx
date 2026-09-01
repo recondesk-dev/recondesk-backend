@@ -113,7 +113,7 @@ export function GstrModulesGrid() {
                     Rule 37: 0 Days Due
                   </span>
                   <span className="rounded bg-white px-2 py-0.5 font-semibold text-[#475569] border border-[#E2E8F0]">
-                    §17(5): Clean
+                    Sec 17(5): Clean
                   </span>
                 </div>
               </div>

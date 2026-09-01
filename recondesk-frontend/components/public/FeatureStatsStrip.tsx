@@ -274,12 +274,12 @@ export function FeatureStatsStrip() {
                 Blocked Credit Shield
               </span>
               <span className="rounded bg-red-100 text-red-800 text-[10px] font-bold px-1.5 py-0.5">
-                §17(5)
+                Sec 17(5)
               </span>
             </div>
 
             <h3 className="mt-4 text-base font-bold text-[#0A0A0A]">
-              7 Statutory HSN Chapter Scanner
+              Section 17(5) Blocked Credit Scanner
             </h3>
             <p className="mt-1 text-xs text-[#6B6B6B] leading-relaxed">
               Detects restricted expenses in books before wrongful credit is claimed in GSTR-3B.
