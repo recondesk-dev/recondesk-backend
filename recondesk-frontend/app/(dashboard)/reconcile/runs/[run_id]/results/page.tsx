@@ -2609,11 +2609,11 @@ export default function ReconcileResultsPage() {
   }
 
   return (
-    <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden pb-28 bg-[#F1F5F9]">
+    <div className="box-border min-h-screen min-w-0 w-full space-y-4 pb-28">
       {/* Context bar */}
       <div
         ref={summaryRef}
-        className="sticky top-0 z-30 box-border w-full min-w-0 overflow-x-hidden border-b border-[#E2E8F0] bg-white px-6 py-2.5 shadow-sm"
+        className="box-border w-full min-w-0 rounded-[10px] border border-[#E2E8F0] bg-white px-6 py-3 shadow-sm"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}

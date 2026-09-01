@@ -42,7 +42,7 @@ export const sectionContainerClass =
   "box-border w-full max-w-full bg-white";
 
 export const pageContentClass =
-  "box-border w-full max-w-full space-y-4 overflow-x-hidden px-6 pt-5 pb-28 bg-[#F1F5F9]";
+  "box-border w-full max-w-full space-y-4";
 
 /** Default grid for secondary panels (GSTR-3B, etc.) */
 export const statCardsGridClass =
