@@ -2609,11 +2609,11 @@ export default function ReconcileResultsPage() {
   }
 
   return (
-    <div className="box-border min-h-screen min-w-0 w-full space-y-4 pb-28">
+    <div className="box-border min-h-screen min-w-0 w-full space-y-3 pb-28">
       {/* Context bar */}
       <div
         ref={summaryRef}
-        className="box-border w-full min-w-0 rounded-[10px] border border-[#E2E8F0] bg-white px-6 py-3 shadow-sm"
+        className="box-border w-full min-w-0 rounded-[10px] border border-[#E2E8F0] bg-white px-5 py-2.5 shadow-sm"
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
@@ -2633,33 +2633,33 @@ export default function ReconcileResultsPage() {
           <SummarySkeleton />
         )}
         {summary && !summaryError && (
-          <div className="flex w-full flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 text-xs text-[#94A3B8]">
-                <Link href="/clients" className="hover:text-[#0F172A] transition-colors">
+          <div className="flex w-full flex-wrap items-center justify-between gap-2.5">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className="flex min-w-0 items-center gap-1 text-xs text-[#94A3B8]">
+                <Link href="/clients" className="shrink-0 hover:text-[#0F172A] transition-colors">
                   Clients
                 </Link>
-                <span className="text-[#CBD5E1]">›</span>
-                <span className="font-semibold text-[#0F172A]">
+                <span className="shrink-0 text-[#CBD5E1]">›</span>
+                <span className="truncate font-semibold text-[#0F172A] max-w-[200px] sm:max-w-xs" title={summary.client_name ?? undefined}>
                   {summary.client_name || "—"}
                 </span>
-                <span className="text-[#CBD5E1]">›</span>
-                <span className="font-medium text-[#475569]">
+                <span className="shrink-0 text-[#CBD5E1]">›</span>
+                <span className="shrink-0 font-medium text-[#475569]">
                   {formatPeriod(summary.period)}
                 </span>
               </div>
               {(summary.client_gstin || summary.client_gstin_id) && (
-                <span className="rounded border border-[#E2E8F0] bg-[#F8FAFC] px-1.5 py-0.5 font-mono text-[11px] tracking-wide text-[#94A3B8]">
+                <span className="shrink-0 rounded border border-[#E2E8F0] bg-[#F8FAFC] px-1.5 py-0.5 font-mono text-[11px] tracking-wide text-[#94A3B8]">
                   {summary.client_gstin || summary.client_gstin_id}
                 </span>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
                 disabled={excelDownloading}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-3 py-1.5 text-xs font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-2.5 py-1.5 text-xs font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void downloadExcelReport()}
               >
                 {excelDownloading ? (
@@ -2674,7 +2674,7 @@ export default function ReconcileResultsPage() {
               <button
                 type="button"
                 disabled={pdfDownloading}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-3 py-1.5 text-xs font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-2.5 py-1.5 text-xs font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void downloadPdfReport()}
               >
                 {pdfDownloading ? (
@@ -2690,26 +2690,26 @@ export default function ReconcileResultsPage() {
               {canDeleteRun && (
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-white px-2 py-1.5 text-xs text-red-600 hover:bg-red-50"
                   title="Delete run"
                   onClick={() => {
                     setDeleteError(null);
                     setDeleteModalOpen(true);
                   }}
                 >
-                  <Trash2 className="h-3 w-3 shrink-0" />
+                  <Trash2 className="h-3.5 w-3.5 shrink-0" />
                 </button>
               )}
               {!isRunFinalized ? (
                 <button
                   type="button"
-                  className="rounded-md bg-[#DC2626] px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700"
+                  className="rounded-md bg-[#DC2626] px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700 whitespace-nowrap"
                   onClick={() => setFinalizeModalOpen(true)}
                 >
                   Finalize Run
                 </button>
               ) : (
-                <span className="rounded-md bg-emerald-100 px-3 py-1.5 text-xs font-medium text-emerald-800">
+                <span className="rounded-md bg-emerald-100 px-3 py-1.5 text-xs font-medium text-emerald-800 whitespace-nowrap">
                   Finalized
                 </span>
               )}

@@ -39,10 +39,10 @@ export const csvDownloadBtnClass =
   "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-[#E2E8F0] bg-white px-2.5 text-[11px] font-medium text-[#475569] transition-colors duration-150 hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50";
 
 export const sectionContainerClass =
-  "box-border w-full max-w-full bg-white";
+  "box-border w-full max-w-full bg-white p-4 sm:p-5";
 
 export const pageContentClass =
-  "box-border w-full max-w-full space-y-4";
+  "box-border w-full max-w-full space-y-3";
 
 /** Default grid for secondary panels (GSTR-3B, etc.) */
 export const statCardsGridClass =
@@ -55,14 +55,14 @@ export const resultsSummaryGridClass =
 export const statCardValueClass =
   "text-[2rem] font-bold tabular-nums tracking-tight";
 
-export const tableWrapClass = "w-full min-w-0 overflow-x-auto";
+export const tableWrapClass = "w-full min-w-0 max-w-full overflow-x-auto";
 
 export const tableClass = "w-full table-auto border-collapse text-left";
 
 export const decisionTableWrapClass = tableWrapClass;
 
 export const decisionTableClass =
-  "w-full min-w-[1100px] table-auto border-collapse text-left";
+  "w-full min-w-[800px] table-auto border-collapse text-left";
 
 export const tableHeadClass =
   "text-[10px] font-semibold uppercase tracking-[0.4px] text-[#94A3B8]";
@@ -84,7 +84,7 @@ export const tableStickyCheckboxHeadClass =
 export const tableStickyCheckboxCellClass =
   "sticky left-0 z-10 w-8 bg-white px-2.5 py-2 transition-colors duration-100 group-hover:bg-[#F8FAFC]";
 
-export const topSuppliersTableClass = decisionTableClass;
+export const topSuppliersTableClass = "w-full table-auto border-collapse text-left";
 
 export const topSuppliersThGstin = `${tableHeadCellClass} w-[18%]`;
 export const topSuppliersTdGstin = `${tableCellClass} max-w-0 overflow-visible font-mono text-[11px] text-[#0F172A] tracking-[0.2px]`;
@@ -98,7 +98,7 @@ export const topSuppliersThImpact = `${tableHeadCellClass} w-[14%] text-right`;
 export const topSuppliersTdImpact = `${tableCellClass} text-right text-xs`;
 
 export const matchedTableClass =
-  "w-full min-w-[1080px] table-auto border-collapse text-left";
+  "w-full min-w-[800px] table-auto border-collapse text-left";
 
 export const matchedThGstin = `${tableHeadCellClass} min-w-[140px] whitespace-nowrap`;
 export const matchedTdGstin = `${tableCellClass} font-mono text-[11px] text-[#0F172A] tracking-[0.2px]`;
@@ -375,12 +375,12 @@ export function StatCard({
 
   return (
     <div
-      className={`box-border flex min-w-0 w-full flex-col gap-2 rounded-xl border border-[#f0f0f0] bg-white p-6 transition-shadow duration-200 hover:shadow-md ${
+      className={`box-border flex min-w-0 w-full flex-col gap-1.5 rounded-[10px] border border-[#E2E8F0] bg-white p-4 sm:p-5 transition-shadow duration-200 hover:shadow-md ${
         isSecondary ? "opacity-90" : ""
       }`}
       style={{
-        minHeight: 120,
-        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.07)",
+        minHeight: 100,
+        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.04)",
       }}
       title={titleAttr}
     >
@@ -435,24 +435,24 @@ const sectionAmountBadgeStyles: Record<
   { card: string; label: string; amount: string }
 > = {
   claim: {
-    card: "bg-[#F7F7F8]",
-    label: "text-gray-500",
-    amount: "text-[var(--ink)]",
+    card: "bg-[#F8FAFC] border border-[#E2E8F0]",
+    label: "text-[#94A3B8]",
+    amount: "text-[#0F172A]",
   },
   risk: {
-    card: "bg-[#FFFBFB]",
-    label: "text-red-500",
-    amount: "text-red-700",
+    card: "bg-[#FFF7F7] border border-[#FECACA]",
+    label: "text-[#991B1B]",
+    amount: "text-[#DC2626]",
   },
   rule37: {
-    card: "bg-[#FFFCFA]",
-    label: "text-amber-600",
-    amount: "text-amber-800",
+    card: "bg-[#FFFBEB] border border-[#FDE68A]",
+    label: "text-[#92400E]",
+    amount: "text-[#D97706]",
   },
   neutral: {
-    card: "bg-[#F7F7F8]",
-    label: "text-gray-500",
-    amount: "text-[var(--ink)]",
+    card: "bg-[#F8FAFC] border border-[#E2E8F0]",
+    label: "text-[#94A3B8]",
+    amount: "text-[#0F172A]",
   },
 };
 
@@ -470,22 +470,22 @@ export function SectionAmountBadge({
   const styles = sectionAmountBadgeStyles[variant];
   return (
     <div
-      className={`inline-flex min-w-[120px] flex-col items-center justify-center rounded-2xl px-4 py-2.5 ${styles.card}`}
+      className={`inline-flex min-w-[100px] flex-col items-center justify-center rounded-[8px] px-3.5 py-1.5 ${styles.card}`}
     >
       <span
-        className={`text-center text-[10px] font-semibold uppercase tracking-widest ${styles.label}`}
+        className={`text-center text-[9px] font-semibold uppercase tracking-[0.4px] ${styles.label}`}
       >
         {label}
       </span>
       <span title={formatINR(amount)}>
         <InrAmount
           amount={amount}
-          sizeClass="whitespace-nowrap text-lg font-semibold tracking-tight"
+          sizeClass="whitespace-nowrap text-sm font-bold tracking-tight"
           numberColorClass={styles.amount}
         />
       </span>
       {sublabel ? (
-        <span className="mt-1 text-center text-[10px] text-gray-500">
+        <span className="text-center text-[9px] text-[#94A3B8]">
           {sublabel}
         </span>
       ) : null}
@@ -755,7 +755,7 @@ export function ResultsBucketTabs({
           role="tab"
           aria-selected={active === "matched"}
           onClick={() => onChange("matched")}
-          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap outline-none focus:outline-none select-none ${
             active === "matched"
               ? "border-[#2563EB] text-[#0F172A] font-semibold"
               : "border-transparent text-[#94A3B8] hover:text-[#0F172A]"
@@ -774,7 +774,7 @@ export function ResultsBucketTabs({
           role="tab"
           aria-selected={active === "review_required"}
           onClick={() => onChange("review_required")}
-          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap outline-none focus:outline-none select-none ${
             active === "review_required"
               ? "border-[#2563EB] text-[#0F172A] font-semibold"
               : "border-transparent text-[#94A3B8] hover:text-[#0F172A]"
@@ -793,7 +793,7 @@ export function ResultsBucketTabs({
           role="tab"
           aria-selected={active === "risk"}
           onClick={() => onChange("risk")}
-          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap outline-none focus:outline-none select-none ${
             active === "risk"
               ? "border-[#2563EB] text-[#0F172A] font-semibold"
               : "border-transparent text-[#94A3B8] hover:text-[#0F172A]"
@@ -812,7 +812,7 @@ export function ResultsBucketTabs({
           role="tab"
           aria-selected={active === "itc"}
           onClick={() => onChange("itc")}
-          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap outline-none focus:outline-none select-none ${
             active === "itc"
               ? "border-[#2563EB] text-[#0F172A] font-semibold"
               : "border-transparent text-[#94A3B8] hover:text-[#0F172A]"
@@ -833,7 +833,7 @@ export function ResultsBucketTabs({
           role="tab"
           aria-selected={active === "duplicate_entry"}
           onClick={() => onChange("duplicate_entry")}
-          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[11px] font-medium transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[11px] font-medium transition-colors whitespace-nowrap outline-none focus:outline-none select-none ${
             active === "duplicate_entry"
               ? "border-[#2563EB] text-[#0F172A] font-semibold"
               : "border-transparent text-[#94A3B8] hover:text-[#0F172A]"

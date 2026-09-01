@@ -23,11 +23,11 @@ function DecisionField({
         : "text-gray-700";
 
   return (
-    <div className="min-w-0 rounded-xl bg-[#F7F7F8] px-3.5 py-3">
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+    <div className="min-w-0 rounded-[8px] border border-[#F1F5F9] bg-[#F8FAFC] px-3.5 py-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.4px] text-[#94A3B8]">
         {label}
       </p>
-      <p className={`mt-1.5 text-[13px] leading-relaxed ${toneClass}`}>{text}</p>
+      <p className={`mt-1 text-[12px] leading-relaxed ${toneClass}`}>{text}</p>
     </div>
   );
 }
@@ -75,11 +75,13 @@ export function DecisionInvoiceCard({
 
   return (
     <article
-      className={`rounded-[1.25rem] bg-white shadow-[var(--shadow-soft)] ring-1 ring-[#F0F0F0] transition-shadow ${
-        selected ? "ring-2 ring-[var(--ink)]/15" : "hover:shadow-[var(--shadow-lift)]"
+      className={`rounded-[10px] bg-white border transition-shadow ${
+        selected
+          ? "border-[#2563EB] ring-1 ring-[#2563EB]/20 shadow-sm"
+          : "border-[#E2E8F0] shadow-sm hover:shadow-md"
       }`}
     >
-      <div className="flex flex-col gap-4 p-4 sm:p-5">
+      <div className="flex flex-col gap-3.5 p-4 sm:p-4.5">
         {/* Identity row */}
         <div className="flex flex-wrap items-start gap-3">
           <div className="mt-1 flex shrink-0 items-center gap-2">
@@ -119,14 +121,14 @@ export function DecisionInvoiceCard({
                 truncate={false}
                 className="font-mono text-[12px] text-gray-500"
               />
-              <span className="text-[14px] font-semibold tracking-tight text-[var(--ink)]">
+              <span className="text-[13px] font-semibold tracking-tight text-[#0F172A]">
                 {invoiceNumber}
               </span>
-              <span className="text-[12px] text-gray-500">{invoiceDate}</span>
+              <span className="text-[12px] text-[#64748B]">{invoiceDate}</span>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <div className="rounded-full bg-[#F5F5F6] px-3 py-1">
-                <span className="mr-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-400">
+              <div className="rounded-full bg-[#F1F5F9] px-2.5 py-0.5">
+                <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-[#94A3B8]">
                   {amountCaption}
                 </span>
                 <AmountDisplay amount={amount} />
@@ -152,7 +154,7 @@ export function DecisionInvoiceCard({
         </div>
 
         {expandedContent ? (
-          <div className="rounded-xl border border-[#F0F0F0] bg-[#FAFAFB] px-4 py-3">
+          <div className="rounded-[8px] border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3">
             {expandedContent}
           </div>
         ) : null}
@@ -171,7 +173,7 @@ export function DecisionInvoiceList({
   return (
     <div className="space-y-3">
       {selectAll ? (
-        <div className="flex items-center gap-3 rounded-[1rem] bg-white px-4 py-3 shadow-[var(--shadow-soft)] ring-1 ring-[#F0F0F0]">
+        <div className="flex items-center gap-3 rounded-[10px] border border-[#E2E8F0] bg-[#FAFAFA] px-4 py-2.5 shadow-sm">
           {selectAll}
         </div>
       ) : null}
