@@ -30,9 +30,9 @@ export function HeroSection() {
 
         {/* 2. Big Headline (Orchestrated Step 2: ~180ms delay) */}
         <h1 className="hero-animate-headline mt-7 text-4xl font-extrabold tracking-tight text-[#0A0A0A] sm:text-6xl lg:text-[66px] lg:leading-[1.1]">
-          Reconcile GSTR-2B, 1 &amp; 3B in Minutes.
+          Still Matching Invoices
           <br className="hidden sm:inline" />
-          {" "}Not Spreadsheets.
+          {" "}By <span className="text-[#7B5CFA]">Hand</span> in 2026?
         </h1>
 
         {/* 3. Short 2-line Subtext (Orchestrated Step 3: ~360ms delay) */}
