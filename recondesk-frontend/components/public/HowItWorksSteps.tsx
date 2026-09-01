@@ -217,11 +217,7 @@ export function HowItWorksSteps() {
 
   return (
     <div ref={rootRef} className={inView ? "how-works-inview" : ""}>
-      <h2 className="how-works-title text-center text-2xl font-semibold text-[var(--ink)] sm:text-3xl">
-        How ReconDesk Works
-      </h2>
-
-      <div className="relative mt-12">
+      <div className="relative mt-4 sm:mt-6">
         <div
           className="pointer-events-none absolute left-[16.666%] right-[16.666%] top-[28px] hidden h-[2px] bg-[#E8E8EA] md:block"
           aria-hidden

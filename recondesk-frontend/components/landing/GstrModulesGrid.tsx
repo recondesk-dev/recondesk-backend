@@ -1,22 +1,42 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import {
+  AlertTriangle,
   ArrowRight,
   BarChart3,
   Check,
   CheckCircle2,
   Clock,
+  ExternalLink,
   FileCheck2,
   FileSpreadsheet,
   FileText,
+  HelpCircle,
+  Info,
   Layers,
   Receipt,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
+  X,
 } from "lucide-react";
 
+type ModalType = "itc" | "gstr1" | "gstr3b" | "gstr9c" | null;
+
 export function GstrModulesGrid() {
+  const [activeModal, setActiveModal] = useState<ModalType>(null);
+
+  // Close modal on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setActiveModal(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
     <section id="modules" className="scroll-mt-20 py-20 sm:py-28 border-t border-[#E5E5E2] bg-[#FAFAFA]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
@@ -39,11 +59,9 @@ export function GstrModulesGrid() {
           
           {/* ─── Card 1: GSTR-2B ↔ Purchase Register (ITC Engine) ─── */}
           <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-[#7B5CFA]/40 hover:shadow-[0_16px_40px_rgba(123,92,250,0.08)]">
-            {/* Top Accent Line */}
             <div className="absolute top-0 left-0 right-0 h-1 bg-[#7B5CFA]" />
 
             <div>
-              {/* Header Badge & Icon */}
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-[#7B5CFA] border border-purple-100">
                   <Layers className="h-3.5 w-3.5" />
@@ -54,7 +72,6 @@ export function GstrModulesGrid() {
                 </span>
               </div>
 
-              {/* Title & Description */}
               <h3 className="mt-4 text-xl font-bold text-[#0A0A0A]">
                 GSTR-2B ↔ Purchase Register
               </h3>
@@ -62,7 +79,7 @@ export function GstrModulesGrid() {
                 Full-spectrum ITC reconciliation pairing portal data with Tally, Busy, or Excel in seconds.
               </p>
 
-              {/* 💡 Micro-Widget / Mini UI Preview: Live Invoice Pair Matching */}
+              {/* Micro-Widget Simulation */}
               <div className="mt-5 overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-[#F8FAFC] p-3.5 text-xs font-mono">
                 <div className="flex items-center justify-between text-[11px] text-[#64748B] border-b border-[#E2E8F0] pb-2">
                   <span className="font-semibold text-[#0F172A]">Matching Engine Simulation</span>
@@ -88,7 +105,6 @@ export function GstrModulesGrid() {
                   </div>
                 </div>
 
-                {/* Status Chips */}
                 <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[10px] font-sans">
                   <span className="rounded bg-[#DCFCE7] px-2 py-0.5 font-bold text-[#166534]">
                     IMS: Accepted
@@ -102,7 +118,6 @@ export function GstrModulesGrid() {
                 </div>
               </div>
 
-              {/* Feature Points */}
               <ul className="mt-5 space-y-2 text-xs text-[#334155]">
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-[#7B5CFA] shrink-0" />
@@ -119,24 +134,24 @@ export function GstrModulesGrid() {
               </ul>
             </div>
 
+            {/* Interactive Link that triggers Modal */}
             <div className="mt-6 pt-4 border-t border-[#E5E5E2] flex items-center justify-between">
-              <a
-                href="#how-it-works"
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-[#7B5CFA] group-hover:translate-x-0.5 transition-transform"
+              <button
+                type="button"
+                onClick={() => setActiveModal("itc")}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-[#7B5CFA] hover:text-[#6C4DE6] group-hover:translate-x-0.5 transition-all"
               >
                 <span>Explore ITC matching logic</span>
                 <ArrowRight className="h-3 w-3" />
-              </a>
+              </button>
             </div>
           </div>
 
           {/* ─── Card 2: GSTR-1 ↔ Sales Register (Revenue Tie-Out) ─── */}
           <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-[#10B981]/40 hover:shadow-[0_16px_40px_rgba(16,185,129,0.08)]">
-            {/* Top Accent Line */}
             <div className="absolute top-0 left-0 right-0 h-1 bg-[#10B981]" />
 
             <div>
-              {/* Header Badge & Icon */}
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-100">
                   <BarChart3 className="h-3.5 w-3.5" />
@@ -147,7 +162,6 @@ export function GstrModulesGrid() {
                 </span>
               </div>
 
-              {/* Title & Description */}
               <h3 className="mt-4 text-xl font-bold text-[#0A0A0A]">
                 GSTR-1 ↔ Sales Register
               </h3>
@@ -155,7 +169,7 @@ export function GstrModulesGrid() {
                 Ensure outward supplies and tax liability match your books before monthly or quarterly filing.
               </p>
 
-              {/* 💡 Micro-Widget / Mini UI Preview: Sales Tie-Out & G1M Rules */}
+              {/* Micro-Widget Simulation */}
               <div className="mt-5 overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-[#F8FAFC] p-3.5 text-xs font-mono">
                 <div className="flex items-center justify-between text-[11px] text-[#64748B] border-b border-[#E2E8F0] pb-2">
                   <span className="font-semibold text-[#0F172A]">Outward Supply Tie-Out</span>
@@ -183,7 +197,6 @@ export function GstrModulesGrid() {
                   </div>
                 </div>
 
-                {/* Status Chips */}
                 <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[10px] font-sans">
                   <span className="rounded bg-[#DCFCE7] px-2 py-0.5 font-bold text-[#166534]">
                     B2B: 88 Inv
@@ -197,7 +210,6 @@ export function GstrModulesGrid() {
                 </div>
               </div>
 
-              {/* Feature Points */}
               <ul className="mt-5 space-y-2 text-xs text-[#334155]">
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
@@ -214,24 +226,24 @@ export function GstrModulesGrid() {
               </ul>
             </div>
 
+            {/* Interactive Link that triggers Modal */}
             <div className="mt-6 pt-4 border-t border-[#E5E5E2] flex items-center justify-between">
-              <a
-                href="#how-it-works"
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 group-hover:translate-x-0.5 transition-transform"
+              <button
+                type="button"
+                onClick={() => setActiveModal("gstr1")}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-800 group-hover:translate-x-0.5 transition-all"
               >
                 <span>View GSTR-1 discrepancy codes</span>
                 <ArrowRight className="h-3 w-3" />
-              </a>
+              </button>
             </div>
           </div>
 
           {/* ─── Card 3: GSTR-3B vs Books & 2B (Notice Shield) ─── */}
           <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-[#F59E0B]/40 hover:shadow-[0_16px_40px_rgba(245,158,11,0.08)]">
-            {/* Top Accent Line */}
             <div className="absolute top-0 left-0 right-0 h-1 bg-[#F59E0B]" />
 
             <div>
-              {/* Header Badge & Icon */}
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800 border border-amber-100">
                   <FileCheck2 className="h-3.5 w-3.5" />
@@ -242,7 +254,6 @@ export function GstrModulesGrid() {
                 </span>
               </div>
 
-              {/* Title & Description */}
               <h3 className="mt-4 text-xl font-bold text-[#0A0A0A]">
                 GSTR-3B vs Books &amp; 2B
               </h3>
@@ -250,7 +261,7 @@ export function GstrModulesGrid() {
                 Reconcile tax payable and ITC claimed against portal figures to pre-empt scrutiny notices.
               </p>
 
-              {/* 💡 Micro-Widget / Mini UI Preview: Rule 88D & DRC-01B Generator */}
+              {/* Micro-Widget Simulation */}
               <div className="mt-5 overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-[#F8FAFC] p-3.5 text-xs font-mono">
                 <div className="flex items-center justify-between text-[11px] text-[#64748B] border-b border-[#E2E8F0] pb-2">
                   <span className="font-semibold text-[#0F172A]">Rule 88D Compliance Check</span>
@@ -278,7 +289,6 @@ export function GstrModulesGrid() {
                   </div>
                 </div>
 
-                {/* Status Chips */}
                 <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[10px] font-sans">
                   <span className="rounded bg-[#DCFCE7] px-2 py-0.5 font-bold text-[#166534]">
                     Variance: 0.0%
@@ -292,7 +302,6 @@ export function GstrModulesGrid() {
                 </div>
               </div>
 
-              {/* Feature Points */}
               <ul className="mt-5 space-y-2 text-xs text-[#334155]">
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-amber-600 shrink-0" />
@@ -309,24 +318,24 @@ export function GstrModulesGrid() {
               </ul>
             </div>
 
+            {/* Interactive Link that triggers Modal */}
             <div className="mt-6 pt-4 border-t border-[#E5E5E2] flex items-center justify-between">
-              <a
-                href="#how-it-works"
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 group-hover:translate-x-0.5 transition-transform"
+              <button
+                type="button"
+                onClick={() => setActiveModal("gstr3b")}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 hover:text-amber-900 group-hover:translate-x-0.5 transition-all"
               >
                 <span>See notice prevention checks</span>
                 <ArrowRight className="h-3 w-3" />
-              </a>
+              </button>
             </div>
           </div>
 
           {/* ─── Card 4: GSTR-9C Annual Audit Workpapers ─── */}
           <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-[#3B82F6]/40 hover:shadow-[0_16px_40px_rgba(59,130,246,0.08)]">
-            {/* Top Accent Line */}
             <div className="absolute top-0 left-0 right-0 h-1 bg-[#3B82F6]" />
 
             <div>
-              {/* Header Badge & Icon */}
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 border border-blue-100">
                   <FileSpreadsheet className="h-3.5 w-3.5" />
@@ -337,7 +346,6 @@ export function GstrModulesGrid() {
                 </span>
               </div>
 
-              {/* Title & Description */}
               <h3 className="mt-4 text-xl font-bold text-[#0A0A0A]">
                 GSTR-9C Annual Audit Rollup
               </h3>
@@ -345,7 +353,7 @@ export function GstrModulesGrid() {
                 Streamline annual GST audit certifications with automated full-year ITC rollups and audit reports.
               </p>
 
-              {/* 💡 Micro-Widget / Mini UI Preview: Annual FY Table 8A vs 8B Rollup */}
+              {/* Micro-Widget Simulation */}
               <div className="mt-5 overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-[#F8FAFC] p-3.5 text-xs font-mono">
                 <div className="flex items-center justify-between text-[11px] text-[#64748B] border-b border-[#E2E8F0] pb-2">
                   <span className="font-semibold text-[#0F172A]">Table 8A vs 8B FY Summary</span>
@@ -373,7 +381,6 @@ export function GstrModulesGrid() {
                   </div>
                 </div>
 
-                {/* Status Chips */}
                 <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[10px] font-sans">
                   <span className="rounded bg-[#DCFCE7] px-2 py-0.5 font-bold text-[#166534]">
                     Variance: ₹0
@@ -387,7 +394,6 @@ export function GstrModulesGrid() {
                 </div>
               </div>
 
-              {/* Feature Points */}
               <ul className="mt-5 space-y-2 text-xs text-[#334155]">
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-blue-600 shrink-0" />
@@ -404,19 +410,408 @@ export function GstrModulesGrid() {
               </ul>
             </div>
 
+            {/* Interactive Link that triggers Modal */}
             <div className="mt-6 pt-4 border-t border-[#E5E5E2] flex items-center justify-between">
-              <a
-                href="#how-it-works"
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 group-hover:translate-x-0.5 transition-transform"
+              <button
+                type="button"
+                onClick={() => setActiveModal("gstr9c")}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:text-blue-800 group-hover:translate-x-0.5 transition-all"
               >
                 <span>View 9C audit export format</span>
                 <ArrowRight className="h-3 w-3" />
-              </a>
+              </button>
             </div>
           </div>
 
         </div>
       </div>
+
+      {/* ─────────────────────────────────────────────────────────────
+          CREATIVE INTERACTIVE MODALS FOR CHARTERED ACCOUNTANTS
+      ───────────────────────────────────────────────────────────── */}
+      {activeModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setActiveModal(null)}
+        >
+          <div
+            className="relative my-auto w-full max-w-3xl overflow-hidden rounded-[16px] border border-[#E2E8F0] bg-white shadow-2xl transition-all animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            
+            {/* ── MODAL 1: ITC Matching Architecture ── */}
+            {activeModal === "itc" && (
+              <div>
+                {/* Modal Header */}
+                <div className="border-b border-[#E2E8F0] bg-purple-50/50 p-5 sm:p-6">
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-100 px-3 py-1 text-xs font-bold text-[#7B5CFA]">
+                      <Layers className="h-3.5 w-3.5" />
+                      5-Level Reconciliation Architecture
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveModal(null)}
+                      className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  <h3 className="mt-3 text-xl font-bold text-[#0A0A0A] sm:text-2xl">
+                    How ReconDesk Matches Invoices Down to the Paise
+                  </h3>
+                  <p className="mt-1.5 text-xs sm:text-sm text-[#6B6B6B] leading-relaxed">
+                    Designed specifically for CA firms to maximize legal ITC recovery without triggering Rule 37 or 17(5) scrutiny notices.
+                  </p>
+                </div>
+
+                {/* Modal Body: Matching Tiers Table */}
+                <div className="max-h-[60vh] overflow-y-auto p-5 sm:p-6 space-y-4 text-xs">
+                  <div className="rounded-[10px] border border-[#E2E8F0] overflow-hidden">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-[#FAFAFA] border-b border-[#E2E8F0] text-[11px] font-bold text-[#64748B] uppercase">
+                        <tr>
+                          <th className="p-3">Level</th>
+                          <th className="p-3">Matching Logic &amp; Normalization</th>
+                          <th className="p-3">Financial Delta</th>
+                          <th className="p-3 text-right">CA Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#F1F5F9] text-[12px]">
+                        <tr>
+                          <td className="p-3 font-bold text-[#166534]">
+                            <span className="rounded bg-[#DCFCE7] px-2 py-0.5">Exact L1</span>
+                          </td>
+                          <td className="p-3 font-medium text-[#0F172A]">
+                            Raw identical GSTIN + Invoice Number + Date + Tax
+                          </td>
+                          <td className="p-3 font-mono text-[#16A34A] font-bold">≤ ₹1.00</td>
+                          <td className="p-3 text-right font-semibold text-[#166534]">Auto-Claimed in 3B</td>
+                        </tr>
+                        <tr>
+                          <td className="p-3 font-bold text-[#0369A1]">
+                            <span className="rounded bg-[#F0F9FF] px-2 py-0.5">Soft L2</span>
+                          </td>
+                          <td className="p-3 font-medium text-[#0F172A]">
+                            Strips leading zeros, FY prefixes (<code>INV/2026/0941</code> ↔ <code>941</code>)
+                          </td>
+                          <td className="p-3 font-mono text-[#16A34A] font-bold">₹0.00</td>
+                          <td className="p-3 text-right font-semibold text-[#0369A1]">Instant Auto-Merge</td>
+                        </tr>
+                        <tr>
+                          <td className="p-3 font-bold text-[#713F12]">
+                            <span className="rounded bg-[#FEF9C3] px-2 py-0.5">Fuzzy L3</span>
+                          </td>
+                          <td className="p-3 font-medium text-[#0F172A]">
+                            Exact invoice with minor tax/date drift (1% / 30-day tolerance)
+                          </td>
+                          <td className="p-3 font-mono text-[#D97706] font-bold">Small Diff</td>
+                          <td className="p-3 text-right font-semibold text-[#713F12]">1-Click Approval</td>
+                        </tr>
+                        <tr>
+                          <td className="p-3 font-bold text-[#991B1B]">
+                            <span className="rounded bg-[#FEF2F2] px-2 py-0.5">PAN L4</span>
+                          </td>
+                          <td className="p-3 font-medium text-[#0F172A]">
+                            Same 10-digit vendor PAN, but billed under different state GSTIN
+                          </td>
+                          <td className="p-3 font-mono text-[#DC2626] font-bold">State Shift</td>
+                          <td className="p-3 text-right font-semibold text-[#991B1B]">Notice Shield Flag</td>
+                        </tr>
+                        <tr>
+                          <td className="p-3 font-bold text-[#475569]">
+                            <span className="rounded bg-[#F1F5F9] px-2 py-0.5">Orphan L6</span>
+                          </td>
+                          <td className="p-3 font-medium text-[#0F172A]">
+                            Invoices present in GSTR-2B only or recorded in Books only
+                          </td>
+                          <td className="p-3 font-mono text-[#64748B] font-bold">—</td>
+                          <td className="p-3 text-right font-semibold text-[#7B5CFA]">Vendor Notice Log</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Statutory Checks Sub-card */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                    <div className="rounded-[10px] border border-[#E2E8F0] bg-[#F8FAFC] p-3.5">
+                      <div className="font-bold text-[#0F172A] flex items-center gap-1.5">
+                        <Clock className="h-4 w-4 text-[#EA580C]" /> Rule 37 180-Day Tracker
+                      </div>
+                      <p className="mt-1 text-[11px] text-[#64748B] leading-relaxed">
+                        Tracks unbooked/unpaid invoices past 180 days with Section 50(1) interest calculation (18% p.a.) and proportionate partial reversal.
+                      </p>
+                    </div>
+                    <div className="rounded-[10px] border border-[#E2E8F0] bg-[#F8FAFC] p-3.5">
+                      <div className="font-bold text-[#0F172A] flex items-center gap-1.5">
+                        <ShieldAlert className="h-4 w-4 text-[#DC2626]" /> Section 17(5) Blocked Credit
+                      </div>
+                      <p className="mt-1 text-[11px] text-[#64748B] leading-relaxed">
+                        Evaluates 7 statutory HSN chapters (vehicles, food, clubs, works contract) to keep blocked credit out of your 3B claims.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Footer Actions */}
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#E2E8F0] bg-[#FAFAFA] p-4 sm:px-6">
+                  <span className="text-xs text-[#64748B]">Zero setup required. Works with Tally, Busy &amp; Excel.</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveModal(null)}
+                      className="rounded-[8px] border border-[#E2E8F0] bg-white px-4 py-2 text-xs font-semibold text-[#334155] hover:bg-[#F8FAFC]"
+                    >
+                      Close
+                    </button>
+                    <Link
+                      href="/auth/signup"
+                      className="inline-flex items-center gap-1.5 rounded-[8px] bg-[#7B5CFA] px-5 py-2 text-xs font-semibold text-white hover:bg-[#6C4DE6] shadow-xs"
+                    >
+                      <span>Start Free Reconcile</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── MODAL 2: GSTR-1 Discrepancy Codes ── */}
+            {activeModal === "gstr1" && (
+              <div>
+                <div className="border-b border-[#E2E8F0] bg-emerald-50/50 p-5 sm:p-6">
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">
+                      <BarChart3 className="h-3.5 w-3.5" />
+                      G1M1–G1M10 Rule Catalogue
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveModal(null)}
+                      className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  <h3 className="mt-3 text-xl font-bold text-[#0A0A0A] sm:text-2xl">
+                    10 Automated Sales Mismatch Diagnostic Codes
+                  </h3>
+                  <p className="mt-1.5 text-xs sm:text-sm text-[#6B6B6B] leading-relaxed">
+                    ReconDesk automatically tests outward sales registers against GSTR-1 returns to stop tax drift before filing.
+                  </p>
+                </div>
+
+                <div className="max-h-[60vh] overflow-y-auto p-5 sm:p-6 space-y-2 text-xs">
+                  {[
+                    { code: "G1M1", title: "Missing in GSTR-1", desc: "Outward invoice present in sales books but missing in filed/draft GSTR-1 return." },
+                    { code: "G1M2", title: "Missing in Books", desc: "Invoice reported on GSTN portal but omitted from client's accounting software." },
+                    { code: "G1M3", title: "Tax Rate Drift", desc: "Taxable value matches but CGST/SGST/IGST rate classification differs (e.g. 18% vs 12%)." },
+                    { code: "G1M4", title: "Customer GSTIN Error", desc: "Valid B2B invoice incorrectly categorized as B2CS unregistered cash sale." },
+                    { code: "G1M5", title: "Duplicate Serial Number", desc: "Clashing document numbering series within the same financial year." },
+                    { code: "G1M6", title: "CDNR Linkage Missing", desc: "Credit/Debit note filed without parent tax invoice reference." },
+                    { code: "G1M7", title: "Table 13 Serial Verification", desc: "Discrepancy in total count of documents issued vs sales entries." },
+                    { code: "G1M8", title: "Export LUT Check", desc: "Zero-rated export supply missing Letter of Undertaking (LUT) confirmation." },
+                    { code: "G1M9", title: "POS State Code Drift", desc: "Place of supply state code differs between sales ledger and customer GSTIN." },
+                    { code: "G1M10", title: "GSTR-1A Amendment Window", desc: "Tracks open GSTR-1A window to push invoice amendments before 3B auto-populates." },
+                  ].map((rule) => (
+                    <div key={rule.code} className="flex items-start gap-3 rounded-[8px] border border-[#E2E8F0] bg-white p-3 hover:bg-[#F8FAFC]">
+                      <span className="shrink-0 rounded bg-emerald-100 font-mono text-[11px] font-bold text-emerald-800 px-2 py-0.5">
+                        {rule.code}
+                      </span>
+                      <div>
+                        <div className="font-bold text-[#0F172A]">{rule.title}</div>
+                        <div className="text-[#64748B] text-[11px] mt-0.5">{rule.desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#E2E8F0] bg-[#FAFAFA] p-4 sm:px-6">
+                  <span className="text-xs text-[#64748B]">Verify sales liability in under 60 seconds.</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveModal(null)}
+                      className="rounded-[8px] border border-[#E2E8F0] bg-white px-4 py-2 text-xs font-semibold text-[#334155] hover:bg-[#F8FAFC]"
+                    >
+                      Close
+                    </button>
+                    <Link
+                      href="/auth/signup"
+                      className="inline-flex items-center gap-1.5 rounded-[8px] bg-[#10B981] px-5 py-2 text-xs font-semibold text-white hover:bg-emerald-600 shadow-xs"
+                    >
+                      <span>Run Sales Check Free</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── MODAL 3: GSTR-3B Notice Shield ── */}
+            {activeModal === "gstr3b" && (
+              <div>
+                <div className="border-b border-[#E2E8F0] bg-amber-50/50 p-5 sm:p-6">
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">
+                      <FileCheck2 className="h-3.5 w-3.5" />
+                      Rule 88D &amp; DRC-01C Shield
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveModal(null)}
+                      className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  <h3 className="mt-3 text-xl font-bold text-[#0A0A0A] sm:text-2xl">
+                    Pre-empt Department Scrutiny Notices
+                  </h3>
+                  <p className="mt-1.5 text-xs sm:text-sm text-[#6B6B6B] leading-relaxed">
+                    Automatically checks GSTR-3B tax liability and ITC claims against statutory notice thresholds.
+                  </p>
+                </div>
+
+                <div className="max-h-[60vh] overflow-y-auto p-5 sm:p-6 space-y-4 text-xs">
+                  {/* Statutory Trigger Explanation */}
+                  <div className="rounded-[10px] border border-amber-200 bg-[#FFFBEB] p-4">
+                    <div className="flex items-center gap-2 font-bold text-amber-950 text-sm">
+                      <ShieldAlert className="h-4 w-4 text-amber-600" />
+                      Statutory DRC-01C Notice Trigger Rule
+                    </div>
+                    <p className="mt-2 text-xs text-amber-900 leading-relaxed">
+                      Under Rule 88D, the GST portal generates an automated <strong>Form GST DRC-01C</strong> notice whenever the ITC claimed in <strong>Table 4(A) of GSTR-3B</strong> exceeds the ITC available in <strong>GSTR-2B</strong> by:
+                    </p>
+                    <div className="mt-2 flex items-center gap-3 font-mono font-bold text-xs text-amber-950 bg-white/80 rounded p-2 border border-amber-200">
+                      <span>Threshold: Variance &gt; 10%</span>
+                      <span>AND</span>
+                      <span>Variance &gt; ₹25,00,000</span>
+                    </div>
+                  </div>
+
+                  {/* Auto-Drafted Statement Preview */}
+                  <div className="rounded-[10px] border border-[#E2E8F0] bg-white p-4">
+                    <div className="font-bold text-[#0F172A] mb-1.5 flex items-center justify-between">
+                      <span>One-Click DRC-01B Draft Reply Statement</span>
+                      <span className="rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5">CA Format</span>
+                    </div>
+                    <p className="text-[#64748B] text-[11px] mb-3">
+                      ReconDesk generates audit-grade explanatory notes citing Section 16(4) carry-forward, credit notes, or vendor timing differences so CAs can file replies instantly.
+                    </p>
+                    <div className="rounded border border-[#E2E8F0] bg-[#F8FAFC] p-3 font-mono text-[11px] text-[#334155] leading-relaxed">
+                      &quot;The differential ITC of ₹4,20,500 claimed in Table 4(A)(5) pertains to FY 2025–26 invoices availed in terms of Section 16(4) proviso and reconciled in ReconDesk audit log ID #RD-8842...&quot;
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#E2E8F0] bg-[#FAFAFA] p-4 sm:px-6">
+                  <span className="text-xs text-[#64748B]">Shield your clients from automated tax penalties.</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveModal(null)}
+                      className="rounded-[8px] border border-[#E2E8F0] bg-white px-4 py-2 text-xs font-semibold text-[#334155] hover:bg-[#F8FAFC]"
+                    >
+                      Close
+                    </button>
+                    <Link
+                      href="/auth/signup"
+                      className="inline-flex items-center gap-1.5 rounded-[8px] bg-[#D97706] px-5 py-2 text-xs font-semibold text-white hover:bg-amber-700 shadow-xs"
+                    >
+                      <span>Try Notice Shield Free</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── MODAL 4: GSTR-9C Annual Audit Workbook ── */}
+            {activeModal === "gstr9c" && (
+              <div>
+                <div className="border-b border-[#E2E8F0] bg-blue-50/50 p-5 sm:p-6">
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-800">
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
+                      Annual Audit Certification Format
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveModal(null)}
+                      className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  <h3 className="mt-3 text-xl font-bold text-[#0A0A0A] sm:text-2xl">
+                    12-Month Multi-Sheet FY Audit Workbook
+                  </h3>
+                  <p className="mt-1.5 text-xs sm:text-sm text-[#6B6B6B] leading-relaxed">
+                    Export complete annual audit workpapers with Table 8A/8B tie-outs, vendor PAN rollups, and observation logs.
+                  </p>
+                </div>
+
+                <div className="max-h-[60vh] overflow-y-auto p-5 sm:p-6 space-y-3 text-xs">
+                  <div className="rounded-[10px] border border-[#E2E8F0] divide-y divide-[#F1F5F9] bg-white">
+                    <div className="p-3.5 flex items-start gap-3">
+                      <span className="rounded bg-blue-100 text-blue-800 font-bold px-2 py-0.5 text-[11px] shrink-0 font-mono">Sheet 1</span>
+                      <div>
+                        <div className="font-bold text-[#0F172A]">Table 8A vs Table 8B/8C FY Cumulative Tie-Out</div>
+                        <div className="text-[#64748B] text-[11px] mt-0.5">Consolidates 12 monthly GSTR-2B returns against purchase register claims with multi-period variance breakdown.</div>
+                      </div>
+                    </div>
+                    <div className="p-3.5 flex items-start gap-3">
+                      <span className="rounded bg-blue-100 text-blue-800 font-bold px-2 py-0.5 text-[11px] shrink-0 font-mono">Sheet 2</span>
+                      <div>
+                        <div className="font-bold text-[#0F172A]">Supplier-Wise Annual ITC Breakdown (10-Digit PAN Grouped)</div>
+                        <div className="text-[#64748B] text-[11px] mt-0.5">Ranks top vendors by transaction volume, un-reconciled balances, and late filing frequency across all branches.</div>
+                      </div>
+                    </div>
+                    <div className="p-3.5 flex items-start gap-3">
+                      <span className="rounded bg-blue-100 text-blue-800 font-bold px-2 py-0.5 text-[11px] shrink-0 font-mono">Sheet 3</span>
+                      <div>
+                        <div className="font-bold text-[#0F172A]">Severity-Ranked Audit Observations Log</div>
+                        <div className="text-[#64748B] text-[11px] mt-0.5">High/Medium/Low risk findings with statutory section references ready for direct inclusion in CA audit reports.</div>
+                      </div>
+                    </div>
+                    <div className="p-3.5 flex items-start gap-3">
+                      <span className="rounded bg-blue-100 text-blue-800 font-bold px-2 py-0.5 text-[11px] shrink-0 font-mono">Sheet 4</span>
+                      <div>
+                        <div className="font-bold text-[#0F172A]">Rule 37 Reversal &amp; Section 17(5) Schedule</div>
+                        <div className="text-[#64748B] text-[11px] mt-0.5">Itemized list of invoices exceeding 180 days with partial settlement history and blocked credit categories.</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#E2E8F0] bg-[#FAFAFA] p-4 sm:px-6">
+                  <span className="text-xs text-[#64748B]">Complete FY audit rollups generated in under 10 seconds.</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveModal(null)}
+                      className="rounded-[8px] border border-[#E2E8F0] bg-white px-4 py-2 text-xs font-semibold text-[#334155] hover:bg-[#F8FAFC]"
+                    >
+                      Close
+                    </button>
+                    <Link
+                      href="/auth/signup"
+                      className="inline-flex items-center gap-1.5 rounded-[8px] bg-[#2563EB] px-5 py-2 text-xs font-semibold text-white hover:bg-blue-700 shadow-xs"
+                    >
+                      <span>Generate 9C Workpapers Free</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
     </section>
   );
 }
