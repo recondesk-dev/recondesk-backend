@@ -338,7 +338,7 @@ export default function ReconDepthPage() {
       <section className="relative overflow-hidden pt-20 pb-16 sm:pt-28 sm:pb-24 border-b border-[#E5E5E2]">
         {/* Soft Violet Aura Background */}
         <div
-          className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-96 w-[700px] rounded-full bg-[#7B5CFA]/10 blur-[120px]"
+          className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[500px] w-[900px] rounded-full bg-[#7B5CFA]/15 blur-[140px]"
           aria-hidden="true"
         />
 
@@ -350,16 +350,16 @@ export default function ReconDepthPage() {
             <span>Technical Architecture &amp; Statutory Engine Specifications</span>
           </div>
 
-          {/* Glowing Bold Punchline */}
-          <h1 className="mt-8 text-4xl font-extrabold tracking-tight text-[#0A0A0A] sm:text-6xl lg:text-7xl">
+          {/* Massive Glowing Bold Punchline */}
+          <h1 className="mt-8 text-6xl font-black tracking-tight text-[#0A0A0A] sm:text-7xl md:text-8xl lg:text-9xl leading-[1.02]">
             Inside{" "}
-            <span className="relative inline-block text-[#7B5CFA] drop-shadow-[0_0_40px_rgba(123,92,250,0.55)]">
+            <span className="relative inline-block text-[#7B5CFA] drop-shadow-[0_0_60px_rgba(123,92,250,0.7)]">
               ReconDesk
             </span>
           </h1>
 
-          {/* Subtitle in readable black text */}
-          <p className="mx-auto mt-6 max-w-3xl text-lg font-medium text-[#1E293B] sm:text-2xl leading-relaxed">
+          {/* Subtitle in readable, bold black text */}
+          <p className="mx-auto mt-7 max-w-4xl text-xl font-bold text-[#0F172A] sm:text-2xl md:text-3xl leading-snug">
             Every layer of matching, every compliance rule, every decision — explained.
           </p>
 
