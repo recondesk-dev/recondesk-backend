@@ -24,26 +24,32 @@ export function LandingFooter() {
 
           {/* Product Links */}
           <div className="space-y-3">
-            <p className="text-xs font-bold uppercase tracking-wider text-[#0A0A0A]">GSTR Modules</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-[#0A0A0A]">ReconDesk Engine</p>
             <ul className="space-y-2 text-xs">
               <li>
-                <a href="#modules" className="hover:text-[#0A0A0A] transition-colors">
+                <Link href="/depth" className="font-bold text-[#7B5CFA] hover:text-[#6C4DE6] transition-colors flex items-center gap-1">
+                  <span>ReconDepth Specs</span>
+                  <span className="text-[9px] bg-purple-100 text-[#7B5CFA] px-1.5 py-0.2 rounded font-extrabold">NEW</span>
+                </Link>
+              </li>
+              <li>
+                <a href="/#modules" className="hover:text-[#0A0A0A] transition-colors">
                   GSTR-2B ↔ PR (ITC)
                 </a>
               </li>
               <li>
-                <a href="#modules" className="hover:text-[#0A0A0A] transition-colors">
+                <a href="/#modules" className="hover:text-[#0A0A0A] transition-colors">
                   GSTR-1 ↔ Sales
                 </a>
               </li>
               <li>
-                <a href="#modules" className="hover:text-[#0A0A0A] transition-colors">
-                  GSTR-3B vs Books
+                <a href="/#modules" className="hover:text-[#0A0A0A] transition-colors">
+                  GSTR-3B Notice Shield
                 </a>
               </li>
               <li>
-                <a href="#modules" className="hover:text-[#0A0A0A] transition-colors">
-                  GSTR-9C Rollups
+                <a href="/#modules" className="hover:text-[#0A0A0A] transition-colors">
+                  GSTR-9C Workpapers
                 </a>
               </li>
             </ul>
@@ -54,17 +60,17 @@ export function LandingFooter() {
             <p className="text-xs font-bold uppercase tracking-wider text-[#0A0A0A]">Quick Links</p>
             <ul className="space-y-2 text-xs">
               <li>
-                <a href="#how-it-works" className="hover:text-[#0A0A0A] transition-colors">
+                <a href="/#how-it-works" className="hover:text-[#0A0A0A] transition-colors">
                   How It Works
                 </a>
               </li>
               <li>
-                <a href="#pricing" className="hover:text-[#0A0A0A] transition-colors">
+                <a href="/#pricing" className="hover:text-[#0A0A0A] transition-colors">
                   Pricing Plans
                 </a>
               </li>
               <li>
-                <a href="#faq" className="hover:text-[#0A0A0A] transition-colors">
+                <a href="/#faq" className="hover:text-[#0A0A0A] transition-colors">
                   FAQ
                 </a>
               </li>

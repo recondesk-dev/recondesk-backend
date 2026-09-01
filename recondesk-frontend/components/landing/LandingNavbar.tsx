@@ -19,9 +19,10 @@ export function LandingNavbar() {
   }, []);
 
   const navLinks = [
-    { label: "How It Works", href: "#how-it-works" },
-    { label: "Pricing", href: "#pricing" },
-    { label: "FAQ", href: "#faq" },
+    { label: "ReconDepth", href: "/depth", highlight: true },
+    { label: "How It Works", href: "/#how-it-works" },
+    { label: "Pricing", href: "/#pricing" },
+    { label: "FAQ", href: "/#faq" },
   ];
 
   return (
@@ -39,15 +40,24 @@ export function LandingNavbar() {
         </Link>
 
         {/* Center: Functional Navigation Links */}
-        <nav className="hidden items-center gap-8 md:flex">
+        <nav className="hidden items-center gap-7 md:flex">
           {navLinks.map((link) => (
-            <a
+            <Link
               key={link.label}
               href={link.href}
-              className="text-sm font-medium text-[#6B6B6B] transition-colors duration-150 hover:text-[#0A0A0A]"
+              className={`text-sm font-medium transition-colors duration-150 flex items-center gap-1.5 ${
+                link.highlight
+                  ? "font-bold text-[#7B5CFA] hover:text-[#6C4DE6]"
+                  : "text-[#6B6B6B] hover:text-[#0A0A0A]"
+              }`}
             >
-              {link.label}
-            </a>
+              <span>{link.label}</span>
+              {link.highlight && (
+                <span className="rounded-full bg-purple-100 text-[#7B5CFA] text-[9px] font-extrabold px-1.5 py-0.2 border border-purple-200">
+                  DEEP DIVE
+                </span>
+              )}
+            </Link>
           ))}
         </nav>
 
