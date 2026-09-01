@@ -1,15 +1,19 @@
 import type { Metadata } from "next";
-
-import { MarketingPageLayout } from "@/components/layout/MarketingPageLayout";
+import { LandingNavbar } from "@/components/landing/LandingNavbar";
+import { LandingFooter } from "@/components/landing/LandingFooter";
 
 export const metadata: Metadata = {
-  title: "ReconDesk — GSTR-2B reconciliation for CA firms",
+  title: "ReconDesk — Intelligent Solutions Powered by AI",
   description:
-    "Find missed ITC every month. Upload GSTR-2B + purchase register. 5-level matching, decision-ready results for CA firms.",
+    "GSTR-2B reconciliation decision engine for CA firms. 5-level invoice matching, Rule 37 tracking, and automated ITC optimization.",
 };
 
 export default function LandingLayout({ children }: { children: React.ReactNode }) {
   return (
-    <MarketingPageLayout className="landing-page overflow-x-hidden">{children}</MarketingPageLayout>
+    <div className="min-h-screen bg-white text-[#0A0A0A] selection:bg-[#F97316]/20 selection:text-[#0A0A0A]">
+      <LandingNavbar />
+      <main className="min-w-0">{children}</main>
+      <LandingFooter />
+    </div>
   );
 }

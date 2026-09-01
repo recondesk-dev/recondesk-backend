@@ -1,0 +1,120 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Menu, ShieldCheck, X } from "lucide-react";
+
+export function LandingNavbar() {
+  const [scrolled, setScrolled] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 10);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const navLinks = [
+    { label: "Home", href: "#" },
+    { label: "Features", href: "#features" },
+    { label: "About", href: "#about" },
+    { label: "Pricing", href: "#pricing" },
+    { label: "Blog", href: "#blog" },
+    { label: "Contact", href: "#contact" },
+  ];
+
+  return (
+    <header
+      className={`sticky top-0 z-50 w-full transition-colors duration-200 border-b border-[#E5E5E2] ${
+        scrolled ? "bg-white/85 backdrop-blur-md shadow-[0_2px_12px_rgba(0,0,0,0.03)]" : "bg-white/95 backdrop-blur-sm"
+      }`}
+    >
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        {/* Left: Logo mark + Wordmark */}
+        <Link href="/" className="flex items-center gap-2.5 group">
+          <div className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-[#0A0A0A] text-white shadow-sm transition-transform duration-150 group-hover:scale-105">
+            <span className="font-bold text-sm tracking-tighter">R</span>
+          </div>
+          <span className="text-lg font-bold tracking-tight text-[#0A0A0A]">
+            ReconDesk
+          </span>
+        </Link>
+
+        {/* Center: Desktop Navigation Links */}
+        <nav className="hidden items-center gap-8 md:flex">
+          {navLinks.map((link) => (
+            <a
+              key={link.label}
+              href={link.href}
+              className="text-sm font-medium text-[#6B6B6B] transition-colors duration-150 hover:text-[#0A0A0A]"
+            >
+              {link.label}
+            </a>
+          ))}
+        </nav>
+
+        {/* Right: Utility icon + Solid Black Pill Button */}
+        <div className="hidden items-center gap-4 md:flex">
+          <div
+            title="Enterprise Security Verified"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-[#6B6B6B] hover:text-[#0A0A0A] hover:bg-[#F5F5F3] transition-colors cursor-pointer"
+          >
+            <ShieldCheck className="h-4 w-4" />
+          </div>
+
+          <Link
+            href="/auth/signup"
+            className="inline-flex items-center justify-center gap-1.5 rounded-full bg-[#0A0A0A] px-5 py-2 text-sm font-semibold text-white transition-all hover:bg-[#262626] active:scale-[0.98]"
+          >
+            <span>Book a Demo</span>
+            <span className="text-xs font-bold">→</span>
+          </Link>
+        </div>
+
+        {/* Mobile Hamburger Toggle Button */}
+        <div className="flex items-center gap-2 md:hidden">
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-[8px] border border-[#E5E5E2] text-[#0A0A0A] transition-colors hover:bg-[#F5F5F3]"
+            aria-expanded={mobileMenuOpen}
+            aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+          >
+            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile Menu Dropdown */}
+      {mobileMenuOpen && (
+        <div className="border-t border-[#E5E5E2] bg-white px-4 py-5 shadow-lg md:hidden">
+          <div className="flex flex-col gap-3">
+            {navLinks.map((link) => (
+              <a
+                key={link.label}
+                href={link.href}
+                className="rounded-[8px] px-3 py-2 text-sm font-medium text-[#6B6B6B] hover:bg-[#F5F5F3] hover:text-[#0A0A0A] transition-colors"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                {link.label}
+              </a>
+            ))}
+            <div className="pt-2 border-t border-[#E5E5E2]">
+              <Link
+                href="/auth/signup"
+                className="flex w-full items-center justify-center gap-1.5 rounded-full bg-[#0A0A0A] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <span>Book a Demo</span>
+                <span>→</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+    </header>
+  );
+}
