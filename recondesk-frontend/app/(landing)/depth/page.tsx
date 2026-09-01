@@ -425,45 +425,78 @@ export default function ReconDepthPage() {
             </p>
           </div>
 
-          <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
+          <div className="mt-12 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-4">
             
             {/* Capability 1 */}
-            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-6">
-              <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-[#7B5CFA] shadow-xs">
-                <FileSpreadsheet className="h-5 w-5" />
+            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-5 sm:p-6 flex flex-col justify-between">
+              <div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-[#7B5CFA] shadow-xs">
+                  <FileSpreadsheet className="h-5 w-5" />
+                </div>
+                <h3 className="mt-4 text-base sm:text-lg font-bold text-[#0A0A0A]">
+                  Any Accounting Software
+                </h3>
+                <p className="mt-2 text-xs sm:text-sm text-[#64748B] leading-relaxed">
+                  Native support for <strong>Tally Prime, Tally ERP 9, Busy Accounting, Zoho Books, SAP, Oracle Financials</strong>, and custom Excel dumps.
+                </p>
               </div>
-              <h3 className="mt-4 text-lg font-bold text-[#0A0A0A]">
-                Any Accounting Software
-              </h3>
-              <p className="mt-2 text-sm sm:text-base text-[#64748B] leading-relaxed">
-                Native support for <strong>Tally Prime, Tally ERP 9, Busy Accounting, Zoho Books, SAP, Oracle Financials</strong>, and custom firm Excel/CSV exports without altering headers.
-              </p>
+              <div className="mt-4 pt-3 border-t border-[#E2E8F0] text-xs font-semibold text-[#0F172A]">
+                Auto Header Mapping ✓
+              </div>
             </div>
 
             {/* Capability 2 */}
-            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-6">
-              <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-emerald-600 shadow-xs">
-                <Zap className="h-5 w-5" />
+            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-5 sm:p-6 flex flex-col justify-between">
+              <div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-emerald-600 shadow-xs">
+                  <Zap className="h-5 w-5" />
+                </div>
+                <h3 className="mt-4 text-base sm:text-lg font-bold text-[#0A0A0A]">
+                  1-Second Portal Parser
+                </h3>
+                <p className="mt-2 text-xs sm:text-sm text-[#64748B] leading-relaxed">
+                  High-speed parsing of massive GSTR-2B JSON and Excel dumps (10,000+ invoices in &lt;1.2 seconds) with paise-level component split.
+                </p>
               </div>
-              <h3 className="mt-4 text-lg font-bold text-[#0A0A0A]">
-                1-Second Portal Parser
-              </h3>
-              <p className="mt-2 text-sm sm:text-base text-[#64748B] leading-relaxed">
-                High-speed parsing of massive GSTR-2B JSON and Excel dumps (10,000+ invoices in &lt;1.2 seconds) with auto-normalization of IGST, CGST, SGST, and Cess components.
-              </p>
+              <div className="mt-4 pt-3 border-t border-[#E2E8F0] text-xs font-semibold text-emerald-700">
+                10k Rows in 1.2s ✓
+              </div>
             </div>
 
             {/* Capability 3 */}
-            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-6">
-              <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-blue-600 shadow-xs">
-                <KeyRound className="h-5 w-5" />
+            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-5 sm:p-6 flex flex-col justify-between">
+              <div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-blue-600 shadow-xs">
+                  <KeyRound className="h-5 w-5" />
+                </div>
+                <h3 className="mt-4 text-base sm:text-lg font-bold text-[#0A0A0A]">
+                  1-Click GSTN OTP Fetch
+                </h3>
+                <p className="mt-2 text-xs sm:text-sm text-[#64748B] leading-relaxed">
+                  Direct government portal integration. Enter client GSTIN, verify with OTP, and pull official GSTR-2B data automatically without manual downloads.
+                </p>
               </div>
-              <h3 className="mt-4 text-lg font-bold text-[#0A0A0A]">
-                1-Click GSTN Direct OTP Fetch
-              </h3>
-              <p className="mt-2 text-sm sm:text-base text-[#64748B] leading-relaxed">
-                Direct government portal integration. Enter client GSTIN, verify with OTP, and pull official GSTR-2B data automatically without manual portal downloads.
-              </p>
+              <div className="mt-4 pt-3 border-t border-[#E2E8F0] text-xs font-semibold text-blue-700">
+                Direct Portal Sync ✓
+              </div>
+            </div>
+
+            {/* Capability 4 */}
+            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-5 sm:p-6 flex flex-col justify-between">
+              <div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-purple-600 shadow-xs">
+                  <CheckCircle2 className="h-5 w-5" />
+                </div>
+                <h3 className="mt-4 text-base sm:text-lg font-bold text-[#0A0A0A]">
+                  IMS &amp; E-Invoice Scanner
+                </h3>
+                <p className="mt-2 text-xs sm:text-sm text-[#64748B] leading-relaxed">
+                  Automated <strong>Accept / Reject / Keep on Hold</strong> recommendations for the Invoice Management System + 64-character IRN validation.
+                </p>
+              </div>
+              <div className="mt-4 pt-3 border-t border-[#E2E8F0] text-xs font-semibold text-[#7B5CFA]">
+                IMS Action Writeback ✓
+              </div>
             </div>
 
           </div>
@@ -1140,42 +1173,74 @@ export default function ReconDepthPage() {
             </p>
           </div>
 
-          <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
+          <div className="mt-12 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-4">
             
-            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-6">
-              <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-[#7B5CFA] shadow-xs">
-                <Users className="h-5 w-5" />
+            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-5 sm:p-6 flex flex-col justify-between">
+              <div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-[#7B5CFA] shadow-xs">
+                  <Users className="h-5 w-5" />
+                </div>
+                <h3 className="mt-4 text-base sm:text-lg font-bold text-[#0A0A0A]">
+                  Unlimited Team Seats
+                </h3>
+                <p className="mt-2 text-xs sm:text-sm text-[#64748B] leading-relaxed">
+                  Invite article assistants, senior audit managers, and partners with role-based review permissions.
+                </p>
               </div>
-              <h3 className="mt-4 text-lg font-bold text-[#0A0A0A]">
-                Unlimited Team Seats
-              </h3>
-              <p className="mt-2 text-sm sm:text-base text-[#64748B] leading-relaxed">
-                Invite article assistants, senior audit managers, and partners. Role-based permissions ensure staff can upload and reconcile while partners approve and sign off.
-              </p>
+              <div className="mt-4 pt-3 border-t border-[#E2E8F0] text-xs font-semibold text-[#0F172A]">
+                Multi-User Collaboration ✓
+              </div>
             </div>
 
-            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-6">
-              <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-emerald-600 shadow-xs">
-                <Lock className="h-5 w-5" />
+            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-5 sm:p-6 flex flex-col justify-between">
+              <div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-emerald-600 shadow-xs">
+                  <Lock className="h-5 w-5" />
+                </div>
+                <h3 className="mt-4 text-base sm:text-lg font-bold text-[#0A0A0A]">
+                  Finalize &amp; Lock Runs
+                </h3>
+                <p className="mt-2 text-xs sm:text-sm text-[#64748B] leading-relaxed">
+                  Once filed, partners can lock the run. Prevents accidental edits and ensures immutable records for ICAI peer review.
+                </p>
               </div>
-              <h3 className="mt-4 text-lg font-bold text-[#0A0A0A]">
-                Finalize &amp; Lock Runs
-              </h3>
-              <p className="mt-2 text-sm sm:text-base text-[#64748B] leading-relaxed">
-                Once a tax period is filed, partners can cryptographically lock the run. Prevents accidental edits or overwrites, maintaining immutable records for ICAI peer review.
-              </p>
+              <div className="mt-4 pt-3 border-t border-[#E2E8F0] text-xs font-semibold text-emerald-700">
+                Immutable Audit Trail ✓
+              </div>
             </div>
 
-            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-6">
-              <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-purple-600 shadow-xs">
-                <Mail className="h-5 w-5" />
+            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-5 sm:p-6 flex flex-col justify-between">
+              <div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-purple-600 shadow-xs">
+                  <Mail className="h-5 w-5" />
+                </div>
+                <h3 className="mt-4 text-base sm:text-lg font-bold text-[#0A0A0A]">
+                  1-Click Supplier Notices
+                </h3>
+                <p className="mt-2 text-xs sm:text-sm text-[#64748B] leading-relaxed">
+                  Auto-generate formal PDF letters and WhatsApp text for defaulting vendors with itemized missing invoice tables attached.
+                </p>
               </div>
-              <h3 className="mt-4 text-lg font-bold text-[#0A0A0A]">
-                1-Click Supplier Demand Letters
-              </h3>
-              <p className="mt-2 text-sm sm:text-base text-[#64748B] leading-relaxed">
-                Automatically generate formal PDF letters and WhatsApp summaries for defaulting vendors with itemized missing invoice tables attached.
-              </p>
+              <div className="mt-4 pt-3 border-t border-[#E2E8F0] text-xs font-semibold text-[#7B5CFA]">
+                PDF &amp; WhatsApp Export ✓
+              </div>
+            </div>
+
+            <div className="rounded-[16px] border border-[#E5E5E2] bg-[#FAFAFA] p-5 sm:p-6 flex flex-col justify-between">
+              <div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-white border border-[#E2E8F0] text-red-600 shadow-xs">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <h3 className="mt-4 text-base sm:text-lg font-bold text-[#0A0A0A]">
+                  Permanent Data Purge
+                </h3>
+                <p className="mt-2 text-xs sm:text-sm text-[#64748B] leading-relaxed">
+                  Export complete encrypted archives and permanently delete any client engagement records in 1 click upon audit completion.
+                </p>
+              </div>
+              <div className="mt-4 pt-3 border-t border-[#E2E8F0] text-xs font-semibold text-red-700">
+                Zero-Residual Purge ✓
+              </div>
             </div>
 
           </div>
