@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
+import { useTranslations } from "next-intl";
 
 import { ReconcilePaginationFooter } from "@/components/reconcile/ReconcilePaginationFooter";
 import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
@@ -97,6 +98,8 @@ function SortHeader({
 }
 
 export function VendorsPageContent() {
+  const tVendors = useTranslations("vendors");
+  const tCommon = useTranslations("common");
   const router = useRouter();
   const tokenState = useAccessToken();
   const authToken =
@@ -178,7 +181,7 @@ export function VendorsPageContent() {
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
-              Vendors
+              {tVendors("title")}
             </h1>
             {!showSkeleton && authToken && !error && (
               <span className="rounded-full bg-[#F0F0F0] px-2.5 py-1 text-xs font-semibold text-gray-600">
@@ -187,7 +190,7 @@ export function VendorsPageContent() {
             )}
           </div>
           <p className="mt-1 text-sm text-gray-500">
-            Cross-client supplier compliance scorecard for your firm
+            {tVendors("subtitle")}
           </p>
         </div>
       </div>
@@ -200,7 +203,7 @@ export function VendorsPageContent() {
             className="font-semibold text-[var(--ink)] underline"
             onClick={() => void mutate()}
           >
-            Retry
+            {tCommon("retry")}
           </button>
         </div>
       )}
@@ -216,10 +219,10 @@ export function VendorsPageContent() {
           <div className="mx-auto w-full max-w-[400px]">
             <EmptyStateIllustration className="mx-auto text-gray-300" />
             <h3 className="mt-4 text-lg font-semibold text-[var(--ink)]">
-              No vendor data yet
+              {tVendors("noVendors")}
             </h3>
             <p className="mt-1 text-sm text-gray-500">
-              Complete a reconciliation run to populate this.
+              {tVendors("noVendorsSub")}
             </p>
             <Link
               href="/clients"
@@ -236,9 +239,9 @@ export function VendorsPageContent() {
               type="search"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search supplier GSTIN…"
+              placeholder={tVendors("searchPlaceholder")}
               className="h-10 min-w-[220px] flex-1 rounded-full border-0 bg-[#F5F5F6] px-4 text-[13px] font-medium text-gray-700 placeholder:text-gray-400 outline-none transition-shadow focus:ring-2 focus:ring-black/10"
-              aria-label="Search supplier GSTIN"
+              aria-label={tVendors("searchPlaceholder")}
             />
           </div>
 

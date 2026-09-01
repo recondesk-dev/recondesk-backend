@@ -17,7 +17,10 @@
     "supplier": "सप्लायर",
     "invoice": "इनवॉइस",
     "period": "अवधि",
-    "close": "बंद करें"
+    "close": "बंद करें",
+    "edit": "संपादित करें",
+    "delete": "हटाएं",
+    "view": "देखें"
   },
   "nav": {
     "dashboard": "डैशबोर्ड",
@@ -135,5 +138,73 @@
     "whyItHappened": "कारण क्या है (Why it happened)",
     "whatToDoNext": "आगे की कार्रवाई (What to do next)",
     "amount": "राशि"
+  },
+  "clients": {
+    "title": "क्लाइंट्स",
+    "subtitle": "GSTIN क्लाइंट खाते और कर्मचारी असाइनमेंट प्रबंधित करें",
+    "addClient": "क्लाइंट जोड़ें",
+    "searchPlaceholder": "ट्रेड नाम या GSTIN खोजें",
+    "tableTradeName": "ट्रेड नाम",
+    "tableGstin": "GSTIN",
+    "tableAssignTo": "असाइन करें",
+    "tableActions": "कार्रवाई",
+    "noClients": "अभी कोई क्लाइंट नहीं जोड़ा गया",
+    "noClientsSub": "प्रत्येक क्लाइंट एक GSTIN है जिसे आप मासिक रूप से रिकॉन्सिल करते हैं",
+    "couldNotLoad": "क्लाइंट लोड नहीं किए जा सके।",
+    "connectGstn": "GSTN कनेक्ट करें"
+  },
+  "vendors": {
+    "title": "वेंडर्स",
+    "subtitle": "सप्लायर अनुपालन स्कोरकार्ड और ITC जोखिम विश्लेषण",
+    "searchPlaceholder": "वेंडर नाम या GSTIN खोजें...",
+    "tableVendor": "वेंडर",
+    "tableInvoices": "इनवॉइस",
+    "tableMatchRate": "मैच दर",
+    "tableFilingRate": "फाइलिंग दर",
+    "tableItcAtRisk": "ITC at Risk",
+    "tableCompliance": "अनुपालन",
+    "noVendors": "कोई वेंडर नहीं मिला",
+    "noVendorsSub": "रिकॉन्सिलिएशन रन स्वचालित रूप से वेंडर मेट्रिक्स भर देंगे"
+  },
+  "reconciliations": {
+    "title": "रिकॉन्सिलिएशन",
+    "subtitle": "रन इतिहास, ऑडिट ट्रेल और बहु-अवधि सारांश",
+    "startNewRecon": "नया रिकॉन्सिलिएशन",
+    "tableClient": "क्लाइंट",
+    "tablePeriod": "अवधि",
+    "tableStatus": "स्थिति",
+    "tableMatched": "Matched",
+    "tableItcAtRisk": "ITC at Risk",
+    "tableMissedItc": "Missed ITC",
+    "tableCreated": "बनाया गया",
+    "noRuns": "कोई रिकॉन्सिलिएशन रन नहीं मिला"
+  },
+  "einvoicing": {
+    "title": "ई-इनवॉइसिंग",
+    "subtitle": "IRN जनरेशन, रद्दीकरण और ई-वे बिल प्रबंधन",
+    "generateIrn": "IRN जनरेट करें",
+    "searchPlaceholder": "इनवॉइस खोजें...",
+    "noInvoices": "अभी कोई ई-इनवॉइस नहीं है"
+  },
+  "manageData": {
+    "title": "डेटा प्रबंधन",
+    "subtitle": "संग्रहीत रिकॉन्सिलिएशन डेटा साफ़ करें और प्रबंधित करें",
+    "purgeRuns": "रन साफ़ करें (Purge)"
+  },
+  "billing": {
+    "title": "बिलिंग",
+    "subtitle": "अपनी फर्म की सदस्यता, प्लान सीमाएं और इनवॉइस प्रबंधित करें",
+    "currentPlan": "वर्तमान प्लान",
+    "paymentHistory": "भुगतान इतिहास",
+    "upgrade": "प्लान अपग्रेड करें"
+  },
+  "settings": {
+    "title": "सेटिंग्स",
+    "tabProfile": "प्रोफाइल",
+    "tabTeam": "टीम",
+    "tabReconciliation": "रिकॉन्सिलिएशन",
+    "tabActivity": "गतिविधि",
+    "tabNotifications": "सूचनाएं",
+    "tabTallyBridge": "Tally Bridge"
   }
 }

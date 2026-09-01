@@ -3,6 +3,7 @@
 import { Download, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import useSWR from "swr";
+import { useTranslations } from "next-intl";
 
 import { Modal } from "@/components/ui/Modal";
 import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
@@ -145,6 +146,7 @@ function ManageDataSkeleton() {
 }
 
 export function ManageDataPageContent() {
+  const tManageData = useTranslations("manageData");
   const toast = useToast();
   const tokenState = useAccessToken();
   const authToken =
@@ -242,11 +244,10 @@ export function ManageDataPageContent() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
-          Manage Data
+          {tManageData("title")}
         </h1>
         <p className="mt-1 text-sm text-gray-500">
-          View, download, or remove stored GSTR-2B and Purchase Register files.
-          Reconciliation results are kept when you delete a file.
+          {tManageData("subtitle")}
         </p>
       </div>
 

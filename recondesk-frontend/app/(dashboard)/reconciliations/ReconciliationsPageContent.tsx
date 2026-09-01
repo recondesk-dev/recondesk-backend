@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
+import { useTranslations } from "next-intl";
 
 import { EmptyStateIllustration } from "@/components/ui/EmptyStateIllustration";
 import {
@@ -110,6 +111,7 @@ function displayTypeOf(row: ReconcileRunListRow): string {
 }
 
 export function ReconciliationsPageContent() {
+  const tReconciliations = useTranslations("reconciliations");
   const tokenState = useAccessToken();
   const authToken =
     typeof tokenState === "string" && tokenState.length > 0 ? tokenState : null;
@@ -162,7 +164,7 @@ export function ReconciliationsPageContent() {
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
-              Reconciliations
+              {tReconciliations("title")}
             </h1>
             {!showSkeleton && authToken && !runsError && showsPurchaseRows && (
               <span className="rounded-full bg-[#F0F0F0] px-2.5 py-1 text-xs font-semibold text-gray-600">
@@ -171,7 +173,7 @@ export function ReconciliationsPageContent() {
             )}
           </div>
           <p className="mt-1 text-sm text-gray-500">
-            Reconciliation history across your clients
+            {tReconciliations("subtitle")}
           </p>
         </div>
       </div>

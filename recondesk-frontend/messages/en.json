@@ -17,7 +17,10 @@
     "supplier": "Supplier",
     "invoice": "Invoice",
     "period": "Period",
-    "close": "Close"
+    "close": "Close",
+    "edit": "Edit",
+    "delete": "Delete",
+    "view": "View"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -135,5 +138,73 @@
     "whyItHappened": "Why it happened",
     "whatToDoNext": "What to do next",
     "amount": "Amount"
+  },
+  "clients": {
+    "title": "Clients",
+    "subtitle": "Manage GSTIN client accounts and staff assignments",
+    "addClient": "Add Client",
+    "searchPlaceholder": "Search trade name or GSTIN",
+    "tableTradeName": "Trade Name",
+    "tableGstin": "GSTIN",
+    "tableAssignTo": "Assign To",
+    "tableActions": "Actions",
+    "noClients": "No clients added yet",
+    "noClientsSub": "Each client is a GSTIN you reconcile monthly",
+    "couldNotLoad": "Could not load clients.",
+    "connectGstn": "Connect GSTN"
+  },
+  "vendors": {
+    "title": "Vendors",
+    "subtitle": "Supplier compliance scorecard and ITC risk analysis",
+    "searchPlaceholder": "Search vendor name or GSTIN...",
+    "tableVendor": "Vendor",
+    "tableInvoices": "Invoices",
+    "tableMatchRate": "Match Rate",
+    "tableFilingRate": "Filing Rate",
+    "tableItcAtRisk": "ITC at Risk",
+    "tableCompliance": "Compliance",
+    "noVendors": "No vendors found",
+    "noVendorsSub": "Reconciliation runs will populate vendor metrics automatically"
+  },
+  "reconciliations": {
+    "title": "Reconciliations",
+    "subtitle": "Run history, audit trails, and multi-period summaries",
+    "startNewRecon": "New Reconciliation",
+    "tableClient": "Client",
+    "tablePeriod": "Period",
+    "tableStatus": "Status",
+    "tableMatched": "Matched",
+    "tableItcAtRisk": "ITC at Risk",
+    "tableMissedItc": "Missed ITC",
+    "tableCreated": "Created",
+    "noRuns": "No reconciliation runs found"
+  },
+  "einvoicing": {
+    "title": "E-Invoicing",
+    "subtitle": "IRN generation, cancellation, and e-way bill management",
+    "generateIrn": "Generate IRN",
+    "searchPlaceholder": "Search invoices...",
+    "noInvoices": "No e-invoices yet"
+  },
+  "manageData": {
+    "title": "Manage Data",
+    "subtitle": "Clean, purge, and manage stored reconciliation data",
+    "purgeRuns": "Purge Runs"
+  },
+  "billing": {
+    "title": "Billing",
+    "subtitle": "Manage your firm subscription, plan limits, and invoices",
+    "currentPlan": "Current Plan",
+    "paymentHistory": "Payment History",
+    "upgrade": "Upgrade Plan"
+  },
+  "settings": {
+    "title": "Settings",
+    "tabProfile": "Profile",
+    "tabTeam": "Team",
+    "tabReconciliation": "Reconciliation",
+    "tabActivity": "Activity",
+    "tabNotifications": "Notifications",
+    "tabTallyBridge": "Tally Bridge"
   }
 }

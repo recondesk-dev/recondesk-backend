@@ -2,6 +2,7 @@
 
 import useSWR from "swr";
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import {
   billingApi,
   isApiError,
@@ -90,6 +91,7 @@ function TableSkeletonRows() {
 }
 
 export default function BillingPage() {
+  const tBilling = useTranslations("billing");
   const [accessToken, setAccessToken] = useState<string | false | null>(null);
   const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
@@ -154,9 +156,9 @@ export default function BillingPage() {
   return (
     <div className="mx-auto max-w-7xl space-y-8 text-[var(--text-primary)]">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">Billing</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">{tBilling("title")}</h1>
         <p className="mt-1 text-sm text-gray-500">
-          GSTIN capacity, subscription, and payment history for your workspace
+          {tBilling("subtitle")}
         </p>
       </div>
       {banner}

@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import {
   FileText,
   Plus,
@@ -25,6 +26,7 @@ import {
 } from "@/lib/api";
 
 function EInvoicingDashboardContent() {
+  const tEinvoicing = useTranslations("einvoicing");
   const router = useRouter();
   const token = useAccessToken();
 
@@ -107,10 +109,10 @@ function EInvoicingDashboardContent() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2.5 tracking-tight">
             <FileText className="w-7 h-7 text-slate-900" />
-            E-Invoicing & Billing
+            {tEinvoicing("title")}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Generate client invoices, manage B2B/B2C buyers, and maintain HSN/SAC master catalogs.
+            {tEinvoicing("subtitle")}
           </p>
         </div>
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 
 import { Modal } from "@/components/ui/Modal";
 import { ConnectGstnModal } from "@/components/clients/ConnectGstnModal";
@@ -64,6 +65,8 @@ function assignLabel(
 }
 
 export function ClientsPageContent() {
+  const tClients = useTranslations("clients");
+  const tCommon = useTranslations("common");
   const toast = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -357,10 +360,10 @@ export function ClientsPageContent() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
-            Clients
+            {tClients("title")}
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            GSTINs in your portfolio and who they are assigned to
+            {tClients("subtitle")}
           </p>
         </div>
         <button
@@ -371,19 +374,19 @@ export function ClientsPageContent() {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
             <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          Add Client
+          {tClients("addClient")}
         </button>
       </div>
 
       {clientsError && (
         <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
-          Could not load clients.{" "}
+          {tClients("couldNotLoad")}{" "}
           <button
             type="button"
             className="font-semibold text-[var(--ink)] underline"
             onClick={() => void mutateClients()}
           >
-            Retry
+            {tCommon("retry")}
           </button>
         </div>
       )}
@@ -399,17 +402,17 @@ export function ClientsPageContent() {
           <div className="mx-auto w-full max-w-[400px]">
             <EmptyStateIllustration className="mx-auto text-gray-300" />
             <h2 className="mt-4 text-lg font-semibold text-[var(--ink)]">
-              No clients added yet
+              {tClients("noClients")}
             </h2>
             <p className="mt-1 text-sm text-gray-500">
-              Each client is a GSTIN you reconcile monthly
+              {tClients("noClientsSub")}
             </p>
             <button
               type="button"
               className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-full bg-[var(--ink)] px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
               onClick={openAddClient}
             >
-              Add Client
+              {tClients("addClient")}
             </button>
           </div>
         </div>
@@ -429,7 +432,7 @@ export function ClientsPageContent() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-full border-0 bg-[#F5F5F6] py-2.5 pl-10 pr-4 text-sm font-medium text-gray-700 outline-none transition-shadow placeholder:text-gray-400 focus:ring-2 focus:ring-black/10"
-              placeholder="Search trade name or GSTIN"
+              placeholder={tClients("searchPlaceholder")}
             />
           </div>
 
@@ -441,11 +444,11 @@ export function ClientsPageContent() {
                 <table className="min-w-[860px] w-full border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
-                      <th className="px-5 py-4">Trade Name</th>
-                      <th className="px-4 py-4">GSTIN</th>
-                      <th className="px-4 py-4">Assign To</th>
+                      <th className="px-5 py-4">{tClients("tableTradeName")}</th>
+                      <th className="px-4 py-4">{tClients("tableGstin")}</th>
+                      <th className="px-4 py-4">{tClients("tableAssignTo")}</th>
                       {isAdmin && (
-                        <th className="px-5 py-4 text-right">Actions</th>
+                        <th className="px-5 py-4 text-right">{tClients("tableActions")}</th>
                       )}
                     </tr>
                   </thead>

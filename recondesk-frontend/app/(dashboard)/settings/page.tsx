@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import useSWR from "swr";
+import { useTranslations } from "next-intl";
 import {
   Bell,
   ChevronRight,
@@ -46,6 +47,7 @@ function SettingsSkeleton() {
 
 
 export default function SettingsHubPage() {
+  const tSettings = useTranslations("settings");
   const token = useAccessToken();
   const authToken = typeof token === "string" && token.length > 0 ? token : null;
 
@@ -172,7 +174,7 @@ export default function SettingsHubPage() {
     <div className="space-y-7">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
-          Settings
+          {tSettings("title")}
         </h1>
         <p className="mt-1 text-sm text-gray-500">
           Manage your workspace and preferences.
