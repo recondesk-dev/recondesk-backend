@@ -224,11 +224,7 @@ function PricingCard({
   const displayedValueTag = isYearly ? plan.valueTagYearly : plan.valueTagMonthly;
 
   const displayPriceText = isFirm
-    ? isDashboard
-      ? formatInr(firmCalc.totalBeforeGst)
-      : isYearly
-        ? "₹19,999"
-        : "₹2,399"
+    ? formatInr(firmCalc.totalBeforeGst)
     : formatInr(rawPrice);
 
   return (
@@ -271,48 +267,55 @@ function PricingCard({
 
         {/* Pricing & GSTIN Capacity framing */}
         <div className="mt-5 border-b border-gray-200/60 pb-5">
-          {isFirm && !isDashboard ? (
-            <div>
-              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Starting at</p>
-              <div className="flex items-baseline gap-1">
-                <span className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[var(--ink)] tabular-nums">
-                  {formatRupeeText(displayPriceText)}
-                </span>
-                <span className="text-sm font-medium text-gray-500">{periodLabel}</span>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-baseline gap-1">
-              <span className="text-4xl font-extrabold tracking-tight text-[var(--ink)] tabular-nums">
-                {formatRupeeText(displayPriceText)}
-              </span>
-              <span className="text-sm font-medium text-gray-500">{periodLabel}</span>
-            </div>
-          )}
+          <div className="flex items-baseline gap-1">
+            <span className="text-4xl font-extrabold tracking-tight text-[var(--ink)] tabular-nums">
+              {formatRupeeText(displayPriceText)}
+            </span>
+            <span className="text-sm font-medium text-gray-500">{periodLabel}</span>
+          </div>
 
-          {/* Dynamic GSTIN scaling selector for Firm in dashboard */}
-          {isFirm && isDashboard && (
+          {/* Dynamic GSTIN scaling selector for Firm */}
+          {isFirm && (
             <div className="mt-3 rounded-xl bg-slate-50 p-2.5 text-xs text-gray-700 ring-1 ring-slate-200">
               <div className="flex items-center justify-between gap-2">
                 <label htmlFor="firm-gstins" className="font-semibold text-slate-800">
                   Total GSTINs:
                 </label>
-                <input
-                  id="firm-gstins"
-                  type="number"
-                  min={100}
-                  step={5}
-                  value={firmGstinCount}
-                  onChange={(e) => onFirmGstinChange(Math.max(100, parseInt(e.target.value, 10) || 100))}
-                  className="w-20 rounded border border-gray-300 bg-white px-2 py-1 text-right font-bold text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-black"
-                />
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onFirmGstinChange(Math.max(100, firmGstinCount - 5))}
+                    disabled={firmGstinCount <= 100}
+                    className="flex h-7 w-7 items-center justify-center rounded border border-gray-300 bg-white text-xs font-bold text-gray-700 shadow-sm transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Decrease GSTINs"
+                  >
+                    –
+                  </button>
+                  <input
+                    id="firm-gstins"
+                    type="number"
+                    min={100}
+                    step={5}
+                    value={firmGstinCount}
+                    onChange={(e) => onFirmGstinChange(Math.max(100, parseInt(e.target.value, 10) || 100))}
+                    className="w-16 rounded border border-gray-300 bg-white px-1.5 py-1 text-center font-bold text-[var(--ink)] shadow-sm focus:outline-none focus:ring-1 focus:ring-black"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onFirmGstinChange(firmGstinCount + 5)}
+                    className="flex h-7 w-7 items-center justify-center rounded border border-gray-300 bg-white text-xs font-bold text-gray-700 shadow-sm transition-colors hover:bg-gray-100"
+                    aria-label="Increase GSTINs"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
               {firmCalc.extraGstins > 0 ? (
-                <p className="mt-1 text-[11px] text-gray-500">
+                <p className="mt-1.5 text-[11px] text-gray-500 font-medium">
                   Includes 100 base + {firmCalc.extraGstins} extra @ ₹{firmCalc.overageRate}/{isYearly ? "yr" : "mo"}
                 </p>
               ) : (
-                <p className="mt-1 text-[11px] text-gray-500">Base capacity for 100 GSTINs</p>
+                <p className="mt-1.5 text-[11px] text-gray-500 font-medium">Base capacity for 100 GSTINs</p>
               )}
             </div>
           )}
@@ -332,7 +335,7 @@ function PricingCard({
                   d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5m0 0h4m-4 0V11m0 0T9.5 9.5M12 11t2.5-1.5"
                 />
               </svg>
-              {isFirm && isDashboard ? `${firmGstinCount} GSTINs` : plan.gstinCapacity}
+              {isFirm ? `${firmGstinCount} GSTINs` : plan.gstinCapacity}
             </span>
             {displayedValueTag && (
               <span
@@ -355,14 +358,7 @@ function PricingCard({
 
           {/* Primary Call to Action Button */}
           <div className="mt-4">
-            {isFirm && !isDashboard ? (
-              <a
-                href={plan.ctaHref || "mailto:contact@recondesk.in?subject=Firm%20Plan%20Enquiry"}
-                className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-6 py-2.5 text-sm font-semibold text-white shadow-md transition-opacity hover:opacity-90"
-              >
-                {plan.cta} →
-              </a>
-            ) : isDashboard && onSelectPlan ? (
+            {isDashboard && onSelectPlan ? (
               <button
                 type="button"
                 disabled={loadingPlan !== null}
@@ -373,7 +369,7 @@ function PricingCard({
               </button>
             ) : (
               <Link
-                href={`/auth/signup?plan=${plan.id}&cycle=${cycle}`}
+                href={`/auth/signup?plan=${plan.id}&cycle=${cycle}${isFirm && firmGstinCount > 100 ? `&gstins=${firmGstinCount}` : ""}`}
                 className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-6 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90"
               >
                 {plan.cta} →

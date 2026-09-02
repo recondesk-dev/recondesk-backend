@@ -125,8 +125,7 @@ export const PRICING_PLANS: PricingPlan[] = [
     gstinCapacity: "100+ GSTINs",
     gstinLimit: 100,
     blurb: "Dynamic usage-scaled pricing for multi-partner firms managing over 100 GSTINs.",
-    cta: "Talk to us",
-    ctaHref: "mailto:contact@recondesk.in?subject=Firm%20Plan%20Enquiry",
+    cta: "Start Firm",
     featured: false,
     isFirm: true,
     highlights: [
