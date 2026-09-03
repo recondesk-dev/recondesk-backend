@@ -29,6 +29,8 @@ export function decisionNeededLabel(decision: string): string {
       return "Export type (exp_typ)";
     case "table_classification":
       return "Table classification";
+    case "net_negative_adjustment":
+      return "Net negative B2CS (carry forward)";
     default:
       return decision;
   }

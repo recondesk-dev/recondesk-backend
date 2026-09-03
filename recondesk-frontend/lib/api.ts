@@ -1590,6 +1590,7 @@ export type FilingDecisionNeeded =
   | "ntty"
   | "exp_typ"
   | "table_classification"
+  | "net_negative_adjustment"
   | string;
 
 export type FilingReadinessVerdict = {

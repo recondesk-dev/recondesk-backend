@@ -146,7 +146,10 @@ def map_sales_register_to_gstr1(
         filing_period=filing_period,
     )
     b2cs_netted = apply_b2cs_netting(
-        b2cs.b2cs, cdnur.b2cs_net_candidates, filer_state=filer_state,
+        b2cs.b2cs,
+        cdnur.b2cs_net_candidates,
+        filer_state=filer_state,
+        b2cs_bucket_records=b2cs.bucket_records,
     )
 
     # EXP must not re-claim rows B2B already peeled (SEZ/DE → B2B review).
@@ -202,6 +205,7 @@ def map_sales_register_to_gstr1(
         nil_blocked=nil.needs_external_input is not None,
         nil_saved=bool(nil.nil and nil.save_row_count > 0),
         at_blocked=bool(at_txpd.needs_external_input),
+        negative_bucket_records=b2cs_netted.negative_bucket_records,
     )
 
     # Flat pending for UX: primary + HSN + orchestrator unclassified
@@ -249,6 +253,7 @@ def map_sales_register_to_gstr1(
         gaps=gaps,
         b2b_count=b2b_count,
         pending_count=len(pending),
+        pending=pending,
     )
     return result
 
@@ -303,8 +308,10 @@ def _account_primary_rows(
     nil_blocked: bool,
     nil_saved: bool,
     at_blocked: bool,
+    negative_bucket_records: list[dict[str, Any]] | None = None,
 ) -> tuple[RowAccounting, list[PendingReviewInvoice]]:
     pending_ids = {id(p.record) for p in primary_pending}
+    neg_bucket_ids = {id(r) for r in (negative_bucket_records or [])}
     b2cl_ids = {id(r) for r in b2cl_candidates}
     cdnur_ids = {id(r) for r in cdnur_candidates}
     net_ids = {id(c.record) for c in b2cs_net_candidates}
@@ -318,7 +325,7 @@ def _account_primary_rows(
         accounting.by_lane[lane] = accounting.by_lane.get(lane, 0) + 1
         derived = str(rec.get("invoice_type") or "").strip().upper()
 
-        if rid in pending_ids:
+        if rid in pending_ids or rid in neg_bucket_ids:
             disp = DISPOSITION_PENDING
         elif lane == "nil":
             if nil_blocked:
@@ -366,7 +373,7 @@ def _account_primary_rows(
         else:
             disp = DISPOSITION_SKIPPED
 
-        if rid in pending_ids:
+        if rid in pending_ids or rid in neg_bucket_ids:
             disp = DISPOSITION_PENDING
 
         accounting.dispositions.append(disp)
@@ -388,6 +395,7 @@ def _compute_filing_readiness(
     gaps: FilingDataGaps,
     b2b_count: int,
     pending_count: int,
+    pending: list[PendingReviewInvoice] | None = None,
 ) -> FilingReadiness:
     gap_tables = gaps.tables_blocked()
     has_outward = any(
@@ -423,8 +431,16 @@ def _compute_filing_readiness(
             "you have advances to report."
         )
     if pending_count:
+        net_neg_count = sum(1 for p in (pending or []) if p.reason == "b2cs_net_negative_bucket")
+        indiv_count = pending_count - net_neg_count
+        if net_neg_count and indiv_count:
+            pending_desc = f"{indiv_count} row(s) and {net_neg_count} net negative B2CS bucket(s)"
+        elif net_neg_count:
+            pending_desc = f"{net_neg_count} net negative B2CS bucket(s)"
+        else:
+            pending_desc = f"{pending_count} row(s)"
         advisory.append(
-            f"{pending_count} row(s) in pending_review — excluded from Save; "
+            f"{pending_desc} in pending_review — excluded from Save; "
             "resolve before they belong in the filed return."
         )
     if not has_outward and not payload:
@@ -485,6 +501,8 @@ _PENDING_CONTEXT_KEYS = (
 
 def _decision_needed_for_pending(item: PendingReviewInvoice) -> str:
     """What the CA must choose — worded for UI grouping, not GSTN codes alone."""
+    if (item.reason or "").lower() == "b2cs_net_negative_bucket":
+        return "net_negative_adjustment"
     table = (item.suggested_table or "").lower()
     reason = (item.reason or "").lower()
     if table in ("cdnr", "cdnur") or "ntty" in reason:
@@ -498,7 +516,25 @@ def _decision_needed_for_pending(item: PendingReviewInvoice) -> str:
 
 def serialize_pending_review_item(item: PendingReviewInvoice) -> dict[str, Any]:
     rec = item.record if isinstance(item.record, dict) else {}
-    context = {k: rec.get(k) for k in _PENDING_CONTEXT_KEYS if k in rec}
+    if (item.suggested_table or "").lower() == "b2cs" and item.reason == "b2cs_net_negative_bucket":
+        net_txval = float(rec.get("net_txval") or 0.0)
+        context = {
+            "place_of_supply": rec.get("pos"),
+            "pos": rec.get("pos"),
+            "tax_rate": rec.get("rt"),
+            "rt": rec.get("rt"),
+            "sply_ty": rec.get("sply_ty"),
+            "taxable_amount_paise": int(round(net_txval * 100)),
+            "net_txval": net_txval,
+            "net_iamt": rec.get("net_iamt"),
+            "net_camt": rec.get("net_camt"),
+            "net_samt": rec.get("net_samt"),
+            "net_csamt": rec.get("net_csamt"),
+            "contributing_record_count": rec.get("contributing_record_count", 0),
+            "is_aggregate_bucket": True,
+        }
+    else:
+        context = {k: rec.get(k) for k in _PENDING_CONTEXT_KEYS if k in rec}
     return {
         "suggested_table": item.suggested_table,
         "reason": item.reason,

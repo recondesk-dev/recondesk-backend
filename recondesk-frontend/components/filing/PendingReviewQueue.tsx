@@ -47,6 +47,13 @@ export function PendingReviewQueue({
         ? [{ table: "all", rows: items }]
         : [];
 
+  const aggregateBuckets = items.filter(
+    (i) => i.reason === "b2cs_net_negative_bucket" || i.decision_needed === "net_negative_adjustment"
+  );
+  const individualRows = items.filter(
+    (i) => !(i.reason === "b2cs_net_negative_bucket" || i.decision_needed === "net_negative_adjustment")
+  );
+
   return (
     <section
       className={sectionContainerClass}
@@ -54,11 +61,33 @@ export function PendingReviewQueue({
     >
       <SectionHeader title="Pending review" dotColor="#111111" />
       <p className="mb-3 text-[13px] text-gray-500">
-        <span className="font-semibold tabular-nums text-[var(--ink)]">
-          {items.length}
-        </span>{" "}
-        row{items.length === 1 ? "" : "s"} held out of Save until types are
-        clarified in the Sales Register.
+        {aggregateBuckets.length > 0 && individualRows.length > 0 ? (
+          <>
+            <span className="font-semibold tabular-nums text-[var(--ink)]">
+              {individualRows.length}
+            </span>{" "}
+            individual row{individualRows.length === 1 ? "" : "s"} +{" "}
+            <span className="font-semibold tabular-nums text-[var(--ink)]">
+              {aggregateBuckets.length}
+            </span>{" "}
+            net negative aggregate bucket{aggregateBuckets.length === 1 ? "" : "s"} held out of Save.
+          </>
+        ) : aggregateBuckets.length > 0 ? (
+          <>
+            <span className="font-semibold tabular-nums text-[var(--ink)]">
+              {aggregateBuckets.length}
+            </span>{" "}
+            net negative aggregate bucket{aggregateBuckets.length === 1 ? "" : "s"} held out of Save.
+          </>
+        ) : (
+          <>
+            <span className="font-semibold tabular-nums text-[var(--ink)]">
+              {items.length}
+            </span>{" "}
+            row{items.length === 1 ? "" : "s"} held out of Save until types are
+            clarified in the Sales Register.
+          </>
+        )}
       </p>
       <div className="mb-4 rounded-xl bg-[#F7F7F8] px-4 py-3 text-[13px] text-gray-700">
         <p className="font-medium text-[var(--ink)]">
@@ -85,6 +114,14 @@ export function PendingReviewQueue({
             again.
           </p>
         )}
+        {aggregateBuckets.length > 0 ? (
+          <div className="mt-3 rounded-lg border border-amber-200/80 bg-amber-50/60 p-3 text-[12px] text-amber-900">
+            <p className="font-semibold">Net negative B2CS buckets ({aggregateBuckets.length})</p>
+            <p className="mt-1 leading-relaxed">
+              Credit notes/returns exceed outward B2C sales for these state + rate combinations in this period. The GST portal does not allow negative taxable values in Table 7 (B2CS). Under GST rules, this net credit liability must be carried forward to offset future outward B2C liabilities in subsequent tax periods. This cannot be resolved by re-uploading the same register.
+            </p>
+          </div>
+        ) : null}
       </div>
 
       {items.length === 0 ? (
@@ -134,26 +171,40 @@ export function PendingReviewQueue({
                   <tbody>
                     {rows.map((row, i) => {
                       const ctx = row.context || {};
-                      const inv =
-                        ctxStr(ctx, "invoice_number_raw") !== "—"
-                          ? ctxStr(ctx, "invoice_number_raw")
-                          : ctxStr(ctx, "invoice_number");
+                      const isNetNegativeBucket =
+                        row.reason === "b2cs_net_negative_bucket" ||
+                        row.decision_needed === "net_negative_adjustment";
+
+                      const inv = isNetNegativeBucket
+                        ? `B2CS Net (${ctxStr(ctx, "place_of_supply") || ctxStr(ctx, "pos")} @ ${ctxStr(ctx, "tax_rate") || ctxStr(ctx, "rt")}%)`
+                        : ctxStr(ctx, "invoice_number_raw") !== "—"
+                        ? ctxStr(ctx, "invoice_number_raw")
+                        : ctxStr(ctx, "invoice_number");
+
+                      const rowNum = isNetNegativeBucket
+                        ? "Aggregate"
+                        : ctxStr(ctx, "row_number");
+
+                      const ctin = isNetNegativeBucket
+                        ? "Unregistered (B2C)"
+                        : ctxStr(ctx, "gstin");
+
                       return (
                         <tr
                           key={`${row.reason}-${inv}-${i}`}
                           className="border-t border-[#F0F0F0]"
                         >
                           <td className="px-3 py-2.5 text-[12px] tabular-nums text-gray-600">
-                            {ctxStr(ctx, "row_number")}
+                            {rowNum}
                           </td>
                           <td className="px-3 py-2.5 text-[13px] font-medium text-[var(--ink)]">
                             {inv}
                           </td>
                           <td className="px-3 py-2.5 text-[13px] tabular-nums text-gray-700">
-                            {ctxStr(ctx, "invoice_date")}
+                            {isNetNegativeBucket ? "—" : ctxStr(ctx, "invoice_date")}
                           </td>
                           <td className="px-3 py-2.5 font-mono text-[12px] text-gray-700">
-                            {ctxStr(ctx, "gstin")}
+                            {ctin}
                           </td>
                           <td className="px-3 py-2.5 text-[13px] tabular-nums text-gray-700">
                             {ctxPaiseInr(ctx, "taxable_amount_paise")}
@@ -169,7 +220,11 @@ export function PendingReviewQueue({
                             ) : null}
                           </td>
                           <td className="px-3 py-2.5 text-[12px] text-gray-600">
-                            {ctxStr(ctx, "invoice_type_raw") !== "—"
+                            {isNetNegativeBucket
+                              ? ctxStr(ctx, "sply_ty") !== "—"
+                                ? `${ctxStr(ctx, "sply_ty")} (B2CS Net)`
+                                : "B2CS Aggregate"
+                              : ctxStr(ctx, "invoice_type_raw") !== "—"
                               ? ctxStr(ctx, "invoice_type_raw")
                               : ctxStr(ctx, "invoice_type")}
                             {ctxStr(ctx, "export_type_raw") !== "—" ? (

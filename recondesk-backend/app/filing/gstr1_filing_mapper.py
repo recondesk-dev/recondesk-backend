@@ -272,6 +272,7 @@ class B2CSMapResult:
     skipped_non_b2c: int = 0
     threshold_paise: int = 0
     filer_state: str = ""
+    bucket_records: dict[tuple[str, float], list[dict[str, Any]]] = field(default_factory=dict)
 
     @property
     def pending_count(self) -> int:
@@ -349,6 +350,7 @@ class B2CSNetResult:
     pending_review: list[PendingReviewInvoice] = field(default_factory=list)
     applied_candidate_count: int = 0
     omitted_zero_buckets: int = 0
+    negative_bucket_records: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def pending_count(self) -> int:
@@ -919,6 +921,7 @@ def map_sales_register_to_gstr1_b2cs(
         bucket["camt"] += _paise_to_rupees(rec.get("cgst_paise")) or 0.0
         bucket["samt"] += _paise_to_rupees(rec.get("sgst_paise")) or 0.0
         bucket["csamt"] += _paise_to_rupees(rec.get("cess_paise")) or 0.0
+        result.bucket_records.setdefault(key, []).append(rec)
 
     result.b2cs = [
         _gstn_finalize_amounts(buckets[k])
@@ -932,6 +935,7 @@ def apply_b2cs_netting(
     candidates: list[B2CSNetCandidate],
     *,
     filer_state: str,
+    b2cs_bucket_records: dict[tuple[str, float], list[dict[str, Any]]] | None = None,
 ) -> B2CSNetResult:
     """Second pass: fold CDNUR ``b2cs_net_candidates`` into B2CS ``(pos, rt)`` buckets.
 
@@ -947,6 +951,7 @@ def apply_b2cs_netting(
     state = require_filer_state(filer_state)
     result = B2CSNetResult()
     buckets: dict[tuple[str, float], dict[str, Any]] = {}
+    candidates_by_bucket: dict[tuple[str, float], list[dict[str, Any]]] = {}
 
     for row in b2cs:
         if not isinstance(row, dict):
@@ -1060,6 +1065,7 @@ def apply_b2cs_netting(
         bucket["camt"] += sign * camt
         bucket["samt"] += sign * samt
         bucket["csamt"] += sign * csamt
+        candidates_by_bucket.setdefault(key, []).append(cand.record)
         result.applied_candidate_count += 1
 
     save_rows: list[dict[str, Any]] = []
@@ -1067,6 +1073,11 @@ def apply_b2cs_netting(
         bucket = buckets[key]
         txval = bucket["txval"]
         if txval < -TAX_RATE_AMOUNT_TOLERANCE_RUPEES:
+            contributing: list[dict[str, Any]] = []
+            if b2cs_bucket_records:
+                contributing.extend(b2cs_bucket_records.get(key, []))
+            contributing.extend(candidates_by_bucket.get(key, []))
+            result.negative_bucket_records.extend(contributing)
             result.pending_review.append(
                 PendingReviewInvoice(
                     record={
@@ -1078,6 +1089,7 @@ def apply_b2cs_netting(
                         "net_camt": bucket["camt"],
                         "net_samt": bucket["samt"],
                         "net_csamt": bucket["csamt"],
+                        "contributing_record_count": len(contributing),
                     },
                     proposed_inv_typ=None,
                     reason="b2cs_net_negative_bucket",
@@ -1111,7 +1123,10 @@ def build_netted_b2cs_save(
         records, filer_state=filer_state, filing_period=filing_period,
     )
     netted = apply_b2cs_netting(
-        gross.b2cs, net_candidates, filer_state=filer_state,
+        gross.b2cs,
+        net_candidates,
+        filer_state=filer_state,
+        b2cs_bucket_records=gross.bucket_records,
     )
     return gross, netted
 
