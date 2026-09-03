@@ -106,6 +106,9 @@ export function PendingReviewQueue({
                   <thead>
                     <tr className={tableHeadClass}>
                       <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                        Row #
+                      </th>
+                      <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
                         Invoice
                       </th>
                       <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
@@ -140,6 +143,9 @@ export function PendingReviewQueue({
                           key={`${row.reason}-${inv}-${i}`}
                           className="border-t border-[#F0F0F0]"
                         >
+                          <td className="px-3 py-2.5 text-[12px] tabular-nums text-gray-600">
+                            {ctxStr(ctx, "row_number")}
+                          </td>
                           <td className="px-3 py-2.5 text-[13px] font-medium text-[var(--ink)]">
                             {inv}
                           </td>
