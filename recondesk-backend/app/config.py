@@ -68,9 +68,15 @@ class Settings(BaseSettings):
     # Razorpay
     RAZORPAY_KEY_ID: str = ""
 
-    # Resend
+    # Amazon SES (SMTP) & Email
+    SES_SMTP_HOST: str = "email-smtp.ap-south-1.amazonaws.com"
+    SES_SMTP_PORT: int = 587
+    SES_SMTP_USER: str = ""
+    SES_SMTP_PASS: str = ""
+    EMAIL_FROM: str = "ReconDesk <noreply@recondesk.in>"
+
+    # Legacy Resend (optional fallback)
     RESEND_API_KEY: str = ""
-    EMAIL_FROM: str = "ReconDesk <onboarding@resend.dev>"
 
     # Sentry / admin
     SENTRY_DSN: Optional[str] = None

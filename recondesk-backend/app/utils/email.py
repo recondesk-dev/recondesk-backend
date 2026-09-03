@@ -1,23 +1,28 @@
-"""Transactional email via Resend; failures are logged to audit_logs and never raised."""
+"""Transactional email via Amazon SES SMTP (with Resend fallback); failures are logged to audit_logs and never raised."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import mimetypes
+import os
+import smtplib
 from datetime import datetime, timezone
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from html import escape
+from pathlib import Path
 from typing import Any
 
 import resend
 
-from app.config import settings
+from app.config import get_settings, settings
 from app.utils.audit import log_action
 
 _log = logging.getLogger(__name__)
 
-resend.api_key = settings.RESEND_API_KEY or ""
-
-EMAIL_FROM = (settings.EMAIL_FROM or "").strip() or "ReconDesk <onboarding@resend.dev>"
 DASHBOARD_URL = "https://recondesk.in/dashboard"
 BRAND = "#6C63FF"
 
@@ -77,59 +82,209 @@ def _cta_button(href: str, label: str) -> str:
 </p>"""
 
 
+def sendEmail(
+    to: str | list[str],
+    subject: str,
+    body: str,
+    attachment: str | os.PathLike | None = None,
+    *,
+    from_email: str | None = None,
+    text_body: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    username: str | None = None,
+    password: str | None = None,
+) -> bool:
+    """Send an email using Amazon SES SMTP.
+
+    Parameters:
+    - to: Recipient email address (str) or list of recipient email addresses.
+    - subject: Email subject line.
+    - body: HTML body string.
+    - attachment: Optional file path (str or PathLike) to attach to the email.
+    - from_email: Optional sender address; defaults to settings.EMAIL_FROM.
+    - text_body: Optional plain-text body fallback.
+    - host: SMTP host; defaults to settings.SES_SMTP_HOST ("email-smtp.ap-south-1.amazonaws.com").
+    - port: SMTP port; defaults to settings.SES_SMTP_PORT (587).
+    - username: SES SMTP user; defaults to settings.SES_SMTP_USER.
+    - password: SES SMTP password; defaults to settings.SES_SMTP_PASS.
+
+    Returns:
+    - bool: True if successfully sent, False on failure.
+    """
+    recipients = [to] if isinstance(to, str) else list(to)
+    recipients = [r.strip() for r in recipients if r and r.strip()]
+    if not recipients:
+        _log.warning("sendEmail aborted: no valid recipient specified")
+        return False
+
+    cfg = get_settings()
+    sender = (from_email or cfg.EMAIL_FROM or "").strip() or "ReconDesk <noreply@recondesk.in>"
+    smtp_host = (host or cfg.SES_SMTP_HOST or "email-smtp.ap-south-1.amazonaws.com").strip()
+    smtp_port = int(port or cfg.SES_SMTP_PORT or 587)
+    smtp_user = (username if username is not None else cfg.SES_SMTP_USER).strip()
+    smtp_pass = (password if password is not None else cfg.SES_SMTP_PASS).strip()
+
+    if not smtp_user or not smtp_pass:
+        _log.warning(
+            "SES SMTP credentials missing (SES_SMTP_USER / SES_SMTP_PASS not set); skip send to=%s subject=%s",
+            recipients,
+            subject,
+        )
+        return False
+
+    if attachment:
+        msg = MIMEMultipart("mixed")
+        body_container = MIMEMultipart("alternative")
+        msg.attach(body_container)
+    else:
+        msg = MIMEMultipart("alternative")
+        body_container = msg
+
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = ", ".join(recipients)
+
+    if text_body and text_body.strip():
+        body_container.attach(MIMEText(text_body.strip(), "plain", "utf-8"))
+
+    body_container.attach(MIMEText(body, "html", "utf-8"))
+
+    if attachment:
+        att_path = Path(attachment)
+        if not att_path.is_file():
+            _log.error("Attachment file not found: %s", attachment)
+            return False
+
+        content_type, encoding = mimetypes.guess_type(str(att_path))
+        if content_type is None or encoding is not None:
+            content_type = "application/octet-stream"
+        main_type, sub_type = content_type.split("/", 1)
+
+        try:
+            with open(att_path, "rb") as f:
+                part = MIMEBase(main_type, sub_type)
+                part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header(
+                "Content-Disposition",
+                "attachment",
+                filename=att_path.name,
+            )
+            msg.attach(part)
+        except Exception as exc:  # noqa: BLE001
+            _log.exception("Failed to read or attach file %s: %s", attachment, exc)
+            return False
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(sender, recipients, msg.as_string())
+        _log.info("Email successfully sent via SES SMTP to=%s subject=%s", recipients, subject)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("SES SMTP send failed to=%s: %s", recipients, exc)
+        return False
+
+
 async def send_email(
-    to: str,
+    to: str | list[str],
     subject: str,
     html_content: str,
     *,
     text_content: str | None = None,
+    attachment: str | os.PathLike | None = None,
 ) -> bool:
-    """Send via Resend. On failure, log EMAIL_FAILED; never raises. Returns True on success."""
-    params: dict[str, Any] = {
-        "from": EMAIL_FROM,
-        "to": [to],
-        "subject": subject,
-        "html": html_content,
-    }
-    if text_content and text_content.strip():
-        params["text"] = text_content.strip()
+    """Send transactional email via Amazon SES SMTP (with Resend fallback).
 
-    if not (settings.RESEND_API_KEY or "").strip():
-        _log.warning("RESEND_API_KEY not set; skip send to=%s subject=%s", to, subject)
-        await log_action(
-            None,
-            "EMAIL_FAILED",
-            "email",
-            None,
-            {
-                "to": to,
-                "subject": subject,
-                "error_message": "RESEND_API_KEY not configured",
-            },
-        )
-        return False
+    On failure, logs EMAIL_FAILED to audit_logs and never raises. Returns True on success.
+    """
+    recipients = [to] if isinstance(to, str) else list(to)
+    to_str = ", ".join(recipients)
+    cfg = get_settings()
 
-    try:
+    # 1. Primary path: Amazon SES SMTP
+    if (cfg.SES_SMTP_USER or "").strip() and (cfg.SES_SMTP_PASS or "").strip():
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None, lambda: resend.Emails.send(params)  # type: ignore[arg-type]
-        )
-    except Exception as exc:  # noqa: BLE001
-        err_msg = str(exc)
-        _log.exception("Resend send failed to=%s: %s", to, err_msg)
-        await log_action(
+        success = await loop.run_in_executor(
             None,
-            "EMAIL_FAILED",
-            "email",
-            None,
-            {
-                "to": to,
-                "subject": subject,
-                "error_message": err_msg[:4000],
-            },
+            lambda: sendEmail(
+                to=to,
+                subject=subject,
+                body=html_content,
+                attachment=attachment,
+                text_body=text_content,
+            ),
         )
-        return False
-    return True
+        if not success:
+            await log_action(
+                None,
+                "EMAIL_FAILED",
+                "email",
+                None,
+                {
+                    "to": to_str,
+                    "subject": subject,
+                    "error_message": "Amazon SES SMTP send failed",
+                },
+            )
+        return success
+
+    # 2. Fallback: Resend (if RESEND_API_KEY is configured and SES is not)
+    if (cfg.RESEND_API_KEY or "").strip():
+        resend.api_key = cfg.RESEND_API_KEY
+        params: dict[str, Any] = {
+            "from": (cfg.EMAIL_FROM or "").strip() or "ReconDesk <noreply@recondesk.in>",
+            "to": recipients,
+            "subject": subject,
+            "html": html_content,
+        }
+        if text_content and text_content.strip():
+            params["text"] = text_content.strip()
+
+        try:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, lambda: resend.Emails.send(params)  # type: ignore[arg-type]
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            err_msg = str(exc)
+            _log.exception("Resend fallback send failed to=%s: %s", to_str, err_msg)
+            await log_action(
+                None,
+                "EMAIL_FAILED",
+                "email",
+                None,
+                {
+                    "to": to_str,
+                    "subject": subject,
+                    "error_message": err_msg[:4000],
+                },
+            )
+            return False
+
+    _log.warning("Neither Amazon SES nor Resend credentials configured; skip send to=%s subject=%s", to_str, subject)
+    await log_action(
+        None,
+        "EMAIL_FAILED",
+        "email",
+        None,
+        {
+            "to": to_str,
+            "subject": subject,
+            "error_message": "SES_SMTP_USER/PASS and RESEND_API_KEY not configured",
+        },
+    )
+    return False
+
+
+# Aliases for compatibility
+send_email_smtp = sendEmail
+sendEmailAsync = send_email
 
 
 async def send_welcome_email(to: str, full_name: str) -> bool:

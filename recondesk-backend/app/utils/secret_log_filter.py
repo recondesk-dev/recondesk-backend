@@ -27,6 +27,7 @@ class SecretRedactFilter(logging.Filter):
             "SUPABASE_SERVICE_ROLE_KEY",
             "SUPABASE_ANON_KEY",
             "RESEND_API_KEY",
+            "SES_SMTP_PASS",
             "REDIS_URL",
         ):
             v = getattr(s, attr, None)
