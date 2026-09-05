@@ -3818,7 +3818,7 @@ def _db_section17_to_frontend(syn_id: str, row: dict[str, Any]) -> dict[str, Any
         "invoice_number": str(row.get("invoice_number") or ""),
         "invoice_date": str(row.get("invoice_date") or ""),
         "amount": round(ar, 2),
-        "match_level": "UNMATCHED",
+        "match_level": str(row.get("match_status") or row.get("match_level") or "UNMATCHED"),
         "confidence_score": 0.0,
         "discrepancy_note": None,
         "decision_what": row.get("decision_what"),
