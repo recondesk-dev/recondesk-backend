@@ -192,3 +192,44 @@ def get_user_profile(user_id: str) -> Optional[dict]:
         return profile
     except Exception:
         return None
+
+
+def ensure_user_profile(
+    user_id: str,
+    *,
+    client: Client | None = None,
+) -> dict:
+    """Ensure a user_profiles row exists for user_id; auto-create from auth.users if missing."""
+    uid = str(user_id or "").strip()
+    if not uid:
+        raise ValueError("user_id cannot be empty")
+
+    profile = get_user_profile(uid)
+    if profile is not None:
+        return profile
+
+    sb = client or get_supabase()
+    email = None
+    try:
+        auth_user = sb.auth.admin.get_user_by_id(uid)
+        if auth_user and getattr(auth_user, "user", None):
+            email = getattr(auth_user.user, "email", None)
+    except Exception:
+        email = None
+
+    role = resolve_user_role(None, user_id=uid, email=email, client=sb)
+
+    insert_payload = {
+        "id": uid,
+        "email": email,
+        "role": role,
+        "is_active": True,
+    }
+
+    try:
+        res = sb.table("user_profiles").insert(insert_payload).execute()
+        if res.data and len(res.data) > 0:
+            return res.data[0]
+        return get_user_profile(uid) or insert_payload
+    except Exception:
+        return get_user_profile(uid) or insert_payload
