@@ -573,7 +573,7 @@ export default function PortfolioDashboardPage() {
         </div>
       )}
 
-      <section data-tour="dashboard-summary">
+      <section>
         <div className="mb-4">
           <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
             Quick Stats
@@ -638,20 +638,18 @@ export default function PortfolioDashboardPage() {
               )
             }
           />
-          <div data-tour="itc-at-risk">
-            <StatCard
-              label="Missed ITC"
-              hint="Missed ITC across latest client reconciliations"
-              icon={<IconFail />}
-              value={
-                statsLoading ? (
-                  <span className="inline-block h-8 w-20 animate-pulse rounded bg-gray-100" />
-                ) : (
-                  formatInrCompact(itcAtRiskTotal)
-                )
-              }
-            />
-          </div>
+          <StatCard
+            label="Missed ITC"
+            hint="Missed ITC across latest client reconciliations"
+            icon={<IconFail />}
+            value={
+              statsLoading ? (
+                <span className="inline-block h-8 w-20 animate-pulse rounded bg-gray-100" />
+              ) : (
+                formatInrCompact(itcAtRiskTotal)
+              )
+            }
+          />
           <StatCard
             label="Team Members"
             hint="People who can be assigned reconciliations"
@@ -681,14 +679,14 @@ export default function PortfolioDashboardPage() {
       )}
 
       <section className="grid gap-4 lg:grid-cols-[1.45fr_0.85fr]">
-        <div data-tour="rule37-tracker">
+        <div>
           <ReturnPeriodBoard
             runs={(runs ?? []) as ReconcileRunListRow[]}
             loading={portfolioLoading}
           />
         </div>
 
-        <div className="dashboard-card flex flex-col p-6" data-tour="mismatch-drawer">
+        <div className="dashboard-card flex flex-col p-6">
           <div className="mb-5 flex items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
@@ -818,25 +816,21 @@ export default function PortfolioDashboardPage() {
         )}
 
         {(portfolioLoading || (portfolio && portfolio.total > 0)) && (
-          <div data-tour="ims-recommendations">
-            <div data-tour="vendor-followup">
-              <ClientTable
-                rows={portfolio?.data ?? []}
-                loading={portfolioLoading}
-                page={page}
-                pageSize={PAGE_SIZE}
-                total={portfolio?.total ?? 0}
-                onPageChange={setPage}
-                sort={sort}
-                onSortToggle={onSortToggle}
-                selectedIds={selectedIds}
-                onToggleSelect={toggleSelect}
-                onToggleAllOnPage={toggleAllOnPage}
-                onRetryConfirm={onRetryConfirm}
-                onFinalizeConfirm={(row) => void onFinalizeConfirm(row)}
-              />
-            </div>
-          </div>
+          <ClientTable
+            rows={portfolio?.data ?? []}
+            loading={portfolioLoading}
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={portfolio?.total ?? 0}
+            onPageChange={setPage}
+            sort={sort}
+            onSortToggle={onSortToggle}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onToggleAllOnPage={toggleAllOnPage}
+            onRetryConfirm={onRetryConfirm}
+            onFinalizeConfirm={(row) => void onFinalizeConfirm(row)}
+          />
         )}
       </section>
 
