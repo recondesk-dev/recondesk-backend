@@ -14,7 +14,7 @@ from supabase_auth import User
 from pydantic import BaseModel, ConfigDict
 
 from app.auth import get_current_active_user, get_current_user, require_admin
-from app.database import get_supabase, get_user_profile
+from app.database import ensure_user_profile, get_supabase, get_user_profile
 from app.routers.reconciliation_api import _parse_uuid
 from app.services.billing_gate import assert_gstin_capacity
 from app.services.firm_access import list_accessible_client_gstin_ids
@@ -109,7 +109,6 @@ class ClientCreate(BaseModel):
     gstin: str
     trade_name: str
     legal_name: Optional[str] = None
-    # Accepted for API compatibility; not stored on `client_gstins`.
     contact_name: Optional[str] = None
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
@@ -126,6 +125,9 @@ class ClientUpdate(BaseModel):
     assigned_to: Optional[str] = None
     scheme_type: Optional[str] = None
     filing_frequency: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
 
 
 class AssignClientBody(BaseModel):
@@ -185,6 +187,7 @@ def _resolve_firm_owner(sb, uid: str, role: str | None = None) -> str:
         )
 
     # Standalone user with no explicit staff role is their own firm owner
+    ensure_user_profile(uid, client=sb)
     return uid
 
 
@@ -231,6 +234,7 @@ async def create_client(
     sb = get_supabase()
     uid = str(current_user.get("id", ""))
     owner = _resolve_firm_owner(sb, uid, role=current_user.get("role"))
+    ensure_user_profile(owner, client=sb)
 
     st = (body.scheme_type or "regular").lower().strip()
     if st not in VALID_SCHEME_TYPES:
@@ -265,6 +269,9 @@ async def create_client(
             "is_active": True,
             "trade_name": body.trade_name,
             "legal_name": body.legal_name,
+            "contact_name": body.contact_name,
+            "contact_email": body.contact_email,
+            "contact_phone": body.contact_phone,
             "state_code": g[:2],
             "scheme_type": st,
             "filing_frequency": ff,
@@ -321,6 +328,9 @@ async def create_client(
         "gstin": g,
         "trade_name": body.trade_name,
         "legal_name": body.legal_name,
+        "contact_name": body.contact_name,
+        "contact_email": body.contact_email,
+        "contact_phone": body.contact_phone,
         "state_code": g[:2],
         "scheme_type": st,
         "filing_frequency": ff,
@@ -491,7 +501,17 @@ async def update_client(
     elif str(row.get("assigned_to", "")) != uid:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not allowed")
     updates: dict[str, Any] = {}
-    for k in ("trade_name", "legal_name", "state_code", "registration_type", "scheme_type", "filing_frequency"):
+    for k in (
+        "trade_name",
+        "legal_name",
+        "state_code",
+        "registration_type",
+        "scheme_type",
+        "filing_frequency",
+        "contact_name",
+        "contact_email",
+        "contact_phone",
+    ):
         v = getattr(body, k, None)
         if v is not None:
             if k == "scheme_type" and str(v).lower().strip() not in VALID_SCHEME_TYPES:
