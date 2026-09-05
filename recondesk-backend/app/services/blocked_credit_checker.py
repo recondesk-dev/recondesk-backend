@@ -169,32 +169,31 @@ def _invoice_date(record: Mapping[str, Any]) -> Any:
 
 
 def _amount_rupees(record: Mapping[str, Any]) -> float:
-    """Best-effort ITC / invoice tax amount in rupees for export columns."""
-    for key in ("total_tax_paise", "igst_paise", "estimated_itc_paise"):
+    for key in ("total_tax_paise", "estimated_itc_paise"):
         v = record.get(key)
         if v is not None:
             try:
-                return round(abs(int(v)) / 100.0, 2)
+                amt = abs(int(v))
+                if amt > 0:
+                    return round(amt / 100.0, 2)
             except (TypeError, ValueError):
                 pass
+    cgst = int(record.get("cgst_paise") or 0)
+    sgst = int(record.get("sgst_paise") or 0)
+    igst = int(record.get("igst_paise") or 0)
+    cess = int(record.get("cess_paise") or 0)
+    comp_total = abs(cgst) + abs(sgst) + abs(igst) + abs(cess)
+    if comp_total > 0:
+        return round(comp_total / 100.0, 2)
     for key in ("amount", "estimated_itc_amount", "total_tax", "val"):
         v = record.get(key)
         if v is not None:
             try:
-                return round(abs(float(v)), 2)
+                amt = abs(float(v))
+                if amt > 0:
+                    return round(amt, 2)
             except (TypeError, ValueError):
                 pass
-    # Derive from taxable + components when only those exist
-    try:
-        taxable = int(record.get("taxable_amount_paise") or 0)
-        tax = int(record.get("total_tax_paise") or 0)
-        if tax:
-            return round(abs(tax) / 100.0, 2)
-        if taxable:
-            # No tax line — leave amount 0 rather than inventing ITC
-            return 0.0
-    except (TypeError, ValueError):
-        pass
     return 0.0
 
 
