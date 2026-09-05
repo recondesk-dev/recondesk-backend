@@ -4,3 +4,6 @@
 
 # macOS
 .DS_Store
+
+# Large migration dump
+supabase_migration_dump.sql
