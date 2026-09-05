@@ -305,7 +305,7 @@ export function ClientsPageContent() {
         contact_name: formContactName.trim(),
         contact_email: formContactEmail.trim(),
         contact_phone: formContactPhone.trim(),
-        assigned_to: formAssignedTo || me?.id || undefined,
+        assigned_to: (formAssignedTo || me?.id || "").trim() || undefined,
         scheme_type: formSchemeType,
         filing_frequency: formFilingFrequency,
       });

@@ -132,11 +132,16 @@ class AssignClientBody(BaseModel):
     assigned_to: str
 
 
-def _resolve_firm_owner(sb, uid: str) -> str:
-    prof = get_user_profile(uid) or {}
-    role = (prof.get("role") or "staff").lower()
-    if role == "admin":
+def _resolve_firm_owner(sb, uid: str, role: str | None = None) -> str:
+    user_role = (role or "").strip().lower()
+    if user_role in ("admin", "owner"):
         return uid
+
+    prof = get_user_profile(uid) or {}
+    resolved_role = (user_role or prof.get("role") or "").strip().lower()
+    if resolved_role in ("admin", "owner"):
+        return uid
+
     # 1. Primary: active team membership in firm
     tm = (
         sb.table("team_members")
@@ -173,10 +178,14 @@ def _resolve_firm_owner(sb, uid: str) -> str:
     if r.data and r.data[0].get("firm_owner_id"):
         return str(r.data[0].get("firm_owner_id", "")).strip()
 
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="staff must belong to a firm team before performing this action",
-    )
+    if resolved_role == "staff":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="staff must belong to a firm team before performing this action",
+        )
+
+    # Standalone user with no explicit staff role is their own firm owner
+    return uid
 
 
 @router.get("")
@@ -184,8 +193,8 @@ async def list_clients(current_user: dict = Depends(get_current_active_user)):
     sb = get_supabase()
     uid = str(current_user.get("id", ""))
     prof = get_user_profile(uid) or {}
-    role = (prof.get("role") or "staff").lower()
-    if role == "admin":
+    role = (current_user.get("role") or prof.get("role") or "").strip().lower()
+    if role in ("admin", "owner") or not role:
         res = (
             sb.table("client_gstins")
             .select("*")
@@ -221,7 +230,7 @@ async def create_client(
         )
     sb = get_supabase()
     uid = str(current_user.get("id", ""))
-    owner = _resolve_firm_owner(sb, uid)
+    owner = _resolve_firm_owner(sb, uid, role=current_user.get("role"))
 
     st = (body.scheme_type or "regular").lower().strip()
     if st not in VALID_SCHEME_TYPES:
@@ -261,15 +270,16 @@ async def create_client(
             "filing_frequency": ff,
             "added_at": datetime.now(timezone.utc).isoformat(),
         }
-        if body.assigned_to:
+        assigned_to_val = (body.assigned_to or "").strip()
+        if assigned_to_val:
             try:
-                UUID(body.assigned_to.strip())
+                UUID(assigned_to_val)
             except ValueError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="invalid assigned_to",
                 ) from exc
-            updates["assigned_to"] = str(body.assigned_to).strip()
+            updates["assigned_to"] = assigned_to_val
         sb.table("client_gstins").update(updates).eq("id", row["id"]).execute()
         out = (
             sb.table("client_gstins")
@@ -318,15 +328,16 @@ async def create_client(
         "is_active": True,
         "added_at": datetime.now(timezone.utc).isoformat(),
     }
-    if body.assigned_to:
+    assigned_to_val = (body.assigned_to or "").strip()
+    if assigned_to_val:
         try:
-            UUID(body.assigned_to.strip())
+            UUID(assigned_to_val)
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="invalid assigned_to",
             ) from exc
-        ins["assigned_to"] = str(body.assigned_to).strip()
+        ins["assigned_to"] = assigned_to_val
     try:
         sb.table("client_gstins").insert(ins).execute()
     except Exception as e:
@@ -411,7 +422,7 @@ async def get_client(
     sb = get_supabase()
     uid = str(current_user.get("id", ""))
     prof = get_user_profile(uid) or {}
-    role = (prof.get("role") or "staff").lower()
+    role = (current_user.get("role") or prof.get("role") or "").strip().lower()
     res = (
         sb.table("client_gstins")
         .select("*")
@@ -431,7 +442,7 @@ async def get_client(
             detail="Access denied",
         )
     fo = str(row.get("firm_owner_id", ""))
-    if role == "admin":
+    if role in ("admin", "owner") or not role:
         if fo != uid:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -459,7 +470,7 @@ async def update_client(
     sb = get_supabase()
     uid = str(current_user.get("id", ""))
     prof = get_user_profile(uid) or {}
-    role = (prof.get("role") or "staff").lower()
+    role = (current_user.get("role") or prof.get("role") or "").strip().lower()
     res = (
         sb.table("client_gstins")
         .select("*")
@@ -474,7 +485,7 @@ async def update_client(
         )
     row = res.data[0]
     fo = str(row.get("firm_owner_id", ""))
-    if role == "admin":
+    if role in ("admin", "owner") or not role:
         if fo != uid:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not allowed")
     elif str(row.get("assigned_to", "")) != uid:
@@ -495,12 +506,23 @@ async def update_client(
                 )
             updates[k] = str(v).lower().strip() if k in ("scheme_type", "filing_frequency") else v
     if body.assigned_to is not None:
-        if role != "admin":
+        if role not in ("admin", "owner") and role:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only admin can change assigned_to",
             )
-        updates["assigned_to"] = body.assigned_to
+        assigned_to_clean = str(body.assigned_to).strip()
+        if assigned_to_clean:
+            try:
+                UUID(assigned_to_clean)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="invalid assigned_to",
+                ) from exc
+            updates["assigned_to"] = assigned_to_clean
+        else:
+            updates["assigned_to"] = None
     if updates:
         sb.table("client_gstins").update(updates).eq("id", cid).execute()
     out = (
@@ -588,7 +610,8 @@ async def delete_client(
     sb = get_supabase()
     uid = str(current_user.get("id", ""))
     prof = get_user_profile(uid) or {}
-    if (prof.get("role") or "staff").lower() != "admin":
+    role = (current_user.get("role") or prof.get("role") or "").strip().lower()
+    if role not in ("admin", "owner") and role:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admin can remove clients",

@@ -351,7 +351,7 @@ def require_role(*allowed: str):
 
 async def require_admin(user_id: str = Depends(get_current_user_id)) -> str:
     role = (await get_user_role(user_id)).strip().lower()
-    if role != "admin":
+    if role not in ("admin", "owner"):
         raise http_403()
     return user_id
 

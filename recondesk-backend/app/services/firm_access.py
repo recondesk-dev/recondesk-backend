@@ -35,9 +35,9 @@ def list_accessible_client_gstin_ids(sb: Client, current_user: dict) -> set[str]
     from app.database import get_user_profile  # local import to avoid cycle
 
     profile = get_user_profile(uid) or {}
-    role = (profile.get("role") or "staff").strip().lower()
+    role = (current_user.get("role") or profile.get("role") or "").strip().lower()
 
-    if role == "admin":
+    if role in ("admin", "owner") or not role:
         r = (
             sb.table("client_gstins")
             .select("id")

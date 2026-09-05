@@ -135,7 +135,7 @@ def resolve_firm_id(db: Client, user: Mapping[str, Any] | dict) -> Optional[str]
             role = ""
 
     # 2. Admin owns the firm.
-    if role == "admin":
+    if role in ("admin", "owner"):
         return uid
 
     # 3. Staff → derive the firm owner.

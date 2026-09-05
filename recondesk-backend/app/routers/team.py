@@ -46,12 +46,15 @@ def _apply_invited_staff_role(sb, profile_user_id: str) -> None:
         )
 
 
-def _firm_owner_id(sb, uid: str) -> str:
-    prof = get_user_profile(uid) or {}
-    role = (prof.get("role") or "staff").lower()
-    if role == "admin":
+def _firm_owner_id(sb, uid: str, role: str | None = None) -> str:
+    user_role = (role or "").strip().lower()
+    if user_role in ("admin", "owner"):
         return uid
-    return _resolve_firm_owner(sb, uid)
+    prof = get_user_profile(uid) or {}
+    resolved_role = (user_role or prof.get("role") or "").strip().lower()
+    if resolved_role in ("admin", "owner"):
+        return uid
+    return _resolve_firm_owner(sb, uid, role=resolved_role)
 
 
 def _norm_email(email: str) -> str:
@@ -177,7 +180,11 @@ async def list_team_members(
 ):
     sb = get_supabase()
     uid = str(current_user.get("id", ""))
-    owner_id = _firm_owner_id(sb, uid)
+    user_role = str(current_user.get("role") or "").strip().lower()
+    try:
+        owner_id = _firm_owner_id(sb, uid, role=user_role)
+    except HTTPException:
+        return []
 
     active_pairs = _active_members_inner_join_profiles(sb, owner_id)
 
