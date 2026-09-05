@@ -3762,7 +3762,7 @@ def _build_section175_rows(sb, rid: str, payload: dict[str, Any], note_counts: C
                 "invoice_number": inv,
                 "invoice_date": inv_date_str,
                 "amount": amt,
-                "match_level": "UNMATCHED",
+                "match_level": bn.get("match_status") or bn.get("match_level") or "MATCHED",
                 "confidence_score": 0.0,
                 "discrepancy_note": bn.get("hsn_code"),
                 "decision_what": d_what,
