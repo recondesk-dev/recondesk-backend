@@ -1174,8 +1174,11 @@ def execute_reconciliation(run_id: str) -> None:
 
         # Build lookup for matched PR ids to enrich GSTR rows with PR-level ITC eligibility
         matched_gstr_to_pr = {str(m["gstr_id"]): str(m["pr_id"]) for m in state.clean_matched}
+        for rev in state.review_required:
+            if rev.get("gstr_id") and rev.get("pr_id"):
+                matched_gstr_to_pr[str(rev["gstr_id"])] = str(rev["pr_id"])
 
-        gstr_invoices_for_blocked: list[dict[str, Any]] = []
+        invoices_for_blocked: list[dict[str, Any]] = []
         for ggr in gstr_matcher:
             gid = str(ggr.get("id", ""))
             rdg = gstr_raw_by_id.get(gid) or {}
@@ -1207,8 +1210,27 @@ def execute_reconciliation(run_id: str) -> None:
                     if pr_raw.get("itc_eligibility") is not None:
                         merged["itc_eligibility"] = pr_raw.get("itc_eligibility")
                     
-            gstr_invoices_for_blocked.append(merged)
-        s175 = check_blocked_credits(gstr_invoices_for_blocked)
+            invoices_for_blocked.append(merged)
+
+        matched_pr_ids = set(matched_gstr_to_pr.values())
+        for pr in pr_current:
+            pid = str(pr.get("id", ""))
+            if pid not in matched_pr_ids:
+                raw_pr = pr_raw_by_id.get(pid) or {}
+                pr_merged = dict(raw_pr) if isinstance(raw_pr, dict) else {}
+                pr_merged["invoice_number"] = pr.get("invoice_number_normalized") or pr.get("invoice_number")
+                pr_merged["supplier_gstin"] = pr.get("supplier_gstin")
+                pr_merged["invoice_date"] = pr.get("invoice_date")
+                pr_merged["total_tax_paise"] = pr.get("total_tax_paise")
+                pr_merged["cgst_paise"] = pr.get("cgst_paise")
+                pr_merged["sgst_paise"] = pr.get("sgst_paise")
+                pr_merged["igst_paise"] = pr.get("igst_paise")
+                if raw_pr.get("itc_eligibility") is not None:
+                    pr_merged["itc_eligibility"] = raw_pr["itc_eligibility"]
+                if pr.get("hsn") is not None:
+                    pr_merged["hsn"] = pr["hsn"]
+                invoices_for_blocked.append(pr_merged)
+        s175 = check_blocked_credits(invoices_for_blocked)
 
         _phase("amount-diff-upsert")
         amount_diff_upsert_rows: list[dict[str, Any]] = []
