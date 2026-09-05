@@ -96,6 +96,13 @@ def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> Deci
     if isinstance(itc_amount, int):
         itc_amount = f"₹{itc_amount / 100:,.2f}"
 
+    if row.get("possible_blocked_credit") or row.get("is_blocked_credit"):
+        hsn = row.get("hsn_code") or row.get("hsn")
+        cat = row.get("blocked_credit_category") or row.get("category") or "Section 17(5) blocked credit"
+        if hsn:
+            return generate_decision("BLOCKED_CREDIT", category=cat, hsn_code=str(hsn))
+        return generate_decision("BLOCKED_CREDIT_NO_HSN", category=cat)
+
     if st == "composition":
         if (
             row.get("is_missed_itc")
