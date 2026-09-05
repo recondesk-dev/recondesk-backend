@@ -82,44 +82,44 @@ REGISTRY.register(RuleDefinition(
 
 REGISTRY.register(RuleDefinition(
     id="ITC_008",
-    name="Section 17(5)(c) Club Membership",
+    name="Section 17(5)(b)(ii) Club Membership",
     category=RuleCategory.ITC,
     severity=RuleSeverity.CRITICAL,
     description="Block ITC on membership of clubs, health and fitness centres.",
-    gst_ref="Section 17(5)(c) CGST Act",
+    gst_ref="Section 17(5)(b)(ii) CGST Act",
     applies_to=["purchase_register"],
     tags=["itc", "blocked", "section-17-5"],
 ))
 
 REGISTRY.register(RuleDefinition(
     id="ITC_009",
-    name="Section 17(5)(d) Rent-a-Cab",
+    name="Section 17(5)(b)(i) Rent-a-Cab",
     category=RuleCategory.ITC,
     severity=RuleSeverity.CRITICAL,
     description="Block ITC on rent-a-cab, life insurance and health insurance except when outward supply obligation exists.",
-    gst_ref="Section 17(5)(d) CGST Act",
+    gst_ref="Section 17(5)(b)(i) CGST Act",
     applies_to=["purchase_register"],
     tags=["itc", "blocked", "section-17-5"],
 ))
 
 REGISTRY.register(RuleDefinition(
     id="ITC_010",
-    name="Section 17(5)(e) Travel Benefits",
+    name="Section 17(5)(b)(iii) Travel Benefits",
     category=RuleCategory.ITC,
     severity=RuleSeverity.CRITICAL,
     description="Block ITC on travel benefits extended to employees on vacation such as leave or home travel concession.",
-    gst_ref="Section 17(5)(e) CGST Act",
+    gst_ref="Section 17(5)(b)(iii) CGST Act",
     applies_to=["purchase_register"],
     tags=["itc", "blocked", "section-17-5"],
 ))
 
 REGISTRY.register(RuleDefinition(
     id="ITC_011",
-    name="Section 17(5)(f) Works Contract",
+    name="Section 17(5)(c) Works Contract",
     category=RuleCategory.ITC,
     severity=RuleSeverity.CRITICAL,
     description="Block ITC on works contract services for construction of immovable property except plant and machinery.",
-    gst_ref="Section 17(5)(f) CGST Act",
+    gst_ref="Section 17(5)(c) CGST Act",
     applies_to=["purchase_register"],
     tags=["itc", "blocked", "section-17-5"],
 ))
