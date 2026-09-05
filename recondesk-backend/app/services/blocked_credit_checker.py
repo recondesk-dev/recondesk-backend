@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+import pandas as pd
+
 INELIGIBLE_ITC_VALUES = frozenset({
     "no",
     "false",
@@ -13,6 +15,9 @@ INELIGIBLE_ITC_VALUES = frozenset({
     "f",
     "0",
     "not eligible",
+    "not claimed",
+    "non-eligible",
+    "non eligible",
 })
 
 BLOCKED_HSN_CODES = {
@@ -228,7 +233,12 @@ def check_blocked_credits(invoices: list[dict]) -> list[dict]:
     warnings: list[dict] = []
 
     for record in invoices:
-        itc_eligibility = str(record.get("itc_eligibility") or "").strip().lower()
+        raw_elig = record.get("itc_eligibility")
+        itc_eligibility = (
+            str(raw_elig).strip().lower()
+            if raw_elig is not None and not (isinstance(raw_elig, float) and pd.isna(raw_elig))
+            else ""
+        )
         if itc_eligibility in INELIGIBLE_ITC_VALUES:
             warnings.append(
                 _base_warning(
