@@ -26,6 +26,11 @@ BLOCKED_HSN_CODES = {
         "usage_dependent": True,
         "exempt_note": "Exempt if used for transport business, driving school, or further supply",
     },
+    "8711": {
+        "category": "Two-wheelers / Motorcycles -- Section 17(5)(a)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if used for delivery or further supply",
+    },
     "2106": {
         "category": "Food preparations -- Section 17(5)(b)(i)",
         "usage_dependent": True,
@@ -35,11 +40,6 @@ BLOCKED_HSN_CODES = {
         "category": "Food/beverages/catering services -- Section 17(5)(b)(i)",
         "usage_dependent": True,
         "exempt_note": "Exempt if canteen is mandatory under Factories Act",
-    },
-    "9972": {
-        "category": "Construction/real estate services -- Section 17(5)(d)",
-        "usage_dependent": False,
-        "exempt_note": "",
     },
     "9995": {
         "category": "Club memberships -- Section 17(5)(b)(ii)",
@@ -66,10 +66,20 @@ BLOCKED_HSN_CODES = {
         "usage_dependent": True,
         "exempt_note": "Exempt if statutory obligation by employer",
     },
-    "9952": {
+    "9966": {
+        "category": "Rental of transport vehicles with operators -- Section 17(5)(b)(i)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if statutory employer obligation",
+    },
+    "9973": {
+        "category": "Leasing/renting of motor vehicles without operator -- Section 17(5)(b)(i)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if outward supply obligation exists",
+    },
+    "9987": {
         "category": "Maintenance/servicing of motor vehicles -- Section 17(5)(ab)",
         "usage_dependent": True,
-        "exempt_note": "Exempt if motor vehicle itself is eligible for ITC",
+        "exempt_note": "Exempt if motor vehicle itself is ITC-eligible",
     },
     "8802": {
         "category": "Aircraft -- Section 17(5)(aa)",
