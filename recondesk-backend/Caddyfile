@@ -1,3 +1,4 @@
 api.recondesk.in {
+    header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
     reverse_proxy web:8000
 }
