@@ -1,0 +1,9 @@
+{
+  "api_key": "rdb_paste_key_from_dashboard",
+  "recondesk_endpoint": "https://api.recondesk.in/api/tally-sync/outstanding",
+  "tally_host": "localhost",
+  "tally_port": 9000,
+  "sync_interval_minutes": 60,
+  "lookback_days": 200,
+  "company_name": "Your Company Name As In Tally"
+}

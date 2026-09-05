@@ -1020,7 +1020,13 @@ class SandboxFilingClient:
         )
 
         if resp.status_code in (401, 403):
-            raise FilingAuthError(f"HTTP {resp.status_code} on {path}")
+            # Sandbox platform often returns bare 401/403 for bad/expired
+            # taxpayer JWT (distinct from GSTN AUTH/TEC codes inside HTTP 200).
+            body_snip = (resp.text or "").strip().replace("\n", " ")[:240]
+            detail = f"HTTP {resp.status_code} on {path}"
+            if body_snip:
+                detail = f"{detail}: {body_snip}"
+            raise FilingAuthError(detail)
         if resp.status_code != 200:
             raise FilingApiError(
                 f"HTTP {resp.status_code} on {path}: {resp.text[:300]}",
