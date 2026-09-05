@@ -86,7 +86,9 @@ export function ClientsPageContent() {
     ([, t]) => authProfileFetcher(t),
     AUTH_PROFILE_SWR_OPTIONS
   );
-  const { data: teamMembers } = useSWR(teamKey, ([, t]) => teamApi.list(t));
+  const { data: teamMembers } = useSWR(teamKey, ([, t]) =>
+    teamApi.list(t, { includeOwner: true })
+  );
   const billingKey = authToken ? (["clients-billing", authToken] as const) : null;
   const { data: billingStatus, mutate: mutateBilling } = useSWR(
     billingKey,
@@ -109,7 +111,7 @@ export function ClientsPageContent() {
   const assigneeNames = useMemo(() => {
     const m = new Map<string, string>();
     if (me?.id) {
-      m.set(me.id, me.full_name?.trim() || me.email || "Owner");
+      m.set(me.id, me.full_name?.trim() || me.email || "Current User");
     }
     (teamMembers as TeamMemberListItem[] | undefined)?.forEach((tm) => {
       if (tm.status === "active" && tm.member_user_id) {
@@ -122,22 +124,37 @@ export function ClientsPageContent() {
 
   const assignOptions = useMemo(() => {
     const opts: { userId: string; label: string }[] = [];
-    if (me?.id) {
-      opts.push({
-        userId: me.id,
-        label: `${me.full_name?.trim() || me.email || "Owner"} (Owner)`,
-      });
-    }
+    const seen = new Set<string>();
+
     (teamMembers as TeamMemberListItem[] | undefined)?.forEach((tm) => {
       if (tm.status !== "active" || !tm.member_user_id) return;
-      if (tm.member_user_id === me?.id) return;
+      if (seen.has(tm.member_user_id)) return;
+      seen.add(tm.member_user_id);
+
+      const isOwner =
+        (tm.role || "").toLowerCase() === "owner" ||
+        (tm.member_user_id === me?.id && isAdmin);
+      const isSelf = tm.member_user_id === me?.id;
+      const base = tm.full_name?.trim() || tm.email || "Member";
+      const tag = isOwner ? " (Owner)" : isSelf ? " (You)" : "";
       opts.push({
         userId: tm.member_user_id,
-        label: tm.full_name?.trim() || tm.email,
+        label: `${base}${tag}`,
       });
     });
+
+    if (me?.id && !seen.has(me.id)) {
+      seen.add(me.id);
+      const tag = isAdmin ? " (Owner)" : " (You)";
+      const base = me.full_name?.trim() || me.email || "Current User";
+      opts.push({
+        userId: me.id,
+        label: `${base}${tag}`,
+      });
+    }
+
     return opts;
-  }, [me, teamMembers]);
+  }, [me, teamMembers, isAdmin]);
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search, 200);
@@ -180,10 +197,14 @@ export function ClientsPageContent() {
   }, [clients, debouncedSearch]);
 
   useEffect(() => {
-    if (addOpen && assignOptions.length && !formAssignedTo) {
-      setFormAssignedTo(assignOptions[0]?.userId ?? "");
+    if (addOpen && !formAssignedTo) {
+      if (assignOptions.length) {
+        setFormAssignedTo(assignOptions[0]?.userId ?? "");
+      } else if (me?.id) {
+        setFormAssignedTo(me.id);
+      }
     }
-  }, [addOpen, assignOptions, formAssignedTo]);
+  }, [addOpen, assignOptions, formAssignedTo, me?.id]);
 
   const [connectTarget, setConnectTarget] = useState<{ id: string; gstin: string } | null>(null);
 
@@ -194,8 +215,7 @@ export function ClientsPageContent() {
     formTradeName.trim().length >= 2 &&
     formContactName.trim().length >= 1 &&
     formContactEmail.includes("@") &&
-    formContactPhone.trim().length >= 6 &&
-    !!formAssignedTo;
+    formContactPhone.trim().length >= 6;
 
   const gstinLimit = billingStatus?.gstin_limit ?? 1;
   const gstinsUsed = billingStatus?.gstins_used ?? 0;
@@ -221,7 +241,7 @@ export function ClientsPageContent() {
     setFormContactName("");
     setFormContactEmail("");
     setFormContactPhone("");
-    setFormAssignedTo(assignOptions[0]?.userId ?? "");
+    setFormAssignedTo(assignOptions[0]?.userId ?? me?.id ?? "");
     setFormSchemeType("regular");
     setFormFilingFrequency("monthly");
     setVerifyResult(null);
@@ -285,7 +305,7 @@ export function ClientsPageContent() {
         contact_name: formContactName.trim(),
         contact_email: formContactEmail.trim(),
         contact_phone: formContactPhone.trim(),
-        assigned_to: formAssignedTo || undefined,
+        assigned_to: formAssignedTo || me?.id || undefined,
         scheme_type: formSchemeType,
         filing_frequency: formFilingFrequency,
       });
@@ -700,6 +720,11 @@ export function ClientsPageContent() {
               onChange={(e) => setFormAssignedTo(e.target.value)}
               className="min-h-[44px] w-full rounded-lg border border-[var(--border)] px-3 text-sm"
             >
+              {assignOptions.length === 0 && (
+                <option value={me?.id ?? ""}>
+                  {me?.full_name ? `${me.full_name} (${isAdmin ? "Owner" : "You"})` : "Assign to me"}
+                </option>
+              )}
               {assignOptions.map((o) => (
                 <option key={o.userId} value={o.userId}>
                   {o.label}

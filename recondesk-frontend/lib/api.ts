@@ -904,8 +904,10 @@ export const auditLogsApi = {
 };
 
 export const teamApi = {
-  list: (token: string) =>
-    apiFetch<TeamMemberListItem[]>("/api/team/members", { token }),
+  list: (token: string, options?: { includeOwner?: boolean }) => {
+    const qs = options?.includeOwner ? "?include_owner=true" : "";
+    return apiFetch<TeamMemberListItem[]>(`/api/team/members${qs}`, { token });
+  },
 
   invite: (token: string, email: string, role: "admin" | "staff") =>
     apiFetch<{ invited: boolean }>("/api/team/invite", {

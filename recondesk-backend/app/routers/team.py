@@ -171,7 +171,10 @@ def _active_members_inner_join_profiles(
 
 
 @router.get("/members")
-async def list_team_members(current_user: dict = Depends(get_current_active_user)):
+async def list_team_members(
+    include_owner: bool = False,
+    current_user: dict = Depends(get_current_active_user),
+):
     sb = get_supabase()
     uid = str(current_user.get("id", ""))
     owner_id = _firm_owner_id(sb, uid)
@@ -191,6 +194,22 @@ async def list_team_members(current_user: dict = Depends(get_current_active_user
     ]
 
     out: list[dict[str, Any]] = []
+
+    if include_owner and owner_id:
+        owner_prof = get_user_profile(owner_id) or {}
+        out.append(
+            {
+                "id": f"owner_{owner_id}",
+                "member_user_id": owner_id,
+                "full_name": owner_prof.get("full_name") or "",
+                "email": str(owner_prof.get("email") or ""),
+                "role": "owner",
+                "joined_at": owner_prof.get("created_at"),
+                "status": "active",
+                "invite_expires_at": None,
+            }
+        )
+
     for r, prof in active_pairs:
         tid = str(r["id"])
         role = str(r.get("role") or "")

@@ -137,6 +137,32 @@ def _resolve_firm_owner(sb, uid: str) -> str:
     role = (prof.get("role") or "staff").lower()
     if role == "admin":
         return uid
+    # 1. Primary: active team membership in firm
+    tm = (
+        sb.table("team_members")
+        .select("firm_owner_id")
+        .eq("member_user_id", uid)
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+    )
+    if tm.data and tm.data[0].get("firm_owner_id"):
+        return str(tm.data[0]["firm_owner_id"]).strip()
+
+    # 2. Fallback: match by invited email
+    em = (prof.get("email") or "").strip().lower()
+    if em:
+        tm_email = (
+            sb.table("team_members")
+            .select("firm_owner_id")
+            .eq("invited_email", em)
+            .limit(1)
+            .execute()
+        )
+        if tm_email.data and tm_email.data[0].get("firm_owner_id"):
+            return str(tm_email.data[0]["firm_owner_id"]).strip()
+
+    # 3. Fallback: client assignment
     r = (
         sb.table("client_gstins")
         .select("firm_owner_id")
@@ -144,12 +170,13 @@ def _resolve_firm_owner(sb, uid: str) -> str:
         .limit(1)
         .execute()
     )
-    if not r.data:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="staff must belong to a firm (assign a client first) before creating clients",
-        )
-    return str(r.data[0].get("firm_owner_id", "")).strip()
+    if r.data and r.data[0].get("firm_owner_id"):
+        return str(r.data[0].get("firm_owner_id", "")).strip()
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="staff must belong to a firm team before performing this action",
+    )
 
 
 @router.get("")
