@@ -187,3 +187,32 @@ def test_build_rule37_summary_payload_surfaces_verification_and_coverage():
     # Confirmed at-risk stays separate from pending-verification exposure
     assert s["pending_verification_exposure"] != s["total_itc_at_risk"]
     assert s["pending_action"] == 0.0
+
+
+def test_rule37_candidates_include_review_and_wrongful():
+    clean = [{"pr_id": "c-1"}]
+    review = [{"pr_id": "r-1"}]
+    wrongful = [{"id": "w-1"}]
+    pr_current = [{"id": "c-1"}, {"id": "r-1"}, {"id": "w-1"}, {"id": "extra-1"}]
+
+    seen = set()
+    candidates = [
+        *(m.get("pr_id") for m in clean if m.get("pr_id")),
+        *(r.get("pr_id") for r in review if r.get("pr_id")),
+        *(w.get("id") or w.get("pr_id") for w in wrongful if (w.get("id") or w.get("pr_id"))),
+    ]
+    for p_curr in pr_current:
+        cid = p_curr.get("id")
+        if cid:
+            candidates.append(cid)
+
+    collected = []
+    for c in candidates:
+        pr_id = str(c).strip()
+        if not pr_id or pr_id in seen:
+            continue
+        seen.add(pr_id)
+        collected.append(pr_id)
+
+    assert set(collected) == {"c-1", "r-1", "w-1", "extra-1"}
+

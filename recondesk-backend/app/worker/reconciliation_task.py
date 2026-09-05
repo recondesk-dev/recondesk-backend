@@ -1051,8 +1051,22 @@ def execute_reconciliation(run_id: str) -> None:
         rule37_claimed_invoice_count = 0
         rule37_payment_status_known_count = 0
         rule37_payment_status_unknown_count = 0
-        for m in state.clean_matched:
-            pr_id = str(m.get("pr_id"))
+        seen_rule37_pr_ids: set[str] = set()
+        candidate_pr_sources: list[Any] = [
+            *(m.get("pr_id") for m in state.clean_matched if m.get("pr_id")),
+            *(r.get("pr_id") for r in state.review_required if r.get("pr_id")),
+            *(w.get("id") or w.get("pr_id") for w in wrongful_itc if (w.get("id") or w.get("pr_id"))),
+        ]
+        for p_curr in pr_current:
+            cid = p_curr.get("id")
+            if cid:
+                candidate_pr_sources.append(cid)
+
+        for candidate_id in candidate_pr_sources:
+            pr_id = str(candidate_id).strip()
+            if not pr_id or pr_id in seen_rule37_pr_ids:
+                continue
+            seen_rule37_pr_ids.add(pr_id)
             p = pr_by_id.get(pr_id)
             if not p:
                 continue
