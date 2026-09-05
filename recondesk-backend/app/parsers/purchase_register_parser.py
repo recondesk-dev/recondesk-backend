@@ -683,6 +683,7 @@ def normalize_dataframe_to_canonical_schema(
         if canon == "gstin":
             out_cols[canon] = ser.map(_normalize_gstin_cell)
         elif canon == "invoice_number_normalized":
+            out_cols["invoice_number_raw"] = ser.map(_safe_cell)
             out_cols[canon] = ser.map(_normalize_invoice_number_cell)
         elif canon == "invoice_date":
             out_cols[canon] = ser.map(_safe_cell)
@@ -962,12 +963,24 @@ def _process_pr_sheet_rows(
                 row_errors.append("missing note number")
 
         inv_raw: str | None = None
+        inv_norm: str | None = None
         if (not note_mode) and "invoice_number" in mapping:
-            cell = row.get("invoice_number_normalized")
-            if cell is None or (isinstance(cell, float) and pd.isna(cell)):
-                inv_raw = None
-            else:
-                inv_raw = str(cell).strip().upper() if str(cell).strip() else None
+            raw_val = row.get("invoice_number_raw")
+            norm_val = row.get("invoice_number_normalized")
+            inv_raw = (
+                str(raw_val).strip().upper()
+                if (raw_val is not None and not (isinstance(raw_val, float) and pd.isna(raw_val)) and str(raw_val).strip())
+                else None
+            )
+            inv_norm = (
+                str(norm_val).strip().upper()
+                if (norm_val is not None and not (isinstance(norm_val, float) and pd.isna(norm_val)) and str(norm_val).strip())
+                else None
+            )
+            if inv_raw is None and inv_norm is not None:
+                inv_raw = inv_norm
+            if inv_norm is None and inv_raw is not None:
+                inv_norm = normalize_invoice(inv_raw)
             if inv_raw is None:
                 row_errors.append("missing invoice number")
 
@@ -1063,13 +1076,27 @@ def _process_pr_sheet_rows(
                 + (sgst_paise or 0)
                 + (cess_paise or 0)
             )
+        total_amount_paise = (
+            None if note_mode else _df_cell_int(row.get("total_amount_paise"))
+        )
         if (
             not note_mode
             and invoice_type == "CREDIT_NOTE"
-            and total_tax_paise is not None
-            and total_tax_paise > 0
         ):
-            total_tax_paise = -total_tax_paise
+            if total_tax_paise is not None and total_tax_paise > 0:
+                total_tax_paise = -total_tax_paise
+            if igst_paise is not None and igst_paise > 0:
+                igst_paise = -igst_paise
+            if cgst_paise is not None and cgst_paise > 0:
+                cgst_paise = -cgst_paise
+            if sgst_paise is not None and sgst_paise > 0:
+                sgst_paise = -sgst_paise
+            if cess_paise is not None and cess_paise > 0:
+                cess_paise = -cess_paise
+            if taxable_amount_paise is not None and taxable_amount_paise > 0:
+                taxable_amount_paise = -taxable_amount_paise
+            if total_amount_paise is not None and total_amount_paise > 0:
+                total_amount_paise = -total_amount_paise
 
         _rcell = row.get("reverse_charge")
         if _rcell is None or (isinstance(_rcell, float) and pd.isna(_rcell)):
@@ -1105,7 +1132,7 @@ def _process_pr_sheet_rows(
 
         out: dict[str, Any] = {
             "row_number": row_number,
-            "invoice_number_normalized": None if note_mode else inv_raw,
+            "invoice_number_normalized": None if note_mode else inv_norm,
             "invoice_number": None if note_mode else inv_raw,
             "document_type": invoice_type,
             "invoice_type": invoice_type,
@@ -1119,9 +1146,7 @@ def _process_pr_sheet_rows(
             "sgst_paise": sgst_paise,
             "cess_paise": cess_paise,
             "total_tax_paise": total_tax_paise,
-            "total_amount_paise": (
-                None if note_mode else _df_cell_int(row.get("total_amount_paise"))
-            ),
+            "total_amount_paise": total_amount_paise,
             "place_of_supply": _safe_cell(row.get("place_of_supply")),
             "reverse_charge": reverse_out,
             "source_file": filename,

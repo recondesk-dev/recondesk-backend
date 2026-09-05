@@ -29,3 +29,34 @@ def test_file_router_csv():
 def test_file_router_unsupported():
     with pytest.raises(ValueError, match="Unsupported file type"):
         parse_file(b"data", "file.pdf")
+
+
+def test_purchase_register_credit_note_signed_taxes():
+    from app.parsers.purchase_register_parser import parse_purchase_register
+    csv_content = (
+        b"GSTIN,Invoice Number,Invoice Date,Invoice Type,Taxable Value,IGST,CGST,SGST,Total Tax,Total Amount\n"
+        b"27AACCV1726H1ZE,CN-101,2024-04-15,CREDIT_NOTE,1000,0,90,90,180,1180\n"
+    )
+    res = parse_purchase_register(csv_content, "pr.csv")
+    assert len(res["records"]) == 1
+    row = res["records"][0]
+    assert row["invoice_type"] == "CREDIT_NOTE"
+    assert row["taxable_amount_paise"] == -100_000
+    assert row["cgst_paise"] == -9_000
+    assert row["sgst_paise"] == -9_000
+    assert row["total_tax_paise"] == -18_000
+    assert row["total_amount_paise"] == -118_000
+
+
+def test_purchase_register_leading_zeros_preserved():
+    from app.parsers.purchase_register_parser import parse_purchase_register
+    csv_content = (
+        b"GSTIN,Invoice Number,Invoice Date,Taxable Value,Total Tax\n"
+        b"27AACCV1726H1ZE,00123,2024-04-15,1000,180\n"
+    )
+    res = parse_purchase_register(csv_content, "pr.csv")
+    assert len(res["records"]) == 1
+    row = res["records"][0]
+    assert row["invoice_number"] == "00123"
+    assert row["invoice_number_normalized"] == "123"
+
