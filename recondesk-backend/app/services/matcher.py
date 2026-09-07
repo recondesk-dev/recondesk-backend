@@ -125,6 +125,10 @@ def is_invoice_format_variant(
     # Check 2: Shared exact core numeric sequence (using raw tokens to split by separators)
     # We enforce len(na) != len(nb) so we don't accidentally swallow equal-length typos like "INV1" vs "INX1"
     if len(na) != len(nb):
+        # If BOTH sides have leading alpha prefixes and they differ, they cannot be format variants
+        if pa and pb and pa.group(0) != pb.group(0):
+            return False
+
         def _extract_numeric(s: str) -> set[int]:
             # Include numbers >= 1 (allows short numbers like "1" to match as format variants)
             return {int(t) for t in re.findall(r"\d+", str(s)) if int(t) >= 1}
@@ -132,9 +136,12 @@ def is_invoice_format_variant(
         nums_a = _extract_numeric(a_raw or a or "")
         nums_b = _extract_numeric(b_raw or b or "")
         if nums_a and nums_b:
-            has_alpha_a = bool(re.search(r'[A-Za-z]', (a_raw or a or "")))
-            has_alpha_b = bool(re.search(r'[A-Za-z]', (b_raw or b or "")))
-            if (nums_a & nums_b):
+            shared_nums = nums_a & nums_b
+            # Financial-year tokens (e.g. 26 or 2026) cannot by themselves establish format variance
+            meaningful_shared = {n for n in shared_nums if not (20 <= n <= 35 or 2020 <= n <= 2035)}
+            if meaningful_shared:
+                has_alpha_a = bool(re.search(r'[A-Za-z]', (a_raw or a or "")))
+                has_alpha_b = bool(re.search(r'[A-Za-z]', (b_raw or b or "")))
                 # Extra guard: one side must have more structure (alpha prefix or longer numeric)
                 # to prevent "123" matching "456" via coincidence
                 if has_alpha_a or has_alpha_b:
@@ -147,7 +154,7 @@ def is_invoice_format_variant(
                         short2, long2 = (na, nb) if len(na) <= len(nb) else (nb, na)
                         if _extra_chars_are_digits_only(short2, long2):
                             return True
-                    else:
+                    elif not (pa and pb):
                         return True
             # Note: a fuzzy "1-char-edit-distance numeric core" fallback used to live
             # here (intended to catch zero-padding typos like '00051' vs '00057').
