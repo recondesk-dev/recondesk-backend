@@ -2244,6 +2244,23 @@ def _build_reconcile_summary(
         "unmatched_notes_count": sum(
             1 for r in outcome_rows if r.category == "unmatched_notes"
         ),
+        "itc_on_hold_count": sum(
+            1 for r in outcome_rows if r.id.startswith("pm:") and r.category in ("rule37_warnings", "blocked_credit")
+        ),
+        "rule37a_count": sum(
+            1 for r in outcome_rows if r.category == "rule37_warnings"
+        ),
+        "blocked_credit_count": sum(
+            1 for r in outcome_rows if r.id.startswith("pm:") and r.category == "blocked_credit"
+        ),
+        "itc_on_hold_total_amount": round(
+            sum(
+                _paise_to_rupees(r.amount or 0)
+                for r in outcome_rows
+                if r.id.startswith("pm:") and r.category in ("rule37_warnings", "blocked_credit")
+            ),
+            2,
+        ),
     }
 
 
@@ -2725,6 +2742,8 @@ def _build_matched_pair_records(
                 if not fetch_review_required
                 else (oc_matched_in_order[idx] if idx < len(oc_matched_in_order) else None)
             )
+            if not fetch_review_required and orow is None:
+                continue
             mst_disp = getattr(orow, "match_status", None)
             lvl = _matched_ui_match_level(
                 dict(en_row),
@@ -3812,6 +3831,97 @@ def _build_section175_rows(sb, rid: str, payload: dict[str, Any], note_counts: C
         )
     out.sort(key=lambda x: (-x["amount"], x["id"]))
     return out
+
+
+def _build_itc_on_hold_records(
+    sb,
+    *,
+    rid: str,
+    payload: dict[str, Any],
+    note_counts: Counter[str],
+    precomputed_outcome_rows: Optional[list[Any]] = None,
+) -> list[dict[str, Any]]:
+    """Build list of matched pairs that are on hold (Rule 37A non-filers or Section 17(5) blocked credits)."""
+    all_outcome_rows = (
+        precomputed_outcome_rows
+        if precomputed_outcome_rows is not None
+        else ro.build_outcome_rows(sb, rid, payload)[0]
+    )
+    gstr_db = ro.load_gstr_map(sb, rid)
+    pr_db = ro.load_pr_map(sb, rid)
+
+    rows: list[dict[str, Any]] = []
+    for r in all_outcome_rows:
+        if not r.id.startswith("pm:"):
+            continue
+        if r.category not in ("rule37_warnings", "blocked_credit"):
+            continue
+
+        gid = r.id.removeprefix("pm:")
+        gm = ((gstr_db.get(gid) or {}).get("matcher")) or {}
+        grd_raw = (
+            (gstr_db.get(gid) or {}).get("record_data")
+            if isinstance((gstr_db.get(gid) or {}).get("record_data"), dict)
+            else {}
+        )
+        pid = r.matched_pr_id or ""
+        pm = ((pr_db.get(pid) or {}).get("matcher")) if pid else {}
+        prd_raw = (
+            (pr_db.get(pid) or {}).get("record_data")
+            if isinstance((pr_db.get(pid) or {}).get("record_data"), dict)
+            else {}
+        )
+
+        is_r37a = (
+            r.category == "rule37_warnings"
+            or bool(r.rule37a_flag)
+            or str(r.match_status).upper() == "RULE37A"
+        )
+        hold_type = "RULE37A" if is_r37a else "BLOCKED_CREDIT"
+        hold_reason = (
+            "Supplier GSTR-3B Non-Filer (Rule 37A)"
+            if is_r37a
+            else (r.itc_reason or "Ineligible Credit under Section 17(5)")
+        )
+
+        gd2 = _merged_record_data(grd_raw, gm)
+        pd2 = _merged_record_data(prd_raw, pm)
+
+        amt = _paise_to_rupees(int(r.amount or 0))
+
+        rows.append(
+            {
+                "id": r.id,
+                "supplier_gstin": r.supplier_gstin,
+                "supplier_name": r.supplier_name,
+                "invoice_number": r.invoice_number,
+                "invoice_date": str(r.invoice_date or "")[:40],
+                "amount": amt,
+                "match_level": "MATCHED",
+                "confidence_score": float(r.match_confidence or 100.0),
+                "discrepancy_note": None,
+                "discrepancy_reason": None,
+                "tax_difference_paise": r.total_tax_diff_paise or 0,
+                "decision_what": r.decision_what,
+                "decision_why": r.decision_why,
+                "decision_next": r.decision_next,
+                "decision_status": "pending",
+                "decision_type": None,
+                "notes_count": int(_lookup_by_record_id(note_counts, r.id, 0)),
+                "gstr2b_data": gd2,
+                "purchase_register_data": pd2,
+                "compared_fields": r.compared_fields,
+                "rule37a_flag": is_r37a,
+                "blocked_credit_flag": not is_r37a,
+                "itc_available": False,
+                "itc_reason": r.itc_reason,
+                "hold_type": hold_type,
+                "hold_reason": hold_reason,
+            }
+        )
+
+    rows.sort(key=lambda t: (-t["amount"], t["id"]))
+    return rows
 
 
 def _try_section175_via_table(sb, rid: str, page: int, limit: int) -> Optional[dict[str, Any]]:
@@ -5433,6 +5543,46 @@ async def reconcile_run_section175(
             lambda: _build_section175_rows(sb, rid, p, notes),
         )
         return _paginated_body(rows, page, limit)
+
+    return await _run_sync(_work)
+
+
+@reconcile_runs_router.get("/runs/{run_id}/itc-on-hold")
+async def reconcile_run_itc_on_hold(
+    run_id: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=250),
+    sort: str = Query("amount_desc"),
+    search: Optional[str] = None,
+    hold_type: Optional[str] = None,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+
+    def _work() -> dict[str, Any]:
+        sb = get_supabase()
+        assert_run_accessible(sb, rid, current_user)
+        p = _payload_or_404(sb, rid)
+        notes = _notes_count_for_run(sb, rid)
+        rows = _cached_bucket_dict_rows(
+            rid,
+            "itc_on_hold",
+            lambda: _build_itc_on_hold_records(sb, rid=rid, payload=p, note_counts=notes),
+        )
+        filtered = []
+        for row in rows:
+            if hold_type and str(row.get("hold_type") or "").upper() != hold_type.strip().upper():
+                continue
+            if search:
+                q = search.strip().lower()
+                inv = str(row.get("invoice_number") or "").lower()
+                gst = str(row.get("supplier_gstin") or "").lower()
+                name = str(row.get("supplier_name") or "").lower()
+                if q not in inv and q not in gst and q not in name:
+                    continue
+            filtered.append(row)
+        _sort_reconcile_bucket_rows(filtered, sort)
+        return _paginated_body(filtered, page, limit)
 
     return await _run_sync(_work)
 

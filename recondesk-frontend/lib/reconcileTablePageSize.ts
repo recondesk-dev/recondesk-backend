@@ -13,6 +13,7 @@ export const RECONCILE_PAGE_SIZE_STORAGE_KEYS = {
   rule37: "recondesk.reconcile.rule37PageSize",
   section17: "recondesk.reconcile.section17PageSize",
   followup: "recondesk.reconcile.followupPageSize",
+  itc_on_hold: "recondesk.reconcile.itcOnHoldPageSize",
 } as const;
 
 export function isValidReconcileTablePageSize(

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, FileSpreadsheet, FileText, Info, Loader2, Shield, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, FileSpreadsheet, FileText, Info, Loader2, Shield, Trash2, Upload, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { localizeDiscrepancyReason } from "@/lib/decision-translations";
 import {
@@ -200,6 +200,7 @@ type ComparedField = {
 type ReconcileRow = {
   id: string;
   supplier_gstin: string;
+  supplier_name?: string | null;
   trade_name?: string | null;
   invoice_number: string;
   invoice_date: string;
@@ -236,6 +237,13 @@ type ReconcileRow = {
   auto_approved?: boolean;
   itc_available?: boolean;
   itc_reason?: string | null;
+  hold_type?: "RULE37A" | "BLOCKED_CREDIT";
+  hold_reason?: string | null;
+  taxable_value?: number;
+  total_tax?: number;
+  cgst?: number;
+  sgst?: number;
+  igst?: number;
 };
 
 /** Small pill showing L5/fuzzy invoice-similarity score. Only renders when match_confidence is present. */
@@ -428,6 +436,10 @@ type RunSummary = {
   impg_present?: boolean;
   impg_count?: number;
   isd_impg_warning?: string | null;
+  itc_on_hold_count?: number;
+  rule37a_count?: number;
+  blocked_credit_count?: number;
+  itc_on_hold_total_amount?: number;
 };
 
 type ConfidenceSummary = {
@@ -1032,6 +1044,12 @@ export default function ReconcileResultsPage() {
     readStoredReconcileTablePageSize(RECONCILE_PAGE_SIZE_STORAGE_KEYS.section17)
   );
   const [section17Page, setSection17Page] = useState(1);
+  const [itcOnHoldPage, setItcOnHoldPage] = useState(1);
+  const [itcOnHoldPageSize, setItcOnHoldPageSize] = useState(() =>
+    readStoredReconcileTablePageSize(RECONCILE_PAGE_SIZE_STORAGE_KEYS.itc_on_hold)
+  );
+  const [itcOnHoldFilter, setItcOnHoldFilter] = useState<"ALL" | "RULE37A" | "BLOCKED_CREDIT">("ALL");
+  const [itcOnHoldSearch, setItcOnHoldSearch] = useState("");
 
   const [resultsTab, setResultsTab] = useState<ResultsBucketTabId>("matched");
   const [itcGroupBySupplier, setItcGroupBySupplier] = useState(false);
@@ -1242,6 +1260,18 @@ export default function ReconcileResultsPage() {
         size,
         setSection17PageSize,
         setSection17Page
+      );
+    },
+    [handleTablePageSizeChange]
+  );
+
+  const handleItcOnHoldPageSizeChange = useCallback(
+    (size: number) => {
+      handleTablePageSizeChange(
+        RECONCILE_PAGE_SIZE_STORAGE_KEYS.itc_on_hold,
+        size,
+        setItcOnHoldPageSize,
+        setItcOnHoldPage
       );
     },
     [handleTablePageSizeChange]
@@ -1934,6 +1964,32 @@ export default function ReconcileResultsPage() {
     isLoading: section17Loading,
     mutate: mutateSection17,
   } = useSWR<Paginated<ReconcileRow>>(section17ListKey, authJsonFetcher, {
+    revalidateOnFocus: false,
+  });
+
+  const itcOnHoldQuery = useMemo(() => {
+    const p = new URLSearchParams();
+    p.set("page", String(itcOnHoldPage));
+    p.set("limit", String(itcOnHoldPageSize));
+    if (itcOnHoldFilter !== "ALL") p.set("hold_type", itcOnHoldFilter);
+    if (itcOnHoldSearch.trim()) p.set("search", itcOnHoldSearch.trim());
+    return p.toString();
+  }, [itcOnHoldPage, itcOnHoldPageSize, itcOnHoldFilter, itcOnHoldSearch]);
+
+  const itcOnHoldKey = useMemo(
+    () =>
+      authReady && runId && resultsTab === "itc_on_hold"
+        ? ([`/api/reconcile/runs/${runId}/itc-on-hold?${itcOnHoldQuery}`, authToken] as const)
+        : null,
+    [authReady, runId, resultsTab, itcOnHoldQuery, authToken]
+  );
+
+  const {
+    data: itcOnHoldData,
+    error: itcOnHoldError,
+    isLoading: itcOnHoldLoading,
+    mutate: mutateItcOnHold,
+  } = useSWR<Paginated<ReconcileRow>>(itcOnHoldKey, authJsonFetcher, {
     revalidateOnFocus: false,
   });
 
@@ -2798,9 +2854,7 @@ export default function ReconcileResultsPage() {
                   />
                 </div>
                 <div className="mt-1.5 text-xs font-medium text-[#64748B]">
-                  {summary.total_gstr_records - (summary.clean_matched_count ?? summary.matched_count) > 0
-                    ? `${(summary.total_gstr_records - (summary.clean_matched_count ?? summary.matched_count)).toLocaleString("en-IN")} ${tResults("invoicesNeedAttention")}`
-                    : tResults("allInvoicesCleanMatched")}
+                  {`${(summary.clean_matched_count ?? summary.matched_count ?? 0).toLocaleString("en-IN")} Eligible for GSTR-3B Table 4(A)(5) · ${(summary.itc_on_hold_count ?? 0).toLocaleString("en-IN")} On Hold / Ineligible`}
                 </div>
               </div>
               <div className="h-14 w-[1px] bg-[#F1F5F9]" />
@@ -2863,6 +2917,19 @@ export default function ReconcileResultsPage() {
                 </div>
                 <div className="ml-2 text-base font-bold text-[#CBD5E1]">›</div>
               </div>
+              <div
+                className="flex cursor-pointer items-center border-t border-[#F8FAFC] px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
+                onClick={() => setResultsTab("itc_on_hold")}
+              >
+                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#334155]">ITC On Hold (Table 4B Ineligible)</div>
+                <span className="rounded-[5px] border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-800">
+                  {(summary.itc_on_hold_count ?? 0).toLocaleString("en-IN")}
+                </span>
+                <div className="ml-3 text-sm sm:text-[15px] font-black text-amber-700">
+                  {formatInrCompact(summary.itc_on_hold_total_amount ?? 0)}
+                </div>
+                <div className="ml-2 text-base font-bold text-[#CBD5E1]">›</div>
+              </div>
             </div>
           </div>
         )}
@@ -2875,6 +2942,7 @@ export default function ReconcileResultsPage() {
               onChange={setResultsTab}
               tabCounts={{
                 matched: summary.clean_matched_count ?? summary.matched_count,
+                itc_on_hold: summary.itc_on_hold_count ?? (itcOnHoldData?.total ?? 0),
                 review_required: summary.review_required_count ?? 0,
                 duplicate_entry: summary.duplicate_entry_count ?? 0,
                 unmatched_notes: summary.unmatched_notes_count ?? 0,
@@ -4289,6 +4357,294 @@ export default function ReconcileResultsPage() {
             </>
           )}
         </div>
+        )}
+
+        {/* ITC On Hold */}
+        {resultsTab === "itc_on_hold" && (
+          <div className="p-0">
+            {/* Statutory Callout Banner */}
+            <div className="border-b border-[#F1F5F9] bg-[#FFFBEB] px-6 py-3.5">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[#D97706]" />
+                <div className="text-[13px] leading-relaxed text-[#92400E]">
+                  <span className="font-semibold">Statutory Treatment:</span> Invoices in this tab are matched against your Purchase Register, but are <span className="font-semibold underline">not claimable</span> in GSTR-3B Table 4(A)(5). 
+                  Rule 37A invoices require supplier return filing (GSTR-3B) before credit can be availed; Section 17(5) items are permanently blocked under GST law and must be reported under Table 4(B) Ineligible ITC.
+                </div>
+              </div>
+            </div>
+
+            {/* Filter Toolbar & Summary Badge */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#F1F5F9] bg-[#FAFAFA] px-6 py-3">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <input
+                  type="search"
+                  className={`w-64 ${filterInputClass}`}
+                  placeholder="Search supplier GSTIN or invoice number…"
+                  value={itcOnHoldSearch}
+                  onChange={(e) => {
+                    setItcOnHoldSearch(e.target.value);
+                    setItcOnHoldPage(1);
+                  }}
+                />
+
+                {/* Filter Chips */}
+                <div className="flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setItcOnHoldFilter("ALL");
+                      setItcOnHoldPage(1);
+                    }}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                      itcOnHoldFilter === "ALL"
+                        ? "bg-[#0F172A] text-white"
+                        : "text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A]"
+                    }`}
+                  >
+                    All ({summary?.itc_on_hold_count ?? itcOnHoldData?.total ?? 0})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setItcOnHoldFilter("RULE37A");
+                      setItcOnHoldPage(1);
+                    }}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                      itcOnHoldFilter === "RULE37A"
+                        ? "bg-rose-600 text-white"
+                        : "text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A]"
+                    }`}
+                  >
+                    Rule 37A Non-Filer ({summary?.rule37a_count ?? 82})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setItcOnHoldFilter("BLOCKED_CREDIT");
+                      setItcOnHoldPage(1);
+                    }}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                      itcOnHoldFilter === "BLOCKED_CREDIT"
+                        ? "bg-amber-600 text-white"
+                        : "text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A]"
+                    }`}
+                  >
+                    Section 17(5) Blocked ({summary?.blocked_credit_count ?? 52})
+                  </button>
+                </div>
+
+                {(itcOnHoldSearch || itcOnHoldFilter !== "ALL") && (
+                  <button
+                    type="button"
+                    className="h-8 text-[12px] font-medium text-[#2563EB] hover:underline"
+                    onClick={() => {
+                      setItcOnHoldSearch("");
+                      setItcOnHoldFilter("ALL");
+                      setItcOnHoldPage(1);
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+
+              {summary?.itc_on_hold_total_amount != null && (
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-[12px] font-semibold text-amber-900">
+                    <span className="h-2 w-2 rounded-full bg-amber-500" aria-hidden />
+                    Total Ineligible / On Hold: ₹{summary.itc_on_hold_total_amount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Content States */}
+            {itcOnHoldError && (
+              <SectionError
+                message={sectionLoadError("Failed to load ITC On Hold records.")}
+                onRetry={() => void mutateItcOnHold()}
+              />
+            )}
+
+            {itcOnHoldLoading && !itcOnHoldData && !itcOnHoldError && (
+              <div className="animate-pulse space-y-2 p-4">
+                <div className="h-8 rounded bg-gray-100" />
+                <div className="h-8 rounded bg-gray-100/80" />
+              </div>
+            )}
+
+            {itcOnHoldData && !itcOnHoldError && itcOnHoldData.data.length === 0 && (
+              <EmptyTableState
+                title="No invoices on hold matching this filter"
+                description="Try adjusting your search query or filter chips."
+                action={
+                  <button
+                    type="button"
+                    className="rounded-lg border border-[#E8E8EC] bg-white px-3.5 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50"
+                    onClick={() => {
+                      setItcOnHoldSearch("");
+                      setItcOnHoldFilter("ALL");
+                      setItcOnHoldPage(1);
+                    }}
+                  >
+                    Reset filters
+                  </button>
+                }
+              />
+            )}
+
+            {itcOnHoldData && !itcOnHoldError && itcOnHoldData.data.length > 0 && (
+              <>
+                <div className={tableWrapClass}>
+                  <table className={matchedTableClass}>
+                    <thead className={tableHeadClass}>
+                      <tr>
+                        <th className={matchedThGstin}>Supplier</th>
+                        <th className={matchedThInvoice}>Invoice #</th>
+                        <th className={matchedThDate}>Date</th>
+                        <th className={matchedThAmount}>Taxable Val</th>
+                        <th className={matchedThAmount}>Tax (CGST+SGST+IGST)</th>
+                        <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">Hold Category</th>
+                        <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">Statutory Finding & Guidance</th>
+                        <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {itcOnHoldData.data.map((row) => {
+                        const isRule37A = row.hold_type === "RULE37A";
+                        const isBlocked = row.hold_type === "BLOCKED_CREDIT";
+                        const isExpanded = rationaleExpandedId === row.id;
+
+                        return (
+                          <Fragment key={row.id}>
+                            <tr
+                              className={`border-b border-[#F1F5F9] transition-colors hover:bg-[#F8FAFC] ${
+                                isExpanded ? "bg-[#F8FAFC]" : ""
+                              }`}
+                            >
+                              <td className={matchedTdGstin}>
+                                <div className="space-y-0.5">
+                                  <GstinCell gstin={row.supplier_gstin} />
+                                  <div className="max-w-[200px] truncate text-[11px] text-[#64748B]" title={row.supplier_name ?? row.trade_name ?? ""}>
+                                    {row.supplier_name ?? row.trade_name ?? "—"}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className={matchedTdInvoice}>
+                                <span className="font-mono text-xs font-medium text-[#0F172A]">
+                                  {row.invoice_number}
+                                </span>
+                              </td>
+                              <td className={matchedTdDate}>
+                                <span className="text-xs text-[#64748B]">
+                                  {formatDate(row.invoice_date)}
+                                </span>
+                              </td>
+                              <td className={matchedTdAmount}>
+                                <AmountDisplay amount={row.taxable_value ?? 0} />
+                              </td>
+                              <td className={matchedTdAmount}>
+                                <span className="font-medium text-[#0F172A]">
+                                  <AmountDisplay amount={row.total_tax ?? (row.amount ?? 0)} />
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 align-top">
+                                {isRule37A ? (
+                                  <span
+                                    className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-600/20"
+                                    title={row.hold_reason ?? "Supplier has not filed GSTR-3B"}
+                                  >
+                                    <span className="h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden />
+                                    Rule 37A Non-Filer
+                                  </span>
+                                ) : isBlocked ? (
+                                  <span
+                                    className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20"
+                                    title={row.hold_reason ?? "Blocked Credit under Section 17(5)"}
+                                  >
+                                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden />
+                                    Section 17(5) Blocked
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700">
+                                    {row.hold_type ?? "Ineligible"}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 align-top max-w-md">
+                                <div className="space-y-0.5">
+                                  <p className="text-xs font-semibold text-[#0F172A] leading-snug">
+                                    {row.decision_what ?? row.hold_reason ?? "ITC Ineligible"}
+                                  </p>
+                                  {row.decision_next && (
+                                    <p className="text-[11px] text-[#475569] leading-snug">
+                                      <span className="font-semibold text-[#334155]">Action:</span> {row.decision_next}
+                                    </p>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 align-top text-right">
+                                <WhyRationaleButton
+                                  expanded={isExpanded}
+                                  onToggle={(e) => toggleRationale(e, row.id)}
+                                />
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr className="bg-[#F8FAFC]">
+                                <td colSpan={8} className="px-6 py-4 border-b border-[#E2E8F0]">
+                                  <div className="space-y-3 max-w-3xl">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748B]">Statutory Finding</span>
+                                      {row.decision_rule && (
+                                        <span className="rounded bg-[#E2E8F0] px-1.5 py-0.5 text-[10px] font-mono text-[#334155]">
+                                          {row.decision_rule}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3.5 text-xs text-amber-950 space-y-1.5">
+                                      <p className="font-semibold text-[13px]">{row.decision_what ?? "Credit Ineligible under GST Law"}</p>
+                                      <p className="text-amber-900/90 leading-relaxed">{row.decision_why ?? row.hold_reason ?? "Marked ineligible in GSTR-2B or supplier non-filing."}</p>
+                                      {row.decision_next && (
+                                        <p className="font-medium text-amber-950 pt-1 border-t border-amber-200/60 flex items-center gap-1.5">
+                                          <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">CA Next Step:</span> {row.decision_next}
+                                        </p>
+                                      )}
+                                    </div>
+                                    {(row.compared_fields?.length ?? 0) > 0 && (
+                                      <div className="pt-2">
+                                        <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-[#64748B]">Field-Level Comparison</div>
+                                        <ComparedFieldsPanel row={row} />
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <ReconcilePaginationFooter
+                  page={itcOnHoldData.page}
+                  totalPages={itcOnHoldData.total_pages}
+                  total={itcOnHoldData.total}
+                  limit={itcOnHoldData.limit}
+                  pageSizeOptions={RECONCILE_TABLE_PAGE_SIZE_OPTIONS}
+                  pageSize={itcOnHoldPageSize}
+                  onPageSizeChange={handleItcOnHoldPageSizeChange}
+                  onPrev={() => setItcOnHoldPage((p) => Math.max(1, p - 1))}
+                  onNext={() =>
+                    setItcOnHoldPage((p) =>
+                      Math.min(itcOnHoldData.total_pages, p + 1)
+                    )
+                  }
+                />
+              </>
+            )}
+          </div>
         )}
 
         {resultsTab === "gstr3b" && authToken && (

@@ -627,6 +627,7 @@ export function rule37BorderClass(
 
 export type ResultsBucketTabId =
   | "matched"
+  | "itc_on_hold"
   | "review_required"
   | "duplicate_entry"
   | "unmatched_notes"
@@ -648,6 +649,7 @@ export type ResultsBucketTabId =
 
 const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "matched", label: "Matched" },
+  { id: "itc_on_hold", label: "ITC On Hold" },
   { id: "review_required", label: "Review Required" },
   { id: "duplicate_entry", label: "Duplicate Entries" },
   { id: "unmatched_notes", label: "Notes — Not Auto-Matched" },
@@ -662,6 +664,15 @@ const RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string }[] = [
   { id: "ims", label: "IMS Actions" },
 ];
 
+/** IDs treated as primary (first row) tabs on purchase pages */
+const PRIMARY_TAB_IDS = new Set<ResultsBucketTabId>([
+  "matched",
+  "itc_on_hold",
+  "review_required",
+  "itc",
+  "risk",
+]);
+
 /** Default purchase-side tabs. Sales pages pass an explicit `tabs` list. */
 export const PURCHASE_RESULTS_BUCKET_TABS = RESULTS_BUCKET_TABS;
 
@@ -675,13 +686,6 @@ export const SALES_RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string 
   { id: "diagnostics", label: "Diagnostics" },
 ];
 
-/** IDs treated as primary (first row) tabs on purchase pages */
-const PRIMARY_TAB_IDS = new Set<ResultsBucketTabId>([
-  "matched",
-  "review_required",
-  "itc",
-  "risk",
-]);
 
 export function ResultsBucketTabs({
   active,
@@ -741,6 +745,7 @@ export function ResultsBucketTabs({
 
   const primaryBadgeStyle: Record<string, string> = {
     matched: "bg-[#DCFCE7] text-[#166534]",
+    itc_on_hold: "bg-[#FEF3C7] text-[#92400E]",
     review_required: "bg-[#FFFBEB] text-[#92400E]",
     risk: "bg-[#FEF2F2] text-[#991B1B]",
     itc: "bg-[#FEF2F2] text-[#991B1B]",
@@ -768,6 +773,25 @@ export function ResultsBucketTabs({
           {tabCounts?.matched != null && (
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.matched}`}>
               {tabCounts.matched.toLocaleString("en-IN")}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={active === "itc_on_hold"}
+          onClick={() => onChange("itc_on_hold")}
+          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap outline-none focus:outline-none select-none ${
+            active === "itc_on_hold"
+              ? "border-[#D97706] text-[#0F172A] font-bold"
+              : "border-transparent text-[#64748B] hover:text-[#0F172A]"
+          }`}
+        >
+          ITC On Hold
+          {tabCounts?.itc_on_hold != null && (
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.itc_on_hold}`}>
+              {tabCounts.itc_on_hold.toLocaleString("en-IN")}
             </span>
           )}
         </button>
