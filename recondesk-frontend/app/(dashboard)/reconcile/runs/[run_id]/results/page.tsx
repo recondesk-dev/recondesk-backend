@@ -4165,7 +4165,7 @@ export default function ReconcileResultsPage() {
                 </div>
                 <div className="flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-2.5 py-1 text-[11px] font-medium text-[#475569]">
                   <span className="h-1.5 w-1.5 rounded-full bg-[#D97706]" aria-hidden />
-                  {((summary?.clean_matched_count ?? summary?.matched_count ?? 0) - (summary?.exact_match_count ?? 0)).toLocaleString("en-IN")} Non-exact
+                  {Math.max(0, (summary?.clean_matched_count ?? summary?.matched_count ?? 0) - (summary?.exact_match_count ?? 0)).toLocaleString("en-IN")} Non-exact
                 </div>
               </div>
             )}

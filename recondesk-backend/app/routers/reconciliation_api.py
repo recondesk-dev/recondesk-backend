@@ -2065,14 +2065,22 @@ def _build_reconcile_summary(
     # match_level is absent / None), fall back to confidence_score == 100 which only
     # L1 pairs emit.  Do NOT use financial match_status == "MISMATCHED" — that is a
     # discrepancy flag, not a match-method flag, and produces wildly wrong counts.
+    matched_gstr_ids = {
+        str(r.id)[3:]
+        for r in outcome_rows
+        if r.category == "matched" and str(r.id).startswith("pm:")
+    }
     matched_engine_rows = engine.get("matched") or []
     exact_match_count = sum(
         1 for m in matched_engine_rows
-        if isinstance(m, dict) and (
+        if isinstance(m, dict)
+        and (str(m.get("gstr_id")) in matched_gstr_ids if matched_gstr_ids else True)
+        and (
             m.get("match_level") == 1
             or (m.get("match_level") is None and m.get("confidence_score") == 100)
         )
     )
+    exact_match_count = min(exact_match_count, matched_count)
 
     # Count gstr_records with a single COUNT query instead of fetching all rows.
     _cnt = (
