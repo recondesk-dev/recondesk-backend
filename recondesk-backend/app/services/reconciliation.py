@@ -1744,21 +1744,23 @@ def _invoice_twin_similarity_ok(
 def _peer_pr_invoice_clone_ok(a_inv: str, b_inv: str) -> tuple[bool, float]:
     """Stricter identity for unlinked PR↔PR clones.
 
-    Bare invoice_similarity ≥ 0.75 is unsafe here: same-vendor letter prefixes
-    (``PRBOOKA`` vs ``PRBOOKB``) score ~0.89 and would collapse hundreds of
-    unrelated ITC-at-risk rows into one Duplicate Entry. Require a shared
-    digit spine (len ≥ 4, edit ≤ 2) or exact normalized equality.
+    Unlinked rows have no GSTR anchor to corroborate identity. To prevent
+    sequential invoices in the same series (e.g. '00242' vs '00272') from
+    collapsing into Duplicate Entry, unlinked peer clones require:
+    1. Exact normalized equality (a_inv == b_inv), OR
+    2. True invoice format variant (is_invoice_format_variant), OR
+    3. Mangled prefix typo with identical numeric core (ga == gb, len >= 4).
     """
     if a_inv == b_inv:
         return True, 1.0
+    from app.services.matcher import is_invoice_format_variant
+    if is_invoice_format_variant(a_inv, b_inv):
+        return True, 1.0
     sim = invoice_similarity(a_inv, b_inv)
-    ga, gb = _invoice_digit_core(a_inv), _invoice_digit_core(b_inv)
-    if (
-        len(ga) >= 4
-        and len(gb) >= 4
-        and _levenshtein_distance(ga, gb) <= 2
-    ):
-        return True, sim
+    if sim >= 0.75:
+        ga, gb = _invoice_digit_core(a_inv), _invoice_digit_core(b_inv)
+        if len(ga) >= 4 and len(gb) >= 4 and ga == gb:
+            return True, sim
     return False, sim
 
 

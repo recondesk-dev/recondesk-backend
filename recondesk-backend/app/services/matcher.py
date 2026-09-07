@@ -34,6 +34,7 @@ FINANCIAL_MISMATCH_REASON = (
 
 _RE_NON_ALNUM = re.compile(r"[^A-Za-z0-9]")
 _RE_LEADING_ALPHA = re.compile(r"^[A-Z]+")
+_RE_SERIES_PREFIX = re.compile(r"^[A-Z0-9]*[A-Z]+")
 _RE_TRAILING_DIGITS = re.compile(r"\d+$")
 
 
@@ -110,28 +111,28 @@ def is_invoice_format_variant(
     if na == nb:
         return True
 
-    # Check 1: Shared prefix and subsequence
-    pa = _RE_LEADING_ALPHA.match(na)
-    pb = _RE_LEADING_ALPHA.match(nb)
+    # Check 1: Shared prefix and financial-year expansion
+    # e.g. DS/26/78 (DS2678) vs DS-2026-00078 (DS202678)
+    pa = _RE_SERIES_PREFIX.match(na)
+    pb = _RE_SERIES_PREFIX.match(nb)
     if pa and pb and pa.group(0) == pb.group(0):
         short, long = (na, nb) if len(na) <= len(nb) else (nb, na)
-        if (
-            len(short) != len(long)
-            and _is_subsequence(short, long)
-            and _extra_chars_are_digits_only(short, long)
-        ):
+        pref = pa.group(0)
+        rem_s = short[len(pref):]
+        rem_l = long[len(pref):]
+        # Leading 2-digit FY expansion: e.g. 2678 -> 202678
+        if len(rem_s) >= 2 and 20 <= int(rem_s[:2]) <= 35 and "20" + rem_s == rem_l:
+            return True
+        # Trailing 2-digit FY expansion: e.g. 7826 -> 782026
+        if len(rem_s) >= 2 and 20 <= int(rem_s[-2:]) <= 35 and rem_s[:-2] + "20" + rem_s[-2:] == rem_l:
             return True
 
     # Check 2: Shared exact core numeric sequence (using raw tokens to split by separators)
     # We enforce len(na) != len(nb) so we don't accidentally swallow equal-length typos like "INV1" vs "INX1"
     if len(na) != len(nb):
-        # If BOTH sides have leading alpha prefixes and they differ, they cannot be format variants
-        if pa and pb and pa.group(0) != pb.group(0):
-            return False
-
         def _extract_numeric(s: str) -> set[int]:
-            # Include numbers >= 1 (allows short numbers like "1" to match as format variants)
-            return {int(t) for t in re.findall(r"\d+", str(s)) if int(t) >= 1}
+            # Include numbers >= 1 not directly followed by letters (prevents '2' in '2BONLY' matching '2')
+            return {int(t) for t in re.findall(r"\d+(?![A-Za-z])", str(s)) if int(t) >= 1}
 
         nums_a = _extract_numeric(a_raw or a or "")
         nums_b = _extract_numeric(b_raw or b or "")
@@ -145,15 +146,20 @@ def is_invoice_format_variant(
                 # Extra guard: one side must have more structure (alpha prefix or longer numeric)
                 # to prevent "123" matching "456" via coincidence
                 if has_alpha_a or has_alpha_b:
-                    # When BOTH sides share the same alpha prefix (e.g. "TYPO1" vs
-                    # "TYPO1A"), a shared numeric core is not enough on its own —
-                    # the extra characters must also be digit-only padding, not a
-                    # fresh appended letter, which more likely signals a distinct
-                    # document (e.g. an amendment suffix) than a format variant.
-                    if pa and pb and pa.group(0) == pb.group(0):
-                        short2, long2 = (na, nb) if len(na) <= len(nb) else (nb, na)
-                        if _extra_chars_are_digits_only(short2, long2):
-                            return True
+                    if pa and pb:
+                        pref_a = pa.group(0)
+                        pref_b = pb.group(0)
+                        if pref_a == pref_b:
+                            # When BOTH sides share the exact same alpha prefix (e.g. "TYPO1" vs
+                            # "TYPO1A"), extra characters must be digit-only padding, not a
+                            # fresh appended letter which signals a distinct document (amendment).
+                            short2, long2 = (na, nb) if len(na) <= len(nb) else (nb, na)
+                            if _extra_chars_are_digits_only(short2, long2):
+                                return True
+                        elif pref_a.startswith(pref_b) or pref_b.startswith(pref_a):
+                            # Prefix abbreviation (e.g. "FZ" vs "F"); neither side should have a trailing letter suffix
+                            if na[-1].isdigit() and nb[-1].isdigit():
+                                return True
                     elif not (pa and pb):
                         return True
             # Note: a fuzzy "1-char-edit-distance numeric core" fallback used to live
