@@ -252,3 +252,151 @@ def test_ims_recommendation_hold_for_rule37a_non_filer():
     assert rec.recommended_action == "hold"
     assert REASON_RULE37A_NON_FILER in rec.reason_codes
     assert "Rule 37A" in rec.human_readable_why
+
+
+def test_outcomes_does_not_route_to_rule37_warnings_when_no_r37a_signal():
+    """When is_itc_avail is False but there is NO Rule 37A signal (no itc_reason,
+    no non-filer keyword), the row must land in category='matched' and
+    itc_available=False must be preserved on the row (not silently overwritten to True)."""
+    sb = MagicMock()
+    run_id = "test-run-no-r37a-signal"
+
+    gstr_db_row = {
+        "id": "g-clean",
+        "record_data": {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "supplier_name": "Test Supplier",
+            "invoice_number": "INV-100",
+            "invoice_date_norm": "2026-07-15",
+            "taxable_value_paise": 10000000,
+            "cgst_paise": 900000,
+            "sgst_paise": 900000,
+            "igst_paise": 0,
+            "total_tax_paise": 1800000,
+            "itc_available": False,
+            "itc_reason": None,  # No reason provided
+        },
+    }
+
+    pr_db_row = {
+        "id": "p-clean",
+        "record_data": {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-100",
+            "invoice_date_norm": "2026-07-15",
+            "taxable_value_paise": 10000000,
+            "cgst_paise": 900000,
+            "sgst_paise": 900000,
+            "igst_paise": 0,
+            "total_tax_paise": 1800000,
+        },
+    }
+
+    sb.table().select().eq().limit().execute.return_value = MagicMock(count=1)
+    sb.table().select().eq().range().execute.side_effect = [
+        MagicMock(data=[gstr_db_row]),
+        MagicMock(data=[pr_db_row]),
+    ]
+
+    payload = {
+        "engine": {
+            "matched": [
+                {
+                    "gstr_id": "g-clean",
+                    "pr_id": "p-clean",
+                    "match_confidence": 1.0,
+                }
+            ],
+            "missed_itc": [],
+            "wrongful_itc_risk": [],
+        },
+        "compliance": {},
+        "decisions": {},
+    }
+
+    rows, ccounts, stats = build_outcome_rows(sb, run_id, payload)
+
+    assert len(rows) == 1
+    r = rows[0]
+    assert r.category == "matched"
+    assert r.rule37a_flag is False
+    assert r.itc_available is False  # Must be preserved, NOT silently overwritten to True
+    assert r.itc_reason is None
+    assert ccounts["matched"] == 1
+    assert ccounts["rule37_warnings"] == 0
+    assert stats["matched_count"] == 1
+    assert stats["rule37_warnings_count"] == 0
+
+
+def test_outcomes_routes_blocked_credit_when_itc_unavailable_due_to_sec_17_5():
+    """When is_itc_avail is False and itc_reason indicates Section 17(5) blocked credit,
+    the row must route to category='blocked_credit'."""
+    sb = MagicMock()
+    run_id = "test-run-sec175-blocked"
+
+    gstr_db_row = {
+        "id": "g-blocked",
+        "record_data": {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "supplier_name": "Test Supplier",
+            "invoice_number": "INV-200",
+            "invoice_date_norm": "2026-07-15",
+            "taxable_value_paise": 10000000,
+            "cgst_paise": 900000,
+            "sgst_paise": 900000,
+            "igst_paise": 0,
+            "total_tax_paise": 1800000,
+            "itc_available": False,
+            "itc_reason": "Ineligible under Section 17(5) blocked credit",
+        },
+    }
+
+    pr_db_row = {
+        "id": "p-blocked",
+        "record_data": {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-200",
+            "invoice_date_norm": "2026-07-15",
+            "taxable_value_paise": 10000000,
+            "cgst_paise": 900000,
+            "sgst_paise": 900000,
+            "igst_paise": 0,
+            "total_tax_paise": 1800000,
+        },
+    }
+
+    sb.table().select().eq().limit().execute.return_value = MagicMock(count=1)
+    sb.table().select().eq().range().execute.side_effect = [
+        MagicMock(data=[gstr_db_row]),
+        MagicMock(data=[pr_db_row]),
+    ]
+
+    payload = {
+        "engine": {
+            "matched": [
+                {
+                    "gstr_id": "g-blocked",
+                    "pr_id": "p-blocked",
+                    "match_confidence": 1.0,
+                }
+            ],
+            "missed_itc": [],
+            "wrongful_itc_risk": [],
+        },
+        "compliance": {},
+        "decisions": {},
+    }
+
+    rows, ccounts, stats = build_outcome_rows(sb, run_id, payload)
+
+    assert len(rows) == 1
+    r = rows[0]
+    assert r.category == "blocked_credit"
+    assert r.match_status == "BLOCKED"
+    assert r.blocked_credit_flag is True
+    assert r.rule37a_flag is False
+    assert r.itc_available is False
+    assert ccounts["blocked_credit"] == 1
+    assert ccounts["matched"] == 0
+    assert ccounts["rule37_warnings"] == 0
+

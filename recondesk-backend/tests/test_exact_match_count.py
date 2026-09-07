@@ -83,3 +83,38 @@ def test_exact_match_count_not_based_on_financial_mismatch():
     ]
     count = _compute_exact_match_count(matched_rows)
     assert count == 2, f"Expected 2, got {count}"
+
+
+def test_build_reconcile_summary_fallback_when_outcome_matched_zero():
+    from unittest.mock import MagicMock, patch
+    from app.routers.reconciliation_api import _build_reconcile_summary
+
+    mock_sb = MagicMock()
+    mock_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value = MagicMock(
+        count=10, data=[{"trade_name": "Test Client", "gstin": "27ABCDE1234F1Z5"}]
+    )
+
+    run_row = {
+        "id": "run-fallback-1",
+        "client_gstin_id": "cg-1",
+        "run_summary": {"clean_matched_count": 8},
+        "period": "2026-04",
+    }
+    payload = {
+        "engine": {
+            "matched": [{"gstr_id": "g1", "pr_id": "p1"}],
+        }
+    }
+    with patch("app.routers.reconciliation_api.ro.load_gstr_map", return_value={}), \
+         patch("app.routers.reconciliation_api.ro.load_pr_map", return_value={}), \
+         patch("app.routers.reconciliation_api.get_user_profile", return_value={"role": "admin"}):
+        res = _build_reconcile_summary(
+            sb=mock_sb,
+            run_row=run_row,
+            payload=payload,
+            current_user_id="user-1",
+            precomputed_outcome_rows=[],
+        )
+    assert res["clean_matched_count"] == 8
+    assert res["matched_count"] == 8
+

@@ -336,40 +336,64 @@ def _reverse_charge_value(invoice: dict) -> bool:
     return str(raw).strip().upper() == "Y"
 
 
-def _itc_available_value(invoice: dict) -> bool:
-    """Parse GSTR-2B ``itcavl`` into a bool.
+def resolve_itc_available(*records: Mapping[str, Any] | None) -> bool:
+    """Resolve GSTR-2B ITC availability boolean across multiple candidate records in priority order.
 
-    Official GSTN JSON usually uses ``"Y"`` / ``"N"``, but some portal /
-    third-party exports emit JSON booleans ``true`` / ``false``. The previous
-    check (``== "Y"``) treated every boolean ``true`` as ineligible.
+    Checks 'itc_available', 'itcavl', and nested 'record_data' for each record.
+    Continues to the next candidate if a record has None or missing value.
+    Defaults to True only if no source record provides any value at all.
     """
-    raw = invoice.get("itcavl")
-    if raw is None:
-        raw = invoice.get("itc_available")
-    if raw is None:
-        raw = "N"
-    if isinstance(raw, bool):
-        return raw
-    s = str(raw).strip().upper()
-    if s in ("Y", "YES", "TRUE", "1"):
-        return True
-    return False
+    for record in records:
+        if not isinstance(record, (dict, Mapping)):
+            continue
+        raw = _first_present(record, "itc_available", "itcavl")
+        if raw is None and isinstance(record.get("record_data"), (dict, Mapping)):
+            raw = _first_present(record["record_data"], "itc_available", "itcavl")
+        if raw is not None:
+            if isinstance(raw, bool):
+                return raw
+            s = str(raw).strip().upper()
+            if s in ("Y", "YES", "TRUE", "1", "T"):
+                return True
+            if s in ("N", "NO", "FALSE", "0", "F"):
+                return False
+            return True
+    return True
+
+
+def resolve_itc_reason(*records: Mapping[str, Any] | None) -> str | None:
+    """Extract GSTR-2B ITC ineligibility reason string across multiple candidate records."""
+    for record in records:
+        if not isinstance(record, (dict, Mapping)):
+            continue
+        raw = _first_present(
+            record,
+            "itc_reason",
+            "rsn",
+            "reason",
+            "ineligibility_reason",
+            "itc_ineligibility_reason",
+        )
+        if raw is None and isinstance(record.get("record_data"), (dict, Mapping)):
+            raw = _first_present(
+                record["record_data"],
+                "itc_reason",
+                "rsn",
+                "reason",
+                "ineligibility_reason",
+                "itc_ineligibility_reason",
+            )
+        if raw is not None and str(raw).strip():
+            return str(raw).strip()
+    return None
+
+
+def _itc_available_value(invoice: dict) -> bool:
+    return resolve_itc_available(invoice)
 
 
 def _itc_reason_value(invoice: dict) -> str | None:
-    """Parse GSTR-2B ITC ineligibility reason (e.g. 'rsn' in GSTN JSON)."""
-    raw = _first_present(
-        invoice,
-        "rsn",
-        "reason",
-        "itc_reason",
-        "ineligibility_reason",
-        "itc_ineligibility_reason",
-    )
-    if raw is None:
-        return None
-    s = str(raw).strip()
-    return s or None
+    return resolve_itc_reason(invoice)
 
 
 def _item_tax_value(itm: dict, field: str) -> str:

@@ -23,6 +23,7 @@ import { EInvoiceCheckPanel } from "@/components/reconcile/EInvoiceCheckPanel";
 import { AdvancedExportPanel } from "@/components/reconcile/AdvancedExportPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
 import { SupplierGroupView } from "@/components/reconcile/SupplierGroupView";
+import { ItcIneligibleBadge } from "@/components/reconcile/ItcIneligibleBadge";
 import {
   DecisionInvoiceCard,
   DecisionInvoiceList,
@@ -233,6 +234,8 @@ type ReconcileRow = {
   ims_status?: string | null;
   /** Set when confidence-threshold auto-triage promoted this row from Review Required. */
   auto_approved?: boolean;
+  itc_available?: boolean;
+  itc_reason?: string | null;
 };
 
 /** Small pill showing L5/fuzzy invoice-similarity score. Only renders when match_confidence is present. */
@@ -4210,6 +4213,10 @@ export default function ReconcileResultsPage() {
                                 Auto
                               </span>
                             ) : null}
+                            <ItcIneligibleBadge
+                              itcAvailable={row.itc_available}
+                              itcReason={row.itc_reason}
+                            />
                           </div>
                         </td>
                         <td className={matchedTdConfidence}>

@@ -15,6 +15,7 @@ from supabase import Client
 
 from app.constants import ChangeReason, DecisionNext, DecisionWhat, DecisionWhy
 from app.services import reconciliation_record_adapter as rec_adapt
+from app.parsers.gstr2b_parser import resolve_itc_available, resolve_itc_reason
 from app.services.credit_note_handler import classify_document
 from app.services.matcher import TOTAL_TOLERANCE_PAISE, match_gstr_to_pr
 
@@ -520,64 +521,50 @@ def build_outcome_rows(
         lf_flag = g_id in late_filing_by_gstr
 
         # Check ITC availability on the GSTR record (Rule 37A non-filer / ineligibility)
-        raw_itc_avl = g.get("itc_available")
-        if raw_itc_avl is None:
-            raw_itc_avl = g_rd.get("itc_available")
-        if raw_itc_avl is None:
-            raw_itc_avl = g_rd.get("itcavl")
-        if isinstance(raw_itc_avl, bool):
-            is_itc_avail = raw_itc_avl
-        elif raw_itc_avl is not None:
-            is_itc_avail = (
-                str(raw_itc_avl).strip().upper()[:1] in ("Y", "T", "1")
-                if str(raw_itc_avl).strip()
-                else True
-            )
-        else:
-            is_itc_avail = True
+        is_itc_avail = resolve_itc_available(g, g_rd)
+        itc_rsn = resolve_itc_reason(g, g_rd)
 
-        itc_rsn = (
-            str(
-                g.get("itc_reason")
-                or g_rd.get("itc_reason")
-                or g_rd.get("rsn")
-                or g_rd.get("reason")
-                or ""
-            ).strip()
-            or None
+        # Route to rule37_warnings ONLY when there is a genuine supplier non-filer signal.
+        # A missing itc_reason or missing parser field must NEVER default to Rule 37A.
+        is_non_filer = bool(
+            (
+                itc_rsn
+                and any(
+                    k in itc_rsn.lower()
+                    for k in ("3b", "filed", "rule 37a", "non-filer", "non filer")
+                )
+            )
+            or str(g.get("filing_status") or g_rd.get("filing_status") or "").strip().upper()
+            in ("NO", "N", "NOT_FILED", "UNFILED")
+        )
+        is_r37a = bool((not is_itc_avail) and is_non_filer)
+
+        is_blocked_credit = bool(
+            (not is_itc_avail)
+            and (
+                bflag
+                or (
+                    itc_rsn
+                    and any(
+                        k in itc_rsn.lower()
+                        for k in ("17(5)", "17 (5)", "blocked", "ineligible", "sec 17")
+                    )
+                )
+            )
         )
 
-        if not is_itc_avail:
-            # Route to rule37_warnings (Rule 37A non-filer / ITC on hold)
-            is_r37a = (
-                not itc_rsn
-                or "3b" in itc_rsn.lower()
-                or "filed" in itc_rsn.lower()
-                or "rule 37a" in itc_rsn.lower()
-                or "non-filer" in itc_rsn.lower()
-                or "non filer" in itc_rsn.lower()
+        if is_r37a:
+            r37a_what = "ITC unavailable in GSTR-2B (Supplier GSTR-3B Non-Filer / Rule 37A)"
+            r37a_why = (
+                itc_rsn
+                or "Supplier has not filed GSTR-3B for the tax period (Rule 37A risk). "
+                "Ineligible to claim ITC until supplier files return."
             )
-            if is_r37a:
-                r37a_what = "ITC unavailable in GSTR-2B (Supplier GSTR-3B Non-Filer / Rule 37A)"
-                r37a_why = (
-                    itc_rsn
-                    or "Supplier has not filed GSTR-3B for the tax period (Rule 37A risk). "
-                    "Ineligible to claim ITC until supplier files return."
-                )
-                r37a_next = (
-                    "Hold on IMS and do not claim in GSTR-3B. Follow up with "
-                    f"{g.get('supplier_gstin') or p.get('supplier_gstin') or 'supplier'} to file GSTR-3B. "
-                    "Claiming prior to filing triggers mandatory reversal under Rule 37A."
-                )
-            else:
-                r37a_what = f"ITC marked unavailable in GSTR-2B: {itc_rsn}"
-                r37a_why = (
-                    f"GSTR-2B explicitly marks ITC Availability as 'No' ({itc_rsn}). "
-                    "Ineligible for input tax credit."
-                )
-                r37a_next = (
-                    f"Do not claim ITC in GSTR-3B. Verify ineligibility reason ({itc_rsn}) with supplier."
-                )
+            r37a_next = (
+                "Hold on IMS and do not claim in GSTR-3B. Follow up with "
+                f"{g.get('supplier_gstin') or p.get('supplier_gstin') or 'supplier'} to file GSTR-3B. "
+                "Claiming prior to filing triggers mandatory reversal under Rule 37A."
+            )
 
             rows.append(
                 OutcomeRow(
@@ -608,6 +595,43 @@ def build_outcome_rows(
                     compared_fields=m0.get("compared_fields"),
                 )
             )
+        elif is_blocked_credit:
+            bc_what = f"ITC blocked under Section 17(5){f': {itc_rsn}' if itc_rsn else ''}"
+            bc_why = (
+                f"Ineligible under Section 17(5) blocked credit ({itc_rsn}). "
+                if itc_rsn
+                else "Identified as Section 17(5) blocked credit (ineligible goods/services). "
+            ) + "Credit cannot be claimed in GSTR-3B."
+            bc_next = "Do not claim ITC in GSTR-3B. Verify Section 17(5) applicability."
+            rows.append(
+                OutcomeRow(
+                    id=f"pm:{g_id}",
+                    category="blocked_credit",
+                    supplier_gstin=str(g.get("supplier_gstin") or p.get("supplier_gstin") or ""),
+                    supplier_name=sname,
+                    invoice_number=invn,
+                    invoice_date=str(invd) if invd else None,
+                    match_status="BLOCKED",
+                    taxable_value_diff=tvd,
+                    igst_diff=igd,
+                    cgst_diff=cgd,
+                    sgst_diff=sgd,
+                    total_tax_diff_paise=ttd,
+                    decision_what=bc_what,
+                    decision_why=bc_why,
+                    decision_next=bc_next,
+                    rule37_flag=r37f,
+                    rule37a_flag=False,
+                    itc_available=False,
+                    itc_reason=itc_rsn,
+                    blocked_credit_flag=True,
+                    late_filing_flag=lf_flag,
+                    is_credit_note=False,
+                    amount=_opt_int(g.get("total_tax_paise")) if _opt_int(g.get("total_tax_paise")) is not None else _opt_int(p.get("total_tax_paise")),
+                    match_confidence=m0.get("match_confidence"),
+                    compared_fields=m0.get("compared_fields"),
+                )
+            )
         else:
             rows.append(
                 OutcomeRow(
@@ -628,8 +652,8 @@ def build_outcome_rows(
                     decision_next=d_next,
                     rule37_flag=r37f,
                     rule37a_flag=False,
-                    itc_available=True,
-                    itc_reason=None,
+                    itc_available=is_itc_avail,
+                    itc_reason=itc_rsn if not is_itc_avail else None,
                     blocked_credit_flag=bflag,
                     late_filing_flag=lf_flag,
                     is_credit_note=False,
@@ -1046,7 +1070,7 @@ def build_outcome_rows(
         if not gid:
             continue
         if any(
-            x.id == f"bc:{gid}" and x.category == "blocked_credit" for x in rows
+            x.id in (f"bc:{gid}", f"pm:{gid}") and x.category == "blocked_credit" for x in rows
         ):
             continue
         gcell = gstr_m.get(gid) or {}

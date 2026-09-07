@@ -35,6 +35,8 @@ from app.parsers.gstr2b_parser import (
     is_alt_gstr2b_schema,
     normalize_alt_2b_schema,
     parse_gstr2b,
+    resolve_itc_available,
+    resolve_itc_reason,
 )
 
 _ALT_FIXTURE = (
@@ -482,6 +484,41 @@ def test_itcavl_boolean_false_sets_itc_available_false():
         _payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itcavl=False)])])
     )
     assert result["records"][0]["itc_available"] is False
+
+
+def test_itcavl_missing_defaults_to_true():
+    inv = _invoice()
+    del inv["itcavl"]
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
+    assert result["records"][0]["itc_available"] is True
+
+
+def test_resolve_itc_available_cascade_and_raw_keys():
+    # 1. Raw 'itcavl' key without normalized 'itc_available'
+    assert resolve_itc_available({"itcavl": "N"}) is False
+    assert resolve_itc_available({"itcavl": "Y"}) is True
+
+    # 2. Candidate record has 'itc_available': None -> falls back to second record
+    assert resolve_itc_available({"itc_available": None}, {"itc_available": False}) is False
+    assert resolve_itc_available({"itc_available": None}, {"itcavl": "N"}) is False
+    assert resolve_itc_available({"itc_available": None}, {"itcavl": "Y"}) is True
+
+    # 3. Nested record_data fallback
+    assert resolve_itc_available({}, {"record_data": {"itcavl": "N"}}) is False
+    assert resolve_itc_available({"record_data": None}, {"record_data": {"itc_available": True}}) is True
+
+    # 4. No records / all empty -> defaults to True
+    assert resolve_itc_available() is True
+    assert resolve_itc_available(None, {}) is True
+
+
+def test_resolve_itc_reason_cascade():
+    # First record has None/empty -> falls back to second record
+    assert resolve_itc_reason({"itc_reason": None}, {"rsn": "Rule 37A non-filer"}) == "Rule 37A non-filer"
+    assert resolve_itc_reason({}, {"record_data": {"reason": "Sec 17(5)"}}) == "Sec 17(5)"
+    assert resolve_itc_reason({"itc_reason": "Primary Reason"}, {"rsn": "Secondary"}) == "Primary Reason"
+    assert resolve_itc_reason(None, {}) is None
+
 
 
 def test_normalization_notes_only_for_transformed_fields():

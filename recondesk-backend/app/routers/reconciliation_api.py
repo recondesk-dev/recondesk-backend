@@ -37,6 +37,7 @@ from app.constants import RunStatus
 from app.database import get_supabase, get_user_profile
 from app.services.decision_templates import generate_decision
 from app.services import reconciliation_outcomes as ro
+from app.parsers.gstr2b_parser import resolve_itc_available, resolve_itc_reason
 from app.services.firm_access import (
     assert_run_accessible,
     list_accessible_client_gstin_ids,
@@ -2032,6 +2033,20 @@ def _build_reconcile_summary(
         else ro.build_outcome_rows(sb, rid, payload)[0]
     )
     matched_count = sum(1 for r in outcome_rows if r.category == "matched")
+    if matched_count == 0:
+        rs = run_row.get("run_summary") if isinstance(run_row.get("run_summary"), dict) else {}
+        stored_clean = int(rs.get("clean_matched_count") or 0)
+        engine_clean = len(engine.get("matched") or [])
+        fallback_matched = stored_clean or engine_clean
+        if fallback_matched > 0:
+            _log.warning(
+                "Summary matched_count recomputed as 0 but stored=%d engine=%d; using fallback for run %s",
+                stored_clean,
+                engine_clean,
+                rid,
+            )
+            matched_count = fallback_matched
+
     # GSTR-side KPI only: PR-anchored marker rows (id prefix "dp:") are emitted
     # for duplicate-claim groups so each conflicting PR booking is visible in
     # the Review tab, but they must NOT inflate Review Required past Total GSTR.
@@ -2068,6 +2083,16 @@ def _build_reconcile_summary(
         .execute()
     )
     n_g = int(_cnt.count if getattr(_cnt, "count", None) is not None else len(_cnt.data or []))
+    if n_g == 0:
+        rs_cnt = run_row.get("run_summary") if isinstance(run_row.get("run_summary"), dict) else {}
+        n_g = int(
+            rs_cnt.get("gstr_in_scope")
+            or rs_cnt.get("total_gstr")
+            or run_row.get("gstr_records_imported")
+            or (matched_count + review_required_count + len(engine.get("missed_itc") or []))
+            or 0
+        )
+
 
     missed_list = engine.get("missed_itc") or []
     wr_list = engine.get("wrongful_itc_risk") or []
@@ -2775,6 +2800,13 @@ def _build_matched_pair_records(
             gd2 = _merged_record_data(grd_raw, gm)
             pd2 = _merged_record_data(prd_raw, pm)
 
+            if orow is not None:
+                itc_avl = getattr(orow, "itc_available", True)
+                itc_rsn_val = getattr(orow, "itc_reason", None)
+            else:
+                itc_avl = resolve_itc_available(gm, grd_raw)
+                itc_rsn_val = resolve_itc_reason(gm, grd_raw)
+
             api_row = {
                 "id": rid_str,
                 "supplier_gstin": str(en_row.get("supplier_gstin") or gm.get("supplier_gstin") or pm.get("supplier_gstin") or ""),
@@ -2823,6 +2855,8 @@ def _build_matched_pair_records(
                 "auto_approved": bool(
                     isinstance(en_row, dict) and en_row.get("auto_approved")
                 ),
+                "itc_available": itc_avl,
+                "itc_reason": itc_rsn_val,
             }
             out_pairs.append((api_row, orow))
         except Exception as e:
