@@ -1,4 +1,5 @@
 "use client";
+import { Analytics } from "@/lib/analytics";
 
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -493,6 +494,7 @@ export default function NewReconcileWizardPage() {
       // eslint-disable-next-line no-console -- debug: verify JWT sent on Continue
       const r = await importWizardApi.createRun(token, { client_id: clientId, period });
       setRun(r);
+      Analytics.runStarted(period, "manual_upload");
       setUiStep(2);
       router.replace(`/reconcile/${clientId}/new?run_id=${r.id}`);
     } catch (e) {
@@ -858,6 +860,7 @@ export default function NewReconcileWizardPage() {
         ...(itcClaimedPeriod ? { itc_claimed_period: itcClaimedPeriod } : {}),
       });
       setRun(updated);
+      Analytics.runCompleted({ period, matched: 0, mismatched: 0, pending: 0, duration_s: 0 });
       await runDetectWithRetry();
     } catch (e) {
       setPrUploadFailed(true);
