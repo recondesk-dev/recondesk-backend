@@ -32,7 +32,7 @@ def test_gstin_plan_catalog_v2():
     st_yr = get_plan_details("starter", "yearly")
     assert st_yr["gstin_limit"] == 25
     assert st_yr["period_days"] == 365
-    assert st_yr["base_paise"] == 9999_00
+    assert st_yr["base_paise"] == 7999_00
     st_mo = get_plan_details("starter", "monthly")
     assert st_mo["gstin_limit"] == 25
     assert st_mo["period_days"] == 30
@@ -41,7 +41,7 @@ def test_gstin_plan_catalog_v2():
     # Growth
     gr_yr = get_plan_details("growth", "yearly")
     assert gr_yr["gstin_limit"] == 50
-    assert gr_yr["base_paise"] == 14999_00
+    assert gr_yr["base_paise"] == 12999_00
     gr_mo = get_plan_details("growth", "monthly")
     assert gr_mo["gstin_limit"] == 50
     assert gr_mo["base_paise"] == 1799_00
@@ -49,7 +49,7 @@ def test_gstin_plan_catalog_v2():
     # Pro
     pro_yr = get_plan_details("pro", "yearly")
     assert pro_yr["gstin_limit"] == 100
-    assert pro_yr["base_paise"] == 19999_00
+    assert pro_yr["base_paise"] == 17999_00
     pro_mo = get_plan_details("pro", "monthly")
     assert pro_mo["gstin_limit"] == 100
     assert pro_mo["base_paise"] == 2399_00
@@ -58,7 +58,7 @@ def test_gstin_plan_catalog_v2():
     firm_yr = get_plan_details("firm", "yearly", total_gstins=120)
     assert firm_yr["gstin_limit"] == 120
     assert firm_yr["overage_gstins"] == 20
-    assert firm_yr["base_paise"] == 19999_00 + 20 * 200_00
+    assert firm_yr["base_paise"] == 17999_00 + 20 * 200_00
 
     firm_mo = get_plan_details("firm", "monthly", total_gstins=110)
     assert firm_mo["gstin_limit"] == 110

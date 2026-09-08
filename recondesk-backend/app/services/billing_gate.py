@@ -26,36 +26,36 @@ def _with_gst(base_paise: int) -> dict[str, int]:
 # GSTIN-based plans (V2 pricing). Paid subscription = unlimited runs until subscription_ends_at.
 PLAN_CONFIG: dict[str, dict[str, Any]] = {
     "starter": {
-        **_with_gst(9999_00),
+        **_with_gst(7999_00),
         "gstin_limit": 25,
         "period_days": 365,
         "billing_period": "yearly",
         "monthly": {**_with_gst(1199_00), "period_days": 30, "gstin_limit": 25},
-        "yearly": {**_with_gst(9999_00), "period_days": 365, "gstin_limit": 25},
+        "yearly": {**_with_gst(7999_00), "period_days": 365, "gstin_limit": 25},
     },
     "growth": {
-        **_with_gst(14999_00),
+        **_with_gst(12999_00),
         "gstin_limit": 50,
         "period_days": 365,
         "billing_period": "yearly",
         "monthly": {**_with_gst(1799_00), "period_days": 30, "gstin_limit": 50},
-        "yearly": {**_with_gst(14999_00), "period_days": 365, "gstin_limit": 50},
+        "yearly": {**_with_gst(12999_00), "period_days": 365, "gstin_limit": 50},
     },
     "pro": {
-        **_with_gst(19999_00),
+        **_with_gst(17999_00),
         "gstin_limit": 100,
         "period_days": 365,
         "billing_period": "yearly",
         "monthly": {**_with_gst(2399_00), "period_days": 30, "gstin_limit": 100},
-        "yearly": {**_with_gst(19999_00), "period_days": 365, "gstin_limit": 100},
+        "yearly": {**_with_gst(17999_00), "period_days": 365, "gstin_limit": 100},
     },
     "firm": {
-        **_with_gst(19999_00),
+        **_with_gst(17999_00),
         "gstin_limit": 100,
         "period_days": 365,
         "billing_period": "yearly",
         "monthly": {**_with_gst(2399_00), "period_days": 30, "gstin_limit": 100, "overage_rate_paise": 25_00},
-        "yearly": {**_with_gst(19999_00), "period_days": 365, "gstin_limit": 100, "overage_rate_paise": 200_00},
+        "yearly": {**_with_gst(17999_00), "period_days": 365, "gstin_limit": 100, "overage_rate_paise": 200_00},
     },
     # Backward compatibility for legacy 'monthly' key
     "monthly": {
@@ -64,7 +64,7 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
         "period_days": 30,
         "billing_period": "monthly",
         "monthly": {**_with_gst(1199_00), "period_days": 30, "gstin_limit": 25},
-        "yearly": {**_with_gst(9999_00), "period_days": 365, "gstin_limit": 25},
+        "yearly": {**_with_gst(7999_00), "period_days": 365, "gstin_limit": 25},
     },
 }
 
@@ -82,7 +82,7 @@ def get_plan_details(
 
     cfg = PLAN_CONFIG[plan_key]
     sub_cfg = cfg.get(period_key, cfg)
-    base_paise = int(sub_cfg.get("base_paise", 9999_00))
+    base_paise = int(sub_cfg.get("base_paise", 7999_00))
     period_days = int(sub_cfg.get("period_days", 365 if period_key == "yearly" else 30))
     gstin_limit = int(cfg.get("gstin_limit", 25))
 

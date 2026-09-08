@@ -80,7 +80,7 @@ export function PricingGrid({
                   : "bg-emerald-100 text-emerald-800"
               }`}
             >
-              Save ~30%
+              Save up to 44%
             </span>
           </button>
         </div>

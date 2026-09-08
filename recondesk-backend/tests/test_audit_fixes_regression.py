@@ -49,3 +49,126 @@ def test_prefix_abbreviation_format_variant():
     assert is_invoice_format_variant("FZ/2026/03763", "F3763", "FZ/2026/03763", "F3763")
     assert is_invoice_format_variant("FZ20263763", "F3763", "FZ/2026/03763", "F3763")
 
+
+def test_cross_gstin_cannot_steal_pr_with_same_gstin_candidate():
+    """A cross-GSTIN match (GSTIN_MISMATCH) must not steal a PR record if that PR
+    has an unconsumed same-GSTIN GSTR counterpart (exact, format variant, or typo match).
+    """
+    from datetime import date
+    from collections import defaultdict
+    from app.services.reconciliation import (
+        _pr_has_stronger_same_gstin_gstr_candidate,
+        execute_phase2_and_3,
+        build_pr_candidate_indices,
+        ReconState,
+    )
+
+    # Supplier A: PR invoice TYPO2600116, GSTR invoice TYPO2600113 (valid typo match)
+    gstin_a = "27ABCPD5678G1Z2"
+    gstin_b = "27AATCS4521P1Z8"
+
+    pr_a = {
+        "id": "pr_a_1",
+        "supplier_gstin": gstin_a,
+        "invoice_number": "TYPO/26/00116",
+        "invoice_number_normalized": "TYPO2600116",
+        "invoice_date": date(2026, 8, 10),
+        "taxable_amount_paise": 100000,
+        "total_tax_paise": 18000,
+    }
+
+    gstr_a = {
+        "id": "gstr_a_1",
+        "supplier_gstin": gstin_a,
+        "invoice_number": "TYPO/26/00113",
+        "invoice_number_normalized": "TYPO2600113",
+        "invoice_date": date(2026, 8, 16),
+        "taxable_amount_paise": 100000,
+        "total_tax_paise": 18000,
+    }
+
+    # Supplier B: GSTR invoice TYPO2600116 (happens to share invoice number with PR of Supplier A)
+    gstr_b = {
+        "id": "gstr_b_1",
+        "supplier_gstin": gstin_b,
+        "invoice_number": "TYPO/26/00116",
+        "invoice_number_normalized": "TYPO2600116",
+        "invoice_date": date(2026, 8, 10),
+        "taxable_amount_paise": 100000,
+        "total_tax_paise": 18000,
+    }
+
+    # Verify helper detects the stronger same-GSTIN partner
+    unconsumed_by_gstin = defaultdict(list)
+    unconsumed_by_gstin[gstin_a].append(gstr_a)
+    unconsumed_by_gstin[gstin_b].append(gstr_b)
+
+    assert _pr_has_stronger_same_gstin_gstr_candidate(pr_a, unconsumed_by_gstin, set())
+
+    # Full pipeline verification:
+    # Process gstr_b FIRST (the order that previously caused theft)
+    gstr_records = [gstr_b, gstr_a]
+    pr_records = [pr_a]
+
+    state = ReconState()
+    pr_index = {gstin_a: [pr_a]}
+    candidate_indices = build_pr_candidate_indices(pr_index)
+
+    execute_phase2_and_3(gstr_records, pr_records, state, candidate_indices)
+
+    # gstr_b must NOT have stolen pr_a
+    # gstr_a should have matched pr_a as TYPO_MISMATCH
+    matched_pr_ids = {str(r.get("pr_id")) for r in state.review_required}
+    assert "pr_a_1" in matched_pr_ids
+
+    review_match = [r for r in state.review_required if str(r.get("pr_id")) == "pr_a_1"][0]
+    assert review_match["gstr_id"] == "gstr_a_1"
+    assert review_match["review_reason"] == "TYPO_MISMATCH"
+    assert "gstr_b_1" in [str(m.get("gstr_id")) for m in state.missed_itc]
+
+
+def test_legitimate_cross_gstin_mismatch_preserved():
+    """Legitimate GSTIN_MISMATCH continues to work when the PR record has no
+    unconsumed same-GSTIN GSTR counterpart.
+    """
+    from datetime import date
+    from app.services.reconciliation import (
+        execute_phase2_and_3,
+        build_pr_candidate_indices,
+        ReconState,
+    )
+
+    gstin_gstr = "27AATCS4521P1Z8"
+    gstin_pr = "27ABCPD5678G1Z2"
+
+    pr_rec = {
+        "id": "pr_1",
+        "supplier_gstin": gstin_pr,
+        "invoice_number": "INV-2026-9999",
+        "invoice_number_normalized": "INV20269999",
+        "invoice_date": date(2026, 8, 10),
+        "taxable_amount_paise": 100000,
+        "total_tax_paise": 18000,
+    }
+
+    gstr_rec = {
+        "id": "gstr_1",
+        "supplier_gstin": gstin_gstr,
+        "invoice_number": "INV-2026-9999",
+        "invoice_number_normalized": "INV20269999",
+        "invoice_date": date(2026, 8, 10),
+        "taxable_amount_paise": 100000,
+        "total_tax_paise": 18000,
+    }
+
+    state = ReconState()
+    pr_index = {gstin_pr: [pr_rec]}
+    candidate_indices = build_pr_candidate_indices(pr_index)
+
+    execute_phase2_and_3([gstr_rec], [pr_rec], state, candidate_indices)
+
+    assert len(state.review_required) == 1
+    assert state.review_required[0]["gstr_id"] == "gstr_1"
+    assert state.review_required[0]["pr_id"] == "pr_1"
+    assert state.review_required[0]["review_reason"] == "GSTIN_MISMATCH"
+

@@ -30,11 +30,11 @@ export const PRICING_PLANS: PricingPlan[] = [
   {
     id: "starter",
     name: "Starter",
-    badgeYearly: "Save ~30%",
+    badgeYearly: "Save ~44%",
     valueTagMonthly: "₹48 / GSTIN / mo",
-    valueTagYearly: "₹400 / GSTIN / yr",
+    valueTagYearly: "₹320 / GSTIN / yr",
     priceMonthly: 1199,
-    priceYearly: 9999,
+    priceYearly: 7999,
     gstinCapacity: "Up to 25 GSTINs",
     gstinLimit: 25,
     blurb: "Essential full-featured reconciliation suite for solo CAs & boutique practices.",
@@ -50,8 +50,8 @@ export const PRICING_PLANS: PricingPlan[] = [
         benefit: "Manage up to 25 active GSTINs with unlimited reconciliation runs",
       },
       {
-        header: "Save ~30% on Annual",
-        benefit: "Save ₹4,389/year with yearly billing compared to monthly",
+        header: "Save ~44% on Annual",
+        benefit: "Save ₹6,389/year with yearly billing compared to monthly",
       },
     ],
   },
@@ -59,11 +59,11 @@ export const PRICING_PLANS: PricingPlan[] = [
     id: "growth",
     name: "Growth",
     badge: "Most Popular",
-    badgeYearly: "Save ~31%",
+    badgeYearly: "Save ~40%",
     valueTagMonthly: "₹36 / GSTIN / mo",
-    valueTagYearly: "₹300 / GSTIN / yr",
+    valueTagYearly: "₹260 / GSTIN / yr",
     priceMonthly: 1799,
-    priceYearly: 14999,
+    priceYearly: 12999,
     gstinCapacity: "Up to 50 GSTINs",
     gstinLimit: 50,
     blurb: "High-capacity suite for growing CA practices with active tax teams.",
@@ -79,19 +79,19 @@ export const PRICING_PLANS: PricingPlan[] = [
         benefit: "Double your client capacity with unlimited monthly/annual runs",
       },
       {
-        header: "Save ~31% on Annual",
-        benefit: "Save ₹6,589/year with yearly billing compared to monthly",
+        header: "Save ~40% on Annual",
+        benefit: "Save ₹8,589/year with yearly billing compared to monthly",
       },
     ],
   },
   {
     id: "pro",
     name: "Pro",
-    badgeYearly: "Save ~30%",
+    badgeYearly: "Save ~37%",
     valueTagMonthly: "₹24 / GSTIN / mo",
-    valueTagYearly: "₹200 / GSTIN / yr",
+    valueTagYearly: "₹180 / GSTIN / yr",
     priceMonthly: 2399,
-    priceYearly: 19999,
+    priceYearly: 17999,
     gstinCapacity: "Up to 100 GSTINs",
     gstinLimit: 100,
     blurb: "Comprehensive capacity for large CA firms and dedicated compliance teams.",
@@ -119,7 +119,7 @@ export const PRICING_PLANS: PricingPlan[] = [
     valueTagMonthly: "+₹25/GSTIN > 100",
     valueTagYearly: "+₹200/GSTIN > 100",
     priceMonthly: 2399,
-    priceYearly: 19999,
+    priceYearly: 17999,
     overageMonthlyPerGstin: 25,
     overageYearlyPerGstin: 200,
     gstinCapacity: "100+ GSTINs",
@@ -166,7 +166,7 @@ export function calculateFirmPrice(
   totalWithGst: number;
 } {
   const isYearly = cycle === "yearly";
-  const basePrice = isYearly ? 19999 : 2399;
+  const basePrice = isYearly ? 17999 : 2399;
   const overageRate = isYearly ? 200 : 25;
   const extraGstins = Math.max(0, totalGstinCount - 100);
   const overageAmount = extraGstins * overageRate;

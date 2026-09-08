@@ -22,6 +22,7 @@ from app.services.matcher import (
     match_gstr_to_pr,
     normalize_invoice,
     same_pan,
+    _parse_invoice_date,
 )
 from app.services.vendor_name_matcher import find_best_vendor_match, vendor_name_similarity
 from app.services.gstr3b_reconciliation import _paise_to_rupees
@@ -1903,6 +1904,11 @@ def execute_phase2_and_3(
         inv = str(p.get("invoice_number_normalized") or "")
         if inv: rem_pr_by_inv_norm[inv].append(p)
     _all_unconsumed_pr_snapshot = list(unconsumed_pr)
+    unconsumed_gstr_by_gstin = defaultdict(list)
+    for g_rec in unconsumed_gstr:
+        g_gst = str(g_rec.get("supplier_gstin") or "").strip()
+        if g_gst:
+            unconsumed_gstr_by_gstin[g_gst].append(g_rec)
 
     # 2. GSTIN_MISMATCH & 3. TYPO_MISMATCH
     for g in unconsumed_gstr:
@@ -1921,6 +1927,10 @@ def execute_phase2_and_3(
             if str(p["id"]) in state.consumed_pr_ids: continue
             p_gst = str(p.get("supplier_gstin") or "").strip()
             if gst != p_gst:
+                if _pr_has_stronger_same_gstin_gstr_candidate(
+                    p, unconsumed_gstr_by_gstin, state.consumed_gstr_ids
+                ):
+                    continue
                 p_amt = p.get("total_tax_paise") or 0
                 if g_amt == 0 and p_amt == 0:
                     diff_pct = 0
@@ -1967,6 +1977,10 @@ def execute_phase2_and_3(
             p_gst = str(p.get("supplier_gstin") or "").strip()
             # Must be a near-match GSTIN (not exact — exact case already handled above)
             if not _gstin_is_fuzzy_match(gst, p_gst):
+                continue
+            if _pr_has_stronger_same_gstin_gstr_candidate(
+                p, unconsumed_gstr_by_gstin, state.consumed_gstr_ids
+            ):
                 continue
             # Invoice must be plausibly the same.
             # Accept if similarity >= 0.75 OR if the two invoice numbers are recognised
@@ -2517,6 +2531,65 @@ def _gstin_is_fuzzy_match(gst_a: str, gst_b: str) -> bool:
         return True
     # Levenshtein ≤ 2 handles one-off typos, case issues, single-digit checksum errors
     return _levenshtein_distance(a, b) <= 2
+
+
+def _pr_has_stronger_same_gstin_gstr_candidate(
+    p: dict,
+    unconsumed_gstr_by_gstin: dict[str, list[dict]],
+    consumed_gstr_ids: set[str],
+) -> bool:
+    """Return True if PR record `p` has an unconsumed same-GSTIN GSTR counterpart.
+
+    Candidate Priority Hierarchy:
+      Same-GSTIN candidates (exact normalized invoice, format variant, or typo match)
+      represent claims under the true supplier and must not be stolen by cross-GSTIN
+      matching (GSTIN_MISMATCH) from an unrelated supplier.
+    """
+    p_gst = str(p.get("supplier_gstin") or "").strip()
+    if not p_gst:
+        return False
+    same_gst_gstrs = unconsumed_gstr_by_gstin.get(p_gst, [])
+    if not same_gst_gstrs:
+        return False
+
+    p_inv_norm = str(p.get("invoice_number_normalized") or "")
+    p_inv_raw = str(p.get("invoice_number") or "")
+    p_amt = p.get("total_tax_paise") or 0
+    p_date = _parse_invoice_date(p)
+
+    for g_cand in same_gst_gstrs:
+        if str(g_cand.get("id")) in consumed_gstr_ids:
+            continue
+        g_cand_norm = str(g_cand.get("invoice_number_normalized") or "")
+        g_cand_raw = str(g_cand.get("invoice_number") or "")
+
+        # 1. Exact invoice number match
+        if p_inv_norm and g_cand_norm and p_inv_norm == g_cand_norm:
+            return True
+
+        # 2. Format variant match
+        if p_inv_norm and g_cand_norm and is_invoice_format_variant(g_cand_norm, p_inv_norm, g_cand_raw, p_inv_raw):
+            return True
+
+        # 3. Typo match (amount within 5%, date within 45 days, invoice similarity >= 0.75)
+        g_cand_amt = g_cand.get("total_tax_paise") or 0
+        if p_amt == 0 and g_cand_amt == 0:
+            diff_pct = 0.0
+        elif p_amt == 0:
+            diff_pct = 1.0
+        else:
+            diff_pct = abs(g_cand_amt - p_amt) / float(p_amt)
+
+        if diff_pct <= 0.05:
+            g_cand_date = _parse_invoice_date(g_cand)
+            date_diff = abs((g_cand_date - p_date).days) if g_cand_date and p_date else 0
+            if not g_cand_date or not p_date or date_diff <= 45:
+                if p_inv_norm and g_cand_norm:
+                    sim = invoice_similarity(g_cand_norm, p_inv_norm)
+                    if sim >= 0.75:
+                        return True
+
+    return False
 
 
 def _finalize_reconciliation_result(
