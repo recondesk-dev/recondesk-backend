@@ -23,6 +23,7 @@ import {
 import { DW, formatPeriodLabel } from "@/lib/dashboard-portfolio";
 import { clearOnboardingDoneCookie } from "@/lib/onboarding-cookie";
 import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
+import { Analytics } from "@/lib/analytics";
 
 function initialsFromDisplayName(name: string): string {
   const t = name.trim();
@@ -291,6 +292,8 @@ export default function DashboardShellLayout({
           role,
           initials: initialsFromDisplayName(name),
         });
+        Analytics.identify({ id: me.id ?? "", email: me.email ?? "", name });
+        Analytics.identify({ id: me.id ?? "", email: me.email ?? "", name });
       } catch (err) {
         if (cancelled) return;
         console.warn("[DashboardShellLayout] fetchFreshAuthProfile failed, using fallback:", err);
