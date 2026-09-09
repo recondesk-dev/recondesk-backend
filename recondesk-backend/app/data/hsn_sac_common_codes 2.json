@@ -1,0 +1,386 @@
+[
+  {
+    "code": "3004",
+    "description": "Medicaments consisting of mixed or unmixed products for therapeutic or prophylactic uses",
+    "item_type": "goods",
+    "keywords": ["medicine", "tablets", "capsules", "syrup", "pharma", "pharmaceutical", "drug", "medicament", "injection", "ointment"]
+  },
+  {
+    "code": "3002",
+    "description": "Human blood, animal blood, antisera, vaccines, toxins, cultures of micro-organisms",
+    "item_type": "goods",
+    "keywords": ["vaccine", "blood", "antisera", "serum", "injection", "pharma", "biotech"]
+  },
+  {
+    "code": "3006",
+    "description": "Pharmaceutical goods specified in note 4 to Chapter 30 (first-aid kits, dental cements)",
+    "item_type": "goods",
+    "keywords": ["first aid", "bandage", "dental cement", "medical kit", "pharma"]
+  },
+  {
+    "code": "5208",
+    "description": "Woven fabrics of cotton, containing 85% or more by weight of cotton",
+    "item_type": "goods",
+    "keywords": ["cotton", "fabric", "textile", "cloth", "woven", "yarn"]
+  },
+  {
+    "code": "6109",
+    "description": "T-shirts, singlets and other vests, knitted or crocheted",
+    "item_type": "goods",
+    "keywords": ["t-shirt", "tshirt", "shirt", "vest", "apparel", "garment", "clothing", "textile"]
+  },
+  {
+    "code": "6203",
+    "description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls",
+    "item_type": "goods",
+    "keywords": ["suit", "trouser", "pants", "jacket", "blazer", "jeans", "menswear", "garment", "apparel"]
+  },
+  {
+    "code": "6204",
+    "description": "Women's or girls' suits, ensembles, jackets, dresses, skirts, trousers",
+    "item_type": "goods",
+    "keywords": ["dress", "skirt", "womenswear", "top", "suit", "garment", "apparel", "lady clothing"]
+  },
+  {
+    "code": "8471",
+    "description": "Automatic data processing machines (computers, laptops, microprocessors, servers)",
+    "item_type": "goods",
+    "keywords": ["computer", "laptop", "pc", "desktop", "server", "workstation", "cpu", "processor", "hardware"]
+  },
+  {
+    "code": "8473",
+    "description": "Parts and accessories suitable for use with computers, office machines, printers",
+    "item_type": "goods",
+    "keywords": ["keyboard", "mouse", "ram", "motherboard", "hard disk", "ssd", "computer parts", "accessories"]
+  },
+  {
+    "code": "8517",
+    "description": "Telephone sets, smartphones, cell phones and other apparatus for transmission of voice/images",
+    "item_type": "goods",
+    "keywords": ["mobile", "phone", "smartphone", "telephone", "router", "modem", "switch", "telecom"]
+  },
+  {
+    "code": "8528",
+    "description": "Monitors and projectors, television reception apparatus",
+    "item_type": "goods",
+    "keywords": ["monitor", "display", "screen", "tv", "television", "projector"]
+  },
+  {
+    "code": "8504",
+    "description": "Electrical transformers, static converters (inverters, power supplies, UPS)",
+    "item_type": "goods",
+    "keywords": ["ups", "inverter", "transformer", "power supply", "charger", "adapter"]
+  },
+  {
+    "code": "0401",
+    "description": "Milk and cream, not concentrated nor containing added sugar or other sweetening matter",
+    "item_type": "goods",
+    "keywords": ["milk", "dairy", "cream", "fresh milk", "pasteurized milk"]
+  },
+  {
+    "code": "0402",
+    "description": "Milk and cream, concentrated or containing added sugar (powdered milk, condensed milk)",
+    "item_type": "goods",
+    "keywords": ["milk powder", "condensed milk", "dairy", "powdered milk"]
+  },
+  {
+    "code": "0406",
+    "description": "Cheese and curd",
+    "item_type": "goods",
+    "keywords": ["cheese", "curd", "paneer", "dairy", "butter milk"]
+  },
+  {
+    "code": "1006",
+    "description": "Rice (husked, milled, semi-milled, broken, basmati)",
+    "item_type": "goods",
+    "keywords": ["rice", "basmati", "grain", "cereal", "paddy"]
+  },
+  {
+    "code": "1001",
+    "description": "Wheat and meslin",
+    "item_type": "goods",
+    "keywords": ["wheat", "grain", "cereal", "atta", "flour"]
+  },
+  {
+    "code": "1701",
+    "description": "Cane or beet sugar and chemically pure sucrose, in solid form",
+    "item_type": "goods",
+    "keywords": ["sugar", "sweetener", "cane sugar", "jaggery"]
+  },
+  {
+    "code": "1905",
+    "description": "Bread, pastry, cakes, biscuits, cookies, wafers and other bakers' wares",
+    "item_type": "goods",
+    "keywords": ["biscuit", "cookies", "bread", "cake", "pastry", "bakery", "toast", "rusk", "snack"]
+  },
+  {
+    "code": "2106",
+    "description": "Food preparations not elsewhere specified or included (namkeen, snacks, protein powder)",
+    "item_type": "goods",
+    "keywords": ["food preparation", "namkeen", "snack", "protein powder", "health supplement", "food item"]
+  },
+  {
+    "code": "9401",
+    "description": "Seats (other than medical), whether or not convertible into beds, and parts thereof",
+    "item_type": "goods",
+    "keywords": ["chair", "seat", "sofa", "office chair", "recliner", "furniture"]
+  },
+  {
+    "code": "9403",
+    "description": "Other furniture and parts thereof (office furniture, wooden desks, metal cabinets, tables)",
+    "item_type": "goods",
+    "keywords": ["furniture", "desk", "table", "cabinet", "cupboard", "almirah", "bed", "workstation"]
+  },
+  {
+    "code": "9404",
+    "description": "Mattress supports, mattresses, quilts, eiderdowns, cushions, pillows",
+    "item_type": "goods",
+    "keywords": ["mattress", "pillow", "cushion", "quilt", "bedding"]
+  },
+  {
+    "code": "3926",
+    "description": "Other articles of plastics and articles of other materials (plastic containers, sheets, trays)",
+    "item_type": "goods",
+    "keywords": ["plastic", "plastic container", "plastic box", "plastic sheet", "moulded goods"]
+  },
+  {
+    "code": "4819",
+    "description": "Cartons, boxes, cases, bags and other packing containers of paper, paperboard, corrugated paper",
+    "item_type": "goods",
+    "keywords": ["box", "carton", "packaging", "corrugated box", "paper bag", "packaging box"]
+  },
+  {
+    "code": "4802",
+    "description": "Uncoated paper and paperboard of a kind used for writing, printing or other graphic purposes",
+    "item_type": "goods",
+    "keywords": ["paper", "printing paper", "a4 paper", "copier paper", "writing paper", "stationery"]
+  },
+  {
+    "code": "4820",
+    "description": "Registers, account books, note books, order books, receipt books, letter pads, diaries",
+    "item_type": "goods",
+    "keywords": ["notebook", "register", "diary", "pad", "stationery", "file folder"]
+  },
+  {
+    "code": "7318",
+    "description": "Screws, bolts, nuts, coach screws, screw hooks, rivets, cotters, washers of iron or steel",
+    "item_type": "goods",
+    "keywords": ["screw", "bolt", "nut", "hardware", "fastener", "washer", "rivet", "steel fittings"]
+  },
+  {
+    "code": "8443",
+    "description": "Printing machinery, printers, copying machines, facsimile machines, ink cartridges",
+    "item_type": "goods",
+    "keywords": ["printer", "copier", "xerox", "ink cartridge", "toner", "printing machine"]
+  },
+  {
+    "code": "8708",
+    "description": "Parts and accessories of the motor vehicles (car parts, brake pads, gears, mirrors)",
+    "item_type": "goods",
+    "keywords": ["auto parts", "car parts", "spare parts", "automobile accessories", "brake pads", "gear"]
+  },
+  {
+    "code": "8711",
+    "description": "Motorcycles (including mopeds) and cycles fitted with an auxiliary motor",
+    "item_type": "goods",
+    "keywords": ["motorcycle", "bike", "scooter", "two wheeler", "moped"]
+  },
+  {
+    "code": "8703",
+    "description": "Motor cars and other motor vehicles principally designed for the transport of persons",
+    "item_type": "goods",
+    "keywords": ["car", "vehicle", "automobile", "suv", "sedan"]
+  },
+  {
+    "code": "3304",
+    "description": "Beauty or make-up preparations and preparations for the care of the skin (cosmetics, creams, sunscreen)",
+    "item_type": "goods",
+    "keywords": ["cosmetics", "cream", "lotion", "skincare", "beauty product", "sunscreen", "makeup"]
+  },
+  {
+    "code": "3305",
+    "description": "Preparations for use on the hair (shampoo, hair oil, hair dye)",
+    "item_type": "goods",
+    "keywords": ["shampoo", "hair oil", "hair dye", "conditioner", "hair care"]
+  },
+  {
+    "code": "3401",
+    "description": "Soap, organic surface-active products and preparations for use as soap",
+    "item_type": "goods",
+    "keywords": ["soap", "handwash", "body wash", "bathing bar", "toiletries"]
+  },
+  {
+    "code": "3402",
+    "description": "Detergents, washing preparations, cleaning preparations, dishwashing liquids",
+    "item_type": "goods",
+    "keywords": ["detergent", "washing powder", "cleaner", "dishwash", "floor cleaner", "laundry"]
+  },
+  {
+    "code": "9983",
+    "description": "Other professional, technical and business services (management consulting, IT consulting, marketing, PR, design)",
+    "item_type": "service",
+    "keywords": ["consulting", "management consulting", "business advice", "it consulting", "marketing", "pr service", "graphic design", "technical service", "advisory", "professional fees"]
+  },
+  {
+    "code": "998313",
+    "description": "Information technology (IT) consulting and support services",
+    "item_type": "service",
+    "keywords": ["it support", "tech consulting", "software maintenance", "it services", "cloud consulting", "system integration"]
+  },
+  {
+    "code": "998314",
+    "description": "Information technology (IT) design and development services (custom software, mobile app, website development)",
+    "item_type": "service",
+    "keywords": ["software development", "web development", "app development", "website design", "coding", "software engineering", "programming", "it services"]
+  },
+  {
+    "code": "998315",
+    "description": "Hosting and information technology (IT) infrastructure provisioning services",
+    "item_type": "service",
+    "keywords": ["hosting", "web hosting", "cloud server", "aws", "gcp", "azure", "domain hosting", "data center"]
+  },
+  {
+    "code": "9982",
+    "description": "Legal and accounting services (auditing, tax consulting, bookkeeping, legal advisory)",
+    "item_type": "service",
+    "keywords": ["accounting", "chartered accountant", "ca fees", "audit", "tax audit", "gst filing service", "legal fees", "lawyer", "bookkeeping", "advocate"]
+  },
+  {
+    "code": "998211",
+    "description": "Legal advisory and representation services",
+    "item_type": "service",
+    "keywords": ["legal advice", "court case", "lawyer fees", "advocate fees", "legal consultant"]
+  },
+  {
+    "code": "998222",
+    "description": "Financial auditing services and accounting review services",
+    "item_type": "service",
+    "keywords": ["audit fees", "statutory audit", "tax audit", "accounting audit", "ca audit"]
+  },
+  {
+    "code": "998231",
+    "description": "Bookkeeping services and compilation of financial statements",
+    "item_type": "service",
+    "keywords": ["bookkeeping", "accounting charges", "tally entry", "financial statement preparation"]
+  },
+  {
+    "code": "9972",
+    "description": "Real estate services (renting of commercial property, lease of land/building, real estate agent commission)",
+    "item_type": "service",
+    "keywords": ["rent", "office rent", "commercial rent", "lease", "property rental", "real estate agent", "brokerage"]
+  },
+  {
+    "code": "997212",
+    "description": "Renting or leasing services involving own or leased non-residential property (commercial premises)",
+    "item_type": "service",
+    "keywords": ["commercial rent", "office lease", "warehouse rent", "shop rental"]
+  },
+  {
+    "code": "9965",
+    "description": "Goods transport services (freight transport, road transport, courier, logistics, GTAs)",
+    "item_type": "service",
+    "keywords": ["freight", "transport", "logistics", "courier", "shipping", "cargo", "gta", "trucking", "delivery"]
+  },
+  {
+    "code": "996511",
+    "description": "Road transport services of freight by goods transport agency (GTA)",
+    "item_type": "service",
+    "keywords": ["gta", "truck freight", "road transport", "cargo transport", "goods transport"]
+  },
+  {
+    "code": "9968",
+    "description": "Postal and courier services (express mail, parcel delivery)",
+    "item_type": "service",
+    "keywords": ["courier", "parcel", "postage", "speed post", "fedex", "dhl", "dtdc", "express delivery"]
+  },
+  {
+    "code": "9964",
+    "description": "Passenger transport services (taxi, cab, bus, air travel tickets, train booking)",
+    "item_type": "service",
+    "keywords": ["taxi", "cab", "uber", "ola", "travel booking", "air ticket", "bus ticket", "passenger transport"]
+  },
+  {
+    "code": "9963",
+    "description": "Accommodation, food and beverage services (hotel room stay, restaurant, catering)",
+    "item_type": "service",
+    "keywords": ["hotel", "room rent", "stay", "restaurant", "food service", "catering", "dining", "hospitality"]
+  },
+  {
+    "code": "996331",
+    "description": "Services provided by restaurants, cafes and other eating establishments",
+    "item_type": "service",
+    "keywords": ["restaurant charges", "cafe", "food bill", "dining charges"]
+  },
+  {
+    "code": "9987",
+    "description": "Maintenance, repair and installation services (machinery, AC repair, vehicle service, hardware repair)",
+    "item_type": "service",
+    "keywords": ["maintenance", "repair", "amc", "servicing", "installation", "ac repair", "hardware repair", "vehicle service"]
+  },
+  {
+    "code": "998713",
+    "description": "Maintenance and repair services of computers and peripheral equipment",
+    "item_type": "service",
+    "keywords": ["computer repair", "laptop repair", "it amc", "printer service", "hardware maintenance"]
+  },
+  {
+    "code": "9984",
+    "description": "Telecommunications, broadcasting and information supply services (internet service provider, mobile connection)",
+    "item_type": "service",
+    "keywords": ["internet", "broadband", "telecom bill", "wifi", "phone bill", "lease line", "isp"]
+  },
+  {
+    "code": "9985",
+    "description": "Support services (manpower supply, security services, house-keeping, cleaning services)",
+    "item_type": "service",
+    "keywords": ["security service", "manpower", "housekeeping", "cleaning", "facility management", "staff augmentation", "janitorial"]
+  },
+  {
+    "code": "998513",
+    "description": "Personnel provisioning services (manpower supply and staffing)",
+    "item_type": "service",
+    "keywords": ["manpower supply", "staffing", "contract labour", "recruitment charges", "subcontractor fees"]
+  },
+  {
+    "code": "998529",
+    "description": "Security guard services",
+    "item_type": "service",
+    "keywords": ["security guards", "guard services", "bouncers", "premises security"]
+  },
+  {
+    "code": "9954",
+    "description": "Construction services (civil construction, building, plumbing, electrical installation, renovation)",
+    "item_type": "service",
+    "keywords": ["construction", "building contract", "civil work", "interior fitout", "renovation", "plumbing work", "electrical work"]
+  },
+  {
+    "code": "9971",
+    "description": "Financial and related services (banking charges, processing fees, payment gateway charges)",
+    "item_type": "service",
+    "keywords": ["bank charges", "processing fee", "payment gateway fee", "loan charges", "financial service", "commission"]
+  },
+  {
+    "code": "997133",
+    "description": "Payment transformation and merchant acquiring services (payment gateway MDR charges)",
+    "item_type": "service",
+    "keywords": ["payment gateway", "razorpay", "stripe", "mdr charges", "transaction fee"]
+  },
+  {
+    "code": "9992",
+    "description": "Education services (tuition fees, coaching, corporate training, seminars)",
+    "item_type": "service",
+    "keywords": ["education", "training", "coaching", "tuition", "workshop", "corporate training", "course fees"]
+  },
+  {
+    "code": "9993",
+    "description": "Human health and social care services (doctor consultation, hospital charges, diagnostic labs)",
+    "item_type": "service",
+    "keywords": ["doctor fees", "hospital charges", "health checkup", "medical test", "diagnostic charges", "healthcare"]
+  },
+  {
+    "code": "998361",
+    "description": "Advertising services (online ads, google ads, facebook ads, hoardings, print ads)",
+    "item_type": "service",
+    "keywords": ["advertising", "ads", "digital marketing", "google ads", "facebook ads", "promotions", "media buy"]
+  }
+]

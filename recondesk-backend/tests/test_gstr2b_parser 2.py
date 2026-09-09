@@ -1,0 +1,1146 @@
+"""Tests for app/parsers/gstr2b_parser.py.
+
+All 31 test cases (spec requires at least 24) must pass.
+
+Verified valid GSTINs:
+    BUYER_GSTIN  = "27AAAAA1234A1ZP"
+    SUPPLIER_1   = "29ABCDE1234F1ZW"
+    SUPPLIER_2   = "07CCCCC1234C1Z9"
+"""
+
+import datetime
+import json
+import time
+
+import pytest
+
+from pathlib import Path
+
+from app.parsers.gstr2b_parser import (
+    ALT_2B_PLACEHOLDER_BUYER_GSTIN,
+    AltGstr2bMissingPeriodError,
+    BUYER_GSTIN_MISSING_WARNING,
+    BUYER_GSTIN_SOURCE_CLIENT,
+    BUYER_GSTIN_SOURCE_PLACEHOLDER,
+    SKIP_INVALID_AMOUNT,
+    SKIP_INVALID_GSTIN,
+    SKIP_INVALID_INVOICE_DATE,
+    SKIP_MALFORMED_INVOICE,
+    SKIP_MISSING_GSTIN,
+    SKIP_MISSING_INVOICE_DATE,
+    SKIP_MISSING_INVOICE_NUMBER,
+    SKIP_UNSUPPORTED_SCHEMA,
+    _alt_parse_period_to_rtnprd,
+    _make_skip_entry,
+    is_alt_gstr2b_schema,
+    normalize_alt_2b_schema,
+    parse_gstr2b,
+)
+
+_ALT_FIXTURE = (
+    Path(__file__).resolve().parents[1]
+    / "test_fixtures"
+    / "sandbox"
+    / "sample_alt_gstr2b.json"
+)
+
+# ---------------------------------------------------------------------------
+# Fixtures / helpers
+# ---------------------------------------------------------------------------
+
+BUYER_GSTIN = "27AAAAA1234A1ZP"
+SUPPLIER_1 = "29ABCDE1234F1ZW"
+SUPPLIER_2 = "07CCCCC1234C1Z9"
+
+
+def _enc(obj: dict) -> bytes:
+    return json.dumps(obj).encode("utf-8")
+
+
+def _payload(
+    *,
+    gstin: str = BUYER_GSTIN,
+    rtnprd: str = "042024",
+    b2b=None,
+    b2ba=None,
+    cdnr=None,
+    cdnra=None,
+    **extra,
+) -> bytes:
+    data: dict = {"gstin": gstin, "rtnprd": rtnprd, **extra}
+    if b2b is not None:
+        data["b2b"] = b2b
+    if b2ba is not None:
+        data["b2ba"] = b2ba
+    if cdnr is not None:
+        data["cdnr"] = cdnr
+    if cdnra is not None:
+        data["cdnra"] = cdnra
+    return _enc({"data": data})
+
+
+def _supplier(ctin: str, invoices: list) -> dict:
+    return {"ctin": ctin, "inv": invoices}
+
+
+def _invoice(
+    inum: str = "INV001",
+    dt: str = "01-04-2024",
+    val=1000,
+    pos: str = "27",
+    rev: str = "N",
+    itcavl: str = "Y",
+    itms=None,
+) -> dict:
+    inv: dict = {"inum": inum, "dt": dt, "val": val, "pos": pos, "rev": rev, "itcavl": itcavl}
+    if itms is not None:
+        inv["itms"] = itms
+    return inv
+
+
+def _item(rt=18, txval=1000, igst=180, cgst=0, sgst=0, cess=0, hsn=None) -> dict:
+    d = {"rt": rt, "txval": txval, "igst": igst, "cgst": cgst, "sgst": sgst, "cess": cess}
+    if hsn is not None:
+        d["hsn"] = hsn
+    return d
+
+
+def _cdnr_invoice(
+    ntnum: str = "CN001",
+    dt: str = "01-04-2024",
+    val=500,
+    ntty: str = "C",
+    pos: str = "27",
+    rev: str = "N",
+    itcavl: str = "Y",
+    itms=None,
+    **extra,
+) -> dict:
+    inv: dict = {"ntnum": ntnum, "dt": dt, "val": val, "ntty": ntty, "pos": pos, "rev": rev, "itcavl": itcavl}
+    if itms is not None:
+        inv["itms"] = itms
+    inv.update(extra)
+    return inv
+
+
+# ===========================================================================
+# Happy-path tests
+# ===========================================================================
+
+def test_valid_b2b_all_fields_present_and_typed():
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itms=[_item()])])]))
+
+    assert result["schema_version"] == "gstr2b_v1"
+    assert result["buyer_gstin"] == BUYER_GSTIN
+    assert result["period"] == "2024-04-01"
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 0
+
+    rec = result["records"][0]
+    assert rec["doc_type"] == "INVOICE"
+    assert rec["is_amendment"] is False
+    assert rec["section"] == "b2b"
+    assert rec["schema_version"] == "gstr2b_v1"
+    assert rec["supplier_gstin"] == SUPPLIER_1
+    assert rec["supplier_gstin_raw"] == SUPPLIER_1
+    assert rec["invoice_number"] == "INV1"
+    assert rec["invoice_number_raw"] == "INV001"
+    assert isinstance(rec["invoice_date_norm"], str)
+    assert isinstance(rec["invoice_value_paise"], int)
+    assert rec["reverse_charge"] is False
+    assert rec["itc_available"] is True
+    assert rec["original_invoice_number"] is None
+    assert rec["original_invoice_date_norm"] is None
+    assert rec["original_invoice_number_raw"] is None
+    assert rec["original_invoice_date_raw"] is None
+    assert isinstance(rec["pos"], str)
+    assert isinstance(rec["items"], list)
+    assert len(rec["items"]) == 1
+    assert "hsn" not in rec["items"][0]
+    assert isinstance(rec["normalization_notes"], dict)
+    assert isinstance(rec["unique_key"], str)
+
+
+def test_item_hsn_flat_line_item():
+    result = parse_gstr2b(
+        _payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itms=[_item(hsn="87032100")])])])
+    )
+    assert result["records"][0]["items"][0]["hsn"] == "87032100"
+
+
+def test_item_hsn_from_itm_det():
+    line = {"num": 1, "itm_det": {**_item(), "hsn": "998313"}}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itms=[line])])]))
+    assert result["records"][0]["items"][0]["hsn"] == "998313"
+
+
+def test_b2b_accepts_items_alias_for_line_items():
+    line = {
+        "num": 1,
+        "itm_det": {
+            "rt": 18,
+            "txval": 100000,
+            "iamt": 0,
+            "camt": 9000,
+            "samt": 9000,
+            "csamt": 0,
+        },
+    }
+    inv = _invoice(val=118000)
+    inv["items"] = [line]
+
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
+
+    rec = result["records"][0]
+    assert rec["items"][0]["taxable_value_paise"] == 10000000
+    assert rec["items"][0]["cgst_paise"] == 900000
+    assert rec["items"][0]["sgst_paise"] == 900000
+    assert rec["taxable_value"] == 100000
+
+
+def test_cdnr_accepts_items_alias_for_line_items():
+    line = {
+        "num": 1,
+        "itm_det": {
+            "rt": 18,
+            "txval": -10000,
+            "iamt": 0,
+            "camt": -900,
+            "samt": -900,
+            "csamt": 0,
+        },
+    }
+    inv = _cdnr_invoice(val=11800)
+    inv["items"] = [line]
+
+    result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, [inv])]))
+
+    rec = result["records"][0]
+    assert rec["doc_type"] == "CREDIT_NOTE"
+    assert rec["items"][0]["taxable_value_paise"] == -1000000
+    assert rec["items"][0]["cgst_paise"] == -90000
+    assert rec["items"][0]["sgst_paise"] == -90000
+    assert rec["taxable_value"] == -10000
+
+
+def test_item_hsn_prefers_itm_det_over_item_wrapper():
+    line = {"num": 1, "hsn": "1111", "itm_det": {**_item(), "hsn": "998313"}}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itms=[line])])]))
+    assert result["records"][0]["items"][0]["hsn"] == "998313"
+
+
+def test_cdnr_ntty_c_is_credit_note():
+    result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, [_cdnr_invoice(ntty="C")])]))
+    assert result["records"][0]["doc_type"] == "CREDIT_NOTE"
+
+
+def test_cdnr_ntty_d_is_debit_note():
+    result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, [_cdnr_invoice(ntty="D")])]))
+    assert result["records"][0]["doc_type"] == "DEBIT_NOTE"
+
+
+def test_cdnr_portal_ntyp_alias_is_credit_note():
+    """Portal GSTR-2B JSON uses ``ntyp`` (not legacy ``ntty``)."""
+    inv = _cdnr_invoice(ntnum="CN-PORTAL-1")
+    del inv["ntty"]
+    inv["ntyp"] = "C"
+    inv["nt_num"] = inv.pop("ntnum")
+    inv["nt_dt"] = inv.pop("dt")
+    result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, [inv])]))
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 0
+    assert result["records"][0]["doc_type"] == "CREDIT_NOTE"
+
+
+def test_portal_docdata_cdnr_nt_ntyp_parsed_in_upload_validation():
+    """Regression for the real messy-file symptom: portal CDNR under
+    ``data.docdata.cdnr`` with ``nt`` arrays and ``ntyp`` (no legacy ``ntty``)
+    must parse cleanly through upload validation — not
+    ``N skipped: Unsupported schema``.
+    """
+    from app.services.reconciliation_import_wizard.wizard_service import (
+        run_sanity_gstr2b_json,
+    )
+
+    note = {
+        "ntyp": "C",
+        "nt_num": "CN-24-25/1019",
+        "nt_dt": "21-03-2025",
+        "val": 103563.0,
+        "pos": "27",
+        "rchrg": "N",
+        "itms": [
+            {
+                "num": 1,
+                "itm_det": {
+                    "txval": 87765.26,
+                    "rt": 18.0,
+                    "camt": 7898.87,
+                    "samt": 7898.87,
+                    "iamt": 0.0,
+                },
+            }
+        ],
+    }
+    payload = _enc(
+        {
+            "data": {
+                "gstin": BUYER_GSTIN,
+                "fp": "062025",
+                "docdata": {
+                    "b2b": [],
+                    "cdnr": [
+                        {"ctin": SUPPLIER_1, "trdnm": "Vendor", "nt": [note]},
+                    ],
+                },
+            },
+        }
+    )
+
+    parsed = parse_gstr2b(payload)
+    assert parsed["total_parsed"] == 1
+    assert parsed["total_skipped"] == 0
+    assert parsed["records"][0]["section"] == "cdnr"
+    assert parsed["records"][0]["doc_type"] == "CREDIT_NOTE"
+    assert not any(
+        s.get("category") == "unsupported_schema" for s in parsed["skipped"]
+    )
+
+    checks, count = run_sanity_gstr2b_json(payload)
+    assert count == 1
+    detail = next(c["detail"] for c in checks if c["id"] == "records")
+    assert "Unsupported schema" not in detail
+    assert "1 invoice(s) parsed" in detail
+
+
+def test_cdnr_nttyp_and_typ_aliases():
+    for key, val, expected in (
+        ("nttyp", "D", "DEBIT_NOTE"),
+        ("typ", "C", "CREDIT_NOTE"),
+    ):
+        inv = _cdnr_invoice(ntnum=f"N-{key}")
+        del inv["ntty"]
+        inv[key] = val
+        result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, [inv])]))
+        assert result["total_skipped"] == 0, key
+        assert result["records"][0]["doc_type"] == expected, key
+
+
+def test_b2ba_is_amendment_true_with_originals():
+    inv = {
+        "inum": "INV002", "dt": "15-04-2024", "val": 2000,
+        "pos": "27", "rev": "N", "itcavl": "Y",
+        "oinum": "INV001", "oidt": "01-03-2024",
+    }
+    result = parse_gstr2b(_payload(b2ba=[_supplier(SUPPLIER_1, [inv])]))
+
+    assert result["total_parsed"] == 1
+    rec = result["records"][0]
+    assert rec["is_amendment"] is True
+    assert rec["section"] == "b2ba"
+    assert rec["original_invoice_number"] == "INV1"
+    assert rec["original_invoice_number_raw"] == "INV001"
+    assert rec["original_invoice_date_norm"] == "2024-03-01"
+    assert rec["original_invoice_date_raw"] == "01-03-2024"
+
+
+def test_cdnra_is_amendment_true_with_originals():
+    inv = {
+        "ntnum": "CN002", "dt": "05-04-2024", "val": 600,
+        "ntty": "C", "pos": "27", "rev": "N", "itcavl": "Y",
+        "ointnum": "CN001", "ointdt": "10-03-2024",
+    }
+    result = parse_gstr2b(_payload(cdnra=[_supplier(SUPPLIER_1, [inv])]))
+
+    assert result["total_parsed"] == 1
+    rec = result["records"][0]
+    assert rec["is_amendment"] is True
+    assert rec["section"] == "cdnra"
+    assert rec["original_invoice_number"] == "CN1"
+    assert rec["original_invoice_date_norm"] == "2024-03-10"
+
+
+def test_rtnprd_042024_parses_to_april_2024():
+    result = parse_gstr2b(_payload(rtnprd="042024", b2b=[_supplier(SUPPLIER_1, [_invoice()])]))
+    assert result["period"] == "2024-04-01"
+
+
+def test_data_fp_alias_parses_b2b_invoices():
+    """GST portal JSON often uses data.fp (MMYYYY) instead of data.rtnprd."""
+    payload = _enc(
+        {
+            "data": {
+                "gstin": BUYER_GSTIN,
+                "fp": "042024",
+                "b2b": [_supplier(SUPPLIER_1, [_invoice()])],
+            },
+            "status_cd": "P",
+        }
+    )
+    result = parse_gstr2b(payload)
+    assert result["period"] == "2024-04-01"
+    assert result["total_parsed"] == 1
+    assert result["records"][0]["section"] == "b2b"
+
+
+def test_rev_y_sets_reverse_charge_true():
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(rev="Y")])]))
+    assert result["records"][0]["reverse_charge"] is True
+
+
+def test_gstn_portal_b2b_aliases_idt_rchrg_and_tax_fields():
+    """GST portal exports use idt, rchrg, and iamt/camt/samt/csamt."""
+    portal_item = {
+        "num": 1,
+        "itm_det": {
+            "rt": 18.0,
+            "txval": 10000.0,
+            "iamt": 0.0,
+            "camt": 900.0,
+            "samt": 900.0,
+            "csamt": 0.0,
+        },
+    }
+    inv = {
+        "inum": "INV-001",
+        "idt": "03-04-2026",
+        "val": 11800.0,
+        "pos": "27",
+        "rchrg": "Y",
+        "itcavl": "Y",
+        "itms": [portal_item],
+    }
+    result = parse_gstr2b(_payload(rtnprd="042026", b2b=[_supplier(SUPPLIER_1, [inv])]))
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 0
+    rec = result["records"][0]
+    assert rec["invoice_date_norm"] == "2026-04-03"
+    assert rec["reverse_charge"] is True
+    item = rec["items"][0]
+    assert item["cgst_paise"] == 90000
+    assert item["sgst_paise"] == 90000
+
+
+def test_gstn_portal_docdata_layout():
+    payload = _enc(
+        {
+            "status_cd": "1",
+            "data": {
+                "gstin": BUYER_GSTIN,
+                "fp": "042026",
+                "docdata": {
+                    "b2b": [
+                        {
+                            "ctin": SUPPLIER_1,
+                            "inv": [
+                                {
+                                    "inum": "INV-001",
+                                    "idt": "03-04-2026",
+                                    "val": 11800.0,
+                                    "pos": "27",
+                                    "rchrg": "N",
+                                    "itcavl": "Y",
+                                    "itms": [
+                                        {
+                                            "num": 1,
+                                            "itm_det": {
+                                                "rt": 18.0,
+                                                "txval": 10000.0,
+                                                "camt": 900.0,
+                                                "samt": 900.0,
+                                            },
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
+        }
+    )
+    result = parse_gstr2b(payload)
+    assert result["total_parsed"] == 1
+    assert result["records"][0]["invoice_number"] == "INV1"
+
+
+def test_itcavl_n_sets_itc_available_false():
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itcavl="N")])]))
+    assert result["records"][0]["itc_available"] is False
+
+
+def test_itcavl_boolean_true_sets_itc_available_true():
+    """Portal/third-party exports may emit JSON boolean true instead of \"Y\"."""
+    result = parse_gstr2b(
+        _payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itcavl=True)])])
+    )
+    assert result["records"][0]["itc_available"] is True
+
+
+def test_itcavl_boolean_false_sets_itc_available_false():
+    result = parse_gstr2b(
+        _payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itcavl=False)])])
+    )
+    assert result["records"][0]["itc_available"] is False
+
+
+def test_normalization_notes_only_for_transformed_fields():
+    # Clean values — no transformations applied, notes should be empty
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(inum="INV001", dt="01-04-2024", val=1000)])]))
+    assert result["records"][0]["normalization_notes"] == {"invoice_number": ["leading_zeros_stripped"]}
+
+    # Lowercase + hyphenated invoice number → symbols_stripped + uppercased notes
+    result2 = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(inum="inv-001")])]))
+    notes = result2["records"][0]["normalization_notes"]
+    assert "invoice_number" in notes
+    assert set(notes["invoice_number"]) == {"symbols_stripped", "uppercased", "leading_zeros_stripped"}
+
+
+def test_total_parsed_plus_skipped_equals_total_invoices_seen():
+    bad = {"inum": "BAD", "dt": None, "val": 100, "pos": "27"}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(), bad])]))
+    m = result["metrics"]
+    assert m["total_parsed"] + m["total_skipped"] == m["total_invoices_seen"]
+    assert result["total_parsed"] + result["total_skipped"] == m["total_invoices_seen"]
+
+
+def test_isd_and_impg_silently_ignored():
+    data = {
+        "gstin": BUYER_GSTIN, "rtnprd": "042024",
+        "b2b": [_supplier(SUPPLIER_1, [_invoice()])],
+        "isd": [{"ctin": SUPPLIER_1, "inv": [{"some": "data"}]}],
+        "impg": [{"portcd": "INMAA1", "data": []}],
+    }
+    result = parse_gstr2b(_enc({"data": data}))
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 0
+    # Detected but not parsed into records.
+    assert result["isd_present"] is True
+    assert result["isd_count"] == 1
+    assert result["impg_present"] is True
+    assert result["impg_count"] == 1
+    assert result["metrics"]["isd_count"] == 1
+    assert result["metrics"]["impg_count"] == 1
+
+
+def test_isd_impg_detected_from_docdata():
+    data = {
+        "gstin": BUYER_GSTIN,
+        "rtnprd": "042024",
+        "b2b": [_supplier(SUPPLIER_1, [_invoice()])],
+        "docdata": {
+            "isd": [
+                {
+                    "ctin": SUPPLIER_1,
+                    "doc": [{"docty": "ISD", "docnum": "I1"}, {"docty": "ISD", "docnum": "I2"}],
+                }
+            ],
+            "impg": [
+                {"refdt": "01-04-2024", "portcd": "INBOM1", "boenum": "123"},
+                {"refdt": "02-04-2024", "portcd": "INBOM1", "boenum": "124"},
+            ],
+        },
+    }
+    result = parse_gstr2b(_enc({"data": data}))
+    assert result["isd_count"] == 2
+    assert result["impg_count"] == 2
+    assert result["total_parsed"] == 1
+
+
+def test_empty_isd_impg_not_flagged():
+    data = {
+        "gstin": BUYER_GSTIN,
+        "rtnprd": "042024",
+        "b2b": [_supplier(SUPPLIER_1, [_invoice()])],
+        "isd": [],
+        "impg": [],
+    }
+    result = parse_gstr2b(_enc({"data": data}))
+    assert result["isd_present"] is False
+    assert result["isd_count"] == 0
+    assert result["impg_present"] is False
+    assert result["impg_count"] == 0
+
+
+def test_sanity_warns_on_isd_impg():
+    from app.services.reconciliation_import_wizard.wizard_service import (
+        ISD_IMPG_UNPROCESSED_CHECK_ID,
+        run_sanity_gstr2b_json,
+    )
+
+    data = {
+        "gstin": BUYER_GSTIN,
+        "rtnprd": "042024",
+        "b2b": [_supplier(SUPPLIER_1, [_invoice()])],
+        "isd": [{"ctin": SUPPLIER_1, "doc": [{"docty": "ISD", "docnum": "A1"}]}],
+        "impg": [{"portcd": "INMAA1", "boenum": "9"}],
+    }
+    checks, count = run_sanity_gstr2b_json(_enc({"data": data}))
+    assert count == 1
+    warn = next(c for c in checks if c["id"] == ISD_IMPG_UNPROCESSED_CHECK_ID)
+    assert warn["requires_acknowledgment"] is True
+    assert warn["isd_count"] == 1
+    assert warn["impg_count"] == 1
+    assert "NOT included" in warn["detail"]
+    assert "1 ISD credit line" in warn["detail"]
+    assert "1 import-of-goods line" in warn["detail"]
+
+
+def test_unique_key_structure_on_every_record():
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice()])]))
+    for rec in result["records"]:
+        key = rec["unique_key"]
+        assert isinstance(key, str)
+        parts = key.split("|")
+        assert len(parts) == 3
+        assert parts[0] == rec["buyer_gstin"]
+        assert parts[1] == rec["invoice_number_norm"]
+        assert parts[2] == rec["invoice_date_norm"]
+
+
+def test_skip_reasons_counted_correctly():
+    bad1 = {"inum": "BAD1", "dt": None, "val": 100, "pos": "27"}
+    bad2 = {"inum": "BAD2", "dt": None, "val": 200, "pos": "27"}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(), bad1, bad2])]))
+    assert result["metrics"]["skip_reasons"].get("missing_field for dt", 0) == 2
+
+
+def test_sections_present_lists_only_sections_with_parsed_records():
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice()])]))
+    assert "b2b" in result["metrics"]["sections_present"]
+    assert "b2b" not in result["metrics"]["sections_empty"]
+    assert "cdnr" not in result["metrics"]["sections_present"]
+    assert "cdnr" not in result["metrics"]["sections_empty"]
+
+
+def test_empty_b2b_list_goes_to_sections_empty():
+    result = parse_gstr2b(_payload(b2b=[]))
+    assert "b2b" in result["metrics"]["sections_empty"]
+    assert "b2b" not in result["metrics"]["sections_present"]
+
+
+def test_all_b2b_invoices_fail_goes_to_sections_empty():
+    bad = {"inum": "BAD", "dt": None, "val": 1000, "pos": "27"}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [bad])]))
+    assert "b2b" in result["metrics"]["sections_empty"]
+    assert "b2b" not in result["metrics"]["sections_present"]
+
+
+# ===========================================================================
+# Adversarial tests
+# ===========================================================================
+
+def test_invalid_json_raises_value_error():
+    with pytest.raises(ValueError, match="invalid_json"):
+        parse_gstr2b(b"not json {{{")
+
+
+def test_unsupported_schema_lists_accepted_formats():
+    with pytest.raises(ValueError, match="unsupported_gstr2b_schema"):
+        parse_gstr2b(_enc({"wrong": {}}))
+
+
+def test_is_alt_gstr2b_schema_detects_flat_invoice_export():
+    payload = json.loads(_ALT_FIXTURE.read_text(encoding="utf-8"))
+    assert is_alt_gstr2b_schema(payload) is True
+    assert is_alt_gstr2b_schema({"data": {"gstin": BUYER_GSTIN, "rtnprd": "062026"}}) is False
+    assert is_alt_gstr2b_schema({"invoice": []}) is False
+
+
+def test_normalize_alt_2b_schema_maps_fields_and_skips_blank_sr():
+    payload = json.loads(_ALT_FIXTURE.read_text(encoding="utf-8"))
+    normalized = normalize_alt_2b_schema(payload)
+    root = normalized["data"]
+
+    assert root["gstin"] == "27ARLPM8253B1ZO"
+    assert root["rtnprd"] == "062026"
+    assert normalized["_alt_buyer_gstin_source"] == "file"
+    assert len(root["b2b"]) == 2
+
+    by_ctin = {s["ctin"]: s for s in root["b2b"]}
+    croma = by_ctin["27AACCV1726H1ZE"]["inv"][0]
+    assert croma["inum"] == "SLA243379976690"
+    assert croma["dt"] == "25-04-2026"
+    assert croma["val"] == 8948.01
+    assert croma["txval"] == 7583.05
+    assert croma["igst"] == 0
+    assert croma["cgst"] == 682.48
+    assert croma["sgst"] == 682.48
+    assert croma["cess"] == 0
+    assert croma["pos"] == "27"
+    assert croma["rev"] == "N"
+    assert "_supplier_gstin" not in croma
+
+    tuljai = by_ctin["27AJVPC4476C1Z1"]["inv"][0]
+    assert tuljai["inum"] == "TSC/FY26-27/997"
+    assert by_ctin["27AACCV1726H1ZE"]["trdnm"] == "INFINITI  RETAIL LIMITED (Croma)"
+
+    # Blank-Sr totals row must not become an invoice.
+    all_inums = [inv["inum"] for s in root["b2b"] for inv in s["inv"]]
+    assert all_inums == ["SLA243379976690", "TSC/FY26-27/997"]
+
+    assert "cdnr" in root
+    note_suppliers = root["cdnr"]
+    assert len(note_suppliers) == 1
+    note = note_suppliers[0]["inv"][0]
+    assert note["nt_num"] == "CN-1001"
+    assert note["ntty"] == "C"
+    assert note["igst"] == 180.0
+    assert note["pos"] == "29"
+
+
+def test_parse_gstr2b_accepts_alt_flat_invoice_schema():
+    payload = json.loads(_ALT_FIXTURE.read_text(encoding="utf-8"))
+    result = parse_gstr2b(payload)
+    assert result["total_parsed"] == 3  # 2 invoices + 1 credit note
+    assert result["total_skipped"] == 0
+
+    invoices = [r for r in result["records"] if r["doc_type"] == "INVOICE"]
+    notes = [r for r in result["records"] if r["doc_type"] != "INVOICE"]
+    assert len(invoices) == 2
+    assert len(notes) == 1
+
+    croma = next(r for r in invoices if r["invoice_number_raw"] == "SLA243379976690")
+    assert croma["supplier_gstin"] == "27AACCV1726H1ZE"
+    assert croma["supplier_name"] == "INFINITI  RETAIL LIMITED (Croma)"
+    assert croma["invoice_date_norm"] == "2026-04-25"
+    assert croma["invoice_value_paise"] == 894801
+    assert croma["taxable_value_paise"] == 758305
+    assert croma["cgst_paise"] == 68248
+    assert croma["sgst_paise"] == 68248
+    assert croma["igst_paise"] == 0
+
+
+def test_alt_schema_uses_client_gstin_fallback_when_file_has_none():
+    """Alt exports omit top-level gstin; use client_gstins.gstin for unique_key."""
+    payload = json.loads(_ALT_FIXTURE.read_text(encoding="utf-8"))
+    payload.pop("gstin", None)
+    client_gstin = "27ARLPM8253B1ZO"
+
+    normalized = normalize_alt_2b_schema(
+        payload, fallback_buyer_gstin=client_gstin
+    )
+    assert normalized["data"]["gstin"] == client_gstin
+    assert normalized["_alt_buyer_gstin_source"] == BUYER_GSTIN_SOURCE_CLIENT
+
+    result = parse_gstr2b(payload, fallback_buyer_gstin=client_gstin)
+    assert result["buyer_gstin"] == client_gstin
+    assert result["buyer_gstin_source"] == BUYER_GSTIN_SOURCE_CLIENT
+    assert "warnings" not in result
+    assert all(r["buyer_gstin"] == client_gstin for r in result["records"])
+    assert all(
+        r["unique_key"].startswith(f"{client_gstin}|") for r in result["records"]
+    )
+
+
+def test_alt_schema_placeholder_when_no_file_or_client_gstin():
+    payload = json.loads(_ALT_FIXTURE.read_text(encoding="utf-8"))
+    payload.pop("gstin", None)
+
+    normalized = normalize_alt_2b_schema(payload)
+    assert normalized["data"]["gstin"] == ALT_2B_PLACEHOLDER_BUYER_GSTIN
+    assert normalized["_alt_buyer_gstin_source"] == BUYER_GSTIN_SOURCE_PLACEHOLDER
+
+    result = parse_gstr2b(payload)
+    assert result["buyer_gstin_source"] == BUYER_GSTIN_SOURCE_PLACEHOLDER
+    assert result["warnings"] == [BUYER_GSTIN_MISSING_WARNING]
+    assert result["records"][0]["buyer_gstin"] == ALT_2B_PLACEHOLDER_BUYER_GSTIN
+
+
+def test_alt_parse_period_to_rtnprd_formats():
+    """Verify various human-readable and standard date/period string parsing."""
+    assert _alt_parse_period_to_rtnprd("Jun,2026") == "062026"
+    assert _alt_parse_period_to_rtnprd("Jun 2026") == "062026"
+    assert _alt_parse_period_to_rtnprd("June 2026") == "062026"
+    assert _alt_parse_period_to_rtnprd("September, 2026") == "092026"
+    assert _alt_parse_period_to_rtnprd("07-2026") == "072026"
+    assert _alt_parse_period_to_rtnprd("7/2026") == "072026"
+    assert _alt_parse_period_to_rtnprd("2026-07") == "072026"
+    assert _alt_parse_period_to_rtnprd("2026-07-01") == "072026"
+    assert _alt_parse_period_to_rtnprd("042026") == "042026"
+    assert _alt_parse_period_to_rtnprd("202604") == "042026"
+    assert _alt_parse_period_to_rtnprd("") is None
+    assert _alt_parse_period_to_rtnprd(None) is None
+
+
+def test_alt_schema_missing_period_raises_error_without_fallback():
+    """When alt export has no Period column and no fallback is given, raise AltGstr2bMissingPeriodError."""
+    import pytest
+
+    payload = {
+        "invoice": [
+            {
+                "Sr": 1,
+                "GSTIN": "27AACCV1726H1ZE",
+                "Invoice No": "INV-101",
+                "Invoice Date": "15-06-2026",
+                "Invoice Value": 1000.0,
+                "Taxable Value": 1000.0,
+                "IGST": 180.0,
+            }
+        ]
+    }
+    with pytest.raises(AltGstr2bMissingPeriodError, match="Could not detect return period"):
+        normalize_alt_2b_schema(payload)
+
+    with pytest.raises(AltGstr2bMissingPeriodError, match="Could not detect return period"):
+        parse_gstr2b(payload)
+
+
+def test_alt_schema_uses_fallback_period_when_file_lacks_period():
+    """When alt export lacks period, use fallback_period from the CA's selection."""
+    payload = {
+        "invoice": [
+            {
+                "Sr": 1,
+                "GSTIN": "27AACCV1726H1ZE",
+                "Invoice No": "INV-101",
+                "Invoice Date": "15-06-2026",
+                "Invoice Value": 1000.0,
+                "Taxable Value": 1000.0,
+                "IGST": 180.0,
+            }
+        ]
+    }
+    normalized = normalize_alt_2b_schema(payload, fallback_period="2026-07")
+    assert normalized["data"]["rtnprd"] == "072026"
+
+    result = parse_gstr2b(payload, fallback_period="2026-07-01")
+    assert result["period"] == "2026-07-01"
+
+
+def test_alt_schema_row_period_takes_precedence_over_fallback():
+    """When alt export has period info in rows, file period takes precedence over fallback."""
+    payload = {
+        "invoice": [
+            {
+                "Sr": 1,
+                "GSTIN": "27AACCV1726H1ZE",
+                "Period": "Jun,2026",
+                "Invoice No": "INV-101",
+                "Invoice Date": "15-06-2026",
+                "Invoice Value": 1000.0,
+                "Taxable Value": 1000.0,
+                "IGST": 180.0,
+            }
+        ]
+    }
+    normalized = normalize_alt_2b_schema(payload, fallback_period="2026-07")
+    assert normalized["data"]["rtnprd"] == "062026"
+
+    result = parse_gstr2b(payload, fallback_period="2026-07")
+    assert result["period"] == "2026-06-01"
+
+
+def test_b2b_not_a_list_treated_as_empty_no_crash():
+    data = {"gstin": BUYER_GSTIN, "rtnprd": "042024", "b2b": 42}
+    result = parse_gstr2b(_enc({"data": data}))
+    assert "b2b" in result["metrics"]["sections_empty"]
+    assert result["total_parsed"] == 0
+
+
+def test_empty_inv_array_zero_records_no_error():
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [])]))
+    assert result["total_parsed"] == 0
+    assert result["total_skipped"] == 0
+
+
+def test_invalid_supplier_gstin_all_invoices_skipped_rest_continue():
+    inv1 = _invoice(inum="INV001")
+    inv2 = _invoice(inum="INV002")
+    result = parse_gstr2b(
+        _payload(b2b=[
+            {"ctin": "INVALID_GSTIN", "inv": [inv1]},
+            _supplier(SUPPLIER_2, [inv2]),
+        ])
+    )
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 1
+    assert result["records"][0]["invoice_number_norm"] == "INV2"
+
+
+def test_val_abc_goes_to_skipped():
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(val="abc")])]))
+    assert result["total_parsed"] == 0
+    assert result["total_skipped"] == 1
+
+
+def test_dt_null_goes_to_skipped():
+    inv = {"inum": "INV001", "dt": None, "val": 1000, "pos": "27", "rev": "N", "itcavl": "Y"}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
+    assert result["total_skipped"] == 1
+    assert "missing_field for dt" in result["skipped"][0]["error_reason"]
+
+
+def test_missing_itms_produces_empty_items_record_still_parsed():
+    inv = {"inum": "INV001", "dt": "01-04-2024", "val": 1000, "pos": "27", "rev": "N", "itcavl": "Y"}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
+    assert result["total_parsed"] == 1
+    assert result["records"][0]["items"] == []
+
+
+def test_flat_invoice_root_txval_and_tax_promoted_when_itms_missing():
+    """Portal/synthetic dumps put txval/cgst/sgst on the invoice, not under itms."""
+    inv = {
+        "inum": "INV/2025/1000",
+        "idt": "01-04-2026",
+        "val": 415557.74,
+        "txval": 371033.70,
+        "igst": 0,
+        "cgst": 22262.02,
+        "sgst": 22262.02,
+        "cfs": "N",
+    }
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
+    assert result["total_parsed"] == 1
+    rec = result["records"][0]
+    assert rec["items"] == []
+    assert rec["taxable_value_paise"] == 37_103_370
+    assert rec["cgst_paise"] == 2_226_202
+    assert rec["sgst_paise"] == 2_226_202
+    assert rec["igst_paise"] == 0
+    assert rec["total_tax_paise"] == 4_452_404
+    assert rec["taxable_value"] == 371_034  # whole rupees from taxable, not val
+
+
+def test_itms_non_list_goes_to_skipped():
+    inv = {"inum": "INV001", "dt": "01-04-2024", "val": 1000, "pos": "27", "rev": "N", "itcavl": "Y", "itms": "invalid"}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
+    assert result["total_parsed"] == 0
+    assert result["total_skipped"] == 1
+    assert "invalid_type for itms" in result["skipped"][0]["error_reason"]
+
+
+def test_cdnr_unknown_ntty_goes_to_skipped_with_correct_reason():
+    inv = _cdnr_invoice(ntty="X")
+    result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, [inv])]))
+    assert result["total_skipped"] == 1
+    assert result["skipped"][0]["error_reason"] == "unknown_note_type"
+
+
+def test_b2ba_missing_oinum_original_is_none_no_crash():
+    inv = {"inum": "INV002", "dt": "01-04-2024", "val": 2000, "pos": "27", "rev": "N", "itcavl": "Y"}
+    result = parse_gstr2b(_payload(b2ba=[_supplier(SUPPLIER_1, [inv])]))
+    assert result["total_parsed"] == 1
+    rec = result["records"][0]
+    assert rec["original_invoice_number"] is None
+    assert rec["original_invoice_number_raw"] is None
+    assert rec["original_invoice_date_norm"] is None
+    assert rec["original_invoice_date_raw"] is None
+
+
+def test_supplier_entry_not_dict_silently_skipped():
+    result = parse_gstr2b(_payload(b2b=["not_a_supplier_dict"]))
+    assert result["total_parsed"] == 0
+    assert result["total_skipped"] == 0
+
+
+def test_invoice_entry_not_dict_goes_to_skipped():
+    result = parse_gstr2b(_payload(b2b=[{"ctin": SUPPLIER_1, "inv": ["not_an_invoice"]}]))
+    assert result["total_skipped"] == 1
+    assert result["skipped"][0]["error_reason"] == "invalid_invoice_structure"
+
+
+def test_rt_list_value_invoice_goes_to_skipped_with_type_error():
+    bad_item = {"rt": [18], "txval": 1000, "igst": 180, "cgst": 0, "sgst": 0, "cess": 0}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itms=[bad_item])])]))
+    assert result["total_skipped"] == 1
+    assert "invalid_type for rt" in result["skipped"][0]["error_reason"]
+
+
+def test_txval_dict_value_invoice_goes_to_skipped_with_type_error():
+    bad_item = {"rt": 18, "txval": {}, "igst": 180, "cgst": 0, "sgst": 0, "cess": 0}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(itms=[bad_item])])]))
+    assert result["total_skipped"] == 1
+    assert "invalid_type for txval" in result["skipped"][0]["error_reason"]
+
+
+def test_mutating_skip_raw_data_is_independent_shallow_copy():
+    original = {"inum": "TEST", "val": 100, "extra": "original_value", "nested": [1, 2, 3]}
+    skip_entry = _make_skip_entry("b2b", SUPPLIER_1, "TEST", "some_error", original)
+
+    # raw_data is a shallow copy — modifying original primitive field does not affect skip
+    original["extra"] = "changed"
+    assert skip_entry["raw_data"]["extra"] == "original_value"
+
+    # Modifying raw_data does not affect original
+    skip_entry["raw_data"]["extra"] = "also_changed"
+    assert original["extra"] == "changed"
+
+    # Nested list is the same reference (shallow copy — not deepcopy)
+    assert skip_entry["raw_data"]["nested"] is original["nested"]
+
+
+# ===========================================================================
+# Skip diagnostics — categorized breakdown by reason
+# ===========================================================================
+
+def _only_category(result: dict) -> str:
+    assert result["total_skipped"] == 1
+    return result["skipped"][0]["category"]
+
+
+def test_skip_category_missing_gstin():
+    result = parse_gstr2b(_payload(b2b=[{"ctin": "", "inv": [_invoice()]}]))
+    assert _only_category(result) == SKIP_MISSING_GSTIN
+    assert result["skip_breakdown"].get(SKIP_MISSING_GSTIN) == 1
+
+
+def test_skip_category_invalid_gstin():
+    result = parse_gstr2b(_payload(b2b=[{"ctin": "SHORT", "inv": [_invoice()]}]))
+    assert _only_category(result) == SKIP_INVALID_GSTIN
+
+
+def test_skip_category_missing_invoice_number():
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(inum="")])]))
+    assert _only_category(result) == SKIP_MISSING_INVOICE_NUMBER
+
+
+def test_skip_category_missing_invoice_date():
+    inv = {"inum": "INV001", "dt": None, "val": 1000, "pos": "27"}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
+    assert _only_category(result) == SKIP_MISSING_INVOICE_DATE
+
+
+def test_skip_category_invalid_invoice_date():
+    inv = {"inum": "INV001", "dt": "not-a-date", "val": 1000, "pos": "27"}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [inv])]))
+    assert _only_category(result) == SKIP_INVALID_INVOICE_DATE
+
+
+def test_skip_category_invalid_amount():
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(val="abc")])]))
+    assert _only_category(result) == SKIP_INVALID_AMOUNT
+
+
+def test_skip_category_unsupported_schema_unknown_note_type():
+    result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, [_cdnr_invoice(ntty="X")])]))
+    assert _only_category(result) == SKIP_UNSUPPORTED_SCHEMA
+
+
+def test_skip_category_malformed_invoice_object():
+    result = parse_gstr2b(_payload(b2b=[{"ctin": SUPPLIER_1, "inv": ["not_a_dict"]}]))
+    assert _only_category(result) == SKIP_MALFORMED_INVOICE
+
+
+def test_skip_breakdown_aggregates_and_sums_to_total_skipped():
+    bad_date = {"inum": "B1", "dt": None, "val": 1000, "pos": "27"}
+    bad_amount = _invoice(inum="B2", val="abc")
+    bad_inum = _invoice(inum="")
+    good = _invoice(inum="OK1")
+    result = parse_gstr2b(
+        _payload(b2b=[_supplier(SUPPLIER_1, [good, bad_date, bad_amount, bad_inum])])
+    )
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 3
+    breakdown = result["metrics"]["skip_breakdown"]
+    assert breakdown.get(SKIP_MISSING_INVOICE_DATE) == 1
+    assert breakdown.get(SKIP_INVALID_AMOUNT) == 1
+    assert breakdown.get(SKIP_MISSING_INVOICE_NUMBER) == 1
+    assert sum(breakdown.values()) == result["total_skipped"]
+
+
+def test_skip_breakdown_labeled_shape_and_order():
+    bad_amount = _invoice(inum="B2", val="abc")
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [bad_amount])]))
+    labeled = result["metrics"]["skip_breakdown_labeled"]
+    assert labeled == [
+        {"category": SKIP_INVALID_AMOUNT, "label": "Invalid amount", "count": 1}
+    ]
+
+
+def test_existing_skip_reasons_still_keyed_by_error_reason():
+    """Backwards compatibility: skip_reasons aggregation is unchanged."""
+    inv1 = {"inum": "B1", "dt": None, "val": 1000, "pos": "27"}
+    inv2 = {"inum": "B2", "dt": None, "val": 1000, "pos": "27"}
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(), inv1, inv2])]))
+    assert result["metrics"]["skip_reasons"].get("missing_field for dt", 0) == 2
+
+
+# ===========================================================================
+# New acceptance tests
+# ===========================================================================
+
+def test_buyer_gstin_and_period_correct_from_sample_file():
+    """Parser returns correct buyer_gstin and period from a sample file."""
+    result = parse_gstr2b(
+        _payload(gstin=BUYER_GSTIN, rtnprd="042024", b2b=[_supplier(SUPPLIER_1, [_invoice()])])
+    )
+    assert result["buyer_gstin"] == BUYER_GSTIN
+    assert result["period"] == "2024-04-01"
+    assert result["schema_version"] == "gstr2b_v1"
+
+
+def test_b2b_invoices_have_both_raw_and_normalized_columns():
+    """Every parsed b2b record carries both *_raw source fields and normalized values."""
+    result = parse_gstr2b(_payload(b2b=[_supplier(SUPPLIER_1, [_invoice(inum="inv-001", val=2500)])]))
+    assert result["total_parsed"] == 1
+    rec = result["records"][0]
+
+    # Raw columns present and are strings
+    assert isinstance(rec["supplier_gstin_raw"], str)
+    assert isinstance(rec["invoice_number_raw"], str)
+    assert isinstance(rec["invoice_date_raw"], str)
+    assert isinstance(rec["invoice_value_raw"], str)
+
+    # Normalized columns have correct types
+    assert isinstance(rec["supplier_gstin"], str)
+    assert isinstance(rec["invoice_number"], str)
+    assert isinstance(rec["invoice_date_norm"], str)
+    assert isinstance(rec["invoice_value_paise"], int)
+
+    # Raw and normalized differ when input needed transformation
+    # "inv-001" → symbols stripped + uppercased → "INV1"
+    assert rec["invoice_number_raw"] == "inv-001"
+    assert rec["invoice_number"] == "INV1"
+    assert rec["invoice_value_paise"] == 250000  # 2500 rupees × 100 paise
+
+
+def test_malformed_json_raises_value_error_with_location():
+    """Malformed JSON raises ValueError whose message includes line and col."""
+    bad_payloads = [
+        b'{"data": {"gstin": "X", BROKEN',          # missing quote / bad key
+        b'{"data": {\n  "gstin": "X",\n  BAD\n}}',  # error on line 3
+    ]
+    for payload in bad_payloads:
+        with pytest.raises(ValueError) as exc_info:
+            parse_gstr2b(payload)
+        msg = str(exc_info.value)
+        assert msg.startswith("invalid_json"), f"unexpected message: {msg!r}"
+        assert "line" in msg, f"no line info in: {msg!r}"
+        assert "col" in msg, f"no col info in: {msg!r}"
+
+
+def test_500_invoices_parse_under_2_seconds():
+    """Parser handles 500 invoices and completes in under 2 seconds."""
+    invoices = [
+        _invoice(inum=f"INV{i:04d}", val=1000 + i, itms=[_item(txval=1000 + i, igst=180)])
+        for i in range(500)
+    ]
+    payload = _payload(b2b=[_supplier(SUPPLIER_1, invoices)])
+
+    start = time.perf_counter()
+    result = parse_gstr2b(payload)
+    elapsed = time.perf_counter() - start
+
+    assert result["total_parsed"] == 500, f"expected 500 parsed, got {result['total_parsed']}"
+    assert result["total_skipped"] == 0
+    assert elapsed < 2.0, f"parsing took {elapsed:.2f}s — exceeded 2s budget"
+
+
+def test_cdnr_records_flagged_as_credit_or_debit_note():
+    """cdnr ntty=C → CREDIT_NOTE, ntty=D → DEBIT_NOTE; both present in one parse."""
+    invoices = [
+        _cdnr_invoice(ntnum="CN001", ntty="C", val=300),
+        _cdnr_invoice(ntnum="DN001", ntty="D", val=400),
+    ]
+    result = parse_gstr2b(_payload(cdnr=[_supplier(SUPPLIER_1, invoices)]))
+
+    assert result["total_parsed"] == 2
+    by_num = {r["invoice_number"]: r["doc_type"] for r in result["records"]}
+    assert by_num["CN1"] == "CREDIT_NOTE"
+    assert by_num["DN1"] == "DEBIT_NOTE"
+    # Both are non-amendments from the cdnr section
+    for rec in result["records"]:
+        assert rec["section"] == "cdnr"
+        assert rec["is_amendment"] is False

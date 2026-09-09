@@ -1,0 +1,37 @@
+BENCHMARK V3 — CLEAN ADVERSARIAL RECONCILIATION TEST
+
+Recipient GSTIN: 27ISKPK1273H1ZF
+Return period: 08/2026 (GST JSON encoded as 082026)
+GSTR-2B rows: 2,500
+Purchase Register rows: 2,500
+
+GROUND TRUTH
+- 1,300 EXACT_MATCH
+- 200 AMOUNT_MISMATCH (10% taxable difference)
+- 100 DATE_MISMATCH (14–23 day date difference)
+- 150 TYPO_MATCH (one invoice digit changed, all other fields exact)
+- 150 NOT_A_MATCH_SIMILAR_ID (adjacent-looking invoice IDs but intentionally unrelated; dates >=20 days apart and amounts >=30% apart)
+- 600 2B_ONLY
+- 300 PR_ONLY
+- 300 intentional DUPLICATE_PR rows
+
+DESIGN GUARANTEES
+- No accidental invoice-key collisions in GSTR-2B.
+- Exactly 300 duplicate PR rows, and no other duplicate PR keys.
+- Typo strings do not collide with another invoice.
+- Similar-looking pairs are intentionally NOT matches.
+- The GSTR JSON uses the same structural form expected by GST exports: data.docdata.b2b[].inv[].
+- Ground Truth is the authority for intended classification.
+
+EVALUATION
+Compare ReconDesk's exported result to Ground Truth case-by-case.
+Measure:
+1. exact/primary match precision
+2. match recall
+3. false positives (especially SIMILAR_ID pairs)
+4. false negatives (especially EXACT and TYPO)
+5. duplicate detection precision/recall
+6. missed-ITC and ITC-at-risk accuracy
+7. treatment of fuzzy matches: clean match vs review
+
+DO NOT tune the benchmark after seeing ReconDesk results.

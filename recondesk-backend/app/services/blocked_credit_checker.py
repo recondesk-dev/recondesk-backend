@@ -21,10 +21,40 @@ INELIGIBLE_ITC_VALUES = frozenset({
 })
 
 BLOCKED_HSN_CODES = {
+    "0101": {
+        "category": "Live horses, asses, mules -- Section 17(5)(a)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if used for passenger transport or further supply",
+    },
+    "0102": {
+        "category": "Live bovine animals -- Section 17(5)(a)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if used for agricultural transport or further supply",
+    },
+    "0103": {
+        "category": "Live swine -- Section 17(5)(a)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if used for further supply",
+    },
+    "0104": {
+        "category": "Live sheep and goats -- Section 17(5)(a)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if used for further supply",
+    },
+    "8702": {
+        "category": "Motor vehicles for transport of >=10 persons -- Section 17(5)(a)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if seating capacity > 13 persons or used for transport business",
+    },
     "8703": {
         "category": "Motor vehicles (<13 seater) -- Section 17(5)(a)",
         "usage_dependent": True,
         "exempt_note": "Exempt if used for transport business, driving school, or further supply",
+    },
+    "8704": {
+        "category": "Motor vehicles for transport of goods -- Section 17(5)(a)",
+        "usage_dependent": True,
+        "exempt_note": "Exempt if used for transportation of goods",
     },
     "8711": {
         "category": "Two-wheelers / Motorcycles -- Section 17(5)(a)",

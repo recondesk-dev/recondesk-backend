@@ -48,6 +48,8 @@ const EXACT_TRANSLATIONS: Record<string, string> = {
     "एक से अधिक परचेज रजिस्टर प्रविष्टियां इस GSTR-2B इनवॉइस से मेल खा सकती हैं",
   "Review all candidates and confirm the correct match. Mark the others as duplicates or separate transactions.":
     "सभी उम्मीदवारों की समीक्षा करें और सही मिलान की पुष्टि करें। अन्य को डुप्लिकेट के रूप में चिह्नित करें।",
+  "PR_CLAIMED_BY_BETTER_MATCH": "Claimed by better-matched purchase register entry",
+  "Claimed by better-matched purchase register entry": "Claimed by better-matched purchase register entry",
 
   // Possible match
   "Partial field overlap detected but confidence is below the auto-match threshold":
@@ -225,6 +227,8 @@ export function localizeDiscrepancyReason(
     case "DUPLICATE_ENTRY":
     case "DUPLICATE":
       return "डुप्लिकेट प्रविष्टि";
+    case "PR_CLAIMED_BY_BETTER_MATCH":
+      return "Claimed by better-matched purchase register entry";
     case "SECTION_17_5":
     case "SECTION17":
       return "Section 17(5)";

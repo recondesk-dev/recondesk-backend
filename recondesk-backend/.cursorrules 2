@@ -1,0 +1,39 @@
+# ReconDesk Backend — Cursor Rules
+
+## Rule Registry
+When adding any new GST logic rule, ALWAYS use the rule registry in app/rules/.
+Never put matching or ITC logic directly in rule files — only metadata.
+
+Pattern to follow every time:
+REGISTRY.register(RuleDefinition(
+    id          = "ITC_021",        # next unused ID in this file
+    name        = "Short name",
+    category    = RuleCategory.ITC,
+    severity    = RuleSeverity.HIGH,
+    description = "One sentence plain English.",
+    gst_ref     = "Section X CGST Act",
+    applies_to  = ["purchase_register"],
+    tags        = ["itc", "reversal"],
+))
+
+File to edit by prefix:
+- MAT_ → app/rules/matching.py
+- ITC_ → app/rules/itc.py
+- NRM_ → app/rules/normalization.py
+- PRD_, SUP_, RPT_, TDS_ → app/rules/period.py
+- DEC_ → app/rules/decision.py
+
+Severity guide:
+- CRITICAL → tax liability, notice risk, wrongful ITC
+- HIGH → ITC loss risk, reversal risk, blocked credit
+- MEDIUM → process quality, data warnings
+- LOW → informational, parser behaviour
+
+After adding rules, verify count with:
+python3 -c "from app.rules import REGISTRY; print('Total rules:', REGISTRY.count)"
+
+## General Backend Rules
+- Always run: python3 -c "from app.main import app; print('OK')" before Railway deploy
+- Auth imports: use supabase_auth not gotrue
+- Backend path: /Users/omkarkadam/Documents/ReconDesk/recondesk-backend
+- Celery start: celery -A app.celery_app worker --loglevel=info

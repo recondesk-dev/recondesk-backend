@@ -1,0 +1,45 @@
+{
+  "id": "gstr1_b2b_b2ba_no_double_count",
+  "bug_class": "amendment_liability_double_count",
+  "module": "gstr1_vs_3b_aggregate",
+  "description": "When the same logical invoice appears as both b2b and b2ba in one GSTR-1 payload, aggregate_gstr1 summed both full values. Table 9A carries the revised full amount — summing original+amendment inflated GSTR-1 vs 3B liability.",
+  "input": {
+    "records": [
+      {
+        "section": "b2b",
+        "invoice_number": "RD/001",
+        "taxable_amount_paise": 100000,
+        "igst_paise": 18000,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "cess_paise": 0
+      },
+      {
+        "section": "b2ba",
+        "invoice_number": "RD/001-A",
+        "original_invoice_number": "RD/001",
+        "oinum": "RD/001",
+        "is_amendment": true,
+        "taxable_amount_paise": 200000,
+        "igst_paise": 36000,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "cess_paise": 0
+      },
+      {
+        "section": "b2b",
+        "invoice_number": "RD/002",
+        "taxable_amount_paise": 50000,
+        "igst_paise": 9000,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "cess_paise": 0
+      }
+    ]
+  },
+  "expect": {
+    "taxable_value_paise": 250000,
+    "igst_paise": 45000,
+    "record_count": 2
+  }
+}

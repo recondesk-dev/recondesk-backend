@@ -35,9 +35,9 @@ _log = logging.getLogger(__name__)
 # Constants
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Default absolute tolerance in paise (₹1) — amounts within this are treated
+# Default absolute tolerance in paise (₹50) — amounts within this are treated
 # as rounding and NOT flagged.
-DEFAULT_TOLERANCE_PAISE: int = 100
+DEFAULT_TOLERANCE_PAISE: int = 5000
 
 # GSTR-1 sections that map to GSTR-3B Table 3.1(a) "Outward taxable supplies
 # (other than zero rated, nil rated and exempted)".
@@ -407,13 +407,13 @@ def _variance_to_mismatch(
 
     field_label = v.field.replace("_", " ").title()
 
-    severity = (
-        MismatchSeverity.CRITICAL
-        if abs_diff > 50000  # > ₹500
-        else MismatchSeverity.HIGH
-        if abs_diff > 10000  # > ₹100
-        else MismatchSeverity.MEDIUM
-    )
+    diff_rupees = abs_diff / 100
+    if diff_rupees <= 50:
+        severity = MismatchSeverity.INFO
+    elif diff_rupees <= 10000:
+        severity = MismatchSeverity.WARNING
+    else:
+        severity = MismatchSeverity.CRITICAL
 
     return MismatchResult(
         mismatch_type=_variance_type_to_mismatch_type(v.variance_type),

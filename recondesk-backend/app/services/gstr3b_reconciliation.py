@@ -117,6 +117,7 @@ def compute_drc01c_threshold(
 
     if excess_amount <= 0:
         return {
+            "status": "CLEAN",
             "threshold_status": DRC01C_CLEAR,
             "excess_amount": excess_amount,
             "excess_pct": 0.0 if available > 0 else None,
@@ -136,7 +137,18 @@ def compute_drc01c_threshold(
     amount_exceeded = excess_amount > amount_threshold
     triggers = bool(pct_exceeded and amount_exceeded)
 
+    epct = excess_pct if excess_pct is not None else (100.0 if excess_amount > 0 else 0.0)
+    if epct > 20 and excess_amount > 2500000:
+        status = "STATUTORY_BREACH"
+    elif epct > 10 or excess_amount > 100000:
+        status = "INTERNAL_WARNING"
+    elif epct > 0:
+        status = "MINOR_VARIANCE"
+    else:
+        status = "CLEAN"
+
     return {
+        "status": status,
         "threshold_status": DRC01C_TRIGGER if triggers else DRC01C_BELOW_THRESHOLD,
         "excess_amount": excess_amount,
         "excess_pct": excess_pct,

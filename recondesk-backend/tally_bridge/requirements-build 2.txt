@@ -1,0 +1,3 @@
+# Build-only deps for packaging the Windows agent (.exe).
+# Runtime agent uses Python stdlib only — no other install needed for CAs.
+pyinstaller>=6.3,<7

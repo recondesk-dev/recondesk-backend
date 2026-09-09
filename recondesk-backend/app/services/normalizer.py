@@ -470,7 +470,8 @@ def normalize_invoice_number(raw: str) -> NormalizationResult:
     did_strip_leading_zeros = False
     for p in parts:
         if p.isdigit():
-            no_zeros = p.lstrip('0') or '0'  # guard: "000000" → "0" (not empty)
+            stripped = p.lstrip('0')
+            no_zeros = stripped if stripped else '0'  # guard: "000000" → "0" (not empty)
             if no_zeros != p:
                 did_strip_leading_zeros = True
             stripped_zeros.append(no_zeros)

@@ -39,20 +39,32 @@ _RE_TRAILING_DIGITS = re.compile(r"\d+$")
 
 
 def normalize_invoice(inv: str | None) -> str:
-    """Normalize invoice number by stripping leading zeros per numeric segment and removing non-alphanumerics.
-
-    Also strips a leading ``0`` that sits alone before letters (e.g. portal
-    artifacts ``0SI-1798`` / ``0INV/24-25/5024`` → ``SI1798`` / ``INV24255024``),
-    matching aggressive ground-truth keying. A lone ``\"0\"`` is preserved.
-    """
+    """Normalize invoice number by stripping known alpha prefixes, non-alphanumerics, and leading zeros per numeric segment."""
     if not inv:
         return ""
-    s = str(inv).strip().upper()
-    s = _RE_NON_ALNUM.sub("", s)
-    parts = re.findall(r'\d+|\D+', s)
-    parts = [p.lstrip('0') or '0' if p.isdigit() else p for p in parts]
-    joined = "".join(parts)
-    return joined.lstrip("0") or joined
+    invoice_str = re.sub(r'^[A-Za-z]+[-/]*', '', str(inv).strip())
+    segments = re.split(r'[^A-Za-z0-9]+', invoice_str.upper())
+    result_segments = []
+    for segment in segments:
+        if not segment:
+            continue
+        if segment.isdigit():
+            stripped = segment.lstrip('0')
+            segment_result = stripped if stripped else '0'
+            result_segments.append(segment_result)
+        else:
+            subparts = re.findall(r'\d+|\D+', segment)
+            sub_res = []
+            for sp in subparts:
+                if sp.isdigit():
+                    stripped = sp.lstrip('0')
+                    segment_result = stripped if stripped else '0'
+                    sub_res.append(segment_result)
+                else:
+                    sub_res.append(sp)
+            result_segments.append("".join(sub_res))
+    joined = "".join(result_segments)
+    return joined or "0"
 
 
 def normalize_invoice_number(value: str | None) -> str:
@@ -928,7 +940,7 @@ def _match_gstr_to_pr_pair(
                 review_reason=None,
             )
         return _ret(
-            level=2, matched=True, confidence=95, requires_human_review=False,
+            level=2, matched=True, confidence=95, requires_human_review=True,
             decision_what="Normalized invoice match",
             decision_why=(
                 "Invoice numbers match after normalization or format variant; "

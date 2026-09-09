@@ -236,22 +236,33 @@ def reconcile_books_vs_einvoice(
                     einvoice_val=einv_val_fmt,
                 )
             else:
-                category = "MATCHED"
-                dec = generate_decision(
-                    "L1_EXACT",
-                    confidence="HIGH",
-                    matched_fields=("invoice_number", "gstin", "amount"),
-                )
-                dec = type(dec)(
-                    what="Exact match found — Active IRN verified",
-                    why=f"Invoice {b['invoice_number']} in books has corresponding Active IRN on portal",
-                    next="No action required. E-Invoice registration confirmed.",
-                    rule="EINVOICE_MATCHED",
-                    confidence="HIGH",
-                    matched_fields=("invoice_number", "gstin", "amount"),
-                    differed_fields=(),
-                    normalized_pairs=((b["invoice_number"], matched_candidate["invoice_number"]),),
-                )
+                books_row = b.get("raw_record") or b
+                irp_record = matched_candidate
+                books_irn = books_row.get("irn")
+                irp_irn = irp_record.get("irn")
+                if not books_irn:
+                    category = "IRN_MISSING"
+                    dec = generate_decision("EINVOICE_IRN_MISSING")
+                elif books_irn != irp_irn:
+                    category = "IRN_MISMATCH"
+                    dec = generate_decision("EINVOICE_IRN_MISSING")
+                else:
+                    category = "MATCHED"
+                    dec = generate_decision(
+                        "L1_EXACT",
+                        confidence="HIGH",
+                        matched_fields=("invoice_number", "gstin", "amount"),
+                    )
+                    dec = type(dec)(
+                        what="Exact match found — Active IRN verified",
+                        why=f"Invoice {b['invoice_number']} in books has corresponding Active IRN on portal",
+                        next="No action required. E-Invoice registration confirmed.",
+                        rule="EINVOICE_MATCHED",
+                        confidence="HIGH",
+                        matched_fields=("invoice_number", "gstin", "amount"),
+                        differed_fields=(),
+                        normalized_pairs=((b["invoice_number"], matched_candidate["invoice_number"]),),
+                    )
 
             why_text = dec.why
             if match_confidence == "LOW_GSTIN_BLANK":

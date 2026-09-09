@@ -11,6 +11,7 @@ OVERDUE_UNPAID = "OVERDUE_UNPAID"
 PENDING_VERIFICATION = "PENDING_VERIFICATION"
 WARNING_30_DAYS = "WARNING_30_DAYS"
 WARNING_60_DAYS = "WARNING_60_DAYS"
+RULE37_WARNING_WINDOW_DAYS = 90
 
 HIGH = "HIGH"
 MEDIUM = "MEDIUM"
@@ -298,9 +299,8 @@ def check_rule_37_compliance(
         unpaid_paise = total_invoice_value_paise - total_paid_paise
         unpaid_paise = max(unpaid_paise, 0)
 
-        # Outside the 60-day pre-deadline window and not overdue → no flag.
-        # Warning tiers (ITC_014): 31–60 days → WARNING_60; 0–30 → WARNING_30.
-        if days_remaining > 60:
+        # Outside the warning window and not overdue → no flag.
+        if days_remaining > RULE37_WARNING_WINDOW_DAYS:
             continue
 
         # ── BUG 3 FIX: Proportionate reversal for partial payments ────────────

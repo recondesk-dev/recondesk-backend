@@ -237,6 +237,8 @@ class MismatchSeverity(str, Enum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
+    INFO = "info"
+    WARNING = "warning"
 
 
 @dataclass(frozen=True)

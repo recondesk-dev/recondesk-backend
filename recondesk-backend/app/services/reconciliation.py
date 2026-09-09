@@ -2504,6 +2504,24 @@ def execute_phase2_and_3(
     flag_fuzzy_duplicates_of_linked_prs(state, pr_records)
     flag_fuzzy_pr_peer_duplicates(state, pr_records)
 
+    # Overwrite reason code for losing PR rows claimed by better-matched PR rows
+    claimed_inv_norms = set()
+    for m in state.clean_matched:
+        inv_n = str(m.get("invoice_number_normalized") or "")
+        if inv_n:
+            claimed_inv_norms.add(inv_n)
+    for r in state.review_required:
+        if r.get("gstr_id") and r.get("pr_id"):
+            inv_n = str(r.get("invoice_number_normalized") or "")
+            if inv_n:
+                claimed_inv_norms.add(inv_n)
+
+    for d in state.duplicate_entries:
+        if d.get("side") == "PR":
+            d_inv = str(d.get("invoice_number_normalized") or "")
+            if (d_inv and d_inv in claimed_inv_norms) or d.get("gstr_id"):
+                d["reason"] = "PR_CLAIMED_BY_BETTER_MATCH"
+
 
 def _gstin_pan(gstin: str | None) -> str:
     g = (gstin or "").strip().upper()

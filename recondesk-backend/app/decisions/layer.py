@@ -86,8 +86,45 @@ def _amount_fields_present(row: dict[str, Any]) -> list[str]:
     return out
 
 
-def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> DecisionOutput:
+from dataclasses import dataclass
+
+@dataclass
+class RuleTemplate:
+    rule: str
+    itc_action: str = "do_not_claim"
+    decision_what: str = ""
+    decision_why: str = ""
+    decision_next: str = ""
+    gst_ref: str = ""
+    confidence: str = "HIGH"
+    matched_fields: tuple[str, ...] = ()
+    differed_fields: tuple[str, ...] = ()
+    normalized_pairs: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def what(self) -> str:
+        return self.decision_what
+
+    @property
+    def why(self) -> str:
+        return self.decision_why
+
+    @property
+    def next(self) -> str:
+        return self.decision_next
+
+
+def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> DecisionOutput | RuleTemplate:
     st = (row.get("scheme_type") or scheme_type or "regular").lower().strip()
+    if scheme_type == "composition" or st == "composition":
+        return RuleTemplate(
+            rule="COMPOSITION_SCHEME_NO_ITC",
+            itc_action="do_not_claim",
+            decision_what="Composition Scheme — ITC not available",
+            decision_why="Taxpayers under Section 10 CGST Act cannot claim input tax credit under Section 10(4).",
+            decision_next="Do not claim ITC. Expense the GST in books.",
+            gst_ref="Section 10 CGST Act",
+        )
     level = row.get("match_level") or row.get("level")
     mismatch_type = row.get("mismatch_type", "")
     supplier_gstin = row.get("supplier_gstin", "?")
