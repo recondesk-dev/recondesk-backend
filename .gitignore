@@ -7,3 +7,6 @@
 
 # Large migration dump
 supabase_migration_dump.sql
+* 2
+* 2.*
+supabase_migration_dump*.sql

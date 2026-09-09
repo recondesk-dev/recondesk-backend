@@ -1,2 +1,0 @@
-web: uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --timeout-keep-alive 300
-worker: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2

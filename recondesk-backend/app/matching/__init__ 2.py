@@ -1,1 +1,0 @@
-"""Matching engine package."""
