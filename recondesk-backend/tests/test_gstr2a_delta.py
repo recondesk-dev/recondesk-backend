@@ -496,3 +496,37 @@ def test_router_get_endpoints():
         data_sum = resp_sum.json()
         assert data_sum["summary"]["in_both_count"] == 1
 
+
+def test_router_auto_fetch_calls_ensure_fresh_gstn_token():
+    """Verify auto-fetch invokes ensure_fresh_gstn_token(sb, client_row) with 2 arguments."""
+    from unittest.mock import MagicMock, patch
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.auth import get_current_active_user
+
+    app.dependency_overrides[get_current_active_user] = lambda: {"id": "user-test", "role": "admin"}
+    test_client = TestClient(app)
+
+    with patch("app.routers.gstr2a_delta._assert_client_access"), \
+         patch("app.routers.gstr2a_delta.get_supabase") as mock_get_sb, \
+         patch("app.routers.gstr2a_delta.load_client_gstin") as mock_load_client, \
+         patch("app.routers.gstr2a_delta.ensure_fresh_gstn_token") as mock_ensure_token, \
+         patch("app.routers.gstr2a_delta.gstr2a_fetch.fetch") as mock_fetch:
+        mock_sb = MagicMock()
+        mock_get_sb.return_value = mock_sb
+        mock_client_row = {"id": "cid", "gstin": "27AABCU9603R1ZM", "gstn_access_token": "tok"}
+        mock_load_client.return_value = mock_client_row
+        mock_ensure_token.return_value = "fresh_tok"
+        mock_fetch.return_value = {"b2b": []}
+        mock_sb.table.return_value.upsert.return_value.execute.return_value = MagicMock(data=[])
+
+        payload = {
+            "client_gstin_id": "00000000-0000-0000-0000-000000000001",
+            "period": "2026-06",
+        }
+
+        resp = test_client.post("/api/gstr2a-delta/run", json=payload)
+        assert resp.status_code == 200
+        mock_ensure_token.assert_called_once_with(mock_sb, mock_client_row)
+
+

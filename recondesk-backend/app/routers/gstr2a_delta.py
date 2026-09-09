@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date, datetime, timezone
 from typing import Any, Optional
@@ -162,9 +163,11 @@ async def run_gstr2a_delta(
             gstin = client_row.get("gstin")
             if not gstin:
                 raise ValueError("Client GSTIN is missing")
-            token = ensure_fresh_gstn_token(sb, body.client_gstin_id, client_row)
+            token = await asyncio.to_thread(ensure_fresh_gstn_token, sb, client_row)
             year, month = _split_period_year_month(body.period)
-            raw_payload = gstr2a_fetch.fetch(gstin=gstin, year=year, month=month, token=token)
+            raw_payload = await asyncio.to_thread(
+                gstr2a_fetch.fetch, gstin=gstin, year=year, month=month, token=token
+            )
             records_2a = parse_gstr2a(raw_payload)
         except HTTPException:
             raise
