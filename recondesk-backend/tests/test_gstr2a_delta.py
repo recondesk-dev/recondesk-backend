@@ -1,0 +1,498 @@
+"""Tests for GSTR-2A vs GSTR-2B Delta Reconciliation module.
+
+Covers:
+1. test_parser_parses_b2b_record
+2. test_parser_cdna_negative_values
+3. test_delta_in_both
+4. test_delta_late_filed
+5. test_delta_filed_not_reflected
+6. test_delta_in_2b_not_2a
+7. test_delta_value_mismatch
+8. test_summary_counts
+"""
+
+import pytest
+from app.parsers.gstr2a_parser import parse_gstr2a
+from app.services.gstr2a_vs_2b import (
+    FILED_NOT_REFLECTED,
+    IN_2B_NOT_2A,
+    IN_BOTH,
+    LATE_FILED,
+    VALUE_MISMATCH,
+    reconcile_2a_vs_2b,
+)
+
+
+def test_parser_parses_b2b_record():
+    """Test standard B2B invoice parsed correctly from raw GSTR-2A JSON."""
+    raw_2a = {
+        "b2b": [
+            {
+                "ctin": "27AABCU9603R1ZM",
+                "cfs": "Y",
+                "cfs3b": "Y",
+                "inv": [
+                    {
+                        "inum": "INV-1001",
+                        "idt": "10-06-2026",
+                        "val": 11800.0,
+                        "pos": "27",
+                        "rchrg": "N",
+                        "inv_typ": "R",
+                        "fldtr1": "10-06-2026",
+                        "itms": [
+                            {
+                                "num": 1,
+                                "itm_det": {
+                                    "rt": 18.0,
+                                    "txval": 10000.0,
+                                    "iamt": 0.0,
+                                    "camt": 900.0,
+                                    "samt": 900.0,
+                                    "csamt": 0.0,
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    records = parse_gstr2a(raw_2a)
+    assert len(records) == 1
+    rec = records[0]
+
+    assert rec["supplier_gstin"] == "27AABCU9603R1ZM"
+    assert rec["invoice_number"] == "INV-1001"
+    assert rec["invoice_date"] == "2026-06-10"
+    assert rec["filing_date"] == "2026-06-10"
+    assert rec["taxable_amount_paise"] == 1000000  # ₹10,000.00
+    assert rec["cgst_paise"] == 90000              # ₹900.00
+    assert rec["sgst_paise"] == 90000              # ₹900.00
+    assert rec["igst_paise"] == 0
+    assert rec["cess_paise"] == 0
+    assert rec["total_tax_paise"] == 180000         # ₹1,800.00
+    assert rec["doc_type"] == "INVOICE"
+
+
+def test_parser_cdna_negative_values():
+    """Test credit note values are inverted to negative amounts."""
+    raw_2a = {
+        "cdna": [
+            {
+                "ctin": "27AABCU9603R1ZM",
+                "cfs": "Y",
+                "nt": [
+                    {
+                        "nt_num": "CRN-501",
+                        "nt_dt": "15-06-2026",
+                        "ntty": "C",
+                        "val": 5900.0,
+                        "fldtr1": "16-06-2026",
+                        "itms": [
+                            {
+                                "num": 1,
+                                "itm_det": {
+                                    "rt": 18.0,
+                                    "txval": 5000.0,
+                                    "iamt": 900.0,
+                                    "camt": 0.0,
+                                    "samt": 0.0,
+                                    "csamt": 0.0,
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    records = parse_gstr2a(raw_2a)
+    assert len(records) == 1
+    rec = records[0]
+
+    assert rec["supplier_gstin"] == "27AABCU9603R1ZM"
+    assert rec["invoice_number"] == "CRN-501"
+    assert rec["doc_type"] == "CREDIT_NOTE"
+    assert rec["taxable_amount_paise"] == -500000   # Negative ₹5,000.00
+    assert rec["igst_paise"] == -90000              # Negative ₹900.00
+    assert rec["total_tax_paise"] == -90000         # Negative ₹900.00
+    assert rec["filing_date"] == "2026-06-16"
+
+
+def test_delta_in_both():
+    """Test invoice filed before cutoff present in both 2A and 2B -> IN_BOTH."""
+    records_2a = [
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-001",
+            "invoice_date": "2026-06-05",
+            "filing_date": "2026-06-10",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180000,
+        }
+    ]
+    records_2b = [
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-001",
+            "invoice_date": "2026-06-05",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180000,
+        }
+    ]
+
+    results, summary = reconcile_2a_vs_2b(
+        gstr2a_records=records_2a,
+        gstr2b_records=records_2b,
+        period="2026-06",
+        cutoff_date="2026-06-13",
+    )
+
+    assert len(results) == 1
+    res = results[0]
+    assert res["category"] == IN_BOTH
+    assert res["supplier_gstin"] == "27AABCU9603R1ZM"
+    assert res["invoice_number"] == "INV-001"
+    assert "eligible this month" in res["decision_what"].lower()
+    assert summary["in_both_count"] == 1
+    assert summary["deferred_itc_paise"] == 0
+    assert summary["unresolved_itc_paise"] == 0
+
+
+def test_delta_late_filed():
+    """Test invoice filed on 16th (after 13th cutoff) present in 2A only -> LATE_FILED.
+
+    Must calculate days_late=3 and next_month_2b='2026-07'.
+    """
+    records_2a = [
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-002",
+            "invoice_date": "2026-06-08",
+            "filing_date": "2026-06-16",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180000,
+        }
+    ]
+    records_2b = []
+
+    results, summary = reconcile_2a_vs_2b(
+        gstr2a_records=records_2a,
+        gstr2b_records=records_2b,
+        period="2026-06",
+        cutoff_date="2026-06-13",
+    )
+
+    assert len(results) == 1
+    res = results[0]
+    assert res["category"] == LATE_FILED
+    assert res["days_late"] == 3
+    assert res["next_month_2b"] == "2026-07"
+    assert res["itc_at_risk_paise"] == 180000
+    assert "deferred to 2026-07" in res["decision_what"].lower()
+    assert "3 days after cutoff" in res["decision_what"].lower()
+    assert "invoices filed after the 13th are excluded" in res["decision_why"].lower()
+
+    assert summary["late_filed_count"] == 1
+    assert summary["deferred_itc_paise"] == 180000
+    assert summary["deferred_itc_rupees"] == 1800.0
+
+
+def test_delta_filed_not_reflected():
+    """Test invoice filed on 10th (before cutoff) present in 2A only -> FILED_NOT_REFLECTED."""
+    records_2a = [
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-003",
+            "invoice_date": "2026-06-05",
+            "filing_date": "2026-06-10",
+            "taxable_amount_paise": 2000000,
+            "total_tax_paise": 360000,
+        }
+    ]
+    records_2b = []
+
+    results, summary = reconcile_2a_vs_2b(
+        gstr2a_records=records_2a,
+        gstr2b_records=records_2b,
+        period="2026-06",
+        cutoff_date="2026-06-13",
+    )
+
+    assert len(results) == 1
+    res = results[0]
+    assert res["category"] == FILED_NOT_REFLECTED
+    assert res["days_late"] == 0
+    assert res["itc_at_risk_paise"] == 360000
+    assert "portal" in res["decision_why"].lower() or "delay" in res["decision_why"].lower()
+
+    assert summary["filed_not_reflected_count"] == 1
+    assert summary["unresolved_itc_paise"] == 360000
+    assert summary["unresolved_itc_rupees"] == 3600.0
+
+
+def test_delta_in_2b_not_2a():
+    """Test invoice present in 2B but absent from 2A -> IN_2B_NOT_2A."""
+    records_2a = []
+    records_2b = [
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-004",
+            "invoice_date": "2026-06-05",
+            "taxable_amount_paise": 1500000,
+            "total_tax_paise": 270000,
+        }
+    ]
+
+    results, summary = reconcile_2a_vs_2b(
+        gstr2a_records=records_2a,
+        gstr2b_records=records_2b,
+        period="2026-06",
+        cutoff_date="2026-06-13",
+    )
+
+    assert len(results) == 1
+    res = results[0]
+    assert res["category"] == IN_2B_NOT_2A
+    assert res["taxable_value_2b"] == 15000.0
+    assert res["taxable_value_2a"] is None
+    assert "amend" in res["decision_why"].lower() or "cancel" in res["decision_why"].lower()
+
+    assert summary["in_2b_not_2a_count"] == 1
+    assert summary["unresolved_itc_paise"] == 270000
+    assert summary["unresolved_itc_rupees"] == 2700.0
+
+
+def test_delta_value_mismatch():
+    """Test invoice present in both but taxable amount differs > 1% -> VALUE_MISMATCH."""
+    records_2a = [
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-005",
+            "invoice_date": "2026-06-05",
+            "filing_date": "2026-06-10",
+            "taxable_amount_paise": 1000000,  # ₹10,000.00
+            "total_tax_paise": 180000,        # ₹1,800.00
+        }
+    ]
+    records_2b = [
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-005",
+            "invoice_date": "2026-06-05",
+            "taxable_amount_paise": 1500000,  # ₹15,000.00 (50% difference > 1%)
+            "total_tax_paise": 270000,        # ₹2,700.00
+        }
+    ]
+
+    results, summary = reconcile_2a_vs_2b(
+        gstr2a_records=records_2a,
+        gstr2b_records=records_2b,
+        period="2026-06",
+        cutoff_date="2026-06-13",
+    )
+
+    assert len(results) == 1
+    res = results[0]
+    assert res["category"] == VALUE_MISMATCH
+    assert res["taxable_value_2a"] == 10000.0
+    assert res["taxable_value_2b"] == 15000.0
+    assert res["tax_value_2a"] == 1800.0
+    assert res["tax_value_2b"] == 2700.0
+    assert res["itc_at_risk_paise"] == 90000  # |2700 - 1800| = ₹900 (90000 paise)
+    assert "taxable value mismatch" in res["decision_what"].lower()
+
+    assert summary["value_mismatch_count"] == 1
+    assert summary["unresolved_itc_paise"] == 90000
+    assert summary["unresolved_itc_rupees"] == 900.0
+
+
+def test_summary_counts():
+    """Verify total counts, deferred ITC, and unresolved ITC in summary output."""
+    records_2a = [
+        # 1. IN_BOTH
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-101",
+            "invoice_date": "2026-06-02",
+            "filing_date": "2026-06-10",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180000,
+        },
+        # 2. LATE_FILED (tax: ₹2,000 / 200000 paise)
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-102",
+            "invoice_date": "2026-06-05",
+            "filing_date": "2026-06-18",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 200000,
+        },
+        # 3. FILED_NOT_REFLECTED (tax: ₹3,000 / 300000 paise)
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-103",
+            "invoice_date": "2026-06-06",
+            "filing_date": "2026-06-11",
+            "taxable_amount_paise": 1500000,
+            "total_tax_paise": 300000,
+        },
+        # 4. VALUE_MISMATCH (2A tax: ₹1,800, 2B tax: ₹2,800 -> diff ₹1,000 / 100000 paise)
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-104",
+            "invoice_date": "2026-06-08",
+            "filing_date": "2026-06-10",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180000,
+        },
+    ]
+
+    records_2b = [
+        # For INV-101
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-101",
+            "invoice_date": "2026-06-02",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180000,
+        },
+        # For INV-104 (Value mismatch)
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-104",
+            "invoice_date": "2026-06-08",
+            "taxable_amount_paise": 1500000,
+            "total_tax_paise": 280000,
+        },
+        # 5. IN_2B_NOT_2A (tax: ₹1,500 / 150000 paise)
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-105",
+            "invoice_date": "2026-06-10",
+            "taxable_amount_paise": 800000,
+            "total_tax_paise": 150000,
+        },
+    ]
+
+    results, summary = reconcile_2a_vs_2b(
+        gstr2a_records=records_2a,
+        gstr2b_records=records_2b,
+        period="2026-06",
+        cutoff_date="2026-06-13",
+    )
+
+    assert len(results) == 5
+    assert summary["total_records"] == 5
+    assert summary["in_both_count"] == 1
+    assert summary["late_filed_count"] == 1
+    assert summary["filed_not_reflected_count"] == 1
+    assert summary["in_2b_not_2a_count"] == 1
+    assert summary["value_mismatch_count"] == 1
+
+    # Deferred ITC: only LATE_FILED (₹2,000)
+    assert summary["deferred_itc_paise"] == 200000
+    assert summary["deferred_itc_rupees"] == 2000.0
+
+    # Unresolved ITC: FILED_NOT_REFLECTED (300000) + IN_2B_NOT_2A (150000) + VALUE_MISMATCH (100000) = 550000
+    assert summary["unresolved_itc_paise"] == 550000
+    assert summary["unresolved_itc_rupees"] == 5500.0
+
+
+def test_router_run_delta_endpoint():
+    """Verify POST /api/gstr2a-delta/run endpoint through FastAPI TestClient."""
+    from unittest.mock import MagicMock, patch
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.auth import get_current_active_user
+
+    app.dependency_overrides[get_current_active_user] = lambda: {"id": "user-test", "role": "admin"}
+    test_client = TestClient(app)
+
+    with patch("app.routers.gstr2a_delta._assert_client_access"), \
+         patch("app.routers.gstr2a_delta.get_supabase") as mock_get_sb:
+        mock_sb = MagicMock()
+        mock_get_sb.return_value = mock_sb
+        mock_sb.table.return_value.upsert.return_value.execute.return_value = MagicMock(data=[])
+
+        payload = {
+            "client_gstin_id": "00000000-0000-0000-0000-000000000001",
+            "period": "2026-06",
+            "gstr2a_records": [
+                {
+                    "supplier_gstin": "27AABCU9603R1ZM",
+                    "invoice_number": "INV-001",
+                    "invoice_date": "2026-06-05",
+                    "filing_date": "2026-06-10",
+                    "taxable_amount_paise": 1000000,
+                    "total_tax_paise": 180000,
+                }
+            ],
+            "gstr2b_records": [
+                {
+                    "supplier_gstin": "27AABCU9603R1ZM",
+                    "invoice_number": "INV-001",
+                    "invoice_date": "2026-06-05",
+                    "taxable_amount_paise": 1000000,
+                    "total_tax_paise": 180000,
+                }
+            ],
+        }
+
+        resp = test_client.post("/api/gstr2a-delta/run", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["client_gstin_id"] == "00000000-0000-0000-0000-000000000001"
+        assert data["summary"]["in_both_count"] == 1
+        assert len(data["results"]) == 1
+        assert data["results"][0]["category"] == "IN_BOTH"
+
+
+def test_router_get_endpoints():
+    """Verify GET /api/gstr2a-delta/{client_id}/{period} and summary endpoint."""
+    from unittest.mock import MagicMock, patch
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.auth import get_current_active_user
+
+    app.dependency_overrides[get_current_active_user] = lambda: {"id": "user-test", "role": "admin"}
+    test_client = TestClient(app)
+
+    with patch("app.routers.gstr2a_delta._assert_client_access"), \
+         patch("app.routers.gstr2a_delta.get_supabase") as mock_get_sb:
+        mock_sb = MagicMock()
+        mock_get_sb.return_value = mock_sb
+        mock_sb.table.return_value.select.return_value.eq.return_value.in_.return_value.limit.return_value.execute.return_value = MagicMock(
+            data=[
+                {
+                    "id": "res-1",
+                    "client_gstin_id": "00000000-0000-0000-0000-000000000001",
+                    "period": "2026-06",
+                    "cutoff_date": "2026-06-13",
+                    "reconciled_at": "2026-06-14T10:00:00Z",
+                    "summary": {"in_both_count": 1, "total_records": 1},
+                    "results": [
+                        {
+                            "category": "IN_BOTH",
+                            "supplier_gstin": "27AABCU9603R1ZM",
+                            "invoice_number": "INV-001",
+                        }
+                    ],
+                }
+            ]
+        )
+
+        resp = test_client.get("/api/gstr2a-delta/00000000-0000-0000-0000-000000000001/2026-06")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_records"] == 1
+        assert len(data["results"]) == 1
+
+        resp_sum = test_client.get("/api/gstr2a-delta/00000000-0000-0000-0000-000000000001/2026-06/summary")
+        assert resp_sum.status_code == 200
+        data_sum = resp_sum.json()
+        assert data_sum["summary"]["in_both_count"] == 1
+
