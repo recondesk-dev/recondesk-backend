@@ -189,7 +189,7 @@ function SignupForm() {
     const siteUrl = (
       process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin
     ).replace(/\/$/, "");
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email: form.email,
       password: form.password,
       options: {
@@ -205,6 +205,13 @@ function SignupForm() {
 
     if (error) {
       setError(error.message);
+      setLoading(false);
+      return;
+    }
+
+    // When email enumeration protection is enabled, Supabase returns an empty identities array for existing users
+    if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      setError("An account with this email address already exists. Please sign in or reset your password.");
       setLoading(false);
       return;
     }
