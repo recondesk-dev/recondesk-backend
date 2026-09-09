@@ -14,18 +14,28 @@ import {
   Search,
   Calendar,
   Layers,
+  Upload,
+  ShieldAlert,
+  X,
 } from "lucide-react";
 
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { useToast } from "@/components/providers/ToastProvider";
 import { formatINR } from "@/lib/format";
 import {
+  ConnectGstnModal,
+  isGstnConnected,
+} from "@/components/clients/ConnectGstnModal";
+import {
+  clientsApi,
   gstr2aDeltaApi,
+  type ClientGstin,
   type Gstr2aDeltaCategory,
   type Gstr2aDeltaItem,
   type Gstr2aDeltaResponse,
   type Gstr2aDeltaSummaryResponse,
 } from "@/lib/api";
+import { DW } from "@/lib/dashboard-portfolio";
 
 type CategoryFilter = "ALL" | Gstr2aDeltaCategory;
 
@@ -81,6 +91,53 @@ export default function Gstr2aDeltaPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+  const [connectGstnOpen, setConnectGstnOpen] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [uploadedJson, setUploadedJson] = useState<Record<string, any> | null>(null);
+
+  // Client query to check GSTN connection
+  const clientKey = token && clientId ? ["client", token, clientId] : null;
+  const { data: rawClient, mutate: mutateClient } = useSWR<ClientGstin | null>(
+    clientKey,
+    async ([, t, cid]) => {
+      try {
+        return (await clientsApi.get(t, cid)) as ClientGstin;
+      } catch {
+        return null;
+      }
+    },
+    { revalidateOnFocus: false }
+  );
+
+  const gstnConnected = isGstnConnected(rawClient ?? undefined);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".json")) {
+      toast("Please select a valid .json file exported from the GST portal", "error");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+        setUploadedJson(parsed);
+        setUploadedFileName(file.name);
+        toast(`Loaded ${file.name} successfully`, "success");
+      } catch {
+        toast("Failed to parse JSON file. Please ensure it is valid GSTR-2A JSON.", "error");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleClearFile = () => {
+    setUploadedJson(null);
+    setUploadedFileName(null);
+  };
 
   // 1. Fetch Summary on mount / period change
   const summaryKey =
@@ -152,9 +209,26 @@ export default function Gstr2aDeltaPage() {
   // Run analysis handler
   const handleRunAnalysis = async () => {
     if (!token || !clientId || running) return;
+
+    // If no uploaded JSON and GSTN is not connected, open GSTN connect modal
+    if (!uploadedJson && !gstnConnected) {
+      toast(
+        "Please connect your GST portal session via OTP or upload a GSTR-2A JSON file to run analysis.",
+        "info"
+      );
+      setConnectGstnOpen(true);
+      return;
+    }
+
     setRunning(true);
     try {
-      const res = await gstr2aDeltaApi.run(token, clientId, period);
+      const res = await gstr2aDeltaApi.run(
+        token,
+        clientId,
+        period,
+        undefined,
+        uploadedJson || undefined
+      );
       toast("GSTR-2A vs 2B Delta analysis completed successfully", "success");
       await mutateSummary(
         {
@@ -171,6 +245,14 @@ export default function Gstr2aDeltaPage() {
     } catch (err: any) {
       const msg =
         err?.detail || err?.message || "Failed to run GSTR-2A vs 2B Delta analysis";
+      if (
+        err?.status === 409 ||
+        err?.statusCode === 409 ||
+        msg.toLowerCase().includes("gstn not connected") ||
+        msg.toLowerCase().includes("otp")
+      ) {
+        setConnectGstnOpen(true);
+      }
       toast(msg, "error");
     } finally {
       setRunning(false);
@@ -229,8 +311,58 @@ export default function Gstr2aDeltaPage() {
           </p>
         </div>
 
-        {/* Controls: Period selector + Run button */}
-        <div className="flex flex-wrap items-center gap-3">
+        {/* Controls: Period selector + GSTN Connect + Upload 2A + Run button */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* GSTN Status / Connect button */}
+          {gstnConnected ? (
+            <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800 shadow-sm">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              <span>GST Portal Connected</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConnectGstnOpen(true)}
+              className="flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-semibold text-amber-900 shadow-sm transition-colors hover:bg-amber-100"
+            >
+              <span className="h-2 w-2 rounded-full bg-amber-500" />
+              <span>Connect GST Portal (OTP)</span>
+            </button>
+          )}
+
+          {/* Upload 2A JSON option */}
+          {uploadedFileName ? (
+            <div className="flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-900 shadow-sm">
+              <Upload className="h-3.5 w-3.5 text-blue-600" />
+              <span className="max-w-[140px] truncate font-semibold" title={uploadedFileName}>
+                {uploadedFileName}
+              </span>
+              <button
+                type="button"
+                onClick={handleClearFile}
+                className="ml-0.5 rounded-full p-0.5 text-blue-500 hover:bg-blue-200 hover:text-blue-800 transition-colors"
+                title="Remove file"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : (
+            <label className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50">
+              <Upload className="h-3.5 w-3.5 text-gray-500" />
+              <span>Upload 2A JSON</span>
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+            </label>
+          )}
+
+          {/* Period Selector */}
           <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
             <Calendar className="h-4 w-4 text-gray-400" />
             <input
@@ -244,6 +376,7 @@ export default function Gstr2aDeltaPage() {
             />
           </div>
 
+          {/* Run Analysis Button */}
           <button
             type="button"
             onClick={handleRunAnalysis}
@@ -270,7 +403,9 @@ export default function Gstr2aDeltaPage() {
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white p-12 text-center shadow-sm">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--ink)]" />
           <p className="mt-3 text-sm font-medium text-gray-700">
-            Fetching 2A data and running delta analysis...
+            {uploadedJson
+              ? "Parsing uploaded GSTR-2A JSON and running delta analysis..."
+              : "Fetching GSTR-2A from GST portal and running delta analysis..."}
           </p>
           <span className="mt-1 text-xs text-gray-400">
             Comparing supplier filing timestamps against the 13th cutoff date
@@ -280,25 +415,108 @@ export default function Gstr2aDeltaPage() {
 
       {/* Empty State before first run */}
       {!running && !isSummaryLoading && !summary && (
-        <div className="rounded-2xl border border-gray-200 bg-gray-50/60 p-8 text-center shadow-sm">
-          <Info className="mx-auto h-8 w-8 text-gray-400" />
-          <h3 className="mt-2 text-base font-semibold text-gray-900">
+        <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 text-gray-600">
+            <Layers className="h-6 w-6 text-gray-600" />
+          </div>
+          <h3 className="mt-4 text-base font-bold text-gray-900">
             GSTR-2A vs GSTR-2B Delta Analysis
           </h3>
-          <p className="mx-auto mt-1 max-w-md text-sm text-gray-500">
-            Run the analysis to compare your GSTR-2A supplier filings against the
-            locked GSTR-2B snapshot. Identifies invoices deferred due to late
-            supplier filing.
+          <p className="mx-auto mt-1 max-w-lg text-sm text-gray-500">
+            Identify invoices present in GSTR-2A but missing or deferred in GSTR-2B.
+            Detect invoices filed by suppliers after the 13th cutoff so you know exactly which
+            ITC can be claimed next month.
           </p>
-          <button
-            type="button"
-            onClick={handleRunAnalysis}
-            disabled={running}
-            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[var(--ink)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
-          >
-            <RefreshCw className="h-4 w-4" />
-            <span>Run Analysis</span>
-          </button>
+
+          {/* Action options */}
+          <div className="mx-auto mt-6 grid max-w-xl grid-cols-1 gap-4 sm:grid-cols-2 text-left">
+            {/* Option 1: Live GST Portal */}
+            <div className="flex flex-col justify-between rounded-xl border border-gray-200 bg-gray-50/50 p-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--ink)] text-[10px] font-bold text-white">
+                    1
+                  </span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                    Live GSTN Fetch
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  Directly fetch real-time GSTR-2A filings from the GST Portal via GSP API.
+                </p>
+              </div>
+              <div className="mt-4">
+                {gstnConnected ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Portal Connected
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConnectGstnOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 transition-colors"
+                  >
+                    Connect with OTP →
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Option 2: Upload JSON */}
+            <div className="flex flex-col justify-between rounded-xl border border-gray-200 bg-gray-50/50 p-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gray-400 text-[10px] font-bold text-white">
+                    2
+                  </span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                    Upload 2A JSON
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  Exported GSTR-2A JSON from the GST Portal or GST Offline Tool.
+                </p>
+              </div>
+              <div className="mt-4">
+                {uploadedFileName ? (
+                  <div className="flex items-center gap-1 text-xs font-semibold text-blue-700">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <span className="truncate max-w-[130px]">{uploadedFileName}</span>
+                    <button
+                      type="button"
+                      onClick={handleClearFile}
+                      className="ml-1 text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100 shadow-sm transition-colors">
+                    <Upload className="h-3.5 w-3.5 text-gray-500" />
+                    <span>Select JSON File</span>
+                    <input
+                      type="file"
+                      accept=".json,application/json"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 flex justify-center">
+            <button
+              type="button"
+              onClick={handleRunAnalysis}
+              disabled={running}
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--ink)] px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span>Run Analysis</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -704,6 +922,21 @@ export default function Gstr2aDeltaPage() {
             )}
           </div>
         </>
+      )}
+
+      {/* Connect GSTN Modal */}
+      {token && rawClient && (
+        <ConnectGstnModal
+          open={connectGstnOpen}
+          onClose={() => setConnectGstnOpen(false)}
+          clientGstinId={clientId}
+          defaultGstin={rawClient.gstin || ""}
+          authToken={token}
+          onSuccess={() => {
+            void mutateClient();
+            toast("GST Portal session connected successfully! You can now run live analysis.", "success");
+          }}
+        />
       )}
     </div>
   );

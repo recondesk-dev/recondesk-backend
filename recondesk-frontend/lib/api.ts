@@ -2989,13 +2989,20 @@ export interface Gstr2aDeltaSummaryResponse {
 }
 
 export const gstr2aDeltaApi = {
-  run: (token: string, clientGstinId: string, period: string, cutoffDate?: string) =>
+  run: (
+    token: string,
+    clientGstinId: string,
+    period: string,
+    cutoffDate?: string,
+    gstr2aRaw?: Record<string, any>
+  ) =>
     apiFetch<Gstr2aDeltaResponse>("/api/gstr2a-delta/run", {
       method: "POST",
       body: JSON.stringify({
         client_gstin_id: clientGstinId,
         period,
         ...(cutoffDate ? { cutoff_date: cutoffDate } : {}),
+        ...(gstr2aRaw ? { gstr2a_raw: gstr2aRaw } : {}),
       }),
       token,
     }),
