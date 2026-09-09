@@ -206,6 +206,18 @@ def _update_run(
     fields: dict[str, Any],
 ) -> None:
     client.table("reconciliation_run").update(fields).eq("id", run_id).execute()
+    # Mirror engine progress into wizard_runs so the poll endpoint stays live.
+    # wizard_runs uses the same run_id; this is a best-effort write (non-fatal).
+    if "progress_percent" in fields:
+        try:
+            wiz: dict[str, Any] = {"progress_pct": fields["progress_percent"]}
+            if "status_message" in fields:
+                wiz["status_message"] = fields["status_message"]
+            if "updated_at" in fields:
+                wiz["updated_at"] = fields["updated_at"]
+            client.table("wizard_runs").update(wiz).eq("id", run_id).execute()
+        except Exception:
+            pass  # never block the engine for a UI progress update
 
 
 def _bulk_insert(
