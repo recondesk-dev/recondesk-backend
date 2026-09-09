@@ -2916,4 +2916,114 @@ export const billingModuleApi = {
     `/api/einvoicing/credit-debit-notes/${encodeURIComponent(id)}/pdf?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
 };
 
+// ─── GSTR-2A vs GSTR-2B Delta Reconciliation ──────────────────────────────────
+
+export type Gstr2aDeltaCategory =
+  | "IN_BOTH"
+  | "LATE_FILED"
+  | "FILED_NOT_REFLECTED"
+  | "IN_2B_NOT_2A"
+  | "VALUE_MISMATCH";
+
+export interface Gstr2aDeltaItem {
+  id?: string;
+  category: Gstr2aDeltaCategory | string;
+  supplier_gstin: string;
+  supplier_name?: string | null;
+  invoice_number: string;
+  invoice_date: string | null;
+  filing_date: string | null;
+  cutoff_date: string;
+  days_late: number;
+  taxable_value_2a: number | null;
+  taxable_value_2b: number | null;
+  tax_value_2a?: number | null;
+  tax_value_2b?: number | null;
+  itc_at_risk_paise: number;
+  next_month_2b: string | null;
+  decision_what: string;
+  decision_why: string;
+  decision_next: string;
+}
+
+export interface Gstr2aDeltaSummary {
+  total_records: number;
+  total_2a: number;
+  total_2b: number;
+  in_both: number;
+  in_both_count: number;
+  late_filed: number;
+  late_filed_count: number;
+  filed_not_reflected: number;
+  filed_not_reflected_count: number;
+  in_2b_not_2a: number;
+  in_2b_not_2a_count: number;
+  value_mismatch: number;
+  value_mismatch_count: number;
+  total_itc_deferred_paise: number;
+  deferred_itc_paise: number;
+  deferred_itc_rupees: number;
+  total_itc_unresolved_paise: number;
+  unresolved_itc_paise: number;
+  unresolved_itc_rupees: number;
+}
+
+export interface Gstr2aDeltaResponse {
+  client_gstin_id: string;
+  period: string;
+  cutoff_date: string;
+  reconciled_at: string;
+  summary: Gstr2aDeltaSummary;
+  total_records: number;
+  page: number;
+  page_size: number;
+  results: Gstr2aDeltaItem[];
+}
+
+export interface Gstr2aDeltaSummaryResponse {
+  client_gstin_id: string;
+  period: string;
+  cutoff_date: string;
+  reconciled_at: string;
+  summary: Gstr2aDeltaSummary;
+}
+
+export const gstr2aDeltaApi = {
+  run: (token: string, clientGstinId: string, period: string, cutoffDate?: string) =>
+    apiFetch<Gstr2aDeltaResponse>("/api/gstr2a-delta/run", {
+      method: "POST",
+      body: JSON.stringify({
+        client_gstin_id: clientGstinId,
+        period,
+        ...(cutoffDate ? { cutoff_date: cutoffDate } : {}),
+      }),
+      token,
+    }),
+
+  getResults: (
+    token: string,
+    clientGstinId: string,
+    period: string,
+    params?: { category?: string; search?: string; page?: number; page_size?: number }
+  ) => {
+    const q = new URLSearchParams();
+    if (params?.category && params.category !== "ALL") q.set("category", params.category);
+    if (params?.search) q.set("search", params.search);
+    if (params?.page) q.set("page", String(params.page));
+    if (params?.page_size) q.set("page_size", String(params.page_size));
+    const qs = q.toString() ? `?${q.toString()}` : "";
+    return apiFetch<Gstr2aDeltaResponse>(
+      `/api/gstr2a-delta/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}${qs}`,
+      { token }
+    );
+  },
+
+  getSummary: (token: string, clientGstinId: string, period: string) =>
+    apiFetch<Gstr2aDeltaSummaryResponse>(
+      `/api/gstr2a-delta/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/summary`,
+      { token }
+    ),
+};
+
+
 

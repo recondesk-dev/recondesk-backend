@@ -15,6 +15,7 @@ export default function ClientWorkspaceLayout({
   const tabs = [
     { label: "Overview", href: `/clients/${id}` },
     { label: "Annual Recon (FY)", href: `/clients/${id}/multi-period` },
+    { label: "2A vs 2B", href: `/clients/${id}/gstr2a-delta` },
     { label: "GSTR-9 Annual Return", href: `/clients/${id}/gstr9` },
     { label: "GSTR-9C ITC Rollup", href: `/clients/${id}/gstr9c` },
     { label: "Vendor Follow-up Hub", href: `/clients/${id}/followup` },

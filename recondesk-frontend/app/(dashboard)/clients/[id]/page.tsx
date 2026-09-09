@@ -360,6 +360,18 @@ export default function ClientDetailPage() {
                     Annual FY rollup — matched (2B) vs claimed (3B) ITC
                   </span>
                 </Link>
+                <Link
+                  href={id ? `/clients/${id}/gstr2a-delta` : "#"}
+                  title="Invoices in 2A not reflected in 2B — supplier filing cutoff analysis"
+                  className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[var(--ink)] px-4 py-3 text-left transition-opacity hover:opacity-90"
+                >
+                  <span className="text-sm font-semibold text-white">
+                    2A vs 2B Delta
+                  </span>
+                  <span className="text-[11px] font-medium leading-snug text-white/70">
+                    Supplier filing cutoff analysis & deferred ITC
+                  </span>
+                </Link>
               </div>
             </div>
           </div>
