@@ -12,7 +12,9 @@ from pydantic import BaseModel, Field
 
 from app.auth import get_current_active_user
 from app.database import get_supabase
+from app.integrations.gstr2b_autofetch import get_gstr2b
 from app.parsers.gstr2a_parser import parse_gstr2a
+from app.parsers.gstr2b_parser import parse_gstr2b
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.services.gst_fetch import gstr2a as gstr2a_fetch
 from app.services.gst_fetch.token import ensure_fresh_gstn_token, load_client_gstin
@@ -40,6 +42,9 @@ class RunDeltaReconciliationRequest(BaseModel):
     )
     gstr2b_records: Optional[list[dict[str, Any]]] = Field(
         None, description="Pre-parsed 2B records if provided"
+    )
+    gstr2b_raw: Optional[dict[str, Any]] = Field(
+        None, description="Raw GSTR-2B JSON payload if provided"
     )
 
 
@@ -144,6 +149,11 @@ async def run_gstr2a_delta(
 
     # 1. Resolve 2A records
     records_2a: list[dict[str, Any]] = []
+    live_gstn_token: Optional[str] = None
+    gstin_val: Optional[str] = None
+    year_val: Optional[str] = None
+    month_val: Optional[str] = None
+
     if body.gstr2a_raw:
         try:
             records_2a = parse_gstr2a(body.gstr2a_raw)
@@ -165,6 +175,9 @@ async def run_gstr2a_delta(
                 raise ValueError("Client GSTIN is missing")
             token = await asyncio.to_thread(ensure_fresh_gstn_token, sb, client_row)
             year, month = _split_period_year_month(body.period)
+            live_gstn_token = token
+            gstin_val = gstin
+            year_val, month_val = year, month
             raw_payload = await asyncio.to_thread(
                 gstr2a_fetch.fetch, gstin=gstin, year=year, month=month, token=token
             )
@@ -183,10 +196,40 @@ async def run_gstr2a_delta(
 
     # 2. Resolve 2B records
     records_2b: list[dict[str, Any]] = []
-    if body.gstr2b_records is not None:
+    if body.gstr2b_raw:
+        try:
+            raw_2b_payload = body.gstr2b_raw
+            if "data" not in raw_2b_payload and isinstance(raw_2b_payload, dict):
+                raw_2b_payload = {"data": raw_2b_payload}
+            parsed_2b = parse_gstr2b(raw_2b_payload)
+            records_2b = parsed_2b.get("records", [])
+        except Exception as exc:
+            logger.exception("Failed to parse provided gstr2b_raw")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Failed to parse GSTR-2B JSON: {exc}",
+            ) from exc
+    elif body.gstr2b_records is not None:
         records_2b = body.gstr2b_records
     else:
+        # First check DB (existing reconciliation or gstr_records)
         records_2b = _fetch_2b_records_from_db(sb, body.client_gstin_id, body.period)
+        # If no 2B records in DB and live GSTN session is active, attempt live auto-fetch
+        if not records_2b and live_gstn_token and gstin_val and year_val and month_val:
+            try:
+                raw_2b = await asyncio.to_thread(
+                    get_gstr2b,
+                    access_token=live_gstn_token,
+                    gstin=gstin_val,
+                    year=year_val,
+                    month=month_val,
+                )
+                if "data" not in raw_2b and isinstance(raw_2b, dict):
+                    raw_2b = {"data": raw_2b}
+                parsed_2b = parse_gstr2b(raw_2b)
+                records_2b = parsed_2b.get("records", [])
+            except Exception as exc:
+                logger.warning("GSTR-2B live auto-fetch fallback failed: %s", exc)
 
     # 3. Reconcile
     results, summary = reconcile_2a_vs_2b(
@@ -342,3 +385,23 @@ async def get_gstr2a_delta_summary(
         "reconciled_at": row.get("reconciled_at"),
         "summary": row.get("summary") or {},
     }
+
+
+@router.get("/{client_gstin_id}/{period}/sources")
+async def get_gstr2a_delta_sources(
+    client_gstin_id: str,
+    period: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Check availability of GSTR-2B records in DB for the given client and period."""
+    sb = get_supabase()
+    _assert_client_access(sb, current_user, client_gstin_id)
+
+    records_2b = _fetch_2b_records_from_db(sb, client_gstin_id, period)
+    return {
+        "client_gstin_id": client_gstin_id,
+        "period": period,
+        "has_2b_in_db": len(records_2b) > 0,
+        "records_2b_count": len(records_2b),
+    }
+

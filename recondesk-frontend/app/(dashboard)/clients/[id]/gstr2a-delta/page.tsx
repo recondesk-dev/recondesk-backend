@@ -92,8 +92,10 @@ export default function Gstr2aDeltaPage() {
   const [page, setPage] = useState(1);
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [connectGstnOpen, setConnectGstnOpen] = useState(false);
-  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
-  const [uploadedJson, setUploadedJson] = useState<Record<string, any> | null>(null);
+  const [uploaded2aFileName, setUploaded2aFileName] = useState<string | null>(null);
+  const [uploaded2aJson, setUploaded2aJson] = useState<Record<string, any> | null>(null);
+  const [uploaded2bFileName, setUploaded2bFileName] = useState<string | null>(null);
+  const [uploaded2bJson, setUploaded2bJson] = useState<Record<string, any> | null>(null);
 
   // Client query to check GSTN connection
   const clientKey = token && clientId ? ["client", token, clientId] : null;
@@ -111,7 +113,25 @@ export default function Gstr2aDeltaPage() {
 
   const gstnConnected = isGstnConnected(rawClient ?? undefined);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Check GSTR-2B availability in ReconDesk database
+  const sourcesKey =
+    token && clientId && period
+      ? [`/api/gstr2a-delta/${clientId}/${period}/sources`, token]
+      : null;
+
+  const { data: sourcesData, mutate: mutateSources } = useSWR(
+    sourcesKey,
+    async ([_, t]) => {
+      try {
+        return await gstr2aDeltaApi.getSources(t, clientId, period);
+      } catch {
+        return null;
+      }
+    },
+    { revalidateOnFocus: false }
+  );
+
+  const handleFileUpload2A = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".json")) {
@@ -123,9 +143,9 @@ export default function Gstr2aDeltaPage() {
       try {
         const text = event.target?.result as string;
         const parsed = JSON.parse(text);
-        setUploadedJson(parsed);
-        setUploadedFileName(file.name);
-        toast(`Loaded ${file.name} successfully`, "success");
+        setUploaded2aJson(parsed);
+        setUploaded2aFileName(file.name);
+        toast(`Loaded GSTR-2A (${file.name}) successfully`, "success");
       } catch {
         toast("Failed to parse JSON file. Please ensure it is valid GSTR-2A JSON.", "error");
       }
@@ -134,9 +154,37 @@ export default function Gstr2aDeltaPage() {
     e.target.value = "";
   };
 
-  const handleClearFile = () => {
-    setUploadedJson(null);
-    setUploadedFileName(null);
+  const handleClear2A = () => {
+    setUploaded2aJson(null);
+    setUploaded2aFileName(null);
+  };
+
+  const handleFileUpload2B = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".json")) {
+      toast("Please select a valid .json file exported from the GST portal", "error");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+        setUploaded2bJson(parsed);
+        setUploaded2bFileName(file.name);
+        toast(`Loaded GSTR-2B (${file.name}) successfully`, "success");
+      } catch {
+        toast("Failed to parse JSON file. Please ensure it is valid GSTR-2B JSON.", "error");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleClear2B = () => {
+    setUploaded2bJson(null);
+    setUploaded2bFileName(null);
   };
 
   // 1. Fetch Summary on mount / period change
@@ -210,13 +258,27 @@ export default function Gstr2aDeltaPage() {
   const handleRunAnalysis = async () => {
     if (!token || !clientId || running) return;
 
-    // If no uploaded JSON and GSTN is not connected, open GSTN connect modal
-    if (!uploadedJson && !gstnConnected) {
+    // Check 2A availability
+    if (!uploaded2aJson && !gstnConnected) {
       toast(
         "Please connect your GST portal session via OTP or upload a GSTR-2A JSON file to run analysis.",
         "info"
       );
       setConnectGstnOpen(true);
+      return;
+    }
+
+    // Check 2B availability
+    const has2b =
+      Boolean(uploaded2bJson) ||
+      Boolean(sourcesData?.has_2b_in_db) ||
+      Boolean(gstnConnected);
+
+    if (!has2b) {
+      toast(
+        "No GSTR-2B data found for this period. Please upload GSTR-2B JSON, connect GST Portal to fetch live, or run 2B reconciliation first.",
+        "error"
+      );
       return;
     }
 
@@ -227,7 +289,8 @@ export default function Gstr2aDeltaPage() {
         clientId,
         period,
         undefined,
-        uploadedJson || undefined
+        uploaded2aJson || undefined,
+        uploaded2bJson || undefined
       );
       toast("GSTR-2A vs 2B Delta analysis completed successfully", "success");
       await mutateSummary(
@@ -240,6 +303,7 @@ export default function Gstr2aDeltaPage() {
         },
         false
       );
+      void mutateSources();
       setPage(1);
       await mutateResults();
     } catch (err: any) {
@@ -311,7 +375,7 @@ export default function Gstr2aDeltaPage() {
           </p>
         </div>
 
-        {/* Controls: Period selector + GSTN Connect + Upload 2A + Run button */}
+        {/* Controls: GSTN Connect + Upload 2A + 2B Source / Upload 2B + Period + Run */}
         <div className="flex flex-wrap items-center gap-2.5">
           {/* GSTN Status / Connect button */}
           {gstnConnected ? (
@@ -333,18 +397,18 @@ export default function Gstr2aDeltaPage() {
             </button>
           )}
 
-          {/* Upload 2A JSON option */}
-          {uploadedFileName ? (
+          {/* Upload 2A JSON */}
+          {uploaded2aFileName ? (
             <div className="flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-900 shadow-sm">
               <Upload className="h-3.5 w-3.5 text-blue-600" />
-              <span className="max-w-[140px] truncate font-semibold" title={uploadedFileName}>
-                {uploadedFileName}
+              <span className="max-w-[130px] truncate font-semibold" title={uploaded2aFileName}>
+                2A: {uploaded2aFileName}
               </span>
               <button
                 type="button"
-                onClick={handleClearFile}
+                onClick={handleClear2A}
                 className="ml-0.5 rounded-full p-0.5 text-blue-500 hover:bg-blue-200 hover:text-blue-800 transition-colors"
-                title="Remove file"
+                title="Remove GSTR-2A file"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -356,7 +420,44 @@ export default function Gstr2aDeltaPage() {
               <input
                 type="file"
                 accept=".json,application/json"
-                onChange={handleFileUpload}
+                onChange={handleFileUpload2A}
+                className="hidden"
+              />
+            </label>
+          )}
+
+          {/* GSTR-2B Source / Upload */}
+          {uploaded2bFileName ? (
+            <div className="flex items-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-medium text-purple-900 shadow-sm">
+              <Upload className="h-3.5 w-3.5 text-purple-600" />
+              <span className="max-w-[130px] truncate font-semibold" title={uploaded2bFileName}>
+                2B: {uploaded2bFileName}
+              </span>
+              <button
+                type="button"
+                onClick={handleClear2B}
+                className="ml-0.5 rounded-full p-0.5 text-purple-500 hover:bg-purple-200 hover:text-purple-800 transition-colors"
+                title="Remove GSTR-2B file"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : sourcesData?.has_2b_in_db ? (
+            <div
+              className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 shadow-sm"
+              title="ReconDesk automatically loaded GSTR-2B records from your existing reconciliation for this period"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+              <span>2B in DB ({sourcesData.records_2b_count} inv)</span>
+            </div>
+          ) : (
+            <label className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50">
+              <Upload className="h-3.5 w-3.5 text-gray-500" />
+              <span>Upload 2B JSON</span>
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleFileUpload2B}
                 className="hidden"
               />
             </label>
@@ -403,7 +504,7 @@ export default function Gstr2aDeltaPage() {
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white p-12 text-center shadow-sm">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--ink)]" />
           <p className="mt-3 text-sm font-medium text-gray-700">
-            {uploadedJson
+            {uploaded2aJson
               ? "Parsing uploaded GSTR-2A JSON and running delta analysis..."
               : "Fetching GSTR-2A from GST portal and running delta analysis..."}
           </p>
@@ -422,69 +523,37 @@ export default function Gstr2aDeltaPage() {
           <h3 className="mt-4 text-base font-bold text-gray-900">
             GSTR-2A vs GSTR-2B Delta Analysis
           </h3>
-          <p className="mx-auto mt-1 max-w-lg text-sm text-gray-500">
+          <p className="mx-auto mt-1 max-w-xl text-sm text-gray-500">
             Identify invoices present in GSTR-2A but missing or deferred in GSTR-2B.
             Detect invoices filed by suppliers after the 13th cutoff so you know exactly which
-            ITC can be claimed next month.
+            ITC can be claimed this month vs next month.
           </p>
 
-          {/* Action options */}
-          <div className="mx-auto mt-6 grid max-w-xl grid-cols-1 gap-4 sm:grid-cols-2 text-left">
-            {/* Option 1: Live GST Portal */}
-            <div className="flex flex-col justify-between rounded-xl border border-gray-200 bg-gray-50/50 p-4">
+          {/* 3 Step Source Architecture */}
+          <div className="mx-auto mt-6 grid max-w-3xl grid-cols-1 gap-4 sm:grid-cols-3 text-left">
+            {/* Step 1: 2A Source */}
+            <div className="flex flex-col justify-between rounded-xl border border-gray-200 bg-gray-50/60 p-4">
               <div>
                 <div className="flex items-center gap-2">
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--ink)] text-[10px] font-bold text-white">
                     1
                   </span>
                   <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                    Live GSTN Fetch
+                    GSTR-2A Source
                   </span>
                 </div>
                 <p className="mt-2 text-xs text-gray-500">
-                  Directly fetch real-time GSTR-2A filings from the GST Portal via GSP API.
+                  Real-time reflections of what suppliers have filed in GSTR-1.
                 </p>
               </div>
-              <div className="mt-4">
-                {gstnConnected ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Portal Connected
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConnectGstnOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 transition-colors"
-                  >
-                    Connect with OTP →
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Option 2: Upload JSON */}
-            <div className="flex flex-col justify-between rounded-xl border border-gray-200 bg-gray-50/50 p-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gray-400 text-[10px] font-bold text-white">
-                    2
-                  </span>
-                  <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                    Upload 2A JSON
-                  </span>
-                </div>
-                <p className="mt-2 text-xs text-gray-500">
-                  Exported GSTR-2A JSON from the GST Portal or GST Offline Tool.
-                </p>
-              </div>
-              <div className="mt-4">
-                {uploadedFileName ? (
+              <div className="mt-4 space-y-2">
+                {uploaded2aFileName ? (
                   <div className="flex items-center gap-1 text-xs font-semibold text-blue-700">
                     <CheckCircle2 className="h-3.5 w-3.5" />
-                    <span className="truncate max-w-[130px]">{uploadedFileName}</span>
+                    <span className="truncate max-w-[150px]">2A: {uploaded2aFileName}</span>
                     <button
                       type="button"
-                      onClick={handleClearFile}
+                      onClick={handleClear2A}
                       className="ml-1 text-gray-400 hover:text-gray-600"
                     >
                       <X className="h-3 w-3" />
@@ -493,15 +562,113 @@ export default function Gstr2aDeltaPage() {
                 ) : (
                   <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100 shadow-sm transition-colors">
                     <Upload className="h-3.5 w-3.5 text-gray-500" />
-                    <span>Select JSON File</span>
+                    <span>Upload 2A JSON</span>
                     <input
                       type="file"
                       accept=".json,application/json"
-                      onChange={handleFileUpload}
+                      onChange={handleFileUpload2A}
                       className="hidden"
                     />
                   </label>
                 )}
+                {gstnConnected ? (
+                  <div className="text-[11px] font-medium text-emerald-700">
+                    ✓ Portal connected (live fetch ready)
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConnectGstnOpen(true)}
+                    className="block text-[11px] font-semibold text-amber-800 underline hover:text-amber-900"
+                  >
+                    Or connect GST Portal (OTP) →
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Step 2: 2B Source */}
+            <div className="flex flex-col justify-between rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--ink)] text-[10px] font-bold text-white">
+                    2
+                  </span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                    GSTR-2B Source
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  Locked snapshot generated on the 14th containing invoices filed by the 13th.
+                </p>
+              </div>
+              <div className="mt-4 space-y-2">
+                {uploaded2bFileName ? (
+                  <div className="flex items-center gap-1 text-xs font-semibold text-purple-700">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <span className="truncate max-w-[150px]">2B: {uploaded2bFileName}</span>
+                    <button
+                      type="button"
+                      onClick={handleClear2B}
+                      className="ml-1 text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : sourcesData?.has_2b_in_db ? (
+                  <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+                    ✓ {sourcesData.records_2b_count} records in ReconDesk DB
+                  </div>
+                ) : (
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100 shadow-sm transition-colors">
+                    <Upload className="h-3.5 w-3.5 text-gray-500" />
+                    <span>Upload 2B JSON</span>
+                    <input
+                      type="file"
+                      accept=".json,application/json"
+                      onChange={handleFileUpload2B}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+                <div className="text-[11px] text-gray-500">
+                  {sourcesData?.has_2b_in_db
+                    ? "Auto-loaded from previous recon"
+                    : gstnConnected
+                    ? "Auto-fetched live via GSTN"
+                    : "Upload file or connect portal"}
+                </div>
+              </div>
+            </div>
+
+            {/* Step 3: Delta Analysis */}
+            <div className="flex flex-col justify-between rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--ink)] text-[10px] font-bold text-white">
+                    3
+                  </span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                    Cutoff Engine
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  Compares filing timestamps against the 13th cutoff date.
+                </p>
+              </div>
+              <div className="mt-4 space-y-1 text-xs text-gray-600">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  <span>Late Filed → Next month</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-rose-500" />
+                  <span>Missing from 2B → Action</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  <span>Matched clean</span>
+                </div>
               </div>
             </div>
           </div>

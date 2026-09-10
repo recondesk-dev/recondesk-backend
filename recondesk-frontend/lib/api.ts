@@ -2994,7 +2994,8 @@ export const gstr2aDeltaApi = {
     clientGstinId: string,
     period: string,
     cutoffDate?: string,
-    gstr2aRaw?: Record<string, any>
+    gstr2aRaw?: Record<string, any>,
+    gstr2bRaw?: Record<string, any>
   ) =>
     apiFetch<Gstr2aDeltaResponse>("/api/gstr2a-delta/run", {
       method: "POST",
@@ -3003,6 +3004,7 @@ export const gstr2aDeltaApi = {
         period,
         ...(cutoffDate ? { cutoff_date: cutoffDate } : {}),
         ...(gstr2aRaw ? { gstr2a_raw: gstr2aRaw } : {}),
+        ...(gstr2bRaw ? { gstr2b_raw: gstr2bRaw } : {}),
       }),
       token,
     }),
@@ -3028,6 +3030,17 @@ export const gstr2aDeltaApi = {
   getSummary: (token: string, clientGstinId: string, period: string) =>
     apiFetch<Gstr2aDeltaSummaryResponse>(
       `/api/gstr2a-delta/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/summary`,
+      { token }
+    ),
+
+  getSources: (token: string, clientGstinId: string, period: string) =>
+    apiFetch<{
+      client_gstin_id: string;
+      period: string;
+      has_2b_in_db: boolean;
+      records_2b_count: number;
+    }>(
+      `/api/gstr2a-delta/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/sources`,
       { token }
     ),
 };

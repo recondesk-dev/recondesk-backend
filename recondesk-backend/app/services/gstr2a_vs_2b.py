@@ -90,13 +90,20 @@ def _parse_date(val: Any) -> date | None:
 
 def _extract_amount_paise(rec: Mapping[str, Any], *keys: str) -> int:
     """Extract integer paise amount from record dict."""
+    # Check if record has nested items list (e.g. from parse_gstr2b)
+    if "items" in rec and isinstance(rec["items"], list) and len(rec["items"]) > 0:
+        if any(k in ("taxable_amount_paise", "taxable_value_paise", "taxable_value") for k in keys):
+            item_taxable = sum(int(it.get("taxable_value_paise") or 0) for it in rec["items"] if isinstance(it, dict))
+            if item_taxable != 0:
+                return item_taxable
+
     for k in keys:
         if k in rec and rec[k] is not None:
             v = rec[k]
             try:
                 if isinstance(v, (int, float)):
                     # If field name already ends with _paise, assume it is in paise
-                    if k.endswith("_paise") or k in ("taxable_value", "total_tax", "igst", "cgst", "sgst", "cess"):
+                    if k.endswith("_paise") or k in ("total_tax_paise", "taxable_amount_paise", "taxable_value_paise"):
                         return int(v)
                     return int(round(float(v) * 100))
                 s = str(v).strip()
@@ -111,6 +118,18 @@ def _extract_amount_paise(rec: Mapping[str, Any], *keys: str) -> int:
 
 def _extract_total_tax(rec: Mapping[str, Any]) -> int:
     """Extract total tax in paise from record."""
+    if "items" in rec and isinstance(rec["items"], list) and len(rec["items"]) > 0:
+        tax_sum = sum(
+            int(it.get("igst_paise") or 0)
+            + int(it.get("cgst_paise") or 0)
+            + int(it.get("sgst_paise") or 0)
+            + int(it.get("cess_paise") or 0)
+            for it in rec["items"]
+            if isinstance(it, dict)
+        )
+        if tax_sum != 0:
+            return tax_sum
+
     tot = _extract_amount_paise(rec, "total_tax", "total_tax_paise")
     if tot != 0:
         return tot
@@ -232,7 +251,7 @@ def reconcile_2a_vs_2b(
             or rd_2a.get("supfildt")
             or rd_2a.get("fldt")
         )
-        taxable_2a = _extract_amount_paise(rd_2a, "taxable_value", "taxable_amount_paise", "taxable_value_paise")
+        taxable_2a = _extract_amount_paise(rd_2a, "taxable_amount_paise", "taxable_value_paise", "taxable_value")
         tax_2a = _extract_total_tax(rd_2a)
 
         key = (gstin_2a, inv_norm_2a)

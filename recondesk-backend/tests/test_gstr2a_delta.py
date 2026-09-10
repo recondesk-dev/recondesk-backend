@@ -530,3 +530,101 @@ def test_router_auto_fetch_calls_ensure_fresh_gstn_token():
         mock_ensure_token.assert_called_once_with(mock_sb, mock_client_row)
 
 
+def test_router_with_gstr2b_raw():
+    """Verify router parses both gstr2a_raw and gstr2b_raw when provided."""
+    from unittest.mock import MagicMock, patch
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.auth import get_current_active_user
+
+    app.dependency_overrides[get_current_active_user] = lambda: {"id": "user-test", "role": "admin"}
+    test_client = TestClient(app)
+
+    with patch("app.routers.gstr2a_delta._assert_client_access"), \
+         patch("app.routers.gstr2a_delta.get_supabase") as mock_get_sb:
+        mock_sb = MagicMock()
+        mock_get_sb.return_value = mock_sb
+        mock_sb.table.return_value.upsert.return_value.execute.return_value = MagicMock(data=[])
+
+        payload = {
+            "client_gstin_id": "00000000-0000-0000-0000-000000000001",
+            "period": "2026-06",
+            "gstr2a_raw": {
+                "b2b": [
+                    {
+                        "ctin": "27AABCU9603R1ZM",
+                        "inv": [
+                            {
+                                "inum": "INV-001",
+                                "idt": "10-06-2026",
+                                "val": 11800.0,
+                                "itms": [{"num": 1, "itm_det": {"txval": 10000.0, "iamt": 1800.0}}],
+                            }
+                        ],
+                    }
+                ]
+            },
+            "gstr2b_raw": {
+                "data": {
+                    "gstin": "27AABCU9603R1ZM",
+                    "rtnprd": "062026",
+                    "b2b": [
+                        {
+                            "ctin": "27AABCU9603R1ZM",
+                            "inv": [
+                                {
+                                    "inum": "INV-001",
+                                    "dt": "10-06-2026",
+                                    "val": 11800.0,
+                                    "pos": "27",
+                                    "rev": "N",
+                                    "itcavl": "Y",
+                                    "itms": [
+                                        {
+                                            "num": 1,
+                                            "itm_det": {
+                                                "rt": 18.0,
+                                                "txval": 10000.0,
+                                                "igst": 1800.0,
+                                                "cgst": 0.0,
+                                                "sgst": 0.0,
+                                                "cess": 0.0,
+                                            },
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+
+        resp = test_client.post("/api/gstr2a-delta/run", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["summary"]["in_both"] == 1
+
+
+def test_router_sources_endpoint():
+    """Verify GET /api/gstr2a-delta/{client_id}/{period}/sources reports 2B DB availability."""
+    from unittest.mock import MagicMock, patch
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.auth import get_current_active_user
+
+    app.dependency_overrides[get_current_active_user] = lambda: {"id": "user-test", "role": "admin"}
+    test_client = TestClient(app)
+
+    with patch("app.routers.gstr2a_delta._assert_client_access"), \
+         patch("app.routers.gstr2a_delta._fetch_2b_records_from_db") as mock_fetch_2b:
+        mock_fetch_2b.return_value = [{"supplier_gstin": "27AABCU9603R1ZM", "invoice_number": "INV-1"}]
+
+        resp = test_client.get("/api/gstr2a-delta/00000000-0000-0000-0000-000000000001/2026-06/sources")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["has_2b_in_db"] is True
+        assert data["records_2b_count"] == 1
+
+
+
