@@ -450,3 +450,31 @@ class TestSampleDataIntegration:
         # Should find our injected duplicate
         dup_invs = [d.details["invoice_number"] for d in dup_results]
         assert dup_inv in dup_invs
+
+    def test_duplicate_source_label_display(self):
+        """Confirm that duplicate messages distinguish between Sales Register and GSTR-1."""
+        sr_recs = [
+            _sr(inv="INV/001", inv_date="2026-05-01"),
+            _sr(inv="INV/001", inv_date="2026-05-02"),
+        ]
+        g1_recs = [
+            _sr(inv="G1INV/999", inv_date="2026-05-01"),
+            _sr(inv="G1INV/999", inv_date="2026-05-02"),
+        ]
+        results = check_invoice_series_continuity(sr_recs, g1_recs)
+        dup_results = {
+            r.details["invoice_number"]: r
+            for r in results
+            if r.details.get("issue_type") == "duplicate"
+        }
+        assert "INV/001" in dup_results
+        assert "G1INV/999" in dup_results
+
+        sr_dup = dup_results["INV/001"]
+        assert "in the Sales Register" in sr_dup.decision_what
+        assert sr_dup.details.get("source") == "sales_register"
+
+        g1_dup = dup_results["G1INV/999"]
+        assert "in GSTR-1" in g1_dup.decision_what
+        assert "in GSTR-1" in g1_dup.decision_next
+        assert g1_dup.details.get("source") == "gstr1"

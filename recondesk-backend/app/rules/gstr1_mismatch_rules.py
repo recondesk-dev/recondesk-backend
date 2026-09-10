@@ -1653,18 +1653,43 @@ def _classify_duplicate_invoice(
     invoice_number: str,
     occurrence_count: int,
     invoice_dates: list[str],
+    source_label: str = "sales_register",
 ) -> MismatchResult:
     """G1M8 sub-type — duplicate invoice numbers."""
     dates_str = ", ".join(invoice_dates[:5])
     if len(invoice_dates) > 5:
         dates_str += f" … and {len(invoice_dates) - 5} more"
 
+    if source_label in ("sales_register", "sr"):
+        source_display = "the Sales Register"
+        decision_next = (
+            f"Review all {occurrence_count} entries for invoice '{invoice_number}'. "
+            f"If duplicates are data-entry errors, remove the extras. If they "
+            f"are genuine separate transactions, assign unique invoice numbers "
+            f"before filing GSTR-1."
+        )
+    elif source_label in ("gstr1", "gstr-1"):
+        source_display = "GSTR-1"
+        decision_next = (
+            f"Review all {occurrence_count} entries for invoice '{invoice_number}' in GSTR-1. "
+            f"If duplicates are filing errors, remove or amend the extra entries. If they "
+            f"are genuine separate transactions, ensure unique invoice numbers "
+            f"are assigned under Rule 46."
+        )
+    else:
+        source_display = source_label
+        decision_next = (
+            f"Review all {occurrence_count} entries for invoice '{invoice_number}'. "
+            f"If duplicates are errors, remove the extras. If they are genuine "
+            f"separate transactions, assign unique invoice numbers."
+        )
+
     return MismatchResult(
         mismatch_type=MismatchType.INVOICE_SERIES_ISSUE,
         severity=MismatchSeverity.HIGH,
         decision_what=(
             f"Invoice number '{invoice_number}' appears {occurrence_count} "
-            f"times in the Sales Register"
+            f"times in {source_display}"
         ),
         decision_why=(
             f"Duplicate invoice numbers violate Rule 46 of CGST Rules which "
@@ -1672,12 +1697,7 @@ def _classify_duplicate_invoice(
             f"data entry, double billing, or a numbering system error. "
             f"Occurrences found on dates: {dates_str}."
         ),
-        decision_next=(
-            f"Review all {occurrence_count} entries for invoice '{invoice_number}'. "
-            f"If duplicates are data-entry errors, remove the extras. If they "
-            f"are genuine separate transactions, assign unique invoice numbers "
-            f"before filing GSTR-1."
-        ),
+        decision_next=decision_next,
         rule_id="G1M_008",
         gst_ref="Rule 46 CGST Rules",
         details={
@@ -1685,6 +1705,7 @@ def _classify_duplicate_invoice(
             "invoice_number": invoice_number,
             "occurrence_count": occurrence_count,
             "invoice_dates": invoice_dates,
+            "source": source_label,
             "matched_fields": [],
             "differed_fields": ["invoice_number"],
         },
@@ -1776,6 +1797,7 @@ def _analyse_series_gaps_and_duplicates(
                     invoice_number=inv_num,
                     occurrence_count=len(dates),
                     invoice_dates=dates,
+                    source_label=source_label,
                 )
             )
 
