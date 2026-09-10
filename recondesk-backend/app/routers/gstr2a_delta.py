@@ -73,61 +73,180 @@ def _split_period_year_month(period: str) -> tuple[str, str]:
     return f"{today.year:04d}", f"{today.month:02d}"
 
 
-def _fetch_2b_records_from_db(sb, client_gstin_id: str, period: str) -> list[dict[str, Any]]:
-    """Query 2B records from gstr_records table for client and period."""
-    records_2b: list[dict[str, Any]] = []
+def _resolve_latest_2b_run(
+    sb,
+    client_gstin_id: str,
+    period: str,
+    expected_gstin: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Locate the latest valid, non-deleted GSTR-2B reconciliation run for a client and period.
 
-    # Format variations (e.g. 2026-06 and 062026)
+    Returns dict containing run metadata + provenance, or None if no valid run exists.
+    """
     year, month = _split_period_year_month(period)
     p_iso = f"{year}-{month}"
     p_mmyyyy = f"{month}{year}"
-    periods_to_check = list({period, p_iso, p_mmyyyy})
+    periods_to_check = list({period, p_iso, p_mmyyyy, f"{p_iso}-01"})
 
-    # 1. Direct query by client_gstin_id and period
     try:
-        res = (
-            sb.table("gstr_records")
-            .select("id, record_data")
-            .eq("client_gstin_id", client_gstin_id)
-            .in_("period", periods_to_check)
-            .limit(5000)
-            .execute()
-        )
-        if res.data:
-            for r in res.data:
-                records_2b.append(gstr_db_row_to_matcher_row(r))
-            return records_2b
-    except Exception as exc:
-        logger.debug("Direct gstr_records query by client_gstin_id failed: %s", exc)
-
-    # 2. Lookup via latest reconciliation_run
-    try:
+        # 1. Query reconciliation_run for completed / active runs with GSTR records
         run_res = (
             sb.table("reconciliation_run")
-            .select("id")
+            .select("id, client_gstin_id, period, status, gstr_records_imported, created_at, updated_at")
             .eq("client_gstin_id", client_gstin_id)
             .in_("period", periods_to_check)
+            .gt("gstr_records_imported", 0)
+            .not_.in_("status", ["failed", "FAILED", "cancelled", "CANCELLED"])
             .order("created_at", desc=True)
-            .limit(1)
+            .limit(10)
             .execute()
         )
-        if run_res.data:
-            run_id = run_res.data[0]["id"]
-            rec_res = (
+        candidates = run_res.data or []
+        if not candidates:
+            return None
+
+        candidate_ids = [str(c["id"]) for c in candidates]
+
+        # 2. Check reconciliation_import_runs for soft-delete or richer file metadata
+        import_map: dict[str, dict[str, Any]] = {}
+        try:
+            imp_res = (
+                sb.table("reconciliation_import_runs")
+                .select("id, gstr2b_file_name, gstr2b_file_size, gstr2b_uploaded_at, gstr2b_deleted_at, gstr2b_record_count")
+                .in_("id", candidate_ids)
+                .execute()
+            )
+            for row in (imp_res.data or []):
+                import_map[str(row["id"])] = row
+        except Exception as exc:
+            logger.debug("reconciliation_import_runs lookup failed: %s", exc)
+
+        # 3. Pick latest run that was not soft-deleted
+        for run in candidates:
+            rid = str(run["id"])
+            imp = import_map.get(rid)
+            if imp and imp.get("gstr2b_deleted_at"):
+                # GSTR-2B file was deleted in Manage Data
+                continue
+
+            file_name = imp.get("gstr2b_file_name") if imp else None
+            source_type = "reconciliation_import"
+            if file_name:
+                fn_lower = file_name.lower().strip()
+                if fn_lower.endswith(".json"):
+                    source_type = "portal_json"
+                elif fn_lower.endswith((".xlsx", ".xls")):
+                    source_type = "excel_recon"
+
+            imported_count = (
+                imp.get("gstr2b_record_count")
+                if imp and imp.get("gstr2b_record_count") is not None
+                else run.get("gstr_records_imported") or 0
+            )
+
+            uploaded_at = (
+                imp.get("gstr2b_uploaded_at")
+                if imp and imp.get("gstr2b_uploaded_at")
+                else run.get("created_at")
+            )
+
+            return {
+                "run_id": rid,
+                "client_gstin_id": client_gstin_id,
+                "period": run.get("period"),
+                "status": run.get("status"),
+                "source_type": source_type,
+                "file_name": file_name,
+                "file_size": imp.get("gstr2b_file_size") if imp else None,
+                "uploaded_at": uploaded_at,
+                "record_count": int(imported_count or 0),
+            }
+
+        return None
+    except Exception as exc:
+        logger.warning("_resolve_latest_2b_run failed for client %s period %s: %s", client_gstin_id, period, exc)
+        return None
+
+
+def _fetch_2b_records_for_run(
+    sb,
+    run_id: str,
+    expected_gstin: Optional[str] = None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Paginate and fetch all GSTR-2B records strictly for a single reconciliation run_id.
+
+    Bypasses the Supabase PostgREST default 1,000-row limit using chunked range queries.
+    Preserves document types and validates buyer_gstin if provided.
+    Returns (records_2b, doc_type_counts).
+    """
+    records_2b: list[dict[str, Any]] = []
+    doc_type_counts: dict[str, int] = {}
+    page_size = 1000
+    offset = 0
+
+    exp_gstin_clean = expected_gstin.strip().upper() if expected_gstin else None
+
+    while True:
+        try:
+            res = (
                 sb.table("gstr_records")
                 .select("id, record_data")
                 .eq("run_id", run_id)
-                .limit(5000)
+                .order("id")
+                .range(offset, offset + page_size - 1)
                 .execute()
             )
-            if rec_res.data:
-                for r in rec_res.data:
-                    records_2b.append(gstr_db_row_to_matcher_row(r))
-                return records_2b
-    except Exception as exc:
-        logger.debug("reconciliation_run lookup for gstr_records failed: %s", exc)
+            rows = res.data or []
+            if not rows:
+                break
 
-    return records_2b
+            for r in rows:
+                rd = r.get("record_data")
+                if not isinstance(rd, dict):
+                    continue
+
+                # Buyer GSTIN validation (if present and expected_gstin provided)
+                buyer = str(rd.get("buyer_gstin") or "").strip().upper()
+                if buyer and exp_gstin_clean and buyer != exp_gstin_clean:
+                    logger.debug(
+                        "Skipping record %s: buyer_gstin %s does not match client GSTIN %s",
+                        r.get("id"), buyer, exp_gstin_clean
+                    )
+                    continue
+
+                # Document type tracking
+                raw_dt = str(
+                    rd.get("doc_type")
+                    or rd.get("document_type")
+                    or ("CREDIT_NOTE" if rd.get("section") == "cdnr" else "INVOICE")
+                ).strip().upper()
+                doc_type_counts[raw_dt] = doc_type_counts.get(raw_dt, 0) + 1
+
+                matcher_row = gstr_db_row_to_matcher_row(r)
+                records_2b.append(matcher_row)
+
+            offset += len(rows)
+            if len(rows) < page_size:
+                break
+        except Exception as exc:
+            logger.warning("_fetch_2b_records_for_run failed at offset %d: %s", offset, exc)
+            break
+
+    return records_2b, doc_type_counts
+
+
+def _fetch_2b_records_from_db(
+    sb,
+    client_gstin_id: str,
+    period: str,
+    expected_gstin: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """Query 2B records strictly from the latest valid reconciliation run for client and period."""
+    run_meta = _resolve_latest_2b_run(sb, client_gstin_id, period, expected_gstin)
+    if not run_meta:
+        return []
+    records, _ = _fetch_2b_records_for_run(sb, run_meta["run_id"], expected_gstin)
+    return records
 
 
 @router.post("/run")
@@ -153,6 +272,12 @@ async def run_gstr2a_delta(
     gstin_val: Optional[str] = None
     year_val: Optional[str] = None
     month_val: Optional[str] = None
+
+    try:
+        client_row_init = load_client_gstin(sb, body.client_gstin_id)
+        gstin_val = client_row_init.get("gstin")
+    except Exception:
+        pass
 
     if body.gstr2a_raw:
         try:
@@ -213,7 +338,7 @@ async def run_gstr2a_delta(
         records_2b = body.gstr2b_records
     else:
         # First check DB (existing reconciliation or gstr_records)
-        records_2b = _fetch_2b_records_from_db(sb, body.client_gstin_id, body.period)
+        records_2b = _fetch_2b_records_from_db(sb, body.client_gstin_id, body.period, gstin_val)
         # If no 2B records in DB and live GSTN session is active, attempt live auto-fetch
         if not records_2b and live_gstn_token and gstin_val and year_val and month_val:
             try:
@@ -397,11 +522,36 @@ async def get_gstr2a_delta_sources(
     sb = get_supabase()
     _assert_client_access(sb, current_user, client_gstin_id)
 
-    records_2b = _fetch_2b_records_from_db(sb, client_gstin_id, period)
+    client_row = None
+    try:
+        client_row = load_client_gstin(sb, client_gstin_id)
+    except Exception:
+        pass
+    expected_gstin = client_row.get("gstin") if client_row else None
+
+    run_meta = _resolve_latest_2b_run(sb, client_gstin_id, period, expected_gstin)
+    records_2b = _fetch_2b_records_from_db(sb, client_gstin_id, period, expected_gstin)
+
+    doc_type_counts: dict[str, int] = {}
+    for r in records_2b:
+        rd = r.get("record_data") if isinstance(r.get("record_data"), dict) else r
+        dt = str(
+            rd.get("doc_type")
+            or rd.get("document_type")
+            or r.get("doc_type")
+            or ("CREDIT_NOTE" if rd.get("section") == "cdnr" else "INVOICE")
+        ).strip().upper()
+        doc_type_counts[dt] = doc_type_counts.get(dt, 0) + 1
+
     return {
         "client_gstin_id": client_gstin_id,
         "period": period,
         "has_2b_in_db": len(records_2b) > 0,
         "records_2b_count": len(records_2b),
+        "source_type": run_meta.get("source_type") if run_meta else None,
+        "run_id": run_meta.get("run_id") if run_meta else None,
+        "file_name": run_meta.get("file_name") if run_meta else None,
+        "uploaded_at": run_meta.get("uploaded_at") if run_meta else None,
+        "doc_type_counts": doc_type_counts,
     }
 

@@ -219,6 +219,14 @@ def reconcile_2a_vs_2b(
         if not gstin or not inv_norm:
             continue
         rd = r.get("record_data") if isinstance(r.get("record_data"), dict) else r
+        doc_type_2b = str(
+            rd.get("doc_type")
+            or rd.get("document_type")
+            or ("CREDIT_NOTE" if rd.get("section") == "cdnr" else "INVOICE")
+        ).strip().upper()
+        section_2b = str(rd.get("section") or "b2b").strip().lower()
+        is_amendment_2b = bool(rd.get("is_amendment", False))
+
         key = (gstin, inv_norm)
         if key not in gstr2b_index:
             gstr2b_index[key] = []
@@ -231,6 +239,9 @@ def reconcile_2a_vs_2b(
             "invoice_date": _parse_date(rd.get("invoice_date") or rd.get("idt")),
             "taxable_value": _extract_amount_paise(rd, "taxable_amount_paise", "taxable_value_paise", "taxable_value"),
             "total_tax": _extract_total_tax(rd),
+            "doc_type": doc_type_2b,
+            "section": section_2b,
+            "is_amendment": is_amendment_2b,
         })
 
     results: list[dict[str, Any]] = []
@@ -243,6 +254,14 @@ def reconcile_2a_vs_2b(
     for r2a in gstr2a_records:
         gstin_2a, inv_raw_2a, inv_norm_2a = _extract_record_identifiers(r2a)
         rd_2a = r2a.get("record_data") if isinstance(r2a.get("record_data"), dict) else r2a
+
+        doc_type_2a = str(
+            rd_2a.get("doc_type")
+            or rd_2a.get("document_type")
+            or ("CREDIT_NOTE" if rd_2a.get("section") == "cdnr" else "INVOICE")
+        ).strip().upper()
+        section_2a = str(rd_2a.get("section") or "b2b").strip().lower()
+        is_amendment_2a = bool(rd_2a.get("is_amendment", False))
 
         inv_date_2a = _parse_date(rd_2a.get("invoice_date") or rd_2a.get("idt"))
         filing_date = _parse_date(
@@ -264,6 +283,10 @@ def reconcile_2a_vs_2b(
             taxable_2b = cand_2b["taxable_value"]
             tax_2b = cand_2b["total_tax"]
             raw_2b_rec = cand_2b["record"]
+
+            effective_doc_type = cand_2b.get("doc_type") or doc_type_2a
+            effective_section = cand_2b.get("section") or section_2a
+            effective_amendment = cand_2b.get("is_amendment") or is_amendment_2a
 
             val_2a_rupees = round(taxable_2a / 100.0, 2)
             val_2b_rupees = round(taxable_2b / 100.0, 2)
@@ -288,6 +311,9 @@ def reconcile_2a_vs_2b(
                     "tax_value_2b": tax_2b_rupees,
                     "itc_at_risk_paise": 0,
                     "next_month_2b": None,
+                    "doc_type": effective_doc_type,
+                    "section": effective_section,
+                    "is_amendment": effective_amendment,
                     "decision_what": "Invoice present in both 2A and 2B. ITC eligible this month.",
                     "decision_why": f"Supplier filed on time ({f_date_str}) and invoice reflected in locked 2B.",
                     "decision_next": "Claim ITC in GSTR-3B for this period.",
@@ -313,6 +339,9 @@ def reconcile_2a_vs_2b(
                     "tax_value_2b": tax_2b_rupees,
                     "itc_at_risk_paise": at_risk,
                     "next_month_2b": None,
+                    "doc_type": effective_doc_type,
+                    "section": effective_section,
+                    "is_amendment": effective_amendment,
                     "decision_what": f"Taxable value mismatch: 2A has ₹{val_2a_rupees:,.2f} vs 2B has ₹{val_2b_rupees:,.2f}.",
                     "decision_why": "Supplier likely amended invoice value in a subsequent return or amendment table.",
                     "decision_next": "Claim ITC based on 2B value. Reconcile difference with supplier.",
@@ -343,6 +372,9 @@ def reconcile_2a_vs_2b(
                     "tax_value_2b": None,
                     "itc_at_risk_paise": tax_2a,
                     "next_month_2b": next_month_2b_str,
+                    "doc_type": doc_type_2a,
+                    "section": section_2a,
+                    "is_amendment": is_amendment_2a,
                     "decision_what": f"Supplier filed GSTR-1 on {f_date_str} — {days_late} days after cutoff ({c_date_str}). ITC deferred to {next_month_2b_str}.",
                     "decision_why": "GSTR-2B was locked on the 14th with invoices filed up to the 13th. Invoices filed after the 13th are excluded from this month's 2B.",
                     "decision_next": f"Do NOT claim ITC this month — Rule 88D will flag mismatch. Claim in {next_month_2b_str} GSTR-3B once 2B updates.",
@@ -350,7 +382,7 @@ def reconcile_2a_vs_2b(
                     "raw_2b_record": None,
                 })
             else:
-                f_date_str = filing_date.isoformat() if filing_date else "on time"
+                f_desc = f"on {filing_date.isoformat()}" if filing_date else "on time"
                 results.append({
                     "category": FILED_NOT_REFLECTED,
                     "supplier_gstin": gstin_2a,
@@ -365,8 +397,11 @@ def reconcile_2a_vs_2b(
                     "tax_value_2b": None,
                     "itc_at_risk_paise": tax_2a,
                     "next_month_2b": None,
-                    "decision_what": f"Supplier filed on {f_date_str} (before cutoff) but invoice missing from 2B.",
-                    "decision_why": "Possible GST portal processing delay or technical glitch during 2B generation. Portal lag or amendment required.",
+                    "doc_type": doc_type_2a,
+                    "section": section_2a,
+                    "is_amendment": is_amendment_2a,
+                    "decision_what": f"Invoice filed {f_desc} (within cutoff {c_date_str}) but missing from GSTR-2B.",
+                    "decision_why": "Possible GST portal processing delay, supplier cancelled invoice before 2B generation, or technical lag.",
                     "decision_next": "Raise grievance on GST portal or wait for next 2B re-generation. Do not claim until reflected.",
                     "raw_2a_record": dict(r2a),
                     "raw_2b_record": None,
@@ -396,6 +431,9 @@ def reconcile_2a_vs_2b(
                 "tax_value_2b": tax_2b_rupees,
                 "itc_at_risk_paise": tax_2b,
                 "next_month_2b": None,
+                "doc_type": cand.get("doc_type") or "INVOICE",
+                "section": cand.get("section") or "b2b",
+                "is_amendment": cand.get("is_amendment", False),
                 "decision_what": "Invoice present in 2B but absent from 2A.",
                 "decision_why": "Supplier may have amended or cancelled invoice after 2B was generated, or 2A fetch is incomplete.",
                 "decision_next": "Verify invoice status with supplier before claiming ITC.",
@@ -421,6 +459,11 @@ def reconcile_2a_vs_2b(
         if r["category"] in (FILED_NOT_REFLECTED, IN_2B_NOT_2A, VALUE_MISMATCH)
     )
 
+    doc_type_breakdown: dict[str, int] = {}
+    for r in results:
+        dt = r.get("doc_type") or "INVOICE"
+        doc_type_breakdown[dt] = doc_type_breakdown.get(dt, 0) + 1
+
     summary = {
         "total_records": len(results),
         "total_2a": total_2a,
@@ -441,6 +484,7 @@ def reconcile_2a_vs_2b(
         "total_itc_unresolved_paise": total_itc_unresolved,
         "unresolved_itc_paise": total_itc_unresolved,
         "unresolved_itc_rupees": round(total_itc_unresolved / 100.0, 2),
+        "doc_type_breakdown": doc_type_breakdown,
     }
 
     return results, summary

@@ -627,4 +627,218 @@ def test_router_sources_endpoint():
         assert data["records_2b_count"] == 1
 
 
+def test_resolve_latest_2b_run():
+    """Verify _resolve_latest_2b_run picks latest non-deleted run with enriched file metadata."""
+    from unittest.mock import MagicMock
+    from app.routers.gstr2a_delta import _resolve_latest_2b_run
+
+    sb = MagicMock()
+    # Mock reconciliation_run query returning 2 candidate runs
+    runs_query = MagicMock()
+    runs_query.select.return_value = runs_query
+    runs_query.eq.return_value = runs_query
+    runs_query.in_.return_value = runs_query
+    runs_query.gt.return_value = runs_query
+    runs_query.not_.in_.return_value = runs_query
+    runs_query.order.return_value = runs_query
+    runs_query.limit.return_value = runs_query
+    runs_query.execute.return_value.data = [
+        {
+            "id": "run-latest-deleted",
+            "client_gstin_id": "client-1",
+            "period": "2026-07",
+            "status": "COMPLETED",
+            "gstr_records_imported": 500,
+            "created_at": "2026-09-01T10:00:00Z",
+        },
+        {
+            "id": "run-older-active",
+            "client_gstin_id": "client-1",
+            "period": "2026-07",
+            "status": "COMPLETED",
+            "gstr_records_imported": 972,
+            "created_at": "2026-08-27T10:00:00Z",
+        },
+    ]
+
+    # Mock reconciliation_import_runs query
+    import_query = MagicMock()
+    import_query.select.return_value = import_query
+    import_query.in_.return_value = import_query
+    import_query.execute.return_value.data = [
+        {
+            "id": "run-latest-deleted",
+            "gstr2b_file_name": "GSTR2B_deleted.xlsx",
+            "gstr2b_file_size": 50000,
+            "gstr2b_uploaded_at": "2026-09-01T10:00:00Z",
+            "gstr2b_deleted_at": "2026-09-02T10:00:00Z",
+            "gstr2b_record_count": 500,
+        },
+        {
+            "id": "run-older-active",
+            "gstr2b_file_name": "GSTR2B_1000inv.xlsx",
+            "gstr2b_file_size": 91811,
+            "gstr2b_uploaded_at": "2026-08-27T10:41:51Z",
+            "gstr2b_deleted_at": None,
+            "gstr2b_record_count": 972,
+        },
+    ]
+
+    def table_router(table_name):
+        if table_name == "reconciliation_run":
+            return runs_query
+        if table_name == "reconciliation_import_runs":
+            return import_query
+        return MagicMock()
+
+    sb.table.side_effect = table_router
+
+    resolved = _resolve_latest_2b_run(sb, "client-1", "2026-07")
+    assert resolved is not None
+    # run-latest-deleted should be skipped due to gstr2b_deleted_at
+    assert resolved["run_id"] == "run-older-active"
+    assert resolved["file_name"] == "GSTR2B_1000inv.xlsx"
+    assert resolved["source_type"] == "excel_recon"
+    assert resolved["record_count"] == 972
+
+
+def test_fetch_2b_records_for_run_pagination_and_validation():
+    """Verify _fetch_2b_records_for_run paginates and filters buyer_gstin mismatch."""
+    from unittest.mock import MagicMock
+    from app.routers.gstr2a_delta import _fetch_2b_records_for_run
+
+    sb = MagicMock()
+    gstr_query = MagicMock()
+    gstr_query.select.return_value = gstr_query
+    gstr_query.eq.return_value = gstr_query
+    gstr_query.order.return_value = gstr_query
+
+    # Create page 1 with 1,000 valid invoices and 1 mismatch, and page 2 with 50 credit notes
+    page1 = [
+        {
+            "id": f"rec-{i}",
+            "record_data": {
+                "buyer_gstin": "27ISKPK1273H1ZF",
+                "supplier_gstin": "27AABCU9603R1ZM",
+                "invoice_number": f"INV-{i}",
+                "doc_type": "INVOICE",
+                "taxable_value": 10000,
+                "igst_paise": 180000,
+            },
+        }
+        for i in range(1000)
+    ]
+    # Add one row with wrong buyer GSTIN to page 1
+    page1.append({
+        "id": "rec-mismatch",
+        "record_data": {
+            "buyer_gstin": "06AAAAA0000A1Z5",  # Mismatch
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-MISMATCH",
+            "doc_type": "INVOICE",
+        },
+    })
+
+    page2 = [
+        {
+            "id": f"note-{i}",
+            "record_data": {
+                "buyer_gstin": "27ISKPK1273H1ZF",
+                "supplier_gstin": "27AABCU9603R1ZM",
+                "invoice_number": f"CN-{i}",
+                "doc_type": "CREDIT_NOTE",
+                "section": "cdnr",
+                "taxable_value": 5000,
+                "igst_paise": 90000,
+            },
+        }
+        for i in range(50)
+    ]
+
+    def range_side_effect(start, end):
+        mock_res = MagicMock()
+        if start == 0:
+            mock_res.execute.return_value.data = page1
+        elif start == len(page1):
+            mock_res.execute.return_value.data = page2
+        else:
+            mock_res.execute.return_value.data = []
+        return mock_res
+
+    gstr_query.range.side_effect = range_side_effect
+    sb.table.return_value = gstr_query
+
+    records, doc_types = _fetch_2b_records_for_run(
+        sb, "run-123", expected_gstin="27ISKPK1273H1ZF"
+    )
+
+    # 1,000 invoices + 50 credit notes = 1,050 (mismatch record excluded)
+    assert len(records) == 1050
+    assert doc_types["INVOICE"] == 1000
+    assert doc_types["CREDIT_NOTE"] == 50
+
+
+def test_reconcile_preserves_document_types():
+    """Verify reconcile_2a_vs_2b carries doc_type, section, and is_amendment into results and summary."""
+    from app.services.gstr2a_vs_2b import reconcile_2a_vs_2b
+
+    records_2a = [
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "CN-101",
+            "doc_type": "CREDIT_NOTE",
+            "section": "cdnr",
+            "taxable_value_paise": 500000,
+            "igst_paise": 90000,
+            "filing_date": "2026-07-10",
+        },
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-201",
+            "doc_type": "INVOICE",
+            "section": "b2b",
+            "taxable_value_paise": 1000000,
+            "igst_paise": 180000,
+            "filing_date": "2026-07-10",
+        },
+    ]
+
+    records_2b = [
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "CN-101",
+            "doc_type": "CREDIT_NOTE",
+            "section": "cdnr",
+            "taxable_value_paise": 500000,
+            "igst_paise": 90000,
+        },
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "2B-ONLY-301",
+            "doc_type": "DEBIT_NOTE",
+            "section": "cdnr",
+            "taxable_value_paise": 200000,
+            "igst_paise": 36000,
+        },
+    ]
+
+    results, summary = reconcile_2a_vs_2b(records_2a, records_2b, period="2026-07")
+
+    by_inv = {r["invoice_number"]: r for r in results}
+    assert by_inv["CN-101"]["category"] == "IN_BOTH"
+    assert by_inv["CN-101"]["doc_type"] == "CREDIT_NOTE"
+    assert by_inv["CN-101"]["section"] == "cdnr"
+
+    assert by_inv["INV-201"]["category"] == "FILED_NOT_REFLECTED"
+    assert by_inv["INV-201"]["doc_type"] == "INVOICE"
+
+    assert by_inv["2B-ONLY-301"]["category"] == "IN_2B_NOT_2A"
+    assert by_inv["2B-ONLY-301"]["doc_type"] == "DEBIT_NOTE"
+
+    assert summary["doc_type_breakdown"]["CREDIT_NOTE"] == 1
+    assert summary["doc_type_breakdown"]["INVOICE"] == 1
+    assert summary["doc_type_breakdown"]["DEBIT_NOTE"] == 1
+
+
+
 

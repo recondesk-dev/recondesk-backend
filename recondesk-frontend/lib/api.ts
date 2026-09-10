@@ -3039,6 +3039,11 @@ export const gstr2aDeltaApi = {
       period: string;
       has_2b_in_db: boolean;
       records_2b_count: number;
+      source_type?: string | null;
+      run_id?: string | null;
+      file_name?: string | null;
+      uploaded_at?: string | null;
+      doc_type_counts?: Record<string, number>;
     }>(
       `/api/gstr2a-delta/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/sources`,
       { token }
