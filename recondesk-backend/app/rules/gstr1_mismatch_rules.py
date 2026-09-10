@@ -1133,17 +1133,14 @@ def classify_period_mismatch(
 
 
 def _parse_filing_period(raw: str) -> date | None:
-    """Parse ``"MMYYYY"``, ``"MM-YYYY"``, ``"MM/YYYY"`` to first-of-month date."""
-    raw = raw.strip().replace("-", "").replace("/", "")
-    if len(raw) == 6 and raw.isdigit():
-        try:
-            month = int(raw[:2])
-            year = int(raw[2:])
-            if 1 <= month <= 12:
-                return date(year, month, 1)
-        except ValueError:
-            pass
-    return None
+    """Parse ``"MMYYYY"``, ``"MM-YYYY"``, ``"YYYY-MM"``, ISO date to first-of-month date."""
+    if not raw:
+        return None
+    try:
+        from app.parsers.gstr1_parser import _parse_filing_period as _g1_parse_fp
+        return _g1_parse_fp(raw)
+    except ValueError:
+        return None
 
 
 # ══════════════════════════════════════════════════════════════════════════════

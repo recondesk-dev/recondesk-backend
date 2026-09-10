@@ -1771,7 +1771,7 @@ def _resolve_filing_period(root: dict, parent: dict) -> None:
     if root.get("fp"):
         return
     for source in (root, parent):
-        for key in ("fp", "ret_period", "rtnprd"):
+        for key in ("fp", "ret_period", "rtnprd", "filing_period", "period"):
             val = source.get(key)
             if val is not None and str(val).strip():
                 root["fp"] = str(val).strip()
@@ -1800,23 +1800,59 @@ def normalize_gstr1_payload(data: dict) -> dict:
         return data
 
     # Flat structure — treat the whole dict as root
+    _resolve_filing_period(data, {})
     return {"data": data}
 
 
-def _parse_filing_period(fp: str) -> datetime.date:
+def _parse_filing_period(fp: str | Any) -> datetime.date:
     """Parse GST filing period string to the first day of that month.
 
-    Supports MMYYYY (``042026`` → 2026-04-01) and YYYYMM (``202604``).
+    Supports:
+    - MMYYYY (``072025`` → 2025-07-01, ``042025`` → 2025-04-01, ``122025`` → 2025-12-01)
+    - YYYYMM (``202507`` → 2025-07-01)
+    - YYYY-MM (``2025-07`` → 2025-07-01)
+    - MM-YYYY / MM/YYYY (``07-2025``, ``07/2025`` → 2025-07-01)
+    - YYYY-MM-DD (``2025-07-01`` → 2025-07-01)
+
+    Raises:
+        ValueError("invalid_filing_period") on invalid format, month < 1 or > 12, or year outside 1900..2100.
     """
+    if fp is None:
+        raise ValueError("invalid_filing_period")
     s = str(fp).strip()
-    if len(s) != 6 or not s.isdigit():
+    if not s:
         raise ValueError("invalid_filing_period")
 
-    a, b = int(s[:2]), int(s[2:])
-    if 1 <= a <= 12:
-        return datetime.date(b, a, 1)
-    if 1 <= b <= 12:
-        return datetime.date(a, b, 1)
+    # 1. ISO format: YYYY-MM or YYYY-MM-DD
+    m_iso = re.match(r"^(\d{4})-(\d{1,2})(?:-\d{1,2})?$", s)
+    if m_iso:
+        y, m = int(m_iso.group(1)), int(m_iso.group(2))
+        if 1 <= m <= 12 and 1900 <= y <= 2100:
+            return datetime.date(y, m, 1)
+        raise ValueError("invalid_filing_period")
+
+    # 2. Separated format: MM-YYYY or MM/YYYY
+    m_sep = re.match(r"^(\d{1,2})[-/](\d{4})$", s)
+    if m_sep:
+        m, y = int(m_sep.group(1)), int(m_sep.group(2))
+        if 1 <= m <= 12 and 1900 <= y <= 2100:
+            return datetime.date(y, m, 1)
+        raise ValueError("invalid_filing_period")
+
+    # 3. 6-digit formats: MMYYYY or YYYYMM
+    if len(s) == 6 and s.isdigit():
+        # Check MMYYYY first (standard Indian GST portal format: 072025, 042025)
+        m1, y1 = int(s[:2]), int(s[2:])
+        if 1 <= m1 <= 12 and 1900 <= y1 <= 2100:
+            return datetime.date(y1, m1, 1)
+
+        # Check YYYYMM (alternate format: 202507)
+        y2, m2 = int(s[:4]), int(s[4:])
+        if 1900 <= y2 <= 2100 and 1 <= m2 <= 12:
+            return datetime.date(y2, m2, 1)
+
+        raise ValueError("invalid_filing_period")
+
     raise ValueError("invalid_filing_period")
 
 
@@ -1840,10 +1876,12 @@ _ALL_KNOWN_SECTIONS = (
 # Public API
 # ---------------------------------------------------------------------------
 
-def parse_gstr1(file_content) -> dict:
+def parse_gstr1(file_content, filing_period: str | None = None) -> dict:
     """Parse GSTR-1 JSON file content into structured records.
 
-    Accepts bytes, str, or a pre-parsed dict.
+    Accepts bytes, str, or a pre-parsed dict. Optionally accepts
+    ``filing_period`` as a fallback or override when period is missing or
+    non-standard in the payload.
 
     Returns::
 
@@ -1898,14 +1936,32 @@ def parse_gstr1(file_content) -> dict:
     if not root.get("gstin"):
         raise ValueError("missing_gstin")
 
-    fp_raw = root.get("fp") or root.get("ret_period") or root.get("rtnprd")
-    if not fp_raw:
+    fp_raw = (
+        root.get("fp")
+        or root.get("ret_period")
+        or root.get("rtnprd")
+        or root.get("filing_period")
+        or root.get("period")
+    )
+    period = None
+    if fp_raw:
+        try:
+            period = _parse_filing_period(str(fp_raw))
+        except ValueError:
+            if filing_period:
+                try:
+                    period = _parse_filing_period(filing_period)
+                except ValueError:
+                    raise ValueError("invalid_filing_period") from None
+            else:
+                raise ValueError("invalid_filing_period") from None
+    elif filing_period:
+        try:
+            period = _parse_filing_period(filing_period)
+        except ValueError:
+            raise ValueError("invalid_filing_period") from None
+    else:
         raise ValueError("missing_filing_period")
-
-    try:
-        period = _parse_filing_period(str(fp_raw))
-    except ValueError:
-        raise ValueError("invalid_filing_period") from None
 
     filing_gstin_raw = root["gstin"]
     try:

@@ -59,7 +59,7 @@ from app.utils.audit import log_audit
 
 # ── Standalone GSTR-1 modules ────────────────────────────────────────────────
 from app.parsers.sales_register_parser import parse_sales_register, ParseError
-from app.parsers.gstr1_parser import parse_gstr1
+from app.parsers.gstr1_parser import parse_gstr1, _parse_filing_period
 from app.parsers.gstr3b_parser import parse_gstr3b
 from app.matching.generic_matcher import match_sales_register_to_gstr1
 from app.services.matcher import normalise_inv_no, _is_credit_note
@@ -542,6 +542,22 @@ async def _run_pipeline(
     """
     t0 = time.perf_counter()
 
+    # ── Step 0: Validate filing period if explicitly supplied ─────────────
+    if gstr1_filing_period and str(gstr1_filing_period).strip():
+        try:
+            fp_dt = _parse_filing_period(str(gstr1_filing_period).strip())
+            gstr1_filing_period = f"{fp_dt.month:02d}{fp_dt.year}"
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "error": "gstr1_parse_failed",
+                    "message": "invalid_filing_period",
+                },
+            )
+    else:
+        gstr1_filing_period = None
+
     # ── Step 1: Parse ─────────────────────────────────────────────────────
     # 1a — Sales Register
     sr_result = parse_sales_register(sr_file_content, sr_filename)
@@ -561,7 +577,7 @@ async def _run_pipeline(
 
     # 1b — GSTR-1
     try:
-        gstr1_result = parse_gstr1(gstr1_file_content)
+        gstr1_result = parse_gstr1(gstr1_file_content, filing_period=gstr1_filing_period)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
