@@ -749,6 +749,12 @@ async def _run_pipeline(
     def _unused(cands: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [c for c in cands if id(c) not in used_gstr1_ids]
 
+    # ── Step 2: Match (current-period originals only) ─────────────────────
+    # Pass 1: Primary candidate keys (exact, normalized, prefix-stripped core key).
+    # All high-confidence matches (L1-L3) and format variants sharing invoice keys
+    # are claimed first, preventing missing invoices from stealing legitimate records.
+    unmatched_sr_pass1: list[dict[str, Any]] = []
+
     for sr_rec in sr_invoice_records:
         sr_keys = _candidate_keys_for_record(sr_rec)
         raw_cands: list[dict[str, Any]] = []
@@ -758,28 +764,59 @@ async def _run_pipeline(
                     raw_cands.append(c)
         candidates = _unused(raw_cands)
 
-        # Secondary pool: same/blank GSTIN (covers invoice format variants).
-        if not candidates:
-            sr_gstin = ""
-            for key in ("gstin",):
-                v = sr_rec.get(key)
-                if v is None:
+        match_result = (
+            match_sales_register_to_gstr1(sr_rec, candidates)
+            if candidates
+            else None
+        )
+
+        if match_result is not None and match_result.matched:
+            best_candidate = None
+            best_level = 999
+            for cand in candidates:
+                cand_id = id(cand)
+                if cand_id in used_gstr1_ids:
                     continue
-                s = str(v).strip().upper()
-                if not s:
-                    continue
-                collapsed = "".join(ch for ch in s if ch.isalnum())
-                if s in {
-                    "NA", "N/A", "N.A", "N.A.", "NONE", "NULL", "NIL",
-                    "-", "--", ".", "0", "UNREGISTERED", "URP",
-                } or collapsed in {"NA", "NIL", "NULL", "NONE", "URP"}:
-                    continue
-                sr_gstin = s
-                break
-            gstin_pool = list(gstr1_by_gstin.get(sr_gstin, []))
-            if sr_gstin:
-                gstin_pool.extend(gstr1_by_gstin.get("", []))
-            candidates = _unused(gstin_pool)
+                pr = generic_match_pair(sr_rec, cand, SALES_MATCH_CONFIG)
+                if pr.matched and pr.level < best_level:
+                    best_level = pr.level
+                    best_candidate = cand
+
+            if best_candidate is not None:
+                used_gstr1_ids.add(id(best_candidate))
+                matched_pairs.append(
+                    (sr_rec, best_candidate, _match_result_to_dict(match_result))
+                )
+            else:
+                matched_pairs.append(
+                    (sr_rec, {}, _match_result_to_dict(match_result))
+                )
+        else:
+            unmatched_sr_pass1.append(sr_rec)
+
+    # Pass 2: Secondary pool (same/blank GSTIN) for residual unmatched SR records only.
+    # Only evaluates GSTR-1 records that remained unclaimed after Pass 1.
+    for sr_rec in unmatched_sr_pass1:
+        sr_gstin = ""
+        for key in ("gstin",):
+            v = sr_rec.get(key)
+            if v is None:
+                continue
+            s = str(v).strip().upper()
+            if not s:
+                continue
+            collapsed = "".join(ch for ch in s if ch.isalnum())
+            if s in {
+                "NA", "N/A", "N.A", "N.A.", "NONE", "NULL", "NIL",
+                "-", "--", ".", "0", "UNREGISTERED", "URP",
+            } or collapsed in {"NA", "NIL", "NULL", "NONE", "URP"}:
+                continue
+            sr_gstin = s
+            break
+        gstin_pool = list(gstr1_by_gstin.get(sr_gstin, []))
+        if sr_gstin:
+            gstin_pool.extend(gstr1_by_gstin.get("", []))
+        candidates = _unused(gstin_pool)
 
         match_result = (
             match_sales_register_to_gstr1(sr_rec, candidates)

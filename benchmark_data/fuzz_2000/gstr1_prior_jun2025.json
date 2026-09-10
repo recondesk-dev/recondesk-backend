@@ -1,0 +1,41 @@
+{
+  "gstin": "27ISKPK1273H1ZF",
+  "fp": "06-2025",
+  "gt": 0,
+  "cur_gt": 0,
+  "b2b": [
+    {
+      "ctin": "27AAECR1000A1Z1",
+      "inv": [
+        {
+          "inum": "INV/25-26/0001",
+          "idt": "15-06-2025",
+          "val": 60000,
+          "pos": "27",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 50000,
+                "rt": 5,
+                "iamt": 2500.0,
+                "camt": 0,
+                "samt": 0,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "b2cs": [],
+  "hsn": {
+    "data": []
+  },
+  "doc_issue": {
+    "doc_det": []
+  }
+}

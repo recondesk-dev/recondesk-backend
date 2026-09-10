@@ -208,6 +208,61 @@ def levenshtein(s1: str, s2: str) -> int:
     return prev[lb]
 
 
+def is_sequential_series_mismatch(
+    inv1: str | None,
+    inv2: str | None,
+    inv1_raw: str | None = None,
+    inv2_raw: str | None = None,
+) -> bool:
+    """True when two invoices share the same series/prefix structure but have
+    distinct numeric sequence numbers in a sequential series (e.g. INV/25-26/0101
+    vs INV/25-26/0197, or INV-100 vs INV-101).
+
+    Such pairs must NEVER be treated as fuzzy typos (L5) in outward sales
+    reconciliation because they represent distinct commercial documents.
+    """
+    s1 = str(inv1 or "").strip()
+    s2 = str(inv2 or "").strip()
+    if not s1 or not s2:
+        return False
+    r1 = str(inv1_raw or s1).strip()
+    r2 = str(inv2_raw or s2).strip()
+
+    n1 = normalize_invoice(s1)
+    n2 = normalize_invoice(s2)
+    if not n1 or not n2 or n1 == n2:
+        return False
+
+    def _extract_nums(s: str) -> list[int]:
+        return [int(m) for m in re.findall(r"\d+", s)]
+
+    nums1 = _extract_nums(r1)
+    nums2 = _extract_nums(r2)
+
+    if nums1 and nums2:
+        last1 = nums1[-1]
+        last2 = nums2[-1]
+        if last1 != last2:
+            # 1. Same leading alphabetic prefix (e.g. "INV" on both)
+            p1 = _RE_LEADING_ALPHA.match(n1)
+            p2 = _RE_LEADING_ALPHA.match(n2)
+            if p1 and p2 and p1.group(0) == p2.group(0):
+                return True
+            # 2. Same normalized series prefix before trailing digits
+            m1 = _RE_TRAILING_DIGITS.search(n1)
+            m2 = _RE_TRAILING_DIGITS.search(n2)
+            if m1 and m2 and m1.group(0) != m2.group(0):
+                pref1 = n1[: m1.start()]
+                pref2 = n2[: m2.start()]
+                if pref1 == pref2:
+                    return True
+            # 3. Same leading numeric tokens (e.g. same FY [25, 26, 101] vs [25, 26, 197])
+            if len(nums1) > 1 and len(nums2) > 1 and nums1[:-1] == nums2[:-1]:
+                return True
+
+    return False
+
+
 def invoice_similarity(inv1: str, inv2: str) -> float:
     """Similarity score between two normalized invoice strings [0.0, 1.0]."""
     a = normalize_invoice(inv1)

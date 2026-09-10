@@ -41,6 +41,7 @@ from app.services.matcher import (
     normalize_invoice,
     invoice_similarity,
     is_invoice_format_variant,
+    is_sequential_series_mismatch,
     invoices_effectively_match,
     invoice_match_key_for_record,
     same_pan,
@@ -922,30 +923,33 @@ def generic_match_pair(
     # TIER 5 — Same GSTIN + fuzzy invoice (similarity ≥ 0.75)
     # Catches typos, OCR errors, and digit transpositions in invoice
     # numbers. Always requires human review.
+    # Disqualified if invoices represent distinct sequential numbers
+    # in the same series (e.g. INV/25-26/0101 vs INV/25-26/0197).
     # ══════════════════════════════════════════════════════════════════════
     if gstin_ok and not inv_ok and not format_variant:
-        inv_sim = invoice_similarity(a_inv, b_inv)
-        if inv_sim >= _L5_INVOICE_SIM_THRESHOLD:
-            date_within_l5 = skip_date or (
-                date_diff_days <= _L5_DATE_TOLERANCE_DAYS
-            )
-            if amount_within_l3 and date_within_l5:
-                return _ret(
-                    level=5, matched=True, confidence=60,
-                    requires_human_review=True,
-                    decision_what="Fuzzy invoice match — possible typo",
-                    decision_why=(
-                        f"Same GSTIN, invoice similarity "
-                        f"{inv_sim:.0%}, amount and date within tolerance"
-                    ),
-                    decision_next=(
-                        "Verify invoice numbers match with counterparty"
-                    ),
-                    review_reason="TYPO_MISMATCH",
-                    discrepancies=discrepancies,
-                    identity_confidence="Low",
-                    financial_status=financial_status,
+        if not is_sequential_series_mismatch(a_inv, b_inv, a_inv_raw, b_inv_raw):
+            inv_sim = invoice_similarity(a_inv, b_inv)
+            if inv_sim >= _L5_INVOICE_SIM_THRESHOLD:
+                date_within_l5 = skip_date or (
+                    date_diff_days <= _L5_DATE_TOLERANCE_DAYS
                 )
+                if amount_within_l3 and date_within_l5:
+                    return _ret(
+                        level=5, matched=True, confidence=60,
+                        requires_human_review=True,
+                        decision_what="Fuzzy invoice match — possible typo",
+                        decision_why=(
+                            f"Same GSTIN, invoice similarity "
+                            f"{inv_sim:.0%}, amount and date within tolerance"
+                        ),
+                        decision_next=(
+                            "Verify invoice numbers match with counterparty"
+                        ),
+                        review_reason="TYPO_MISMATCH",
+                        discrepancies=discrepancies,
+                        identity_confidence="Low",
+                        financial_status=financial_status,
+                    )
 
     # ══════════════════════════════════════════════════════════════════════
     # L6 — No match
