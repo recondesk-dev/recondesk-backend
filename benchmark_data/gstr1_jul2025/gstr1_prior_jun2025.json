@@ -1,0 +1,107 @@
+{
+  "gstin": "27ISKPK1273H1ZF",
+  "fp": "062025",
+  "gt": 25000000,
+  "cur_gt": 1800000,
+  "b2b": [
+    {
+      "ctin": "29AABCI1681G1ZX",
+      "inv": [
+        {
+          "inum": "INV/2025-26/A01",
+          "idt": "10-06-2025",
+          "val": 118000,
+          "pos": "29",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 100000,
+                "rt": 18,
+                "iamt": 18000,
+                "camt": 0,
+                "samt": 0,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ctin": "27AAACR5055K1ZK",
+      "inv": [
+        {
+          "inum": "INV/2025-26/A02",
+          "idt": "15-06-2025",
+          "val": 94400,
+          "pos": "27",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 80000,
+                "rt": 18,
+                "iamt": 0,
+                "camt": 7200,
+                "samt": 7200,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "b2cs": [
+    {
+      "sply_tp": "INTRA",
+      "pos": "27",
+      "typ": "OE",
+      "rt": 18,
+      "txval": 25000,
+      "iamt": 0,
+      "camt": 2250,
+      "samt": 2250,
+      "csamt": 0
+    }
+  ],
+  "hsn": {
+    "data": [
+      {
+        "num": 1,
+        "hsn_sc": "8471",
+        "desc": "Computers & Peripherals",
+        "uqc": "NOS",
+        "qty": 8,
+        "val": 237400,
+        "txval": 205000,
+        "iamt": 18000,
+        "camt": 9450,
+        "samt": 9450,
+        "csamt": 0
+      }
+    ]
+  },
+  "doc_issue": {
+    "doc_det": [
+      {
+        "doc_num": 1,
+        "docs": [
+          {
+            "num": 1,
+            "from": "INV/2025-26/A01",
+            "to": "INV/2025-26/A05",
+            "totnum": 5,
+            "cancel": 0,
+            "net_issue": 5
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -62,6 +62,7 @@ from app.services.matcher import (
     _crosses_gst_return_period,
     _format_gst_return_period_label,
     _format_invoice_date_label,
+    _is_credit_note,
 )
 from app.services.vendor_name_matcher import (
     find_best_vendor_match,
@@ -351,7 +352,9 @@ def _append_financial_discrepancies(
     config: MatchFieldsConfig,
 ) -> None:
     """Config-aware version of ``_append_financial_discrepancies``."""
-    if a_total != b_total and _has_explicit_total_tax_line(rec_a, rec_b):
+    is_cn = _is_credit_note(rec_a) or _is_credit_note(rec_b)
+    diff_to_check = total_diff if is_cn else abs(a_total - b_total)
+    if diff_to_check > AMOUNT_TOLERANCE_L1_PAISE and _has_explicit_total_tax_line(rec_a, rec_b):
         out.append(
             f"total_value: {config.a_label}={_rs_str(a_total)}, "
             f"{config.b_label}={_rs_str(b_total)}, diff={_rs_str(total_diff)}"

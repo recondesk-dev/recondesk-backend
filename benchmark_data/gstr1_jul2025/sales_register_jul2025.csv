@@ -1,0 +1,11 @@
+Voucher Type,Invoice No,Document Date,Party Name,GSTIN,Place of Supply (State Code),HSN Code,Description,Taxable Value,IGST Rate %,IGST Amount,CGST Rate %,CGST Amount,SGST Rate %,SGST Amount,Invoice Value
+Sales,202526001,01/07/2025,Infosys Limited,29AABCI1681G1ZX,29,8471,Computer Hardware,150000,18,27000,0,0,0,0,177000
+Sales,202526002,05/07/2025,Sun Pharma Ltd,24AAECS4029H1ZS,24,3004,Pharma Products,250000,12,30000,0,0,0,0,280000
+Sales,202526003,14/07/2025,Wipro Limited,29AAACW0946E1ZU,29,8471,Computer Hardware,100000,18,18000,0,0,0,0,118000
+Sales,202526004,03/07/2025,Reliance Industries Ltd,27AAACR5055K1ZK,27,8471,Computer Hardware,200000,0,0,9,18000,9,18000,236000
+Sales,202526005,08/07/2025,HDFC Bank Limited,27AAACH2702H1ZN,27,3004,Pharma Products,75000,0,0,12,9000,12,9000,93000
+Sales,202526006,18/07/2025,Tata Motors Limited,27AAACT2727Q1ZP,27,8471,Computer Hardware,300000,0,0,9,27000,9,27000,354000
+Sales,202526007,20/07/2025,Unregistered - Haryana,,06,8471,Computer Hardware,300000,18,54000,0,0,0,0,354000
+Sales,202526008,22/07/2025,Walk-in Customer (MH),,27,8471,Computer Hardware,35000,0,0,9,3150,9,3150,41300
+Sales,202526009,28/07/2025,Global Tech Inc (USA),,96,8471,Hardware Export,500000,0,0,0,0,0,0,500000
+Credit Note,2025262001CN,15/07/2025,Reliance Industries Ltd,27AAACR5055K1ZK,27,8471,Hardware Return,-20000,0,0,9,-1800,9,-1800,-23600

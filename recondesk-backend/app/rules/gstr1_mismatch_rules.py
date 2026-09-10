@@ -301,6 +301,7 @@ class MismatchResult:
             "decision_why": self.decision_why,
             "decision_next": self.decision_next,
             "decision_rule": self.rule_id,
+            "rule_id": self.rule_id,
             "gst_ref": self.gst_ref,
             **self.details,
             "eligibility": (
@@ -572,12 +573,22 @@ def classify_amount_mismatch(
     """
     inv = str(_get_field(sr_rec, "invoice_number") or "?")
 
-    sr_taxable = _safe_int(sr_rec.get("taxable_amount_paise"))
-    g1_taxable = _safe_int(gstr1_rec.get("taxable_amount_paise"))
+    from app.services.matcher import _is_credit_note
+    is_cn = _is_credit_note(sr_rec) or _is_credit_note(gstr1_rec)
+
+    if is_cn:
+        sr_taxable = abs(_safe_int(sr_rec.get("taxable_amount_paise")))
+        g1_taxable = abs(_safe_int(gstr1_rec.get("taxable_amount_paise")))
+        sr_tax = abs(_safe_int(sr_rec.get("total_tax_paise")))
+        g1_tax = abs(_safe_int(gstr1_rec.get("total_tax_paise")))
+    else:
+        sr_taxable = _safe_int(sr_rec.get("taxable_amount_paise"))
+        g1_taxable = _safe_int(gstr1_rec.get("taxable_amount_paise"))
+        sr_tax = _safe_int(sr_rec.get("total_tax_paise"))
+        g1_tax = _safe_int(gstr1_rec.get("total_tax_paise"))
+
     taxable_diff = abs(sr_taxable - g1_taxable)
 
-    sr_tax = _safe_int(sr_rec.get("total_tax_paise"))
-    g1_tax = _safe_int(gstr1_rec.get("total_tax_paise"))
     # Only compare tax when both sides actually carry tax amounts. A missing
     # tax column (None→0) must not look like a 100% shortfall.
     compare_tax = _record_has_tax_amount(sr_rec) and _record_has_tax_amount(
@@ -746,9 +757,9 @@ def classify_tax_structure_mismatch(
     flag error even when the PoS code string matches.
     """
     def _structure(rec: Mapping[str, Any]) -> str | None:
-        igst = _safe_int(rec.get("igst_paise"))
-        cgst = _safe_int(rec.get("cgst_paise"))
-        sgst = _safe_int(rec.get("sgst_paise"))
+        igst = abs(_safe_int(rec.get("igst_paise")))
+        cgst = abs(_safe_int(rec.get("cgst_paise")))
+        sgst = abs(_safe_int(rec.get("sgst_paise")))
         if igst > 0 and cgst == 0 and sgst == 0:
             return "interstate"
         if (cgst > 0 or sgst > 0) and igst == 0:
@@ -871,8 +882,8 @@ def _detect_rate(rec: Mapping[str, Any]) -> float | None:
                 continue
 
     # Fall back to computation: total_tax / taxable_amount * 100
-    taxable = _safe_int(rec.get("taxable_amount_paise"))
-    total_tax = _safe_int(rec.get("total_tax_paise"))
+    taxable = abs(_safe_int(rec.get("taxable_amount_paise")))
+    total_tax = abs(_safe_int(rec.get("total_tax_paise")))
     if taxable > 0 and total_tax > 0:
         computed = (total_tax / taxable) * 100
         # Snap to standard GST rates if close
@@ -2311,6 +2322,161 @@ def validate_hsn_rate_mapping(
     return results
 
 
+def reconcile_hsn_summary(
+    gstr1_records_all: Sequence[Mapping[str, Any]],
+    outward_records: Sequence[Mapping[str, Any]] | None = None,
+    *,
+    tolerance_paise: int = AMOUNT_TOLERANCE_PAISE,
+) -> list[MismatchResult]:
+    """Reconcile GSTR-1 Table 12 HSN summary against underlying transactions.
+
+    Validates:
+    1. Table 12 taxable value, IGST, CGST, SGST, Cess reconcile against
+       the underlying outward supplies.
+    2. Does NOT use HSN 'val' as taxable turnover (avoids false 3B mismatches).
+    3. Flags an HSN review finding only if:
+       - HSN summary taxable/tax totals disagree with outward supplies beyond tolerance.
+       - HSN gross 'val' violates basic GST validation (val < txval).
+    """
+    results: list[MismatchResult] = []
+    hsn_records = [
+        r for r in (gstr1_records_all or [])
+        if str(r.get("section") or "").lower() == "hsn"
+    ]
+    if not hsn_records:
+        return results
+
+    # Sum Table 12 HSN totals
+    hsn_txval = sum(_safe_int(r.get("taxable_amount_paise")) for r in hsn_records)
+    hsn_iamt = sum(_safe_int(r.get("igst_paise")) for r in hsn_records)
+    hsn_camt = sum(_safe_int(r.get("cgst_paise")) for r in hsn_records)
+    hsn_samt = sum(_safe_int(r.get("sgst_paise")) for r in hsn_records)
+    hsn_csamt = sum(_safe_int(r.get("cess_paise")) for r in hsn_records)
+    hsn_tot_tax = hsn_iamt + hsn_camt + hsn_samt + hsn_csamt
+
+    # Check for invalid gross val (< txval)
+    for r in hsn_records:
+        txval = _safe_int(r.get("taxable_amount_paise"))
+        val = _safe_int(r.get("invoice_value_paise"))
+        hsn_code = str(r.get("hsn") or _get_field(r, "hsn_sc", "hsn", default="?"))
+        if val > 0 and txval > 0 and val < txval:
+            results.append(
+                MismatchResult(
+                    mismatch_type=MismatchType.RATE_MISMATCH,
+                    severity=MismatchSeverity.MEDIUM,
+                    decision_what=(
+                        f"HSN {hsn_code}: total value ({_rs(val)}) is less than "
+                        f"taxable value ({_rs(txval)}) in Table 12 summary."
+                    ),
+                    decision_why=(
+                        "In GST Table 12, invoice value must equal or exceed taxable value "
+                        "(invoice value = taxable value + taxes). A lower invoice value indicates "
+                        "a data entry error in the HSN summary."
+                    ),
+                    decision_next=f"Review HSN {hsn_code} line in Table 12 and correct the total value.",
+                    rule_id="G1M_009_HSN_VAL_INVALID",
+                    details={
+                        "hsn": hsn_code,
+                        "taxable_value": txval,
+                        "invoice_value": val,
+                        "issue_type": "hsn_val_below_taxable",
+                    },
+                )
+            )
+
+    if not outward_records:
+        return results
+
+    # Sum underlying outward supplies (excluding Table 9 earlier-period amendments and informational sections)
+    from app.services.matcher import _is_credit_note
+    _excluded = {"nil", "hsn", "doc_issue", "at", "ata", "atadj", "atadja"}
+    tx_txval_taxable = 0
+    tx_txval_zero = 0
+    tx_iamt = 0
+    tx_camt = 0
+    tx_samt = 0
+    tx_csamt = 0
+
+    for r in outward_records:
+        sec = str(r.get("section") or "").lower().strip()
+        if sec in _excluded:
+            continue
+        if str(r.get("section") or "").lower() in ("b2ba", "b2cla", "b2csa", "cdnra", "cdnura", "expa") or r.get("is_amendment"):
+            continue
+
+        txval = abs(_safe_int(r.get("taxable_amount_paise")))
+        iamt = abs(_safe_int(r.get("igst_paise")))
+        camt = abs(_safe_int(r.get("cgst_paise")))
+        samt = abs(_safe_int(r.get("sgst_paise")))
+        csamt = abs(_safe_int(r.get("cess_paise")))
+
+        is_zero_rated = (
+            sec in ("exp", "expa")
+            or str(r.get("invoice_type") or r.get("document_type") or r.get("doc_type") or "").upper() == "EXPORT"
+            or str(r.get("place_of_supply") or "").startswith("96")
+        )
+
+        if _is_credit_note(r):
+            if is_zero_rated:
+                tx_txval_zero -= txval
+            else:
+                tx_txval_taxable -= txval
+            tx_iamt -= iamt
+            tx_camt -= camt
+            tx_samt -= samt
+            tx_csamt -= csamt
+        else:
+            if is_zero_rated:
+                tx_txval_zero += txval
+            else:
+                tx_txval_taxable += txval
+            tx_iamt += iamt
+            tx_camt += camt
+            tx_samt += samt
+            tx_csamt += csamt
+
+    tx_tot_tax = tx_iamt + tx_camt + tx_samt + tx_csamt
+
+    # Table 12 HSN summary in GSTR-1 may be reported covering either:
+    # 1. Taxable outward supplies (aligning with GSTR-3B Table 3.1(a)), or
+    # 2. Total outward supplies including zero-rated exports.
+    diff_taxable = abs(hsn_txval - tx_txval_taxable)
+    diff_total = abs(hsn_txval - (tx_txval_taxable + tx_txval_zero))
+    txval_diff = min(diff_taxable, diff_total)
+    tax_diff = abs(hsn_tot_tax - tx_tot_tax)
+    tx_best_matched = tx_txval_taxable if diff_taxable <= diff_total else (tx_txval_taxable + tx_txval_zero)
+
+    if txval_diff > tolerance_paise or tax_diff > tolerance_paise:
+        results.append(
+            MismatchResult(
+                mismatch_type=MismatchType.AMOUNT_MISMATCH,
+                severity=MismatchSeverity.HIGH,
+                decision_what=(
+                    f"Table 12 HSN summary taxable value ({_rs(hsn_txval)}) differs "
+                    f"from outward transactions ({_rs(tx_best_matched)}) by {_rs(txval_diff)}."
+                ),
+                decision_why=(
+                    "The consolidated HSN summary in GSTR-1 Table 12 must reconcile with the "
+                    "taxable value and tax amounts reported across Tables 4-10. Discrepancies "
+                    "may trigger GST notice ASMT-10."
+                ),
+                decision_next="Reconcile HSN summary item lines against sales register invoices and amend Table 12.",
+                rule_id="G1M_009_HSN_SUMMARY_MISMATCH",
+                details={
+                    "hsn_taxable": hsn_txval,
+                    "transaction_taxable": tx_best_matched,
+                    "taxable_diff": txval_diff,
+                    "hsn_tax": hsn_tot_tax,
+                    "transaction_tax": tx_tot_tax,
+                    "tax_diff": tax_diff,
+                    "issue_type": "hsn_summary_mismatch",
+                },
+            )
+        )
+
+    return results
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # G1M10 — Documents Issued Summary (GSTR-1 Table 13)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3169,6 +3335,90 @@ def detect_amendments(
             )
         )
 
+    # Validate current-period filed amendments against prior GSTR-1
+    for amend_rec in current_amendment_records or []:
+        oinum = (
+            amend_rec.get("original_invoice_number_raw")
+            or amend_rec.get("original_invoice_number")
+            or amend_rec.get("oinum")
+            or amend_rec.get("ont_num")
+            or ""
+        )
+        if not oinum:
+            continue
+        from app.services.matcher import normalise_inv_no, normalize_invoice
+
+        oinum_norm = normalise_inv_no(str(oinum).strip())
+        oinum_legacy = normalize_invoice(str(oinum).strip())
+        found = (
+            (oinum_norm and oinum_norm in prior_by_inv)
+            or (oinum_legacy and oinum_legacy in prior_by_inv)
+        )
+        if not found:
+            section = str(amend_rec.get("section") or "B2BA").upper()
+            inv_display = str(
+                _get_field(
+                    amend_rec,
+                    "invoice_number",
+                    "invoice_number_raw",
+                    "inum",
+                    "nt_num",
+                    default=oinum,
+                )
+            ).strip() or oinum or "?"
+            fp = str(amend_rec.get("filing_period") or amend_rec.get("fp") or "").strip()
+            period_prefix = ""
+            if len(fp) == 6 and fp.isdigit():
+                m = int(fp[:2])
+                month_names = [
+                    "", "January", "February", "March", "April", "May", "June",
+                    "July", "August", "September", "October", "November", "December",
+                ]
+                if 1 <= m <= 12:
+                    period_prefix = f"{month_names[m]} "
+            elif len(fp) >= 7 and "-" in fp:
+                try:
+                    dt = date.fromisoformat(fp[:10])
+                    period_prefix = f"{dt.strftime('%B')} "
+                except Exception:
+                    pass
+
+            results.append(
+                MismatchResult(
+                    mismatch_type=MismatchType.AMENDMENT_REQUIRED,
+                    severity=MismatchSeverity.HIGH,
+                    decision_what=(
+                        f"REVIEW REQUIRED — UNMATCHED / INVALID {section} AMENDMENT: "
+                        f"{period_prefix}GSTR-1 references original invoice '{oinum}' "
+                        f"which cannot be located in the prior-period GSTR-1."
+                    ),
+                    decision_why=(
+                        f"{period_prefix}GSTR-1 contains a {section} amendment referencing an "
+                        "original invoice that cannot be located in the prior-period GSTR-1. "
+                        "Table 9 amendment records must correspond to a valid document previously "
+                        "reported in an earlier tax period. An amendment referencing a non-existent "
+                        "original document may be rejected by GSTN or indicate an erroneous original "
+                        "invoice number or period reference."
+                    ),
+                    decision_next=(
+                        f"Verify original invoice number {oinum} against the prior period filed "
+                        "GSTR-1 and books. If the invoice was reported under a different number or "
+                        "GSTIN, file a correction with the accurate original document reference."
+                    ),
+                    rule_id="G1M_011_UNMATCHED_AMENDMENT",
+                    details={
+                        "invoice_number": inv_display,
+                        "original_invoice_number": oinum,
+                        "amendment_table": section,
+                        "issue_type": "unmatched_amendment",
+                        "taxable_value": _safe_int(amend_rec.get("taxable_amount_paise")),
+                        "igst": _safe_int(amend_rec.get("igst_paise")),
+                        "cgst": _safe_int(amend_rec.get("cgst_paise")),
+                        "sgst": _safe_int(amend_rec.get("sgst_paise")),
+                    },
+                )
+            )
+
     _sev_order = {
         MismatchSeverity.CRITICAL: 0,
         MismatchSeverity.HIGH: 1,
@@ -3212,6 +3462,7 @@ __all__ = [
     "classify_all_mismatches",
     "check_invoice_series_continuity",
     "validate_hsn_rate_mapping",
+    "reconcile_hsn_summary",
     "summarize_documents_issued",
     "detect_amendments",
     # Tolerance constants (overridable by callers)

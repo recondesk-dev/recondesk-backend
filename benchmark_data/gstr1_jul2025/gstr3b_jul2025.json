@@ -1,0 +1,146 @@
+{
+  "gstin": "27ISKPK1273H1ZF",
+  "ret_period": "072025",
+  "sup_details": {
+    "osup_det": {
+      "txval": 1390000,
+      "iamt": 129000,
+      "camt": 55350,
+      "samt": 55350,
+      "csamt": 0
+    },
+    "osup_zero": {
+      "txval": 500000,
+      "iamt": 0,
+      "camt": 0,
+      "samt": 0,
+      "csamt": 0
+    },
+    "osup_nil_exmp": {
+      "txval": 0
+    },
+    "isup_rev": {
+      "txval": 0,
+      "iamt": 0,
+      "camt": 0,
+      "samt": 0,
+      "csamt": 0
+    },
+    "osup_nongst": {
+      "txval": 0
+    }
+  },
+  "inter_sup": {
+    "unreg_details": [
+      {
+        "pos": "06",
+        "txval": 300000,
+        "iamt": 54000
+      }
+    ],
+    "comp_details": [],
+    "uin_details": []
+  },
+  "itc_elg": {
+    "itc_avl": [
+      {
+        "ty": "IMPG",
+        "iamt": 0,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      },
+      {
+        "ty": "IMPS",
+        "iamt": 0,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      },
+      {
+        "ty": "ISRC",
+        "iamt": 0,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      },
+      {
+        "ty": "ISD",
+        "iamt": 0,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      },
+      {
+        "ty": "OTH",
+        "iamt": 25000,
+        "camt": 15000,
+        "samt": 15000,
+        "csamt": 0
+      }
+    ],
+    "itc_rev": [
+      {
+        "ty": "RUL",
+        "iamt": 0,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      }
+    ],
+    "itc_net": {
+      "iamt": 25000,
+      "camt": 15000,
+      "samt": 15000,
+      "csamt": 0
+    },
+    "itc_inelg": [
+      {
+        "ty": "RUL",
+        "iamt": 0,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      },
+      {
+        "ty": "OTH",
+        "iamt": 0,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      }
+    ]
+  },
+  "inward_sup": {
+    "isup_details": [
+      {
+        "ty": "GST",
+        "inter": 0,
+        "intra": 0
+      },
+      {
+        "ty": "NONGST",
+        "inter": 0,
+        "intra": 0
+      }
+    ]
+  },
+  "intr_ltfee": {
+    "intr_details": [
+      {
+        "ty": "Central Tax",
+        "iamt": 0,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      },
+      {
+        "ty": "State/UT Tax",
+        "iamt": 0,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      }
+    ]
+  }
+}

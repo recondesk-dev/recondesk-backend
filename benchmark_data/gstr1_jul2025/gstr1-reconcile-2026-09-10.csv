@@ -1,0 +1,49 @@
+=== Summary ===
+metric,value
+sr_total_records,10
+gstr1_total_records,11
+matched_count,9
+unmatched_sr_count,1
+unmatched_gstr1_count,1
+mismatch_count,6
+tie_out_clean,false
+tie_out_variance_count,3
+
+=== Matched ===
+invoice,gstin,date,taxable,match_level,confidence,decision_confidence,discrepancies,what,why,next
+202526001,29AABCI1681G1ZX,2025-07-01,150000.00,1,100,HIGH,,Exact match found,"Invoice number, amount, and date align",No action required
+202526002,24AAECS4029H1ZS,2025-07-05,250000.00,1,100,HIGH,,Exact match found,"Invoice number, amount, and date align",No action required
+202526003,29AAACW0946E1ZU,2025-07-14,100000.00,1,100,HIGH,,Exact match found,"Invoice number, amount, and date align",No action required
+202526004,27AAACR5055K1ZK,2025-07-03,200000.00,1,100,HIGH,,Exact match found,"Invoice number, amount, and date align",No action required
+202526005,27AAACH2702H1ZN,2025-07-08,75000.00,1,100,HIGH,,Exact match found,"Invoice number, amount, and date align",No action required
+202526006,27AAACT2727Q1ZP,2025-07-18,300000.00,1,100,HIGH,,Exact match found,"Invoice number, amount, and date align",No action required
+202526007,B2C,2025-07-20,300000.00,1,100,HIGH,,Exact match found,"Invoice number, amount, and date align",No action required
+202526009,B2C,2025-07-28,500000.00,1,100,HIGH,,Exact match found,"Invoice number, amount, and date align",No action required
+2025262001CN,27AAACR5055K1ZK,2025-07-15,-20000.00,1,100,HIGH,"total_value: SR=Rs -23600.00, GSTR1=Rs 23600.00, diff=Rs 0.00",Exact match found,"Invoice number, amount, and date align",No action required
+
+=== Review Required ===
+invoice,gstin,date,taxable,match_level,confidence,decision_confidence,discrepancies,what,why,next
+2025262001CN,27AAACR5055K1ZK,2025-07-15,-20000.00,1,100,HIGH,"total_value: SR=Rs -23600.00, GSTR1=Rs 23600.00, diff=Rs 0.00",Exact match found,"Invoice number, amount, and date align",No action required
+
+=== Missing in GSTR-1 (G1M1) ===
+type,severity,invoice,gstin,date,taxable,what,why,next
+G1M1,critical,202526008,B2C,2025-07-22,35000.00,Invoice 202526008 is in the Sales Register but missing from GSTR-1,"Output tax of ₹6,300.00 on taxable value ₹35,000.00 has not been reported in GSTR-1. This constitutes under-reporting of tax liability under Section 37 of the CGST Act and may attract interest under Section 50 and penalties under Section 122.","File or amend GSTR-1 to include invoice 202526008 for Walk-in Customer (MH) (an unregistered B2C customer). If the invoice was cancelled or returned, record a credit note instead."
+
+=== Extra in GSTR-1 (G1M2) ===
+type,severity,invoice,gstin,date,taxable,what,why,next
+G1M2,high,B2CS-27-Maharashtra-18.0-0,B2C,,35000.00,Invoice B2CS-27-Maharashtra-18.0-0 is in GSTR-1 but missing from the Sales Register,"A taxable value of ₹35,000.00 with tax ₹6,300.00 was reported in GSTR-1 but has no corresponding entry in the books. This may be a duplicate filing, a data-entry error, or a transaction not yet recorded in the Sales Register.","Verify if invoice B2CS-27-Maharashtra-18.0-0 for an unregistered B2C customer is a genuine sale. If duplicate, amend GSTR-1 to remove it. If genuine, add it to the Sales Register."
+
+=== All mismatches ===
+type,severity,invoice,gstin,what,why,next
+G1M1,critical,202526008,,Invoice 202526008 is in the Sales Register but missing from GSTR-1,"Output tax of ₹6,300.00 on taxable value ₹35,000.00 has not been reported in GSTR-1. This constitutes under-reporting of tax liability under Section 37 of the CGST Act and may attract interest under Section 50 and penalties under Section 122.","File or amend GSTR-1 to include invoice 202526008 for Walk-in Customer (MH) (an unregistered B2C customer). If the invoice was cancelled or returned, record a credit note instead."
+G1M3,critical,2025262001CN,,"Invoice 2025262001CN: taxable value differs by ₹40,000.00 (200.0%); tax amount differs by ₹7,200.00 (200.0%)","Sales Register shows taxable value ₹20,000.00 / tax ₹3,600.00, but GSTR-1 shows ₹20,000.00 / ₹3,600.00. The mismatch may result in short or excess payment of output tax, attracting interest under Section 50.","Compare invoice 2025262001CN against the original document. Amend GSTR-1 or correct the Sales Register to align the values. If a credit/debit note was issued, ensure it is reported separately."
+G1M2,high,B2CS-27-Maharashtra-18.0-0,,Invoice B2CS-27-Maharashtra-18.0-0 is in GSTR-1 but missing from the Sales Register,"A taxable value of ₹35,000.00 with tax ₹6,300.00 was reported in GSTR-1 but has no corresponding entry in the books. This may be a duplicate filing, a data-entry error, or a transaction not yet recorded in the Sales Register.","Verify if invoice B2CS-27-Maharashtra-18.0-0 for an unregistered B2C customer is a genuine sale. If duplicate, amend GSTR-1 to remove it. If genuine, add it to the Sales Register."
+G1M5,high,202526005,,Invoice 202526005: GST rate is 24.0% in Sales Register but 12.0% in GSTR-1,Applying the wrong GST rate results in either short payment (attracting interest under Section 50 and penalties under Section 122) or excess payment of output tax. The correct rate depends on the HSN/SAC classification of the supply.,"Verify the applicable GST rate for this supply based on HSN/SAC code. Amend GSTR-1 if the filed rate is incorrect, or update the Sales Register if the books are wrong."
+G1M10,low,,,Table 13 documents issued summary computed for 1 series across: TAX_INVOICE,"GSTR-1 Table 13 requires a period summary of documents issued (opening/closing serial, total issued, cancelled, net issued) by document type. This informational flag confirms the summary was derived from the Sales Register series.",Review the Table 13 – Documents Issued Summary panel and cross-check opening/closing serials and counts against the filed GSTR-1 doc_issue section before submission.
+G1M10,low,,,Unable to determine cancelled document counts for Table 13 (1 series),"The Sales Register has no reliable cancelled/status indicator (cancelled, is_cancelled, or equivalent). Cancellation counts must not be guessed from credit notes or series gaps — those are separate reconciliation signals (G1M8).","Enter cancelled counts manually from the books / GSTR-1 doc_issue section, or re-export the Sales Register with a cancellation status column if available."
+
+=== GSTR-1 vs 3B variances ===
+field,gstr1,gstr3b,diff,direction
+taxable_value,"₹1,510,000.00","₹1,390,000.00","₹120,000.00",over
+igst,"₹150,600.00","₹129,000.00","₹21,600.00",over
+total_tax,"₹261,300.00","₹239,700.00","₹21,600.00",over

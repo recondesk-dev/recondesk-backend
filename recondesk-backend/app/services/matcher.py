@@ -578,6 +578,15 @@ def _invoice_number(rec: Mapping[str, Any]) -> str:
     v = rec.get("invoice_number_normalized")
     if v is None or str(v).strip() == "":
         v = rec.get("invoice_number")
+    if v is None or str(v).strip() == "":
+        v = (
+            rec.get("inum")
+            or rec.get("nt_num")
+            or rec.get("ntnum")
+            or rec.get("credit_note_number")
+            or rec.get("note_number")
+            or rec.get("invoice_number_raw")
+        )
     return "" if v is None else str(v).strip()
 
 
@@ -648,6 +657,21 @@ def _invoice_key_for_match(inv: str | None) -> str:
     return normalize_invoice(inv)
 
 
+def normalise_inv_no(s: Any) -> str:
+    """Symmetric invoice / document number normalisation.
+
+    Strips all characters except alphanumeric [0-9a-zA-Z] and converts to upper case.
+    Matches TypeScript helper:
+      (s) => String(s ?? '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+    """
+    if s is None:
+        return ""
+    val = str(s).strip()
+    if not val:
+        return ""
+    return re.sub(r"[^0-9a-zA-Z]", "", val).upper()
+
+
 _STANDARD_DOC_PREFIXES = ("INV", "TAX", "BILL", "CN", "DN", "INVOICE", "DOC", "CR", "DR", "RET")
 
 
@@ -669,6 +693,57 @@ def invoices_effectively_match(g_inv: str, p_inv: str) -> bool:
     b = _invoice_key_for_match(p_inv)
     return bool(a) and bool(b) and a == b
 
+
+
+def _is_credit_note(rec: Mapping[str, Any] | None) -> bool:
+    """Return True if rec represents a credit note or sales return.
+
+    Document-type aware helper used to normalize signs between negative-entry
+    accounting systems (Sales Register / Purchase Register) and positive-document
+    GST portals (GSTR-1 CDNR / GSTR-2B CDNR).
+    """
+    if not rec:
+        return False
+    section = str(rec.get("section") or "").lower().strip()
+    if section in ("cdnr", "cdnra", "cdnur", "cdnura"):
+        return True
+    if section in ("b2b", "b2ba", "b2cl", "b2cla", "b2cs", "b2csa", "exp", "expa"):
+        return False
+    doc_type = str(rec.get("doc_type") or "").upper().strip()
+    if doc_type in ("CREDIT_NOTE", "CN", "CREDIT", "C"):
+        return True
+    if doc_type in ("INVOICE", "TAX_INVOICE", "INV"):
+        if not (rec.get("credit_note_number") or rec.get("note_number") or rec.get("nt_num") or rec.get("ntnum") or str(rec.get("ntty") or "").upper().strip() in ("C", "CR")):
+            return False
+    inv_type = str(rec.get("invoice_type") or "").upper().strip()
+    if inv_type in ("CREDIT_NOTE", "CN", "CREDIT", "C"):
+        return True
+    ntty = str(rec.get("ntty") or "").upper().strip()
+    if ntty in ("C", "CR", "CREDIT", "CREDIT_NOTE"):
+        return True
+    voucher_type = str(rec.get("voucher_type") or "").upper().strip()
+    if "CREDIT" in voucher_type or voucher_type in ("CN", "CR NOTE", "CR. NOTE"):
+        return True
+    if rec.get("credit_note_number") or rec.get("note_number") or rec.get("nt_num") or rec.get("ntnum"):
+        return True
+    inv_num = str(rec.get("invoice_number_raw") or rec.get("invoice_number") or "").upper().strip()
+    if inv_num.startswith("CN") or inv_num.endswith("CN") or "-CN" in inv_num or "/CN" in inv_num:
+        return True
+    taxable = rec.get("taxable_amount_paise")
+    if taxable is not None:
+        try:
+            if int(taxable) < 0:
+                return True
+        except (ValueError, TypeError):
+            pass
+    tot = rec.get("total_tax_paise")
+    if tot is not None:
+        try:
+            if int(tot) < 0:
+                return True
+        except (ValueError, TypeError):
+            pass
+    return False
 
 
 def invoice_match_key_for_record(rec: Mapping[str, Any]) -> str:

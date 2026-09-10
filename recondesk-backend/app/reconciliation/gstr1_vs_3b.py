@@ -27,6 +27,7 @@ from app.rules.gstr1_mismatch_rules import (
     _rs,
     _safe_int,
 )
+from app.services.matcher import normalise_inv_no, _is_credit_note
 
 _log = logging.getLogger(__name__)
 
@@ -41,11 +42,12 @@ DEFAULT_TOLERANCE_PAISE: int = 5000
 
 # GSTR-1 sections that map to GSTR-3B Table 3.1(a) "Outward taxable supplies
 # (other than zero rated, nil rated and exempted)".
-_TAXABLE_SUPPLY_SECTIONS: frozenset[str] = frozenset({
-    "b2b", "b2ba",          # B2B invoices (& amendments)
-    "b2cl", "b2cla",        # B2C-Large invoices (& amendments)
-    "b2cs", "b2csa",        # B2C-Small (& amendments)
+_BASE_TAXABLE_SECTIONS: frozenset[str] = frozenset({
+    "b2b",
+    "b2cl",
+    "b2cs",
 })
+_TAXABLE_SUPPLY_SECTIONS: frozenset[str] = _BASE_TAXABLE_SECTIONS
 
 # Sections that map to GSTR-3B Table 3.1(b) "Outward taxable supplies
 # (zero rated)".
@@ -212,20 +214,26 @@ def aggregate_gstr1(
     *,
     include_cdn: bool = True,
     include_zero_rated: bool = False,
+    prior_records: Sequence[Mapping[str, Any]] | None = None,
 ) -> GSTR1Aggregate:
-    """Sum GSTR-1 invoice-level records into an aggregate total.
+    """Sum GSTR-1 invoice-level records into an aggregate total for GSTR-3B tie-out.
 
     Parameters
     ----------
     records : Sequence[Mapping]
         Parsed GSTR-1 records (from ``gstr1_parser.parse_gstr1``).
     include_cdn : bool
-        If True (default), credit/debit note sections (cdnr/cdnur) are
-        subtracted from the total. Set to False to compare invoices only.
+        If True (default), credit notes (cdnr/cdnur) are subtracted and debit
+        notes are added. Set to False to compare invoices only.
     include_zero_rated : bool
         If True, export/zero-rated sections (exp/expa) are included.
         Default False so the aggregate matches GSTR-3B Table 3.1(a)
         (``osup_det``), which excludes zero-rated supplies.
+    prior_records : Sequence[Mapping] | None
+        Prior-period GSTR-1 records for evaluating Table 9 amendments.
+        Amendments are applied as economic differentials (amended - prior)
+        when the original document is verified in prior filings. Unmatched
+        amendments are never added as fresh current-period turnover.
 
     Returns
     -------
@@ -234,6 +242,22 @@ def aggregate_gstr1(
     """
     agg = GSTR1Aggregate()
 
+    prior_by_key: dict[str, Mapping[str, Any]] = {}
+    if prior_records:
+        for pr in prior_records:
+            k = _logical_invoice_key(pr)
+            if k and k not in prior_by_key:
+                prior_by_key[k] = pr
+            raw_k = normalise_inv_no(
+                pr.get("inum")
+                or pr.get("nt_num")
+                or pr.get("invoice_number_raw")
+                or pr.get("invoice_number")
+                or ""
+            )
+            if raw_k and raw_k not in prior_by_key:
+                prior_by_key[raw_k] = pr
+
     for rec in _records_preferring_amendments(records):
         section = str(rec.get("section", "")).lower().strip()
 
@@ -241,22 +265,72 @@ def aggregate_gstr1(
         if section in _EXCLUDED_SECTIONS:
             continue
 
+        if section in _AMENDMENT_SECTIONS or _is_amendment_row(rec):
+            # Table 9 amendments: apply differential against prior original if verified.
+            # Never blindly add full gross turnover of an amendment to current period.
+            if prior_records and prior_by_key:
+                oinum = (
+                    rec.get("original_invoice_number_raw")
+                    or rec.get("original_invoice_number")
+                    or rec.get("oinum")
+                    or rec.get("ont_num")
+                    or ""
+                )
+                k = _logical_invoice_key(rec)
+                k_norm = normalise_inv_no(str(oinum).strip())
+                prior_orig = prior_by_key.get(k) or (
+                    prior_by_key.get(k_norm) if k_norm else None
+                )
+                if prior_orig:
+                    diff_txval = _safe_int(
+                        rec.get("taxable_amount_paise")
+                    ) - _safe_int(prior_orig.get("taxable_amount_paise"))
+                    diff_iamt = _safe_int(
+                        rec.get("igst_paise")
+                    ) - _safe_int(prior_orig.get("igst_paise"))
+                    diff_camt = _safe_int(
+                        rec.get("cgst_paise")
+                    ) - _safe_int(prior_orig.get("cgst_paise"))
+                    diff_samt = _safe_int(
+                        rec.get("sgst_paise")
+                    ) - _safe_int(prior_orig.get("sgst_paise"))
+                    diff_csamt = _safe_int(
+                        rec.get("cess_paise")
+                    ) - _safe_int(prior_orig.get("cess_paise"))
+
+                    mult = -1 if section in ("cdnra", "cdnura") else 1
+                    agg.taxable_value_paise += mult * diff_txval
+                    agg.igst_paise += mult * diff_iamt
+                    agg.cgst_paise += mult * diff_camt
+                    agg.sgst_paise += mult * diff_samt
+                    agg.cess_paise += mult * diff_csamt
+                    agg.record_count += 1
+            continue
+
         # Determine inclusion
         if section in _CDN_SECTIONS:
             if not include_cdn:
                 continue
-            sign = -1  # CDNs reduce liability
+            is_cn = (
+                _is_credit_note(rec)
+                or str(rec.get("ntty") or "").upper() == "C"
+            )
+            sign = -1 if is_cn else 1
         elif section in _ZERO_RATED_SECTIONS:
             if not include_zero_rated:
                 continue
             sign = 1
-        elif section in _TAXABLE_SUPPLY_SECTIONS:
+        elif (
+            section in _BASE_TAXABLE_SECTIONS
+            or section in _TAXABLE_SUPPLY_SECTIONS
+        ):
             sign = 1
         else:
             # Unknown section — include with positive sign, log warning
             _log.debug(
                 "gstr1_vs_3b: unknown section %r in record %s, including as positive",
-                section, rec.get("invoice_number", "?"),
+                section,
+                rec.get("invoice_number", "?"),
             )
             sign = 1
 
@@ -272,6 +346,8 @@ def aggregate_gstr1(
 
 def aggregate_gstr1_by_rate(
     records: Sequence[Mapping[str, Any]],
+    *,
+    prior_records: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[float | None, GSTR1Aggregate]:
     """Aggregate GSTR-1 records grouped by GST rate.
 
@@ -285,6 +361,9 @@ def aggregate_gstr1_by_rate(
         if section in _EXCLUDED_SECTIONS:
             continue
 
+        if section in _AMENDMENT_SECTIONS or _is_amendment_row(rec):
+            continue
+
         rate = rec.get("rate")
         if rate is not None:
             try:
@@ -296,7 +375,8 @@ def aggregate_gstr1_by_rate(
             by_rate[rate] = GSTR1Aggregate()
 
         agg = by_rate[rate]
-        sign = -1 if section in _CDN_SECTIONS else 1
+        is_cn = _is_credit_note(rec) or str(rec.get("ntty") or "").upper() == "C"
+        sign = -1 if (section in _CDN_SECTIONS and is_cn) else 1
 
         agg.taxable_value_paise += sign * _safe_int(rec.get("taxable_amount_paise"))
         agg.igst_paise += sign * _safe_int(rec.get("igst_paise"))
@@ -551,6 +631,7 @@ def reconcile_gstr1_vs_3b(
     include_cdn: bool = True,
     include_zero_rated: bool = False,
     filing_frequency: str = "monthly",
+    prior_records: Sequence[Mapping[str, Any]] | None = None,
 ) -> TieOutResult:
     """Compare GSTR-1 invoice-level records against GSTR-3B summary.
 
@@ -575,6 +656,8 @@ def reconcile_gstr1_vs_3b(
     filing_frequency : str
         Filing frequency ('monthly' or 'qrmp'). Under QRMP, GSTR-1 is filed quarterly
         (due at quarter-end). In months 1 and 2 of a quarter, missing GSTR-1 is not flagged.
+    prior_records : Sequence[Mapping] | None
+        Prior-period GSTR-1 records for evaluating Table 9 amendments.
 
     Returns
     -------
@@ -595,8 +678,16 @@ def reconcile_gstr1_vs_3b(
                 "gstr1_vs_3b: QRMP filer period=%s (month %s) — GSTR-3B/GSTR-1 not filed in month 1/2 of quarter (filed quarterly at quarter-end). Tie-out suppressed.",
                 ret_period, mm,
             )
-            gstr1_agg = aggregate_gstr1(gstr1_records, include_cdn=include_cdn, include_zero_rated=include_zero_rated)
-            gstr1_by_rate = aggregate_gstr1_by_rate(gstr1_records)
+            gstr1_agg = aggregate_gstr1(
+                gstr1_records,
+                include_cdn=include_cdn,
+                include_zero_rated=include_zero_rated,
+                prior_records=prior_records,
+            )
+            gstr1_by_rate = aggregate_gstr1_by_rate(
+                gstr1_records,
+                prior_records=prior_records,
+            )
             gstr3b_summary = gstr3b_to_summary(parsed_gstr3b)
             return TieOutResult(
                 ret_period=ret_period,
@@ -613,8 +704,12 @@ def reconcile_gstr1_vs_3b(
         gstr1_records,
         include_cdn=include_cdn,
         include_zero_rated=include_zero_rated,
+        prior_records=prior_records,
     )
-    gstr1_by_rate = aggregate_gstr1_by_rate(gstr1_records)
+    gstr1_by_rate = aggregate_gstr1_by_rate(
+        gstr1_records,
+        prior_records=prior_records,
+    )
 
     # Extract GSTR-3B summary
     gstr3b_summary = gstr3b_to_summary(parsed_gstr3b)

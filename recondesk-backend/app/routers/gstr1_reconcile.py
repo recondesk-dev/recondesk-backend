@@ -62,28 +62,34 @@ from app.parsers.sales_register_parser import parse_sales_register, ParseError
 from app.parsers.gstr1_parser import parse_gstr1
 from app.parsers.gstr3b_parser import parse_gstr3b
 from app.matching.generic_matcher import match_sales_register_to_gstr1
-from app.services.matcher import normalise_inv_no
+from app.services.matcher import normalise_inv_no, _is_credit_note
 from app.rules.gstr1_mismatch_rules import (
     classify_all_mismatches,
     check_invoice_series_continuity,
     validate_hsn_rate_mapping,
+    reconcile_hsn_summary,
     summarize_documents_issued,
     detect_amendments,
     _amendment_invoice_key,
     MismatchResult,
+    MismatchType,
+    MismatchSeverity,
+    AMOUNT_TOLERANCE_PAISE,
+    _rs,
+    _safe_int,
 )
 from app.reconciliation.gstr1_vs_3b import reconcile_gstr1_vs_3b
 
 _log = logging.getLogger(__name__)
 
-# Aggregate / informational GSTR-1 rows (HSN summary, nil, advances, etc.).
-# These are parsed for diagnostics / tie-out exclusions but must never enter
-# invoice-level matching or Extra-in-GSTR-1 (G1M2) classification.
+# Aggregate / informational GSTR-1 rows (HSN summary, nil, advances, B2CS, etc.).
+# These are parsed for diagnostics / tie-out exclusions / aggregate recon but
+# must never enter invoice-level matching or Extra-in-GSTR-1 (G1M2) classification.
 _NON_INVOICE_GSTR1_SECTIONS: frozenset[str] = frozenset({
-    "hsn", "nil", "doc_issue", "at", "ata", "atadj", "atadja",
+    "hsn", "nil", "doc_issue", "at", "ata", "atadj", "atadja", "b2cs", "b2csa",
 })
 _NON_INVOICE_GSTR1_TYPES: frozenset[str] = frozenset({
-    "HSN_SUMMARY", "NIL_RATED", "EXEMPT", "NON_GST", "NIL_EXEMPT", "ADVANCES",
+    "HSN_SUMMARY", "NIL_RATED", "EXEMPT", "NON_GST", "NIL_EXEMPT", "ADVANCES", "B2C_SMALL",
 })
 
 
@@ -344,6 +350,179 @@ def _build_invoice_index(
     return dict(index)
 
 
+def _is_sr_b2cs_record(
+    rec: Mapping[str, Any],
+    supplier_gstin: str | None = None,
+    b2cl_invoice_keys: set[str] | None = None,
+) -> bool:
+    """Determine if a Sales Register row belongs to B2CS (Table 7 aggregate)."""
+    if _is_credit_note(rec):
+        return False
+    inv_type = str(rec.get("invoice_type") or "").upper().strip()
+    if inv_type == "B2C_SMALL":
+        return True
+    if inv_type in ("EXPORT", "NIL_RATED", "ADVANCES"):
+        return False
+    doc_type = str(rec.get("doc_type") or "").upper().strip()
+    if doc_type in ("CREDIT_NOTE", "DEBIT_NOTE", "EXPORT"):
+        return False
+
+    # Valid 15-char recipient GSTIN -> B2B (Table 4)
+    gstin = str(rec.get("gstin") or rec.get("recipient_gstin") or "").strip().upper()
+    if gstin and re.match(r"^\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}[Z]{1}[A-Z\d]{1}$", gstin):
+        return False
+
+    # Known GSTR-1 B2CL invoice match -> B2CL (Table 5)
+    inv_no = _extract_doc_number(rec)
+    if b2cl_invoice_keys and inv_no:
+        norm_inv = normalise_inv_no(inv_no)
+        if norm_inv in b2cl_invoice_keys:
+            return False
+
+    pos = str(rec.get("place_of_supply") or rec.get("pos") or "").strip()
+    pos_digits = re.match(r"^(\d{2})", pos)
+    pos_code = pos_digits.group(1) if pos_digits else ""
+    if pos_code in ("96", "97"):
+        return False
+
+    supplier_state = ""
+    if supplier_gstin and len(supplier_gstin) >= 2 and supplier_gstin[:2].isdigit():
+        supplier_state = supplier_gstin[:2]
+
+    inv_val_paise = _safe_int(rec.get("invoice_value_paise") or rec.get("total_amount_paise"))
+    if not inv_val_paise:
+        taxable_paise = _safe_int(rec.get("taxable_amount_paise"))
+        tax_paise = _safe_int(rec.get("total_tax_paise"))
+        inv_val_paise = taxable_paise + tax_paise
+
+    is_interstate = (
+        bool(pos_code and supplier_state and pos_code != supplier_state)
+        or _safe_int(rec.get("igst_paise")) > 0
+    )
+
+    # B2CL threshold: ₹2,50,000 (25,000,000 paise)
+    if is_interstate and inv_val_paise > 25000000:
+        return False
+
+    # Intra-state unregistered or inter-state <= threshold -> B2CS
+    return True
+
+
+def reconcile_b2cs_aggregate(
+    sr_b2cs_records: list[dict[str, Any]],
+    gstr1_b2cs_records: list[dict[str, Any]],
+    *,
+    tolerance_paise: int = AMOUNT_TOLERANCE_PAISE,
+) -> tuple[list[tuple[dict, dict, dict]], list[MismatchResult]]:
+    """Reconcile Sales Register B2C rows against GSTR-1 Table 7 B2CS aggregates.
+
+    B2CS is an aggregate return section. Invoices are never matched individually.
+    If calculated aggregates reconcile within tolerance, returns a matched aggregate entry.
+    Otherwise reports an aggregate mismatch without creating false missing/extra invoices.
+    """
+    matched: list[tuple[dict, dict, dict]] = []
+    mismatches: list[MismatchResult] = []
+
+    if not sr_b2cs_records and not gstr1_b2cs_records:
+        return matched, mismatches
+
+    sr_taxable = sum(_safe_int(r.get("taxable_amount_paise")) for r in sr_b2cs_records)
+    sr_igst = sum(_safe_int(r.get("igst_paise")) for r in sr_b2cs_records)
+    sr_cgst = sum(_safe_int(r.get("cgst_paise")) for r in sr_b2cs_records)
+    sr_sgst = sum(_safe_int(r.get("sgst_paise")) for r in sr_b2cs_records)
+    sr_cess = sum(_safe_int(r.get("cess_paise")) for r in sr_b2cs_records)
+    sr_tot_tax = sr_igst + sr_cgst + sr_sgst + sr_cess
+
+    g1_taxable = sum(_safe_int(r.get("taxable_amount_paise")) for r in gstr1_b2cs_records)
+    g1_iamt = sum(_safe_int(r.get("igst_paise")) for r in gstr1_b2cs_records)
+    g1_camt = sum(_safe_int(r.get("cgst_paise")) for r in gstr1_b2cs_records)
+    g1_samt = sum(_safe_int(r.get("sgst_paise")) for r in gstr1_b2cs_records)
+    g1_csamt = sum(_safe_int(r.get("cess_paise")) for r in gstr1_b2cs_records)
+    g1_tot_tax = g1_iamt + g1_camt + g1_samt + g1_csamt
+
+    taxable_diff = abs(sr_taxable - g1_taxable)
+    tax_diff = abs(sr_tot_tax - g1_tot_tax)
+
+    if taxable_diff <= tolerance_paise and tax_diff <= tolerance_paise:
+        sr_synth = {
+            "invoice_number": "B2CS-AGGREGATE",
+            "invoice_number_raw": "B2CS-AGGREGATE",
+            "gstin": "B2C",
+            "recipient_name": f"B2C Small Supplies ({len(sr_b2cs_records)} invoices)",
+            "taxable_amount_paise": sr_taxable,
+            "igst_paise": sr_igst,
+            "cgst_paise": sr_cgst,
+            "sgst_paise": sr_sgst,
+            "cess_paise": sr_cess,
+            "total_tax_paise": sr_tot_tax,
+            "invoice_type": "B2C_SMALL",
+            "doc_type": "INVOICE",
+        }
+        g1_synth = {
+            "invoice_number": "B2CS-AGGREGATE",
+            "invoice_number_raw": "B2CS-AGGREGATE",
+            "gstin": "B2C",
+            "recipient_name": "GSTR-1 Table 7 B2CS Aggregate",
+            "taxable_amount_paise": g1_taxable,
+            "igst_paise": g1_iamt,
+            "cgst_paise": g1_camt,
+            "sgst_paise": g1_samt,
+            "cess_paise": g1_csamt,
+            "total_tax_paise": g1_tot_tax,
+            "invoice_type": "B2C_SMALL",
+            "doc_type": "INVOICE",
+        }
+        mr_dict = {
+            "match_level": 1,
+            "confidence": 100,
+            "decision_what": "B2CS aggregate matched",
+            "decision_why": "Sales Register B2C aggregate matches GSTR-1 Table 7",
+            "decision_next": "No action required",
+            "decision_confidence": "HIGH",
+            "decision_rule": "L1_B2CS_AGGREGATE_MATCH",
+            "requires_human_review": False,
+            "identity_confidence": "High",
+            "financial_status": "Exact",
+            "review_reason": None,
+            "discrepancies": [],
+            "compared_fields": [
+                {"field": "taxable_amount", "status": "exact"},
+                {"field": "total_tax", "status": "exact"},
+            ],
+        }
+        matched.append((sr_synth, g1_synth, mr_dict))
+    else:
+        mismatches.append(
+            MismatchResult(
+                mismatch_type=MismatchType.AMOUNT_MISMATCH,
+                severity=MismatchSeverity.HIGH,
+                decision_what=(
+                    f"B2CS aggregate mismatch: Sales Register taxable {_rs(sr_taxable)} "
+                    f"vs GSTR-1 Table 7 {_rs(g1_taxable)} (diff {_rs(taxable_diff)})"
+                ),
+                decision_why=(
+                    "Under Section 37 of the CGST Act, consolidated B2C Small supplies "
+                    "reported in GSTR-1 Table 7 must align with accounting books. "
+                    "Variance may result in tax under/over-declaration."
+                ),
+                decision_next="Reconcile Sales Register B2C rows against GSTR-1 Table 7 and amend if needed.",
+                rule_id="G1M_003_B2CS_AGGREGATE",
+                details={
+                    "invoice_number": "B2CS-AGGREGATE",
+                    "sr_taxable": sr_taxable,
+                    "gstr1_taxable": g1_taxable,
+                    "taxable_diff": taxable_diff,
+                    "sr_tax": sr_tot_tax,
+                    "gstr1_tax": g1_tot_tax,
+                    "tax_diff": tax_diff,
+                    "issue_type": "b2cs_aggregate_mismatch",
+                },
+            )
+        )
+
+    return matched, mismatches
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Core pipeline
 # ══════════════════════════════════════════════════════════════════════════════
@@ -509,6 +688,33 @@ async def _run_pipeline(
     # surface as G1M7 on matched pairs instead of missing+extra doubles.
     # Amendment-linked SR rows and current b2ba/cdnra rows are excluded —
     # they are handled solely by G1M11.
+
+    # Partition Sales Register into invoice-level rows vs B2CS aggregate rows.
+    # B2CS (Table 7) is an aggregate section with no invoice numbers.
+    supplier_gstin = gstr1_result.get("filing_gstin")
+    b2cl_invoice_keys = {
+        normalise_inv_no(_extract_doc_number(r))
+        for r in gstr1_current_records
+        if str(r.get("section") or "").lower() == "b2cl"
+    }
+
+    sr_invoice_records: list[dict[str, Any]] = []
+    sr_b2cs_records: list[dict[str, Any]] = []
+    for rec in sr_current_records:
+        if _is_sr_b2cs_record(rec, supplier_gstin, b2cl_invoice_keys):
+            sr_b2cs_records.append(rec)
+        else:
+            sr_invoice_records.append(rec)
+
+    gstr1_b2cs_records = [
+        r for r in gstr1_records_all
+        if str(r.get("section") or "").lower() in ("b2cs", "b2csa")
+    ]
+
+    b2cs_matches, b2cs_mismatches = reconcile_b2cs_aggregate(
+        sr_b2cs_records, gstr1_b2cs_records,
+    )
+
     gstr1_by_invoice = _build_invoice_index(gstr1_current_records)
     # Fallback bucket for format-variant / fuzzy invoice matching.
     gstr1_by_gstin = _build_gstin_index(
@@ -527,7 +733,7 @@ async def _run_pipeline(
     def _unused(cands: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [c for c in cands if id(c) not in used_gstr1_ids]
 
-    for sr_rec in sr_current_records:
+    for sr_rec in sr_invoice_records:
         sr_keys = _candidate_keys_for_record(sr_rec)
         raw_cands: list[dict[str, Any]] = []
         for k in sr_keys:
@@ -589,6 +795,9 @@ async def _run_pipeline(
         else:
             unmatched_sr.append(sr_rec)
 
+    # Add reconciled B2CS aggregates to matched pairs
+    matched_pairs.extend(b2cs_matches)
+
     # Unmatched GSTR-1: current-period originals not consumed by any SR match.
     # Amendment-table rows (b2ba etc.) are intentionally omitted from G1M2.
     unmatched_gstr1: list[dict[str, Any]] = [
@@ -596,17 +805,23 @@ async def _run_pipeline(
     ]
 
     _log.info(
-        "gstr1_reconcile: matching done — %d matched, %d unmatched_sr, %d unmatched_gstr1",
-        len(matched_pairs), len(unmatched_sr), len(unmatched_gstr1),
+        "gstr1_reconcile: matching done — %d matched, %d unmatched_sr, %d unmatched_gstr1, %d b2cs_matches",
+        len(matched_pairs), len(unmatched_sr), len(unmatched_gstr1), len(b2cs_matches),
     )
 
     # ── Step 3: Classify mismatches ───────────────────────────────────────
+    matched_for_mismatch = [
+        (sr, g1) for sr, g1, _ in matched_pairs
+        if g1 and str(g1.get("section") or "").lower() not in ("b2cs", "b2csa")
+    ]
     mismatch_results = classify_all_mismatches(
         unmatched_sr=unmatched_sr,
         unmatched_gstr1=unmatched_gstr1,
-        matched_pairs=[(sr, g1) for sr, g1, _ in matched_pairs if g1],
+        matched_pairs=matched_for_mismatch,
         gstr1_filing_period=gstr1_filing_period,
     )
+    if b2cs_mismatches:
+        mismatch_results = list(mismatch_results) + list(b2cs_mismatches)
 
     _log.info(
         "gstr1_reconcile: classified %d mismatches", len(mismatch_results),
@@ -640,6 +855,17 @@ async def _run_pipeline(
         _log.info(
             "gstr1_reconcile: G1M9 HSN/rate validation — %d issues found",
             len(g1m9_results),
+        )
+
+    # ── Step 3d-2: Table 12 HSN Summary vs Outward Transactions ──────────
+    hsn_reconcile_results = reconcile_hsn_summary(
+        gstr1_records_all, sr_records,
+    )
+    if hsn_reconcile_results:
+        mismatch_results = list(mismatch_results) + list(hsn_reconcile_results)
+        _log.info(
+            "gstr1_reconcile: HSN summary reconciliation — %d issues found",
+            len(hsn_reconcile_results),
         )
 
     # ── Step 3e: G1M10 Documents Issued Summary (Table 13) ──────────────
@@ -699,7 +925,12 @@ async def _run_pipeline(
         except Exception:
             pass
 
-    tie_out = reconcile_gstr1_vs_3b(gstr1_records_all, parsed_gstr3b, filing_frequency=filing_freq)
+    tie_out = reconcile_gstr1_vs_3b(
+        gstr1_records_all,
+        parsed_gstr3b,
+        filing_frequency=filing_freq,
+        prior_records=prior_gstr1_records,
+    )
 
     _log.info(
         "gstr1_reconcile: tie-out period=%s clean=%s variances=%d",
@@ -785,6 +1016,7 @@ async def _run_pipeline(
                     "amendment_required",
                     "amendment_missing",
                     "amendment_still_wrong",
+                    "unmatched_amendment",
                 }
             ),
             "amendment_linked_sr_count": len(sr_amendment_records),

@@ -1,0 +1,341 @@
+{
+  "gstin": "27ISKPK1273H1ZF",
+  "fp": "072025",
+  "gt": 25000000,
+  "cur_gt": 2250000,
+  "b2b": [
+    {
+      "ctin": "29AABCI1681G1ZX",
+      "inv": [
+        {
+          "inum": "202526001",
+          "idt": "01-07-2025",
+          "val": 177000,
+          "pos": "29",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 150000,
+                "rt": 18,
+                "iamt": 27000,
+                "camt": 0,
+                "samt": 0,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ctin": "24AAECS4029H1ZS",
+      "inv": [
+        {
+          "inum": "202526002",
+          "idt": "05-07-2025",
+          "val": 280000,
+          "pos": "24",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 250000,
+                "rt": 12,
+                "iamt": 30000,
+                "camt": 0,
+                "samt": 0,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ctin": "29AAACW0946E1ZU",
+      "inv": [
+        {
+          "inum": "202526003",
+          "idt": "14-07-2025",
+          "val": 118000,
+          "pos": "29",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 100000,
+                "rt": 18,
+                "iamt": 18000,
+                "camt": 0,
+                "samt": 0,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ctin": "27AAACR5055K1ZK",
+      "inv": [
+        {
+          "inum": "202526004",
+          "idt": "03-07-2025",
+          "val": 236000,
+          "pos": "27",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 200000,
+                "rt": 18,
+                "iamt": 0,
+                "camt": 18000,
+                "samt": 18000,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ctin": "27AAACH2702H1ZN",
+      "inv": [
+        {
+          "inum": "202526005",
+          "idt": "08-07-2025",
+          "val": 93000,
+          "pos": "27",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 75000,
+                "rt": 12,
+                "iamt": 0,
+                "camt": 9000,
+                "samt": 9000,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ctin": "27AAACT2727Q1ZP",
+      "inv": [
+        {
+          "inum": "202526006",
+          "idt": "18-07-2025",
+          "val": 354000,
+          "pos": "27",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 300000,
+                "rt": 18,
+                "iamt": 0,
+                "camt": 27000,
+                "samt": 27000,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "b2cl": [
+    {
+      "pos": "06",
+      "inv": [
+        {
+          "inum": "202526007",
+          "idt": "20-07-2025",
+          "val": 354000,
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 300000,
+                "rt": 18,
+                "iamt": 54000,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "b2cs": [
+    {
+      "sply_tp": "INTRA",
+      "pos": "27",
+      "typ": "OE",
+      "rt": 18,
+      "txval": 35000,
+      "iamt": 0,
+      "camt": 3150,
+      "samt": 3150,
+      "csamt": 0
+    }
+  ],
+  "cdnr": [
+    {
+      "ctin": "27AAACR5055K1ZK",
+      "nt": [
+        {
+          "ntty": "C",
+          "nt_num": "2025262001CN",
+          "nt_dt": "15-07-2025",
+          "val": 23600,
+          "pos": "27",
+          "rchrg": "N",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 20000,
+                "rt": 18,
+                "iamt": 0,
+                "camt": 1800,
+                "samt": 1800,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "exp": [
+    {
+      "exp_typ": "WOPAY",
+      "inv": [
+        {
+          "inum": "202526009",
+          "idt": "28-07-2025",
+          "val": 500000,
+          "sbpcode": "INBOM1",
+          "sbnum": "SB20250728001",
+          "sbdt": "28-07-2025",
+          "itms": [
+            {
+              "txval": 500000,
+              "rt": 0,
+              "iamt": 0,
+              "csamt": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "b2ba": [
+    {
+      "ctin": "29AABCI1681G1ZX",
+      "inv": [
+        {
+          "oinum": "20252601A",
+          "oidt": "10-06-2025",
+          "inum": "20252601A",
+          "idt": "10-06-2025",
+          "val": 141600,
+          "pos": "29",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 120000,
+                "rt": 18,
+                "iamt": 21600,
+                "camt": 0,
+                "samt": 0,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "hsn": {
+    "data": [
+      {
+        "num": 1,
+        "hsn_sc": "8471",
+        "desc": "Computers & Peripherals",
+        "uqc": "NOS",
+        "qty": 15,
+        "val": 1479700,
+        "txval": 1065000,
+        "iamt": 99000,
+        "camt": 46350,
+        "samt": 46350,
+        "csamt": 0
+      },
+      {
+        "num": 2,
+        "hsn_sc": "3004",
+        "desc": "Pharmaceutical Products",
+        "uqc": "BOX",
+        "qty": 8,
+        "val": 373000,
+        "txval": 325000,
+        "iamt": 30000,
+        "camt": 9000,
+        "samt": 9000,
+        "csamt": 0
+      }
+    ]
+  },
+  "doc_issue": {
+    "doc_det": [
+      {
+        "doc_num": 1,
+        "docs": [
+          {
+            "num": 1,
+            "from": "INV/2025-26/001",
+            "to": "INV/2025-26/009",
+            "totnum": 9,
+            "cancel": 0,
+            "net_issue": 9
+          }
+        ]
+      },
+      {
+        "doc_num": 4,
+        "docs": [
+          {
+            "num": 1,
+            "from": "CN/2025-26/001",
+            "to": "CN/2025-26/001",
+            "totnum": 1,
+            "cancel": 0,
+            "net_issue": 1
+          }
+        ]
+      }
+    ]
+  }
+}
