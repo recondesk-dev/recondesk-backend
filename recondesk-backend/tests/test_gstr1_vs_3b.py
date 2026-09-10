@@ -233,7 +233,7 @@ class TestComputeVariances:
         """Diff of ₹5 → flagged."""
         agg = GSTR1Aggregate(taxable_value_paise=100500, igst_paise=18000)
         summary = GSTR3BSummary(taxable_value_paise=100000, igst_paise=18000)
-        variances = compute_variances(agg, summary)
+        variances = compute_variances(agg, summary, tolerance_paise=100)
         assert len(variances) == 1
         assert variances[0].field == "taxable_value"
         assert variances[0].diff_paise == 500
@@ -248,7 +248,7 @@ class TestComputeVariances:
             taxable_value_paise=100000, igst_paise=18000,
             cgst_paise=0, sgst_paise=0,
         )
-        variances = compute_variances(agg, summary)
+        variances = compute_variances(agg, summary, tolerance_paise=100)
         fields = {v.field for v in variances}
         assert "taxable_value" in fields
         assert "igst" in fields

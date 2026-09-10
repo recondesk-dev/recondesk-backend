@@ -36,19 +36,12 @@ def normalise_period(raw: str | None) -> str | None:
     """Return ``YYYY-MM`` when possible from MMYYYY / YYYY-MM / ISO date."""
     if not raw:
         return None
-    s = str(raw).strip()
-    if not s:
-        return None
-    # YYYY-MM
-    if re.fullmatch(r"\d{4}-\d{2}", s):
-        return s
-    # MMYYYY
-    if re.fullmatch(r"\d{6}", s):
-        return f"{s[2:6]}-{s[0:2]}"
-    # ISO date YYYY-MM-DD…
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}.*", s):
-        return s[:7]
-    return s[:7] if len(s) >= 7 else s
+    try:
+        from app.services.normalizer import normalize_period_to_yyyy_mm
+        return normalize_period_to_yyyy_mm(raw)
+    except Exception:
+        s = str(raw).strip()
+        return s[:7] if len(s) >= 7 else s
 
 
 def _normalise_filed_date(raw: date | datetime | str | None) -> str | None:

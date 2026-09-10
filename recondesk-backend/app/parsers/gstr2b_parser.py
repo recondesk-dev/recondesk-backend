@@ -1751,20 +1751,12 @@ def normalize_alt_2b_schema(
 
 
 def _parse_rtnprd(rtnprd: str) -> datetime.date:
-    """Parse GST filing period string to the first day of that month.
-
-    Supports MMYYYY (``042026`` → 2026-04-01) and YYYYMM (``202604``).
-    """
-    s = str(rtnprd).strip()
-    if len(s) != 6 or not s.isdigit():
-        raise ValueError("invalid_rtnprd")
-
-    a, b = int(s[:2]), int(s[2:])
-    if 1 <= a <= 12:
-        return datetime.date(b, a, 1)
-    if 1 <= b <= 12:
-        return datetime.date(a, b, 1)
-    raise ValueError("invalid_rtnprd")
+    """Parse GST filing period string to the first day of that month."""
+    from app.services.normalizer import normalize_period_to_date
+    try:
+        return normalize_period_to_date(rtnprd)
+    except Exception as exc:
+        raise ValueError("invalid_rtnprd") from exc
 
 
 # ---------------------------------------------------------------------------

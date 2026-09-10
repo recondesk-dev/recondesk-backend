@@ -61,6 +61,7 @@ from app.services.normalizer import (
     normalize_date,
     normalize_gstin,
     normalize_invoice_number,
+    normalize_period_to_date,
 )
 from app.services.matcher import normalize_invoice
 
@@ -1817,43 +1818,7 @@ def _parse_filing_period(fp: str | Any) -> datetime.date:
     Raises:
         ValueError("invalid_filing_period") on invalid format, month < 1 or > 12, or year outside 1900..2100.
     """
-    if fp is None:
-        raise ValueError("invalid_filing_period")
-    s = str(fp).strip()
-    if not s:
-        raise ValueError("invalid_filing_period")
-
-    # 1. ISO format: YYYY-MM or YYYY-MM-DD
-    m_iso = re.match(r"^(\d{4})-(\d{1,2})(?:-\d{1,2})?$", s)
-    if m_iso:
-        y, m = int(m_iso.group(1)), int(m_iso.group(2))
-        if 1 <= m <= 12 and 1900 <= y <= 2100:
-            return datetime.date(y, m, 1)
-        raise ValueError("invalid_filing_period")
-
-    # 2. Separated format: MM-YYYY or MM/YYYY
-    m_sep = re.match(r"^(\d{1,2})[-/](\d{4})$", s)
-    if m_sep:
-        m, y = int(m_sep.group(1)), int(m_sep.group(2))
-        if 1 <= m <= 12 and 1900 <= y <= 2100:
-            return datetime.date(y, m, 1)
-        raise ValueError("invalid_filing_period")
-
-    # 3. 6-digit formats: MMYYYY or YYYYMM
-    if len(s) == 6 and s.isdigit():
-        # Check MMYYYY first (standard Indian GST portal format: 072025, 042025)
-        m1, y1 = int(s[:2]), int(s[2:])
-        if 1 <= m1 <= 12 and 1900 <= y1 <= 2100:
-            return datetime.date(y1, m1, 1)
-
-        # Check YYYYMM (alternate format: 202507)
-        y2, m2 = int(s[:4]), int(s[4:])
-        if 1900 <= y2 <= 2100 and 1 <= m2 <= 12:
-            return datetime.date(y2, m2, 1)
-
-        raise ValueError("invalid_filing_period")
-
-    raise ValueError("invalid_filing_period")
+    return normalize_period_to_date(fp)
 
 
 # ---------------------------------------------------------------------------

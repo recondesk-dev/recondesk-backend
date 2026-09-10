@@ -44,6 +44,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from app.services.normalizer import normalize_period_to_yyyy_mm
+
 logger = logging.getLogger(__name__)
 
 # Canonical ITC-available source codes (Table 4A).
@@ -186,23 +188,16 @@ def _parse_inward_sup(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
-def _parse_ret_period(raw: str) -> str:
-    """Convert portal format '052026' → '2026-05'.
+def _parse_ret_period(raw: Any) -> str:
+    """Convert portal format or common variants ('052026', '07-2025', '2025-07') → 'YYYY-MM'.
 
-    Also accepts '2026-05' (already normalised) and 'MMYYYY' / 'YYYYMM'.
+    Accepts: 'MMYYYY', 'YYYYMM', 'YYYY-MM', 'MM-YYYY', 'MM/YYYY', 'YYYY-MM-DD'.
+    Raises ParseError if the format is invalid or values are out of bounds.
     """
-    s = str(raw).strip()
-    if len(s) == 6 and s.isdigit():
-        mm, yyyy = s[:2], s[2:]
-        if 1 <= int(mm) <= 12 and len(yyyy) == 4:
-            return f"{yyyy}-{mm}"
-        # Try YYYYMM
-        yyyy2, mm2 = s[:4], s[4:]
-        if 1 <= int(mm2) <= 12:
-            return f"{yyyy2}-{mm2}"
-    if len(s) == 7 and s[4] == "-":
-        return s  # already YYYY-MM
-    raise ParseError(f"ret_period has unrecognised format: {s!r}")
+    try:
+        return normalize_period_to_yyyy_mm(raw)
+    except Exception as exc:
+        raise ParseError(f"ret_period has unrecognised format: {raw!r}") from exc
 
 
 # ---------------------------------------------------------------------------

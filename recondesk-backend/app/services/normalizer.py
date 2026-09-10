@@ -147,7 +147,7 @@ MONTH_MAP = {
     "JUN": 6, "JUNE": 6,
     "JUL": 7, "JULY": 7,
     "AUG": 8, "AUGUST": 8,
-    "SEP": 9, "SEPTEMBER": 9,
+    "SEP": 9, "SEPT": 9, "SEPTEMBER": 9,
     "OCT": 10, "OCTOBER": 10,
     "NOV": 11, "NOVEMBER": 11,
     "DEC": 12, "DECEMBER": 12,
@@ -500,3 +500,114 @@ def normalize_invoice_number(raw: str) -> NormalizationResult:
         _note(notes, "truncated_to_50_chars")
 
     return NormalizationResult(value=upper, notes=notes)
+
+
+# ---------------------------------------------------------------------------
+# Filing period normalizers
+# ---------------------------------------------------------------------------
+
+def normalize_period_to_date(raw: Any) -> datetime.date:
+    """Parse GST filing period string/date to the first day of that month.
+
+    Supports:
+    - MMYYYY (e.g. '072025' -> 2025-07-01, '042025' -> 2025-04-01, '122025' -> 2025-12-01)
+    - YYYYMM (e.g. '202507' -> 2025-07-01)
+    - YYYY-MM (e.g. '2025-07' -> 2025-07-01)
+    - MM-YYYY / MM/YYYY (e.g. '07-2025', '07/2025', '7/2025' -> 2025-07-01)
+    - YYYY-MM-DD (e.g. '2025-07-01' -> 2025-07-01)
+    - DD-MM-YYYY / DD/MM/YYYY (e.g. '01-07-2025' -> 2025-07-01)
+    - Textual month names (e.g. 'Jun 2026', 'June 2026', 'September 2026' -> 2026-06-01 / 2026-09-01)
+    - datetime.date / datetime.datetime objects
+
+    Raises:
+        ValueError("invalid_filing_period") on invalid format, month < 1 or > 12,
+        or year outside 1900..2100.
+    """
+    if raw is None:
+        raise ValueError("invalid_filing_period")
+    if isinstance(raw, (datetime.date, datetime.datetime)):
+        if 1900 <= raw.year <= 2100 and 1 <= raw.month <= 12:
+            return datetime.date(raw.year, raw.month, 1)
+        raise ValueError("invalid_filing_period")
+
+    s = str(raw).strip()
+    if not s:
+        raise ValueError("invalid_filing_period")
+
+    # 1. Month name format: 'Jun 2026', 'Jun, 2026', 'September 2026'
+    m_name = re.match(r"^([A-Za-z]{3,9})\s*,?\s*(\d{4})$", s)
+    if m_name:
+        word = m_name.group(1).upper()
+        mon = MONTH_MAP.get(word) or MONTH_MAP.get(word[:3])
+        y = int(m_name.group(2))
+        if mon and 1 <= mon <= 12 and 1900 <= y <= 2100:
+            return datetime.date(y, mon, 1)
+        raise ValueError("invalid_filing_period")
+
+    # 2. ISO format: YYYY-MM or YYYY-MM-DD (with optional timestamp)
+    m_iso = re.match(r"^(\d{4})[-/.](\d{1,2})(?:[-/.]\d{1,2}(?:[T\s].*)?)?$", s)
+    if m_iso:
+        y, m = int(m_iso.group(1)), int(m_iso.group(2))
+        if 1 <= m <= 12 and 1900 <= y <= 2100:
+            return datetime.date(y, m, 1)
+        raise ValueError("invalid_filing_period")
+
+    # 3. Separated format with 4-digit year at end: MM-YYYY or MM/YYYY or MM.YYYY (or M-YYYY)
+    m_sep = re.match(r"^(\d{1,2})[-/.](\d{4})$", s)
+    if m_sep:
+        m, y = int(m_sep.group(1)), int(m_sep.group(2))
+        if 1 <= m <= 12 and 1900 <= y <= 2100:
+            return datetime.date(y, m, 1)
+        raise ValueError("invalid_filing_period")
+
+    # 4. Full date format with 4-digit year at end: DD-MM-YYYY or DD/MM/YYYY
+    m_full = re.match(r"^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$", s)
+    if m_full:
+        d, m, y = int(m_full.group(1)), int(m_full.group(2)), int(m_full.group(3))
+        if 1 <= d <= 31 and 1 <= m <= 12 and 1900 <= y <= 2100:
+            return datetime.date(y, m, 1)
+        raise ValueError("invalid_filing_period")
+
+    # 5. 6-digit digits string: MMYYYY or YYYYMM
+    if len(s) == 6 and s.isdigit():
+        m1, y1 = int(s[:2]), int(s[2:])
+        if 1 <= m1 <= 12 and 1900 <= y1 <= 2100:
+            return datetime.date(y1, m1, 1)
+        y2, m2 = int(s[:4]), int(s[4:])
+        if 1900 <= y2 <= 2100 and 1 <= m2 <= 12:
+            return datetime.date(y2, m2, 1)
+        raise ValueError("invalid_filing_period")
+
+    raise ValueError("invalid_filing_period")
+
+
+def normalize_period_to_yyyy_mm(raw: Any) -> str:
+    """Normalize raw filing period to canonical 'YYYY-MM'.
+
+    Supports:
+    - MMYYYY ('072025' -> '2025-07')
+    - YYYYMM ('202507' -> '2025-07')
+    - YYYY-MM ('2025-07' -> '2025-07')
+    - MM-YYYY ('07-2025' -> '2025-07')
+    - MM/YYYY ('07/2025' -> '2025-07')
+    - YYYY-MM-DD ('2025-07-01' -> '2025-07')
+    - date / datetime objects
+
+    Raises:
+        ValueError("invalid_filing_period") if invalid.
+    """
+    d = normalize_period_to_date(raw)
+    return f"{d.year:04d}-{d.month:02d}"
+
+
+def normalize_period_to_mmyyyy(raw: Any) -> str:
+    """Normalize raw filing period to canonical 'MMYYYY'.
+
+    Supports all formats accepted by normalize_period_to_date.
+
+    Raises:
+        ValueError("invalid_filing_period") if invalid.
+    """
+    d = normalize_period_to_date(raw)
+    return f"{d.month:02d}{d.year:04d}"
+
