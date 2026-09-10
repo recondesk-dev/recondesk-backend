@@ -44,6 +44,7 @@ from app.data.hsn_rate_reference import (
 from app.rules.base import REGISTRY, RuleCategory, RuleDefinition, RuleSeverity
 from app.rules.gstr1a_eligibility import get_gstr1a_eligibility
 from app.services.decision_templates import DecisionOutput
+from app.services.matcher import _is_credit_note, _is_debit_note
 from app.services.normalizer import GSTIN_REGEX, WHITELIST_PATTERN
 
 _log = logging.getLogger(__name__)
@@ -453,13 +454,87 @@ def classify_missing_invoice(
     sr_rec : Mapping
         The unmatched Sales Register record.
     """
-    inv = str(_get_field(sr_rec, "invoice_number") or "?")
+    inv = str(
+        _get_field(
+            sr_rec,
+            "inum",
+            "nt_num",
+            "ntnum",
+            "credit_note_number",
+            "note_number",
+            "invoice_number_raw",
+            "invoice_number",
+            "invoice_number_normalized",
+        )
+        or "?"
+    )
     gstin, recipient_label = _recipient_from_record(
         sr_rec, "gstin", "recipient_gstin",
     )
     taxable = _safe_int(sr_rec.get("taxable_amount_paise"))
     total_tax = _safe_int(sr_rec.get("total_tax_paise"))
     inv_date = _parse_date(sr_rec.get("invoice_date"))
+
+    if _is_credit_note(sr_rec):
+        return MismatchResult(
+            mismatch_type=MismatchType.MISSING_INVOICE,
+            severity=MismatchSeverity.CRITICAL,
+            decision_what=(
+                f"Credit Note {inv} is present in the Sales Register but is missing from GSTR-1."
+            ),
+            decision_why=(
+                "The Credit Note has been recorded in the Sales Register but "
+                "no corresponding Credit Note was found in the GSTR-1 data for "
+                "this return period."
+            ),
+            decision_next=(
+                f"Verify whether Credit Note {inv} was reported in GSTR-1. "
+                f"If it was not reported, review the filing and amendment requirements."
+            ),
+            rule_id="G1M_001",
+            details={
+                "invoice_number": inv,
+                "document_type": "CREDIT_NOTE",
+                "credit_note_number": inv,
+                "recipient_gstin": gstin,
+                "taxable_amount_paise": taxable,
+                "total_tax_paise": total_tax,
+                "invoice_date": inv_date.isoformat() if inv_date else None,
+                "matched_fields": [],
+                "differed_fields": ["presence"],
+            },
+        )
+
+    if _is_debit_note(sr_rec):
+        return MismatchResult(
+            mismatch_type=MismatchType.MISSING_INVOICE,
+            severity=MismatchSeverity.CRITICAL,
+            decision_what=(
+                f"Debit Note {inv} is present in the Sales Register but is missing from GSTR-1."
+            ),
+            decision_why=(
+                f"Output tax of {_rs(total_tax)} on taxable value {_rs(taxable)} "
+                f"has not been reported in GSTR-1. This constitutes under-reporting "
+                f"of tax liability under Section 37 of the CGST Act and may attract "
+                f"interest under Section 50 and penalties under Section 122."
+            ),
+            decision_next=(
+                f"File or amend GSTR-1 Table 9B to include debit note {inv} for "
+                f"{('recipient ' + gstin) if gstin else recipient_label}."
+            ),
+            rule_id="G1M_001",
+            details={
+                "invoice_number": inv,
+                "document_type": "DEBIT_NOTE",
+                "debit_note_number": inv,
+                "recipient_gstin": gstin,
+                "taxable_amount_paise": taxable,
+                "total_tax_paise": total_tax,
+                "invoice_date": inv_date.isoformat() if inv_date else None,
+                "matched_fields": [],
+                "differed_fields": ["presence"],
+            },
+        )
 
     return MismatchResult(
         mismatch_type=MismatchType.MISSING_INVOICE,
@@ -482,6 +557,7 @@ def classify_missing_invoice(
         rule_id="G1M_001",
         details={
             "invoice_number": inv,
+            "document_type": "INVOICE",
             "recipient_gstin": gstin,
             "taxable_amount_paise": taxable,
             "total_tax_paise": total_tax,
@@ -502,13 +578,90 @@ def classify_extra_invoice(
     gstr1_rec : Mapping
         The unmatched GSTR-1 record.
     """
-    inv = str(_get_field(gstr1_rec, "invoice_number") or "?")
+    inv = str(
+        _get_field(
+            gstr1_rec,
+            "inum",
+            "nt_num",
+            "ntnum",
+            "credit_note_number",
+            "note_number",
+            "invoice_number_raw",
+            "invoice_number",
+            "invoice_number_normalized",
+        )
+        or "?"
+    )
     gstin, recipient_label = _recipient_from_record(
         gstr1_rec, "recipient_gstin", "gstin",
     )
     taxable = _safe_int(gstr1_rec.get("taxable_amount_paise"))
     total_tax = _safe_int(gstr1_rec.get("total_tax_paise"))
     inv_date = _parse_date(gstr1_rec.get("invoice_date"))
+
+    if _is_credit_note(gstr1_rec):
+        return MismatchResult(
+            mismatch_type=MismatchType.EXTRA_INVOICE,
+            severity=MismatchSeverity.HIGH,
+            decision_what=(
+                f"Credit Note {inv} is in GSTR-1 but missing from the Sales Register"
+            ),
+            decision_why=(
+                f"A credit note of taxable value {_rs(taxable)} with tax {_rs(total_tax)} was "
+                f"reported in GSTR-1 but has no corresponding entry in the books. "
+                f"This may be a duplicate filing, a data-entry error, or a "
+                f"transaction not yet recorded in the Sales Register."
+            ),
+            decision_next=(
+                f"Verify if Credit Note {inv} for {recipient_label} is genuine. "
+                f"If duplicate, amend GSTR-1 to remove it. If genuine, add it to "
+                f"the Sales Register."
+            ),
+            rule_id="G1M_002",
+            details={
+                "invoice_number": inv,
+                "document_type": "CREDIT_NOTE",
+                "credit_note_number": inv,
+                "recipient_gstin": gstin,
+                "taxable_amount_paise": taxable,
+                "total_tax_paise": total_tax,
+                "invoice_date": inv_date.isoformat() if inv_date else None,
+                "matched_fields": [],
+                "differed_fields": ["presence"],
+            },
+        )
+
+    if _is_debit_note(gstr1_rec):
+        return MismatchResult(
+            mismatch_type=MismatchType.EXTRA_INVOICE,
+            severity=MismatchSeverity.HIGH,
+            decision_what=(
+                f"Debit Note {inv} is in GSTR-1 but missing from the Sales Register"
+            ),
+            decision_why=(
+                f"A debit note of taxable value {_rs(taxable)} with tax {_rs(total_tax)} was "
+                f"reported in GSTR-1 but has no corresponding entry in the books. "
+                f"This may be a duplicate filing, a data-entry error, or a "
+                f"transaction not yet recorded in the Sales Register."
+            ),
+            decision_next=(
+                f"Verify if Debit Note {inv} for {recipient_label} is genuine. "
+                f"If duplicate, amend GSTR-1 to remove it. If genuine, add it to "
+                f"the Sales Register."
+            ),
+            rule_id="G1M_002",
+            details={
+                "invoice_number": inv,
+                "document_type": "DEBIT_NOTE",
+                "debit_note_number": inv,
+                "recipient_gstin": gstin,
+                "taxable_amount_paise": taxable,
+                "total_tax_paise": total_tax,
+                "invoice_date": inv_date.isoformat() if inv_date else None,
+                "matched_fields": [],
+                "differed_fields": ["presence"],
+            },
+        )
 
     return MismatchResult(
         mismatch_type=MismatchType.EXTRA_INVOICE,
@@ -530,6 +683,7 @@ def classify_extra_invoice(
         rule_id="G1M_002",
         details={
             "invoice_number": inv,
+            "document_type": "INVOICE",
             "recipient_gstin": gstin,
             "taxable_amount_paise": taxable,
             "total_tax_paise": total_tax,
@@ -573,8 +727,10 @@ def classify_amount_mismatch(
     """
     inv = str(_get_field(sr_rec, "invoice_number") or "?")
 
-    from app.services.matcher import _is_credit_note
     is_cn = _is_credit_note(sr_rec) or _is_credit_note(gstr1_rec)
+    is_dn = _is_debit_note(sr_rec) or _is_debit_note(gstr1_rec)
+    doc_title = "Credit Note" if is_cn else ("Debit Note" if is_dn else "Invoice")
+    doc_lower = "credit note" if is_cn else ("debit note" if is_dn else "invoice")
 
     if is_cn:
         sr_taxable = abs(_safe_int(sr_rec.get("taxable_amount_paise")))
@@ -638,7 +794,7 @@ def classify_amount_mismatch(
         mismatch_type=MismatchType.AMOUNT_MISMATCH,
         severity=severity,
         decision_what=(
-            f"Invoice {inv}: {'; '.join(diff_parts)}"
+            f"{doc_title} {inv}: {'; '.join(diff_parts)}"
         ),
         decision_why=(
             f"Sales Register shows taxable value {_rs(sr_taxable)} / tax "
@@ -647,13 +803,14 @@ def classify_amount_mismatch(
             f"payment of output tax, attracting interest under Section 50."
         ),
         decision_next=(
-            f"Compare invoice {inv} against the original document. Amend "
+            f"Compare {doc_lower} {inv} against the original document. Amend "
             f"GSTR-1 or correct the Sales Register to align the values. If a "
             f"credit/debit note was issued, ensure it is reported separately."
         ),
         rule_id="G1M_003",
         details={
             "invoice_number": inv,
+            "document_type": "CREDIT_NOTE" if is_cn else ("DEBIT_NOTE" if is_dn else "INVOICE"),
             "sr_taxable_paise": sr_taxable,
             "gstr1_taxable_paise": g1_taxable,
             "taxable_diff_paise": taxable_diff,

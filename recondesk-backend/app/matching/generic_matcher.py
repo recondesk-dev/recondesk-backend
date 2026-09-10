@@ -63,6 +63,7 @@ from app.services.matcher import (
     _format_gst_return_period_label,
     _format_invoice_date_label,
     _is_credit_note,
+    _is_debit_note,
 )
 from app.services.vendor_name_matcher import (
     find_best_vendor_match,
@@ -407,11 +408,14 @@ def _build_compared_fields(
         # One side present, other blank — identity mismatch.
         out.append(_field_entry("gstin", "not_matched"))
 
-    # ── Invoice number ───────────────────────────────────────────────────────
+    # ── Document (Invoice / Credit Note / Debit Note) number ─────────────────
     a_inv = _invoice_number(rec_a)
     b_inv = _invoice_number(rec_b)
     a_doc = _extract_doc_number(rec_a) or a_inv
     b_doc = _extract_doc_number(rec_b) or b_inv
+    is_cn = _is_credit_note(rec_a) or _is_credit_note(rec_b)
+    is_dn = _is_debit_note(rec_a) or _is_debit_note(rec_b)
+    doc_field_name = "credit_note_number" if is_cn else ("debit_note_number" if is_dn else "invoice_number")
     norm_a = normalise_inv_no(a_doc)
     norm_b = normalise_inv_no(b_doc)
     a_inv_raw = str(rec_a.get("invoice_number", "")).strip()
@@ -439,16 +443,16 @@ def _build_compared_fields(
         else (invoice_similarity(a_inv, b_inv) if a_inv and b_inv else 0.0)
     )
     if raw_inv_ok:
-        out.append(_field_entry("invoice_number", "exact"))
+        out.append(_field_entry(doc_field_name, "exact"))
     elif format_variant or inv_ok or inv_sim >= INVOICE_SIMILARITY_L5_MIN:
         if not raw_inv_ok and (inv_ok or format_variant):
             score = 95
         else:
             score = int(round(inv_sim * 100)) if inv_sim > 0 else None
-        out.append(_field_entry("invoice_number", "fuzzy", score))
+        out.append(_field_entry(doc_field_name, "fuzzy", score))
     else:
         score = int(round(inv_sim * 100)) if inv_sim > 0 else None
-        out.append(_field_entry("invoice_number", "not_matched", score))
+        out.append(_field_entry(doc_field_name, "not_matched", score))
 
     # ── Taxable amount ───────────────────────────────────────────────────────
     t_a = _optional_taxable(rec_a)
@@ -946,12 +950,38 @@ def generic_match_pair(
     # ══════════════════════════════════════════════════════════════════════
     # L6 — No match
     # ══════════════════════════════════════════════════════════════════════
+    what = config.no_match_what
+    why = config.no_match_why
+    next_step = config.no_match_next
+    if _is_credit_note(rec_a):
+        doc_no = _extract_doc_number(rec_a) or a_inv or "Credit Note"
+        what = f"Credit Note {doc_no} is present in the Sales Register but is missing from GSTR-1."
+        why = (
+            "The Credit Note has been recorded in the Sales Register but no "
+            "corresponding Credit Note was found in the GSTR-1 data for this return period."
+        )
+        next_step = (
+            f"Verify whether Credit Note {doc_no} was reported in GSTR-1. "
+            f"If it was not reported, review the filing and amendment requirements."
+        )
+    elif _is_debit_note(rec_a):
+        doc_no = _extract_doc_number(rec_a) or a_inv or "Debit Note"
+        what = f"Debit Note {doc_no} is present in the Sales Register but is missing from GSTR-1."
+        why = (
+            "The Debit Note has been recorded in the Sales Register but no "
+            "corresponding Debit Note was found in the GSTR-1 data for this return period."
+        )
+        next_step = (
+            f"Verify whether Debit Note {doc_no} was reported in GSTR-1. "
+            f"If it was not reported, review the filing and amendment requirements."
+        )
+
     return _ret(
         level=6, matched=False, confidence=0,
         requires_human_review=False,
-        decision_what=config.no_match_what,
-        decision_why=config.no_match_why,
-        decision_next=config.no_match_next,
+        decision_what=what,
+        decision_why=why,
+        decision_next=next_step,
         discrepancies=discrepancies,
         identity_confidence="None", financial_status="None",
     )

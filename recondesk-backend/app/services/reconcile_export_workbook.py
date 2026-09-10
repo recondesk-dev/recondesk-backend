@@ -56,6 +56,8 @@ def _format_match_confidence(raw: Any) -> str:
 _FIELD_LABELS = {
     "gstin": "GSTIN",
     "invoice_number": "Invoice#",
+    "credit_note_number": "Credit Note#",
+    "debit_note_number": "Debit Note#",
     "taxable_amount": "Amount",
     "date": "Date",
     "vendor_name": "Vendor",

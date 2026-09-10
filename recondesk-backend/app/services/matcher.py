@@ -746,6 +746,28 @@ def _is_credit_note(rec: Mapping[str, Any] | None) -> bool:
     return False
 
 
+def _is_debit_note(rec: Mapping[str, Any] | None) -> bool:
+    """Return True if rec represents a debit note."""
+    if not rec:
+        return False
+    doc_type = str(rec.get("doc_type") or "").upper().strip()
+    if doc_type in ("DEBIT_NOTE", "DN", "DEBIT", "D"):
+        return True
+    inv_type = str(rec.get("invoice_type") or "").upper().strip()
+    if inv_type in ("DEBIT_NOTE", "DN", "DEBIT", "D"):
+        return True
+    ntty = str(rec.get("ntty") or "").upper().strip()
+    if ntty in ("D", "DR", "DEBIT", "DEBIT_NOTE"):
+        return True
+    voucher_type = str(rec.get("voucher_type") or "").upper().strip()
+    if "DEBIT" in voucher_type or voucher_type in ("DN", "DR NOTE", "DR. NOTE"):
+        return True
+    inv_num = str(rec.get("invoice_number_raw") or rec.get("invoice_number") or "").upper().strip()
+    if inv_num.startswith("DN") or inv_num.endswith("DN") or "-DN" in inv_num or "/DN" in inv_num:
+        return True
+    return False
+
+
 def invoice_match_key_for_record(rec: Mapping[str, Any]) -> str:
     """Normalized invoice identity for a matcher row (GSTR or PR)."""
     return _invoice_key_for_match(_invoice_number(rec))

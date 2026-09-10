@@ -398,3 +398,80 @@ async def test_july_2025_benchmark_reconciliation():
         if (m.get("sr_record") or {}).get("invoice_number") == "B2CS-AGGREGATE"
     )
     assert b2cs_match is not None
+
+
+def test_missing_credit_note_explanation_text():
+    """Verify missing credit note uses exact required document-aware terminology."""
+    from app.rules.gstr1_mismatch_rules import classify_missing_invoice, MismatchType
+
+    sr_cn = {
+        "invoice_number": "2025262001CN",
+        "doc_type": "CREDIT_NOTE",
+        "taxable_amount_paise": -2000000,
+        "total_tax_paise": -360000,
+        "recipient_gstin": "27AAACR5055K1ZK",
+    }
+
+    result = classify_missing_invoice(sr_cn)
+    assert result.mismatch_type == MismatchType.MISSING_INVOICE
+    assert result.rule_id == "G1M_001"
+
+    # Exact required wording
+    assert result.decision_what == "Credit Note 2025262001CN is present in the Sales Register but is missing from GSTR-1."
+    assert result.decision_why == "The Credit Note has been recorded in the Sales Register but no corresponding Credit Note was found in the GSTR-1 data for this return period."
+    assert result.decision_next == "Verify whether Credit Note 2025262001CN was reported in GSTR-1. If it was not reported, review the filing and amendment requirements."
+
+    # Must NOT call it an invoice or tell user to record a credit note
+    assert "invoice" not in result.decision_what.lower()
+    assert "record a credit note instead" not in result.decision_next.lower()
+    assert "under-reporting" not in result.decision_why.lower()
+    assert result.details.get("document_type") == "CREDIT_NOTE"
+
+
+def test_missing_standard_invoice_retains_standard_text():
+    """Verify standard invoices retain under-reporting and cancellation advice."""
+    from app.rules.gstr1_mismatch_rules import classify_missing_invoice, MismatchType
+
+    sr_inv = {
+        "invoice_number": "INV-101",
+        "taxable_amount_paise": 2000000,
+        "total_tax_paise": 360000,
+        "recipient_gstin": "27AAACR5055K1ZK",
+    }
+
+    result = classify_missing_invoice(sr_inv)
+    assert result.mismatch_type == MismatchType.MISSING_INVOICE
+    assert "Invoice INV-101 is in the Sales Register but missing from GSTR-1" in result.decision_what
+    assert "under-reporting" in result.decision_why
+    assert "record a credit note instead" in result.decision_next
+    assert result.details.get("document_type") == "INVOICE"
+
+
+def test_missing_credit_note_generic_matcher_l6():
+    """Verify generic_matcher L6 produces document-aware text for unmatched credit note."""
+    sr_cn = {
+        "invoice_number": "2025262001CN",
+        "doc_type": "CREDIT_NOTE",
+        "taxable_amount_paise": -2000000,
+        "total_tax_paise": -360000,
+        "recipient_gstin": "27AAACR5055K1ZK",
+    }
+    g1_other = {
+        "inum": "INV-999",
+        "section": "b2b",
+        "taxable_amount_paise": 5000000,
+        "recipient_gstin": "29BBBB1234K1Z1",
+    }
+
+    res = generic_match_pair(sr_cn, g1_other, SALES_MATCH_CONFIG)
+    assert res.matched is False
+    assert res.level == 6
+    assert res.decision_what == "Credit Note 2025262001CN is present in the Sales Register but is missing from GSTR-1."
+    assert res.decision_why == "The Credit Note has been recorded in the Sales Register but no corresponding Credit Note was found in the GSTR-1 data for this return period."
+    assert res.decision_next == "Verify whether Credit Note 2025262001CN was reported in GSTR-1. If it was not reported, review the filing and amendment requirements."
+
+    # Rationale field name check
+    cn_field = next((f for f in res.compared_fields if f["field_name"] == "credit_note_number"), None)
+    assert cn_field is not None
+    assert cn_field["match_type"] == "not_matched"
+

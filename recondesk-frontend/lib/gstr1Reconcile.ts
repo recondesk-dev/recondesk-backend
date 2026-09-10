@@ -285,6 +285,8 @@ export function recordInvoiceNumber(
     rec?.invoice_number_raw ||
     rec?.inum ||
     rec?.nt_num ||
+    rec?.credit_note_number ||
+    rec?.note_number ||
     rec?.invoice_number ||
     rec?.invoice_number_normalized ||
     "?"
