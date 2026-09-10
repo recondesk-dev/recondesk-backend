@@ -314,9 +314,11 @@ def _severity_to_confidence(severity: MismatchSeverity) -> str:
     return {
         MismatchSeverity.CRITICAL: "HIGH",
         MismatchSeverity.HIGH: "MEDIUM",
+        MismatchSeverity.WARNING: "MEDIUM",
         MismatchSeverity.MEDIUM: "LOW",
         MismatchSeverity.LOW: "LOW",
-    }[severity]
+        MismatchSeverity.INFO: "LOW",
+    }.get(severity, "LOW")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2779,14 +2781,20 @@ _AMENDMENT_SKIP_TYPES: frozenset[str] = frozenset({
 
 def _amendment_invoice_key(rec: Mapping[str, Any]) -> str:
     """Stable invoice key using the same normalisation as matching elsewhere."""
-    from app.services.matcher import normalize_invoice
+    from app.services.matcher import normalise_inv_no
 
     raw = (
-        rec.get("invoice_number_normalized")
+        rec.get("inum")
+        or rec.get("nt_num")
+        or rec.get("ntnum")
+        or rec.get("credit_note_number")
+        or rec.get("note_number")
+        or rec.get("invoice_number_raw")
         or rec.get("invoice_number")
+        or rec.get("invoice_number_normalized")
         or ""
     )
-    return normalize_invoice(str(raw).strip()) if raw else ""
+    return normalise_inv_no(str(raw).strip()) if raw else ""
 
 
 def _amendment_gstin(rec: Mapping[str, Any]) -> str:
@@ -3024,17 +3032,21 @@ def _index_amendment_records(
         if primary:
             keys.append(primary)
         oinum = (
-            rec.get("original_invoice_number")
-            or rec.get("original_invoice_number_raw")
+            rec.get("original_invoice_number_raw")
+            or rec.get("original_invoice_number")
             or rec.get("oinum")
+            or rec.get("ont_num")
             or ""
         )
         if oinum:
-            from app.services.matcher import normalize_invoice
+            from app.services.matcher import normalise_inv_no, normalize_invoice
 
-            okey = normalize_invoice(str(oinum).strip())
-            if okey:
+            okey = normalise_inv_no(str(oinum).strip())
+            if okey and okey not in keys:
                 keys.append(okey)
+            legacy_okey = normalize_invoice(str(oinum).strip())
+            if legacy_okey and legacy_okey not in keys:
+                keys.append(legacy_okey)
         for key in keys:
             if key and key not in by_inv:
                 by_inv[key] = rec

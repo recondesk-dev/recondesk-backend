@@ -475,6 +475,8 @@ def _build_record(
         "invoice_number": invoice_number,
         "invoice_number_raw": invoice_number_raw,
         "invoice_number_normalized": invoice_number,
+        "inum": invoice_number_raw if section not in {"cdnr", "cdnra", "cdnur", "cdnura"} else None,
+        "nt_num": invoice_number_raw if section in {"cdnr", "cdnra", "cdnur", "cdnura"} else None,
         "invoice_date": invoice_date_norm,
         "invoice_date_raw": invoice_date_raw,
         # Values (paise)

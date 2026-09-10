@@ -52,6 +52,7 @@ from app.services.matcher import (
     _optional_taxable,
     _parse_invoice_date,
     _invoice_number,
+    normalise_inv_no,
     _amount_diff_and_skip,
     _date_diff_days_and_skip,
     _compute_percentage_diff,
@@ -258,6 +259,24 @@ def _get_name(rec: Mapping[str, Any], field_name: str) -> str:
     return str(rec.get(field_name) or "").strip()
 
 
+def _extract_doc_number(rec: Mapping[str, Any]) -> str:
+    """Extract invoice or credit/debit note number from a record."""
+    for field in (
+        "inum",
+        "nt_num",
+        "ntnum",
+        "credit_note_number",
+        "note_number",
+        "invoice_number_raw",
+        "invoice_number",
+        "invoice_number_normalized",
+    ):
+        v = rec.get(field)
+        if v is not None and str(v).strip():
+            return str(v).strip()
+    return ""
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Config-aware discrepancy / compared-fields builders
 # ══════════════════════════════════════════════════════════════════════════════
@@ -388,19 +407,28 @@ def _build_compared_fields(
     # ── Invoice number ───────────────────────────────────────────────────────
     a_inv = _invoice_number(rec_a)
     b_inv = _invoice_number(rec_b)
+    a_doc = _extract_doc_number(rec_a) or a_inv
+    b_doc = _extract_doc_number(rec_b) or b_inv
+    norm_a = normalise_inv_no(a_doc)
+    norm_b = normalise_inv_no(b_doc)
     a_inv_raw = str(rec_a.get("invoice_number", "")).strip()
     b_inv_raw = str(rec_b.get("invoice_number", "")).strip()
     inv_ok = (
-        invoices_effectively_match(a_inv, b_inv) if a_inv and b_inv else False
+        bool(norm_a and norm_b and norm_a == norm_b)
+        or invoices_effectively_match(a_doc, b_doc)
+        or (invoices_effectively_match(a_inv, b_inv) if a_inv and b_inv else False)
     )
-    raw_inv_ok = bool(a_inv_raw and b_inv_raw and a_inv_raw == b_inv_raw)
+    raw_inv_ok = bool(
+        (a_doc and b_doc and a_doc == b_doc)
+        or (a_inv_raw and b_inv_raw and a_inv_raw == b_inv_raw)
+    )
     format_variant = False
     if a_inv and b_inv and not inv_ok:
         format_variant = is_invoice_format_variant(
             a_inv, b_inv,
             rec_a.get("invoice_number"), rec_b.get("invoice_number"),
         )
-    if a_inv and b_inv and not raw_inv_ok and (inv_ok or format_variant):
+    if (inv_ok or format_variant) and not raw_inv_ok:
         format_variant = True
     inv_sim = (
         float(invoice_sim_override)
@@ -568,10 +596,14 @@ def generic_match_pair(
 
     a_inv = _invoice_number(rec_a)
     b_inv = _invoice_number(rec_b)
+    a_doc = _extract_doc_number(rec_a) or a_inv
+    b_doc = _extract_doc_number(rec_b) or b_inv
+    norm_a = normalise_inv_no(a_doc)
+    norm_b = normalise_inv_no(b_doc)
     a_inv_raw = str(rec_a.get("invoice_number", "")).strip()
     b_inv_raw = str(rec_b.get("invoice_number", "")).strip()
 
-    if not a_inv or not b_inv:
+    if not (norm_a or a_inv) or not (norm_b or b_inv):
         return MatchResult(
             level=6,
             matched=False,
@@ -629,15 +661,30 @@ def generic_match_pair(
     )
 
     # ── Invoice identity checks ──────────────────────────────────────────
-    inv_ok = invoices_effectively_match(a_inv, b_inv)
+    inv_ok = (
+        bool(norm_a and norm_b and norm_a == norm_b)
+        or invoices_effectively_match(a_doc, b_doc)
+        or invoices_effectively_match(a_inv, b_inv)
+    )
     format_variant = False
     if not inv_ok:
-        format_variant = is_invoice_format_variant(
-            a_inv, b_inv,
-            rec_a.get("invoice_number"), rec_b.get("invoice_number"),
+        format_variant = (
+            is_invoice_format_variant(
+                a_inv, b_inv,
+                rec_a.get("invoice_number"), rec_b.get("invoice_number"),
+            )
+            or is_invoice_format_variant(
+                norm_a, norm_b,
+                a_doc, b_doc,
+            )
         )
 
-    raw_inv_ok = bool(a_inv_raw and b_inv_raw and a_inv_raw == b_inv_raw)
+    raw_inv_ok = bool(
+        (a_doc and b_doc and a_doc == b_doc)
+        or (a_inv_raw and b_inv_raw and a_inv_raw == b_inv_raw)
+    )
+    if inv_ok and not raw_inv_ok:
+        format_variant = True
     amount_pct = _compute_percentage_diff(amount_diff, skip_amount, ta, tb)
 
     # ── Tolerance bands ──────────────────────────────────────────────────
@@ -965,9 +1012,17 @@ def generic_match_one_to_many(
                 # Mark late filing ONLY if strong match on other fields
                 a_gstin = _get_gstin(rec_a, config.a_gstin_fields)
                 b_gstin = _get_gstin(rec_b, config.b_gstin_fields)
+                inv_ident_ok = (
+                    invoices_effectively_match(
+                        _extract_doc_number(rec_a), _extract_doc_number(rec_b)
+                    )
+                    or (
+                        invoice_match_key_for_record(rec_a)
+                        == invoice_match_key_for_record(rec_b)
+                    )
+                )
                 if (
-                    invoice_match_key_for_record(rec_a)
-                    == invoice_match_key_for_record(rec_b)
+                    inv_ident_ok
                     and a_gstin == b_gstin
                     and abs(
                         abs(int(rec_a.get("taxable_amount_paise") or 0))
@@ -1009,8 +1064,15 @@ def generic_match_one_to_many(
     strong_matches = [
         c for c in scored
         if (
-            invoice_match_key_for_record(c["rec_b"])
-            == invoice_match_key_for_record(rec_a)
+            (
+                invoices_effectively_match(
+                    _extract_doc_number(c["rec_b"]), _extract_doc_number(rec_a)
+                )
+                or (
+                    invoice_match_key_for_record(c["rec_b"])
+                    == invoice_match_key_for_record(rec_a)
+                )
+            )
             and _get_gstin(c["rec_b"], config.b_gstin_fields) == a_gstin
             and abs(
                 abs(int(c["rec_b"].get("taxable_amount_paise") or 0))

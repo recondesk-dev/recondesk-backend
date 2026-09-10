@@ -499,3 +499,75 @@ class TestFinancialDowngrade:
         # Should be downgraded to at least L3 with review
         assert r.level >= 2
         assert r.requires_human_review is True
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Symmetric invoice and credit-note normalisation tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestSymmetricInvoiceNormalisation:
+    """Test symmetric comparison-time normalisation for SR vs GSTR-1 inum / nt_num."""
+
+    def test_normalise_inv_no_function(self):
+        from app.services.matcher import normalise_inv_no
+
+        assert normalise_inv_no("INV/2025-26/001") == "INV202526001"
+        assert normalise_inv_no("inv-2025-26-001") == "INV202526001"
+        assert normalise_inv_no("202526001") == "202526001"
+        assert normalise_inv_no("CN/2025-26/001") == "CN202526001"
+        assert normalise_inv_no(None) == ""
+        assert normalise_inv_no("") == ""
+        assert normalise_inv_no("   ") == ""
+        assert normalise_inv_no("INV#123@45") == "INV12345"
+
+    def test_sr_vs_gstr1_inum_format_variant_matches(self):
+        """SR 'INV/2025-26/001' matches GSTR-1 inum '202526001' symmetrically."""
+        sr = _sales_sr(inv="INV/2025-26/001")
+        sr["invoice_number_raw"] = "INV/2025-26/001"
+        g1 = _sales_gstr1(inv="202526001")
+        g1["inum"] = "202526001"
+
+        r = generic_match_pair(sr, g1, SALES_MATCH_CONFIG)
+        assert r.matched is True
+        assert r.level in (1, 2)
+        # Stored values must NOT be modified
+        assert sr["invoice_number_raw"] == "INV/2025-26/001"
+        assert g1["inum"] == "202526001"
+
+    def test_sr_vs_gstr1_identical_raw_is_l1(self):
+        """SR 'INV/2025-26/001' and GSTR-1 inum 'INV/2025-26/001' matches L1 exact."""
+        sr = _sales_sr(inv="INV/2025-26/001")
+        sr["invoice_number_raw"] = "INV/2025-26/001"
+        g1 = _sales_gstr1(inv="INV/2025-26/001")
+        g1["inum"] = "INV/2025-26/001"
+
+        r = generic_match_pair(sr, g1, SALES_MATCH_CONFIG)
+        assert r.matched is True
+        assert r.level == 1
+        assert r.confidence == 100
+
+    def test_credit_note_nt_num_normalisation(self):
+        """SR credit note 'CN/2025-26/001' matches GSTR-1 CDNR 'CN202526001'."""
+        sr = _sales_sr(inv="CN/2025-26/001")
+        sr["invoice_number_raw"] = "CN/2025-26/001"
+        sr["credit_note_number"] = "CN/2025-26/001"
+        g1 = _sales_gstr1(inv="CN202526001")
+        g1["nt_num"] = "CN202526001"
+
+        r = generic_match_pair(sr, g1, SALES_MATCH_CONFIG)
+        assert r.matched is True
+        assert r.level in (1, 2)
+        # Stored values must NOT be modified
+        assert sr["credit_note_number"] == "CN/2025-26/001"
+        assert g1["nt_num"] == "CN202526001"
+
+    def test_different_invoices_do_not_falsely_match(self):
+        """Distinct invoice numbers must not match."""
+        sr = _sales_sr(inv="INV/2025-26/001")
+        sr["invoice_number_raw"] = "INV/2025-26/001"
+        g1 = _sales_gstr1(inv="INV/2025-26/999")
+        g1["inum"] = "INV/2025-26/999"
+
+        r = generic_match_pair(sr, g1, SALES_MATCH_CONFIG)
+        assert r.matched is False or r.level > 2
+

@@ -38,33 +38,34 @@ _RE_SERIES_PREFIX = re.compile(r"^[A-Z0-9]*[A-Z]+")
 _RE_TRAILING_DIGITS = re.compile(r"\d+$")
 
 
+def normalise_inv_no(s: Any) -> str:
+    """Shared invoice and credit note normaliser for comparison.
+
+    Strips all non-alphanumeric characters and converts to uppercase.
+    Only applied at comparison time — does NOT modify stored values.
+    Equivalent to:
+        const normaliseInvNo = (s) => String(s ?? '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+    """
+    if s is None:
+        return ""
+    return _RE_NON_ALNUM.sub("", str(s)).upper()
+
+
 def normalize_invoice(inv: str | None) -> str:
-    """Normalize invoice number by stripping known alpha prefixes, non-alphanumerics, and leading zeros per numeric segment."""
+    """Normalize invoice number by stripping leading zeros per numeric segment and removing non-alphanumerics.
+
+    Also strips a leading ``0`` that sits alone before letters (e.g. portal
+    artifacts ``0SI-1798`` / ``0INV/24-25/5024`` → ``SI1798`` / ``INV24255024``),
+    matching aggressive ground-truth keying. A lone ``"0"`` is preserved.
+    """
     if not inv:
         return ""
-    invoice_str = re.sub(r'^[A-Za-z]+[-/]*', '', str(inv).strip())
-    segments = re.split(r'[^A-Za-z0-9]+', invoice_str.upper())
-    result_segments = []
-    for segment in segments:
-        if not segment:
-            continue
-        if segment.isdigit():
-            stripped = segment.lstrip('0')
-            segment_result = stripped if stripped else '0'
-            result_segments.append(segment_result)
-        else:
-            subparts = re.findall(r'\d+|\D+', segment)
-            sub_res = []
-            for sp in subparts:
-                if sp.isdigit():
-                    stripped = sp.lstrip('0')
-                    segment_result = stripped if stripped else '0'
-                    sub_res.append(segment_result)
-                else:
-                    sub_res.append(sp)
-            result_segments.append("".join(sub_res))
-    joined = "".join(result_segments)
-    return joined or "0"
+    s = str(inv).strip().upper()
+    s = _RE_NON_ALNUM.sub("", s)
+    parts = re.findall(r'\d+|\D+', s)
+    parts = [p.lstrip('0') or '0' if p.isdigit() else p for p in parts]
+    joined = "".join(parts)
+    return joined.lstrip("0") or joined
 
 
 def normalize_invoice_number(value: str | None) -> str:
@@ -220,7 +221,7 @@ def invoice_similarity(inv1: str, inv2: str) -> float:
     b = re.sub(r'(?<![0-9])0+(?=[0-9])', '', b)
     if a == b:
         return 1.0
-    
+
     max_len = max(len(a), len(b))
     dist = levenshtein(a, b)
     if max_len == 0:
@@ -647,10 +648,27 @@ def _invoice_key_for_match(inv: str | None) -> str:
     return normalize_invoice(inv)
 
 
+_STANDARD_DOC_PREFIXES = ("INV", "TAX", "BILL", "CN", "DN", "INVOICE", "DOC", "CR", "DR", "RET")
+
+
 def invoices_effectively_match(g_inv: str, p_inv: str) -> bool:
+    if not g_inv or not p_inv:
+        return False
+    norm_g = normalise_inv_no(g_inv)
+    norm_p = normalise_inv_no(p_inv)
+    if norm_g and norm_p and norm_g == norm_p:
+        return True
+    # If one side includes a standard prefix (INV, CN, etc.) and the other omits it
+    if norm_g and norm_p:
+        for pref in _STANDARD_DOC_PREFIXES:
+            if norm_g.startswith(pref) and norm_g[len(pref):] == norm_p:
+                return True
+            if norm_p.startswith(pref) and norm_p[len(pref):] == norm_g:
+                return True
     a = _invoice_key_for_match(g_inv)
     b = _invoice_key_for_match(p_inv)
     return bool(a) and bool(b) and a == b
+
 
 
 def invoice_match_key_for_record(rec: Mapping[str, Any]) -> str:
@@ -940,7 +958,7 @@ def _match_gstr_to_pr_pair(
                 review_reason=None,
             )
         return _ret(
-            level=2, matched=True, confidence=95, requires_human_review=True,
+            level=2, matched=True, confidence=95, requires_human_review=False,
             decision_what="Normalized invoice match",
             decision_why=(
                 "Invoice numbers match after normalization or format variant; "

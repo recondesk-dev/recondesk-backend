@@ -64,7 +64,10 @@ export type Gstr1DecisionFields = {
 
 export type Gstr1SanitisedRecord = {
   invoice_number?: string | null;
+  invoice_number_raw?: string | null;
   invoice_number_normalized?: string | null;
+  inum?: string | null;
+  nt_num?: string | null;
   invoice_date?: string | null;
   gstin?: string | null;
   recipient_gstin?: string | null;
@@ -272,11 +275,19 @@ export function recordGstin(rec: Gstr1SanitisedRecord | null | undefined): strin
   return String(raw).trim();
 }
 
+export const normaliseInvNo = (s: unknown): string =>
+  String(s ?? "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+
 export function recordInvoiceNumber(
   rec: Gstr1SanitisedRecord | null | undefined
 ): string {
   return String(
-    rec?.invoice_number || rec?.invoice_number_normalized || "?"
+    rec?.invoice_number_raw ||
+    rec?.inum ||
+    rec?.nt_num ||
+    rec?.invoice_number ||
+    rec?.invoice_number_normalized ||
+    "?"
   ).trim();
 }
 
@@ -306,14 +317,14 @@ export function filterReviewRequired(
   const invs = new Set(
     mismatches
       .filter((m) => mismatchTypeShort(m.mismatch_type) === "G1M3")
-      .map((m) => String(m.invoice_number || "").trim().toUpperCase())
+      .map((m) => normaliseInvNo(m.invoice_number))
       .filter(Boolean)
   );
   if (invs.size === 0) return [];
   return matched.filter((row) => {
-    const srInv = recordInvoiceNumber(row.sr_record).toUpperCase();
-    const g1Inv = recordInvoiceNumber(row.gstr1_record).toUpperCase();
-    return (srInv !== "?" && invs.has(srInv)) || (g1Inv !== "?" && invs.has(g1Inv));
+    const srInv = normaliseInvNo(recordInvoiceNumber(row.sr_record));
+    const g1Inv = normaliseInvNo(recordInvoiceNumber(row.gstr1_record));
+    return (srInv && invs.has(srInv)) || (g1Inv && invs.has(g1Inv));
   });
 }
 

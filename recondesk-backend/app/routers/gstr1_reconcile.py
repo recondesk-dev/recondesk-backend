@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections import defaultdict
 from typing import Any, Mapping, Optional
@@ -61,6 +62,7 @@ from app.parsers.sales_register_parser import parse_sales_register, ParseError
 from app.parsers.gstr1_parser import parse_gstr1
 from app.parsers.gstr3b_parser import parse_gstr3b
 from app.matching.generic_matcher import match_sales_register_to_gstr1
+from app.services.matcher import normalise_inv_no
 from app.rules.gstr1_mismatch_rules import (
     classify_all_mismatches,
     check_invoice_series_continuity,
@@ -269,24 +271,65 @@ def _build_gstin_index(
     return dict(index)
 
 
-def _invoice_index_key(rec: Mapping[str, Any]) -> str:
-    """Normalized invoice key used for sales-side candidate lookup."""
+def _extract_doc_number(rec: Mapping[str, Any]) -> str:
+    """Extract raw invoice or credit/debit note number from a record."""
+    for field in (
+        "inum",
+        "nt_num",
+        "ntnum",
+        "credit_note_number",
+        "note_number",
+        "invoice_number_raw",
+        "invoice_number",
+        "invoice_number_normalized",
+    ):
+        v = rec.get(field)
+        if v is not None and str(v).strip():
+            return str(v).strip()
+    return ""
+
+
+def _candidate_keys_for_record(rec: Mapping[str, Any]) -> list[str]:
+    """Generate normalized lookup keys for candidate indexing/matching."""
     from app.services.matcher import invoice_match_key_for_record
 
+    keys: list[str] = []
+    doc = _extract_doc_number(rec)
+    if doc:
+        norm = normalise_inv_no(doc)
+        if norm and norm not in keys:
+            keys.append(norm)
+            # Prefix-stripped key (e.g. "INV202526001" -> "202526001")
+            core = re.sub(r"^[A-Z]+", "", norm)
+            if core and core not in keys:
+                keys.append(core)
+
     try:
-        key = invoice_match_key_for_record(rec)
-    except Exception:  # noqa: BLE001 — never break matching on key helpers
-        key = ""
-    if key:
-        return str(key).strip().upper()
+        k = invoice_match_key_for_record(rec)
+        if k and str(k).strip().upper() not in keys:
+            keys.append(str(k).strip().upper())
+    except Exception:
+        pass
+
     for field in ("invoice_number_normalized", "invoice_number"):
         raw = rec.get(field)
-        if raw is None:
-            continue
-        s = str(raw).strip().upper()
-        if s:
-            return s
-    return ""
+        if raw is not None:
+            s = str(raw).strip().upper()
+            if s and s not in keys:
+                keys.append(s)
+
+    return keys
+
+
+def _invoice_index_key(rec: Mapping[str, Any]) -> str:
+    """Normalized invoice key used for sales-side candidate lookup."""
+    doc = _extract_doc_number(rec)
+    if doc:
+        norm = normalise_inv_no(doc)
+        if norm:
+            return norm
+    keys = _candidate_keys_for_record(rec)
+    return keys[0] if keys else ""
 
 
 def _build_invoice_index(
@@ -295,9 +338,9 @@ def _build_invoice_index(
     """Group records by normalized invoice number for O(1) candidate lookup."""
     index: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for rec in records:
-        key = _invoice_index_key(rec)
-        if key:
-            index[key].append(rec)
+        for key in _candidate_keys_for_record(rec):
+            if rec not in index[key]:
+                index[key].append(rec)
     return dict(index)
 
 
@@ -485,8 +528,13 @@ async def _run_pipeline(
         return [c for c in cands if id(c) not in used_gstr1_ids]
 
     for sr_rec in sr_current_records:
-        inv_key = _invoice_index_key(sr_rec)
-        candidates = _unused(gstr1_by_invoice.get(inv_key, []))
+        sr_keys = _candidate_keys_for_record(sr_rec)
+        raw_cands: list[dict[str, Any]] = []
+        for k in sr_keys:
+            for c in gstr1_by_invoice.get(k, []):
+                if c not in raw_cands:
+                    raw_cands.append(c)
+        candidates = _unused(raw_cands)
 
         # Secondary pool: same/blank GSTIN (covers invoice format variants).
         if not candidates:
@@ -682,9 +730,11 @@ async def _run_pipeline(
         if mr.mismatch_type.value == "G1M1_MISSING_INVOICE":
             # Find the corresponding SR record
             inv_num = mr.details.get("invoice_number", "?")
+            norm_inv = normalise_inv_no(inv_num)
             sr_match = next(
                 (r for r in unmatched_sr
-                 if (r.get("invoice_number") or r.get("invoice_number_normalized")) == inv_num),
+                 if (norm_inv and normalise_inv_no(_extract_doc_number(r)) == norm_inv)
+                 or (r.get("invoice_number") or r.get("invoice_number_normalized")) == inv_num),
                 None,
             )
             unmatched_sr_output.append({
@@ -693,9 +743,11 @@ async def _run_pipeline(
             })
         elif mr.mismatch_type.value == "G1M2_EXTRA_INVOICE":
             inv_num = mr.details.get("invoice_number", "?")
+            norm_inv = normalise_inv_no(inv_num)
             g1_match = next(
                 (r for r in unmatched_gstr1
-                 if (r.get("invoice_number") or r.get("invoice_number_normalized")) == inv_num),
+                 if (norm_inv and normalise_inv_no(_extract_doc_number(r)) == norm_inv)
+                 or (r.get("invoice_number") or r.get("invoice_number_normalized")) == inv_num),
                 None,
             )
             unmatched_gstr1_output.append({
