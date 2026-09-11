@@ -466,6 +466,7 @@ def reconcile_2a_vs_2b(
 
     summary = {
         "total_records": len(results),
+        "unique_union_count": len(results),
         "total_2a": total_2a,
         "total_2b": total_2b,
         "in_both": in_both_count,
@@ -478,6 +479,8 @@ def reconcile_2a_vs_2b(
         "in_2b_not_2a_count": in_2b_not_2a_count,
         "value_mismatch": value_mismatch_count,
         "value_mismatch_count": value_mismatch_count,
+        "value_mismatch_is_subset": True,
+        "subset_note": f"{value_mismatch_count} of the {in_both_count} invoices present in both have value differences.",
         "total_itc_deferred_paise": total_itc_deferred,
         "deferred_itc_paise": total_itc_deferred,
         "deferred_itc_rupees": round(total_itc_deferred / 100.0, 2),

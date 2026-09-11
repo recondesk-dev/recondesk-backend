@@ -324,29 +324,34 @@ export default function Gstr2aDeltaPage() {
   };
 
   // Category filter chips config
-  const categoryChips: { id: CategoryFilter; label: string; count?: number }[] =
-    useMemo(() => {
-      return [
-        { id: "ALL", label: "All", count: summary?.total_records },
-        { id: "LATE_FILED", label: "Late Filed", count: summary?.late_filed },
-        {
-          id: "FILED_NOT_REFLECTED",
-          label: "Filed Not Reflected",
-          count: summary?.filed_not_reflected,
-        },
-        {
-          id: "IN_2B_NOT_2A",
-          label: "In 2B Not 2A",
-          count: summary?.in_2b_not_2a,
-        },
-        {
-          id: "VALUE_MISMATCH",
-          label: "Value Mismatch",
-          count: summary?.value_mismatch,
-        },
-        { id: "IN_BOTH", label: "Matched", count: summary?.in_both },
-      ];
-    }, [summary]);
+  const categoryChips: {
+    id: CategoryFilter;
+    label: string;
+    count?: number;
+    isSubset?: boolean;
+  }[] = useMemo(() => {
+    return [
+      { id: "ALL", label: "All", count: summary?.total_records },
+      { id: "LATE_FILED", label: "Late Filed", count: summary?.late_filed },
+      {
+        id: "FILED_NOT_REFLECTED",
+        label: "Filed Not Reflected",
+        count: summary?.filed_not_reflected,
+      },
+      {
+        id: "IN_2B_NOT_2A",
+        label: "In 2B Not 2A",
+        count: summary?.in_2b_not_2a,
+      },
+      {
+        id: "VALUE_MISMATCH",
+        label: "Value Mismatch",
+        count: summary?.value_mismatch,
+        isSubset: true,
+      },
+      { id: "IN_BOTH", label: "Matched", count: summary?.in_both },
+    ];
+  }, [summary]);
 
   return (
     <div className="space-y-6">
@@ -719,6 +724,102 @@ export default function Gstr2aDeltaPage() {
       {/* Main Content Area when Summary exists */}
       {!running && summary && (
         <>
+          {/* Reconciliation Population Summary Bar */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-[var(--shadow-soft)]">
+            <div className="flex flex-col gap-2 pb-4 border-b border-gray-100 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <Layers className="h-4 w-4 text-[var(--ink)]" />
+                <h2 className="text-xs font-bold uppercase tracking-wider text-gray-800">
+                  Reconciliation Population Summary
+                </h2>
+              </div>
+              <div className="flex items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs text-blue-800">
+                <Info className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+                <span>
+                  {summary.subset_note ||
+                    `${summary.value_mismatch} of the ${summary.in_both} invoices present in both have value differences. Value Mismatch is a subset of the matched population and is not an additive invoice count.`}
+                </span>
+              </div>
+            </div>
+
+            {/* Population Metric Grid */}
+            <div className="grid grid-cols-2 gap-2.5 pt-4 sm:grid-cols-4 lg:grid-cols-8">
+              <div className="rounded-xl border border-gray-100 bg-gray-50/70 p-2.5 text-center">
+                <span className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  2A Invoices
+                </span>
+                <span className="mt-0.5 block font-mono text-base font-bold text-gray-900">
+                  {summary.total_2a ??
+                    summary.in_both +
+                      summary.filed_not_reflected +
+                      summary.late_filed}
+                </span>
+              </div>
+              <div className="rounded-xl border border-gray-100 bg-gray-50/70 p-2.5 text-center">
+                <span className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  2B Invoices
+                </span>
+                <span className="mt-0.5 block font-mono text-base font-bold text-gray-900">
+                  {summary.total_2b ??
+                    summary.in_both + summary.in_2b_not_2a}
+                </span>
+              </div>
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-2.5 text-center">
+                <span className="block text-[10px] font-semibold uppercase tracking-wider text-indigo-700">
+                  Unique Population
+                </span>
+                <span className="mt-0.5 block font-mono text-base font-bold text-indigo-950">
+                  {summary.unique_union_count ?? summary.total_records}
+                </span>
+              </div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-2.5 text-center">
+                <span className="block text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
+                  Present in Both
+                </span>
+                <span className="mt-0.5 block font-mono text-base font-bold text-emerald-950">
+                  {summary.in_both}
+                </span>
+              </div>
+              <div className="rounded-xl border border-rose-100 bg-rose-50/50 p-2.5 text-center">
+                <span className="block text-[10px] font-semibold uppercase tracking-wider text-rose-700">
+                  Missing from 2B
+                </span>
+                <span className="mt-0.5 block font-mono text-base font-bold text-rose-950">
+                  {summary.filed_not_reflected}
+                </span>
+              </div>
+              <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-2.5 text-center">
+                <span className="block text-[10px] font-semibold uppercase tracking-wider text-blue-700">
+                  In 2B Not 2A
+                </span>
+                <span className="mt-0.5 block font-mono text-base font-bold text-blue-950">
+                  {summary.in_2b_not_2a}
+                </span>
+              </div>
+              <div className="rounded-xl border border-orange-100 bg-orange-50/50 p-2.5 text-center">
+                <span className="block text-[10px] font-semibold uppercase tracking-wider text-orange-700">
+                  Value Mismatch
+                </span>
+                <div className="mt-0.5 flex items-center justify-center gap-1">
+                  <span className="font-mono text-base font-bold text-orange-950">
+                    {summary.value_mismatch}
+                  </span>
+                  <span className="rounded bg-orange-200/80 px-1 py-0.2 text-[9px] font-bold text-orange-900">
+                    subset
+                  </span>
+                </div>
+              </div>
+              <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-2.5 text-center">
+                <span className="block text-[10px] font-semibold uppercase tracking-wider text-amber-700">
+                  Late Filed
+                </span>
+                <span className="mt-0.5 block font-mono text-base font-bold text-amber-950">
+                  {summary.late_filed}
+                </span>
+              </div>
+            </div>
+          </div>
+
           {/* Summary Cards Row (4 Cards) */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {/* Card 1 — ITC Deferred (amber) */}
@@ -758,20 +859,25 @@ export default function Gstr2aDeltaPage() {
                 {summary.in_both}
               </div>
               <div className="mt-1 text-xs font-medium text-emerald-700">
-                ITC available
+                ITC available • Incl. {summary.value_mismatch} with value diffs
               </div>
             </div>
 
             {/* Card 4 — Value Mismatch (orange) */}
             <div className="rounded-2xl border border-orange-200 bg-orange-50/50 p-5 shadow-[var(--shadow-soft)]">
-              <span className="text-xs font-semibold uppercase tracking-wider text-orange-800">
-                Amount Differs Between 2A &amp; 2B
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-orange-800">
+                  Amount Differs Between 2A &amp; 2B
+                </span>
+                <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-800">
+                  Subset of Matched
+                </span>
+              </div>
               <div className="mt-2 font-mono text-2xl font-bold text-orange-950">
                 {summary.value_mismatch}
               </div>
               <div className="mt-1 text-xs font-medium text-orange-700">
-                Use 2B value for ITC
+                {summary.value_mismatch} of {summary.in_both} present in both have value diffs (use 2B value for ITC)
               </div>
             </div>
           </div>
@@ -780,7 +886,7 @@ export default function Gstr2aDeltaPage() {
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
             {/* Category Filter Chips */}
             <div className="flex flex-wrap items-center gap-1.5">
-              {categoryChips.map(({ id, label, count }) => {
+              {categoryChips.map(({ id, label, count, isSubset }) => {
                 const isActive = activeCategory === id;
                 return (
                   <button
@@ -803,7 +909,8 @@ export default function Gstr2aDeltaPage() {
                           isActive ? "text-white/80" : "text-gray-400"
                         }`}
                       >
-                        ({count})
+                        ({count}
+                        {isSubset ? " subset" : ""})
                       </span>
                     )}
                   </button>

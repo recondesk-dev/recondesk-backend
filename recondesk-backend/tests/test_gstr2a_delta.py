@@ -617,7 +617,12 @@ def test_router_sources_endpoint():
     test_client = TestClient(app)
 
     with patch("app.routers.gstr2a_delta._assert_client_access"), \
+         patch("app.routers.gstr2a_delta.get_supabase") as mock_get_sb, \
+         patch("app.routers.gstr2a_delta._resolve_latest_2b_run") as mock_resolve, \
          patch("app.routers.gstr2a_delta._fetch_2b_records_from_db") as mock_fetch_2b:
+        mock_sb = MagicMock()
+        mock_get_sb.return_value = mock_sb
+        mock_resolve.return_value = {"has_2b_in_db": True, "records_2b_count": 1}
         mock_fetch_2b.return_value = [{"supplier_gstin": "27AABCU9603R1ZM", "invoice_number": "INV-1"}]
 
         resp = test_client.get("/api/gstr2a-delta/00000000-0000-0000-0000-000000000001/2026-06/sources")
@@ -838,6 +843,135 @@ def test_reconcile_preserves_document_types():
     assert summary["doc_type_breakdown"]["CREDIT_NOTE"] == 1
     assert summary["doc_type_breakdown"]["INVOICE"] == 1
     assert summary["doc_type_breakdown"]["DEBIT_NOTE"] == 1
+
+
+def test_overlapping_categories_and_unique_union_count():
+    """Verify that Value Mismatch is a subset of records present in both,
+    and total_records represents the unique union count without double-counting.
+    """
+    # 2A: 4 invoices (2 clean match, 1 value mismatch, 1 missing in 2B) = 4 invoices
+    records_2a = [
+        # Present in both (clean match)
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-MATCH-1",
+            "invoice_date": "2026-06-01",
+            "filing_date": "2026-06-10",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180000,
+        },
+        # Present in both (clean match)
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-MATCH-2",
+            "invoice_date": "2026-06-02",
+            "filing_date": "2026-06-10",
+            "taxable_amount_paise": 2000000,
+            "total_tax_paise": 360000,
+        },
+        # Present in both, but value differs (Value Mismatch)
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-DIFF-1",
+            "invoice_date": "2026-06-03",
+            "filing_date": "2026-06-10",
+            "taxable_amount_paise": 3000000,
+            "total_tax_paise": 540000,
+        },
+        # In 2A, not in 2B (Filed Not Reflected)
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-2A-ONLY-1",
+            "invoice_date": "2026-06-04",
+            "filing_date": "2026-06-10",
+            "taxable_amount_paise": 4000000,
+            "total_tax_paise": 720000,
+        },
+    ]
+
+    # 2B: 4 invoices (2 clean match, 1 value mismatch, 1 2B-only) = 4 invoices
+    records_2b = [
+        # Present in both (clean match)
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-MATCH-1",
+            "invoice_date": "2026-06-01",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180000,
+        },
+        # Present in both (clean match)
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-MATCH-2",
+            "invoice_date": "2026-06-02",
+            "taxable_amount_paise": 2000000,
+            "total_tax_paise": 360000,
+        },
+        # Present in both, but value differs (Value Mismatch)
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-DIFF-1",
+            "invoice_date": "2026-06-03",
+            "taxable_amount_paise": 3500000,  # differs from 2A
+            "total_tax_paise": 630000,
+        },
+        # In 2B, not in 2A (In 2B Not 2A)
+        {
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-2B-ONLY-1",
+            "invoice_date": "2026-06-05",
+            "taxable_amount_paise": 5000000,
+            "total_tax_paise": 900000,
+        },
+    ]
+
+    results, summary = reconcile_2a_vs_2b(
+        gstr2a_records=records_2a,
+        gstr2b_records=records_2b,
+        period="2026-06",
+        cutoff_date="2026-06-13",
+    )
+
+    # 1. Total unique union count is 5 (MATCH-1, MATCH-2, DIFF-1, 2A-ONLY-1, 2B-ONLY-1)
+    assert len(results) == 5
+    assert summary["total_records"] == 5
+    assert summary["unique_union_count"] == 5
+    assert summary["total_2a"] == 4
+    assert summary["total_2b"] == 4
+
+    # 2. Category counts
+    assert summary["in_both_count"] == 2
+    assert summary["value_mismatch_count"] == 1
+    assert summary["filed_not_reflected_count"] == 1
+    assert summary["in_2b_not_2a_count"] == 1
+    assert summary["late_filed_count"] == 0
+
+    # 3. Subset relationship: Every VALUE_MISMATCH record is present in both 2A and 2B
+    value_mismatches = [r for r in results if r["category"] == "VALUE_MISMATCH"]
+    assert len(value_mismatches) == 1
+    vm = value_mismatches[0]
+    assert vm["raw_2a_record"] is not None
+    assert vm["raw_2b_record"] is not None
+    assert vm["taxable_value_2a"] == 30000.0
+    assert vm["taxable_value_2b"] == 35000.0
+
+    # 4. Metadata confirms subset relationship
+    assert summary["value_mismatch_is_subset"] is True
+    assert "1 of the 2 invoices present in both have value differences." in summary["subset_note"]
+
+    # 5. Non-additive invariant:
+    # Unique union = in_both (clean) + value_mismatch + filed_not_reflected + in_2b_not_2a + late_filed
+    # 2 + 1 + 1 + 1 + 0 = 5.
+    # It must NOT be (in_both_total + value_mismatch) as separate unique items if in_both already counts all matches.
+    assert (
+        summary["in_both"]
+        + summary["value_mismatch"]
+        + summary["filed_not_reflected"]
+        + summary["in_2b_not_2a"]
+        + summary["late_filed"]
+        == summary["total_records"]
+    )
+
 
 
 

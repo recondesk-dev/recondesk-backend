@@ -2948,6 +2948,7 @@ export interface Gstr2aDeltaItem {
 
 export interface Gstr2aDeltaSummary {
   total_records: number;
+  unique_union_count?: number;
   total_2a: number;
   total_2b: number;
   in_both: number;
@@ -2960,6 +2961,8 @@ export interface Gstr2aDeltaSummary {
   in_2b_not_2a_count: number;
   value_mismatch: number;
   value_mismatch_count: number;
+  value_mismatch_is_subset?: boolean;
+  subset_note?: string;
   total_itc_deferred_paise: number;
   deferred_itc_paise: number;
   deferred_itc_rupees: number;
