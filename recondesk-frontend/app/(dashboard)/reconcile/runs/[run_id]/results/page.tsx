@@ -31,7 +31,7 @@ import {
 import { GstinCell } from "@/components/ui/GstinCell";
 import { HoverTextCell } from "@/components/ui/HoverTextCell";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   Fragment,
   useCallback,
@@ -1051,7 +1051,57 @@ export default function ReconcileResultsPage() {
   const [itcOnHoldFilter, setItcOnHoldFilter] = useState<"ALL" | "RULE37A" | "BLOCKED_CREDIT">("ALL");
   const [itcOnHoldSearch, setItcOnHoldSearch] = useState("");
 
-  const [resultsTab, setResultsTab] = useState<ResultsBucketTabId>("matched");
+  const searchParams = useSearchParams();
+  const tabFromUrl = searchParams?.get("tab");
+
+  const [resultsTab, setResultsTab] = useState<ResultsBucketTabId>(() => {
+    if (
+      tabFromUrl &&
+      [
+        "matched",
+        "itc_on_hold",
+        "review_required",
+        "risk",
+        "itc",
+        "duplicate_entry",
+        "unmatched_notes",
+        "rule37",
+        "section17",
+        "rcm",
+        "gstr3b",
+        "einvoice",
+        "followup",
+        "ims",
+      ].includes(tabFromUrl)
+    ) {
+      return tabFromUrl as ResultsBucketTabId;
+    }
+    return "matched";
+  });
+
+  useEffect(() => {
+    if (
+      tabFromUrl &&
+      [
+        "matched",
+        "itc_on_hold",
+        "review_required",
+        "risk",
+        "itc",
+        "duplicate_entry",
+        "unmatched_notes",
+        "rule37",
+        "section17",
+        "rcm",
+        "gstr3b",
+        "einvoice",
+        "followup",
+        "ims",
+      ].includes(tabFromUrl)
+    ) {
+      setResultsTab(tabFromUrl as ResultsBucketTabId);
+    }
+  }, [tabFromUrl]);
   const [itcGroupBySupplier, setItcGroupBySupplier] = useState(false);
   const [riskGroupBySupplier, setRiskGroupBySupplier] = useState(false);
   const [itcExpandedSupplier, setItcExpandedSupplier] = useState<string | null>(
@@ -2765,6 +2815,13 @@ export default function ReconcileResultsPage() {
                   <Trash2 className="h-3.5 w-3.5 shrink-0" />
                 </button>
               )}
+              <Link
+                href={`/reconcile/runs/${runId}/gstr3b`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition-colors whitespace-nowrap shadow-xs"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                GSTR-3B Table 4 Workpaper →
+              </Link>
               {!isRunFinalized ? (
                 <button
                   type="button"

@@ -400,13 +400,27 @@ export default function ClientDetailPage() {
           </Link>
         </div>
       )}
-      {latest?.status === "COMPLETE" && (
-        <Link
-          href={`/reconcile/runs/${latest.id}/results`}
-          className="block rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm font-medium text-amber-950 transition-colors hover:bg-amber-100/80"
-        >
-          GSTR-2B results ready. Review and finalize →
-        </Link>
+      {(latest?.status === "COMPLETE" || latest?.status === "FINALIZED") && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm font-medium text-amber-950">
+          <span>
+            GSTR-2B results {latest.status === "COMPLETE" ? "ready for review" : "finalized"} ({latest.period}).
+          </span>
+          <div className="flex items-center gap-2.5">
+            <Link
+              href={`/reconcile/runs/${latest.id}/results`}
+              className="font-semibold text-[var(--ink)] underline hover:opacity-80 text-xs sm:text-sm"
+            >
+              Review Results →
+            </Link>
+            <span className="text-gray-300">|</span>
+            <Link
+              href={`/reconcile/runs/${latest.id}/gstr3b`}
+              className="inline-flex items-center gap-1 rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-xs font-semibold text-white hover:opacity-90 whitespace-nowrap"
+            >
+              GSTR-3B Table 4 →
+            </Link>
+          </div>
+        </div>
       )}
       {latestGstr1RunId && (
         <Link
@@ -488,6 +502,7 @@ export default function ClientDetailPage() {
                       <th className="px-4 py-4">Missed ITC</th>
                       <th className="px-4 py-4">Finalized By</th>
                       <th className="px-5 py-4">Date</th>
+                      <th className="px-5 py-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -524,10 +539,26 @@ export default function ClientDetailPage() {
                             <td className="px-5 py-3.5 text-gray-400">
                               {new Date(run.createdAt).toLocaleString("en-IN")}
                             </td>
+                            <td className="px-5 py-3.5 text-right">
+                              <div className="inline-flex items-center justify-end gap-2">
+                                <Link
+                                  href={`/reconcile/runs/${run.id}/results`}
+                                  className="rounded-full bg-[#F0F0F0] px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-200"
+                                >
+                                  Results
+                                </Link>
+                                <Link
+                                  href={`/reconcile/runs/${run.id}/gstr3b`}
+                                  className="inline-flex items-center gap-1 rounded-full bg-[var(--ink)] px-3 py-1 text-xs font-semibold text-white hover:opacity-90 whitespace-nowrap"
+                                >
+                                  GSTR-3B Table 4 →
+                                </Link>
+                              </div>
+                            </td>
                           </tr>
                           {fail && expanded.has(run.id) && run.errorMessage && (
                             <tr className="bg-red-50">
-                              <td colSpan={8} className="px-5 py-2.5 text-xs text-[var(--danger)]">
+                              <td colSpan={9} className="px-5 py-2.5 text-xs text-[var(--danger)]">
                                 {run.errorMessage}
                               </td>
                             </tr>

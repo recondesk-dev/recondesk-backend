@@ -16,13 +16,12 @@ import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 const LIST_KEY = "backend-reconciliations-list";
 
-type TypeFilter = "all" | "GSTR-2B" | "GSTR-1" | "GSTR-3B";
+type TypeFilter = "all" | "GSTR-2B" | "GSTR-1";
 
 const TYPE_FILTERS: { id: TypeFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "GSTR-2B", label: "GSTR-2B" },
   { id: "GSTR-1", label: "GSTR-1" },
-  { id: "GSTR-3B", label: "GSTR-3B" },
 ];
 
 function ReconciliationsSkeleton() {
@@ -137,9 +136,7 @@ export function ReconciliationsPageContent() {
   const upcomingEmptyLabel =
     typeFilter === "GSTR-1"
       ? "No GSTR-1 reconciliations yet"
-      : typeFilter === "GSTR-3B"
-        ? "No GSTR-3B reconciliations yet"
-        : null;
+      : null;
 
   const visibleRows = useMemo(() => {
     if (!showsPurchaseRows) return [];
@@ -268,7 +265,7 @@ export function ReconciliationsPageContent() {
                       <th className="px-4 py-4">Matched Records</th>
                       <th className="px-4 py-4">Missed ITC</th>
                       <th className="px-4 py-4">Date</th>
-                      <th className="px-5 py-4 text-right">Action</th>
+                      <th className="px-5 py-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -313,12 +310,22 @@ export function ReconciliationsPageContent() {
                             {row.created_at ? formatRunDate(row.created_at) : "—"}
                           </td>
                           <td className="px-5 py-3.5 text-right">
-                            <Link
-                              href={`/reconcile/runs/${row.id}/results`}
-                              className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-[var(--ink)] px-4 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-                            >
-                              View Results
-                            </Link>
+                            <div className="inline-flex items-center justify-end gap-2">
+                              <Link
+                                href={`/reconcile/runs/${row.id}/results`}
+                                className="inline-flex min-h-[36px] items-center justify-center rounded-full bg-[#F0F0F0] px-3.5 text-xs font-semibold text-[var(--ink)] transition-colors hover:bg-[#E8E8EA]"
+                              >
+                                View Results
+                              </Link>
+                              {typeLabel === "GSTR-2B" && (
+                                <Link
+                                  href={`/reconcile/runs/${row.id}/gstr3b`}
+                                  className="inline-flex min-h-[36px] items-center justify-center rounded-full bg-[var(--ink)] px-3.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 whitespace-nowrap"
+                                >
+                                  GSTR-3B Table 4 →
+                                </Link>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );

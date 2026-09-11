@@ -923,12 +923,13 @@ export function ResultsBucketTabs({
         <button
           type="button"
           onClick={() => onChange("gstr3b")}
-          className={`cursor-pointer rounded-[6px] border px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
+          className={`cursor-pointer rounded-[6px] border px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all inline-flex items-center gap-1.5 ${
             active === "gstr3b"
-              ? "border-[#BFDBFE] bg-[#EFF6FF] text-[#2563EB]"
-              : "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] hover:border-[#BFDBFE] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
+              ? "border-[#2563EB] bg-[#EFF6FF] text-[#2563EB] ring-1 ring-[#2563EB]/20 shadow-xs"
+              : "border-blue-200 bg-blue-50/50 text-[#1D4ED8] hover:border-[#2563EB] hover:bg-[#EFF6FF]"
           }`}
         >
+          <span className="h-1.5 w-1.5 rounded-full bg-[#2563EB]" />
           {tResults("gstr3bTieOut")}
         </button>
 
