@@ -293,7 +293,7 @@ export default function ClientDetailPage() {
             )}
             <div className="w-full">
               <p className="mb-2 text-[11px] font-medium uppercase tracking-widest text-gray-400 sm:text-right">
-                Reconciliations
+                Workflows & Reconciliations
               </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {startDisabled || !reconcileNewHref ? (
@@ -326,11 +326,11 @@ export default function ClientDetailPage() {
                 )}
                 <Link
                   href={`/clients/${id}/multi-period`}
-                  title="Annual FY Reconciliation — up to 12 periods in one flow"
+                  title="Annual Purchase Reconciliation — 12-Month Batch"
                   className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[var(--ink)] px-4 py-3 text-left transition-opacity hover:opacity-90"
                 >
                   <span className="text-sm font-semibold text-white">
-                    Run Annual Reconciliation
+                    Annual Purchase Reconciliation
                   </span>
                   <span className="text-[11px] font-medium leading-snug text-white/70">
                     12-Month Batch — Auto 2B & Tally Bridge sync
@@ -338,35 +338,35 @@ export default function ClientDetailPage() {
                 </Link>
                 <Link
                   href={gstr1NewHref}
-                  title="Sales Register ↔ GSTR-1 ↔ GSTR-3B tie-out"
+                  title="Sales Register ↔ GSTR-1 matching & Table 3.1 tax tie-out"
                   className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[var(--ink)] px-4 py-3 text-left transition-opacity hover:opacity-90"
                 >
                   <span className="text-sm font-semibold text-white">
                     GSTR-1 Reconciliation
                   </span>
                   <span className="text-[11px] font-medium leading-snug text-white/70">
-                    Sales Register vs GSTR-1 vs GSTR-3B — outward supply tie-out
+                    Sales Register ↔ GSTR-1 matching & outward tax tie-out
                   </span>
                 </Link>
                 <Link
                   href={id ? `/clients/${id}/gstr9c` : "#"}
-                  title="Annual FY ITC rollup — matched (2B) vs claimed (3B)"
+                  title="Annual 2B vs 3B ITC variance and GSTR-9/9C support"
                   className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[var(--ink)] px-4 py-3 text-left transition-opacity hover:opacity-90"
                 >
                   <span className="text-sm font-semibold text-white">
-                    GSTR-9C (ITC)
+                    Annual ITC Reconciliation
                   </span>
                   <span className="text-[11px] font-medium leading-snug text-white/70">
-                    Annual FY rollup — matched (2B) vs claimed (3B) ITC
+                    Annual 2B vs 3B ITC variance and GSTR-9/9C support
                   </span>
                 </Link>
                 <Link
                   href={id ? `/clients/${id}/gstr2a-delta` : "#"}
-                  title="Invoices in 2A not reflected in 2B — supplier filing cutoff analysis"
+                  title="Supplier filing cutoff analysis & deferred ITC"
                   className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[var(--ink)] px-4 py-3 text-left transition-opacity hover:opacity-90"
                 >
                   <span className="text-sm font-semibold text-white">
-                    2A vs 2B Delta
+                    2A vs 2B Timing Analysis
                   </span>
                   <span className="text-[11px] font-medium leading-snug text-white/70">
                     Supplier filing cutoff analysis & deferred ITC

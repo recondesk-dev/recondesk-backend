@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -32,15 +32,26 @@ import {
   type FollowupLog,
 } from "@/lib/vendorFollowupApi";
 
-export default function VendorFollowupHubPage() {
+function VendorFollowupHubContent() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const clientId = String(params.id);
   const rawToken = useAccessToken();
   const token = typeof rawToken === "string" ? rawToken : null;
   const toast = useToast();
 
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"risk_list" | "audit_log">("risk_list");
+  const tabParam = searchParams?.get("tab");
+  const [activeTab, setActiveTab] = useState<"risk_list" | "audit_log">(() => {
+    return tabParam === "audit_log" ? "audit_log" : "risk_list";
+  });
+
+  useEffect(() => {
+    const p = searchParams?.get("tab");
+    if (p === "audit_log" || p === "risk_list") {
+      setActiveTab(p);
+    }
+  }, [searchParams]);
   const [templateType, setTemplateType] = useState<"POLITE_REMINDER" | "RULE37_NOTICE" | "FINAL_ESCALATION">("POLITE_REMINDER");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -511,5 +522,17 @@ export default function VendorFollowupHubPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function VendorFollowupHubPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="h-64 animate-pulse rounded-2xl bg-gray-100" />
+      }
+    >
+      <VendorFollowupHubContent />
+    </Suspense>
   );
 }

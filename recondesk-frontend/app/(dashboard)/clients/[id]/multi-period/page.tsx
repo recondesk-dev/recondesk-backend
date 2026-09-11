@@ -321,7 +321,7 @@ export default function MultiPeriodWizardPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold tracking-tight text-[var(--ink)] sm:text-2xl">
-                Annual Multi-Period Reconciliation
+                Annual Purchase Reconciliation
               </h1>
               {batch && !isCreatingNew && (
                 <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-semibold text-gray-800">
@@ -330,7 +330,7 @@ export default function MultiPeriodWizardPage() {
               )}
             </div>
             <p className="text-xs text-gray-500 sm:text-sm">
-              Reconcile up to 12 tax periods in a unified sequential audit flow
+              12-Month Batch — Books vs GSTR-2B sequential reconciliation
             </p>
           </div>
         </div>

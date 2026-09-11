@@ -360,7 +360,7 @@ export default function Gstr2aDeltaPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold tracking-tight text-gray-900 sm:text-2xl">
-              GSTR-2A vs GSTR-2B Delta
+              2A vs 2B Timing Analysis
             </h1>
             {summaryData?.reconciled_at && (
               <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">

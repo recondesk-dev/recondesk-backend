@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -59,8 +59,9 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]["id"];
 
-export default function Gstr9WorkspacePage() {
+function Gstr9WorkspaceContent() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const clientId = String(params.id);
   const rawToken = useAccessToken();
   const token = typeof rawToken === "string" ? rawToken : null;
@@ -68,7 +69,19 @@ export default function Gstr9WorkspacePage() {
 
   const [client, setClient] = useState<ClientGstin | null>(null);
   const [selectedFy, setSelectedFy] = useState("2025-26");
-  const [activeTab, setActiveTab] = useState<TabId>("summary");
+
+  const requestedTab = searchParams?.get("tab") as TabId | null;
+  const [activeTab, setActiveTab] = useState<TabId>(() => {
+    return requestedTab && TABS.some((t) => t.id === requestedTab)
+      ? requestedTab
+      : "summary";
+  });
+
+  useEffect(() => {
+    if (requestedTab && TABS.some((t) => t.id === requestedTab)) {
+      setActiveTab(requestedTab);
+    }
+  }, [requestedTab]);
 
   const [comp, setComp] = useState<Gstr9Computation | null>(null);
   const [g9c, setG9c] = useState<Gstr9cReconciliation | null>(null);
@@ -1229,5 +1242,17 @@ export default function Gstr9WorkspacePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function Gstr9WorkspacePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="h-64 animate-pulse rounded-2xl bg-gray-100" />
+      }
+    >
+      <Gstr9WorkspaceContent />
+    </Suspense>
   );
 }
