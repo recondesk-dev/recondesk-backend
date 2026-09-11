@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from app.auth import get_current_active_user
 from app.database import get_supabase
@@ -65,16 +66,53 @@ class VerifyOtpRequest(BaseModel):
 class FetchGstr2bRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    year: str
-    month: str
+    year: str | None = None
+    month: str | None = None
+    ret_period: str | None = None
+    period: str | None = None
 
-    @field_validator("year", "month")
-    @classmethod
-    def strip_non_empty(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("must not be empty")
-        return v
+    @model_validator(mode="after")
+    def resolve_and_validate_period(self) -> FetchGstr2bRequest:
+        raw_ret = str(self.ret_period or self.period or "").strip()
+        y = str(self.year or "").strip()
+        m = str(self.month or "").strip()
+
+        if raw_ret:
+            # Format 1: MMYYYY (standard GSTN ret_period / rtnprd, e.g. "082026")
+            m_mmyyyy = re.match(r"^(\d{2})(\d{4})$", raw_ret)
+            # Format 2: MM-YYYY (e.g. "08-2026")
+            m_mndashy = re.match(r"^(\d{1,2})-(\d{4})$", raw_ret)
+            # Format 3: YYYY-MM or YYYY-MM-DD (e.g. "2026-08" or "2026-08-01")
+            m_ym = re.match(r"^(\d{4})-(\d{1,2})", raw_ret)
+
+            if m_mmyyyy:
+                m = m_mmyyyy.group(1)
+                y = m_mmyyyy.group(2)
+            elif m_mndashy:
+                m = m_mndashy.group(1)
+                y = m_mndashy.group(2)
+            elif m_ym:
+                y = m_ym.group(1)
+                m = m_ym.group(2)
+
+        if not y or not m:
+            raise ValueError("year and month (or ret_period in MMYYYY format) are required")
+
+        try:
+            m_int = int(m)
+            y_int = int(y)
+        except ValueError as exc:
+            raise ValueError("year and month must be integers") from exc
+
+        if not (1 <= m_int <= 12):
+            raise ValueError(f"month must be between 1 and 12 (got {m_int})")
+        if not (2000 <= y_int <= 2100):
+            raise ValueError(f"year must be between 2000 and 2100 (got {y_int})")
+
+        self.year = str(y_int)
+        self.month = str(m_int).zfill(2)
+        self.ret_period = f"{self.month}{self.year}"
+        return self
 
 
 def _assert_client_access(sb, current_user: dict, client_id: str) -> None:
@@ -309,17 +347,23 @@ async def gstn_fetch_gstr2b(
     _assert_gstn_token_fresh(client_row)
 
     _log.info(
-        "GSTR-2B fetch starting client_id=%s gstin=%s period=%s-%s has_token=%s",
+        "GSTR-2B fetch starting client_id=%s gstin=%s period=%s-%s ret_period=%s has_token=%s",
         cid,
         gstin,
         body.year,
         body.month,
+        body.ret_period,
         bool(access_token),
     )
 
     try:
         raw_data = await asyncio.to_thread(
-            get_gstr2b, access_token, gstin, body.year, body.month
+            get_gstr2b,
+            access_token=access_token,
+            gstin=gstin,
+            year=body.year,
+            month=body.month,
+            ret_period=body.ret_period,
         )
     except SandboxGstnError as exc:
         raise gstn_http_exception(exc, error_code=exc.error_cd, context=f"GSTR-2B fetch client_id={cid}") from exc
@@ -362,7 +406,7 @@ async def gstn_fetch_gstr2b(
 
     # ``upload_payload`` is the GSTN-shaped JSON the wizard can PUT to R2 and
     # run through the same sanity-check path as a manual portal export.
-    return {**parsed, "upload_payload": payload}
+    return {**parsed, "upload_payload": payload, "ret_period": body.ret_period}
 
 
 @router.post("/{client_id}/gstn/fetch-ims")

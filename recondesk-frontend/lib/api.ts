@@ -462,7 +462,7 @@ export const gstnApi = {
   fetchGstr2b: (
     token: string,
     client_gstin_id: string,
-    body: { year: string; month: string }
+    body: { year?: string; month?: string; ret_period?: string; period?: string }
   ) =>
     apiFetch<GstnFetchGstr2bResult>(
       clientsApiPath(client_gstin_id, "gstn", "fetch"),
@@ -476,7 +476,7 @@ export const gstnApi = {
   fetchIms: (
     token: string,
     client_gstin_id: string,
-    body: { year: string; month: string }
+    body: { year?: string; month?: string; ret_period?: string; period?: string }
   ) =>
     apiFetch<GstnFetchImsResult>(
       clientsApiPath(client_gstin_id, "gstn", "fetch-ims"),
