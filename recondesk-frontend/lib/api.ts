@@ -733,7 +733,174 @@ export const gstr3bApi = {
       `/api/reconcile/runs/${encodeURIComponent(runId)}/gstr3b`,
       { token }
     ),
+
+  getTable4Workpaper: (token: string, runId: string): Promise<Gstr3bTable4WorkpaperResponse> =>
+    apiFetch<Gstr3bTable4WorkpaperResponse>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/gstr3b/table4`,
+      { token }
+    ),
+
+  getTable4Drilldown: (
+    token: string,
+    runId: string,
+    rowId: string,
+    page = 1,
+    limit = 50,
+    search?: string
+  ): Promise<Table4DrilldownResponse> => {
+    const params = new URLSearchParams({
+      row_id: rowId,
+      page: String(page),
+      limit: String(limit),
+    });
+    if (search) params.set("search", search);
+    return apiFetch<Table4DrilldownResponse>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/gstr3b/table4/drilldown?${params.toString()}`,
+      { token }
+    );
+  },
+
+  addTable4Adjustment: (
+    token: string,
+    runId: string,
+    payload: Table4AdjustmentPayload
+  ): Promise<any> =>
+    apiFetch<any>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/gstr3b/table4/adjust`,
+      { method: "POST", body: JSON.stringify(payload), token }
+    ),
+
+  deleteTable4Adjustment: (
+    token: string,
+    runId: string,
+    adjId: string
+  ): Promise<{ deleted: boolean; id: string }> =>
+    apiFetch<{ deleted: boolean; id: string }>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/gstr3b/table4/adjust/${encodeURIComponent(adjId)}`,
+      { method: "DELETE", token }
+    ),
+
+  recordDisposition: (
+    token: string,
+    runId: string,
+    payload: Table4DispositionPayload
+  ): Promise<any> =>
+    apiFetch<any>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/dispositions`,
+      { method: "POST", body: JSON.stringify(payload), token }
+    ),
+
+  exportTable4WorkpaperUrl: (runId: string): string =>
+    `/api/reconcile/runs/${encodeURIComponent(runId)}/gstr3b/table4/export`,
 };
+
+export type Table4RowData = {
+  igst: number;
+  cgst: number;
+  sgst: number;
+  cess: number;
+  count?: number;
+  total_tax?: number;
+  igst_paise?: number;
+  cgst_paise?: number;
+  sgst_paise?: number;
+  cess_paise?: number;
+};
+
+export type Gstr3bTable4WorkpaperResponse = {
+  run_id: string;
+  client_gstin: string;
+  tax_period: string;
+  status: "PROVISIONAL" | "FINALIZED";
+  is_locked: boolean;
+  finalized_at: string | null;
+  finalized_by: string | null;
+  audit_hash: string;
+  workpaper_title: string;
+  disclaimer: string;
+  table_4: {
+    section_4a: {
+      row_4a1_import_goods: Table4RowData;
+      row_4a2_import_services: Table4RowData;
+      row_4a3_inward_rcm: Table4RowData;
+      row_4a4_isd: Table4RowData;
+      row_4a5_all_other_itc: Table4RowData;
+      total_4a: Table4RowData;
+    };
+    section_4b: {
+      row_4b1_rule38_42_43_sec175: Table4RowData;
+      row_4b2_others_rule37_37a: Table4RowData;
+      total_4b: Table4RowData;
+    };
+    section_4c_net_itc: Table4RowData;
+    section_4d: {
+      row_4d1_reclaimed: Table4RowData;
+      row_4d2_ineligible_16_4_pos: Table4RowData;
+    };
+  };
+  gate_audit: {
+    can_finalize: boolean;
+    unresolved_blocking_exceptions: number;
+    blocking_summary: string[];
+  };
+};
+
+export type Table4DrilldownRecord = {
+  id: string;
+  type: string;
+  supplier_gstin: string;
+  supplier_name: string;
+  invoice_number: string;
+  invoice_date: string;
+  taxable_value: number;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  cess: number;
+  total_tax: number;
+  doc_type: string;
+  statutory_reason: string;
+  disposition: string;
+  source: string;
+};
+
+export type Table4DrilldownResponse = {
+  row_id: string;
+  total_records: number;
+  page: number;
+  limit: number;
+  totals: {
+    igst: number;
+    cgst: number;
+    sgst: number;
+    cess: number;
+    total_tax: number;
+  };
+  records: Table4DrilldownRecord[];
+};
+
+export type Table4AdjustmentPayload = {
+  row_id: string;
+  adjustment_type: string;
+  statutory_category: string;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  cess: number;
+  reason: string;
+  reference_doc?: string;
+  turnover_ratio_data?: any;
+};
+
+export type Table4DispositionPayload = {
+  record_id: string;
+  exception_type: string;
+  disposition: string;
+  reason: string;
+  reference_doc?: string;
+  statutory_reference?: string;
+};
+
 
 // ─── GSTR-9C ITC FY rollup (practical internal view) ──────────────────────────
 

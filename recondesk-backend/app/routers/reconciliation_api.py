@@ -60,6 +60,15 @@ from app.services.invoice_results_sync import (
     find_invoice_result_id_for_pr,
     sync_rule37_invoice_results,
 )
+from app.services.gstr3b_table4_engine import (
+    check_finalization_blocking_exceptions,
+    compile_and_save_final_table4_snapshot,
+    compile_gstr3b_table4,
+    get_table4_drilldown,
+    rupees_to_paise,
+)
+from app.services.gstr3b_table4_export import generate_table4_excel_workpaper
+
 
 _log = logging.getLogger(__name__)
 router = APIRouter()
@@ -439,13 +448,14 @@ async def finalize_reconciliation(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="no reconciliation payload for this run",
         )
-    need, have, unresolved = count_unresolved_rule37(sb, rid)
-    if unresolved > 0:
+    gate = check_finalization_blocking_exceptions(sb, rid, payload=p)
+    if not gate["can_finalize"]:
+        summary_msg = "; ".join(gate["blocking_summary"][:3])
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
-                f"{unresolved} Rule 37 invoice(s) are unresolved. "
-                "Resolve all before finalizing."
+                f"{gate['unresolved_blocking_exceptions']} ITC-affecting exception(s) require disposition before finalizing. "
+                f"({summary_msg})"
             ),
         )
     now = datetime.now(timezone.utc).isoformat()
@@ -481,6 +491,10 @@ async def finalize_reconciliation(
         _run_entity_label(sb, row),
         ip_address=(request.client.host if request.client else None),
     )
+    try:
+        compile_and_save_final_table4_snapshot(sb, rid, by)
+    except Exception as exc:
+        _log.exception("compile_and_save_final_table4_snapshot failed in finalize_reconciliation for %s", rid)
     return FinalizeResponse(
         run_id=rid,
         status=RunStatus.FINAL,
@@ -3430,13 +3444,14 @@ async def _reconcile_finalize_core(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="no reconciliation payload for this run",
         )
-    need, have, unresolved = count_unresolved_rule37(sb, rid)
-    if unresolved > 0:
+    gate = check_finalization_blocking_exceptions(sb, rid, payload=p)
+    if not gate["can_finalize"]:
+        summary_msg = "; ".join(gate["blocking_summary"][:3])
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
-                f"{unresolved} Rule 37 invoice(s) are unresolved. "
-                "Resolve all before finalizing."
+                f"{gate['unresolved_blocking_exceptions']} ITC-affecting exception(s) require disposition before finalizing. "
+                f"({summary_msg})"
             ),
         )
     now = datetime.utcnow().isoformat()
@@ -3517,6 +3532,10 @@ async def _reconcile_finalize_core(
         _run_entity_label(sb, run_row),
         ip_address=(request.client.host if request.client else None),
     )
+    try:
+        compile_and_save_final_table4_snapshot(sb, rid, uid)
+    except Exception as exc:
+        _log.exception("compile_and_save_final_table4_snapshot failed in _reconcile_finalize_core for %s", rid)
     refreshed = (
         sb.table("reconciliation_run")
         .select("*")
@@ -6452,3 +6471,250 @@ def _gstr3b_row_to_response(
         filed=filed,
         client_gstin_id=client_gstin_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# GSTR-3B Table 4 Workpaper Models & Endpoints
+# ---------------------------------------------------------------------------
+
+class Table4AdjustmentInput(BaseModel):
+    row_id: str
+    adjustment_type: str = "ADDITION"  # ADDITION | REDUCTION
+    statutory_category: str
+    igst: float = 0.0
+    cgst: float = 0.0
+    sgst: float = 0.0
+    cess: float = 0.0
+    reason: str
+    reference_doc: Optional[str] = None
+    turnover_ratio_data: Optional[dict[str, Any]] = None
+
+
+class ExceptionDispositionInput(BaseModel):
+    record_id: str
+    exception_type: str  # SEC_17_5 | RULE_37 | TWO_B_ONLY | GOODS_RECEIPT | RULE_37A
+    disposition: str
+    reason: str
+    reference_doc: Optional[str] = None
+    statutory_reference: Optional[str] = None
+
+
+@reconcile_runs_router.get("/runs/{run_id}/gstr3b/table4")
+async def get_gstr3b_table4_workpaper(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Retrieve compiled GSTR-3B Table 4 Workpaper (Provisional or Finalized)."""
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+
+    def _work():
+        return compile_gstr3b_table4(sb, rid)
+
+    return await _run_sync(_work)
+
+
+@reconcile_runs_router.get("/runs/{run_id}/gstr3b/table4/drilldown")
+async def get_gstr3b_table4_drilldown(
+    run_id: str,
+    row_id: str = Query(..., description="Table 4 row code (e.g. 4A1, 4A5, 4B1, 4B2)"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=500),
+    search: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Fetch paginated, verifiable invoice-level ledger for any Table 4 cell."""
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+
+    def _work():
+        return get_table4_drilldown(sb, rid, row_id=row_id, page=page, limit=limit, search=search)
+
+    return await _run_sync(_work)
+
+
+@reconcile_runs_router.post("/runs/{run_id}/gstr3b/table4/adjust")
+async def add_gstr3b_table4_adjustment(
+    run_id: str,
+    body: Table4AdjustmentInput,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Add a verified external adjustment (Rules 42/43/38/RCM) to a provisional run."""
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+
+    run_row = (
+        sb.table("reconciliation_run")
+        .select("id, status, is_locked, client_gstin_id, period")
+        .eq("id", rid)
+        .limit(1)
+        .execute()
+    )
+    if not run_row.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    r0 = run_row.data[0]
+    if bool(r0.get("is_locked")) or str(r0.get("status", "")).upper() == RunStatus.FINAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Finalized reconciliation runs are immutable; adjustments cannot be modified.",
+        )
+
+    if not body.reason or len(body.reason.strip()) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Reason must be at least 10 characters explaining the statutory basis.",
+        )
+
+    uid = current_user.get("id")
+    insert_data = {
+        "run_id": rid,
+        "client_gstin_id": r0.get("client_gstin_id"),
+        "tax_period": r0.get("period") or "",
+        "row_id": body.row_id.upper().strip(),
+        "igst_paise": rupees_to_paise(body.igst),
+        "cgst_paise": rupees_to_paise(body.cgst),
+        "sgst_paise": rupees_to_paise(body.sgst),
+        "cess_paise": rupees_to_paise(body.cess),
+        "adjustment_type": body.adjustment_type.upper().strip(),
+        "statutory_category": body.statutory_category.upper().strip(),
+        "reason": body.reason.strip(),
+        "reference_doc": (body.reference_doc or "").strip() or None,
+        "turnover_ratio_data": body.turnover_ratio_data,
+        "created_by": uid,
+    }
+
+    res = sb.table("gstr3b_table4_adjustments").insert(insert_data).execute()
+    if not res.data:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save adjustment")
+    return res.data[0]
+
+
+@reconcile_runs_router.delete("/runs/{run_id}/gstr3b/table4/adjust/{adj_id}")
+async def delete_gstr3b_table4_adjustment(
+    run_id: str,
+    adj_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Soft delete an adjustment from a provisional run."""
+    rid = _parse_uuid(run_id, "run_id")
+    aid = _parse_uuid(adj_id, "adj_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+
+    run_row = (
+        sb.table("reconciliation_run")
+        .select("id, status, is_locked")
+        .eq("id", rid)
+        .limit(1)
+        .execute()
+    )
+    if not run_row.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    r0 = run_row.data[0]
+    if bool(r0.get("is_locked")) or str(r0.get("status", "")).upper() == RunStatus.FINAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Finalized reconciliation runs are immutable; adjustments cannot be deleted.",
+        )
+
+    sb.table("gstr3b_table4_adjustments").update({"is_deleted": True}).eq("id", aid).eq("run_id", rid).execute()
+    return {"deleted": True, "id": aid}
+
+
+@reconcile_runs_router.post("/runs/{run_id}/dispositions")
+async def record_exception_disposition(
+    run_id: str,
+    body: ExceptionDispositionInput,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Record an audit disposition on an ITC-affecting exception."""
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+
+    run_row = (
+        sb.table("reconciliation_run")
+        .select("id, status, is_locked")
+        .eq("id", rid)
+        .limit(1)
+        .execute()
+    )
+    if not run_row.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    r0 = run_row.data[0]
+    if bool(r0.get("is_locked")) or str(r0.get("status", "")).upper() == RunStatus.FINAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Finalized reconciliation runs are immutable; dispositions cannot be modified.",
+        )
+
+    # Derive eligibility and table4 effect
+    disp_clean = body.disposition.upper().strip()
+    ex_type = body.exception_type.upper().strip()
+
+    elig_effect = "ELIGIBLE"
+    t4_effect = "4A5"
+
+    if disp_clean in ("CONFIRMED_BLOCKED", "INELIGIBLE"):
+        elig_effect = "INELIGIBLE"
+        t4_effect = "4B1"
+    elif disp_clean in ("REVERSED", "REVERSAL_CONFIRMED"):
+        elig_effect = "REVERSED"
+        t4_effect = "4B2"
+    elif disp_clean in ("HELD_GOODS_NOT_RECEIVED", "HOLD", "REJECTED_WRONG_GSTIN", "NOT_RECEIVED"):
+        elig_effect = "HELD"
+        t4_effect = "EXCLUDED"
+    elif disp_clean in ("STATUTORY_EXCEPTION", "PAID_ELIGIBLE", "BOOKED_AND_VERIFIED", "RECEIPT_VERIFIED"):
+        elig_effect = "ELIGIBLE"
+        t4_effect = "4A5"
+
+    uid = current_user.get("id")
+    record_data = {
+        "run_id": rid,
+        "record_id": body.record_id.strip(),
+        "exception_type": ex_type,
+        "disposition": disp_clean,
+        "eligibility_effect": elig_effect,
+        "table4_effect": t4_effect,
+        "reason": body.reason.strip(),
+        "reference_doc": (body.reference_doc or "").strip() or None,
+        "statutory_reference": (body.statutory_reference or "").strip() or None,
+        "created_by": uid,
+    }
+
+    res = (
+        sb.table("reconciliation_exception_dispositions")
+        .upsert(record_data, on_conflict="run_id,record_id,exception_type")
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save disposition")
+    return res.data[0]
+
+
+@reconcile_runs_router.get("/runs/{run_id}/gstr3b/table4/export")
+async def export_gstr3b_table4_workpaper(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Download the 5-sheet GSTR-3B Table 4 Workpaper Excel workbook."""
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    assert_run_accessible(sb, rid, current_user)
+
+    def _work():
+        return generate_table4_excel_workpaper(sb, rid)
+
+    excel_bytes = await _run_sync(_work)
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="GSTR3B_Table4_Workpaper_{rid[:8]}.xlsx"',
+            "Cache-Control": "no-cache",
+        },
+    )
+

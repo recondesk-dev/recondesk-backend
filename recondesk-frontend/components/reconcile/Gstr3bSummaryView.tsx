@@ -22,6 +22,8 @@ import {
   StatCard,
   statCardsGridClass,
 } from "./ResultsUi";
+import { Table4WorkpaperView } from "./Table4WorkpaperView";
+
 
 const ITC_SOURCE_ORDER = ["IMPG", "IMPS", "ISRC", "ISD", "OTH"] as const;
 const ITC_SOURCE_LABELS: Record<string, string> = {
@@ -580,12 +582,13 @@ export function Gstr3bSummaryView({
   /** embedded = results tab; page = dedicated route */
   variant?: "embedded" | "page";
 }) {
+  const [activeTab, setActiveTab] = useState<"workpaper" | "tieout">("workpaper");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const reuploadRef = useRef<HTMLInputElement>(null);
 
   const { data, error, mutate, isLoading } = useSWR<Gstr3bReconciliationResult>(
-    authToken ? [`gstr3b`, runId] : null,
+    authToken && activeTab === "tieout" ? [`gstr3b`, runId] : null,
     () => gstr3bApi.get(authToken, runId),
     { shouldRetryOnError: false }
   );
@@ -619,195 +622,229 @@ export function Gstr3bSummaryView({
   return (
     <div className={variant === "page" ? "space-y-5" : sectionContainerClass}>
       {variant === "embedded" ? (
-        <SectionHeader title="GSTR-3B summary" dotColor="#111111" />
+        <SectionHeader title="GSTR-3B Module" dotColor="#111111" />
       ) : null}
 
-      {isLoading && !data && !error && (
-        <div className="flex flex-col items-center justify-center py-16 gap-3">
-          <svg className="h-8 w-8 animate-spin text-brand" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-          </svg>
-          <p className="text-[13px] text-gray-400">Loading GSTR-3B…</p>
-        </div>
-      )}
+      {/* Sub-tab navigation */}
+      <div className="flex border-b border-[#E5E7EB] gap-6 mb-6">
+        <button
+          type="button"
+          onClick={() => setActiveTab("workpaper")}
+          className={`pb-3 text-[13px] font-medium transition-colors border-b-2 -mb-px flex items-center gap-2 ${
+            activeTab === "workpaper"
+              ? "border-[#111111] text-[#111111] font-semibold"
+              : "border-transparent text-gray-400 hover:text-gray-700"
+          }`}
+        >
+          <span className="h-2 w-2 rounded-full bg-blue-600" />
+          1. Finalized GSTR-3B Table 4 Workpaper
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("tieout")}
+          className={`pb-3 text-[13px] font-medium transition-colors border-b-2 -mb-px flex items-center gap-2 ${
+            activeTab === "tieout"
+              ? "border-[#111111] text-[#111111] font-semibold"
+              : "border-transparent text-gray-400 hover:text-gray-700"
+          }`}
+        >
+          <span className="h-2 w-2 rounded-full bg-emerald-600" />
+          2. Post-Filing Tie-Out & DRC-01C Review
+        </button>
+      </div>
 
-      {fetchFailed && (
-        <p className="text-[13px] text-red-500">
-          Failed to load GSTR-3B data. Please refresh and try again.
-        </p>
-      )}
-
-      {(notFound || (!data && !error && !isLoading)) && !uploading && (
-        <UploadArea onFile={handleFile} loading={uploading} error={uploadError} />
-      )}
-
-      {uploading && !hasResult && (
-        <div className="flex flex-col items-center justify-center py-16 gap-3">
-          <svg className="h-8 w-8 animate-spin text-brand" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-          </svg>
-          <p className="text-[13px] text-gray-400">Processing GSTR-3B…</p>
-        </div>
-      )}
-
-      {hasResult && data && (
+      {activeTab === "workpaper" ? (
+        <Table4WorkpaperView runId={runId} authToken={authToken} />
+      ) : (
         <div className="space-y-5">
-          <div className="flex w-full flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-lg font-semibold text-gray-900">
-                GSTR-3B — {periodLabel}
-              </h2>
-              <StatusBadge status={data.overall_status} />
-              <span className="text-[12px] text-gray-400 tabular-nums">
-                {data.client_gstin}
-              </span>
-            </div>
-            <div>
-              <input
-                ref={reuploadRef}
-                type="file"
-                accept=".json"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleFile(f);
-                }}
-              />
-              <button
-                type="button"
-                disabled={uploading}
-                onClick={() => reuploadRef.current?.click()}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-3 py-1.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-              >
-                {uploading ? "Uploading…" : "Re-upload GSTR-3B"}
-              </button>
-            </div>
-          </div>
-
-          {uploadError && <p className="text-[12px] text-red-500">{uploadError}</p>}
-
-          {/* 1. DRC-01C — most actionable */}
-          {data.drc01c ? (
-            <Drc01cBanner drc={data.drc01c} />
-          ) : (
-            <div className="rounded-xl border border-[#E5E7EB] bg-[#FAFAFA] px-4 py-3 text-[12px] text-gray-500">
-              DRC-01C threshold not available for this result.
+          {isLoading && !data && !error && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <svg className="h-8 w-8 animate-spin text-brand" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+              </svg>
+              <p className="text-[13px] text-gray-400">Loading GSTR-3B…</p>
             </div>
           )}
 
-          {/* 2. 2B vs 3B ITC check */}
-          <div>
-            <div className="mb-3">
-              <p className="text-[13px] font-semibold text-gray-800">
-                ITC claimed vs GSTR-2B available
-              </p>
-              <p className="mt-1 text-[12px] text-gray-500 leading-relaxed">
-                Net difference = GSTR-3B claimed (Table 4C net) − all GSTR-2B available ITC
-                (positive = overclaimed, negative = underclaimed). Not the same as GSTR-9C FY
-                Rollup variance, which uses clean-matched 2B ITC only.
-              </p>
+          {fetchFailed && (
+            <p className="text-[13px] text-red-500">
+              Failed to load GSTR-3B data. Please refresh and try again.
+            </p>
+          )}
+
+          {(notFound || (!data && !error && !isLoading)) && !uploading && (
+            <UploadArea onFile={handleFile} loading={uploading} error={uploadError} />
+          )}
+
+          {uploading && !hasResult && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <svg className="h-8 w-8 animate-spin text-brand" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+              </svg>
+              <p className="text-[13px] text-gray-400">Processing GSTR-3B…</p>
             </div>
-            <div className={statCardsGridClass}>
-              <StatCard
-                label="GSTR-2B ITC Available"
-                accent="neutral"
-                value={
-                  <CompactStatAmount amount={data.total.gstr2b} className="text-gray-800" />
-                }
-              />
-              <StatCard
-                label="GSTR-3B ITC Claimed"
-                accent="neutral"
-                value={
-                  <CompactStatAmount amount={data.total.gstr3b} className="text-gray-800" />
-                }
-              />
-              <StatCard
-                label="Net difference (3B claimed − all 2B)"
-                accent={
-                  data.total.difference === 0
-                    ? "matched"
-                    : data.total.difference > 0
-                      ? "risk"
-                      : "pending"
-                }
-                emphasis={data.total.difference === 0 ? "default" : "attention"}
-                value={
-                  <span className={`inline-flex items-baseline gap-0.5 ${diffColor(data.total.difference)}`}>
-                    {data.total.difference > 0 ? <span aria-hidden>+</span> : null}
-                    {data.total.difference < 0 ? <span aria-hidden>−</span> : null}
-                    <CompactStatAmount
-                      amount={Math.abs(data.total.difference)}
-                      className={diffColor(data.total.difference)}
-                    />
+          )}
+
+          {hasResult && data && (
+            <div className="space-y-5">
+              <div className="flex w-full flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    GSTR-3B — {periodLabel}
+                  </h2>
+                  <StatusBadge status={data.overall_status} />
+                  <span className="text-[12px] text-gray-400 tabular-nums">
+                    {data.client_gstin}
                   </span>
-                }
-              />
-            </div>
-            {data.overall_status === "MIXED" ? (
-              <p className="mt-3 text-[12px] text-violet-800/90 leading-relaxed">
-                Mixed by tax head — some heads are overclaimed and others underclaimed.
-                Use the net difference above for the overall position.
-              </p>
-            ) : null}
-            <div className="mt-4">
-              <ComparisonTable result={data} />
-            </div>
-          </div>
+                </div>
+                <div>
+                  <input
+                    ref={reuploadRef}
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleFile(f);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={uploading}
+                    onClick={() => reuploadRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-3 py-1.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {uploading ? "Uploading…" : "Re-upload GSTR-3B"}
+                  </button>
+                </div>
+              </div>
 
-          {/* 3. ITC by source — full prominence */}
-          {filed ? (
-            <div>
-              <p className="mb-3 text-[13px] font-semibold text-gray-800">
-                Table 4 — ITC available by source
+              {uploadError && <p className="text-[12px] text-red-500">{uploadError}</p>}
+
+              {/* 1. DRC-01C — most actionable */}
+              {data.drc01c ? (
+                <Drc01cBanner drc={data.drc01c} />
+              ) : (
+                <div className="rounded-xl border border-[#E5E7EB] bg-[#FAFAFA] px-4 py-3 text-[12px] text-gray-500">
+                  DRC-01C threshold not available for this result.
+                </div>
+              )}
+
+              {/* 2. 2B vs 3B ITC check */}
+              <div>
+                <div className="mb-3">
+                  <p className="text-[13px] font-semibold text-gray-800">
+                    ITC claimed vs GSTR-2B available
+                  </p>
+                  <p className="mt-1 text-[12px] text-gray-500 leading-relaxed">
+                    Net difference = GSTR-3B claimed (Table 4C net) − all GSTR-2B available ITC
+                    (positive = overclaimed, negative = underclaimed). Not the same as GSTR-9C FY
+                    Rollup variance, which uses clean-matched 2B ITC only.
+                  </p>
+                </div>
+                <div className={statCardsGridClass}>
+                  <StatCard
+                    label="GSTR-2B ITC Available"
+                    accent="neutral"
+                    value={
+                      <CompactStatAmount amount={data.total.gstr2b} className="text-gray-800" />
+                    }
+                  />
+                  <StatCard
+                    label="GSTR-3B ITC Claimed"
+                    accent="neutral"
+                    value={
+                      <CompactStatAmount amount={data.total.gstr3b} className="text-gray-800" />
+                    }
+                  />
+                  <StatCard
+                    label="Net difference (3B claimed − all 2B)"
+                    accent={
+                      data.total.difference === 0
+                        ? "matched"
+                        : data.total.difference > 0
+                          ? "risk"
+                          : "pending"
+                    }
+                    emphasis={data.total.difference === 0 ? "default" : "attention"}
+                    value={
+                      <span className={`inline-flex items-baseline gap-0.5 ${diffColor(data.total.difference)}`}>
+                        {data.total.difference > 0 ? <span aria-hidden>+</span> : null}
+                        {data.total.difference < 0 ? <span aria-hidden>−</span> : null}
+                        <CompactStatAmount
+                          amount={Math.abs(data.total.difference)}
+                          className={diffColor(data.total.difference)}
+                        />
+                      </span>
+                    }
+                  />
+                </div>
+                {data.overall_status === "MIXED" ? (
+                  <p className="mt-3 text-[12px] text-violet-800/90 leading-relaxed">
+                    Mixed by tax head — some heads are overclaimed and others underclaimed.
+                    Use the net difference above for the overall position.
+                  </p>
+                ) : null}
+                <div className="mt-4">
+                  <ComparisonTable result={data} />
+                </div>
+              </div>
+
+              {/* 3. ITC by source — full prominence */}
+              {filed ? (
+                <div>
+                  <p className="mb-3 text-[13px] font-semibold text-gray-800">
+                    Table 4 — ITC available by source
+                  </p>
+                  <ItcBySourceTable filed={filed} />
+                </div>
+              ) : (
+                <div className="rounded-xl border border-[#E5E7EB] bg-[#FAFAFA] px-4 py-3 text-[12px] text-gray-500">
+                  Filed breakdown unavailable (raw GSTR-3B could not be re-parsed). ITC check above
+                  still reflects claimed vs 2B totals.
+                </div>
+              )}
+
+              {/* 4. 3.1(a) */}
+              {filed ? (
+                <div>
+                  <p className="mb-3 text-[13px] font-semibold text-gray-800">
+                    Table 3.1(a) — Outward taxable supplies
+                  </p>
+                  <SupplyRowTable
+                    label="3.1(a) Other than zero-rated / nil / exempt"
+                    row={{
+                      taxable_value: filed.outward_supply.taxable_value,
+                      igst: filed.outward_supply.igst,
+                      cgst: filed.outward_supply.cgst ?? 0,
+                      sgst: filed.outward_supply.sgst ?? 0,
+                      cess: filed.outward_supply.cess ?? 0,
+                    }}
+                    emphasize
+                  />
+                </div>
+              ) : null}
+
+              {/* 5. Secondary accordion */}
+              {filed ? <SecondaryFiledAccordion filed={filed} /> : null}
+
+              {/* 6. Related */}
+              <RelatedChecks
+                runId={runId}
+                authToken={authToken}
+                clientGstinId={data.client_gstin_id}
+                taxPeriod={data.tax_period}
+                showStandaloneLink={variant === "embedded"}
+              />
+
+              <p className="text-[11px] italic text-gray-300">
+                Based on the GSTR-3B JSON you uploaded. ReconDesk does not connect to the GST portal
+                directly. Verify figures before filing amendments or responding to intimations.
               </p>
-              <ItcBySourceTable filed={filed} />
-            </div>
-          ) : (
-            <div className="rounded-xl border border-[#E5E7EB] bg-[#FAFAFA] px-4 py-3 text-[12px] text-gray-500">
-              Filed breakdown unavailable (raw GSTR-3B could not be re-parsed). ITC check above
-              still reflects claimed vs 2B totals.
             </div>
           )}
-
-          {/* 4. 3.1(a) */}
-          {filed ? (
-            <div>
-              <p className="mb-3 text-[13px] font-semibold text-gray-800">
-                Table 3.1(a) — Outward taxable supplies
-              </p>
-              <SupplyRowTable
-                label="3.1(a) Other than zero-rated / nil / exempt"
-                row={{
-                  taxable_value: filed.outward_supply.taxable_value,
-                  igst: filed.outward_supply.igst,
-                  cgst: filed.outward_supply.cgst ?? 0,
-                  sgst: filed.outward_supply.sgst ?? 0,
-                  cess: filed.outward_supply.cess ?? 0,
-                }}
-                emphasize
-              />
-            </div>
-          ) : null}
-
-          {/* 5. Secondary accordion */}
-          {filed ? <SecondaryFiledAccordion filed={filed} /> : null}
-
-          {/* 6. Related */}
-          <RelatedChecks
-            runId={runId}
-            authToken={authToken}
-            clientGstinId={data.client_gstin_id}
-            taxPeriod={data.tax_period}
-            showStandaloneLink={variant === "embedded"}
-          />
-
-          <p className="text-[11px] italic text-gray-300">
-            Based on the GSTR-3B JSON you uploaded. ReconDesk does not connect to the GST portal
-            directly. Verify figures before filing amendments or responding to intimations.
-          </p>
         </div>
       )}
     </div>
