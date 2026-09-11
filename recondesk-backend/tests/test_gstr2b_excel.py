@@ -169,3 +169,244 @@ def test_gstr2b_excel_handles_gstn_portal_headers_without_sr_column():
     assert cn["invoice_number_raw"] == "CN-2026-001"
 
 
+def test_gstr2b_excel_existing_invoice_sheet():
+    """Existing 'invoice' sheet name is handled by the named-sheet path."""
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "Sr": 1,
+                    "GSTIN": "27AABCT1332L1ZV",
+                    "Party": "SUPPLIER ONE",
+                    "Invoice No": "INV-001",
+                    "Invoice Date": "10-09-2026",
+                    "Taxable Value": 5000.0,
+                    "Integrated Tax": 900.0,
+                }
+            ]
+        ).to_excel(writer, sheet_name="invoice", index=False)
+
+    raw = buf.getvalue()
+    alt = excel_to_alt_2b_dict(raw, "invoice_test.xlsx")
+    assert len(alt["invoice"]) == 1
+    assert alt["invoice"][0]["Invoice No"] == "INV-001"
+
+    portal = parse_2b_excel(
+        raw,
+        "invoice_test.xlsx",
+        fallback_buyer_gstin="27ISKPK1273H1ZF",
+        fallback_period="2026-09",
+    )
+    result = parse_gstr2b(portal)
+    assert result["total_parsed"] == 1
+    assert result["records"][0]["invoice_number_raw"] == "INV-001"
+
+
+def test_gstr2b_excel_existing_b2b_sheet():
+    """Existing 'b2b' sheet name is handled by the named-sheet path."""
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "GSTIN of Supplier": "27AABCT1332L1ZV",
+                    "Trade/Legal Name of Supplier": "SUPPLIER ONE",
+                    "Invoice Number": "INV-002",
+                    "Invoice Date": "12-09-2026",
+                    "Taxable Value": 4000.0,
+                    "Central Tax": 360.0,
+                    "State/UT Tax": 360.0,
+                }
+            ]
+        ).to_excel(writer, sheet_name="b2b", index=False)
+
+    raw = buf.getvalue()
+    alt = excel_to_alt_2b_dict(raw, "b2b_test.xlsx")
+    assert len(alt["invoice"]) == 1
+
+    portal = parse_2b_excel(
+        raw,
+        "b2b_test.xlsx",
+        fallback_buyer_gstin="27ISKPK1273H1ZF",
+        fallback_period="2026-09",
+    )
+    result = parse_gstr2b(portal)
+    assert result["total_parsed"] == 1
+    assert result["records"][0]["invoice_number_raw"] == "INV-002"
+
+
+def test_gstr2b_excel_data_on_gstr2b_sheet():
+    """GSTR-2B data on sheet named 'GSTR-2B' is detected and parsed via content fallback."""
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "GSTIN of Supplier": "27AABCT1332L1ZV",
+                    "Trade/Legal Name of Supplier": "SUPPLIER GSTR2B",
+                    "Invoice Number": "INV-2B-100",
+                    "Invoice Date": "15-09-2026",
+                    "Invoice Value": 1180.0,
+                    "Taxable Value": 1000.0,
+                    "Central Tax": 90.0,
+                    "State/UT Tax": 90.0,
+                }
+            ]
+        ).to_excel(writer, sheet_name="GSTR-2B", index=False)
+
+    raw = buf.getvalue()
+    alt = excel_to_alt_2b_dict(raw, "GSTR2B_2026-09.xlsx")
+    assert len(alt["invoice"]) == 1
+    assert alt["invoice"][0]["Invoice Number"] == "INV-2B-100"
+
+    portal = parse_2b_excel(
+        raw,
+        "GSTR2B_2026-09.xlsx",
+        fallback_buyer_gstin="27ISKPK1273H1ZF",
+        fallback_period="2026-09",
+    )
+    result = parse_gstr2b(portal)
+    assert result["total_parsed"] == 1
+    assert result["records"][0]["invoice_number_raw"] == "INV-2B-100"
+    assert result["records"][0]["supplier_gstin"] == "27AABCT1332L1ZV"
+
+
+def test_gstr2b_excel_data_on_sheet1():
+    """GSTR-2B data on generic sheet named 'Sheet1' is detected by content and parsed."""
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "GSTIN of Supplier": "27AABCT1332L1ZV",
+                    "Trade/Legal Name of Supplier": "SUPPLIER SHEET1",
+                    "Invoice Number": "INV-S1-999",
+                    "Invoice Date": "18-09-2026",
+                    "Invoice Value": 2360.0,
+                    "Taxable Value": 2000.0,
+                    "Central Tax": 180.0,
+                    "State/UT Tax": 180.0,
+                }
+            ]
+        ).to_excel(writer, sheet_name="Sheet1", index=False)
+
+    raw = buf.getvalue()
+    alt = excel_to_alt_2b_dict(raw, "sheet1_test.xlsx")
+    assert len(alt["invoice"]) == 1
+    assert alt["invoice"][0]["Invoice Number"] == "INV-S1-999"
+
+    portal = parse_2b_excel(
+        raw,
+        "sheet1_test.xlsx",
+        fallback_buyer_gstin="27ISKPK1273H1ZF",
+        fallback_period="2026-09",
+    )
+    result = parse_gstr2b(portal)
+    assert result["total_parsed"] == 1
+    assert result["records"][0]["invoice_number_raw"] == "INV-S1-999"
+    assert result["records"][0]["taxable_value_paise"] == 200000
+
+
+def test_gstr2b_excel_workbook_with_no_valid_gstr2b_sheet():
+    """Workbook with no valid GSTR-2B sheet (e.g. employee roster or random numbers) raises ValueError."""
+    import io
+    import pandas as pd
+    import pytest
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {"Employee ID": 101, "Full Name": "Jane Doe", "Department": "Finance", "Salary": 85000},
+                {"Employee ID": 102, "Full Name": "John Smith", "Department": "Engineering", "Salary": 92000},
+            ]
+        ).to_excel(writer, sheet_name="Sheet1", index=False)
+
+    raw = buf.getvalue()
+    with pytest.raises(ValueError, match="gstr2b_excel_no_invoice_sheet"):
+        excel_to_alt_2b_dict(raw, "employees.xlsx")
+
+    with pytest.raises(ValueError, match="gstr2b_excel_no_invoice_sheet"):
+        parse_2b_excel(raw, "employees.xlsx")
+
+
+def test_gstr2b_excel_purchase_register_accidentally_supplied():
+    """Purchase Register accidentally supplied as GSTR-2B must NOT be accepted as GSTR-2B."""
+    import io
+    import pandas as pd
+    import pytest
+
+    # Case A: Sheet named 'Purchase Register' with PR headers
+    buf_a = io.BytesIO()
+    with pd.ExcelWriter(buf_a, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "Supplier GSTIN": "27AABCT1332L1ZV",
+                    "Supplier Name": "VENDOR A",
+                    "Invoice No": "PR-INV-001",
+                    "Invoice Date": "05-09-2026",
+                    "Invoice Value": 1180.0,
+                    "Taxable Value": 1000.0,
+                    "Central Tax": 90.0,
+                    "State Tax": 90.0,
+                    "ITC Eligibility": "Eligible",
+                }
+            ]
+        ).to_excel(writer, sheet_name="Purchase Register", index=False)
+
+    raw_a = buf_a.getvalue()
+    with pytest.raises(ValueError, match="gstr2b_excel_no_invoice_sheet"):
+        excel_to_alt_2b_dict(raw_a, "purchase_register.xlsx")
+
+    with pytest.raises(ValueError, match="gstr2b_excel_no_invoice_sheet"):
+        parse_2b_excel(raw_a, "purchase_register.xlsx")
+
+    # Case B: Sheet named 'Sheet1' but containing PR accounting columns (Voucher No, ITC Eligibility)
+    buf_b = io.BytesIO()
+    with pd.ExcelWriter(buf_b, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "Supplier GSTIN": "27AABCT1332L1ZV",
+                    "Party Name": "VENDOR B",
+                    "Voucher No": "VCH-100",
+                    "Invoice No": "INV-100",
+                    "Invoice Date": "06-09-2026",
+                    "Taxable Value": 5000.0,
+                    "Integrated Tax": 900.0,
+                    "ITC Eligibility": "Ineligible",
+                }
+            ]
+        ).to_excel(writer, sheet_name="Sheet1", index=False)
+
+    raw_b = buf_b.getvalue()
+    with pytest.raises(ValueError, match="gstr2b_excel_no_invoice_sheet"):
+        excel_to_alt_2b_dict(raw_b, "pr_sheet1.xlsx")
+
+    # Case C: Real PR file if present in Downloads
+    from pathlib import Path
+    downloads_pr = Path("/Users/omkarkadam/Downloads/PurchaseRegister_27ISKPK1273H1ZF_Sep2026.xlsx")
+    if downloads_pr.exists():
+        try:
+            real_pr_bytes = downloads_pr.read_bytes()
+            with pytest.raises(ValueError, match="gstr2b_excel_no_invoice_sheet"):
+                excel_to_alt_2b_dict(real_pr_bytes, downloads_pr.name)
+        except PermissionError:
+            pass  # Sandbox environment without access to user Downloads
+
+
+
