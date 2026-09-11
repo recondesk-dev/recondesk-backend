@@ -351,3 +351,55 @@ def test_detect_duplicates_never_drops_rows_partition():
     assert len(res["against_history"]) == 1
     assert len(res["clean_records"]) == 1
     assert len(res["within_batch"]) == 1
+
+
+def test_pr_supplier_gstin_orientation_flags_taxpayer_gstin():
+    """If PR rows have supplier GSTIN matching the client's own GSTIN, flag as warning."""
+    client_gstin = "27ISKPK1273H1ZF"
+    rows = [_base(gstin=client_gstin) for _ in range(10)]
+    checks = run_import_sanity(
+        rows,
+        expected_count=10,
+        source_type="purchase_register",
+        client_gstin=client_gstin,
+    )
+    c = _by_name(checks, "Supplier GSTIN Orientation")
+    assert c is not None
+    assert c.passed is False
+    assert c.severity == "warning"
+    assert "inverted" in c.detail
+
+
+def test_pr_supplier_gstin_orientation_passes_for_vendors():
+    """If PR rows have supplier GSTIN different from client's GSTIN, check passes."""
+    client_gstin = "27ISKPK1273H1ZF"
+    rows = [_base(gstin="29AACST1001A1Z1") for _ in range(10)]
+    checks = run_import_sanity(
+        rows,
+        expected_count=10,
+        source_type="purchase_register",
+        client_gstin=client_gstin,
+    )
+    c = _by_name(checks, "Supplier GSTIN Orientation")
+    assert c is not None
+    assert c.passed is True
+    assert c.severity == "info"
+
+
+def test_pr_column_inversion_auto_correction():
+    """If CSV has monochromatic client GSTIN under 'supplier_gstin' and multiple vendor GSTINs under 'customer_gstin', auto-remap."""
+    csv_text = (
+        "supplier_gstin,customer_gstin,invoice_number,invoice_date,taxable_value,igst,cgst,sgst\n"
+        "27ISKPK1273H1ZF,29AACST1001A1Z1,INV-001,2026-08-01,10000,1800,0,0\n"
+        "27ISKPK1273H1ZF,06AADKT1002A1Z2,INV-002,2026-08-02,12000,2160,0,0\n"
+        "27ISKPK1273H1ZF,24AAMPN1003A1Z3,INV-003,2026-08-03,15000,2700,0,0\n"
+    )
+    res = parse_purchase_register(csv_text.encode("utf-8"), "test_inverted.csv", client_gstin="27ISKPK1273H1ZF")
+    assert res["success"] is True
+    records = res["records"]
+    assert len(records) == 3
+    # Supplier GSTIN should be auto-remapped to the vendors from customer_gstin
+    assert records[0]["gstin"] == "29AACST1001A1Z1"
+    assert records[1]["gstin"] == "06AADKT1002A1Z2"
+    assert records[2]["gstin"] == "24AAMPN1003A1Z3"
+

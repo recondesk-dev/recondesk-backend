@@ -159,6 +159,7 @@ def run_import_sanity(
     records: list[dict],
     expected_count: int,
     source_type: str,
+    client_gstin: str | None = None,
 ) -> list[SanityCheck]:
     is_pr = source_type == "purchase_register"
     n = len(records)
@@ -236,6 +237,40 @@ def run_import_sanity(
                     affected_records=[],
                 )
             )
+
+        # 2b — Supplier GSTIN Orientation (Purchase Register only)
+        if client_gstin and records:
+            norm_client = client_gstin.strip().upper()
+            matching_client: list[dict] = []
+            for rec in records:
+                g = str(rec.get("gstin") or "").strip().upper()
+                if g == norm_client:
+                    matching_client.append(rec)
+
+            if len(matching_client) >= 0.9 * len(records):
+                out.append(
+                    SanityCheck(
+                        name="Supplier GSTIN Orientation",
+                        passed=False,
+                        detail=(
+                            f"{len(matching_client)} of {len(records)} purchase register rows have supplier "
+                            f"GSTIN matching the client's own registered GSTIN ({norm_client}). "
+                            "Check if supplier and customer/buyer GSTIN columns are inverted in the source file."
+                        ),
+                        severity="warning",
+                        affected_records=_sample(matching_client),
+                    )
+                )
+            else:
+                out.append(
+                    SanityCheck(
+                        name="Supplier GSTIN Orientation",
+                        passed=True,
+                        detail=f"Supplier GSTINs are correctly oriented (different from client GSTIN {norm_client}).",
+                        severity="info",
+                        affected_records=[],
+                    )
+                )
     else:
         bad_gstin: list[dict] = []
         for rec in records:

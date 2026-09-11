@@ -360,7 +360,22 @@ async def upload_purchase_register(
                         "saved_mapping": None,
                     },
                 )
-        parse_result = parse_purchase_register(parse_body, parse_name)
+        client_gstin_str = None
+        try:
+            cg_res = (
+                sb.table("client_gstins")
+                .select("gstin")
+                .eq("id", str(client_id).strip())
+                .limit(1)
+                .execute()
+            )
+            if cg_res.data and cg_res.data[0].get("gstin"):
+                client_gstin_str = str(cg_res.data[0]["gstin"]).strip()
+        except Exception:
+            client_gstin_str = None
+        parse_result = parse_purchase_register(
+            parse_body, parse_name, client_gstin=client_gstin_str
+        )
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001

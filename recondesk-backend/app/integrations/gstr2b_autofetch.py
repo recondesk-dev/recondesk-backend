@@ -132,13 +132,25 @@ def refresh_token(access_token: str) -> dict:
     return r.json()["data"]
 
 
-def get_gstr2b(access_token: str, gstin: str, year: str, month: str) -> dict:
+def get_gstr2b(
+    access_token: str,
+    gstin: str,
+    year: str = "",
+    month: str = "",
+    ret_period: str | None = None,
+) -> dict:
     """Fetch GSTR-2B for the authenticated taxpayer session.
 
     Sandbox docs: GET /gst/compliance/tax-payer/gstrs/gstr-2b/{year}/{month}
     Auth is the GSTN taxpayer access token from verify-otp (not the platform JWT).
     ``gstin`` is kept for logging/callers; the session token already scopes the taxpayer.
     """
+    if ret_period and (not year or not month):
+        ret_s = str(ret_period).strip().replace("-", "")
+        if len(ret_s) == 6:
+            month = ret_s[:2]
+            year = ret_s[2:]
+
     year_s = str(year).strip()
     month_s = str(month).strip().zfill(2)
     url = f"{BASE_URL}/gst/compliance/tax-payer/gstrs/gstr-2b/{year_s}/{month_s}"

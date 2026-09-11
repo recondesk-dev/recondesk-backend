@@ -726,6 +726,11 @@ def _flag_pr_to_pr_clone_duplicates(
     return flagged
 
 
+def _invoice_digit_core(s: str | None) -> str:
+    """Digits-only spine of an invoice number (for mangled-prefix twin checks)."""
+    return re.sub(r"[^0-9]", "", str(s or ""))
+
+
 def flag_fuzzy_duplicates_of_linked_prs(
     state: ReconState,
     pr_records: list[dict],
@@ -751,7 +756,7 @@ def flag_fuzzy_duplicates_of_linked_prs(
     (high-sim alone must not waive the tax check).
     Routes to Duplicate Entry (never ITC at Risk). Returns extras flagged.
     """
-    from app.services.matcher import _parse_invoice_date
+    from app.services.matcher import _parse_invoice_date, is_invoice_format_variant
 
     linked_meta: dict[str, str] = {}  # pr_id -> gstr_id (may be "")
     for row in list(state.clean_matched) + list(state.review_required):
@@ -2506,21 +2511,42 @@ def execute_phase2_and_3(
 
     # Overwrite reason code for losing PR rows claimed by better-matched PR rows
     claimed_inv_norms = set()
+    matched_pr_amounts: dict[str, tuple[int, int]] = {}
+    pr_by_id = {str(p["id"]): p for p in pr_records}
     for m in state.clean_matched:
         inv_n = str(m.get("invoice_number_normalized") or "")
         if inv_n:
             claimed_inv_norms.add(inv_n)
+        pid = str(m.get("pr_id") or "")
+        if pid and pid in pr_by_id:
+            matched_pr_amounts[pid] = (
+                int(pr_by_id[pid].get("taxable_amount_paise") or 0),
+                int(pr_by_id[pid].get("total_tax_paise") or 0),
+            )
     for r in state.review_required:
         if r.get("gstr_id") and r.get("pr_id"):
             inv_n = str(r.get("invoice_number_normalized") or "")
             if inv_n:
                 claimed_inv_norms.add(inv_n)
+            pid = str(r.get("pr_id") or "")
+            if pid and pid in pr_by_id:
+                matched_pr_amounts[pid] = (
+                    int(pr_by_id[pid].get("taxable_amount_paise") or 0),
+                    int(pr_by_id[pid].get("total_tax_paise") or 0),
+                )
 
     for d in state.duplicate_entries:
         if d.get("side") == "PR":
             d_inv = str(d.get("invoice_number_normalized") or "")
+            matched_pid = str(d.get("matched_pr_id") or "")
             if (d_inv and d_inv in claimed_inv_norms) or d.get("gstr_id"):
-                d["reason"] = "PR_CLAIMED_BY_BETTER_MATCH"
+                m_amt = matched_pr_amounts.get(matched_pid)
+                d_taxable = int(d.get("taxable_amount_paise") or 0)
+                d_tax = int(d.get("total_tax_paise") or 0)
+                if m_amt and abs(m_amt[0] - d_taxable) <= 100 and abs(m_amt[1] - d_tax) <= 100:
+                    d["reason"] = "DUPLICATE_ENTRY"
+                else:
+                    d["reason"] = "PR_CLAIMED_BY_BETTER_MATCH"
 
 
 def _gstin_pan(gstin: str | None) -> str:

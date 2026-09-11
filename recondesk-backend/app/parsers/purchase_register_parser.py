@@ -298,8 +298,108 @@ def _uniqueify_header_labels(headers: list[Any]) -> list[str]:
     return unique_headers
 
 
+_GSTIN_FORMAT_RE = re.compile(r"^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
+
+
+def _is_valid_gstin_str(val: Any) -> bool:
+    if not val or not isinstance(val, str):
+        return False
+    s = val.strip().upper()
+    if len(s) != 15:
+        return False
+    return bool(_GSTIN_FORMAT_RE.match(s))
+
+
+def refine_gstin_column_mapping(
+    df: pd.DataFrame,
+    mapping: dict[str, str],
+    client_gstin: str | None = None,
+) -> dict[str, str]:
+    """Refine column mapping for GSTIN if the mapped column is inverted or mislabeled.
+
+    Detects if the column mapped to 'gstin' is monochromatic (e.g. 1 unique GSTIN
+    across all rows) or matches the client's own registered GSTIN, while another
+    column in the DataFrame (e.g. customer_gstin, counterparty_gstin, party_gstin)
+    contains multiple unique valid GSTINs. In such cases, remaps 'gstin' to the
+    true supplier GSTIN column.
+    """
+    if "gstin" not in mapping or df is None or len(df) == 0:
+        return mapping
+
+    current_col = mapping["gstin"]
+    if current_col not in df.columns:
+        return mapping
+
+    current_series = df[current_col].dropna().astype(str).str.strip().str.upper()
+    current_vals = [v for v in current_series if v and v not in ("NAN", "NONE", "NAT")]
+    if not current_vals:
+        return mapping
+
+    current_unique = set(current_vals)
+    norm_client = client_gstin.strip().upper() if client_gstin else None
+
+    is_client_match = (
+        norm_client is not None
+        and (sum(1 for v in current_vals if v == norm_client) / len(current_vals) >= 0.9)
+    )
+    is_monochromatic = len(current_unique) == 1
+
+    if not is_client_match and not is_monochromatic:
+        return mapping
+
+    best_candidate: str | None = None
+    best_unique_count = 0
+
+    _COUNTERPARTY_HINTS = (
+        "customer", "counterparty", "party", "vendor", "ctin", "buyer", "supplier"
+    )
+
+    for col in df.columns:
+        if col == current_col:
+            continue
+
+        col_norm = normalize_header(str(col))
+        vals = df[col].dropna().astype(str).str.strip().str.upper()
+        clean_vals = [v for v in vals if v and v not in ("NAN", "NONE", "NAT")]
+        if not clean_vals:
+            continue
+
+        valid_gstins = [v for v in clean_vals if _is_valid_gstin_str(v)]
+        if not valid_gstins:
+            continue
+
+        unique_valid = set(valid_gstins)
+        if norm_client and len(unique_valid) == 1 and norm_client in unique_valid:
+            continue
+
+        if len(unique_valid) > len(current_unique) or (
+            is_client_match and len(valid_gstins) / len(clean_vals) >= 0.5
+        ):
+            score = len(unique_valid)
+            if any(hint in col_norm for hint in _COUNTERPARTY_HINTS):
+                score += 1000
+            if score > best_unique_count:
+                best_candidate = col
+                best_unique_count = score
+
+    if best_candidate is not None:
+        logger.warning(
+            "PR column refinement: remapping 'gstin' from '%s' to '%s' "
+            "(detected %d unique valid vendor GSTINs vs %d in current column).",
+            current_col,
+            best_candidate,
+            best_unique_count if best_unique_count < 1000 else best_unique_count - 1000,
+            len(current_unique),
+        )
+        new_mapping = dict(mapping)
+        new_mapping["gstin"] = best_candidate
+        return new_mapping
+
+    return mapping
+
+
 def _find_best_header_from_raw(
-    raw_df: pd.DataFrame, max_rows: int = 20
+    raw_df: pd.DataFrame, max_rows: int = 20, client_gstin: str | None = None
 ) -> tuple[pd.DataFrame | None, dict[str, str] | None, int]:
     """
     Given a DataFrame parsed without headers (header=None), scan the first
@@ -348,18 +448,22 @@ def _find_best_header_from_raw(
         return candidate.reset_index(drop=True)
 
     if max_score >= 3 and best_mapping is not None and best_headers is not None:
+        body = _slice_body(best_header_row, best_headers)
+        best_mapping = refine_gstin_column_mapping(body, best_mapping, client_gstin=client_gstin)
         return (
-            _slice_body(best_header_row, best_headers),
+            body,
             best_mapping,
             best_header_row,
         )
     if fallback_mapping is not None and fallback_headers is not None:
-        return _slice_body(0, fallback_headers), fallback_mapping, 0
+        body = _slice_body(0, fallback_headers)
+        fallback_mapping = refine_gstin_column_mapping(body, fallback_mapping, client_gstin=client_gstin)
+        return body, fallback_mapping, 0
 
     return None, None, -1
 
 
-def detect_column_mapping(df: pd.DataFrame) -> dict[str, str]:
+def detect_column_mapping(df: pd.DataFrame, client_gstin: str | None = None) -> dict[str, str]:
     """Map standard field names to the actual column names present in *df*.
 
     Each source column is assigned to the standard field with the best match score:
@@ -424,6 +528,9 @@ def detect_column_mapping(df: pd.DataFrame) -> dict[str, str]:
             column_matches[std_name] = (tier, alias_len, priority, orig_col)
 
     mapping = {std: orig for std, (_, _, _, orig) in column_matches.items()}
+
+    if len(df) > 0:
+        mapping = refine_gstin_column_mapping(df, mapping, client_gstin=client_gstin)
 
     if (
         "gstin" not in mapping
@@ -1191,7 +1298,9 @@ def _process_pr_sheet_rows(
     }
 
 
-def parse_purchase_register(file_content: bytes, filename: str) -> dict:
+def parse_purchase_register(
+    file_content: bytes, filename: str, client_gstin: str | None = None
+) -> dict:
     """Parse a purchase-register file and return a structured result dict.
 
     Multi-sheet Excel workbooks: every non-skipped sheet with a valid column
@@ -1278,7 +1387,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     continue
 
                 best_df, best_mapping, best_header_row = _find_best_header_from_raw(
-                    raw_df
+                    raw_df, client_gstin=client_gstin
                 )
                 sheet_elapsed = time.perf_counter() - sheet_t0
                 if best_df is not None and best_mapping:
@@ -1339,7 +1448,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
                     continue
 
                 best_df, best_mapping, best_header_row = _find_best_header_from_raw(
-                    raw_df
+                    raw_df, client_gstin=client_gstin
                 )
                 if best_df is not None and best_mapping:
                     sheet_jobs.append(
@@ -1605,7 +1714,7 @@ def parse_purchase_register(file_content: bytes, filename: str) -> dict:
 
 
 def parse_purchase_register_dataframe(
-    file_content: bytes, filename: str
+    file_content: bytes, filename: str, client_gstin: str | None = None
 ) -> pd.DataFrame:
     """Parse a purchase register and return the canonical DataFrame directly.
 
@@ -1618,7 +1727,7 @@ def parse_purchase_register_dataframe(
     Raises ParseError on failure (the dict returned by ``parse_purchase_register``
     is not used here).
     """
-    res = parse_purchase_register(file_content, filename)
+    res = parse_purchase_register(file_content, filename, client_gstin=client_gstin)
     if not res.get("success"):
         raise ParseError("; ".join(res.get("errors") or ["parse failed"]))
     df_out = res.get("normalized_dataframe")

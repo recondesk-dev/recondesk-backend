@@ -281,20 +281,21 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
         obj = s3.get_object(Bucket=bucket, Key=r2_key)
         body = obj["Body"].read()
 
+        client_gstin_fallback = ""
+        if client_gstin_id:
+            cg_res = (
+                client.table("client_gstins")
+                .select("gstin")
+                .eq("id", str(client_gstin_id))
+                .limit(1)
+                .execute()
+            )
+            if cg_res.data and cg_res.data[0].get("gstin") is not None:
+                client_gstin_fallback = str(cg_res.data[0]["gstin"]).strip()
+
         pr_sheet_meta: dict[str, Any] | None = None
 
         if file_type == "gstr2b":
-            client_gstin_fallback = ""
-            if client_gstin_id:
-                cg_res = (
-                    client.table("client_gstins")
-                    .select("gstin")
-                    .eq("id", str(client_gstin_id))
-                    .limit(1)
-                    .execute()
-                )
-                if cg_res.data and cg_res.data[0].get("gstin") is not None:
-                    client_gstin_fallback = str(cg_res.data[0]["gstin"]).strip()
             gstr_payload = _load_and_normalize_gstr2b_body_for_parse(
                 body,
                 filename=os.path.basename(r2_key) if r2_key else None,
@@ -424,7 +425,9 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
                             f"schema. Detected headers: {headers}"
                         )
             pr_t0 = time.perf_counter()
-            pr = parse_purchase_register(parse_body, parse_name)
+            pr = parse_purchase_register(
+                parse_body, parse_name, client_gstin=client_gstin_fallback or None
+            )
             _log.info(
                 "PR parse finished run_id=%s elapsed=%.2fs records=%d "
                 "missing_invoice=%s sheets_used=%s",
@@ -471,6 +474,7 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             for_sanity,
             expected_count=len(for_sanity),
             source_type=file_type,
+            client_gstin=client_gstin_fallback or None,
         )
         sanity_json = _sanity_checks_to_json(checks)
         if file_type == "purchase_register" and pr_sheet_meta is not None:

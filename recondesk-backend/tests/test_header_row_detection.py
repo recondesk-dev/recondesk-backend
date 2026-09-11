@@ -112,7 +112,8 @@ def test_robust_header_detection_finds_row_4():
     # Verify the first record's data is correctly mapped
     rec1 = result["records"][0]
     assert rec1["gstin"] == "29AAACR5055K1ZK"
-    assert rec1["invoice_number"] == "INV1"
+    assert rec1["invoice_number"] == "INV-001"
+    assert rec1["invoice_number_normalized"] == "INV1"
     assert rec1["invoice_date"] == "2025-09-10"
     assert rec1["taxable_amount_paise"] == 1_000_000  # 10000 * 100
     assert rec1["total_tax_paise"] == 180_000         # 1800 * 100
@@ -133,4 +134,5 @@ def test_fallback_logic_uses_row_0_when_threshold_not_met():
     
     rec1 = result["records"][0]
     assert rec1["gstin"] == "29AAACR5055K1ZK"
-    assert rec1["invoice_number"] == "INV1"
+    assert rec1["invoice_number"] == "INV-001"
+    assert rec1["invoice_number_normalized"] == "INV1"
