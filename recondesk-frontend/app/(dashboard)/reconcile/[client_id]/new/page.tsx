@@ -98,22 +98,31 @@ async function sha256Hex(file: File): Promise<string> {
     .join("");
 }
 
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
 function pastMonthOptions(): { value: string; label: string }[] {
   const out: { value: string; label: string }[] = [];
   const d = new Date();
   let y = d.getFullYear();
   let m = d.getMonth();
-  if (m === 0) {
-    y -= 1;
-    m = 11;
-  } else {
-    m -= 1;
-  }
   const fmt = new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" });
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 18; i++) {
     const mm = String(m + 1).padStart(2, "0");
     const value = `${y}-${mm}-01`;
-    const label = fmt.format(new Date(y, m, 1));
+    const label = `${fmt.format(new Date(y, m, 1))}${i === 0 ? " (Current)" : ""}`;
     out.push({ value, label });
     m -= 1;
     if (m < 0) {
@@ -280,6 +289,9 @@ export default function NewReconcileWizardPage() {
   const [gstnFetchError, setGstnFetchError] = useState<string | null>(null);
   const [gstnFetchSummary, setGstnFetchSummary] = useState<string | null>(null);
   const [gstnZeroData, setGstnZeroData] = useState(false);
+  /** Selected return period for GSTR-2B auto-fetch (Step 2). Defaults to wizard period if not set. */
+  const [fetchMonth, setFetchMonth] = useState<string>("");
+  const [fetchYear, setFetchYear] = useState<string>("");
 
   const [prFile, setPrFile] = useState<File | null>(null);
   const [prProgress, setPrProgress] = useState(0);
@@ -627,11 +639,11 @@ export default function NewReconcileWizardPage() {
 
   const onGstnAutoFetch = async () => {
     if (typeof token !== "string" || !runId) return;
-    const ym = yearMonthFromPeriod(run?.period ?? period);
-    if (!ym) {
-      setGstnFetchError("Select a period in Step 1 before fetching GSTR-2B.");
-      return;
-    }
+    const ym = {
+      year: effectiveFetchYear,
+      month: effectiveFetchMonth,
+      ret_period: effectiveRetPeriod,
+    };
     setGstnFetchBusy(true);
     setGstnFetchError(null);
     setGstnFetchSummary(null);
@@ -666,7 +678,7 @@ export default function NewReconcileWizardPage() {
       } else {
         setGstnZeroData(false);
         setGstnFetchSummary(
-          `Fetched ${total.toLocaleString("en-IN")} invoice${total === 1 ? "" : "s"} from GSTR-2B`
+          `Fetched ${total.toLocaleString("en-IN")} invoice${total === 1 ? "" : "s"} from GSTR-2B for ${effectiveFetchPeriodLabel} (Period ${effectiveRetPeriod})`
         );
       }
       // Background IMS prefetch for UX only — worker overlays status at match time.
@@ -679,8 +691,8 @@ export default function NewReconcileWizardPage() {
             const base =
               prev ??
               (total === 0
-                ? "GSTR-2B fetched (0 invoices)"
-                : `Fetched ${total.toLocaleString("en-IN")} invoice${total === 1 ? "" : "s"} from GSTR-2B`);
+                ? `GSTR-2B fetched (0 invoices for ${effectiveFetchPeriodLabel})`
+                : `Fetched ${total.toLocaleString("en-IN")} invoice${total === 1 ? "" : "s"} from GSTR-2B for ${effectiveFetchPeriodLabel}`);
             return `${base} · IMS: ${mapSize.toLocaleString("en-IN")} mapped (${pending.toLocaleString("en-IN")} pending action)`;
           });
         })
@@ -1048,6 +1060,61 @@ export default function NewReconcileWizardPage() {
   const gstnConnected = isGstnConnected(clientRow);
   const step2PeriodIso = (run?.period || period || "").slice(0, 10);
   const step2PeriodLabel = step2PeriodIso ? periodLabel(step2PeriodIso) : "selected period";
+
+  const defaultYm = useMemo(() => {
+    const fromIso = yearMonthFromPeriod(step2PeriodIso);
+    if (fromIso) return fromIso;
+    const d = new Date();
+    return {
+      year: String(d.getFullYear()),
+      month: String(d.getMonth() + 1).padStart(2, "0"),
+    };
+  }, [step2PeriodIso]);
+
+  const effectiveFetchMonth = fetchMonth || defaultYm.month;
+  const effectiveFetchYear = fetchYear || defaultYm.year;
+  const effectiveRetPeriod = `${effectiveFetchMonth}${effectiveFetchYear}`;
+
+  const effectiveFetchPeriodLabel = useMemo(() => {
+    const yNum = Number(effectiveFetchYear);
+    const mNum = Number(effectiveFetchMonth);
+    if (Number.isFinite(yNum) && Number.isFinite(mNum) && mNum >= 1 && mNum <= 12) {
+      return new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" }).format(
+        new Date(yNum, mNum - 1, 1)
+      );
+    }
+    return `${effectiveFetchMonth}/${effectiveFetchYear}`;
+  }, [effectiveFetchYear, effectiveFetchMonth]);
+
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const list: string[] = [];
+    for (let yr = currentYear + 1; yr >= currentYear - 3; yr--) {
+      list.push(String(yr));
+    }
+    return list;
+  }, []);
+
+  const quickPeriodPresets = useMemo(() => {
+    const presets: { label: string; month: string; year: string }[] = [];
+    const d = new Date();
+    let y = d.getFullYear();
+    let m = d.getMonth();
+    const fmt = new Intl.DateTimeFormat("en-IN", { month: "short", year: "numeric" });
+    for (let i = 0; i < 4; i++) {
+      presets.push({
+        label: fmt.format(new Date(y, m, 1)),
+        month: String(m + 1).padStart(2, "0"),
+        year: String(y),
+      });
+      m -= 1;
+      if (m < 0) {
+        m = 11;
+        y -= 1;
+      }
+    }
+    return presets;
+  }, []);
 
   const preUploadMappingComplete =
     requiredTargetsMapped(headerToTarget) && isTaxMapped(headerToTarget);
@@ -1490,23 +1557,105 @@ export default function NewReconcileWizardPage() {
           </div>
 
           {gstnConnected && !showManualGstrUpload && !run?.gstr2b_file_name ? (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <p className="text-sm text-[var(--text-secondary)]">
-                GSTN is connected for this client. Fetch GSTR-2B for{" "}
-                <strong className="text-[var(--text-primary)]">{step2PeriodLabel}</strong>{" "}
-                directly from the portal.
+                GSTN is connected for this client. Select a return period below to auto-fetch official GSTR-2B returns directly from the GST portal.
               </p>
-              <button
-                type="button"
-                disabled={gstnFetchBusy || busy || !step2PeriodIso}
-                onClick={onGstnAutoFetch}
-                className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:opacity-90"
-              >
-                {gstnFetchBusy
-                  ? "Fetching GSTR-2B…"
-                  : `Fetch GSTR-2B for ${step2PeriodLabel}`}
-              </button>
-              <div>
+
+              {/* Month and Year Selector */}
+              <div className="rounded-xl border border-[var(--border)] bg-gray-50/70 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                    Return Period (ret_period)
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--ink)]/5 px-2.5 py-1 font-mono text-xs font-medium text-[var(--ink)]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    GSTN Code: <strong className="font-mono">{effectiveRetPeriod}</strong>
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="fetch-month-select" className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                      Return Month
+                    </label>
+                    <select
+                      id="fetch-month-select"
+                      value={effectiveFetchMonth}
+                      onChange={(e) => setFetchMonth(e.target.value)}
+                      disabled={gstnFetchBusy}
+                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--ink)]/20"
+                    >
+                      {MONTH_NAMES.map((name, idx) => {
+                        const val = String(idx + 1).padStart(2, "0");
+                        return (
+                          <option key={val} value={val}>
+                            {name} ({val})
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="fetch-year-select" className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                      Return Year
+                    </label>
+                    <select
+                      id="fetch-year-select"
+                      value={effectiveFetchYear}
+                      onChange={(e) => setFetchYear(e.target.value)}
+                      disabled={gstnFetchBusy}
+                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--ink)]/20"
+                    >
+                      {yearOptions.map((yr) => (
+                        <option key={yr} value={yr}>
+                          {yr}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Quick Period Presets */}
+                <div className="pt-1 flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs text-[var(--text-secondary)] mr-1">Quick Select:</span>
+                  {quickPeriodPresets.map((preset) => {
+                    const isSelected =
+                      preset.month === effectiveFetchMonth && preset.year === effectiveFetchYear;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          setFetchMonth(preset.month);
+                          setFetchYear(preset.year);
+                        }}
+                        disabled={gstnFetchBusy}
+                        className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                          isSelected
+                            ? "bg-[var(--ink)] text-white"
+                            : "bg-white border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-gray-400"
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  disabled={gstnFetchBusy || busy}
+                  onClick={onGstnAutoFetch}
+                  className="rounded-full bg-[var(--ink)] px-5 py-2.5 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:opacity-90 shadow-sm"
+                >
+                  {gstnFetchBusy
+                    ? `Fetching GSTR-2B for ${effectiveFetchPeriodLabel}…`
+                    : `Fetch GSTR-2B for ${effectiveFetchPeriodLabel} (${effectiveRetPeriod})`}
+                </button>
                 <button
                   type="button"
                   onClick={() => setShowManualGstrUpload(true)}
