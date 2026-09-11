@@ -409,4 +409,143 @@ def test_gstr2b_excel_purchase_register_accidentally_supplied():
             pass  # Sandbox environment without access to user Downloads
 
 
+def test_gstr2b_excel_normalizes_taxable_amount_and_aliases():
+    """Verify that 'Taxable Amount', 'Invoice Amount', and '*_amount' aliases are correctly recognized."""
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "Supplier GSTIN": "27AABCT1332L1ZV",
+                    "Invoice Number": "INV-TXAMT-01",
+                    "Invoice Date": "10-08-2026",
+                    "Taxable Amount": 50000.0,
+                    "IGST Amount": 9000.0,
+                    "Invoice Amount": 59000.0,
+                },
+                {
+                    "Supplier GSTIN": "27AABCT1332L1ZV",
+                    "Invoice Number": "INV-TXAMT-02",
+                    "Invoice Date": "11-08-2026",
+                    "Taxable Amt": 20000.0,
+                    "CGST Amount": 1800.0,
+                    "SGST Amount": 1800.0,
+                    "Total Amount": 23600.0,
+                },
+            ]
+        ).to_excel(writer, sheet_name="invoice", index=False)
+
+    raw = buf.getvalue()
+    portal = parse_2b_excel(raw, "taxable_amount_test.xlsx", fallback_period="2026-08")
+    result = parse_gstr2b(portal, fallback_period="2026-08")
+
+    assert result["total_parsed"] == 2
+    rec1 = next(r for r in result["records"] if r["invoice_number_raw"] == "INV-TXAMT-01")
+    assert rec1["taxable_value_paise"] == 5000000
+    assert rec1["taxable_value"] == 50000
+    assert rec1["igst_paise"] == 900000
+    assert rec1["invoice_value_paise"] == 5900000
+
+    rec2 = next(r for r in result["records"] if r["invoice_number_raw"] == "INV-TXAMT-02")
+    assert rec2["taxable_value_paise"] == 2000000
+    assert rec2["taxable_value"] == 20000
+    assert rec2["cgst_paise"] == 180000
+    assert rec2["sgst_paise"] == 180000
+    assert rec2["invoice_value_paise"] == 2360000
+
+
+def test_gstr2b_excel_derives_invoice_value_when_absent():
+    """Verify that when 'Invoice Value' is absent/zero, it is derived from taxable value + tax components."""
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "Supplier GSTIN": "27AABCT1332L1ZV",
+                    "Invoice Number": "INV-DERIVED-01",
+                    "Invoice Date": "15-08-2026",
+                    "Taxable Amount": 10000.0,
+                    "CGST": 900.0,
+                    "SGST": 900.0,
+                    # No Invoice Value column at all!
+                },
+                {
+                    "Supplier GSTIN": "27AABCT1332L1ZV",
+                    "Invoice Number": "INV-DERIVED-02",
+                    "Invoice Date": "16-08-2026",
+                    "Taxable Value": 15000.0,
+                    "IGST": 2700.0,
+                    "Cess": 150.0,
+                    "Invoice Value": 0.0,  # Explicit 0.0 value
+                },
+            ]
+        ).to_excel(writer, sheet_name="invoice", index=False)
+
+    raw = buf.getvalue()
+    portal = parse_2b_excel(raw, "derived_val_test.xlsx", fallback_period="2026-08")
+    result = parse_gstr2b(portal, fallback_period="2026-08")
+
+    assert result["total_parsed"] == 2
+    rec1 = next(r for r in result["records"] if r["invoice_number_raw"] == "INV-DERIVED-01")
+    assert rec1["taxable_value_paise"] == 1000000
+    assert rec1["invoice_value_paise"] == 1180000  # 10000 + 900 + 900 = 11800 -> 1180000 paise
+
+    rec2 = next(r for r in result["records"] if r["invoice_number_raw"] == "INV-DERIVED-02")
+    assert rec2["taxable_value_paise"] == 1500000
+    assert rec2["invoice_value_paise"] == 1785000  # 15000 + 2700 + 150 = 17850 -> 1785000 paise
+
+
+def test_gstr2b_excel_note_rows_normalize_taxable_amount_and_derive_val():
+    """Verify that credit/debit note rows normalize 'Taxable Amount' and derive note value when absent."""
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "Supplier GSTIN": "27AABCT1332L1ZV",
+                    "Document Number": "INV-BASE-01",
+                    "Document Date": "01-08-2026",
+                    "Taxable Amount": 5000.0,
+                    "IGST": 900.0,
+                }
+            ]
+        ).to_excel(writer, sheet_name="invoice", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "Supplier GSTIN": "27AABCT1332L1ZV",
+                    "Note Number": "CN-2026-001",
+                    "Note Type": "Credit",
+                    "Note Date": "20-08-2026",
+                    "Taxable Amount": 2000.0,
+                    "Integrated Tax Amount": 360.0,
+                    # No Note Value column
+                }
+            ]
+        ).to_excel(writer, sheet_name="note", index=False)
+
+    raw = buf.getvalue()
+    portal = parse_2b_excel(raw, "note_taxable_amount_test.xlsx", fallback_period="2026-08")
+    result = parse_gstr2b(portal, fallback_period="2026-08")
+
+    assert result["total_parsed"] == 2
+    notes = [r for r in result["records"] if r.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE", "CR")]
+    assert len(notes) == 1
+    cn = notes[0]
+    assert cn["taxable_value_paise"] == 200000
+    assert cn["taxable_value"] == 2000
+    assert cn["igst_paise"] == 36000
+    assert cn["invoice_value_paise"] == 236000  # 2000 + 360 = 2360 -> 236000 paise
+
+
+
 

@@ -1286,10 +1286,16 @@ def _alt_key_norm(key: Any) -> str:
 def _alt_row_get(row: Mapping[str, Any], *names: str) -> Any:
     """Case/space-insensitive field lookup (handles ``Invoice Value ``)."""
     wanted = {_alt_key_norm(n) for n in names}
+    first_blank = None
+    has_blank = False
     for k, v in row.items():
         if _alt_key_norm(k) in wanted:
-            return v
-    return None
+            if not _alt_blank(v):
+                return v
+            if not has_blank:
+                first_blank = v
+                has_blank = True
+    return first_blank if has_blank else None
 
 
 def _alt_blank(val: Any) -> bool:
@@ -1455,6 +1461,61 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "Trade Name", "Legal Name", "trdnm",
         ) or ""
     ).strip()
+
+    val = _alt_num(
+        _alt_row_get(
+            row,
+            "Invoice Value", "invoice_value",
+            "Invoice Amount", "invoice_amount",
+            "Total Amount", "total_amount",
+            "Document Value", "Total Value", "val",
+        )
+    )
+    txval = _alt_num(
+        _alt_row_get(
+            row,
+            "Taxable Value", "taxable_value",
+            "Taxable Amount", "taxable_amount",
+            "Taxable Amt", "taxable_amt",
+            "Taxable", "txval",
+        )
+    )
+    igst = _alt_num(
+        _alt_row_get(
+            row,
+            "IGST", "igst", "iamt", "Integrated Tax",
+            "IGST Amount", "igst_amount",
+            "Integrated Tax Amount", "integrated_tax_amount",
+        )
+    )
+    cgst = _alt_num(
+        _alt_row_get(
+            row,
+            "CGST", "cgst", "camt", "Central Tax",
+            "CGST Amount", "cgst_amount",
+            "Central Tax Amount", "central_tax_amount",
+        )
+    )
+    sgst = _alt_num(
+        _alt_row_get(
+            row,
+            "SGST", "sgst", "samt", "State/UT Tax",
+            "SGST Amount", "sgst_amount",
+            "State Tax Amount", "state_tax_amount",
+            "State Tax", "state_tax",
+        )
+    )
+    cess = _alt_num(
+        _alt_row_get(
+            row,
+            "CESS", "cess", "csamt",
+            "Cess Amount", "cess_amount",
+            "Compensation Cess", "compensation_cess",
+        )
+    )
+    if val == 0.0 and (txval > 0.0 or igst > 0.0 or cgst > 0.0 or sgst > 0.0 or cess > 0.0):
+        val = round(txval + igst + cgst + sgst + cess, 2)
+
     return {
         "_supplier_gstin": gstin,
         "_supplier_name": party,
@@ -1468,27 +1529,12 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
                 "Document Date", "Doc Date",
             )
         ),
-        "val": _alt_num(
-            _alt_row_get(
-                row, "Invoice Value", "invoice_value", "val",
-                "Document Value", "Total Value",
-            )
-        ),
-        "txval": _alt_num(
-            _alt_row_get(row, "Taxable Value", "taxable_value", "txval")
-        ),
-        "igst": _alt_num(
-            _alt_row_get(row, "IGST", "igst", "iamt", "Integrated Tax")
-        ),
-        "cgst": _alt_num(
-            _alt_row_get(row, "CGST", "cgst", "camt", "Central Tax")
-        ),
-        "sgst": _alt_num(
-            _alt_row_get(row, "SGST", "sgst", "samt", "State/UT Tax")
-        ),
-        "cess": _alt_num(
-            _alt_row_get(row, "CESS", "cess", "csamt")
-        ),
+        "val": val,
+        "txval": txval,
+        "igst": igst,
+        "cgst": cgst,
+        "sgst": sgst,
+        "cess": cess,
         "pos": _alt_pos_code(
             _alt_row_get(row, "POS", "pos", "Place of Supply", "Place Of Supply")
         ),
@@ -1564,6 +1610,62 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "Trade Name", "Legal Name", "trdnm",
         ) or ""
     ).strip()
+
+    val = _alt_num(
+        _alt_row_get(
+            row,
+            "Note Value", "note_value",
+            "Invoice Value", "invoice_value",
+            "Invoice Amount", "invoice_amount",
+            "Total Amount", "total_amount",
+            "Document Value", "Total Value", "val",
+        )
+    )
+    txval = _alt_num(
+        _alt_row_get(
+            row,
+            "Taxable Value", "taxable_value",
+            "Taxable Amount", "taxable_amount",
+            "Taxable Amt", "taxable_amt",
+            "Taxable", "txval",
+        )
+    )
+    igst = _alt_num(
+        _alt_row_get(
+            row,
+            "IGST", "igst", "iamt", "Integrated Tax",
+            "IGST Amount", "igst_amount",
+            "Integrated Tax Amount", "integrated_tax_amount",
+        )
+    )
+    cgst = _alt_num(
+        _alt_row_get(
+            row,
+            "CGST", "cgst", "camt", "Central Tax",
+            "CGST Amount", "cgst_amount",
+            "Central Tax Amount", "central_tax_amount",
+        )
+    )
+    sgst = _alt_num(
+        _alt_row_get(
+            row,
+            "SGST", "sgst", "samt", "State/UT Tax",
+            "SGST Amount", "sgst_amount",
+            "State Tax Amount", "state_tax_amount",
+            "State Tax", "state_tax",
+        )
+    )
+    cess = _alt_num(
+        _alt_row_get(
+            row,
+            "CESS", "cess", "csamt",
+            "Cess Amount", "cess_amount",
+            "Compensation Cess", "compensation_cess",
+        )
+    )
+    if val == 0.0 and (txval > 0.0 or igst > 0.0 or cgst > 0.0 or sgst > 0.0 or cess > 0.0):
+        val = round(txval + igst + cgst + sgst + cess, 2)
+
     return {
         "_supplier_gstin": gstin,
         "_supplier_name": party,
@@ -1578,27 +1680,12 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
                 "Document Date", "Doc Date",
             )
         ),
-        "val": _alt_num(
-            _alt_row_get(
-                row, "Note Value", "note_value", "val",
-                "Document Value", "Total Value",
-            )
-        ),
-        "txval": _alt_num(
-            _alt_row_get(row, "Taxable Value", "taxable_value", "txval")
-        ),
-        "igst": _alt_num(
-            _alt_row_get(row, "IGST", "igst", "iamt", "Integrated Tax")
-        ),
-        "cgst": _alt_num(
-            _alt_row_get(row, "CGST", "cgst", "camt", "Central Tax")
-        ),
-        "sgst": _alt_num(
-            _alt_row_get(row, "SGST", "sgst", "samt", "State/UT Tax")
-        ),
-        "cess": _alt_num(
-            _alt_row_get(row, "CESS", "cess", "csamt")
-        ),
+        "val": val,
+        "txval": txval,
+        "igst": igst,
+        "cgst": cgst,
+        "sgst": sgst,
+        "cess": cess,
         "pos": _alt_pos_code(
             _alt_row_get(row, "POS", "pos", "Place of Supply", "Place Of Supply")
         ),
