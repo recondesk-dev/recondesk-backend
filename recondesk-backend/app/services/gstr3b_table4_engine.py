@@ -207,7 +207,7 @@ def check_finalization_blocking_exceptions(
     }
     """
     p = payload or ro.load_payload(sb, run_id) or {}
-    all_outcomes, _ = ro.build_outcome_rows(sb, run_id, p)
+    all_outcomes = ro.build_outcome_rows(sb, run_id, p)[0]
     dispositions = load_exception_dispositions(sb, run_id)
     r37_settled = load_rule37_settlements(sb, run_id)
 
@@ -344,7 +344,7 @@ def compile_gstr3b_table4(
 
     # 2. Load Existing Reconciliation Outcomes & Underlying Maps
     p = payload or ro.load_payload(sb, run_id) or {}
-    all_outcomes, _ = ro.build_outcome_rows(sb, run_id, p)
+    all_outcomes = ro.build_outcome_rows(sb, run_id, p)[0]
     gstr_db = ro.load_gstr_map(sb, run_id)
     pr_db = ro.load_pr_map(sb, run_id)
     dispositions = load_exception_dispositions(sb, run_id)
@@ -739,7 +739,7 @@ def get_table4_drilldown(
     """Provide paginated, verifiable invoice-level evidence for any Table 4 cell."""
     row_id_clean = row_id.upper().strip()
     p = ro.load_payload(sb, run_id) or {}
-    all_outcomes, _ = ro.build_outcome_rows(sb, run_id, p)
+    all_outcomes = ro.build_outcome_rows(sb, run_id, p)[0]
     gstr_db = ro.load_gstr_map(sb, run_id)
     pr_db = ro.load_pr_map(sb, run_id)
     dispositions = load_exception_dispositions(sb, run_id)

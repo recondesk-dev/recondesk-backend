@@ -146,7 +146,7 @@ class TestTable4OrchestrationScenarios:
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
         row = _make_outcome_row("pm:g-1", category="matched", amount=18000)
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], 1)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-1": {"record_data": {"igst_paise": 18000}}}), \
              patch("app.services.reconciliation_outcomes.load_pr_map", return_value={"pr-1": {"record_data": {"igst_paise": 18000}}}):
             res = compile_gstr3b_table4(sb, "run-1")
@@ -174,7 +174,7 @@ class TestTable4OrchestrationScenarios:
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
         row = _make_outcome_row("pm:g-1", category="blocked_credit", amount=20000, blocked_credit_flag=True, itc_reason="17(5) motor vehicles")
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], 1)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-1": {"record_data": {"igst_paise": 20000}}}), \
              patch("app.services.reconciliation_outcomes.load_pr_map", return_value={"pr-1": {"record_data": {"igst_paise": 20000}}}):
             res = compile_gstr3b_table4(sb, "run-1")
@@ -200,7 +200,7 @@ class TestTable4OrchestrationScenarios:
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
         row = _make_outcome_row("pm:g-1", category="blocked_credit", amount=20000, blocked_credit_flag=True)
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], 1)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-1": {"record_data": {"igst_paise": 20000}}}), \
              patch("app.services.reconciliation_outcomes.load_pr_map", return_value={"pr-1": {"record_data": {"igst_paise": 20000}}}):
             res = compile_gstr3b_table4(sb, "run-1")
@@ -225,7 +225,7 @@ class TestTable4OrchestrationScenarios:
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
         row = _make_outcome_row("pm:g-1", category="rule37_warnings", amount=36000, rule37_flag=True)
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], 1)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-1": {"record_data": {"igst_paise": 36000}}}), \
              patch("app.services.reconciliation_outcomes.load_pr_map", return_value={"pr-1": {"record_data": {"igst_paise": 36000}}}):
             res = compile_gstr3b_table4(sb, "run-1")
@@ -250,7 +250,7 @@ class TestTable4OrchestrationScenarios:
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
         row = _make_outcome_row("pm:g-1", category="rule37_warnings", amount=36000, rule37_flag=True)
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], 1)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-1": {"record_data": {"igst_paise": 36000}}}), \
              patch("app.services.reconciliation_outcomes.load_pr_map", return_value={"pr-1": {"record_data": {"igst_paise": 36000}}}):
             res = compile_gstr3b_table4(sb, "run-1")
@@ -272,7 +272,7 @@ class TestTable4OrchestrationScenarios:
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
         row = _make_outcome_row("pm:g-1", category="rule37_warnings", match_status="RULE37A", rule37a_flag=True, amount=15000)
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], 1)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-1": {"record_data": {"igst_paise": 15000}}}), \
              patch("app.services.reconciliation_outcomes.load_pr_map", return_value={"pr-1": {"record_data": {"igst_paise": 15000}}}):
             res = compile_gstr3b_table4(sb, "run-1")
@@ -293,7 +293,7 @@ class TestTable4OrchestrationScenarios:
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
         row = _make_outcome_row("pm:g-1", category="rule37_warnings", match_status="RULE37A", rule37a_flag=True, amount=15000)
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], 1)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-1": {"record_data": {"igst_paise": 15000}}}), \
              patch("app.services.reconciliation_outcomes.load_pr_map", return_value={"pr-1": {"record_data": {"igst_paise": 15000}}}):
             res = compile_gstr3b_table4(sb, "run-1")
@@ -315,7 +315,7 @@ class TestTable4OrchestrationScenarios:
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
         row = _make_outcome_row("gstr:g-1", category="unmatched_gstr", matched_pr_id=None, amount=12000)
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], 1)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-1": {"record_data": {"igst_paise": 12000}}}), \
              patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
             res = compile_gstr3b_table4(sb, "run-1")
@@ -335,7 +335,7 @@ class TestTable4OrchestrationScenarios:
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
         row = _make_outcome_row("gstr:g-1", category="unmatched_gstr", matched_pr_id=None, amount=12000)
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], 1)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-1": {"record_data": {"igst_paise": 12000}}}), \
              patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
             res = compile_gstr3b_table4(sb, "run-1")
@@ -352,7 +352,7 @@ class TestTable4OrchestrationScenarios:
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
         row = _make_outcome_row("pr:p-1", category="missed_itc", matched_pr_id="p-1", amount=50000)
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], 1)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={}), \
              patch("app.services.reconciliation_outcomes.load_pr_map", return_value={"p-1": {"record_data": {"igst_paise": 50000}}}):
             res = compile_gstr3b_table4(sb, "run-1")
@@ -371,7 +371,7 @@ class TestTable4OrchestrationScenarios:
         inv = _make_outcome_row("pm:g-1", category="matched", amount=100000)
         cn = _make_outcome_row("pm:g-2", category="matched", amount=20000, is_credit_note=True)
 
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([inv, cn], 2)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([inv, cn], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
                  "g-1": {"record_data": {"igst_paise": 100000, "doc_type": "INVOICE"}},
                  "g-2": {"record_data": {"igst_paise": 20000, "doc_type": "CREDIT_NOTE"}},
@@ -393,7 +393,7 @@ class TestTable4OrchestrationScenarios:
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
         boe = _make_outcome_row("pm:g-1", category="matched", amount=450000)
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([boe], 1)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([boe], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
                  "g-1": {"record_data": {"igst_paise": 450000, "doc_type": "IMPG"}},
              }), \
@@ -413,7 +413,7 @@ class TestTable4OrchestrationScenarios:
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
         gta = _make_outcome_row("pm:g-1", category="matched", amount=5000)
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([gta], 1)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([gta], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
                  "g-1": {"record_data": {"cgst_paise": 2500, "sgst_paise": 2500, "reverse_charge": "Y"}},
              }), \
@@ -457,7 +457,7 @@ class TestTable4OrchestrationScenarios:
         sb = MagicMock()
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([], 0)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={}), \
              patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
             res = compile_gstr3b_table4(sb, "run-1")
@@ -480,7 +480,7 @@ class TestTable4OrchestrationScenarios:
         r1 = _make_outcome_row("pm:g-1", amount=10000)
         r2 = _make_outcome_row("pm:g-2", amount=20000)
 
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([r1, r2], 2)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([r1, r2], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
                  "g-1": {"record_data": {"igst_paise": 10000}},
                  "g-2": {"record_data": {"igst_paise": 20000}},
@@ -504,7 +504,7 @@ class TestTable4OrchestrationScenarios:
         # Blocked 17(5) invoice
         inv2 = _make_outcome_row("pm:g-2", category="blocked_credit", amount=25000, blocked_credit_flag=True)
 
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([inv1, inv2], 2)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([inv1, inv2], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
                  "g-1": {"record_data": {"igst_paise": 100000}},
                  "g-2": {"record_data": {"igst_paise": 25000}},
@@ -532,7 +532,7 @@ class TestQualifiedFinalizationGate:
         sb = MagicMock()
         row = _make_outcome_row("pm:g-1", category="blocked_credit", blocked_credit_flag=True)
 
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], 1)):
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})):
             gate = check_finalization_blocking_exceptions(sb, "run-1")
 
         assert gate["can_finalize"] is False
@@ -549,7 +549,7 @@ class TestQualifiedFinalizationGate:
         sb = MagicMock()
         row = _make_outcome_row("pm:g-1", category="blocked_credit", blocked_credit_flag=True)
 
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], 1)):
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})):
             gate = check_finalization_blocking_exceptions(sb, "run-1")
 
         assert gate["can_finalize"] is True
@@ -575,7 +575,7 @@ class TestDrilldownAndExport:
         sb = MagicMock()
         row = _make_outcome_row("pm:g-1", category="blocked_credit", amount=20000, blocked_credit_flag=True)
 
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], 1)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-1": {"record_data": {"igst_paise": 20000}}}), \
              patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
             drill = get_table4_drilldown(sb, "run-1", "4B1")
@@ -596,7 +596,7 @@ class TestDrilldownAndExport:
         sb = MagicMock()
         sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
 
-        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([], 0)), \
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([], {}, {})), \
              patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={}), \
              patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
             excel_bytes = generate_table4_excel_workpaper(sb, "run-1")
@@ -609,4 +609,39 @@ class TestDrilldownAndExport:
         assert "Table 4B Reversals" in sheet_names
         assert "External Adjustments" in sheet_names
         assert "Audit Log & Certification" in sheet_names
+
+    @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_exception_dispositions", return_value={})
+    @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
+    def test_build_outcome_rows_real_three_tuple_return_shape(self, mock_p, mock_disp, mock_adj):
+        """Regression test ensuring real 3-tuple shape from build_outcome_rows works properly.
+
+        ro.build_outcome_rows returns a 3-tuple (list[OutcomeRow], dict[str, int], dict[str, Any]).
+        Verifies compile_gstr3b_table4, check_finalization_blocking_exceptions, and
+        get_table4_drilldown all handle the real 3-tuple shape without ValueError.
+        """
+        sb = MagicMock()
+        sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
+
+        row = _make_outcome_row("pm:g-1", category="matched", amount=18000)
+        three_tuple = ([row], {"matched": 1}, {"matched_itc_paise": 18000})
+
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=three_tuple), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-1": {"record_data": {"igst_paise": 18000}}}), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={"pr-1": {"record_data": {"igst_paise": 18000}}}):
+
+            # 1. compile_gstr3b_table4
+            res = compile_gstr3b_table4(sb, "run-1")
+            assert res["status"] == "PROVISIONAL"
+            assert res["table_4"]["section_4a"]["row_4a5_all_other_itc"]["igst"] == 180.0
+
+            # 2. check_finalization_blocking_exceptions
+            gate = check_finalization_blocking_exceptions(sb, "run-1")
+            assert gate["can_finalize"] is True
+
+            # 3. get_table4_drilldown
+            drill = get_table4_drilldown(sb, "run-1", "4A5")
+            assert drill["row_id"] == "4A5"
+            assert drill["total_records"] == 1
+
 
