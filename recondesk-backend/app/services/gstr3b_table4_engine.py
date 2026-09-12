@@ -368,6 +368,10 @@ def compile_gstr3b_table4(
     # 4. Process Outcomes & Dispositions
     for r in all_outcomes:
         rec_id = r.id
+        # Duplicate entries (extra PR bookings) must never enter Table 4
+        if rec_id.startswith("de:") or r.category == "duplicate_entry":
+            continue
+
         pid = r.matched_pr_id or ""
         gid = rec_id.removeprefix("pm:").removeprefix("gstr:") if (rec_id.startswith("pm:") or rec_id.startswith("gstr:")) else ""
 
@@ -777,6 +781,10 @@ def get_table4_drilldown(
     # Second, scan outcome records
     for r in all_outcomes:
         rec_id = r.id
+        # Duplicate entries (extra PR bookings) must never enter Table 4
+        if rec_id.startswith("de:") or r.category == "duplicate_entry":
+            continue
+
         pid = r.matched_pr_id or ""
         gid = rec_id.removeprefix("pm:").removeprefix("gstr:") if (rec_id.startswith("pm:") or rec_id.startswith("gstr:")) else ""
 

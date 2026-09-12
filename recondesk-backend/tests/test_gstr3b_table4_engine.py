@@ -644,4 +644,72 @@ class TestDrilldownAndExport:
             assert drill["row_id"] == "4A5"
             assert drill["total_records"] == 1
 
+    @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_exception_dispositions", return_value={})
+    @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
+    def test_duplicate_entry_excluded_from_table4(self, mock_p, mock_disp, mock_adj):
+        """Regression test ensuring duplicate_entry rows NEVER contribute to Table 4A or 4B.
+
+        Proves:
+        - duplicate_entry is excluded from 4(A)(5)
+        - duplicate_entry is excluded from 4(B)
+        - duplicate remains visible in reconciliation results / outcome rows
+        - canonical matched invoice is included in 4(A)(5) exactly once
+        """
+        sb = MagicMock()
+        sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
+
+        # 1. Canonical matched invoice
+        canonical = _make_outcome_row("pm:g-1", category="matched", amount=50000, matched_pr_id="pr-1")
+        # 2. Duplicate entry PR booking pointing to the canonical PR record
+        duplicate = _make_outcome_row(
+            "de:pr-dup",
+            category="duplicate_entry",
+            match_status="DUPLICATE_ENTRY",
+            amount=50000,
+            matched_pr_id="pr-1",
+        )
+
+        three_tuple = ([canonical, duplicate], {"matched": 1, "duplicate_entry": 1}, {})
+
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=three_tuple), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-1": {"record_data": {"igst_paise": 50000}}}), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={"pr-1": {"record_data": {"igst_paise": 50000}}}):
+
+            # Compile Table 4
+            res = compile_gstr3b_table4(sb, "run-1")
+            sec4a = res["table_4"]["section_4a"]
+            sec4b = res["table_4"]["section_4b"]
+            sec4c = res["table_4"]["section_4c_net_itc"]
+
+            # 4(A)(5) must contain ONLY the canonical match (count = 1, amount = 500.0)
+            assert sec4a["row_4a5_all_other_itc"]["count"] == 1
+            assert sec4a["row_4a5_all_other_itc"]["igst"] == 500.0
+            assert sec4a["total_4a"]["count"] == 1
+            assert sec4a["total_4a"]["igst"] == 500.0
+
+            # 4(B) must NOT contain the duplicate entry (count = 0, amount = 0.0)
+            assert sec4b["total_4b"]["count"] == 0
+            assert sec4b["total_4b"]["igst"] == 0.0
+
+            # 4(C) net ITC equals canonical invoice
+            assert sec4c["igst"] == 500.0
+
+            # Drilldown 4A5 must only list 1 record (the canonical match)
+            drill_4a5 = get_table4_drilldown(sb, "run-1", "4A5")
+            assert drill_4a5["total_records"] == 1
+            assert drill_4a5["records"][0]["id"] == "pm:g-1"
+
+            # Drilldown 4B1 and 4B2 must be empty
+            drill_4b1 = get_table4_drilldown(sb, "run-1", "4B1")
+            assert drill_4b1["total_records"] == 0
+            drill_4b2 = get_table4_drilldown(sb, "run-1", "4B2")
+            assert drill_4b2["total_records"] == 0
+
+            # Reconciliation results / outcome rows still retain the duplicate entry
+            assert len(three_tuple[0]) == 2
+            assert three_tuple[0][1].category == "duplicate_entry"
+            assert three_tuple[0][1].id == "de:pr-dup"
+
+
 
