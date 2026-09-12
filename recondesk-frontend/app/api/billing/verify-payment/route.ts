@@ -5,7 +5,7 @@ import crypto from "crypto";
 
 const DEFAULT_TIER_LIMITS: Record<string, number> = {
   starter: 25,
-  growth: 50,
+  growth: 60,
   pro: 100,
   firm: 100,
   monthly: 25,

@@ -13,8 +13,8 @@ const PLAN_CATALOG: Record<string, PlanPricing> = {
     yearly: { priceInr: 7999, gstinLimit: 25, periodDays: 365 },
   },
   growth: {
-    monthly: { priceInr: 1799, gstinLimit: 50, periodDays: 30 },
-    yearly: { priceInr: 12999, gstinLimit: 50, periodDays: 365 },
+    monthly: { priceInr: 1799, gstinLimit: 60, periodDays: 30 },
+    yearly: { priceInr: 12999, gstinLimit: 60, periodDays: 365 },
   },
   pro: {
     monthly: { priceInr: 2399, gstinLimit: 100, periodDays: 30 },

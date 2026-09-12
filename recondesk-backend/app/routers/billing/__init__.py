@@ -101,7 +101,7 @@ async def list_plans(request: Request):  # noqa: ARG001
                 "name": "Growth",
                 "monthly": 1799,
                 "yearly": 12999,
-                "gstin_limit": 50,
+                "gstin_limit": 60,
             },
             {
                 "id": "pro",

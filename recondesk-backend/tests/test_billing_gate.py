@@ -40,10 +40,10 @@ def test_gstin_plan_catalog_v2():
 
     # Growth
     gr_yr = get_plan_details("growth", "yearly")
-    assert gr_yr["gstin_limit"] == 50
+    assert gr_yr["gstin_limit"] == 60
     assert gr_yr["base_paise"] == 12999_00
     gr_mo = get_plan_details("growth", "monthly")
-    assert gr_mo["gstin_limit"] == 50
+    assert gr_mo["gstin_limit"] == 60
     assert gr_mo["base_paise"] == 1799_00
 
     # Pro

@@ -35,11 +35,11 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
     },
     "growth": {
         **_with_gst(12999_00),
-        "gstin_limit": 50,
+        "gstin_limit": 60,
         "period_days": 365,
         "billing_period": "yearly",
-        "monthly": {**_with_gst(1799_00), "period_days": 30, "gstin_limit": 50},
-        "yearly": {**_with_gst(12999_00), "period_days": 365, "gstin_limit": 50},
+        "monthly": {**_with_gst(1799_00), "period_days": 30, "gstin_limit": 60},
+        "yearly": {**_with_gst(12999_00), "period_days": 365, "gstin_limit": 60},
     },
     "pro": {
         **_with_gst(17999_00),

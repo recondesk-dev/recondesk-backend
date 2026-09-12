@@ -8,7 +8,7 @@ const pricingFaq = [
   },
   {
     q: "What am I paying for?",
-    a: "You pay a subscription based on your firm's GSTIN capacity (Starter: up to 25 GSTINs, Growth: up to 50 GSTINs, Pro: up to 100 GSTINs, Firm: 100+ GSTINs). Every plan includes unlimited reconciliation runs during the subscription period.",
+    a: "You pay a subscription based on your firm's GSTIN capacity (Starter: up to 25 GSTINs, Growth: up to 60 GSTINs, Pro: up to 100 GSTINs, Firm: 100+ GSTINs). Every plan includes unlimited reconciliation runs during the subscription period.",
   },
   {
     q: "What is the difference between the plans?",

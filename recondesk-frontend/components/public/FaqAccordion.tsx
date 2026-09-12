@@ -26,7 +26,7 @@ const FAQ_ITEMS: FaqItem[] = [
     category: "pricing",
     categoryLabel: "Pricing & Capacity",
     q: "How is pricing structured for CA firms?",
-    a: "Plans are based strictly on active client GSTIN capacity with unlimited staff seats — Starter up to 25 GSTINs (₹1,199/mo · ₹7,999/yr), Growth up to 50 GSTINs (₹1,799/mo · ₹12,999/yr), Pro up to 100 GSTINs (₹2,399/mo · ₹17,999/yr), and Firm 100+ GSTINs (+₹25/mo or +₹200/yr per extra GSTIN). Every paid tier includes 100% of features with zero hidden add-ons.",
+    a: "Plans are based strictly on active client GSTIN capacity with unlimited staff seats — Starter up to 25 GSTINs (₹1,199/mo · ₹7,999/yr), Growth up to 60 GSTINs (₹1,799/mo · ₹12,999/yr), Pro up to 100 GSTINs (₹2,399/mo · ₹17,999/yr), and Firm 100+ GSTINs (+₹25/mo or +₹200/yr per extra GSTIN). Every paid tier includes 100% of features with zero hidden add-ons.",
   },
   {
     id: "rule-88d-notice",
