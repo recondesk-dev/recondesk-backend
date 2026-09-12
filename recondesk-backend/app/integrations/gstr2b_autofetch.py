@@ -27,7 +27,25 @@ def get_sandbox_token() -> str:
         "x-api-secret": API_SECRET,
         "x-api-version": "1.0.0",
     })
-    return r.json()["data"]["access_token"]
+    try:
+        r.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        _log.error(
+            "GSP platform /authenticate failed HTTP %s body=%s",
+            exc.response.status_code,
+            (exc.response.text or "")[:500],
+        )
+        raise
+    try:
+        return r.json()["data"]["access_token"]
+    except (KeyError, TypeError, ValueError) as exc:
+        _log.error(
+            "GSP platform /authenticate unexpected response (missing access_token): %s",
+            r.text[:500],
+        )
+        raise SandboxGstnError(
+            "GSP platform authentication failed — check SANDBOX_API_KEY and SANDBOX_API_SECRET"
+        ) from exc
 
 
 def _log_send_otp_response_once(envelope: dict[str, Any]) -> None:
@@ -68,7 +86,7 @@ def extract_sandbox_txn(envelope: dict[str, Any]) -> str | None:
     return None
 
 
-def _raise_if_gstn_error(envelope: dict[str, Any]) -> None:
+def _raise_if_gstn_error(envelope: dict[str, Any], *, context: str = "") -> None:
     data = envelope.get("data")
     if not isinstance(data, dict):
         return
@@ -77,7 +95,25 @@ def _raise_if_gstn_error(envelope: dict[str, Any]) -> None:
         raise SandboxGstnError(str(err["message"]), err.get("error_cd"))
     status_cd = str(data.get("status_cd", "")).strip()
     if status_cd and status_cd not in ("1",):
-        raise SandboxGstnError("GSTN OTP request failed")
+        # Fix 1: Preserve the actual GSP error message and code instead of replacing
+        # them with a hardcoded string that maps to the generic "Something went wrong" fallback.
+        raw_error = data.get("error") or {}
+        error_msg = (
+            (raw_error.get("message") if isinstance(raw_error, dict) else None)
+            or data.get("message")
+            or data.get("msg")
+            or f"GSTN request failed (status_cd={status_cd})"
+        )
+        error_cd = raw_error.get("error_cd") if isinstance(raw_error, dict) else None
+        _log.warning(
+            "GSTN non-success status_cd=%r error_cd=%r msg=%r context=%r full_data=%s",
+            status_cd,
+            error_cd,
+            error_msg,
+            context,
+            str(data)[:600],
+        )
+        raise SandboxGstnError(str(error_msg), error_cd)
 
 
 def send_otp(sandbox_token: str, gstin: str, username: str) -> dict[str, Any]:
@@ -91,10 +127,17 @@ def send_otp(sandbox_token: str, gstin: str, username: str) -> dict[str, Any]:
         json={"gstin": gstin, "username": username})
     r.raise_for_status()
     envelope = r.json()
+    # Fix 3: Log full GSP response every time so errors are visible in docker logs.
+    _log.info(
+        "GSP send-otp HTTP %s gstin=%s response=%s",
+        r.status_code,
+        gstin,
+        str(envelope)[:600],
+    )
     if not isinstance(envelope, dict):
         raise SandboxGstnError("Unexpected Sandbox send-otp response")
     _log_send_otp_response_once(envelope)
-    _raise_if_gstn_error(envelope)
+    _raise_if_gstn_error(envelope, context=f"send-otp gstin={gstin}")
     return envelope
 
 
@@ -112,9 +155,16 @@ def verify_otp(sandbox_token: str, gstin: str, username: str, otp: str) -> dict:
     )
     r.raise_for_status()
     envelope = r.json()
+    # Fix 3: Log full GSP response on verify-otp (OTP value itself is in query param, not here).
+    _log.info(
+        "GSP verify-otp HTTP %s gstin=%s response=%s",
+        r.status_code,
+        gstin,
+        str(envelope)[:600],
+    )
     if not isinstance(envelope, dict):
         raise SandboxGstnError("Unexpected Sandbox verify-otp response")
-    _raise_if_gstn_error(envelope)
+    _raise_if_gstn_error(envelope, context=f"verify-otp gstin={gstin}")
     data = envelope.get("data")
     if not isinstance(data, dict):
         raise SandboxGstnError("Sandbox verify-otp response missing data")
