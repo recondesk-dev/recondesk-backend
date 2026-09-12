@@ -64,16 +64,19 @@ class TaxHeadsPaise:
         self.count += count_delta
 
     def to_dict(self) -> dict[str, Any]:
+        tot_paise = self.igst + self.cgst + self.sgst + self.cess
         return {
             "igst": paise_to_rupees(self.igst),
             "cgst": paise_to_rupees(self.cgst),
             "sgst": paise_to_rupees(self.sgst),
             "cess": paise_to_rupees(self.cess),
+            "total_tax": paise_to_rupees(tot_paise),
             "count": self.count,
             "igst_paise": self.igst,
             "cgst_paise": self.cgst,
             "sgst_paise": self.sgst,
             "cess_paise": self.cess,
+            "total_tax_paise": tot_paise,
         }
 
 
@@ -553,6 +556,7 @@ def compile_gstr3b_table4(
         "cgst_paise": t4c_cgst,
         "sgst_paise": t4c_sgst,
         "cess_paise": t4c_cess,
+        "total_tax_paise": t4c_total_tax,
     }
 
     # 7. Generate Tamper-Evident Deterministic SHA-256 Audit Hash

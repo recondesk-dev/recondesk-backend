@@ -120,6 +120,12 @@ class TestTable4TaxArithmetic:
         assert d["igst"] == 300.0
         assert d["cgst_paise"] == 5000
         assert d["cgst"] == 50.0
+        assert d["sgst_paise"] == 5000
+        assert d["sgst"] == 50.0
+        assert d["cess_paise"] == 1000
+        assert d["cess"] == 10.0
+        assert d["total_tax_paise"] == 41000
+        assert d["total_tax"] == 410.0
         assert d["count"] == 2
 
     def test_extract_tax_heads_paise_from_line_items(self):
@@ -710,6 +716,56 @@ class TestDrilldownAndExport:
             assert len(three_tuple[0]) == 2
             assert three_tuple[0][1].category == "duplicate_entry"
             assert three_tuple[0][1].id == "de:pr-dup"
+
+    @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_exception_dispositions", return_value={})
+    @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
+    def test_table4_total_column_exact_amounts_regression(self, mock_p, mock_disp, mock_adj):
+        """Regression test ensuring Total column for 4A5, 4A, and 4C is correctly computed and never 0."""
+        sb = MagicMock()
+        sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
+
+        # Simulate September 2026 tax amounts:
+        # IGST: 32,97,484.99 (329,748,499 paise)
+        # CGST: 30,71,469.09 (307,146,909 paise)
+        # SGST: 30,71,469.09 (307,146,909 paise)
+        # Cess: 0.0 (0 paise)
+        row1 = _make_outcome_row("pm:g-1", category="matched", amount=329748499)
+        row2 = _make_outcome_row("pm:g-2", category="matched", amount=614293818)
+
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row1, row2], {}, {})), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
+                 "g-1": {"record_data": {"igst_paise": 329748499, "cgst_paise": 0, "sgst_paise": 0, "cess_paise": 0}},
+                 "g-2": {"record_data": {"igst_paise": 0, "cgst_paise": 307146909, "sgst_paise": 307146909, "cess_paise": 0}},
+             }), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
+            res = compile_gstr3b_table4(sb, "run-1")
+
+        sec4a = res["table_4"]["section_4a"]
+        sec4c = res["table_4"]["section_4c_net_itc"]
+
+        # 4A5 tax heads
+        assert sec4a["row_4a5_all_other_itc"]["igst"] == 3297484.99
+        assert sec4a["row_4a5_all_other_itc"]["cgst"] == 3071469.09
+        assert sec4a["row_4a5_all_other_itc"]["sgst"] == 3071469.09
+        assert sec4a["row_4a5_all_other_itc"]["cess"] == 0.0
+
+        # 4A5 Total must equal IGST + CGST + SGST + Cess = 94,40,423.17 (NOT 0)
+        assert sec4a["row_4a5_all_other_itc"]["total_tax"] == 9440423.17
+        assert sec4a["row_4a5_all_other_itc"]["total_tax_paise"] == 944042317
+
+        # 4A Total must equal 94,40,423.17 (NOT 0)
+        assert sec4a["total_4a"]["igst"] == 3297484.99
+        assert sec4a["total_4a"]["cgst"] == 3071469.09
+        assert sec4a["total_4a"]["sgst"] == 3071469.09
+        assert sec4a["total_4a"]["cess"] == 0.0
+        assert sec4a["total_4a"]["total_tax"] == 9440423.17
+        assert sec4a["total_4a"]["total_tax_paise"] == 944042317
+
+        # 4C Net ITC must equal 94,40,423.17
+        assert sec4c["total_tax"] == 9440423.17
+        assert sec4c["total_tax_paise"] == 944042317
+
 
 
 

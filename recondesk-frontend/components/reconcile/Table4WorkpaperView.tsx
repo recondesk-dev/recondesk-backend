@@ -44,24 +44,28 @@ export function Table4WorkpaperView({
 
   const copyAllValues = () => {
     if (!data) return;
-    const t4 = data.table_4;
+    const rowTotal = (r: Table4RowData) =>
+      r.total_tax !== undefined && r.total_tax !== null
+        ? r.total_tax
+        : (r.igst || 0) + (r.cgst || 0) + (r.sgst || 0) + (r.cess || 0);
+
     const summary = [
       `GSTR-3B TABLE 4 WORKPAPER — ${data.client_gstin} (${data.tax_period})`,
       `Status: ${data.status} | Audit Hash: ${data.audit_hash || "N/A"}`,
       `---------------------------------------------------------------------------------`,
       `Row | Description | IGST | CGST | SGST | Cess | Total`,
-      `4A1 | Import of Goods | ${t4.section_4a.row_4a1_import_goods.igst} | 0 | 0 | ${t4.section_4a.row_4a1_import_goods.cess} | ${t4.section_4a.row_4a1_import_goods.igst}`,
-      `4A2 | Import of Services | ${t4.section_4a.row_4a2_import_services.igst} | 0 | 0 | ${t4.section_4a.row_4a2_import_services.cess} | ${t4.section_4a.row_4a2_import_services.igst}`,
-      `4A3 | Inward RCM | ${t4.section_4a.row_4a3_inward_rcm.igst} | ${t4.section_4a.row_4a3_inward_rcm.cgst} | ${t4.section_4a.row_4a3_inward_rcm.sgst} | ${t4.section_4a.row_4a3_inward_rcm.cess} | ${t4.section_4a.row_4a3_inward_rcm.total_tax || 0}`,
-      `4A4 | ISD | ${t4.section_4a.row_4a4_isd.igst} | ${t4.section_4a.row_4a4_isd.cgst} | ${t4.section_4a.row_4a4_isd.sgst} | ${t4.section_4a.row_4a4_isd.cess} | ${t4.section_4a.row_4a4_isd.total_tax || 0}`,
-      `4A5 | All other ITC | ${t4.section_4a.row_4a5_all_other_itc.igst} | ${t4.section_4a.row_4a5_all_other_itc.cgst} | ${t4.section_4a.row_4a5_all_other_itc.sgst} | ${t4.section_4a.row_4a5_all_other_itc.cess} | ${t4.section_4a.row_4a5_all_other_itc.total_tax || 0}`,
-      `4A  | Total ITC Available | ${t4.section_4a.total_4a.igst} | ${t4.section_4a.total_4a.cgst} | ${t4.section_4a.total_4a.sgst} | ${t4.section_4a.total_4a.cess} | ${t4.section_4a.total_4a.total_tax || 0}`,
-      `4B1 | Rules 38,42,43 & 17(5) | ${t4.section_4b.row_4b1_rule38_42_43_sec175.igst} | ${t4.section_4b.row_4b1_rule38_42_43_sec175.cgst} | ${t4.section_4b.row_4b1_rule38_42_43_sec175.sgst} | ${t4.section_4b.row_4b1_rule38_42_43_sec175.cess} | ${t4.section_4b.row_4b1_rule38_42_43_sec175.total_tax || 0}`,
-      `4B2 | Others (Rule 37, 37A) | ${t4.section_4b.row_4b2_others_rule37_37a.igst} | ${t4.section_4b.row_4b2_others_rule37_37a.cgst} | ${t4.section_4b.row_4b2_others_rule37_37a.sgst} | ${t4.section_4b.row_4b2_others_rule37_37a.cess} | ${t4.section_4b.row_4b2_others_rule37_37a.total_tax || 0}`,
-      `4B  | Total ITC Reversed | ${t4.section_4b.total_4b.igst} | ${t4.section_4b.total_4b.cgst} | ${t4.section_4b.total_4b.sgst} | ${t4.section_4b.total_4b.cess} | ${t4.section_4b.total_4b.total_tax || 0}`,
-      `4C  | Net ITC Available | ${t4.section_4c_net_itc.igst} | ${t4.section_4c_net_itc.cgst} | ${t4.section_4c_net_itc.sgst} | ${t4.section_4c_net_itc.cess} | ${t4.section_4c_net_itc.total_tax || 0}`,
-      `4D1 | Reclaimed ITC | ${t4.section_4d.row_4d1_reclaimed.igst} | ${t4.section_4d.row_4d1_reclaimed.cgst} | ${t4.section_4d.row_4d1_reclaimed.sgst} | ${t4.section_4d.row_4d1_reclaimed.cess} | ${t4.section_4d.row_4d1_reclaimed.total_tax || 0}`,
-      `4D2 | Ineligible 16(4) & POS | ${t4.section_4d.row_4d2_ineligible_16_4_pos.igst} | ${t4.section_4d.row_4d2_ineligible_16_4_pos.cgst} | ${t4.section_4d.row_4d2_ineligible_16_4_pos.sgst} | ${t4.section_4d.row_4d2_ineligible_16_4_pos.cess} | ${t4.section_4d.row_4d2_ineligible_16_4_pos.total_tax || 0}`,
+      `4A1 | Import of Goods | ${t4.section_4a.row_4a1_import_goods.igst} | 0 | 0 | ${t4.section_4a.row_4a1_import_goods.cess} | ${rowTotal(t4.section_4a.row_4a1_import_goods)}`,
+      `4A2 | Import of Services | ${t4.section_4a.row_4a2_import_services.igst} | 0 | 0 | ${t4.section_4a.row_4a2_import_services.cess} | ${rowTotal(t4.section_4a.row_4a2_import_services)}`,
+      `4A3 | Inward RCM | ${t4.section_4a.row_4a3_inward_rcm.igst} | ${t4.section_4a.row_4a3_inward_rcm.cgst} | ${t4.section_4a.row_4a3_inward_rcm.sgst} | ${t4.section_4a.row_4a3_inward_rcm.cess} | ${rowTotal(t4.section_4a.row_4a3_inward_rcm)}`,
+      `4A4 | ISD | ${t4.section_4a.row_4a4_isd.igst} | ${t4.section_4a.row_4a4_isd.cgst} | ${t4.section_4a.row_4a4_isd.sgst} | ${t4.section_4a.row_4a4_isd.cess} | ${rowTotal(t4.section_4a.row_4a4_isd)}`,
+      `4A5 | All other ITC | ${t4.section_4a.row_4a5_all_other_itc.igst} | ${t4.section_4a.row_4a5_all_other_itc.cgst} | ${t4.section_4a.row_4a5_all_other_itc.sgst} | ${t4.section_4a.row_4a5_all_other_itc.cess} | ${rowTotal(t4.section_4a.row_4a5_all_other_itc)}`,
+      `4A  | Total ITC Available | ${t4.section_4a.total_4a.igst} | ${t4.section_4a.total_4a.cgst} | ${t4.section_4a.total_4a.sgst} | ${t4.section_4a.total_4a.cess} | ${rowTotal(t4.section_4a.total_4a)}`,
+      `4B1 | Rules 38,42,43 & 17(5) | ${t4.section_4b.row_4b1_rule38_42_43_sec175.igst} | ${t4.section_4b.row_4b1_rule38_42_43_sec175.cgst} | ${t4.section_4b.row_4b1_rule38_42_43_sec175.sgst} | ${t4.section_4b.row_4b1_rule38_42_43_sec175.cess} | ${rowTotal(t4.section_4b.row_4b1_rule38_42_43_sec175)}`,
+      `4B2 | Others (Rule 37, 37A) | ${t4.section_4b.row_4b2_others_rule37_37a.igst} | ${t4.section_4b.row_4b2_others_rule37_37a.cgst} | ${t4.section_4b.row_4b2_others_rule37_37a.sgst} | ${t4.section_4b.row_4b2_others_rule37_37a.cess} | ${rowTotal(t4.section_4b.row_4b2_others_rule37_37a)}`,
+      `4B  | Total ITC Reversed | ${t4.section_4b.total_4b.igst} | ${t4.section_4b.total_4b.cgst} | ${t4.section_4b.total_4b.sgst} | ${t4.section_4b.total_4b.cess} | ${rowTotal(t4.section_4b.total_4b)}`,
+      `4C  | Net ITC Available | ${t4.section_4c_net_itc.igst} | ${t4.section_4c_net_itc.cgst} | ${t4.section_4c_net_itc.sgst} | ${t4.section_4c_net_itc.cess} | ${rowTotal(t4.section_4c_net_itc)}`,
+      `4D1 | Reclaimed ITC | ${t4.section_4d.row_4d1_reclaimed.igst} | ${t4.section_4d.row_4d1_reclaimed.cgst} | ${t4.section_4d.row_4d1_reclaimed.sgst} | ${t4.section_4d.row_4d1_reclaimed.cess} | ${rowTotal(t4.section_4d.row_4d1_reclaimed)}`,
+      `4D2 | Ineligible 16(4) & POS | ${t4.section_4d.row_4d2_ineligible_16_4_pos.igst} | ${t4.section_4d.row_4d2_ineligible_16_4_pos.cgst} | ${t4.section_4d.row_4d2_ineligible_16_4_pos.sgst} | ${t4.section_4d.row_4d2_ineligible_16_4_pos.cess} | ${rowTotal(t4.section_4d.row_4d2_ineligible_16_4_pos)}`,
       `---------------------------------------------------------------------------------`,
       `Disclaimer: ${data.disclaimer}`,
     ].join("\n");
@@ -142,7 +146,10 @@ export function Table4WorkpaperView({
   ) => {
     const isTotal = options?.isTotal;
     const isReversal = options?.isReversal;
-    const totalTax = row.total_tax !== undefined ? row.total_tax : (row.igst + row.cgst + row.sgst + row.cess);
+    const totalTax =
+      row.total_tax !== undefined && row.total_tax !== null
+        ? row.total_tax
+        : (row.igst || 0) + (row.cgst || 0) + (row.sgst || 0) + (row.cess || 0);
 
     return (
       <tr

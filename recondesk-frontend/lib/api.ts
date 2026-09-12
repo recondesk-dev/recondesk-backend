@@ -805,6 +805,7 @@ export type Table4RowData = {
   cgst_paise?: number;
   sgst_paise?: number;
   cess_paise?: number;
+  total_tax_paise?: number;
 };
 
 export type Gstr3bTable4WorkpaperResponse = {
