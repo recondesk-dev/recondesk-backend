@@ -8,6 +8,7 @@ import {
   reconcileRunsApi,
   Gstr3bTable4WorkpaperResponse,
   Table4RowData,
+  Table4BlockingRecordItem,
 } from "@/lib/api";
 import { Table4DrilldownDrawer } from "./Table4DrilldownDrawer";
 import { Table4AdjustmentModal } from "./Table4AdjustmentModal";
@@ -29,12 +30,18 @@ export function Table4WorkpaperView({
   const [activeDrilldownLabel, setActiveDrilldownLabel] = useState<string>("");
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [isDispositionModalOpen, setIsDispositionModalOpen] = useState(false);
+  const [dispositionTargetRecord, setDispositionTargetRecord] = useState<Table4BlockingRecordItem | null>(null);
   const [isFinalizeModalOpen, setIsFinalizeModalOpen] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [copiedCell, setCopiedCell] = useState<string | null>(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"workpaper" | "reversals">("workpaper");
+
+  const handleOpenDispositionForRecord = (record: Table4BlockingRecordItem) => {
+    setDispositionTargetRecord(record);
+    setIsDispositionModalOpen(true);
+  };
 
   const { data, error, isLoading, mutate } = useSWR<Gstr3bTable4WorkpaperResponse>(
     authToken && runId ? [`table4-workpaper`, runId] : null,
@@ -377,7 +384,10 @@ export function Table4WorkpaperView({
               {!gate.can_finalize && (
                 <button
                   type="button"
-                  onClick={() => setIsDispositionModalOpen(true)}
+                  onClick={() => {
+                    setDispositionTargetRecord(null);
+                    setIsDispositionModalOpen(true);
+                  }}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-amber-700 px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-amber-800 shadow-sm transition"
                 >
                   Resolve Exceptions ({gate.unresolved_blocking_exceptions})
@@ -554,6 +564,9 @@ export function Table4WorkpaperView({
         authToken={authToken}
         rowId={activeDrilldownRow}
         rowLabel={activeDrilldownLabel}
+        isFinalized={isFinalized}
+        blockingRecords={(gate as any)?.blocking_records || []}
+        onOpenDisposition={handleOpenDispositionForRecord}
         onClose={() => setActiveDrilldownRow(null)}
       />
 
@@ -676,9 +689,20 @@ export function Table4WorkpaperView({
         runId={runId}
         authToken={authToken}
         isOpen={!isFinalized && isDispositionModalOpen}
-        onClose={() => setIsDispositionModalOpen(false)}
-        onSuccess={() => mutate()}
+        onClose={() => {
+          setIsDispositionModalOpen(false);
+          setDispositionTargetRecord(null);
+        }}
+        onSuccess={() => {
+          mutate();
+          void swrMutate(
+            (key) => Array.isArray(key) && key[0] === "table4-drilldown" && key[1] === runId
+          );
+          setIsDispositionModalOpen(false);
+          setDispositionTargetRecord(null);
+        }}
         blockingRecords={gate.blocking_summary.length > 0 ? (gate as any).blocking_records || [] : []}
+        targetRecord={dispositionTargetRecord}
       />
     </div>
   );

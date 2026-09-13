@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { formatINR } from "@/lib/format";
-import { gstr3bApi, Table4DrilldownResponse } from "@/lib/api";
+import { gstr3bApi, Table4DrilldownResponse, Table4BlockingRecordItem } from "@/lib/api";
 
 interface Table4DrilldownDrawerProps {
   runId: string;
@@ -11,6 +11,9 @@ interface Table4DrilldownDrawerProps {
   rowId: string | null;
   rowLabel: string;
   onClose: () => void;
+  blockingRecords?: Table4BlockingRecordItem[];
+  isFinalized?: boolean;
+  onOpenDisposition?: (record: Table4BlockingRecordItem) => void;
 }
 
 export function Table4DrilldownDrawer({
@@ -19,6 +22,9 @@ export function Table4DrilldownDrawer({
   rowId,
   rowLabel,
   onClose,
+  blockingRecords = [],
+  isFinalized = false,
+  onOpenDisposition,
 }: Table4DrilldownDrawerProps) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -151,57 +157,72 @@ export function Table4DrilldownDrawer({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E5E7EB]">
-                    {records.map((r, idx) => (
-                      <tr key={r.id || idx} className="hover:bg-gray-50/75 transition">
-                        <td className="px-3 py-2 whitespace-nowrap font-medium text-gray-600">
-                          {r.doc_type === "CREDIT_NOTE" ? (
-                            <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
-                              CN
-                            </span>
-                          ) : r.type === "ADJUSTMENT" ? (
-                            <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
-                              ADJ
-                            </span>
-                          ) : (
-                            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-700">
-                              INV
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 max-w-[180px]">
-                          <p className="font-semibold text-gray-900 truncate" title={r.supplier_name}>
-                            {r.supplier_name || "—"}
-                          </p>
-                          <p className="text-[11px] font-mono text-gray-500">{r.supplier_gstin}</p>
-                        </td>
-                        <td className="px-3 py-2 font-mono text-gray-800 whitespace-nowrap">
-                          {r.invoice_number || "—"}
-                        </td>
-                        <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
-                          {r.invoice_date || "—"}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-gray-800">
-                          {r.igst !== 0 ? formatINR(r.igst) : "—"}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-gray-800">
-                          {r.cgst !== 0 ? formatINR(r.cgst) : "—"}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-gray-800">
-                          {r.sgst !== 0 ? formatINR(r.sgst) : "—"}
-                        </td>
-                        <td className="px-3 py-2 text-right font-semibold tabular-nums text-gray-900">
-                          {formatINR(r.total_tax)}
-                        </td>
-                        <td className="px-3 py-2 max-w-[180px] text-gray-600 truncate text-[11px]" title={r.statutory_reason}>
-                          {r.statutory_reason || "Eligible credit under Sec 16(2)"}
-                        </td>
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700">
-                            {r.disposition || "MATCHED"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {records.map((r, idx) => {
+                      const blockingItem = blockingRecords.find((b) => b.record_id === r.id);
+                      return (
+                        <tr key={r.id || idx} className="hover:bg-gray-50/75 transition">
+                          <td className="px-3 py-2 whitespace-nowrap font-medium text-gray-600">
+                            {r.doc_type === "CREDIT_NOTE" ? (
+                              <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
+                                CN
+                              </span>
+                            ) : r.type === "ADJUSTMENT" ? (
+                              <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
+                                ADJ
+                              </span>
+                            ) : (
+                              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-700">
+                                INV
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 max-w-[180px]">
+                            <p className="font-semibold text-gray-900 truncate" title={r.supplier_name}>
+                              {r.supplier_name || "—"}
+                            </p>
+                            <p className="text-[11px] font-mono text-gray-500">{r.supplier_gstin}</p>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-gray-800 whitespace-nowrap">
+                            {r.invoice_number || "—"}
+                          </td>
+                          <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+                            {r.invoice_date || "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-gray-800">
+                            {r.igst !== 0 ? formatINR(r.igst) : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-gray-800">
+                            {r.cgst !== 0 ? formatINR(r.cgst) : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-gray-800">
+                            {r.sgst !== 0 ? formatINR(r.sgst) : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold tabular-nums text-gray-900">
+                            {formatINR(r.total_tax)}
+                          </td>
+                          <td className="px-3 py-2 max-w-[180px] text-gray-600 truncate text-[11px]" title={r.statutory_reason}>
+                            {r.statutory_reason || "Eligible credit under Sec 16(2)"}
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {blockingItem && !isFinalized ? (
+                              <button
+                                type="button"
+                                onClick={() => onOpenDisposition?.(blockingItem)}
+                                className="inline-flex items-center gap-1.5 rounded-md bg-amber-700 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-amber-800 shadow-xs transition cursor-pointer"
+                                title={`Resolve ${blockingItem.exception_type === "SEC_17_5" ? "Section 17(5)" : "Rule 37"} exception`}
+                              >
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-300 animate-pulse" />
+                                Resolve Exception
+                              </button>
+                            ) : (
+                              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700">
+                                {r.disposition || "MATCHED"}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
