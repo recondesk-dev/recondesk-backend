@@ -263,7 +263,6 @@ def _build_pr_index_for_matching(
         for pr_rec in pr_chunk:
             if is_pr_note_quarantine(pr_rec):
                 note_rows.append(pr_rec)
-                continue
             pr_index[str(pr_rec.get("supplier_gstin") or "")].append(pr_rec)
             loaded += 1
         offset += fetched
@@ -848,8 +847,7 @@ def execute_reconciliation(run_id: str) -> None:
         pr_index_current, pr_index_loaded, _pr_skipped_at_index, pr_note_rows = (
             _build_pr_index_for_matching(client, run_id)
         )
-        quarantine_pr_notes(state, pr_note_rows)
-        if n_pr and pr_index_loaded + len(pr_note_rows) < n_pr:
+        if n_pr and pr_index_loaded < n_pr:
             _log.warning(
                 "PR index load shortfall: matcher_rows=%d notes=%d pr_records_imported=%d run_id=%s",
                 pr_index_loaded,
@@ -1023,12 +1021,6 @@ def execute_reconciliation(run_id: str) -> None:
 
         _phase("matching")
         pr_current, pr_raw_by_id = _load_pr_matcher_and_raw(client, run_id)
-        # Catch note rows that weren't in the matching index (e.g. loaded via
-        # the full PR scan) and keep them out of ITC at Risk.
-        quarantine_pr_notes(state, pr_current)
-        invoice_pr_current = [
-            p for p in pr_current if not is_pr_note_quarantine(p)
-        ]
         late_itc = sum(
             1
             for m in state.clean_matched
@@ -1038,16 +1030,20 @@ def execute_reconciliation(run_id: str) -> None:
         pr_by_id: dict[str, dict] = {str(p["id"]): p for p in pr_current}
         gstr_by_id: dict[str, dict] = {str(x.get("id")): x for x in gstr_matcher}
 
-# Orphan resolver: pair GSTIN-typo orphans and collapse duplicate filings so
+        # Orphan resolver: pair GSTIN-typo orphans and collapse duplicate filings so
         # no invoice is counted in both Missed ITC and ITC at Risk (double counting).
         execute_phase2_and_3(
             gstr_matcher,
-            invoice_pr_current,
+            pr_current,
             state,
             candidate_indices,
         )
-        
-        wrongful_itc = build_wrongful_itc_risk(invoice_pr_current, state.consumed_pr_ids)
+
+        # Residual quarantine: isolate any PR note rows that did NOT find a match
+        # in GSTR-2B, keeping them in unmatched_notes and out of ITC at Risk.
+        quarantine_pr_notes(state, pr_current)
+
+        wrongful_itc = build_wrongful_itc_risk(pr_current, state.consumed_pr_ids)
 
         
         # Calculate financial risk

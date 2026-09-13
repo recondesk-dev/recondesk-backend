@@ -823,6 +823,60 @@ def _is_debit_note(rec: Mapping[str, Any] | None) -> bool:
     return False
 
 
+def are_document_types_compatible(
+    gstr_rec: Mapping[str, Any] | None, pr_rec: Mapping[str, Any] | None
+) -> tuple[bool, str]:
+    """Strict compatibility gate enforcing note direction and blocking cross-type matches.
+
+    Distinguishes:
+      - Invoices vs Notes (invoices cannot match notes).
+      - Supplier Credit Note vs Buyer Credit Note / Purchase Return / Return Debit Note.
+      - Supplier Debit Note vs Buyer Debit Note / Supplementary Invoice.
+    """
+    if not gstr_rec or not pr_rec:
+        return True, "MISSING_RECORD"
+
+    g_is_cn = _is_credit_note(gstr_rec)
+    g_is_dn = _is_debit_note(gstr_rec)
+    g_is_note = g_is_cn or g_is_dn
+
+    p_is_cn = _is_credit_note(pr_rec)
+    p_is_dn = _is_debit_note(pr_rec)
+    p_is_note = p_is_cn or p_is_dn or bool(pr_rec.get("pr_note_quarantine"))
+
+    # 1. Reject cross-type match (Invoice <-> Note)
+    if g_is_note != p_is_note:
+        return False, "CROSS_DOCUMENT_TYPE_REJECTED"
+
+    if not g_is_note:
+        # Both are normal purchase invoices
+        return True, "INVOICE_PAIR"
+
+    # 2. Both are notes — evaluate directional semantic compatibility
+    p_taxable = pr_rec.get("taxable_amount_paise")
+    p_taxable_val = int(p_taxable) if p_taxable is not None else 0
+    p_is_negative = p_taxable_val < 0
+
+    if g_is_cn:
+        # GSTR is a CREDIT_NOTE (supplier reduced liability / ITC reduction for buyer)
+        if p_is_cn:
+            # PR is also credit note (or negative purchase return)
+            return True, "COMPATIBLE_CREDIT_NOTE"
+        if p_is_dn and (p_is_negative or bool(pr_rec.get("pr_note_quarantine"))):
+            # PR recorded as buyer debit note for return / chargeback
+            return True, "COMPATIBLE_BUYER_RETURN_DEBIT_NOTE"
+        return False, "CREDIT_NOTE_VS_DEBIT_NOTE_MISMATCH"
+
+    if g_is_dn:
+        # GSTR is a DEBIT_NOTE (supplier increased liability / additional ITC for buyer)
+        if p_is_dn and not p_is_negative:
+            # PR is debit note / supplementary charge with positive amount
+            return True, "COMPATIBLE_DEBIT_NOTE"
+        return False, "DEBIT_NOTE_VS_CREDIT_NOTE_MISMATCH"
+
+    return False, "UNKNOWN_NOTE_TYPE"
+
+
 def invoice_match_key_for_record(rec: Mapping[str, Any]) -> str:
     """Normalized invoice identity for a matcher row (GSTR or PR)."""
     return _invoice_key_for_match(_invoice_number(rec))
@@ -905,6 +959,20 @@ def _match_gstr_to_pr_pair(
     pr_rec: Mapping[str, Any],
     gstr_by_invoice: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> MatchResult:
+    # Strict semantic compatibility gate: reject invoice <-> note or incompatible note types
+    compat, compat_reason = are_document_types_compatible(gstr_rec, pr_rec)
+    if not compat:
+        return MatchResult(
+            level=6,
+            matched=False,
+            confidence=0,
+            requires_human_review=False,
+            decision_what="Document type mismatch",
+            decision_why=f"Incompatible document types: {compat_reason}",
+            decision_next="Review document types. Invoices cannot match credit/debit notes.",
+            discrepancies=[f"doc_type: {compat_reason}"],
+        )
+
     tg = _optional_taxable(gstr_rec)
     tp = _optional_taxable(pr_rec)
     dg = _parse_invoice_date(gstr_rec)

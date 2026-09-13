@@ -211,7 +211,7 @@ def build_pr_by_invoice(
 def _get_tax_bucket(amount_paise: int | None) -> int:
     if amount_paise is None:
         return 0
-    return int(round(amount_paise / 10000.0))
+    return int(round(abs(amount_paise) / 10000.0))
 
 @dataclass
 class PRCandidateIndices:
@@ -339,7 +339,7 @@ def is_pr_note_quarantine(pr_rec: dict) -> bool:
 
 
 def quarantine_pr_notes(state: ReconState, pr_records: list[dict]) -> list[dict]:
-    """Move note rows out of the invoice matching pool into unmatched_notes.
+    """Move unconsumed note rows out of the invoice matching pool into unmatched_notes.
 
     Consumes their PR ids so they never appear in ITC at Risk. Returns the
     remaining invoice PR records for matching. Safe to call more than once.
@@ -353,6 +353,9 @@ def quarantine_pr_notes(state: ReconState, pr_records: list[dict]) -> list[dict]
         pid = str(p.get("id") or "")
         if not pid:
             continue
+        if pid in state.consumed_pr_ids:
+            # Already consumed by a successful match or duplicate booking — do not quarantine
+            continue
         state.consumed_pr_ids.add(pid)
         if pid in already_noted:
             continue
@@ -364,7 +367,7 @@ def quarantine_pr_notes(state: ReconState, pr_records: list[dict]) -> list[dict]
         ).strip().upper()
         if doc not in {"CREDIT_NOTE", "DEBIT_NOTE"}:
             doc = "DEBIT_NOTE"
-        note_no = str(p.get("note_number") or "").strip()
+        note_no = str(p.get("note_number") or p.get("invoice_number") or "").strip()
         note_amt = p.get("note_amount_paise")
         if note_amt is None:
             note_amt = p.get("taxable_amount_paise")
@@ -372,11 +375,16 @@ def quarantine_pr_notes(state: ReconState, pr_records: list[dict]) -> list[dict]
             note_amt_i = int(note_amt) if note_amt is not None else None
         except (TypeError, ValueError):
             note_amt_i = None
+        note_reason = (
+            "PR_CREDIT_NOTE_UNMATCHED_IN_2B"
+            if doc == "CREDIT_NOTE"
+            else "PR_DEBIT_NOTE_PENDING_2B"
+        )
         state.unmatched_notes.append(
             {
                 "id": pid,
                 "side": "PR",
-                "reason": "PR_NOTE_NOT_MATCHED",
+                "reason": note_reason,
                 "classification": "Notes — Not Matched",
                 "document_type": doc,
                 "note_number": note_no,
@@ -420,7 +428,7 @@ def _push_clean_matched(
     if gstr_rec is not None and pr_rec is not None:
         g_taxable = int(gstr_rec.get("taxable_amount_paise") or 0)
         p_taxable = int(pr_rec.get("taxable_amount_paise") or 0)
-        taxable_diff = abs(g_taxable - p_taxable)
+        taxable_diff = abs(abs(g_taxable) - abs(p_taxable))
 
     match_dict = {
         "gstr_id": str(gstr_id),
@@ -442,6 +450,11 @@ def _push_clean_matched(
         "taxable_diff_paise": taxable_diff,
         "amount_difference_paise": taxable_diff,
     }
+    g_doc = str((gstr_rec or {}).get("doc_type") or "").strip().upper()
+    p_doc = str((pr_rec or {}).get("doc_type") or (pr_rec or {}).get("document_type") or "").strip().upper()
+    if g_doc in ("CREDIT_NOTE", "DEBIT_NOTE") or p_doc in ("CREDIT_NOTE", "DEBIT_NOTE"):
+        match_dict["doc_type"] = g_doc or p_doc
+        match_dict["is_credit_note"] = (g_doc == "CREDIT_NOTE" or p_doc == "CREDIT_NOTE")
     if g_taxable is not None:
         match_dict["gstr_taxable_amount_paise"] = g_taxable
     if p_taxable is not None:
@@ -514,6 +527,11 @@ def _push_review_required(
         "match_confidence": match_confidence,  # invoice_similarity score for L5/fuzzy matches
         "compared_fields": compared_fields or None,
     }
+    g_doc = str((gstr_rec or {}).get("doc_type") or "").strip().upper()
+    p_doc = str((pr_rec or {}).get("doc_type") or (pr_rec or {}).get("document_type") or "").strip().upper()
+    if g_doc in ("CREDIT_NOTE", "DEBIT_NOTE") or p_doc in ("CREDIT_NOTE", "DEBIT_NOTE"):
+        match_dict["doc_type"] = g_doc or p_doc
+        match_dict["is_credit_note"] = (g_doc == "CREDIT_NOTE" or p_doc == "CREDIT_NOTE")
     if gstr_rec is not None:
         match_dict["gstr_invoice_date"] = gstr_rec.get("invoice_date")
     if pr_rec is not None:
@@ -1810,7 +1828,11 @@ def execute_phase2_and_3(
     # guard inside the loop keeps it correct without rebuilding.
     _all_unconsumed_pr_snapshot = list(unconsumed_pr)
 
-    from app.services.matcher import invoice_similarity, _parse_invoice_date
+    from app.services.matcher import (
+        invoice_similarity,
+        _parse_invoice_date,
+        are_document_types_compatible,
+    )
 
     # 1b. GSTIN_FORMAT_INVALID fallback — GSTR records whose ``ctin`` failed
     # strict GSTIN format validation at parse time (see gstr2b_parser.py) but
@@ -1837,6 +1859,9 @@ def execute_phase2_and_3(
         for p in unconsumed_pr:
             pid = str(p["id"])
             if pid in state.consumed_pr_ids:
+                continue
+            compat, _ = are_document_types_compatible(g, p)
+            if not compat:
                 continue
             p_inv_norm = str(p.get("invoice_number_normalized") or "")
             if not g_inv_norm or not p_inv_norm:
@@ -1930,6 +1955,9 @@ def execute_phase2_and_3(
         candidates_gstin_mismatch = []
         for p in rem_pr_by_inv_norm.get(inv, []):
             if str(p["id"]) in state.consumed_pr_ids: continue
+            compat, _ = are_document_types_compatible(g, p)
+            if not compat:
+                continue
             p_gst = str(p.get("supplier_gstin") or "").strip()
             if gst != p_gst:
                 if _pr_has_stronger_same_gstin_gstr_candidate(
@@ -1978,6 +2006,9 @@ def execute_phase2_and_3(
         for p in _all_unconsumed_pr_snapshot:
             pid = str(p["id"])
             if pid in state.consumed_pr_ids:
+                continue
+            compat, _ = are_document_types_compatible(g, p)
+            if not compat:
                 continue
             p_gst = str(p.get("supplier_gstin") or "").strip()
             # Must be a near-match GSTIN (not exact — exact case already handled above)
@@ -2050,6 +2081,8 @@ def execute_phase2_and_3(
         for prs_in_bucket in candidate_indices.by_taxable.get(gst, {}).values():
             for p in prs_in_bucket:
                 if str(p["id"]) in state.consumed_pr_ids: continue
+                compat, _ = are_document_types_compatible(g, p)
+                if not compat: continue
                 p_amt = p.get("total_tax_paise") or 0
                 if g_amt == 0 and p_amt == 0: diff_pct = 0
                 elif p_amt == 0: diff_pct = 1.0
@@ -2101,6 +2134,9 @@ def execute_phase2_and_3(
                 pid = str(p["id"])
                 if pid in state.consumed_pr_ids:
                     continue
+                compat, _ = are_document_types_compatible(g, p)
+                if not compat:
+                    continue
                 p_gst = str(p.get("supplier_gstin") or "").strip()
                 if p_gst == gst:
                     # Exact GSTIN + exact normalized invoice: no amount cap.
@@ -2114,6 +2150,9 @@ def execute_phase2_and_3(
                 for p in prs_in_bucket:
                     pid = str(p["id"])
                     if pid in state.consumed_pr_ids:
+                        continue
+                    compat, _ = are_document_types_compatible(g, p)
+                    if not compat:
                         continue
                     p_inv_norm = str(p.get("invoice_number_normalized") or "")
                     # Accept exact normalized match OR a recognised format variant
@@ -2136,6 +2175,9 @@ def execute_phase2_and_3(
                     pid = str(p["id"])
                     if pid in state.consumed_pr_ids:
                         continue
+                    compat, _ = are_document_types_compatible(g, p)
+                    if not compat:
+                        continue
                     p_gst = str(p.get("supplier_gstin") or "").strip()
                     if p_gst != gst and _gstin_is_fuzzy_match(gst, p_gst):
                         p_amt = p.get("total_tax_paise") or 0
@@ -2156,6 +2198,9 @@ def execute_phase2_and_3(
             for p in candidate_indices.by_gstin.get(gst, []):
                 pid = str(p["id"])
                 if pid in state.consumed_pr_ids:
+                    continue
+                compat, _ = are_document_types_compatible(g, p)
+                if not compat:
                     continue
                 p_inv_norm = str(p.get("invoice_number_normalized") or "")
                 p_inv_raw = str(p.get("invoice_number") or "")
@@ -2222,6 +2267,9 @@ def execute_phase2_and_3(
 
         for p in unconsumed_pr_fallback:
             pid = str(p["id"])
+            compat, _ = are_document_types_compatible(g, p)
+            if not compat:
+                continue
 
             p_gst = str(p.get("supplier_gstin") or "").strip()
             p_amt = p.get("total_tax_paise") or 0
@@ -2490,7 +2538,19 @@ def execute_phase2_and_3(
             "taxable_amount_paise": int(tap) if tap is not None else 0,
             "total_tax_paise": int(ttp) if ttp is not None else 0,
         }
-        if g.get("gstin_format_invalid"):
+        g_doc = str(g.get("doc_type") or "").strip().upper()
+        if g_doc == "CREDIT_NOTE":
+            entry["doc_type"] = "CREDIT_NOTE"
+            entry["is_credit_note"] = True
+            entry["note_kind"] = "CREDIT_NOTE"
+            entry["mismatch_reason"] = "UNBOOKED_CREDIT_NOTE_ITC_REDUCTION_PENDING"
+            entry["requires_reversal"] = True
+        elif g_doc == "DEBIT_NOTE":
+            entry["doc_type"] = "DEBIT_NOTE"
+            entry["is_debit_note"] = True
+            entry["note_kind"] = "DEBIT_NOTE"
+            entry["mismatch_reason"] = "UNCLAIMED_DEBIT_NOTE_ITC"
+        elif g.get("gstin_format_invalid"):
             # The GSTIN_FORMAT_INVALID fallback pass above already tried and
             # failed to find a PR counterpart by invoice_number + amount +
             # trade name. This is still a genuine GSTR-2B invoice — do not

@@ -191,6 +191,9 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     gstin = (rd.get("gstin") or rd.get("supplier_gstin") or "").strip()
     vendor_name = str(rd.get("supplier_name") or "").strip()
     inv_true_raw = rd.get("invoice_number") or ""
+    note_no = str(rd.get("note_number") or "").strip().upper() or None
+    if not inv_true_raw and note_no:
+        inv_true_raw = note_no
     inv_raw_for_norm = rd.get("invoice_number_normalized") or inv_true_raw or ""
     invn = normalize_invoice(
         str(inv_raw_for_norm).strip() if inv_raw_for_norm else None
@@ -200,16 +203,19 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     sgst = _pr_stored_paise(rd.get("sgst_paise"))
     igst = _pr_stored_paise(rd.get("igst_paise"))
     cess = _pr_stored_paise(rd.get("cess_paise"))
-    # total_tax_paise must be derived symmetrically with the GSTR adapter:
-    # prefer the stored value, but fall back to summing components when the PR
-    # record_data has no top-level total_tax_paise (e.g. uploads that only carry
-    # separate IGST/CGST/SGST columns). Without this fallback the PR side of a
-    # genuine match projects total_tax_paise=0 on the read path, so the matched
-    # decision computes ttd = gstr_tax - 0 = the full invoice tax, surfacing a
-    # fabricated "discrepancy" equal to the row's own Amount on the Matched tab.
     total_tax = _pr_stored_paise(rd.get("total_tax_paise"))
     if total_tax == 0:
         total_tax = cgst + sgst + igst + cess
+
+    taxable_paise = _pr_stored_paise(rd.get("taxable_amount_paise"))
+    note_amt_paise = (
+        _pr_stored_paise(rd.get("note_amount_paise"))
+        if rd.get("note_amount_paise") is not None
+        else None
+    )
+    if taxable_paise == 0 and note_amt_paise is not None and note_amt_paise != 0:
+        taxable_paise = note_amt_paise
+
     return {
         "id": str(rid),
         "supplier_gstin": gstin,
@@ -217,7 +223,7 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "invoice_number": str(inv_true_raw).strip() if inv_true_raw else "",
         "invoice_number_normalized": invn,
         "invoice_date": inv_d,
-        "taxable_amount_paise": _pr_stored_paise(rd.get("taxable_amount_paise")),
+        "taxable_amount_paise": taxable_paise,
         "cgst_paise": cgst,
         "sgst_paise": sgst,
         "igst_paise": igst,
@@ -231,13 +237,7 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
             .upper()
             or None
         ),
-        "note_number": (
-            str(rd.get("note_number") or "").strip().upper() or None
-        ),
-        "note_amount_paise": (
-            _pr_stored_paise(rd.get("note_amount_paise"))
-            if rd.get("note_amount_paise") is not None
-            else None
-        ),
+        "note_number": note_no,
+        "note_amount_paise": note_amt_paise,
         "pr_note_quarantine": bool(rd.get("pr_note_quarantine")),
     }

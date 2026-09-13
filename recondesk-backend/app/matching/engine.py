@@ -33,23 +33,32 @@ def run_bidirectional_reconciliation(
     state = ReconState()
     if gstr_period is None:
         gstr_period = _infer_gstr_period(effective_gstr)
-
-    # Quarantine credit/debit note rows before any invoice matching.
-    invoice_prs = quarantine_pr_notes(state, pr_records)
+    elif isinstance(gstr_period, str):
+        try:
+            if len(gstr_period) == 6 and gstr_period.isdigit():
+                # MMYYYY format (e.g. 092023)
+                month = int(gstr_period[:2])
+                year = int(gstr_period[2:])
+                gstr_period = datetime.date(year, month, 1)
+            else:
+                d = datetime.date.fromisoformat(gstr_period)
+                gstr_period = datetime.date(d.year, d.month, 1)
+        except Exception:
+            gstr_period = _infer_gstr_period(effective_gstr)
 
     pr_index = {}
-    for p in invoice_prs:
+    for p in pr_records:
         g = str(p.get("supplier_gstin") or "").strip()
         if g:
             pr_index.setdefault(g, []).append(p)
             
     pr_by_invoice = build_pr_by_invoice(pr_index)
     gstr_by_invoice = build_gstr_by_invoice(effective_gstr)
-    pr_index_by_period = _build_pr_index_by_period({gstr_period: invoice_prs})
+    pr_index_by_period = _build_pr_index_by_period({gstr_period: pr_records})
             
     candidate_indices = build_pr_candidate_indices(pr_index)
 
-    prepass_duplicate_ambiguity(effective_gstr, invoice_prs, state)
+    prepass_duplicate_ambiguity(effective_gstr, pr_records, state)
 
     process_gstr_records_chunk(
         effective_gstr,
@@ -64,20 +73,20 @@ def run_bidirectional_reconciliation(
 
     execute_phase2_and_3(
         effective_gstr,
-        invoice_prs,
+        pr_records,
         state,
         candidate_indices,
     )
+
+    # Residual quarantine: any PR note rows that remained unconsumed after matching
+    quarantine_pr_notes(state, pr_records)
 
     return _finalize_reconciliation_result(
         state,
         len(effective_gstr),
         len(pr_records),
-        # Pass full PR list so finalize can still see quarantined ids as consumed
-        # (already in state.consumed_pr_ids) and not double-count them as risk.
-        # Invoice-only list is enough for wrongful risk since notes are consumed.
-        invoice_prs,
-        effective_gstr
+        pr_records,
+        effective_gstr,
     )
 
 __all__ = [
