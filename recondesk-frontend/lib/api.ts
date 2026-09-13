@@ -794,6 +794,238 @@ export const gstr3bApi = {
     `/api/reconcile/runs/${encodeURIComponent(runId)}/gstr3b/table4/export`,
 };
 
+export type ReversalStatusType =
+  | "OPEN"
+  | "CONDITION_FULFILLED"
+  | "RECLAIM_AUTHORIZED"
+  | "PARTIALLY_RECLAIMED"
+  | "FULLY_RECLAIMED"
+  | "NON_RECLAIMABLE";
+
+export type StatutoryTemporaryReasonType =
+  | "RULE_37_NON_PAYMENT"
+  | "RULE_37A_SUPPLIER_NON_FILING"
+  | "SECTION_16_2_B_NOT_RECEIVED"
+  | "SECTION_16_2_C_SUPPLIER_TAX_CONDITION"
+  | "OTHER_TEMPORARY"
+  | "OPENING_BALANCE";
+
+export interface ReversalLedgerEntryDto {
+  id: string;
+  client_gstin_id: string;
+  source_type: string;
+  source_record_id: string;
+  source_run_id: string;
+  reversal_tax_period: string;
+  document_type: string;
+  document_number: string;
+  document_date: string;
+  supplier_gstin: string;
+  supplier_legal_name?: string | null;
+  reversal_table4_cell: string;
+  is_reclaimable: boolean;
+  statutory_reason: StatutoryTemporaryReasonType;
+  reversed_igst_paise: number;
+  reversed_cgst_paise: number;
+  reversed_sgst_paise: number;
+  reversed_cess_paise: number;
+  reversed_total_tax_paise: number;
+  reclaimed_igst_paise: number;
+  reclaimed_cgst_paise: number;
+  reclaimed_sgst_paise: number;
+  reclaimed_cess_paise: number;
+  reclaimed_total_tax_paise: number;
+  available_balance_paise?: {
+    igst_paise: number;
+    cgst_paise: number;
+    sgst_paise: number;
+    cess_paise: number;
+    total_tax_paise: number;
+  };
+  status: ReversalStatusType;
+  condition_fulfilled_at?: string | null;
+  condition_evidence?: Record<string, any> | null;
+  reclaim_authorized_at?: string | null;
+  reclaim_authorized_by?: string | null;
+  reclaim_authorization_notes?: string | null;
+  rule_37_provenance?: Record<string, any> | null;
+  rule_37a_provenance?: Record<string, any> | null;
+  state_digest?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ReversalLedgerRunResponse {
+  run_id: string;
+  client_gstin_id: string;
+  tax_period: string;
+  total_count: number;
+  total_reversed_paise: number;
+  total_reclaimed_paise: number;
+  total_outstanding_paise: number;
+  items: ReversalLedgerEntryDto[];
+}
+
+export interface ReversalLedgerClientResponse {
+  client_gstin_id: string;
+  gstin: string;
+  total_count: number;
+  total_reversed_paise: number;
+  total_reclaimed_paise: number;
+  total_outstanding_paise: number;
+  items: ReversalLedgerEntryDto[];
+}
+
+export interface ClientReclaimableBalancesResponse {
+  client_gstin_id: string;
+  gstin: string;
+  total_reclaimable_records: number;
+  authorized_reclaimable_records: number;
+  total_pending_reclaim_paise: number;
+  total_authorized_reclaim_paise: number;
+  authorized_by_tax_head: {
+    igst_paise: number;
+    cgst_paise: number;
+    sgst_paise: number;
+    cess_paise: number;
+    total_tax_paise: number;
+  };
+}
+
+export interface ReversalConditionFulfillPayload {
+  payment_reference?: string;
+  payment_date?: string;
+  supplier_filing_arn?: string;
+  supplier_filing_date?: string;
+  receipt_evidence_ref?: string;
+  receipt_date?: string;
+  notes?: string;
+}
+
+export interface ReclaimAuthorizePayload {
+  notes?: string;
+}
+
+export interface ReclaimExecutionPayload {
+  ledger_id: string;
+  reclaim_igst_paise?: number;
+  reclaim_cgst_paise?: number;
+  reclaim_sgst_paise?: number;
+  reclaim_cess_paise?: number;
+  reclaim_notes?: string;
+  idempotency_key?: string;
+}
+
+export interface ReclaimExecutionResponse {
+  reclaim_event_id: string;
+  ledger_id: string;
+  target_run_id: string;
+  source_run_id: string;
+  reclaim_tax_period: string;
+  reclaimed_amounts: {
+    igst_paise: number;
+    cgst_paise: number;
+    sgst_paise: number;
+    cess_paise: number;
+    total_tax_paise: number;
+  };
+  remaining_balances: {
+    igst_paise: number;
+    cgst_paise: number;
+    sgst_paise: number;
+    cess_paise: number;
+    total_tax_paise: number;
+  };
+  new_status: ReversalStatusType;
+  is_idempotent_replay: boolean;
+  executed_at: string;
+}
+
+export const reversalLedgerApi = {
+  getRunReversalLedger: (
+    token: string,
+    runId: string
+  ): Promise<ReversalLedgerRunResponse> =>
+    apiFetch<ReversalLedgerRunResponse>(
+      `/api/reconciliation/${encodeURIComponent(runId)}/table4/reversal-ledger`,
+      { token }
+    ),
+
+  getClientReversalLedger: (
+    token: string,
+    clientId: string,
+    params?: {
+      status?: string;
+      statutory_reason?: string;
+      is_reclaimable?: boolean;
+    }
+  ): Promise<ReversalLedgerClientResponse> => {
+    const sp = new URLSearchParams();
+    if (params?.status) sp.set("status", params.status);
+    if (params?.statutory_reason) sp.set("statutory_reason", params.statutory_reason);
+    if (params?.is_reclaimable !== undefined)
+      sp.set("is_reclaimable", String(params.is_reclaimable));
+    const qs = sp.toString();
+    return apiFetch<ReversalLedgerClientResponse>(
+      `/api/reconciliation/${encodeURIComponent(clientId)}/reversal-ledger${qs ? `?${qs}` : ""}`,
+      { token }
+    );
+  },
+
+  getClientReclaimableBalances: (
+    token: string,
+    clientId: string
+  ): Promise<ClientReclaimableBalancesResponse> =>
+    apiFetch<ClientReclaimableBalancesResponse>(
+      `/api/reconciliation/${encodeURIComponent(clientId)}/reclaimable-balances`,
+      { token }
+    ),
+
+  fulfillCondition: (
+    token: string,
+    runId: string,
+    ledgerId: string,
+    payload: ReversalConditionFulfillPayload
+  ): Promise<ReversalLedgerEntryDto> =>
+    apiFetch<ReversalLedgerEntryDto>(
+      `/api/reconciliation/${encodeURIComponent(runId)}/table4/reversal-ledger/${encodeURIComponent(ledgerId)}/fulfill`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+        token,
+      }
+    ),
+
+  authorizeReclaim: (
+    token: string,
+    runId: string,
+    ledgerId: string,
+    payload?: ReclaimAuthorizePayload
+  ): Promise<ReversalLedgerEntryDto> =>
+    apiFetch<ReversalLedgerEntryDto>(
+      `/api/reconciliation/${encodeURIComponent(runId)}/table4/reversal-ledger/${encodeURIComponent(ledgerId)}/authorize`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload || {}),
+        token,
+      }
+    ),
+
+  executeReclaim: (
+    token: string,
+    targetRunId: string,
+    payload: ReclaimExecutionPayload
+  ): Promise<ReclaimExecutionResponse> =>
+    apiFetch<ReclaimExecutionResponse>(
+      `/api/reconciliation/${encodeURIComponent(targetRunId)}/table4/reclaim`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+        token,
+      }
+    ),
+};
+
 export type Table4RowData = {
   igst: number;
   cgst: number;

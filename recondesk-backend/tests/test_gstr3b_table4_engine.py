@@ -36,9 +36,12 @@ from app.services.reconciliation_outcomes import OutcomeRow
 from app.services.gstr3b_table4_engine import (
     TaxHeadsPaise,
     check_finalization_blocking_exceptions,
+    compile_and_save_final_table4_snapshot,
     compile_gstr3b_table4,
     extract_tax_heads_paise,
     get_table4_drilldown,
+    is_section_16_4_or_pos_restricted,
+    load_reclaim_events_for_run,
     paise_to_rupees,
     rupees_to_paise,
 )
@@ -765,6 +768,321 @@ class TestDrilldownAndExport:
         # 4C Net ITC must equal 94,40,423.17
         assert sec4c["total_tax"] == 9440423.17
         assert sec4c["total_tax_paise"] == 944042317
+
+
+class TestPhase3BClassificationAnd4D2Boundary:
+    """Rigorous Phase 3B test suite validating classification, 4D2 boundary, reclaims dual posting, and snapshot sealing."""
+
+    @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_exception_dispositions", return_value={})
+    @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
+    def test_section_16_4_time_barred_routes_strictly_to_4d2(self, mock_p, mock_disp, mock_adj):
+        """Para 4.3 Circular 170: Section 16(4) time-barred invoices go to 4D2 and NEVER enter 4A, 4B, or 4C."""
+        sb = MagicMock()
+        sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
+
+        row = _make_outcome_row(
+            "pm:g-tb",
+            category="matched",
+            amount=5000000,
+            itc_reason="Time barred under Section 16(4)",
+        )
+        setattr(row, "itc_available", False)
+
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
+                 "g-tb": {"record_data": {"igst_paise": 5000000, "itcavl": "N", "rsn": "Section 16(4) limitation"}}
+             }), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
+            res = compile_gstr3b_table4(sb, "run-1")
+
+        sec4a = res["table_4"]["section_4a"]
+        sec4b = res["table_4"]["section_4b"]
+        sec4c = res["table_4"]["section_4c_net_itc"]
+        sec4d = res["table_4"]["section_4d"]
+
+        # 4D2 receives the entire amount
+        assert sec4d["row_4d2_ineligible_16_4_pos"]["igst"] == 50000.0
+        assert sec4d["row_4d2_ineligible_16_4_pos"]["igst_paise"] == 5000000
+
+        # Must NEVER enter 4A, 4B, or 4C
+        assert sec4a["row_4a5_all_other_itc"]["igst"] == 0.0
+        assert sec4a["total_4a"]["igst"] == 0.0
+        assert sec4b["row_4b1_rule38_42_43_sec175"]["igst"] == 0.0
+        assert sec4b["row_4b2_others_rule37_37a"]["igst"] == 0.0
+        assert sec4c["igst"] == 0.0
+
+    @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_exception_dispositions")
+    @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
+    def test_pos_restricted_routes_strictly_to_4d2(self, mock_p, mock_disp, mock_adj):
+        """Place of supply restrictions go to 4D2 only per Circular 170 Para 4.3."""
+        mock_disp.return_value = {
+            "pm:g-pos": {"disposition": "CONFIRMED_POS_RESTRICTED", "exception_type": "POS_RESTRICTED"}
+        }
+        sb = MagicMock()
+        sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
+
+        row = _make_outcome_row("pm:g-pos", category="matched", amount=1800000)
+
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
+                 "g-pos": {"record_data": {"cgst_paise": 900000, "sgst_paise": 900000}}
+             }), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
+            res = compile_gstr3b_table4(sb, "run-1")
+
+        sec4a = res["table_4"]["section_4a"]
+        sec4c = res["table_4"]["section_4c_net_itc"]
+        sec4d = res["table_4"]["section_4d"]
+
+        assert sec4d["row_4d2_ineligible_16_4_pos"]["cgst"] == 9000.0
+        assert sec4d["row_4d2_ineligible_16_4_pos"]["sgst"] == 9000.0
+        assert sec4a["row_4a5_all_other_itc"]["cgst"] == 0.0
+        assert sec4c["cgst"] == 0.0
+        assert sec4c["sgst"] == 0.0
+
+    @patch("app.services.gstr3b_table4_engine.load_reclaim_events_for_run")
+    @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_exception_dispositions", return_value={})
+    @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
+    def test_active_reclaim_dual_posting_to_4a5_and_4d1(self, mock_p, mock_disp, mock_adj, mock_reclaims):
+        """Active reclaims from gstr3b_reclaim_events must be added simultaneously to 4(A)(5) and 4(D)(1)."""
+        mock_reclaims.return_value = [
+            {
+                "id": "rec-ev-1",
+                "event_type": "RECLAIM",
+                "reclaimed_igst_paise": 25000,   # Rs 250
+                "reclaimed_cgst_paise": 15000,   # Rs 150
+                "reclaimed_sgst_paise": 15000,   # Rs 150
+                "reclaimed_cess_paise": 0,
+                "statutory_reason": "RULE_37_NON_PAYMENT",
+                "reclaim_notes": "Supplier payment verified",
+                "document_number": "INV-101",
+            }
+        ]
+        sb = MagicMock()
+        sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
+
+        # Clean matched invoice: Rs 1000 IGST
+        row = _make_outcome_row("pm:g-clean", category="matched", amount=100000)
+
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
+                 "g-clean": {"record_data": {"igst_paise": 100000}}
+             }), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
+            res = compile_gstr3b_table4(sb, "run-1")
+
+        sec4a = res["table_4"]["section_4a"]
+        sec4b = res["table_4"]["section_4b"]
+        sec4c = res["table_4"]["section_4c_net_itc"]
+        sec4d = res["table_4"]["section_4d"]
+
+        # 4A5 must have 1000 (invoice) + 250 (reclaim) = 1250 IGST, and 150 CGST, 150 SGST
+        assert sec4a["row_4a5_all_other_itc"]["igst"] == 1250.0
+        assert sec4a["row_4a5_all_other_itc"]["cgst"] == 150.0
+        assert sec4a["row_4a5_all_other_itc"]["sgst"] == 150.0
+
+        # 4D1 must have 250 IGST, 150 CGST, 150 SGST
+        assert sec4d["row_4d1_reclaimed"]["igst"] == 250.0
+        assert sec4d["row_4d1_reclaimed"]["cgst"] == 150.0
+        assert sec4d["row_4d1_reclaimed"]["sgst"] == 150.0
+
+        # Net 4C must include the reclaimed credit
+        assert sec4c["igst"] == 1250.0
+        assert sec4c["cgst"] == 150.0
+        assert sec4c["sgst"] == 150.0
+
+    @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_exception_dispositions", return_value={})
+    @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
+    def test_section_16_2_b_signal_without_disposition_does_not_reverse(self, mock_p, mock_disp, mock_adj):
+        """Internal goods-not-received signal without explicit CA statutory disposition must NOT automatically reverse in 4B2."""
+        sb = MagicMock()
+        sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
+
+        row = _make_outcome_row("pm:g-gnr", category="matched", amount=200000)
+
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
+                 "g-gnr": {"record_data": {"igst_paise": 200000}}
+             }), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
+            res = compile_gstr3b_table4(sb, "run-1")
+
+        sec4a = res["table_4"]["section_4a"]
+        sec4b = res["table_4"]["section_4b"]
+        sec4c = res["table_4"]["section_4c_net_itc"]
+
+        # Enters 4A5
+        assert sec4a["row_4a5_all_other_itc"]["igst"] == 2000.0
+        # 4B2 remains 0 (no unapproved statutory determination)
+        assert sec4b["row_4b2_others_rule37_37a"]["igst"] == 0.0
+        assert sec4c["igst"] == 2000.0
+
+    @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_exception_dispositions")
+    @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
+    def test_section_16_2_b_confirmed_disposition_reverses_in_4b2(self, mock_p, mock_disp, mock_adj):
+        """Explicit CA disposition SECTION_16_2_B_REVERSED triggers gross 4A5 + 4B2 temporary reversal."""
+        mock_disp.return_value = {
+            "pm:g-gnr-conf": {"disposition": "SECTION_16_2_B_REVERSED", "exception_type": "SECTION_16_2_B"}
+        }
+        sb = MagicMock()
+        sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
+
+        row = _make_outcome_row("pm:g-gnr-conf", category="matched", amount=200000)
+
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
+                 "g-gnr-conf": {"record_data": {"igst_paise": 200000}}
+             }), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
+            res = compile_gstr3b_table4(sb, "run-1")
+
+        sec4a = res["table_4"]["section_4a"]
+        sec4b = res["table_4"]["section_4b"]
+        sec4c = res["table_4"]["section_4c_net_itc"]
+
+        assert sec4a["row_4a5_all_other_itc"]["igst"] == 2000.0
+        assert sec4b["row_4b2_others_rule37_37a"]["igst"] == 2000.0
+        assert sec4c["igst"] == 0.0
+
+    @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_exception_dispositions", return_value={})
+    @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
+    def test_credit_note_signed_negative_4a5_math(self, mock_p, mock_disp, mock_adj):
+        """When credit notes exceed forward invoices, net 4(A)(5) and 4(C) reflect signed negative amounts accurately."""
+        sb = MagicMock()
+        sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
+
+        # Invoice: Rs 50 CGST, Rs 50 SGST
+        inv_row = _make_outcome_row("pm:g-inv", category="matched", amount=10000)
+        # Credit note: Rs 150 CGST, Rs 150 SGST
+        cn_row = _make_outcome_row("pm:g-cn", category="matched", amount=30000, is_credit_note=True)
+
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([inv_row, cn_row], {}, {})), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
+                 "g-inv": {"record_data": {"cgst_paise": 5000, "sgst_paise": 5000, "doc_type": "INVOICE"}},
+                 "g-cn": {"record_data": {"cgst_paise": 15000, "sgst_paise": 15000, "doc_type": "CREDIT_NOTE"}},
+             }), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
+            res = compile_gstr3b_table4(sb, "run-1")
+
+        sec4a = res["table_4"]["section_4a"]
+        sec4c = res["table_4"]["section_4c_net_itc"]
+
+        # Net 4A5 = 50 - 150 = -100.00 each
+        assert sec4a["row_4a5_all_other_itc"]["cgst"] == -100.0
+        assert sec4a["row_4a5_all_other_itc"]["sgst"] == -100.0
+        assert sec4a["row_4a5_all_other_itc"]["total_tax"] == -200.0
+
+        # Net 4C must be -100.00 each
+        assert sec4c["cgst"] == -100.0
+        assert sec4c["sgst"] == -100.0
+        assert sec4c["total_tax"] == -200.0
+
+    @patch("app.services.gstr3b_table4_engine.load_reclaim_events_for_run")
+    @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_exception_dispositions")
+    @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
+    def test_drilldown_evidence_for_4d1_and_4d2(self, mock_p, mock_disp, mock_adj, mock_reclaims):
+        """Drilldown gives verifiable invoice evidence: 4D1 lists reclaims, 4D2 lists 16(4)/PoS records, 4A5 excludes 4D2."""
+        mock_disp.return_value = {
+            "pm:g-tb": {"disposition": "CONFIRMED_TIME_BARRED", "exception_type": "TIME_BARRED_16_4"},
+        }
+        mock_reclaims.return_value = [
+            {
+                "id": "rec-ev-99",
+                "event_type": "RECLAIM",
+                "reclaimed_igst_paise": 80000,
+                "statutory_reason": "RULE_37_NON_PAYMENT",
+                "reclaim_notes": "Payment released",
+                "document_number": "OLD-INV-88",
+            }
+        ]
+        sb = MagicMock()
+        sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
+
+        tb_row = _make_outcome_row("pm:g-tb", category="matched", amount=120000, invoice_number="INV-TB-1")
+        clean_row = _make_outcome_row("pm:g-ok", category="matched", amount=50000, invoice_number="INV-OK-2")
+
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([tb_row, clean_row], {}, {})), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
+                 "g-tb": {"record_data": {"igst_paise": 120000}},
+                 "g-ok": {"record_data": {"igst_paise": 50000}},
+             }), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
+
+            # 4D2 drilldown
+            dd_4d2 = get_table4_drilldown(sb, "run-1", "4D2")
+            assert dd_4d2["total_records"] == 1
+            assert dd_4d2["records"][0]["invoice_number"] == "INV-TB-1"
+            assert dd_4d2["totals"]["igst"] == 1200.0
+
+            # 4D1 drilldown
+            dd_4d1 = get_table4_drilldown(sb, "run-1", "4D1")
+            assert dd_4d1["total_records"] == 1
+            assert dd_4d1["records"][0]["invoice_number"] == "OLD-INV-88"
+            assert dd_4d1["totals"]["igst"] == 800.0
+
+            # 4A5 drilldown must have clean invoice + reclaim, but NEVER the 4D2 invoice
+            dd_4a5 = get_table4_drilldown(sb, "run-1", "4A5")
+            inv_nums = [r["invoice_number"] for r in dd_4a5["records"]]
+            assert "INV-OK-2" in inv_nums
+            assert "OLD-INV-88" in inv_nums
+            assert "INV-TB-1" not in inv_nums
+
+    @patch("app.services.gstr3b_table4_engine.load_reclaim_events_for_run", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_exception_dispositions", return_value={})
+    @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
+    def test_snapshot_versioning_and_state_sealing(self, mock_p, mock_disp, mock_adj, mock_reclaims):
+        """Finalization increments version, supersedes prior versions, and seals source state digest and payload."""
+        sb = MagicMock()
+        sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
+
+        # Simulate existing summary version 1
+        existing_summary_v1 = {
+            "id": "sum-v1-uuid",
+            "run_id": "run-1",
+            "version": 1,
+            "is_current": True,
+            "status": "FINALIZED",
+        }
+        sb.table("gstr3b_table4_summaries").select().eq().order().execute.return_value.data = [existing_summary_v1]
+        inserted_summary = {"id": "sum-v2-uuid"}
+        sb.table("gstr3b_table4_summaries").insert().execute.return_value.data = [inserted_summary]
+
+        row = _make_outcome_row("pm:g-1", category="matched", amount=18000)
+
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={
+                 "g-1": {"record_data": {"igst_paise": 18000}}
+             }), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}):
+            final_res = compile_and_save_final_table4_snapshot(sb, "run-1", "user-ca-1")
+
+        assert final_res["status"] == "FINALIZED"
+        assert final_res["version"] == 2
+        assert final_res["source_state_digest"] != ""
+        assert final_res["audit_hash"] != ""
+
+        # Verify prior version was superseded
+        update_calls = sb.table("gstr3b_table4_summaries").update.call_args_list
+        assert any(
+            call[0][0].get("is_current") is False and "superseded_at" in call[0][0]
+            for call in update_calls
+        )
+
+        # Verify insert payload contained version 2, is_current=True, and sealed payload
+        insert_args = sb.table("gstr3b_table4_summaries").insert.call_args[0][0]
+        assert insert_args["version"] == 2
+        assert insert_args["is_current"] is True
+        assert "snapshot_payload" in insert_args
+        assert insert_args["source_state_digest"] == final_res["audit_hash"]
+
 
 
 

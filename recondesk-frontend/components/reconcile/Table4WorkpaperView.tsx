@@ -11,6 +11,7 @@ import {
 import { Table4DrilldownDrawer } from "./Table4DrilldownDrawer";
 import { Table4AdjustmentModal } from "./Table4AdjustmentModal";
 import { Table4DispositionModal } from "./Table4DispositionModal";
+import { ReversalReclaimLedgerView } from "./ReversalReclaimLedgerView";
 
 interface Table4WorkpaperViewProps {
   runId: string;
@@ -29,6 +30,7 @@ export function Table4WorkpaperView({
   const [isDispositionModalOpen, setIsDispositionModalOpen] = useState(false);
   const [copiedCell, setCopiedCell] = useState<string | null>(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"workpaper" | "reversals">("workpaper");
 
   const { data, error, isLoading, mutate } = useSWR<Gstr3bTable4WorkpaperResponse>(
     authToken && runId ? [`table4-workpaper`, runId] : null,
@@ -187,18 +189,36 @@ export function Table4WorkpaperView({
           {formatINR(totalTax)}
         </td>
         <td className="px-4 py-2.5 text-right whitespace-nowrap">
-          {drilldownId && (
-            <button
-              onClick={() => openDrilldown(drilldownId, `${code} — ${label}`)}
-              className="inline-flex items-center gap-1 rounded border border-[#E5E7EB] bg-white px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50 hover:border-black transition"
-            >
-              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-              Ledger
-            </button>
-          )}
+          <div className="inline-flex items-center gap-1.5 justify-end">
+            {drilldownId === "4B2" && (
+              <button
+                onClick={() => setActiveTab("reversals")}
+                className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800 hover:bg-blue-100 transition"
+              >
+                Reversal Ledger →
+              </button>
+            )}
+            {drilldownId === "4D1" && (
+              <button
+                onClick={() => setActiveTab("reversals")}
+                className="inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-800 hover:bg-indigo-100 transition"
+              >
+                Reclaim History →
+              </button>
+            )}
+            {drilldownId && (
+              <button
+                onClick={() => openDrilldown(drilldownId, `${code} — ${label}`)}
+                className="inline-flex items-center gap-1 rounded border border-[#E5E7EB] bg-white px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50 hover:border-black transition"
+              >
+                <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                Invoices
+              </button>
+            )}
+          </div>
         </td>
       </tr>
     );
@@ -330,100 +350,145 @@ export function Table4WorkpaperView({
         </div>
       )}
 
-      {/* Primary Table 4 Statutory Form Grid */}
-      <div className="rounded-2xl border border-[#E5E7EB] bg-white overflow-hidden shadow-sm">
-        <div className="border-b border-[#E5E7EB] px-6 py-3.5 bg-[#FAFAFA] flex items-center justify-between">
-          <div>
-            <h3 className="text-[14px] font-bold text-gray-900">
-              Form GSTR-3B — Table 4 Eligible & Ineligible Input Tax Credit
-            </h3>
-            <p className="text-[11.5px] text-gray-500">
-              Statutory format per CBIC Circular No. 170/02/2022-GST. Click any amount to view itemized ledger.
-            </p>
-          </div>
-          <span className="text-[11px] font-medium text-gray-400">
-            Amounts in Indian Rupees (₹)
+      {/* View Mode Selector Tabs */}
+      <div className="flex border-b border-[#E5E7EB] gap-6 text-[13px] font-semibold">
+        <button
+          onClick={() => setActiveTab("workpaper")}
+          className={`pb-2.5 border-b-2 transition ${
+            activeTab === "workpaper"
+              ? "border-black text-gray-900"
+              : "border-transparent text-gray-500 hover:text-gray-800"
+          }`}
+        >
+          Form GSTR-3B Table 4 Statutory Workpaper
+        </button>
+        <button
+          onClick={() => setActiveTab("reversals")}
+          className={`pb-2.5 border-b-2 transition flex items-center gap-1.5 ${
+            activeTab === "reversals"
+              ? "border-black text-gray-900"
+              : "border-transparent text-gray-500 hover:text-gray-800"
+          }`}
+        >
+          <span>Table 4(B)(2) Reversal & Reclaim Ledger</span>
+          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10.5px] font-bold text-blue-800">
+            Multi-Period
           </span>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-[13px]">
-            <thead className="bg-[#F8FAFC] text-[11px] font-bold text-gray-500 uppercase tracking-wider border-b border-[#E5E7EB]">
-              <tr>
-                <th className="px-4 py-3">Row</th>
-                <th className="px-4 py-3">Statutory Description</th>
-                <th className="px-3 py-3 text-center">Items</th>
-                <th className="px-4 py-3 text-right">Integrated Tax (IGST)</th>
-                <th className="px-4 py-3 text-right">Central Tax (CGST)</th>
-                <th className="px-4 py-3 text-right">State/UT Tax (SGST)</th>
-                <th className="px-4 py-3 text-right">Cess</th>
-                <th className="px-4 py-3 text-right">Total Tax</th>
-                <th className="px-4 py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* Section 4(A) Header */}
-              <tr className="bg-gray-100/70 border-b border-[#E5E7EB]">
-                <td colSpan={9} className="px-4 py-2 font-bold text-[12px] text-gray-800 uppercase tracking-wider">
-                  (A) ITC Available (whether in full or part)
-                </td>
-              </tr>
-              {renderRow("4(A)(1)", "Import of goods (ICEGATE Bill of Entry)", "4a1", t4.section_4a.row_4a1_import_goods, "4A1")}
-              {renderRow("4(A)(2)", "Import of services (PR / Self-invoiced RCM)", "4a2", t4.section_4a.row_4a2_import_services, "4A2")}
-              {renderRow("4(A)(3)", "Inward supplies liable to reverse charge (other than 1 & 2)", "4a3", t4.section_4a.row_4a3_inward_rcm, "4A3")}
-              {renderRow("4(A)(4)", "Inward supplies from Input Service Distributor (ISD)", "4a4", t4.section_4a.row_4a4_isd, "4A4")}
-              {renderRow("4(A)(5)", "All other ITC (Domestic B2B supplies from PR ∩ GSTR-2B)", "4a5", t4.section_4a.row_4a5_all_other_itc, "4A5")}
-              {renderRow("4(A)", "(A) Total ITC Available [Sum of 4A1 to 4A5]", "4a_tot", t4.section_4a.total_4a, undefined, { isTotal: true })}
-
-              {/* Section 4(B) Header */}
-              <tr className="bg-gray-100/70 border-b border-[#E5E7EB]">
-                <td colSpan={9} className="px-4 py-2 font-bold text-[12px] text-gray-800 uppercase tracking-wider">
-                  (B) ITC Reversed
-                </td>
-              </tr>
-              {renderRow("4(B)(1)", "As per rules 38, 42 and 43 & Section 17(5) Blocked Credits", "4b1", t4.section_4b.row_4b1_rule38_42_43_sec175, "4B1", { isReversal: true })}
-              {renderRow("4(B)(2)", "Others (Rule 37 180-days payment failure, Rule 37A supplier non-filer)", "4b2", t4.section_4b.row_4b2_others_rule37_37a, "4B2", { isReversal: true })}
-              {renderRow("4(B)", "(B) Total ITC Reversed [4B1 + 4B2]", "4b_tot", t4.section_4b.total_4b, undefined, { isTotal: true, isReversal: true })}
-
-              {/* Section 4(C) Net Row */}
-              <tr className="bg-emerald-50/60 border-b-2 border-emerald-300 font-bold">
-                <td className="px-4 py-3 font-mono text-[13px] text-emerald-900">4(C)</td>
-                <td className="px-4 py-3 text-[13.5px] text-emerald-950">
-                  (C) Net ITC Available [4(A) minus 4(B)]
-                </td>
-                <td className="px-3 py-3 text-center text-emerald-800 text-[12px]">—</td>
-                <td className="px-4 py-3 text-right font-mono text-[13px] tabular-nums text-emerald-950">
-                  {formatINR(t4.section_4c_net_itc.igst)}
-                </td>
-                <td className="px-4 py-3 text-right font-mono text-[13px] tabular-nums text-emerald-950">
-                  {formatINR(t4.section_4c_net_itc.cgst)}
-                </td>
-                <td className="px-4 py-3 text-right font-mono text-[13px] tabular-nums text-emerald-950">
-                  {formatINR(t4.section_4c_net_itc.sgst)}
-                </td>
-                <td className="px-4 py-3 text-right font-mono text-[13px] tabular-nums text-emerald-950">
-                  {formatINR(t4.section_4c_net_itc.cess)}
-                </td>
-                <td className="px-4 py-3 text-right font-mono text-[14px] font-black tabular-nums text-emerald-950 bg-emerald-100/50">
-                  {formatINR(t4.section_4c_net_itc.total_tax || 0)}
-                </td>
-                <td className="px-4 py-3 text-right text-[11px] font-semibold text-emerald-800">
-                  Net Portal Claim
-                </td>
-              </tr>
-
-              {/* Section 4(D) Header */}
-              <tr className="bg-gray-100/70 border-b border-[#E5E7EB]">
-                <td colSpan={9} className="px-4 py-2 font-bold text-[12px] text-gray-800 uppercase tracking-wider">
-                  (D) Other Details (Informational disclosures)
-                </td>
-              </tr>
-              {renderRow("4(D)(1)", "ITC reclaimed which was reversed under Table 4(B)(2) in earlier tax period", "4d1", t4.section_4d.row_4d1_reclaimed, "4D1")}
-              {renderRow("4(D)(2)", "Ineligible ITC under section 16(4) and restricted by Place of Supply", "4d2", t4.section_4d.row_4d2_ineligible_16_4_pos, "4D2")}
-            </tbody>
-          </table>
-        </div>
+        </button>
       </div>
+
+      {activeTab === "reversals" ? (
+        <ReversalReclaimLedgerView
+          mode="run"
+          runId={runId}
+          clientId={data.client_gstin}
+          authToken={authToken}
+          onReclaimSuccess={() => mutate()}
+          availableTargetRuns={[
+            {
+              id: runId,
+              period: data.tax_period,
+              is_locked: isFinalized,
+              status: data.status,
+            },
+          ]}
+        />
+      ) : (
+        /* Primary Table 4 Statutory Form Grid */
+        <div className="rounded-2xl border border-[#E5E7EB] bg-white overflow-hidden shadow-sm">
+          <div className="border-b border-[#E5E7EB] px-6 py-3.5 bg-[#FAFAFA] flex items-center justify-between">
+            <div>
+              <h3 className="text-[14px] font-bold text-gray-900">
+                Form GSTR-3B — Table 4 Eligible & Ineligible Input Tax Credit
+              </h3>
+              <p className="text-[11.5px] text-gray-500">
+                Statutory format per CBIC Circular No. 170/02/2022-GST. Click any amount to view itemized ledger.
+              </p>
+            </div>
+            <span className="text-[11px] font-medium text-gray-400">
+              Amounts in Indian Rupees (₹)
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-[13px]">
+              <thead className="bg-[#F8FAFC] text-[11px] font-bold text-gray-500 uppercase tracking-wider border-b border-[#E5E7EB]">
+                <tr>
+                  <th className="px-4 py-3">Row</th>
+                  <th className="px-4 py-3">Statutory Description</th>
+                  <th className="px-3 py-3 text-center">Items</th>
+                  <th className="px-4 py-3 text-right">Integrated Tax (IGST)</th>
+                  <th className="px-4 py-3 text-right">Central Tax (CGST)</th>
+                  <th className="px-4 py-3 text-right">State/UT Tax (SGST)</th>
+                  <th className="px-4 py-3 text-right">Cess</th>
+                  <th className="px-4 py-3 text-right">Total Tax</th>
+                  <th className="px-4 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* Section 4(A) Header */}
+                <tr className="bg-gray-100/70 border-b border-[#E5E7EB]">
+                  <td colSpan={9} className="px-4 py-2 font-bold text-[12px] text-gray-800 uppercase tracking-wider">
+                    (A) ITC Available (whether in full or part)
+                  </td>
+                </tr>
+                {renderRow("4(A)(1)", "Import of goods (ICEGATE Bill of Entry)", "4a1", t4.section_4a.row_4a1_import_goods, "4A1")}
+                {renderRow("4(A)(2)", "Import of services (PR / Self-invoiced RCM)", "4a2", t4.section_4a.row_4a2_import_services, "4A2")}
+                {renderRow("4(A)(3)", "Inward supplies liable to reverse charge (other than 1 & 2)", "4a3", t4.section_4a.row_4a3_inward_rcm, "4A3")}
+                {renderRow("4(A)(4)", "Inward supplies from Input Service Distributor (ISD)", "4a4", t4.section_4a.row_4a4_isd, "4A4")}
+                {renderRow("4(A)(5)", "All other ITC (Domestic B2B supplies from PR ∩ GSTR-2B)", "4a5", t4.section_4a.row_4a5_all_other_itc, "4A5")}
+                {renderRow("4(A)", "(A) Total ITC Available [Sum of 4A1 to 4A5]", "4a_tot", t4.section_4a.total_4a, undefined, { isTotal: true })}
+
+                {/* Section 4(B) Header */}
+                <tr className="bg-gray-100/70 border-b border-[#E5E7EB]">
+                  <td colSpan={9} className="px-4 py-2 font-bold text-[12px] text-gray-800 uppercase tracking-wider">
+                    (B) ITC Reversed
+                  </td>
+                </tr>
+                {renderRow("4(B)(1)", "As per rules 38, 42 and 43 & Section 17(5) Blocked Credits", "4b1", t4.section_4b.row_4b1_rule38_42_43_sec175, "4B1", { isReversal: true })}
+                {renderRow("4(B)(2)", "Others (Rule 37 180-days payment failure, Rule 37A supplier non-filer)", "4b2", t4.section_4b.row_4b2_others_rule37_37a, "4B2", { isReversal: true })}
+                {renderRow("4(B)", "(B) Total ITC Reversed [4B1 + 4B2]", "4b_tot", t4.section_4b.total_4b, undefined, { isTotal: true, isReversal: true })}
+
+                {/* Section 4(C) Net Row */}
+                <tr className="bg-emerald-50/60 border-b-2 border-emerald-300 font-bold">
+                  <td className="px-4 py-3 font-mono text-[13px] text-emerald-900">4(C)</td>
+                  <td className="px-4 py-3 text-[13.5px] text-emerald-950">
+                    (C) Net ITC Available [4(A) minus 4(B)]
+                  </td>
+                  <td className="px-3 py-3 text-center text-emerald-800 text-[12px]">—</td>
+                  <td className="px-4 py-3 text-right font-mono text-[13px] tabular-nums text-emerald-950">
+                    {formatINR(t4.section_4c_net_itc.igst)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-[13px] tabular-nums text-emerald-950">
+                    {formatINR(t4.section_4c_net_itc.cgst)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-[13px] tabular-nums text-emerald-950">
+                    {formatINR(t4.section_4c_net_itc.sgst)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-[13px] tabular-nums text-emerald-950">
+                    {formatINR(t4.section_4c_net_itc.cess)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-[14px] font-black tabular-nums text-emerald-950 bg-emerald-100/50">
+                    {formatINR(t4.section_4c_net_itc.total_tax || 0)}
+                  </td>
+                  <td className="px-4 py-3 text-right text-[11px] font-semibold text-emerald-800">
+                    Net Portal Claim
+                  </td>
+                </tr>
+
+                {/* Section 4(D) Header */}
+                <tr className="bg-gray-100/70 border-b border-[#E5E7EB]">
+                  <td colSpan={9} className="px-4 py-2 font-bold text-[12px] text-gray-800 uppercase tracking-wider">
+                    (D) Other Details (Informational disclosures)
+                  </td>
+                </tr>
+                {renderRow("4(D)(1)", "ITC reclaimed which was reversed under Table 4(B)(2) in earlier tax period", "4d1", t4.section_4d.row_4d1_reclaimed, "4D1")}
+                {renderRow("4(D)(2)", "Ineligible ITC under section 16(4) and restricted by Place of Supply", "4d2", t4.section_4d.row_4d2_ineligible_16_4_pos, "4D2")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Drilldown Slide-Over Drawer */}
       <Table4DrilldownDrawer

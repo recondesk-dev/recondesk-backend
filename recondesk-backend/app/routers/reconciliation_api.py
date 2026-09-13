@@ -19,7 +19,7 @@ from urllib.parse import unquote
 TSeq = TypeVar("TSeq")
 TRet = TypeVar("TRet")
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from uuid import UUID
@@ -68,6 +68,20 @@ from app.services.gstr3b_table4_engine import (
     rupees_to_paise,
 )
 from app.services.gstr3b_table4_export import generate_table4_excel_workpaper
+from app.services.gstr3b_reversal_ledger import (
+    ReversalStatus,
+    StatutoryTemporaryReason,
+    StatutoryEvidenceType,
+    ReclaimEventType,
+    ReclaimEventCreate,
+    execute_reclaim_event,
+    fulfill_reversal_condition,
+    authorize_reclaim,
+    get_reversal_ledger_entry,
+    calculate_available_balance,
+    get_reclaimable_reversals,
+    get_authoritative_reclaim_history,
+)
 
 
 _log = logging.getLogger(__name__)
@@ -1052,6 +1066,767 @@ async def mark_rule37_resolved(
         resolved_at=now,
         resolution_note=resolution_note,
     )
+
+
+
+# ── Phase 3D: GSTR-3B Table 4 Reversal & Reclaim Ledger Endpoints ───────────
+
+
+class FulfillReversalConditionRequest(BaseModel):
+    evidence_type: Optional[str] = None
+    evidence_reference: Optional[str] = None
+    evidence_document_date: Optional[date] = None
+    condition_fulfilled_date: Optional[date] = None
+    payment_reference: Optional[str] = None
+    payment_date: Optional[date] = None
+    supplier_filing_date: Optional[date] = None
+    supplier_filing_arn: Optional[str] = None
+    goods_receipt_date: Optional[date] = None
+    notes: Optional[str] = None
+
+
+class AuthorizeReclaimRequest(BaseModel):
+    reclaim_target_period: Optional[str] = None
+    reclaim_eligibility_date: Optional[date] = None
+    authorization_notes: Optional[str] = None
+    authorization_reference: Optional[str] = None
+
+
+class ReclaimExecutionRequest(BaseModel):
+    ledger_id: str
+    reclaim_igst_paise: int = 0
+    reclaim_cgst_paise: int = 0
+    reclaim_sgst_paise: int = 0
+    reclaim_cess_paise: int = 0
+    statutory_evidence_type: Optional[str] = None
+    evidence_reference: Optional[str] = None
+    evidence_document_date: Optional[date] = None
+    reclaim_notes: Optional[str] = "Reclaim executed via API"
+    idempotency_key: Optional[str] = None
+
+
+def _resolve_client_gstin_id(sb: Any, client_id_or_gstin: str) -> str:
+    s = str(client_id_or_gstin).strip()
+    try:
+        UUID(s)
+        return s
+    except ValueError:
+        pass
+    row = sb.table("client_gstins").select("id").eq("gstin", s.upper()).limit(1).execute()
+    if row.data and row.data[0].get("id"):
+        return str(row.data[0]["id"]).strip()
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Client '{s}' not found")
+
+
+def _assert_client_accessible(sb: Any, client_gstin_id: str, current_user: dict) -> None:
+    allowed = list_accessible_client_gstin_ids(sb, current_user)
+    if client_gstin_id not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: client is outside your authorized firm scope",
+        )
+
+
+@router.get("/{run_id}/table4/reversal-ledger")
+async def get_run_table4_reversal_ledger(
+    run_id: str,
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status (comma-separated or single)"),
+    is_reclaimable: Optional[bool] = Query(None, description="Filter by reclaimability"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Source-run provenance view: returns Table 4(B)(2) reversals originating from this run."""
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, rid, current_user)
+
+    q = sb.table("gstr3b_reversal_ledger").select("*").eq("source_run_id", rid)
+    if status_filter:
+        statuses = [s.strip().upper() for s in status_filter.split(",") if s.strip()]
+        if statuses:
+            q = q.in_("status", statuses)
+    if is_reclaimable is not None:
+        q = q.eq("is_reclaimable", is_reclaimable)
+
+    res = q.order("created_at", desc=False).execute()
+    rows = res.data or []
+
+    rev_igst = sum(int(r.get("reversed_igst_paise") or 0) for r in rows)
+    rev_cgst = sum(int(r.get("reversed_cgst_paise") or 0) for r in rows)
+    rev_sgst = sum(int(r.get("reversed_sgst_paise") or 0) for r in rows)
+    rev_cess = sum(int(r.get("reversed_cess_paise") or 0) for r in rows)
+
+    rec_igst = sum(int(r.get("cached_reclaimed_igst_paise") or 0) for r in rows)
+    rec_cgst = sum(int(r.get("cached_reclaimed_cgst_paise") or 0) for r in rows)
+    rec_sgst = sum(int(r.get("cached_reclaimed_sgst_paise") or 0) for r in rows)
+    rec_cess = sum(int(r.get("cached_reclaimed_cess_paise") or 0) for r in rows)
+
+    items = []
+    for r in rows:
+        item = dict(r)
+        rem_igst = max(0, int(r.get("reversed_igst_paise") or 0) - int(r.get("cached_reclaimed_igst_paise") or 0))
+        rem_cgst = max(0, int(r.get("reversed_cgst_paise") or 0) - int(r.get("cached_reclaimed_cgst_paise") or 0))
+        rem_sgst = max(0, int(r.get("reversed_sgst_paise") or 0) - int(r.get("cached_reclaimed_sgst_paise") or 0))
+        rem_cess = max(0, int(r.get("reversed_cess_paise") or 0) - int(r.get("cached_reclaimed_cess_paise") or 0))
+        item["remaining_balances_paise"] = {
+            "igst": rem_igst,
+            "cgst": rem_cgst,
+            "sgst": rem_sgst,
+            "cess": rem_cess,
+            "total": rem_igst + rem_cgst + rem_sgst + rem_cess,
+        }
+        items.append(item)
+
+    return {
+        "source_run_id": rid,
+        "client_gstin_id": run_row.get("client_gstin_id"),
+        "period": run_row.get("period"),
+        "total_count": len(items),
+        "summary": {
+            "reversed": {
+                "igst_paise": rev_igst,
+                "cgst_paise": rev_cgst,
+                "sgst_paise": rev_sgst,
+                "cess_paise": rev_cess,
+                "total_paise": rev_igst + rev_cgst + rev_sgst + rev_cess,
+            },
+            "reclaimed": {
+                "igst_paise": rec_igst,
+                "cgst_paise": rec_cgst,
+                "sgst_paise": rec_sgst,
+                "cess_paise": rec_cess,
+                "total_paise": rec_igst + rec_cgst + rec_sgst + rec_cess,
+            },
+            "outstanding": {
+                "igst_paise": max(0, rev_igst - rec_igst),
+                "cgst_paise": max(0, rev_cgst - rec_cgst),
+                "sgst_paise": max(0, rev_sgst - rec_sgst),
+                "cess_paise": max(0, rev_cess - rec_cess),
+                "total_paise": max(0, (rev_igst + rev_cgst + rev_sgst + rev_cess) - (rec_igst + rec_cgst + rec_sgst + rec_cess)),
+            },
+        },
+        "items": items,
+    }
+
+
+@router.get("/{client_id}/reversal-ledger")
+async def get_client_reversal_ledger(
+    client_id: str,
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status (comma-separated or single)"),
+    statutory_reason: Optional[str] = Query(None, description="Filter by statutory_reason"),
+    is_reclaimable: Optional[bool] = Query(None, description="Filter by reclaimability"),
+    tax_period: Optional[str] = Query(None, description="Filter by reversal_tax_period"),
+    reversal_tax_period: Optional[str] = Query(None, description="Alias for tax_period"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Client lifecycle view: returns all reversal records for a client across periods."""
+    sb = get_supabase()
+    cid = _resolve_client_gstin_id(sb, client_id)
+    _assert_client_accessible(sb, cid, current_user)
+
+    q = sb.table("gstr3b_reversal_ledger").select("*").eq("client_gstin_id", cid)
+    if status_filter:
+        statuses = [s.strip().upper() for s in status_filter.split(",") if s.strip()]
+        if statuses:
+            q = q.in_("status", statuses)
+    if statutory_reason:
+        q = q.eq("statutory_reason", statutory_reason.strip().upper())
+    if is_reclaimable is not None:
+        q = q.eq("is_reclaimable", is_reclaimable)
+    period_filter = (tax_period or reversal_tax_period or "").strip()
+    if period_filter:
+        q = q.eq("reversal_tax_period", period_filter)
+
+    res = q.order("reversal_tax_period", desc=False).order("created_at", desc=False).execute()
+    rows = res.data or []
+
+    rev_igst = sum(int(r.get("reversed_igst_paise") or 0) for r in rows)
+    rev_cgst = sum(int(r.get("reversed_cgst_paise") or 0) for r in rows)
+    rev_sgst = sum(int(r.get("reversed_sgst_paise") or 0) for r in rows)
+    rev_cess = sum(int(r.get("reversed_cess_paise") or 0) for r in rows)
+
+    rec_igst = sum(int(r.get("cached_reclaimed_igst_paise") or 0) for r in rows)
+    rec_cgst = sum(int(r.get("cached_reclaimed_cgst_paise") or 0) for r in rows)
+    rec_sgst = sum(int(r.get("cached_reclaimed_sgst_paise") or 0) for r in rows)
+    rec_cess = sum(int(r.get("cached_reclaimed_cess_paise") or 0) for r in rows)
+
+    items = []
+    for r in rows:
+        item = dict(r)
+        rem_igst = max(0, int(r.get("reversed_igst_paise") or 0) - int(r.get("cached_reclaimed_igst_paise") or 0))
+        rem_cgst = max(0, int(r.get("reversed_cgst_paise") or 0) - int(r.get("cached_reclaimed_cgst_paise") or 0))
+        rem_sgst = max(0, int(r.get("reversed_sgst_paise") or 0) - int(r.get("cached_reclaimed_sgst_paise") or 0))
+        rem_cess = max(0, int(r.get("reversed_cess_paise") or 0) - int(r.get("cached_reclaimed_cess_paise") or 0))
+        item["remaining_balances_paise"] = {
+            "igst": rem_igst,
+            "cgst": rem_cgst,
+            "sgst": rem_sgst,
+            "cess": rem_cess,
+            "total": rem_igst + rem_cgst + rem_sgst + rem_cess,
+        }
+        items.append(item)
+
+    return {
+        "client_gstin_id": cid,
+        "total_count": len(items),
+        "summary": {
+            "reversed": {
+                "igst_paise": rev_igst,
+                "cgst_paise": rev_cgst,
+                "sgst_paise": rev_sgst,
+                "cess_paise": rev_cess,
+                "total_paise": rev_igst + rev_cgst + rev_sgst + rev_cess,
+            },
+            "reclaimed": {
+                "igst_paise": rec_igst,
+                "cgst_paise": rec_cgst,
+                "sgst_paise": rec_sgst,
+                "cess_paise": rec_cess,
+                "total_paise": rec_igst + rec_cgst + rec_sgst + rec_cess,
+            },
+            "outstanding": {
+                "igst_paise": max(0, rev_igst - rec_igst),
+                "cgst_paise": max(0, rev_cgst - rec_cgst),
+                "sgst_paise": max(0, rev_sgst - rec_sgst),
+                "cess_paise": max(0, rev_cess - rec_cess),
+                "total_paise": max(0, (rev_igst + rev_cgst + rev_sgst + rev_cess) - (rec_igst + rec_cgst + rec_sgst + rec_cess)),
+            },
+        },
+        "items": items,
+    }
+
+
+@router.get("/{client_id}/reclaimable-balances")
+async def get_client_reclaimable_balances(
+    client_id: str,
+    tax_period: Optional[str] = Query(None, description="Filter up to tax period"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Aggregate outstanding reclaimable balances for a client across tax heads."""
+    sb = get_supabase()
+    cid = _resolve_client_gstin_id(sb, client_id)
+    _assert_client_accessible(sb, cid, current_user)
+
+    entries = get_reclaimable_reversals(sb, cid, tax_period=tax_period)
+
+    auth_igst = auth_cgst = auth_sgst = auth_cess = 0
+    pend_igst = pend_cgst = pend_sgst = pend_cess = 0
+
+    for e in entries:
+        bal = e.get("available_balance", {})
+        st = e.get("status")
+        igst = int(bal.get("igst_paise") or 0)
+        cgst = int(bal.get("cgst_paise") or 0)
+        sgst = int(bal.get("sgst_paise") or 0)
+        cess = int(bal.get("cess_paise") or 0)
+
+        if st in (ReversalStatus.RECLAIM_AUTHORIZED.value, ReversalStatus.PARTIALLY_RECLAIMED.value):
+            auth_igst += igst
+            auth_cgst += cgst
+            auth_sgst += sgst
+            auth_cess += cess
+        else:
+            pend_igst += igst
+            pend_cgst += cgst
+            pend_sgst += sgst
+            pend_cess += cess
+
+    return {
+        "client_gstin_id": cid,
+        "as_of_period": tax_period,
+        "total_reclaimable_authorized": {
+            "igst_paise": auth_igst,
+            "cgst_paise": auth_cgst,
+            "sgst_paise": auth_sgst,
+            "cess_paise": auth_cess,
+            "total_paise": auth_igst + auth_cgst + auth_sgst + auth_cess,
+        },
+        "total_pending_authorization": {
+            "igst_paise": pend_igst,
+            "cgst_paise": pend_cgst,
+            "sgst_paise": pend_sgst,
+            "cess_paise": pend_cess,
+            "total_paise": pend_igst + pend_cgst + pend_sgst + pend_cess,
+        },
+        "items": entries,
+    }
+
+
+@router.post("/{run_id}/table4/reversal-ledger/{ledger_id}/fulfill")
+async def post_fulfill_reversal_condition(
+    run_id: str,
+    ledger_id: str,
+    body: FulfillReversalConditionRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Transition an OPEN reversal entry to CONDITION_FULFILLED with required statutory evidence."""
+    rid = _parse_uuid(run_id, "run_id")
+    lid = _parse_uuid(ledger_id, "ledger_id")
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, rid, current_user)
+
+    try:
+        ledger = get_reversal_ledger_entry(sb, lid)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Reversal ledger entry not found: {lid}") from exc
+
+    # Client isolation check
+    if str(ledger.get("client_gstin_id", "")).strip() != str(run_row.get("client_gstin_id", "")).strip():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Ledger entry belongs to a different client than the specified run.",
+        )
+
+    # Reclaimability guardrail
+    if not ledger.get("is_reclaimable") or ledger.get("status") == ReversalStatus.NON_RECLAIMABLE.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Non-reclaimable reversal entry ({lid}) cannot fulfill reclaim conditions.",
+        )
+
+    # State check: must be OPEN
+    cur_status = ledger.get("status")
+    if cur_status != ReversalStatus.OPEN.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot fulfill condition: Entry is in '{cur_status}' state, but must be 'OPEN'.",
+        )
+
+    # Statutory evidence validation based on reason
+    stat_reason = str(ledger.get("statutory_reason", "")).upper()
+    if stat_reason == StatutoryTemporaryReason.RULE_37_NON_PAYMENT.value:
+        if not (body.payment_reference or body.evidence_reference or body.payment_date):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Rule 37 condition fulfillment requires payment reference / payment date evidence.",
+            )
+    elif stat_reason == StatutoryTemporaryReason.RULE_37A_SUPPLIER_NON_FILING.value:
+        if not (body.supplier_filing_date or body.supplier_filing_arn or body.evidence_reference):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Rule 37A condition fulfillment requires supplier filing date and ARN evidence.",
+            )
+    elif stat_reason == StatutoryTemporaryReason.SECTION_16_2_B_NOT_RECEIVED.value:
+        if not (body.goods_receipt_date or body.evidence_reference or body.notes):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Section 16(2)(b) condition fulfillment requires goods receipt confirmation date or evidence reference.",
+            )
+
+    # Resolve evidence type
+    ev_type = None
+    if body.evidence_type:
+        try:
+            ev_type = StatutoryEvidenceType(body.evidence_type.upper())
+        except ValueError:
+            pass
+    if not ev_type:
+        if stat_reason == StatutoryTemporaryReason.RULE_37_NON_PAYMENT.value:
+            ev_type = StatutoryEvidenceType.PAYMENT_TO_SUPPLIER
+        elif stat_reason == StatutoryTemporaryReason.RULE_37A_SUPPLIER_NON_FILING.value:
+            ev_type = StatutoryEvidenceType.SUPPLIER_GSTR3B_FILED
+        elif stat_reason == StatutoryTemporaryReason.SECTION_16_2_B_NOT_RECEIVED.value:
+            ev_type = StatutoryEvidenceType.GOODS_RECEIVED_GRN
+        elif stat_reason == StatutoryTemporaryReason.SECTION_16_2_C_SUPPLIER_TAX_CONDITION.value:
+            ev_type = StatutoryEvidenceType.TAX_DISCHARGE_CONFIRMED
+        else:
+            ev_type = StatutoryEvidenceType.OTHER_STATUTORY_PROOF
+
+    ev_ref = (
+        body.evidence_reference
+        or body.payment_reference
+        or body.supplier_filing_arn
+        or f"FULFILL-{lid[:8]}"
+    )
+    ev_doc_date = body.evidence_document_date or body.payment_date or body.supplier_filing_date or body.goods_receipt_date
+
+    updated = fulfill_reversal_condition(
+        sb,
+        lid,
+        evidence_type=ev_type,
+        evidence_reference=ev_ref,
+        evidence_document_date=ev_doc_date,
+        condition_fulfilled_date=body.condition_fulfilled_date or date.today(),
+        notes=body.notes,
+    )
+
+    if stat_reason == StatutoryTemporaryReason.RULE_37A_SUPPLIER_NON_FILING.value:
+        r37a_updates = {}
+        if body.supplier_filing_date:
+            r37a_updates["subsequent_supplier_filing_date"] = str(body.supplier_filing_date)
+        if body.supplier_filing_arn:
+            r37a_updates["subsequent_filing_arn"] = str(body.supplier_filing_arn)
+        if r37a_updates:
+            sb.table("gstr3b_reversal_ledger").update(r37a_updates).eq("id", lid).execute()
+            updated.update(r37a_updates)
+
+    uid = str(current_user.get("id", "")).strip() or None
+    await log_action(
+        uid,
+        "TABLE4_REVERSAL_CONDITION_FULFILLED",
+        "gstr3b_reversal_ledger",
+        lid,
+        {
+            "statutory_reason": stat_reason,
+            "evidence_type": ev_type.value,
+            "evidence_reference": ev_ref,
+            "client_gstin_id": ledger.get("client_gstin_id"),
+            "source_run_id": rid,
+        },
+        ip_address=(request.client.host if request.client else None),
+    )
+
+    return {
+        "success": True,
+        "ledger_id": lid,
+        "status": updated.get("status"),
+        "condition_fulfilled_date": updated.get("condition_fulfilled_date"),
+        "entry": updated,
+    }
+
+
+@router.post("/{run_id}/table4/reversal-ledger/{ledger_id}/authorize")
+async def post_authorize_reversal_reclaim(
+    run_id: str,
+    ledger_id: str,
+    body: AuthorizeReclaimRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Transition a CONDITION_FULFILLED reversal entry to RECLAIM_AUTHORIZED."""
+    rid = _parse_uuid(run_id, "run_id")
+    lid = _parse_uuid(ledger_id, "ledger_id")
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, rid, current_user)
+
+    try:
+        ledger = get_reversal_ledger_entry(sb, lid)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Reversal ledger entry not found: {lid}") from exc
+
+    if str(ledger.get("client_gstin_id", "")).strip() != str(run_row.get("client_gstin_id", "")).strip():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Ledger entry belongs to a different client than the specified run.",
+        )
+
+    if not ledger.get("is_reclaimable") or ledger.get("status") == ReversalStatus.NON_RECLAIMABLE.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Non-reclaimable reversal entry ({lid}) cannot be authorized for reclaim.",
+        )
+
+    cur_status = ledger.get("status")
+    if cur_status == ReversalStatus.OPEN.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot authorize reclaim: Entry condition has not been fulfilled. Must be in 'CONDITION_FULFILLED' state.",
+        )
+    if cur_status in (ReversalStatus.FULLY_RECLAIMED.value,):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot authorize reclaim: Entry is already 'FULLY_RECLAIMED'.",
+        )
+    if cur_status == ReversalStatus.RECLAIM_AUTHORIZED.value:
+        return {
+            "success": True,
+            "ledger_id": lid,
+            "status": cur_status,
+            "entry": ledger,
+        }
+
+    uid = current_user.get("id") or "system"
+    updated = authorize_reclaim(
+        sb,
+        lid,
+        authorized_by=uid,
+        reclaim_eligibility_date=body.reclaim_eligibility_date or date.today(),
+    )
+    if body.authorization_notes or body.reclaim_target_period or body.authorization_reference:
+        sp = updated.get("source_payload") or {}
+        sp["reclaim_authorization"] = {
+            "target_period": body.reclaim_target_period,
+            "notes": body.authorization_notes,
+            "reference": body.authorization_reference,
+            "authorized_by": uid,
+            "authorized_at": datetime.now(timezone.utc).isoformat(),
+        }
+        sb.table("gstr3b_reversal_ledger").update({"source_payload": sp}).eq("id", lid).execute()
+        updated["source_payload"] = sp
+
+    uid_str = str(current_user.get("id", "")).strip() or None
+    await log_action(
+        uid_str,
+        "TABLE4_REVERSAL_RECLAIM_AUTHORIZED",
+        "gstr3b_reversal_ledger",
+        lid,
+        {
+            "target_period": body.reclaim_target_period,
+            "authorization_reference": body.authorization_reference,
+            "client_gstin_id": ledger.get("client_gstin_id"),
+            "source_run_id": rid,
+        },
+        ip_address=(request.client.host if request.client else None),
+    )
+
+    return {
+        "success": True,
+        "ledger_id": lid,
+        "status": updated.get("status"),
+        "reclaim_eligibility_date": updated.get("reclaim_eligibility_date"),
+        "entry": updated,
+    }
+
+
+@router.post("/{target_run_id}/table4/reclaim")
+async def post_execute_table4_reclaim(
+    target_run_id: str,
+    body: ReclaimExecutionRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Execute an authorized reclaim against an active (unlocked, non-final) target reconciliation run."""
+    trid = _parse_uuid(target_run_id, "target_run_id")
+    lid = _parse_uuid(body.ledger_id, "ledger_id")
+    sb = get_supabase()
+    target_run = assert_run_accessible(sb, trid, current_user)
+
+    # Immutable historical run guardrail
+    if bool(target_run.get("is_locked")) or str(target_run.get("status", "")).upper() == RunStatus.FINAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot execute reclaim into a finalized reconciliation run. Historical finalized runs are immutable.",
+        )
+
+    try:
+        ledger = get_reversal_ledger_entry(sb, lid)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Reversal ledger entry not found: {lid}") from exc
+
+    if str(ledger.get("client_gstin_id", "")).strip() != str(target_run.get("client_gstin_id", "")).strip():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Ledger entry belongs to a different client than the target run.",
+        )
+
+    if not ledger.get("is_reclaimable") or ledger.get("status") == ReversalStatus.NON_RECLAIMABLE.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Reversal entry ({lid}) is marked non-reclaimable and cannot be reclaimed.",
+        )
+
+    cur_status = ledger.get("status")
+    if cur_status not in (ReversalStatus.RECLAIM_AUTHORIZED.value, ReversalStatus.PARTIALLY_RECLAIMED.value):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot execute reclaim: Reversal entry is in '{cur_status}' state, expected 'RECLAIM_AUTHORIZED'.",
+        )
+
+    igst = body.reclaim_igst_paise
+    cgst = body.reclaim_cgst_paise
+    sgst = body.reclaim_sgst_paise
+    cess = body.reclaim_cess_paise
+
+    if igst < 0 or cgst < 0 or sgst < 0 or cess < 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Reclaim amounts must be non-negative integer paise.",
+        )
+    tot = igst + cgst + sgst + cess
+    if tot <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Total reclaim amount across all tax heads must be greater than zero.",
+        )
+
+    bal = calculate_available_balance(sb, lid)
+    if igst > bal.igst_paise:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"EXCESS_RECLAIM_IGST: Requested {igst} paise exceeds available {bal.igst_paise} paise.",
+        )
+    if cgst > bal.cgst_paise:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"EXCESS_RECLAIM_CGST: Requested {cgst} paise exceeds available {bal.cgst_paise} paise.",
+        )
+    if sgst > bal.sgst_paise:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"EXCESS_RECLAIM_SGST: Requested {sgst} paise exceeds available {bal.sgst_paise} paise.",
+        )
+    if cess > bal.cess_paise:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"EXCESS_RECLAIM_CESS: Requested {cess} paise exceeds available {bal.cess_paise} paise.",
+        )
+
+    clean_idemp = body.idempotency_key.strip() if body.idempotency_key and body.idempotency_key.strip() else None
+
+    # Dedicated Database-Level Idempotency Query:
+    if clean_idemp:
+        ev_query = (
+            sb.table("gstr3b_reclaim_events")
+            .select("*")
+            .eq("client_gstin_id", ledger["client_gstin_id"])
+            .eq("idempotency_key", clean_idemp)
+            .limit(1)
+            .execute()
+        )
+        if ev_query.data:
+            ev = ev_query.data[0]
+            cur_bal = calculate_available_balance(sb, lid)
+            return {
+                "success": True,
+                "is_idempotent_replay": True,
+                "event_id": str(ev.get("id")),
+                "ledger_id": lid,
+                "source_run_id": ledger.get("source_run_id"),
+                "target_run_id": trid,
+                "status": ledger.get("status"),
+                "reclaimed_paise": {
+                    "igst": int(ev.get("reclaimed_igst_paise") or 0),
+                    "cgst": int(ev.get("reclaimed_cgst_paise") or 0),
+                    "sgst": int(ev.get("reclaimed_sgst_paise") or 0),
+                    "cess": int(ev.get("reclaimed_cess_paise") or 0),
+                    "total": (
+                        int(ev.get("reclaimed_igst_paise") or 0)
+                        + int(ev.get("reclaimed_cgst_paise") or 0)
+                        + int(ev.get("reclaimed_sgst_paise") or 0)
+                        + int(ev.get("reclaimed_cess_paise") or 0)
+                    ),
+                },
+                "remaining_paise": {
+                    "igst": cur_bal.igst_paise,
+                    "cgst": cur_bal.cgst_paise,
+                    "sgst": cur_bal.sgst_paise,
+                    "cess": cur_bal.cess_paise,
+                    "total": cur_bal.total_paise,
+                },
+            }
+
+    ev_type = StatutoryEvidenceType.OTHER_STATUTORY_PROOF
+    if body.statutory_evidence_type:
+        try:
+            ev_type = StatutoryEvidenceType(body.statutory_evidence_type.upper())
+        except ValueError:
+            pass
+
+    reclaim_req = ReclaimEventCreate(
+        ledger_id=lid,
+        client_gstin_id=ledger.get("client_gstin_id"),
+        reclaim_run_id=trid,
+        reclaim_tax_period=target_run.get("period") or "2024-03",
+        event_type=ReclaimEventType.RECLAIM,
+        reclaimed_igst_paise=igst,
+        reclaimed_cgst_paise=cgst,
+        reclaimed_sgst_paise=sgst,
+        reclaimed_cess_paise=cess,
+        statutory_evidence_type=ev_type,
+        evidence_reference=body.evidence_reference or f"REC-{lid[:8]}",
+        evidence_document_date=body.evidence_document_date,
+        authorized_by=current_user.get("id"),
+        reclaim_notes=(body.reclaim_notes or "Reclaim executed via API").strip(),
+        idempotency_key=clean_idemp,
+    )
+
+    try:
+        res = execute_reclaim_event(sb, reclaim_req)
+    except Exception as exc:
+        err_str = str(exc)
+        if "uq_reclaim_events_client_idempotency" in err_str or "UNIQUE CONSTRAINT" in err_str:
+            ev_row = (
+                sb.table("gstr3b_reclaim_events")
+                .select("*")
+                .eq("client_gstin_id", ledger["client_gstin_id"])
+                .eq("idempotency_key", clean_idemp)
+                .limit(1)
+                .execute()
+            )
+            if ev_row.data:
+                ev = ev_row.data[0]
+                cur_bal = calculate_available_balance(sb, lid)
+                return {
+                    "success": True,
+                    "is_idempotent_replay": True,
+                    "event_id": str(ev.get("id")),
+                    "ledger_id": lid,
+                    "source_run_id": ledger.get("source_run_id"),
+                    "target_run_id": trid,
+                    "status": ledger.get("status"),
+                    "reclaimed_paise": {
+                        "igst": int(ev.get("reclaimed_igst_paise") or 0),
+                        "cgst": int(ev.get("reclaimed_cgst_paise") or 0),
+                        "sgst": int(ev.get("reclaimed_sgst_paise") or 0),
+                        "cess": int(ev.get("reclaimed_cess_paise") or 0),
+                        "total": (
+                            int(ev.get("reclaimed_igst_paise") or 0)
+                            + int(ev.get("reclaimed_cgst_paise") or 0)
+                            + int(ev.get("reclaimed_sgst_paise") or 0)
+                            + int(ev.get("reclaimed_cess_paise") or 0)
+                        ),
+                    },
+                    "remaining_paise": {
+                        "igst": cur_bal.igst_paise,
+                        "cgst": cur_bal.cgst_paise,
+                        "sgst": cur_bal.sgst_paise,
+                        "cess": cur_bal.cess_paise,
+                        "total": cur_bal.total_paise,
+                    },
+                }
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=err_str,
+        ) from exc
+
+    if not res.is_idempotent_replay:
+        uid = str(current_user.get("id", "")).strip() or None
+        await log_action(
+            uid,
+            "TABLE4_RECLAIM_EXECUTED",
+            "gstr3b_reclaim_events",
+            res.event_id,
+            {
+                "ledger_id": lid,
+                "client_gstin_id": ledger.get("client_gstin_id"),
+                "source_run_id": ledger.get("source_run_id"),
+                "target_run_id": trid,
+                "idempotency_key": clean_idemp,
+                "reclaimed_paise": {
+                    "igst": res.reclaimed_igst_paise,
+                    "cgst": res.reclaimed_cgst_paise,
+                    "sgst": res.reclaimed_sgst_paise,
+                    "cess": res.reclaimed_cess_paise,
+                    "total": tot,
+                },
+            },
+            ip_address=(request.client.host if request.client else None),
+        )
+
+    return {
+        "success": True,
+        "is_idempotent_replay": res.is_idempotent_replay,
+        "event_id": res.event_id,
+        "ledger_id": res.ledger_id,
+        "source_run_id": ledger.get("source_run_id"),
+        "target_run_id": trid,
+        "status": res.status,
+        "reclaimed_paise": {
+            "igst": res.reclaimed_igst_paise,
+            "cgst": res.reclaimed_cgst_paise,
+            "sgst": res.reclaimed_sgst_paise,
+            "cess": res.reclaimed_cess_paise,
+            "total": res.reclaimed_igst_paise + res.reclaimed_cgst_paise + res.reclaimed_sgst_paise + res.reclaimed_cess_paise,
+        },
+        "remaining_paise": {
+            "igst": res.remaining_igst_paise,
+            "cgst": res.remaining_cgst_paise,
+            "sgst": res.remaining_sgst_paise,
+            "cess": res.remaining_cess_paise,
+            "total": res.remaining_igst_paise + res.remaining_cgst_paise + res.remaining_sgst_paise + res.remaining_cess_paise,
+        },
+    }
+
 
 
 # ── `/api/reconcile/runs/{run_id}/…` (mounted from ``main.py`` with prefix `/api/reconcile`)

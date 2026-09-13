@@ -121,6 +121,68 @@ def is_credit_note(rd: dict[str, Any], outcome: Optional[OutcomeRow] = None) -> 
     return doc_type in ("CREDIT_NOTE", "CR", "CDNR", "CDNRA", "C")
 
 
+def is_section_16_4_or_pos_restricted(
+    r: OutcomeRow,
+    g_rd: dict[str, Any],
+    p_rd: dict[str, Any],
+    disposition: Optional[dict[str, Any]] = None,
+) -> tuple[bool, str]:
+    """Check if an invoice is ineligible under Section 16(4) or PoS restrictions.
+
+    Circular 170/02/2022 Para 4.3 rule:
+    Such details are for information only and must be reported in Table 4(D)(2).
+    They must NEVER enter Table 4(A) or Table 4(B).
+    """
+    # 1. Check CA explicit disposition
+    if disposition:
+        disp_type = str(disposition.get("exception_type") or "").upper()
+        disp_val = str(disposition.get("disposition") or "").upper()
+        table4_eff = str(disposition.get("table4_effect") or "").upper()
+        if table4_eff == "4D2" or disp_val in (
+            "CONFIRMED_TIME_BARRED",
+            "CONFIRMED_POS_RESTRICTED",
+            "INELIGIBLE_16_4",
+            "INELIGIBLE_POS",
+        ):
+            return True, disp_val
+        if disp_type in ("TIME_BARRED_16_4", "POS_RESTRICTED", "SECTION_16_4", "POS_MISMATCH"):
+            return True, disp_type
+
+    # 2. Check GSTR-2B raw data flags (itcavl == 'N' and reason text)
+    itcavl = str(g_rd.get("itcavl") or "").strip().upper()
+    rsn = str(g_rd.get("rsn") or "").strip().lower()
+    if itcavl == "N":
+        if any(k in rsn for k in ("16(4)", "16 (4)", "time barred", "time-barred", "limitation")):
+            return True, "TIME_BARRED_16_4"
+        if any(k in rsn for k in ("pos", "place of supply", "different state")):
+            return True, "POS_RESTRICTED"
+
+    # 3. Check outcome row attributes
+    if getattr(r, "itc_available", True) is False and r.itc_reason:
+        r_rsn = r.itc_reason.lower()
+        if any(k in r_rsn for k in ("16(4)", "16 (4)", "time barred", "time-barred")):
+            return True, "TIME_BARRED_16_4"
+        if any(k in r_rsn for k in ("pos", "place of supply")):
+            return True, "POS_RESTRICTED"
+
+    return False, ""
+
+
+def load_reclaim_events_for_run(sb: Client, run_id: str) -> list[dict[str, Any]]:
+    """Load active reclaim events executed in this reconciliation run."""
+    try:
+        res = (
+            sb.table("gstr3b_reclaim_events")
+            .select("*")
+            .eq("reclaim_run_id", run_id)
+            .execute()
+        )
+        return res.data or []
+    except Exception:
+        _log.warning("load_reclaim_events_for_run failed for run_id=%s", run_id, exc_info=True)
+        return []
+
+
 # ---------------------------------------------------------------------------
 # Database Ingestion & Dispositions
 # ---------------------------------------------------------------------------
@@ -412,11 +474,34 @@ def compile_gstr3b_table4(
         # Check Dispositions
         disp_175 = dispositions.get(f"{rec_id}:SEC_17_5") or dispositions.get(rec_id)
         disp_r37 = dispositions.get(f"{rec_id}:RULE_37") or dispositions.get(rec_id)
+        disp_r37a = dispositions.get(f"{rec_id}:RULE_37A") or dispositions.get(rec_id)
         disp_2b = dispositions.get(f"{rec_id}:TWO_B_ONLY") or dispositions.get(rec_id)
+        disp_162b = (
+            dispositions.get(f"{rec_id}:SECTION_16_2_B")
+            or dispositions.get(f"{rec_id}:GOODS_NOT_RECEIVED")
+            or dispositions.get(rec_id)
+        )
+        disp_4d2 = (
+            dispositions.get(f"{rec_id}:TIME_BARRED_16_4")
+            or dispositions.get(f"{rec_id}:POS_RESTRICTED")
+            or dispositions.get(f"{rec_id}:SECTION_16_4")
+            or dispositions.get(f"{rec_id}:POS_MISMATCH")
+            or dispositions.get(rec_id)
+        )
 
         # -------------------------------------------------------------
         # Row Allocation Logic
         # -------------------------------------------------------------
+
+        # CASE 0: Section 16(4) Time-Barred & Place of Supply (PoS) Restricted -> 4D2 ONLY
+        # Circular 170/02/2022 Para 4.3 rule:
+        # Such details are for information only and must be reported in Table 4(D)(2).
+        # They must NEVER enter Table 4(A) or Table 4(B)!
+        is_4d2_restricted, reason_4d2 = is_section_16_4_or_pos_restricted(r, g_rd, p_rd, disp_4d2)
+        if is_4d2_restricted:
+            t4d2.add(sig_igst, sig_cgst, sig_sgst, sig_cess)
+            contributing_record_ids.append(rec_id)
+            continue
 
         # CASE 1: Import of Goods -> 4A1
         if g_doctype in ("IMPG", "IMPGSEZ") or p_doctype in ("IMPG", "IMPGSEZ", "IMPORT_GOODS"):
@@ -447,6 +532,11 @@ def compile_gstr3b_table4(
             if disp_2b and str(disp_2b.get("disposition", "")).upper() == "BOOKED_AND_VERIFIED":
                 t4a5.add(sig_igst, sig_cgst, sig_sgst, sig_cess)
                 contributing_record_ids.append(rec_id)
+            elif disp_2b and str(disp_2b.get("disposition", "")).upper() == "SECTION_16_2_B_REVERSED":
+                # Explicit CA statutory disposition: gross in 4A5, temporary reversal in 4B2
+                t4a5.add(sig_igst, sig_cgst, sig_sgst, sig_cess)
+                t4b2.add(sig_igst, sig_cgst, sig_sgst, sig_cess)
+                contributing_record_ids.append(rec_id)
             # Other dispositions (HELD_GOODS_NOT_RECEIVED, REJECTED_WRONG_GSTIN, etc.) are excluded from Table 4
             continue
 
@@ -472,9 +562,15 @@ def compile_gstr3b_table4(
         )
 
         is_r37a = (r.match_status == "RULE37A" or r.rule37a_flag)
-        disp_r37a = dispositions.get(f"{rec_id}:RULE_37A") or dispositions.get(rec_id)
         is_r37a_reversed = is_r37a and (
-            disp_r37a and str(disp_r37a.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED")
+            disp_r37a and str(disp_r37a.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED", "RULE_37A_VERIFIED", "CONFIRMED_NON_FILER")
+        )
+
+        is_162b_reversed = bool(
+            disp_162b
+            and str(disp_162b.get("disposition", "")).upper() in (
+                "REVERSED", "SECTION_16_2_B_REVERSED", "CONFIRMED_NOT_RECEIVED"
+            )
         )
 
         # Gross amount ALWAYS goes to 4A5 (No deduction from 4A!)
@@ -485,10 +581,28 @@ def compile_gstr3b_table4(
         if is_sec175_confirmed:
             t4b1.add(sig_igst, sig_cgst, sig_sgst, sig_cess)
 
-        if is_r37_reversed or is_r37a_reversed:
+        if is_r37_reversed or is_r37a_reversed or is_162b_reversed:
             t4b2.add(sig_igst, sig_cgst, sig_sgst, sig_cess)
 
-    # 5. Process External Adjustments (Rules 42/43/38, RCM, Reclaims)
+    # 5. Process Active Reclaim Events (Circular 170 Para 4.3: Added to 4A5 AND 4D1)
+    reclaim_events = load_reclaim_events_for_run(sb, run_id)
+    contributing_reclaim_ids: list[str] = []
+    reclaim_hashes: list[str] = []
+    for ev in reclaim_events:
+        ev_type = str(ev.get("event_type") or "RECLAIM").upper()
+        mult = 1 if ev_type == "RECLAIM" else -1
+        r_igst = mult * int(ev.get("reclaimed_igst_paise") or 0)
+        r_cgst = mult * int(ev.get("reclaimed_cgst_paise") or 0)
+        r_sgst = mult * int(ev.get("reclaimed_sgst_paise") or 0)
+        r_cess = mult * int(ev.get("reclaimed_cess_paise") or 0)
+
+        t4a5.add(r_igst, r_cgst, r_sgst, r_cess)
+        t4d1.add(r_igst, r_cgst, r_sgst, r_cess)
+        ev_id = str(ev.get("id"))
+        contributing_reclaim_ids.append(ev_id)
+        reclaim_hashes.append(f"{ev_id}:{r_igst}:{r_cgst}:{r_sgst}:{r_cess}")
+
+    # 6. Process External Adjustments (Rules 42/43/38, RCM, Manual Reversals)
     adjustment_hashes: list[str] = []
     for adj in adjustments:
         row_id = str(adj.get("row_id") or "").upper()
@@ -586,6 +700,11 @@ def compile_gstr3b_table4(
         "table_4d1": t4d1.to_dict(),
         "table_4d2": t4d2.to_dict(),
         "audit_hash": audit_hash,
+        "source_state_digest": audit_hash,
+        "contributing_outcome_ids": contributing_record_ids,
+        "contributing_disposition_ids": list(dispositions.keys()),
+        "contributing_adjustment_ids": [str(a.get("id")) for a in adjustments if a.get("id")],
+        "contributing_reclaim_ids": contributing_reclaim_ids,
     }
 
     return _format_table4_response(
@@ -615,6 +734,8 @@ def _format_table4_response(
     can_finalize: bool,
     unresolved_blocking: int,
     blocking_summary: list[str],
+    *,
+    version: int = 1,
 ) -> dict[str, Any]:
     return {
         "run_id": run_id,
@@ -624,7 +745,9 @@ def _format_table4_response(
         "is_locked": is_locked,
         "finalized_at": finalized_at,
         "finalized_by": finalized_by,
+        "version": snap.get("version") or version,
         "audit_hash": snap.get("audit_hash") or "",
+        "source_state_digest": snap.get("source_state_digest") or snap.get("audit_hash") or "",
         "workpaper_title": WORKPAPER_TITLE,
         "disclaimer": DISCLAIMER_TEXT,
         "table_4": {
@@ -652,6 +775,10 @@ def _format_table4_response(
             "unresolved_blocking_exceptions": unresolved_blocking,
             "blocking_summary": blocking_summary,
         },
+        "contributing_outcome_ids": snap.get("contributing_outcome_ids") or [],
+        "contributing_disposition_ids": snap.get("contributing_disposition_ids") or [],
+        "contributing_adjustment_ids": snap.get("contributing_adjustment_ids") or [],
+        "contributing_reclaim_ids": snap.get("contributing_reclaim_ids") or [],
     }
 
 
@@ -666,7 +793,9 @@ def compile_and_save_final_table4_snapshot(
 ) -> dict[str, Any]:
     """Execute finalization for Table 4: validate gate, compile, and persist authoritative snapshot.
 
-    Raises ValueError if blocking exceptions exist or run is already final.
+    Persists versioned immutable snapshot into public.gstr3b_table4_summaries, superseding
+    any prior version for this run, while sealing source state digest and payload.
+    Raises ValueError if blocking exceptions exist.
     """
     gate = check_finalization_blocking_exceptions(sb, run_id)
     if not gate["can_finalize"]:
@@ -676,21 +805,49 @@ def compile_and_save_final_table4_snapshot(
         raise ValueError(msg)
 
     # Compile authoritative result
-    res = compile_gstr3b_table4(sb, run_id, is_finalized=True)
+    res = compile_gstr3b_table4(sb, run_id, is_finalized=False)
     t4 = res["table_4"]
     sec4a = t4["section_4a"]
     sec4b = t4["section_4b"]
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    # Get client_gstin_id
+    # Get client_gstin_id and period
     r_info = sb.table("reconciliation_run").select("client_gstin_id, period").eq("id", run_id).limit(1).execute()
     client_gstin_id = r_info.data[0].get("client_gstin_id") if r_info.data else None
     period = r_info.data[0].get("period") if r_info.data else res["tax_period"]
+
+    # Determine next snapshot version and supersede previous active snapshots
+    existing_summaries = (
+        sb.table("gstr3b_table4_summaries")
+        .select("id, version, is_current")
+        .eq("run_id", run_id)
+        .order("version", desc=True)
+        .execute()
+    )
+    max_version = 0
+    if existing_summaries.data:
+        max_version = max(int(row.get("version") or 0) for row in existing_summaries.data)
+        for row in existing_summaries.data:
+            if row.get("is_current"):
+                sb.table("gstr3b_table4_summaries").update({
+                    "is_current": False,
+                    "superseded_at": now_iso,
+                    "superseded_by": user_id,
+                }).eq("id", row["id"]).execute()
+
+    new_version = max_version + 1
+
+    contributing_outcomes = res.get("contributing_outcome_ids") or []
+    contributing_disps = res.get("contributing_disposition_ids") or []
+    contributing_adjs = res.get("contributing_adjustment_ids") or []
+    contributing_reclaims = res.get("contributing_reclaim_ids") or []
 
     record = {
         "run_id": run_id,
         "client_gstin_id": client_gstin_id,
         "tax_period": period,
+        "version": new_version,
+        "is_current": True,
         "status": "FINALIZED",
         "table_4a1": sec4a["row_4a1_import_goods"],
         "table_4a2": sec4a["row_4a2_import_services"],
@@ -705,18 +862,19 @@ def compile_and_save_final_table4_snapshot(
         "table_4d1": t4["section_4d"]["row_4d1_reclaimed"],
         "table_4d2": t4["section_4d"]["row_4d2_ineligible_16_4_pos"],
         "audit_hash": res["audit_hash"],
+        "source_state_digest": res["audit_hash"],
+        "snapshot_payload": res,
+        "contributing_outcome_ids": contributing_outcomes,
+        "contributing_disposition_ids": contributing_disps,
+        "contributing_adjustment_ids": contributing_adjs,
+        "contributing_reclaim_ids": contributing_reclaims,
         "finalized_at": now_iso,
         "finalized_by": user_id,
         "updated_at": now_iso,
     }
 
-    # Upsert into public.gstr3b_table4_summaries (One authoritative source of truth)
-    upsert_res = (
-        sb.table("gstr3b_table4_summaries")
-        .upsert(record, on_conflict="run_id")
-        .execute()
-    )
-    summary_id = upsert_res.data[0].get("id") if upsert_res.data else None
+    insert_res = sb.table("gstr3b_table4_summaries").insert(record).execute()
+    summary_id = insert_res.data[0].get("id") if insert_res.data else None
 
     # Link summary_id onto reconciliation_run
     if summary_id:
@@ -724,10 +882,18 @@ def compile_and_save_final_table4_snapshot(
             "table4_summary_id": summary_id,
         }).eq("id", run_id).execute()
 
+    # Auto-register 4(B)(2) temporary reversals into the General Reversal & Reclaim Ledger
+    try:
+        from app.services.gstr3b_reversal_ledger import register_table4_reversals_to_ledger
+        register_table4_reversals_to_ledger(sb, run_id, user_id)
+    except Exception as e:
+        _log.warning("Could not auto-register 4B2 reversals to ledger for run %s: %s", run_id, e)
+
     res["status"] = "FINALIZED"
     res["is_locked"] = True
     res["finalized_at"] = now_iso
     res["finalized_by"] = user_id
+    res["version"] = new_version
     return res
 
 
@@ -782,7 +948,36 @@ def get_table4_drilldown(
                 "source": "Manual Entry / CA Workpaper",
             })
 
-    # Second, scan outcome records
+    # Second, collect active reclaim events (Circular 170: dual-posted to 4A5 and 4D1)
+    if row_id_clean in ("4D1", "4A5"):
+        reclaim_events = load_reclaim_events_for_run(sb, run_id)
+        for ev in reclaim_events:
+            ev_type = str(ev.get("event_type") or "RECLAIM").upper()
+            mult = 1 if ev_type == "RECLAIM" else -1
+            r_igst = mult * int(ev.get("reclaimed_igst_paise") or 0)
+            r_cgst = mult * int(ev.get("reclaimed_cgst_paise") or 0)
+            r_sgst = mult * int(ev.get("reclaimed_sgst_paise") or 0)
+            r_cess = mult * int(ev.get("reclaimed_cess_paise") or 0)
+            matching_items.append({
+                "id": str(ev.get("id")),
+                "type": "RECLAIM",
+                "supplier_gstin": str(ev.get("supplier_gstin") or "RECLAIM"),
+                "supplier_name": f"Reclaim ({ev.get('statutory_reason') or 'Reversal Ledger'})",
+                "invoice_number": str(ev.get("document_number") or ev.get("reference_doc") or "RECLAIM"),
+                "invoice_date": str(ev.get("evidence_document_date") or ev.get("created_at") or "")[:10],
+                "taxable_value": 0.0,
+                "igst": paise_to_rupees(r_igst),
+                "cgst": paise_to_rupees(r_cgst),
+                "sgst": paise_to_rupees(r_sgst),
+                "cess": paise_to_rupees(r_cess),
+                "total_tax": paise_to_rupees(r_igst + r_cgst + r_sgst + r_cess),
+                "doc_type": "RECLAIM",
+                "statutory_reason": str(ev.get("reclaim_notes") or ev.get("statutory_evidence_type") or "Statutory Reclaim under Circular 170 Para 4.3"),
+                "disposition": "AUTHORIZED_RECLAIM",
+                "source": "Reversal & Reclaim Ledger",
+            })
+
+    # Third, scan outcome records
     for r in all_outcomes:
         rec_id = r.id
         # Duplicate entries (extra PR bookings) must never enter Table 4
@@ -813,6 +1008,42 @@ def get_table4_drilldown(
         disp_r37 = dispositions.get(f"{rec_id}:RULE_37") or dispositions.get(rec_id)
         disp_r37a = dispositions.get(f"{rec_id}:RULE_37A") or dispositions.get(rec_id)
         disp_2b = dispositions.get(f"{rec_id}:TWO_B_ONLY") or dispositions.get(rec_id)
+        disp_162b = (
+            dispositions.get(f"{rec_id}:SECTION_16_2_B")
+            or dispositions.get(f"{rec_id}:GOODS_NOT_RECEIVED")
+            or dispositions.get(rec_id)
+        )
+        disp_4d2 = (
+            dispositions.get(f"{rec_id}:TIME_BARRED_16_4")
+            or dispositions.get(f"{rec_id}:POS_RESTRICTED")
+            or dispositions.get(f"{rec_id}:SECTION_16_4")
+            or dispositions.get(f"{rec_id}:POS_MISMATCH")
+            or dispositions.get(rec_id)
+        )
+
+        # 4D2 Boundary: Ineligible under Section 16(4) / PoS restriction
+        is_4d2_restricted, reason_4d2 = is_section_16_4_or_pos_restricted(r, g_rd, p_rd, disp_4d2)
+        if is_4d2_restricted:
+            if row_id_clean == "4D2":
+                matching_items.append({
+                    "id": rec_id,
+                    "type": "INVOICE",
+                    "supplier_gstin": r.supplier_gstin,
+                    "supplier_name": r.supplier_name,
+                    "invoice_number": r.invoice_number,
+                    "invoice_date": str(r.invoice_date or "")[:10],
+                    "taxable_value": paise_to_rupees(g_rd.get("taxable_value_paise") or p_rd.get("taxable_value_paise") or 0),
+                    "igst": paise_to_rupees(sig_igst),
+                    "cgst": paise_to_rupees(sig_cgst),
+                    "sgst": paise_to_rupees(sig_sgst),
+                    "cess": paise_to_rupees(sig_cess),
+                    "total_tax": paise_to_rupees(sig_igst + sig_cgst + sig_sgst + sig_cess),
+                    "doc_type": "CREDIT_NOTE" if cn else "INVOICE",
+                    "statutory_reason": f"Ineligible under {reason_4d2} (Table 4D2 info-only per Circular 170 Para 4.3)",
+                    "disposition": reason_4d2,
+                    "source": "GSTR-2B ∩ Purchase Register",
+                })
+            continue  # Crucial: 4D2 records NEVER enter 4A, 4B, or 4C
 
         is_sec175 = (
             r.category == "blocked_credit"
@@ -827,7 +1058,13 @@ def get_table4_drilldown(
         ) and not (r.match_status == "RULE37A" or r.rule37a_flag)
         is_r37_reversed = is_r37 and bool(disp_r37 and str(disp_r37.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED"))
         is_r37a = (r.match_status == "RULE37A" or r.rule37a_flag)
-        is_r37a_reversed = is_r37a and bool(disp_r37a and str(disp_r37a.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED"))
+        is_r37a_reversed = is_r37a and bool(disp_r37a and str(disp_r37a.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED", "RULE_37A_VERIFIED", "CONFIRMED_NON_FILER"))
+        is_162b_reversed = bool(
+            disp_162b
+            and str(disp_162b.get("disposition", "")).upper() in (
+                "REVERSED", "SECTION_16_2_B_REVERSED", "CONFIRMED_NOT_RECEIVED"
+            )
+        )
 
         belongs_to_row = False
         stat_reason = ""
@@ -850,21 +1087,40 @@ def get_table4_drilldown(
                         belongs_to_row = True
                         stat_reason = "2B Inward Booked & Verified by CA"
                         disp_label = "BOOKED_AND_VERIFIED"
+                    elif disp_2b and str(disp_2b.get("disposition", "")).upper() == "SECTION_16_2_B_REVERSED":
+                        belongs_to_row = True
+                        stat_reason = "2B Inward Gross Claimed; reversed in 4B2 under Section 16(2)(b)"
+                        disp_label = "SECTION_16_2_B_REVERSED"
                 else:
                     belongs_to_row = True
                     stat_reason = "Domestic Inward Supply eligible under Section 16(2)"
                     if is_sec175_confirmed:
                         stat_reason += " (Gross claimed; reversed in 4B1 per Circular 170)"
-                    elif is_r37_reversed or is_r37a_reversed:
+                    elif is_r37_reversed or is_r37a_reversed or is_162b_reversed:
                         stat_reason += " (Gross claimed; reversed in 4B2 per Circular 170)"
         elif row_id_clean == "4B1" and is_sec175_confirmed:
             belongs_to_row = True
             stat_reason = r.itc_reason or "Blocked Credit under Section 17(5)"
             disp_label = "CONFIRMED_BLOCKED"
-        elif row_id_clean == "4B2" and (is_r37_reversed or is_r37a_reversed):
-            belongs_to_row = True
-            stat_reason = "Reversal under Rule 37 (180 days)" if is_r37_reversed else "Reversal under Rule 37A (Supplier non-filer)"
-            disp_label = "REVERSAL_CONFIRMED"
+        elif row_id_clean == "4B2":
+            if is_r37_reversed:
+                belongs_to_row = True
+                stat_reason = "Reversal under Rule 37 (180 days)"
+                disp_label = "REVERSAL_CONFIRMED"
+            elif is_r37a_reversed:
+                belongs_to_row = True
+                stat_reason = "Reversal under Rule 37A (Supplier non-filer)"
+                disp_label = "REVERSAL_CONFIRMED"
+            elif is_162b_reversed:
+                belongs_to_row = True
+                stat_reason = "Reversal under Section 16(2)(b) (Goods/services not received)"
+                disp_label = "SECTION_16_2_B_REVERSED"
+            elif (rec_id.startswith("gstr:") or (not pid and not rec_id.startswith("pm:"))) and (
+                disp_2b and str(disp_2b.get("disposition", "")).upper() == "SECTION_16_2_B_REVERSED"
+            ):
+                belongs_to_row = True
+                stat_reason = "2B Inward Temporary Reversal under Section 16(2)(b)"
+                disp_label = "SECTION_16_2_B_REVERSED"
 
         if belongs_to_row:
             matching_items.append({

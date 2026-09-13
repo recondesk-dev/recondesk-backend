@@ -101,6 +101,15 @@ function ClientWorkspaceNav({ id }: { id: string }) {
             isActive: (p) => p.startsWith("/filing/gstr-3b"),
           },
           {
+            label: "Reversal & Reclaim Ledger",
+            href: `/clients/${id}/reversal-ledger`,
+            description:
+              "Table 4(B)(2) longitudinal tracking, condition evidence & authorized reclaims",
+            isActive: (p) =>
+              p === `/clients/${id}/reversal-ledger` ||
+              p.startsWith(`/clients/${id}/reversal-ledger/`),
+          },
+          {
             label: "GSTR-9",
             href: `/clients/${id}/gstr9`,
             description:
