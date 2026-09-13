@@ -4781,6 +4781,9 @@ export default function ReconcileResultsPage() {
             runId={runId}
             authToken={authToken}
             variant="embedded"
+            onFinalizeSuccess={() => {
+              void mutateSummary();
+            }}
           />
         )}
 

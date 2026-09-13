@@ -576,11 +576,13 @@ export function Gstr3bSummaryView({
   runId,
   authToken,
   variant = "embedded",
+  onFinalizeSuccess,
 }: {
   runId: string;
   authToken: string;
   /** embedded = results tab; page = dedicated route */
   variant?: "embedded" | "page";
+  onFinalizeSuccess?: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<"workpaper" | "tieout">("workpaper");
   const [uploading, setUploading] = useState(false);
@@ -654,7 +656,11 @@ export function Gstr3bSummaryView({
       </div>
 
       {activeTab === "workpaper" ? (
-        <Table4WorkpaperView runId={runId} authToken={authToken} />
+        <Table4WorkpaperView
+          runId={runId}
+          authToken={authToken}
+          onFinalizeSuccess={onFinalizeSuccess}
+        />
       ) : (
         <div className="space-y-5">
           {isLoading && !data && !error && (

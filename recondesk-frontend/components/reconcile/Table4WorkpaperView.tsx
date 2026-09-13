@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import useSWR from "swr";
+import useSWR, { mutate as swrMutate } from "swr";
 import { formatINR } from "@/lib/format";
 import {
   gstr3bApi,
+  reconcileRunsApi,
   Gstr3bTable4WorkpaperResponse,
   Table4RowData,
 } from "@/lib/api";
@@ -28,6 +29,9 @@ export function Table4WorkpaperView({
   const [activeDrilldownLabel, setActiveDrilldownLabel] = useState<string>("");
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [isDispositionModalOpen, setIsDispositionModalOpen] = useState(false);
+  const [isFinalizeModalOpen, setIsFinalizeModalOpen] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [copiedCell, setCopiedCell] = useState<string | null>(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"workpaper" | "reversals">("workpaper");
@@ -37,6 +41,30 @@ export function Table4WorkpaperView({
     () => gstr3bApi.getTable4Workpaper(authToken, runId),
     { refreshInterval: 0 }
   );
+
+  const handleFinalize = async () => {
+    if (!runId || !authToken || isFinalizing) return;
+    setIsFinalizing(true);
+    setFinalizeError(null);
+    try {
+      await reconcileRunsApi.finalizeRun(authToken, runId);
+      await mutate();
+      void swrMutate([`run-summary`, runId]);
+      void swrMutate([`recon-runs`]);
+      onFinalizeSuccess?.();
+      setIsFinalizeModalOpen(false);
+      setActionSuccessMsg("GSTR-3B Table 4 Workpaper finalized and locked successfully.");
+      setTimeout(() => setActionSuccessMsg(null), 5000);
+    } catch (err: any) {
+      const msg =
+        err?.detail ||
+        err?.message ||
+        "Failed to finalize workpaper. Please try again.";
+      setFinalizeError(msg);
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
 
   const copyToClipboard = (text: string, cellKey: string) => {
     navigator.clipboard.writeText(text);
@@ -318,9 +346,37 @@ export function Table4WorkpaperView({
                 </ul>
               )}
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {gate.can_finalize ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFinalizeError(null);
+                    setIsFinalizeModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-black px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-gray-800 shadow-sm transition"
+                >
+                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  Finalize & Freeze
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  title={`Cannot finalize: ${gate.unresolved_blocking_exceptions} blocking exception(s) require explicit CA disposition.`}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-gray-200 px-3.5 py-2 text-[12.5px] font-semibold text-gray-400 cursor-not-allowed shadow-none"
+                >
+                  <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  Finalize & Freeze ({gate.unresolved_blocking_exceptions} blocking)
+                </button>
+              )}
               {!gate.can_finalize && (
                 <button
+                  type="button"
                   onClick={() => setIsDispositionModalOpen(true)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-amber-700 px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-amber-800 shadow-sm transition"
                 >
@@ -328,6 +384,7 @@ export function Table4WorkpaperView({
                 </button>
               )}
               <button
+                type="button"
                 onClick={() => setIsAdjustmentModalOpen(true)}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3.5 py-2 text-[12.5px] font-semibold text-gray-800 hover:bg-gray-50 shadow-sm transition"
               >
@@ -340,6 +397,7 @@ export function Table4WorkpaperView({
                 Export (.xlsx)
               </a>
               <button
+                type="button"
                 onClick={copyAllValues}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3.5 py-2 text-[12.5px] font-semibold text-gray-800 hover:bg-gray-50 shadow-sm transition"
               >
@@ -499,11 +557,116 @@ export function Table4WorkpaperView({
         onClose={() => setActiveDrilldownRow(null)}
       />
 
+      {/* Finalize Confirmation Modal */}
+      {isFinalizeModalOpen && !isFinalized && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3.5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-900 text-white shadow-sm">
+                <svg className="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-[17px] font-bold text-gray-900">
+                  Finalize & Freeze Table 4 Workpaper
+                </h3>
+                <p className="mt-1 text-[12.5px] text-gray-500">
+                  Client: <span className="font-mono font-medium text-gray-800">{data.client_gstin}</span> • Period: <span className="font-semibold text-gray-800">{data.tax_period}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isFinalizing && setIsFinalizeModalOpen(false)}
+                disabled={isFinalizing}
+                className="text-gray-400 hover:text-gray-600 disabled:opacity-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Key Statutory Summary Numbers */}
+            <div className="mt-5 grid grid-cols-3 gap-3 rounded-xl bg-gray-50 p-3.5 border border-gray-100 text-center">
+              <div>
+                <p className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-wider">Net ITC (4C)</p>
+                <p className="mt-1 font-mono text-[13.5px] font-bold text-gray-900 tabular-nums">
+                  {formatINR(t4.section_4c_net_itc.total_tax ?? ((t4.section_4c_net_itc.igst || 0) + (t4.section_4c_net_itc.cgst || 0) + (t4.section_4c_net_itc.sgst || 0) + (t4.section_4c_net_itc.cess || 0)))}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-wider">Reversals (4B)</p>
+                <p className="mt-1 font-mono text-[13.5px] font-bold text-amber-700 tabular-nums">
+                  {formatINR(t4.section_4b.total_4b.total_tax ?? ((t4.section_4b.total_4b.igst || 0) + (t4.section_4b.total_4b.cgst || 0) + (t4.section_4b.total_4b.sgst || 0) + (t4.section_4b.total_4b.cess || 0)))}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-wider">Reclaimed (4D1)</p>
+                <p className="mt-1 font-mono text-[13.5px] font-bold text-emerald-700 tabular-nums">
+                  {formatINR(t4.section_4d.row_4d1_reclaimed.total_tax ?? ((t4.section_4d.row_4d1_reclaimed.igst || 0) + (t4.section_4d.row_4d1_reclaimed.cgst || 0) + (t4.section_4d.row_4d1_reclaimed.sgst || 0) + (t4.section_4d.row_4d1_reclaimed.cess || 0)))}
+                </p>
+              </div>
+            </div>
+
+            {/* Statutory Notice / Warning Box */}
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3.5 text-[12px] text-amber-900 leading-relaxed">
+              <div className="flex gap-2">
+                <span className="font-bold text-amber-950 shrink-0">Statutory Notice:</span>
+                <span>
+                  Finalizing will permanently seal this Table 4 workpaper, compute an immutable SHA-256 audit hash, and lock the reconciliation run. All further external adjustments and exception dispositions will be locked.
+                </span>
+              </div>
+            </div>
+
+            {/* Finalize Error Message */}
+            {finalizeError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-[12px] text-red-700">
+                {finalizeError}
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setIsFinalizeModalOpen(false)}
+                disabled={isFinalizing}
+                className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-[13px] font-semibold text-gray-700 hover:bg-gray-50 transition disabled:opacity-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleFinalize}
+                disabled={isFinalizing}
+                className="inline-flex items-center gap-2 rounded-lg bg-black px-4 py-2 text-[13px] font-semibold text-white hover:bg-gray-800 transition disabled:opacity-50 shadow-sm cursor-pointer"
+              >
+                {isFinalizing ? (
+                  <>
+                    <svg className="h-4 w-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                    </svg>
+                    <span>Finalizing & Locking…</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Confirm & Lock Workpaper</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* External Adjustment Modal */}
       <Table4AdjustmentModal
         runId={runId}
         authToken={authToken}
-        isOpen={isAdjustmentModalOpen}
+        isOpen={!isFinalized && isAdjustmentModalOpen}
         onClose={() => setIsAdjustmentModalOpen(false)}
         onSuccess={() => mutate()}
       />
@@ -512,7 +675,7 @@ export function Table4WorkpaperView({
       <Table4DispositionModal
         runId={runId}
         authToken={authToken}
-        isOpen={isDispositionModalOpen}
+        isOpen={!isFinalized && isDispositionModalOpen}
         onClose={() => setIsDispositionModalOpen(false)}
         onSuccess={() => mutate()}
         blockingRecords={gate.blocking_summary.length > 0 ? (gate as any).blocking_records || [] : []}
