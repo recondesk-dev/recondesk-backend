@@ -22,6 +22,7 @@ from app.services.matcher import match_gstr_to_pr
 from app.services import reconciliation_record_adapter as rec_adapt
 from app.services.blocked_credit_checker import check_blocked_credits
 from app.services.credit_note_handler import classify_document, net_itc_after_credit_notes
+from app.services.amendment_handler import build_effective_gstr_records
 from app.services.reconciliation import (
     ReconState,
     _build_pr_index_by_period,
@@ -813,6 +814,20 @@ def execute_reconciliation(run_id: str) -> None:
                 rec["invoice_date"] = gstr_end.isoformat()
         _phase("normalization")
 
+        # ── GSTR-2B AMENDMENT RESOLUTION ──
+        amendment_result = build_effective_gstr_records(gstr_matcher)
+        effective_gstr = amendment_result.effective_records
+        _log.info(
+            "[AMENDMENT] Raw GSTR records: %d | Amendments detected: %d | "
+            "Chains: %d | Superseded records removed: %d | Effective GSTR records: %d",
+            amendment_result.stats.raw_count,
+            amendment_result.stats.amendment_count,
+            amendment_result.stats.chains_count,
+            amendment_result.stats.superseded_count,
+            amendment_result.stats.effective_count,
+        )
+        gstr_matcher = effective_gstr
+
         _update_run(
             client,
             run_id,
@@ -1459,9 +1474,9 @@ def execute_reconciliation(run_id: str) -> None:
         skipped_count = sum(1 for r in pr_current if r.get("match_status") == "skipped")
         unmatched_notes_count = len(state.unmatched_notes)
 
-        assert matched_count + missed_itc_count + review_gstr_count == n_gstr, (
+        assert matched_count + missed_itc_count + review_gstr_count == len(gstr_matcher), (
             f"GSTR Data Loss! Matched:{matched_count} Missed:{missed_itc_count} "
-            f"Review:{review_gstr_count} Total:{n_gstr}"
+            f"Review:{review_gstr_count} Total:{len(gstr_matcher)}"
         )
         
         assert (
@@ -1573,7 +1588,7 @@ def execute_reconciliation(run_id: str) -> None:
         # state lists before we slim + persist the results payload.
         res_payload = _finalize_reconciliation_result(
             state,
-            n_gstr,
+            len(gstr_matcher),
             n_pr,
             pr_current,
             gstr_matcher,
@@ -1602,6 +1617,15 @@ def execute_reconciliation(run_id: str) -> None:
         )
         if isinstance(payload, str):
             payload = json.loads(payload)
+        if isinstance(payload, dict):
+            payload["amendment_summary"] = {
+                "raw_count": amendment_result.stats.raw_count,
+                "amendment_count": amendment_result.stats.amendment_count,
+                "chains_count": amendment_result.stats.chains_count,
+                "superseded_count": amendment_result.stats.superseded_count,
+                "effective_count": amendment_result.stats.effective_count,
+                "chains": amendment_result.amendment_chains,
+            }
         save_reconciliation_results(
             client,
             run_id,

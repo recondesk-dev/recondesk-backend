@@ -115,6 +115,41 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
             or None
         ),
         "section": str(rd.get("section") or "").strip().lower() or None,
+        "is_amendment": bool(
+            rd.get("is_amendment")
+            or (
+                str(rd.get("section") or "").strip().lower()
+                in ("b2ba", "cdnra", "b2cla", "b2csa", "expa")
+            )
+        ),
+        "original_invoice_number": (
+            str(
+                rd.get("original_invoice_number")
+                or (
+                    normalize_invoice(str(rd.get("oinum") or rd.get("ont_num") or rd.get("ointnum")).strip())
+                    if (rd.get("oinum") or rd.get("ont_num") or rd.get("ointnum"))
+                    else ""
+                )
+            ).strip()
+            or None
+        ),
+        "original_invoice_number_raw": (
+            str(
+                rd.get("original_invoice_number_raw")
+                or rd.get("oinum")
+                or rd.get("ont_num")
+                or rd.get("ointnum")
+                or ""
+            ).strip()
+            or None
+        ),
+        "original_invoice_date": _iso_date(
+            rd.get("original_invoice_date_norm")
+            or rd.get("original_invoice_date")
+            or rd.get("oidt")
+            or rd.get("ointdt")
+        ),
+        "supprd": str(rd.get("supprd") or "").strip() or None,
         "ims_status": (
             str(rd.get("ims_status") or "").strip() or "no_action_taken"
         ),
