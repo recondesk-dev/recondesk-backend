@@ -421,20 +421,89 @@ class FinalizeResponse(BaseModel):
     message: str
 
 
-@router.post("/finalize/{run_id}", response_model=FinalizeResponse)
-async def finalize_reconciliation(
+class CanonicalFinalizeResult:
+    """Authoritative DTO representing the result of a canonical finalization operation."""
+
+    def __init__(
+        self,
+        *,
+        run_row: dict[str, Any],
+        payload: dict[str, Any],
+        snapshot: Optional[dict[str, Any]],
+        now_iso: str,
+        finalized_by: str,
+        finalized_by_name: Optional[str],
+        was_already_final: bool = False,
+    ):
+        self.run_row = run_row
+        self.payload = payload
+        self.snapshot = snapshot
+        self.now_iso = now_iso
+        self.finalized_by = finalized_by
+        self.finalized_by_name = finalized_by_name
+        self.was_already_final = was_already_final
+
+
+async def execute_canonical_finalization(
     request: Request,
-    run_id: str,
-    current_user: dict = Depends(get_current_active_user),
-):
+    sb: Any,
+    *,
+    rid: str,
+    current_user: dict[str, Any],
+    checklist_snapshot: Optional[dict[str, Any]] = None,
+    allow_idempotent_return: bool = True,
+    required_role: Optional[str] = None,
+) -> CanonicalFinalizeResult:
+    """Canonical, authoritative finalization service for reconciliation runs.
+
+    Execution Pipeline:
+    1. Verify tenant access (assert_run_accessible).
+    2. Enforce role-based authorization (staff rejected; admin required if required_role='admin').
+    3. Status validation & idempotency handling:
+       - If already FINAL / locked:
+         - If allow_idempotent_return=False -> HTTP 422 ("run is already final").
+         - If allow_idempotent_return=True -> return existing finalized state (idempotent, no duplicates).
+       - If status != COMPLETED -> HTTP 422 ("run must be complete before finalization").
+    4. Validate reconciliation payload presence -> HTTP 422 ("no reconciliation payload for this run").
+    5. Authoritative Gate Check (check_finalization_blocking_exceptions) -> HTTP 422 if unresolved blocking exceptions.
+    6. Authoritative Table 4 Snapshot compilation & persistence (compile_and_save_final_table4_snapshot):
+       - Inserts immutable snapshot into gstr3b_table4_summaries.
+       - Links table4_summary_id onto reconciliation_run.
+       - Auto-registers 4(B)(2) temporary reversals into gstr3b_reversal_ledger.
+       - If this fails, raises exception immediately; the run remains unlocked and COMPLETED.
+    7. Optimistic Run Locking:
+       - Transitions reconciliation_run to status=FINAL, is_locked=True.
+       - Updates finalized_at, finalized_by, updated_at, checklist_snapshot.
+       - Conditional on status == COMPLETED. If 0 rows updated -> HTTP 409 Conflict (concurrent finalization).
+    8. Audit Logging:
+       - Emits RECON_FINALIZED audit log entry.
+    9. Invalidate user dashboard cache.
+    10. Return CanonicalFinalizeResult.
+    """
     uid = str(current_user.get("id", ""))
+    run_row = assert_run_accessible(sb, rid, current_user)
     role = await get_user_role(uid)
-    if (role or "").strip().lower() == "staff":
+    role_str = (role or "").strip().lower()
+
+    if required_role == "admin" and role_str != "admin":
         await log_action(
             uid,
             "FINALIZATION_BLOCKED",
             "reconciliation_run",
-            run_id,
+            rid,
+            {"role": role},
+            ip_address=(request.client.host if request.client else None),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can finalize a reconciliation.",
+        )
+    if role_str == "staff":
+        await log_action(
+            uid,
+            "FINALIZATION_BLOCKED",
+            "reconciliation_run",
+            rid,
             {"role": role},
             ip_address=(request.client.host if request.client else None),
         )
@@ -442,26 +511,50 @@ async def finalize_reconciliation(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
         )
-    rid = _parse_uuid(run_id, "run_id")
-    sb = get_supabase()
-    row = assert_run_accessible(sb, rid, current_user)
-    st = str(row.get("status") or "").strip().upper()
-    if st == RunStatus.FINAL or bool(row.get("is_locked")):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="run is already final",
+
+    raw_status = str(run_row.get("status") or "").strip()
+    st = raw_status.upper()
+    is_already_final = (st == RunStatus.FINAL or raw_status.lower() == "final" or bool(run_row.get("is_locked")))
+
+    if is_already_final:
+        if not allow_idempotent_return:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="run is already final",
+            )
+        p = ro.load_payload(sb, rid) or {}
+        try:
+            patch_row = dict(run_row)
+            _backfill_matched_itc_paise(sb, patch_row, persist=True)
+            if isinstance(patch_row.get("run_summary"), dict):
+                run_row = {**run_row, "run_summary": patch_row["run_summary"]}
+        except Exception:
+            _log.exception("finalize backfill matched_itc_paise failed for %s", rid)
+        prof = get_user_profile(uid)
+        name = (prof or {}).get("full_name")
+        return CanonicalFinalizeResult(
+            run_row=run_row,
+            payload=p,
+            snapshot=None,
+            now_iso=str(run_row.get("finalized_at") or datetime.now(timezone.utc).isoformat()),
+            finalized_by=str(run_row.get("finalized_by") or uid),
+            finalized_by_name=name,
+            was_already_final=True,
         )
+
     if st != RunStatus.COMPLETED:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="run must be complete before finalization",
         )
+
     p = ro.load_payload(sb, rid)
     if not p:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="no reconciliation payload for this run",
         )
+
     gate = check_finalization_blocking_exceptions(sb, rid, payload=p)
     if not gate["can_finalize"]:
         summary_msg = "; ".join(gate["blocking_summary"][:3])
@@ -472,49 +565,153 @@ async def finalize_reconciliation(
                 f"({summary_msg})"
             ),
         )
-    now = datetime.now(timezone.utc).isoformat()
-    by = uid
-    prof = get_user_profile(uid)
-    name = (prof or {}).get("full_name")
-    ex = (
-        sb.table("reconciliation_run")
-        .update(
-            {
-                "status": RunStatus.FINAL,
-                "finalized_at": now,
-                "finalized_by": by,
-                "is_locked": True,
-                "updated_at": now,
-            }
+
+    # 1. Compile and save Table 4 snapshot + auto-register 4B2 reversals.
+    # Executed BEFORE locking run so that any failure leaves the run in COMPLETED (unlocked) state.
+    try:
+        snapshot = compile_and_save_final_table4_snapshot(sb, rid, uid)
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(ve),
         )
-        .eq("id", rid)
-        .eq("status", RunStatus.COMPLETED)
-        .execute()
-    )
+    except Exception as exc:
+        _log.exception("compile_and_save_final_table4_snapshot failed for %s", rid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Table 4 snapshot compilation failed: {exc}",
+        )
+
+    # 2. Optimistic transition to FINAL + is_locked=True
+    now = datetime.now(timezone.utc).isoformat()
+    update_fields: dict[str, Any] = {
+        "status": RunStatus.FINAL,
+        "finalized_at": now,
+        "finalized_by": uid,
+        "is_locked": True,
+        "updated_at": now,
+    }
+    if checklist_snapshot is not None:
+        update_fields["checklist_snapshot"] = checklist_snapshot
+
+    try:
+        patch_row = dict(run_row)
+        _backfill_matched_itc_paise(sb, patch_row, persist=False)
+        rs_enriched = patch_row.get("run_summary")
+        if isinstance(rs_enriched, dict) and rs_enriched.get("matched_itc_paise") is not None:
+            update_fields["run_summary"] = rs_enriched
+            if rs_enriched.get("itc_at_risk") is not None:
+                update_fields["itc_at_risk"] = rs_enriched.get("itc_at_risk")
+            elif rs_enriched.get("missed_itc_paise") is not None:
+                update_fields["itc_at_risk"] = rs_enriched.get("missed_itc_paise")
+            if rs_enriched.get("wrongful_itc") is not None:
+                update_fields["wrongful_itc"] = rs_enriched.get("wrongful_itc")
+    except Exception:
+        _log.exception("could not enrich run_summary before finalize for %s", rid)
+
+    def _do_update(fields: dict[str, Any]):
+        return (
+            sb.table("reconciliation_run")
+            .update(fields)
+            .eq("id", rid)
+            .eq("status", RunStatus.COMPLETED)
+            .execute()
+        )
+
+    ex: Any = None
+    try:
+        ex = _do_update(update_fields)
+    except Exception as exc:
+        err = str(exc).lower()
+        if checklist_snapshot is not None and (
+            "checklist_snapshot" in err
+            or "column" in err
+            or "schema" in err
+            or "pgrst" in err
+        ):
+            rs_raw = run_row.get("run_summary")
+            summary_dict: dict[str, Any] = (
+                dict(rs_raw) if isinstance(rs_raw, dict) else {}
+            )
+            summary_dict["finalization"] = {
+                "checklist": checklist_snapshot,
+                "finalized_by": uid,
+                "finalized_at": now,
+            }
+            fields2 = {
+                k: v for k, v in update_fields.items() if k != "checklist_snapshot"
+            }
+            fields2["run_summary"] = summary_dict
+            ex = _do_update(fields2)
+        else:
+            raise
+
     if not ex.data:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="could not finalize run; refresh and retry",
         )
+
+    # 3. Log audit
     await log_audit(
         sb,
         current_user,
         "RECON_FINALIZED",
         "reconciliation",
         rid,
-        _run_entity_label(sb, row),
+        _run_entity_label(sb, run_row),
         ip_address=(request.client.host if request.client else None),
     )
+
     try:
-        compile_and_save_final_table4_snapshot(sb, rid, by)
-    except Exception as exc:
-        _log.exception("compile_and_save_final_table4_snapshot failed in finalize_reconciliation for %s", rid)
+        invalidate_user_dashboard(uid)
+    except Exception:
+        pass
+
+    refreshed = (
+        sb.table("reconciliation_run")
+        .select("*")
+        .eq("id", rid)
+        .limit(1)
+        .execute()
+    ).data or []
+    refreshed_row = refreshed[0] if refreshed else {}
+    prof = get_user_profile(uid)
+    name = (prof or {}).get("full_name")
+
+    return CanonicalFinalizeResult(
+        run_row={**run_row, **refreshed_row},
+        payload=p,
+        snapshot=snapshot,
+        now_iso=now,
+        finalized_by=uid,
+        finalized_by_name=name,
+        was_already_final=False,
+    )
+
+
+@router.post("/finalize/{run_id}", response_model=FinalizeResponse)
+async def finalize_reconciliation(
+    request: Request,
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    rid = _parse_uuid(run_id, "run_id")
+    sb = get_supabase()
+    res = await execute_canonical_finalization(
+        request,
+        sb,
+        rid=rid,
+        current_user=current_user,
+        allow_idempotent_return=False,
+        required_role=None,
+    )
     return FinalizeResponse(
         run_id=rid,
         status=RunStatus.FINAL,
-        finalized_at=now,
-        finalized_by=by,
-        finalized_by_name=name,
+        finalized_at=res.now_iso,
+        finalized_by=res.finalized_by,
+        finalized_by_name=res.finalized_by_name,
         message="Reconciliation run finalized and locked.",
     )
 
@@ -4179,149 +4376,17 @@ async def _reconcile_finalize_core(
     checklist_snapshot: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     uid = str(current_user.get("id", ""))
-    run_row = assert_run_accessible(sb, rid, current_user)
-    role = await get_user_role(uid)
-    if (role or "").strip().lower() != "admin":
-        await log_action(
-            uid,
-            "FINALIZATION_BLOCKED",
-            "reconciliation_run",
-            rid,
-            {"role": role},
-            ip_address=(request.client.host if request.client else None),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admin users can finalize a reconciliation.",
-        )
-    raw_status = str(run_row.get("status") or "").strip()
-    st = raw_status.upper()
-    if st == RunStatus.FINAL or raw_status.lower() == "final":
-        p = ro.load_payload(sb, rid) or {}
-        # Backfill matched ITC for older finalized runs so dashboard ITC Protected works.
-        try:
-            patch_row = dict(run_row)
-            _backfill_matched_itc_paise(sb, patch_row, persist=True)
-            if isinstance(patch_row.get("run_summary"), dict):
-                run_row = {**run_row, "run_summary": patch_row["run_summary"]}
-        except Exception:
-            _log.exception("finalize backfill matched_itc_paise failed for %s", rid)
-        return _build_reconcile_summary(
-            sb, run_row=run_row, payload=p, current_user_id=uid
-        )
-    if st != RunStatus.COMPLETED:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="run must be complete before finalization",
-        )
-    if not ro.load_payload(sb, rid):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="no reconciliation payload for this run",
-        )
-    gate = check_finalization_blocking_exceptions(sb, rid, payload=p)
-    if not gate["can_finalize"]:
-        summary_msg = "; ".join(gate["blocking_summary"][:3])
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"{gate['unresolved_blocking_exceptions']} ITC-affecting exception(s) require disposition before finalizing. "
-                f"({summary_msg})"
-            ),
-        )
-    now = datetime.utcnow().isoformat()
-    update_fields: dict[str, Any] = {
-        "status": RunStatus.FINAL,
-        "finalized_at": now,
-        "finalized_by": uid,
-        "is_locked": True,
-        "updated_at": now,
-    }
-    if checklist_snapshot is not None:
-        update_fields["checklist_snapshot"] = checklist_snapshot
-
-    # Persist matched ITC into run_summary at finalize so dashboard stats work
-    # even for runs completed before matched_itc_paise was written by the worker.
-    try:
-        patch_row = dict(run_row)
-        _backfill_matched_itc_paise(sb, patch_row, persist=False)
-        rs_enriched = patch_row.get("run_summary")
-        if isinstance(rs_enriched, dict) and rs_enriched.get("matched_itc_paise") is not None:
-            update_fields["run_summary"] = rs_enriched
-            if rs_enriched.get("itc_at_risk") is not None:
-                update_fields["itc_at_risk"] = rs_enriched.get("itc_at_risk")
-            elif rs_enriched.get("missed_itc_paise") is not None:
-                update_fields["itc_at_risk"] = rs_enriched.get("missed_itc_paise")
-            if rs_enriched.get("wrongful_itc") is not None:
-                update_fields["wrongful_itc"] = rs_enriched.get("wrongful_itc")
-    except Exception:
-        _log.exception("could not enrich run_summary before finalize for %s", rid)
-
-    def _do_update(fields: dict[str, Any]):
-        return (
-            sb.table("reconciliation_run")
-            .update(fields)
-            .eq("id", rid)
-            .eq("status", RunStatus.COMPLETED)
-            .execute()
-        )
-
-    ex: Any = None
-    try:
-        ex = _do_update(update_fields)
-    except Exception as exc:
-        err = str(exc).lower()
-        if checklist_snapshot is not None and (
-            "checklist_snapshot" in err
-            or "column" in err
-            or "schema" in err
-            or "pgrst" in err
-        ):
-            rs_raw = run_row.get("run_summary")
-            summary_dict: dict[str, Any] = (
-                dict(rs_raw) if isinstance(rs_raw, dict) else {}
-            )
-            summary_dict["finalization"] = {
-                "checklist": checklist_snapshot,
-                "finalized_by": uid,
-                "finalized_at": now,
-            }
-            fields2 = {
-                k: v for k, v in update_fields.items() if k != "checklist_snapshot"
-            }
-            fields2["run_summary"] = summary_dict
-            ex = _do_update(fields2)
-        else:
-            raise
-    if not ex.data:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="could not finalize run; refresh and retry",
-        )
-    await log_audit(
+    res = await execute_canonical_finalization(
+        request,
         sb,
-        current_user,
-        "RECON_FINALIZED",
-        "reconciliation",
-        rid,
-        _run_entity_label(sb, run_row),
-        ip_address=(request.client.host if request.client else None),
+        rid=rid,
+        current_user=current_user,
+        checklist_snapshot=checklist_snapshot,
+        allow_idempotent_return=True,
+        required_role="admin",
     )
-    try:
-        compile_and_save_final_table4_snapshot(sb, rid, uid)
-    except Exception as exc:
-        _log.exception("compile_and_save_final_table4_snapshot failed in _reconcile_finalize_core for %s", rid)
-    refreshed = (
-        sb.table("reconciliation_run")
-        .select("*")
-        .eq("id", rid)
-        .limit(1)
-        .execute()
-    ).data or []
-    refreshed_row = refreshed[0] if refreshed else {}
-    p = ro.load_payload(sb, rid) or {}
     return _build_reconcile_summary(
-        sb, run_row={**run_row, **refreshed_row}, payload=p, current_user_id=uid
+        sb, run_row=res.run_row, payload=res.payload, current_user_id=uid
     )
 
 
