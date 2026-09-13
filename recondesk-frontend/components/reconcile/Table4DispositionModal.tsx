@@ -1,22 +1,18 @@
 "use client";
 
-import { useState } from "react";
-import { gstr3bApi, Table4DispositionPayload } from "@/lib/api";
+import { useState, useEffect } from "react";
+import { gstr3bApi, Table4DispositionPayload, Table4BlockingRecordItem } from "@/lib/api";
+
+export type { Table4BlockingRecordItem };
 
 interface Table4DispositionModalProps {
   runId: string;
   authToken: string;
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
-  blockingRecords: Array<{
-    record_id: string;
-    exception_type: string;
-    supplier_name?: string;
-    invoice_number?: string;
-    amount?: number;
-    reason?: string;
-  }>;
+  onSuccess: (disposition?: string, table4Effect?: string) => void;
+  blockingRecords?: Table4BlockingRecordItem[];
+  targetRecord?: Table4BlockingRecordItem | null;
 }
 
 export function Table4DispositionModal({
@@ -25,10 +21,12 @@ export function Table4DispositionModal({
   isOpen,
   onClose,
   onSuccess,
-  blockingRecords,
+  blockingRecords = [],
+  targetRecord = null,
 }: Table4DispositionModalProps) {
+  const records = targetRecord ? [targetRecord] : blockingRecords;
   const [selectedRecordId, setSelectedRecordId] = useState<string>(
-    blockingRecords[0]?.record_id || ""
+    targetRecord?.record_id || records[0]?.record_id || ""
   );
   const [disposition, setDisposition] = useState("CONFIRMED_BLOCKED");
   const [reason, setReason] = useState("");
@@ -37,16 +35,37 @@ export function Table4DispositionModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!isOpen || blockingRecords.length === 0) return null;
-
-  const currentRec = blockingRecords.find((b) => b.record_id === selectedRecordId) || blockingRecords[0];
+  const currentRec = records.find((b) => b.record_id === selectedRecordId) || records[0];
   const isSec175 = currentRec?.exception_type === "SEC_17_5";
   const isRule37 = currentRec?.exception_type === "RULE_37";
+
+  useEffect(() => {
+    if (targetRecord) {
+      setSelectedRecordId(targetRecord.record_id);
+    } else if (records.length > 0 && !records.some((r) => r.record_id === selectedRecordId)) {
+      setSelectedRecordId(records[0].record_id);
+    }
+  }, [targetRecord, isOpen, records]);
+
+  useEffect(() => {
+    if (isSec175) {
+      setDisposition("CONFIRMED_BLOCKED");
+      setStatRef((prev) => prev || "Sec 17(5)");
+    } else if (isRule37) {
+      setDisposition("REVERSED");
+      setStatRef((prev) => prev || "Rule 37(1)");
+    } else {
+      setDisposition("BOOKED_AND_VERIFIED");
+    }
+    setError(null);
+  }, [selectedRecordId, currentRec?.exception_type, isSec175, isRule37]);
+
+  if (!isOpen || records.length === 0) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reason || reason.trim().length < 5) {
-      setError("Please provide a disposition explanation.");
+      setError("Please provide a disposition explanation (minimum 5 characters).");
       return;
     }
 
@@ -62,12 +81,35 @@ export function Table4DispositionModal({
       statutory_reference: statRef.trim() || undefined,
     };
 
+    let table4Effect = "4A5";
+    if (disposition === "CONFIRMED_BLOCKED" || disposition === "INELIGIBLE") {
+      table4Effect = "4B1";
+    } else if (disposition === "REVERSED" || disposition === "REVERSAL_CONFIRMED") {
+      table4Effect = "4B2";
+    } else if (
+      disposition === "HELD_GOODS_NOT_RECEIVED" ||
+      disposition === "HOLD" ||
+      disposition === "REJECTED_WRONG_GSTIN"
+    ) {
+      table4Effect = "EXCLUDED";
+    }
+
     try {
       await gstr3bApi.recordDisposition(authToken, runId, payload);
-      onSuccess();
+      onSuccess(disposition, table4Effect);
       onClose();
     } catch (err: any) {
-      setError(err?.detail || err?.message || "Failed to record disposition.");
+      if (
+        err?.status === 409 ||
+        err?.detail?.includes("immutable") ||
+        err?.message?.includes("immutable")
+      ) {
+        setError("This reconciliation run has already been finalized and cannot be modified.");
+      } else if (err?.status === 422 || err?.detail?.includes("validation")) {
+        setError("Invalid disposition input: please verify all required fields.");
+      } else {
+        setError(err?.detail || err?.message || "Failed to record disposition.");
+      }
     } finally {
       setLoading(false);
     }
@@ -102,22 +144,41 @@ export function Table4DispositionModal({
             </div>
           )}
 
-          <div>
-            <label className="block text-[12px] font-medium text-gray-700 mb-1">
-              Select Exception Invoice
-            </label>
-            <select
-              value={selectedRecordId}
-              onChange={(e) => setSelectedRecordId(e.target.value)}
-              className="w-full rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-gray-900 bg-white focus:border-black focus:outline-none"
-            >
-              {blockingRecords.map((b) => (
-                <option key={b.record_id} value={b.record_id}>
-                  {b.exception_type}: {b.supplier_name || "Supplier"} | #{b.invoice_number || "—"} (₹{b.amount || 0})
-                </option>
-              ))}
-            </select>
-          </div>
+          {targetRecord || records.length === 1 ? (
+            <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-3.5 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-900">
+                  Invoice #{currentRec?.invoice_number || "—"}
+                </span>
+                <span className="rounded-md bg-white px-2 py-0.5 text-xs font-bold text-gray-800 border border-gray-200 shadow-sm">
+                  ₹{Number(currentRec?.amount || 0).toLocaleString("en-IN")}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-gray-600">
+                <span>{currentRec?.supplier_name || "Supplier"}</span>
+                <span className="font-mono text-[11px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                  {currentRec?.exception_type}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-[12px] font-medium text-gray-700 mb-1">
+                Select Exception Invoice ({records.length} requiring disposition)
+              </label>
+              <select
+                value={selectedRecordId}
+                onChange={(e) => setSelectedRecordId(e.target.value)}
+                className="w-full rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-gray-900 bg-white focus:border-black focus:outline-none"
+              >
+                {records.map((b) => (
+                  <option key={b.record_id} value={b.record_id}>
+                    {b.exception_type}: {b.supplier_name || "Supplier"} | #{b.invoice_number || "—"} (₹{b.amount || 0})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="rounded-lg bg-[#F8FAFC] p-3 border border-[#E5E7EB] text-[12px] text-gray-600">
             <span className="font-semibold text-gray-800">Issue: </span>

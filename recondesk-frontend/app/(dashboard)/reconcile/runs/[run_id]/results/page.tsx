@@ -1,12 +1,14 @@
 "use client";
 
-import { AlertTriangle, Check, ChevronDown, FileSpreadsheet, FileText, Info, Loader2, Shield, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle, ChevronDown, FileSpreadsheet, FileText, Info, Loader2, Lock, Shield, Trash2, Upload, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { localizeDiscrepancyReason } from "@/lib/decision-translations";
 import {
   Rule37MarkPaidModal,
   type Rule37MarkPaidTarget,
 } from "@/components/reconcile/Rule37MarkPaidModal";
+import { Table4DispositionModal, type Table4BlockingRecordItem } from "@/components/reconcile/Table4DispositionModal";
+import { gstr3bApi, type Gstr3bTable4WorkpaperResponse } from "@/lib/api";
 import { ReconcilePaginationFooter } from "@/components/reconcile/ReconcilePaginationFooter";
 import { AuditObservationsPanel } from "@/components/AuditObservationsPanel";
 import { RcmReconciliationPanel } from "@/components/reconcile/RcmReconciliationPanel";
@@ -2042,6 +2044,76 @@ export default function ReconcileResultsPage() {
   } = useSWR<Paginated<ReconcileRow>>(itcOnHoldKey, authJsonFetcher, {
     revalidateOnFocus: false,
   });
+
+  const { data: table4Data, mutate: mutateTable4 } = useSWR<Gstr3bTable4WorkpaperResponse>(
+    authReady && runId && authToken ? [`table4-workpaper`, runId] : null,
+    () => gstr3bApi.getTable4Workpaper(authToken!, runId),
+    { revalidateOnFocus: false }
+  );
+
+  const [activeDispositionRecord, setActiveDispositionRecord] = useState<Table4BlockingRecordItem | null>(null);
+  const [sessionDispositions, setSessionDispositions] = useState<Map<string, { disposition: string; table4_effect: string }>>(new Map());
+
+  const handleDispositionSuccess = (disp?: string, t4Effect?: string) => {
+    if (activeDispositionRecord && disp) {
+      setSessionDispositions((prev) => {
+        const next = new Map(prev);
+        const effect = t4Effect || (disp === "CONFIRMED_BLOCKED" ? "4B1" : disp === "REVERSED" ? "4B2" : "4A5");
+        next.set(activeDispositionRecord.record_id, { disposition: disp, table4_effect: effect });
+        if (activeDispositionRecord.supplier_gstin && activeDispositionRecord.invoice_number) {
+          const compKey = `${activeDispositionRecord.supplier_gstin.trim().toUpperCase()}|${activeDispositionRecord.invoice_number.trim().toLowerCase()}`;
+          next.set(compKey, { disposition: disp, table4_effect: effect });
+        } else if (activeDispositionRecord.invoice_number) {
+          next.set(activeDispositionRecord.invoice_number.trim().toLowerCase(), { disposition: disp, table4_effect: effect });
+        }
+        return next;
+      });
+    }
+    const effectLabel = t4Effect ? ` (Allocated to Table ${t4Effect})` : "";
+    addToast(`Audit disposition recorded successfully${effectLabel}. Table 4 workpaper and gate updated.`, "success");
+    void mutateSection17();
+    void mutateRule37();
+    void mutateItcOnHold();
+    void mutateSummary();
+    void mutateTable4();
+    void swrMutate([`table4-workpaper`, runId]);
+  };
+
+  const getInvoiceDispositionState = (invNo?: string, rowId?: string, supplierGstin?: string) => {
+    if (rowId && sessionDispositions.has(rowId)) {
+      const d = sessionDispositions.get(rowId)!;
+      return { disposed: true, disposition: d.disposition, table4_effect: d.table4_effect, blockingRecord: null };
+    }
+    if (supplierGstin && invNo) {
+      const compKey = `${supplierGstin.trim().toUpperCase()}|${invNo.trim().toLowerCase()}`;
+      if (sessionDispositions.has(compKey)) {
+        const d = sessionDispositions.get(compKey)!;
+        return { disposed: true, disposition: d.disposition, table4_effect: d.table4_effect, blockingRecord: null };
+      }
+    }
+    if (invNo && sessionDispositions.has(invNo.trim().toLowerCase())) {
+      const d = sessionDispositions.get(invNo.trim().toLowerCase())!;
+      return { disposed: true, disposition: d.disposition, table4_effect: d.table4_effect, blockingRecord: null };
+    }
+    const blocking = table4Data?.gate_audit?.blocking_records || [];
+    const match = blocking.find((b) => {
+      if (rowId && b.record_id === rowId) return true;
+      if (supplierGstin && invNo && b.supplier_gstin && b.invoice_number) {
+        return (
+          b.supplier_gstin.trim().toUpperCase() === supplierGstin.trim().toUpperCase() &&
+          b.invoice_number.trim().toLowerCase() === invNo.trim().toLowerCase()
+        );
+      }
+      if (!supplierGstin && invNo && b.invoice_number) {
+        return b.invoice_number.trim().toLowerCase() === invNo.trim().toLowerCase();
+      }
+      return false;
+    });
+    if (match) {
+      return { disposed: false, disposition: null, table4_effect: null, blockingRecord: match };
+    }
+    return { disposed: false, disposition: null, table4_effect: null, blockingRecord: null };
+  };
 
   const einvoiceResKey = useMemo(
     () =>
@@ -5292,6 +5364,47 @@ export default function ReconcileResultsPage() {
         {/* Rule 37 */}
         {resultsTab === "rule37" && (
         <>
+        {table4Data?.gate_audit && !table4Data.gate_audit.can_finalize && !isRunFinalized && (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/90 p-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+              <div>
+                <h4 className="text-sm font-semibold text-amber-950">
+                  GSTR-3B Table 4 Finalization Gate: {table4Data.gate_audit.unresolved_blocking_exceptions} Exception(s) Require CA Disposition
+                </h4>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  Resolve Rule 37 (180+ days unpaid) exceptions below to register reversal ledger and clear Table 4 gate.
+                </p>
+              </div>
+            </div>
+            {table4Data.gate_audit.blocking_records && table4Data.gate_audit.blocking_records.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveDispositionRecord(table4Data.gate_audit.blocking_records![0])}
+                className="rounded-lg bg-amber-800 px-3.5 py-1.5 text-xs font-semibold text-white shadow hover:bg-amber-900 transition-colors"
+              >
+                Review Next Blocking Exception
+              </button>
+            )}
+          </div>
+        )}
+        {table4Data?.gate_audit?.can_finalize && !isRunFinalized && (
+          <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50/90 p-4 flex items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-center gap-2.5">
+              <CheckCircle className="h-5 w-5 text-emerald-600 shrink-0" />
+              <span className="text-xs font-semibold text-emerald-950">
+                GSTR-3B Table 4 Gate Clear: All ITC exceptions resolved. Ready for final review.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setResultsTab("gstr3b")}
+              className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 transition-colors"
+            >
+              View Table 4 Workpaper →
+            </button>
+          </div>
+        )}
         {authToken ? (
           <AuditObservationsPanel
             runId={runId}
@@ -5610,6 +5723,56 @@ export default function ReconcileResultsPage() {
                           </>
                         )}
                       </div>
+
+                      {/* CA Table 4 Statutory Treatment Action Bar */}
+                      {(() => {
+                        const dispState = getInvoiceDispositionState(row.invoice_number, row.id, row.supplier_gstin);
+                        const blockingRec = dispState.blockingRecord;
+                        const targetRecId = blockingRec?.record_id || row.id;
+
+                        return (
+                          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[#F0F0F0] pt-3">
+                            <div className="flex items-center gap-2">
+                              {dispState.disposed ? (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                                  <CheckCircle className="h-3.5 w-3.5" />
+                                  Allocated to Table {dispState.table4_effect} ({dispState.disposition === "REVERSED" ? "Reversed" : "Eligible"})
+                                </span>
+                              ) : isRunFinalized ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
+                                  <Lock className="h-3.5 w-3.5" />
+                                  Finalized (Immutable)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                                  <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                                  Rule 37 Exposure — Requires CA Table 4 Treatment
+                                </span>
+                              )}
+                            </div>
+
+                            {!isRunFinalized && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveDispositionRecord({
+                                    record_id: targetRecId,
+                                    exception_type: "RULE_37",
+                                    supplier_name: (row as any).supplier_name || row.supplier_gstin,
+                                    supplier_gstin: row.supplier_gstin,
+                                    invoice_number: row.invoice_number,
+                                    amount: row.amount,
+                                    reason: row.decision_what || "Rule 37 180-day unpaid ITC requires CA disposition.",
+                                  });
+                                }}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-600 bg-amber-50 px-3.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition-colors"
+                              >
+                                Statutory Disposition (Table 4)
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -5664,6 +5827,47 @@ export default function ReconcileResultsPage() {
         {/* Section 17(5) */}
         {resultsTab === "section17" && (
         <>
+        {table4Data?.gate_audit && !table4Data.gate_audit.can_finalize && !isRunFinalized && (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/90 p-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+              <div>
+                <h4 className="text-sm font-semibold text-amber-950">
+                  GSTR-3B Table 4 Finalization Gate: {table4Data.gate_audit.unresolved_blocking_exceptions} Exception(s) Require CA Disposition
+                </h4>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  Resolve Section 17(5) blocked credit exceptions below to unblock Table 4 workpaper finalization.
+                </p>
+              </div>
+            </div>
+            {table4Data.gate_audit.blocking_records && table4Data.gate_audit.blocking_records.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveDispositionRecord(table4Data.gate_audit.blocking_records![0])}
+                className="rounded-lg bg-amber-800 px-3.5 py-1.5 text-xs font-semibold text-white shadow hover:bg-amber-900 transition-colors"
+              >
+                Review Next Blocking Exception
+              </button>
+            )}
+          </div>
+        )}
+        {table4Data?.gate_audit?.can_finalize && !isRunFinalized && (
+          <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50/90 p-4 flex items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-center gap-2.5">
+              <CheckCircle className="h-5 w-5 text-emerald-600 shrink-0" />
+              <span className="text-xs font-semibold text-emerald-950">
+                GSTR-3B Table 4 Gate Clear: All ITC exceptions resolved. Ready for final review.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setResultsTab("gstr3b")}
+              className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 transition-colors"
+            >
+              View Table 4 Workpaper →
+            </button>
+          </div>
+        )}
         {authToken ? (
           <AuditObservationsPanel
             runId={runId}
@@ -5716,48 +5920,96 @@ export default function ReconcileResultsPage() {
               )}
               {section17Data &&
                 !section17Error &&
-                section17Data.data.map((row) => (
-                  <div
-                    key={row.id}
-                    className="mb-3 rounded-2xl border border-[#F0F0F0] border-l-4 border-l-gray-400 bg-white p-5"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
-                        <GstinCell
-                          gstin={row.supplier_gstin}
-                          className="font-mono text-[12px] text-gray-400"
-                        />
-                        <span className="font-medium text-gray-800">
-                          {row.invoice_number}
-                        </span>
-                        <span className="text-gray-400">
-                          {formatDate(row.invoice_date)}
-                        </span>
-                        <AmountDisplay amount={row.amount} />
+                section17Data.data.map((row) => {
+                  const dispState = getInvoiceDispositionState(row.invoice_number, row.id, row.supplier_gstin);
+                  const blockingRec = dispState.blockingRecord;
+                  const targetRecId = blockingRec?.record_id || row.id;
+
+                  return (
+                    <div
+                      key={row.id}
+                      className="mb-3 rounded-2xl border border-[#F0F0F0] border-l-4 border-l-gray-400 bg-white p-5"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
+                          <GstinCell
+                            gstin={row.supplier_gstin}
+                            className="font-mono text-[12px] text-gray-400"
+                          />
+                          <span className="font-medium text-gray-800">
+                            {row.invoice_number}
+                          </span>
+                          <span className="text-gray-400">
+                            {formatDate(row.invoice_date)}
+                          </span>
+                          <AmountDisplay amount={row.amount} />
+                        </div>
+                        {row.section_17_5_category && (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
+                            {row.section_17_5_category}
+                          </span>
+                        )}
                       </div>
-                      {row.section_17_5_category && (
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
-                          {row.section_17_5_category}
-                        </span>
+                      {row.discrepancy_note && (
+                        <p className="mt-2 text-[12px] text-gray-400">
+                          HSN {row.discrepancy_note}
+                        </p>
                       )}
-                    </div>
-                    {row.discrepancy_note && (
-                      <p className="mt-2 text-[12px] text-gray-400">
-                        HSN {row.discrepancy_note}
+                      <p className="mt-3 text-[13px] font-medium text-gray-700">
+                        {row.decision_what ?? "—"}
                       </p>
-                    )}
-                    <p className="mt-3 text-[13px] font-medium text-gray-700">
-                      {row.decision_what ?? "—"}
-                    </p>
-                    <p className="mt-1 text-[13px] text-gray-400">
-                      {row.decision_why ?? "—"}
-                    </p>
-                    <p className="mt-2 text-[13px] font-medium text-[var(--ink)]">
-                      {row.decision_next ?? "—"}
-                    </p>
-                    <DecisionDiagnosticsBlock row={row} />
-                  </div>
-                ))}
+                      <p className="mt-1 text-[13px] text-gray-400">
+                        {row.decision_why ?? "—"}
+                      </p>
+                      <p className="mt-2 text-[13px] font-medium text-[var(--ink)]">
+                        {row.decision_next ?? "—"}
+                      </p>
+                      <DecisionDiagnosticsBlock row={row} />
+
+                      {/* CA Table 4 Disposition Action Bar */}
+                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#F0F0F0] pt-3">
+                        <div className="flex items-center gap-2">
+                          {dispState.disposed ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                              <CheckCircle className="h-3.5 w-3.5" />
+                              Allocated to Table {dispState.table4_effect} ({dispState.disposition === "CONFIRMED_BLOCKED" ? "Blocked Reversal" : "Eligible"})
+                            </span>
+                          ) : isRunFinalized ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
+                              <Lock className="h-3.5 w-3.5" />
+                              Finalized (Immutable)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                              Requires CA Table 4 Disposition
+                            </span>
+                          )}
+                        </div>
+
+                        {!isRunFinalized && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveDispositionRecord({
+                                record_id: targetRecId,
+                                exception_type: "SEC_17_5",
+                                supplier_name: (row as any).supplier_name || row.supplier_gstin,
+                                supplier_gstin: row.supplier_gstin,
+                                invoice_number: row.invoice_number,
+                                amount: row.amount,
+                                reason: row.decision_what || "Section 17(5) blocked credit signal requires CA disposition.",
+                              });
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-900 bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-gray-800 focus:outline-none transition-colors"
+                          >
+                            Review Disposition
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               {section17Data && !section17Error && (
                   <ReconcilePaginationFooter
                     page={section17Data.page}
@@ -6260,6 +6512,19 @@ export default function ReconcileResultsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Table 4 Audit Exception Disposition Modal */}
+      {authToken && (
+        <Table4DispositionModal
+          runId={runId}
+          authToken={authToken}
+          isOpen={activeDispositionRecord !== null}
+          targetRecord={activeDispositionRecord}
+          onClose={() => setActiveDispositionRecord(null)}
+          onSuccess={handleDispositionSuccess}
+          blockingRecords={table4Data?.gate_audit?.blocking_records || []}
+        />
       )}
 
       {/* Toasts */}

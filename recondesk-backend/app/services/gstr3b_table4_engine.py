@@ -300,6 +300,7 @@ def check_finalization_blocking_exceptions(
                     "record_id": rec_id,
                     "exception_type": "SEC_17_5",
                     "supplier_name": r.supplier_name,
+                    "supplier_gstin": r.supplier_gstin,
                     "invoice_number": r.invoice_number,
                     "amount": paise_to_rupees(r.amount or 0),
                     "reason": "Section 17(5) signal requires CA confirmation (CONFIRMED_BLOCKED or STATUTORY_EXCEPTION).",
@@ -323,6 +324,7 @@ def check_finalization_blocking_exceptions(
                     "record_id": rec_id,
                     "exception_type": "RULE_37",
                     "supplier_name": r.supplier_name,
+                    "supplier_gstin": r.supplier_gstin,
                     "invoice_number": r.invoice_number,
                     "amount": paise_to_rupees(r.amount or 0),
                     "reason": "Unpaid > 180 days (Rule 37) requires disposition (REVERSED or PAID_ELIGIBLE).",
@@ -405,6 +407,7 @@ def compile_gstr3b_table4(
                 can_finalize=True,
                 unresolved_blocking=0,
                 blocking_summary=[],
+                blocking_records=[],
             )
 
     # 2. Load Existing Reconciliation Outcomes & Underlying Maps
@@ -735,6 +738,7 @@ def compile_gstr3b_table4(
         can_finalize=gate["can_finalize"],
         unresolved_blocking=gate["unresolved_blocking_exceptions"],
         blocking_summary=gate["blocking_summary"],
+        blocking_records=gate.get("blocking_records", []),
     )
 
 
@@ -752,6 +756,7 @@ def _format_table4_response(
     blocking_summary: list[str],
     *,
     version: int = 1,
+    blocking_records: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     return {
         "run_id": run_id,
@@ -790,6 +795,7 @@ def _format_table4_response(
             "can_finalize": can_finalize,
             "unresolved_blocking_exceptions": unresolved_blocking,
             "blocking_summary": blocking_summary,
+            "blocking_records": blocking_records if blocking_records is not None else [],
         },
         "contributing_outcome_ids": snap.get("contributing_outcome_ids") or [],
         "contributing_disposition_ids": snap.get("contributing_disposition_ids") or [],

@@ -1114,8 +1114,19 @@ export type Gstr3bTable4WorkpaperResponse = {
     can_finalize: boolean;
     unresolved_blocking_exceptions: number;
     blocking_summary: string[];
+    blocking_records?: Table4BlockingRecordItem[];
   };
 };
+
+export interface Table4BlockingRecordItem {
+  record_id: string;
+  exception_type: string;
+  supplier_name?: string;
+  supplier_gstin?: string;
+  invoice_number?: string;
+  amount?: number;
+  reason?: string;
+}
 
 export type Table4DrilldownRecord = {
   id: string;
