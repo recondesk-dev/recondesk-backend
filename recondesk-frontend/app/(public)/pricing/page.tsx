@@ -20,7 +20,7 @@ const pricingFaq = [
   },
   {
     q: "How does billing work?",
-    a: "Payments are processed securely via Razorpay. Choose monthly or save up to 44% with yearly billing. Yearly plans are manual one-time payments per annual cycle.",
+    a: "Payments are processed securely via Razorpay. Choose monthly or save up to 26% with yearly billing. Yearly plans are manual one-time payments per annual cycle.",
   },
   {
     q: "Are prices inclusive of GST?",
@@ -28,7 +28,7 @@ const pricingFaq = [
   },
   {
     q: "What if my firm manages more than 100 GSTINs?",
-    a: "Select our Firm tier (₹2,399/mo + ₹25 per GSTIN beyond 100, or ₹17,999/yr + ₹200 per GSTIN beyond 100) or email contact@recondesk.in for tailored enterprise SLAs.",
+    a: "Select our Firm tier (₹1,799/mo + ₹20 per GSTIN beyond 100, or ₹15,999/yr + ₹200 per GSTIN beyond 100) or email contact@recondesk.in for tailored enterprise SLAs.",
   },
 ] as const;
 

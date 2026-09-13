@@ -30,40 +30,40 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
         "gstin_limit": 25,
         "period_days": 365,
         "billing_period": "yearly",
-        "monthly": {**_with_gst(1199_00), "period_days": 30, "gstin_limit": 25},
+        "monthly": {**_with_gst(799_00), "period_days": 30, "gstin_limit": 25},
         "yearly": {**_with_gst(7999_00), "period_days": 365, "gstin_limit": 25},
     },
     "growth": {
-        **_with_gst(12999_00),
+        **_with_gst(11999_00),
         "gstin_limit": 60,
         "period_days": 365,
         "billing_period": "yearly",
-        "monthly": {**_with_gst(1799_00), "period_days": 30, "gstin_limit": 60},
-        "yearly": {**_with_gst(12999_00), "period_days": 365, "gstin_limit": 60},
+        "monthly": {**_with_gst(1299_00), "period_days": 30, "gstin_limit": 60},
+        "yearly": {**_with_gst(11999_00), "period_days": 365, "gstin_limit": 60},
     },
     "pro": {
-        **_with_gst(17999_00),
+        **_with_gst(15999_00),
         "gstin_limit": 100,
         "period_days": 365,
         "billing_period": "yearly",
-        "monthly": {**_with_gst(2399_00), "period_days": 30, "gstin_limit": 100},
-        "yearly": {**_with_gst(17999_00), "period_days": 365, "gstin_limit": 100},
+        "monthly": {**_with_gst(1799_00), "period_days": 30, "gstin_limit": 100},
+        "yearly": {**_with_gst(15999_00), "period_days": 365, "gstin_limit": 100},
     },
     "firm": {
-        **_with_gst(17999_00),
+        **_with_gst(15999_00),
         "gstin_limit": 100,
         "period_days": 365,
         "billing_period": "yearly",
-        "monthly": {**_with_gst(2399_00), "period_days": 30, "gstin_limit": 100, "overage_rate_paise": 25_00},
-        "yearly": {**_with_gst(17999_00), "period_days": 365, "gstin_limit": 100, "overage_rate_paise": 200_00},
+        "monthly": {**_with_gst(1799_00), "period_days": 30, "gstin_limit": 100, "overage_rate_paise": 20_00},
+        "yearly": {**_with_gst(15999_00), "period_days": 365, "gstin_limit": 100, "overage_rate_paise": 200_00},
     },
     # Backward compatibility for legacy 'monthly' key
     "monthly": {
-        **_with_gst(1199_00),
+        **_with_gst(799_00),
         "gstin_limit": 25,
         "period_days": 30,
         "billing_period": "monthly",
-        "monthly": {**_with_gst(1199_00), "period_days": 30, "gstin_limit": 25},
+        "monthly": {**_with_gst(799_00), "period_days": 30, "gstin_limit": 25},
         "yearly": {**_with_gst(7999_00), "period_days": 365, "gstin_limit": 25},
     },
 }
@@ -89,7 +89,7 @@ def get_plan_details(
     overage_gstins = 0
     overage_rate_paise = 0
     if plan_key == "firm":
-        overage_rate_paise = int(sub_cfg.get("overage_rate_paise", 200_00 if period_key == "yearly" else 25_00))
+        overage_rate_paise = int(sub_cfg.get("overage_rate_paise", 200_00 if period_key == "yearly" else 20_00))
         if total_gstins is not None and total_gstins > 100:
             overage_gstins = total_gstins - 100
             gstin_limit = total_gstins

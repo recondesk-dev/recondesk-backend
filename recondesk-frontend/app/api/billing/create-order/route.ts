@@ -9,23 +9,23 @@ type PlanPricing = {
 
 const PLAN_CATALOG: Record<string, PlanPricing> = {
   starter: {
-    monthly: { priceInr: 1199, gstinLimit: 25, periodDays: 30 },
+    monthly: { priceInr: 799, gstinLimit: 25, periodDays: 30 },
     yearly: { priceInr: 7999, gstinLimit: 25, periodDays: 365 },
   },
   growth: {
-    monthly: { priceInr: 1799, gstinLimit: 60, periodDays: 30 },
-    yearly: { priceInr: 12999, gstinLimit: 60, periodDays: 365 },
+    monthly: { priceInr: 1299, gstinLimit: 60, periodDays: 30 },
+    yearly: { priceInr: 11999, gstinLimit: 60, periodDays: 365 },
   },
   pro: {
-    monthly: { priceInr: 2399, gstinLimit: 100, periodDays: 30 },
-    yearly: { priceInr: 17999, gstinLimit: 100, periodDays: 365 },
+    monthly: { priceInr: 1799, gstinLimit: 100, periodDays: 30 },
+    yearly: { priceInr: 15999, gstinLimit: 100, periodDays: 365 },
   },
   firm: {
-    monthly: { priceInr: 2399, gstinLimit: 100, periodDays: 30, overagePerGstin: 25 },
-    yearly: { priceInr: 17999, gstinLimit: 100, periodDays: 365, overagePerGstin: 200 },
+    monthly: { priceInr: 1799, gstinLimit: 100, periodDays: 30, overagePerGstin: 20 },
+    yearly: { priceInr: 15999, gstinLimit: 100, periodDays: 365, overagePerGstin: 200 },
   },
   monthly: {
-    monthly: { priceInr: 1199, gstinLimit: 25, periodDays: 30 },
+    monthly: { priceInr: 799, gstinLimit: 25, periodDays: 30 },
     yearly: { priceInr: 7999, gstinLimit: 25, periodDays: 365 },
   },
 };

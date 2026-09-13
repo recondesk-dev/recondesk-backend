@@ -36,34 +36,45 @@ def test_gstin_plan_catalog_v2():
     st_mo = get_plan_details("starter", "monthly")
     assert st_mo["gstin_limit"] == 25
     assert st_mo["period_days"] == 30
-    assert st_mo["base_paise"] == 1199_00
+    assert st_mo["base_paise"] == 799_00
 
     # Growth
     gr_yr = get_plan_details("growth", "yearly")
     assert gr_yr["gstin_limit"] == 60
-    assert gr_yr["base_paise"] == 12999_00
+    assert gr_yr["base_paise"] == 11999_00
     gr_mo = get_plan_details("growth", "monthly")
     assert gr_mo["gstin_limit"] == 60
-    assert gr_mo["base_paise"] == 1799_00
+    assert gr_mo["base_paise"] == 1299_00
 
     # Pro
     pro_yr = get_plan_details("pro", "yearly")
     assert pro_yr["gstin_limit"] == 100
-    assert pro_yr["base_paise"] == 17999_00
+    assert pro_yr["base_paise"] == 15999_00
     pro_mo = get_plan_details("pro", "monthly")
     assert pro_mo["gstin_limit"] == 100
-    assert pro_mo["base_paise"] == 2399_00
+    assert pro_mo["base_paise"] == 1799_00
 
     # Firm base and overage
     firm_yr = get_plan_details("firm", "yearly", total_gstins=120)
     assert firm_yr["gstin_limit"] == 120
     assert firm_yr["overage_gstins"] == 20
-    assert firm_yr["base_paise"] == 17999_00 + 20 * 200_00
+    assert firm_yr["base_paise"] == 15999_00 + 20 * 200_00
 
     firm_mo = get_plan_details("firm", "monthly", total_gstins=110)
     assert firm_mo["gstin_limit"] == 110
     assert firm_mo["overage_gstins"] == 10
-    assert firm_mo["base_paise"] == 2399_00 + 10 * 25_00
+    assert firm_mo["base_paise"] == 1799_00 + 10 * 20_00
+
+    # Firm user prompt examples
+    assert get_plan_details("firm", "monthly", total_gstins=101)["base_paise"] == 1819_00
+    assert get_plan_details("firm", "monthly", total_gstins=150)["base_paise"] == 2799_00
+    assert get_plan_details("firm", "monthly", total_gstins=200)["base_paise"] == 3799_00
+    assert get_plan_details("firm", "monthly", total_gstins=300)["base_paise"] == 5799_00
+
+    assert get_plan_details("firm", "yearly", total_gstins=101)["base_paise"] == 16199_00
+    assert get_plan_details("firm", "yearly", total_gstins=150)["base_paise"] == 25999_00
+    assert get_plan_details("firm", "yearly", total_gstins=200)["base_paise"] == 35999_00
+    assert get_plan_details("firm", "yearly", total_gstins=300)["base_paise"] == 55999_00
 
 
 def test_expected_free_runs_after_successful_runs():

@@ -30,10 +30,10 @@ export const PRICING_PLANS: PricingPlan[] = [
   {
     id: "starter",
     name: "Starter",
-    badgeYearly: "Save ~44%",
-    valueTagMonthly: "₹48 / GSTIN / mo",
+    badgeYearly: "Save ~17%",
+    valueTagMonthly: "₹32 / GSTIN / mo",
     valueTagYearly: "₹320 / GSTIN / yr",
-    priceMonthly: 1199,
+    priceMonthly: 799,
     priceYearly: 7999,
     gstinCapacity: "Up to 25 GSTINs",
     gstinLimit: 25,
@@ -50,8 +50,8 @@ export const PRICING_PLANS: PricingPlan[] = [
         benefit: "Manage up to 25 active GSTINs with unlimited reconciliation runs",
       },
       {
-        header: "Save ~44% on Annual",
-        benefit: "Save ₹6,389/year with yearly billing compared to monthly",
+        header: "Save ~17% on Annual",
+        benefit: "Save ₹1,589/year with yearly billing compared to monthly",
       },
     ],
   },
@@ -59,11 +59,11 @@ export const PRICING_PLANS: PricingPlan[] = [
     id: "growth",
     name: "Growth",
     badge: "Most Popular",
-    badgeYearly: "Save ~40%",
-    valueTagMonthly: "₹30 / GSTIN / mo",
-    valueTagYearly: "₹217 / GSTIN / yr",
-    priceMonthly: 1799,
-    priceYearly: 12999,
+    badgeYearly: "Most Popular",
+    valueTagMonthly: "₹22 / GSTIN / mo",
+    valueTagYearly: "₹200 / GSTIN / yr",
+    priceMonthly: 1299,
+    priceYearly: 11999,
     gstinCapacity: "Up to 60 GSTINs",
     gstinLimit: 60,
     blurb: "High-capacity suite for growing CA practices with active tax teams.",
@@ -79,19 +79,19 @@ export const PRICING_PLANS: PricingPlan[] = [
         benefit: "Scale your client capacity with unlimited monthly/annual runs",
       },
       {
-        header: "Save ~40% on Annual",
-        benefit: "Save ₹8,589/year with yearly billing compared to monthly",
+        header: "Save ~23% on Annual",
+        benefit: "Save ₹3,589/year with yearly billing compared to monthly",
       },
     ],
   },
   {
     id: "pro",
     name: "Pro",
-    badgeYearly: "Save ~37%",
-    valueTagMonthly: "₹24 / GSTIN / mo",
-    valueTagYearly: "₹180 / GSTIN / yr",
-    priceMonthly: 2399,
-    priceYearly: 17999,
+    badgeYearly: "Save ~26%",
+    valueTagMonthly: "₹18 / GSTIN / mo",
+    valueTagYearly: "₹160 / GSTIN / yr",
+    priceMonthly: 1799,
+    priceYearly: 15999,
     gstinCapacity: "Up to 100 GSTINs",
     gstinLimit: 100,
     blurb: "Comprehensive capacity for large CA firms and dedicated compliance teams.",
@@ -107,6 +107,10 @@ export const PRICING_PLANS: PricingPlan[] = [
         benefit: "Best rate per GSTIN with unlimited reconciliation runs for all clients",
       },
       {
+        header: "Save ~26% on Annual",
+        benefit: "Save ₹5,589/year with yearly billing compared to monthly",
+      },
+      {
         header: "Multi-Staff Collaboration",
         benefit: "Team invites, client assignments, and complete audit trail",
       },
@@ -116,11 +120,11 @@ export const PRICING_PLANS: PricingPlan[] = [
     id: "firm",
     name: "Firm",
     badge: "Scale",
-    valueTagMonthly: "+₹25/GSTIN > 100",
+    valueTagMonthly: "+₹20/GSTIN > 100",
     valueTagYearly: "+₹200/GSTIN > 100",
-    priceMonthly: 2399,
-    priceYearly: 17999,
-    overageMonthlyPerGstin: 25,
+    priceMonthly: 1799,
+    priceYearly: 15999,
+    overageMonthlyPerGstin: 20,
     overageYearlyPerGstin: 200,
     gstinCapacity: "100+ GSTINs",
     gstinLimit: 100,
@@ -135,7 +139,7 @@ export const PRICING_PLANS: PricingPlan[] = [
       },
       {
         header: "Usage-Scaled Beyond 100",
-        benefit: "₹25/mo or ₹200/yr per additional GSTIN beyond 100 clients",
+        benefit: "₹20/mo or ₹200/yr per additional GSTIN beyond 100 clients",
       },
       {
         header: "Dedicated Account Support",
@@ -166,8 +170,8 @@ export function calculateFirmPrice(
   totalWithGst: number;
 } {
   const isYearly = cycle === "yearly";
-  const basePrice = isYearly ? 17999 : 2399;
-  const overageRate = isYearly ? 200 : 25;
+  const basePrice = isYearly ? 15999 : 1799;
+  const overageRate = isYearly ? 200 : 20;
   const extraGstins = Math.max(0, totalGstinCount - 100);
   const overageAmount = extraGstins * overageRate;
   const totalBeforeGst = basePrice + overageAmount;

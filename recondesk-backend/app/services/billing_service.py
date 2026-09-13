@@ -5,11 +5,11 @@ from app.config import settings
 _client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 PLAN_PRICES = {
-    "starter": {"monthly": 1199_00, "yearly": 7999_00},
-    "growth": {"monthly": 1799_00, "yearly": 12999_00},
-    "pro": {"monthly": 2399_00, "yearly": 17999_00},
-    "firm": {"monthly": 2399_00, "yearly": 17999_00},
-    "monthly": {"monthly": 1199_00, "yearly": 7999_00},
+    "starter": {"monthly": 799_00, "yearly": 7999_00},
+    "growth": {"monthly": 1299_00, "yearly": 11999_00},
+    "pro": {"monthly": 1799_00, "yearly": 15999_00},
+    "firm": {"monthly": 1799_00, "yearly": 15999_00},
+    "monthly": {"monthly": 799_00, "yearly": 7999_00},
 }
 
 
