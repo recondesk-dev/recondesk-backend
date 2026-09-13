@@ -829,12 +829,23 @@ export interface ReversalLedgerEntryDto {
   reversed_cgst_paise: number;
   reversed_sgst_paise: number;
   reversed_cess_paise: number;
-  reversed_total_tax_paise: number;
-  reclaimed_igst_paise: number;
-  reclaimed_cgst_paise: number;
-  reclaimed_sgst_paise: number;
-  reclaimed_cess_paise: number;
-  reclaimed_total_tax_paise: number;
+  cached_reclaimed_igst_paise?: number;
+  cached_reclaimed_cgst_paise?: number;
+  cached_reclaimed_sgst_paise?: number;
+  cached_reclaimed_cess_paise?: number;
+  reversed_total_tax_paise?: number;
+  reclaimed_igst_paise?: number;
+  reclaimed_cgst_paise?: number;
+  reclaimed_sgst_paise?: number;
+  reclaimed_cess_paise?: number;
+  reclaimed_total_tax_paise?: number;
+  remaining_balances_paise?: {
+    igst: number;
+    cgst: number;
+    sgst: number;
+    cess: number;
+    total: number;
+  };
   available_balance_paise?: {
     igst_paise: number;
     cgst_paise: number;
@@ -844,46 +855,74 @@ export interface ReversalLedgerEntryDto {
   };
   status: ReversalStatusType;
   condition_fulfilled_at?: string | null;
+  condition_fulfilled_date?: string | null;
   condition_evidence?: Record<string, any> | null;
   reclaim_authorized_at?: string | null;
   reclaim_authorized_by?: string | null;
   reclaim_authorization_notes?: string | null;
+  reclaim_eligibility_date?: string | null;
   rule_37_provenance?: Record<string, any> | null;
   rule_37a_provenance?: Record<string, any> | null;
   state_digest?: string;
+  source_state_hash?: string;
+  source_payload?: Record<string, any> | null;
   created_at?: string;
   updated_at?: string;
 }
 
+export interface TaxHeadSummaryPaise {
+  igst_paise: number;
+  cgst_paise: number;
+  sgst_paise: number;
+  cess_paise: number;
+  total_paise: number;
+}
+
+export interface ReversalLedgerSummary {
+  reversed: TaxHeadSummaryPaise;
+  reclaimed: TaxHeadSummaryPaise;
+  outstanding: TaxHeadSummaryPaise;
+}
+
 export interface ReversalLedgerRunResponse {
-  run_id: string;
+  source_run_id: string;
+  run_id?: string;
   client_gstin_id: string;
-  tax_period: string;
+  period?: string;
+  tax_period?: string;
   total_count: number;
-  total_reversed_paise: number;
-  total_reclaimed_paise: number;
-  total_outstanding_paise: number;
+  summary: ReversalLedgerSummary;
+  total_reversed_paise?: number;
+  total_reclaimed_paise?: number;
+  total_outstanding_paise?: number;
   items: ReversalLedgerEntryDto[];
 }
 
 export interface ReversalLedgerClientResponse {
   client_gstin_id: string;
-  gstin: string;
+  client_id?: string;
+  gstin?: string;
   total_count: number;
-  total_reversed_paise: number;
-  total_reclaimed_paise: number;
-  total_outstanding_paise: number;
+  summary: ReversalLedgerSummary;
+  total_reversed_paise?: number;
+  total_reclaimed_paise?: number;
+  total_outstanding_paise?: number;
   items: ReversalLedgerEntryDto[];
 }
 
 export interface ClientReclaimableBalancesResponse {
   client_gstin_id: string;
-  gstin: string;
-  total_reclaimable_records: number;
-  authorized_reclaimable_records: number;
-  total_pending_reclaim_paise: number;
-  total_authorized_reclaim_paise: number;
-  authorized_by_tax_head: {
+  client_id?: string;
+  as_of_period?: string | null;
+  total_reclaimable_authorized: TaxHeadSummaryPaise;
+  total_pending_authorization: TaxHeadSummaryPaise;
+  items?: ReversalLedgerEntryDto[];
+  gstin?: string;
+  total_reclaimable_records?: number;
+  authorized_reclaimable_records?: number;
+  total_pending_reclaim_paise?: number;
+  total_authorized_reclaim_paise?: number;
+  authorized_by_tax_head?: {
     igst_paise: number;
     cgst_paise: number;
     sgst_paise: number;

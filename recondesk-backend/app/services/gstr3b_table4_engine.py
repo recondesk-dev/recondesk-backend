@@ -547,8 +547,16 @@ def compile_gstr3b_table4(
             or bool(r.blocked_credit_flag)
             or (r.itc_reason and any(k in r.itc_reason.lower() for k in ("17(5)", "17 (5)", "blocked", "sec 17")))
         )
-        is_sec175_confirmed = is_sec175 and (
-            not disp_175 or str(disp_175.get("disposition", "")).upper() != "STATUTORY_EXCEPTION"
+        is_disp_175_blocked = bool(
+            disp_175
+            and (
+                str(disp_175.get("table4_effect", "")).upper() == "4B1"
+                or str(disp_175.get("disposition", "")).upper() in ("CONFIRMED_BLOCKED", "INELIGIBLE")
+            )
+            and str(disp_175.get("disposition", "")).upper() != "STATUTORY_EXCEPTION"
+        )
+        is_sec175_confirmed = is_disp_175_blocked or (
+            is_sec175 and (not disp_175 or str(disp_175.get("disposition", "")).upper() != "STATUTORY_EXCEPTION")
         )
 
         is_r37 = (
@@ -557,8 +565,16 @@ def compile_gstr3b_table4(
             or (str(r.match_status).upper() in RULE37_CONCERNS)
         ) and not (r.match_status == "RULE37A" or r.rule37a_flag)
 
-        is_r37_reversed = is_r37 and (
-            disp_r37 and str(disp_r37.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED")
+        is_disp_r37_reversed = bool(
+            disp_r37
+            and str(disp_r37.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED")
+            and (
+                str(disp_r37.get("table4_effect", "")).upper() == "4B2"
+                or str(disp_r37.get("exception_type", "")).upper() == "RULE_37"
+            )
+        )
+        is_r37_reversed = is_disp_r37_reversed or (
+            is_r37 and bool(disp_r37 and str(disp_r37.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED"))
         )
 
         is_r37a = (r.match_status == "RULE37A" or r.rule37a_flag)
@@ -1050,13 +1066,31 @@ def get_table4_drilldown(
             or bool(r.blocked_credit_flag)
             or (r.itc_reason and any(k in r.itc_reason.lower() for k in ("17(5)", "17 (5)", "blocked", "sec 17")))
         )
-        is_sec175_confirmed = is_sec175 and (
-            not disp_175 or str(disp_175.get("disposition", "")).upper() != "STATUTORY_EXCEPTION"
+        is_disp_175_blocked = bool(
+            disp_175
+            and (
+                str(disp_175.get("table4_effect", "")).upper() == "4B1"
+                or str(disp_175.get("disposition", "")).upper() in ("CONFIRMED_BLOCKED", "INELIGIBLE")
+            )
+            and str(disp_175.get("disposition", "")).upper() != "STATUTORY_EXCEPTION"
+        )
+        is_sec175_confirmed = is_disp_175_blocked or (
+            is_sec175 and (not disp_175 or str(disp_175.get("disposition", "")).upper() != "STATUTORY_EXCEPTION")
         )
         is_r37 = (
             r.category == "rule37_warnings" or bool(r.rule37_flag) or str(r.match_status).upper() in RULE37_CONCERNS
         ) and not (r.match_status == "RULE37A" or r.rule37a_flag)
-        is_r37_reversed = is_r37 and bool(disp_r37 and str(disp_r37.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED"))
+        is_disp_r37_reversed = bool(
+            disp_r37
+            and str(disp_r37.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED")
+            and (
+                str(disp_r37.get("table4_effect", "")).upper() == "4B2"
+                or str(disp_r37.get("exception_type", "")).upper() == "RULE_37"
+            )
+        )
+        is_r37_reversed = is_disp_r37_reversed or (
+            is_r37 and bool(disp_r37 and str(disp_r37.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED"))
+        )
         is_r37a = (r.match_status == "RULE37A" or r.rule37a_flag)
         is_r37a_reversed = is_r37a and bool(disp_r37a and str(disp_r37a.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED", "RULE_37A_VERIFIED", "CONFIRMED_NON_FILER"))
         is_162b_reversed = bool(

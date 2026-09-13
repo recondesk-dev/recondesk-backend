@@ -152,8 +152,24 @@ export function ReversalReclaimLedgerView({
     );
   }
 
-  const authorizedTotalPaise = balanceData?.total_authorized_reclaim_paise || 0;
-  const pendingTotalPaise = balanceData?.total_pending_reclaim_paise || 0;
+  const authorizedTotalPaise =
+    balanceData?.total_reclaimable_authorized?.total_paise ??
+    balanceData?.total_authorized_reclaim_paise ??
+    0;
+  const pendingTotalPaise =
+    balanceData?.total_pending_authorization?.total_paise ??
+    balanceData?.total_pending_reclaim_paise ??
+    0;
+
+  const totalReversedPaise =
+    mode === "run"
+      ? runData?.summary?.reversed?.total_paise ?? runData?.total_reversed_paise ?? 0
+      : clientData?.summary?.reversed?.total_paise ?? clientData?.total_reversed_paise ?? 0;
+
+  const totalReclaimedPaise =
+    mode === "run"
+      ? runData?.summary?.reclaimed?.total_paise ?? runData?.total_reclaimed_paise ?? 0
+      : clientData?.summary?.reclaimed?.total_paise ?? clientData?.total_reclaimed_paise ?? 0;
 
   return (
     <div className="space-y-5">
@@ -165,13 +181,7 @@ export function ReversalReclaimLedgerView({
             {mode === "run" ? "Period Reversals" : "Total Reversals Recorded"}
           </div>
           <div className="mt-1.5 font-mono text-[20px] font-bold text-gray-900 tabular-nums">
-            {formatINR(
-              paiseToRupees(
-                mode === "run"
-                  ? runData?.total_reversed_paise || 0
-                  : clientData?.total_reversed_paise || 0
-              )
-            )}
+            {formatINR(paiseToRupees(totalReversedPaise))}
           </div>
           <div className="mt-1 text-[11.5px] text-gray-500">
             {mode === "run" ? runData?.total_count || 0 : clientData?.total_count || 0} entries in Table 4(B)(2)
@@ -200,7 +210,10 @@ export function ReversalReclaimLedgerView({
             {formatINR(paiseToRupees(authorizedTotalPaise))}
           </div>
           <div className="mt-1 text-[11.5px] text-emerald-800">
-            {balanceData?.authorized_reclaimable_records || 0} records ready to reclaim in 3B
+            {(balanceData?.items?.filter(
+              (i) => i.status === "RECLAIM_AUTHORIZED" || i.status === "PARTIALLY_RECLAIMED"
+            ).length ?? balanceData?.authorized_reclaimable_records ?? 0)}{" "}
+            records ready to reclaim in 3B
           </div>
         </div>
 
@@ -210,13 +223,7 @@ export function ReversalReclaimLedgerView({
             Historical Reclaimed
           </div>
           <div className="mt-1.5 font-mono text-[20px] font-bold text-indigo-900 tabular-nums">
-            {formatINR(
-              paiseToRupees(
-                mode === "run"
-                  ? runData?.total_reclaimed_paise || 0
-                  : clientData?.total_reclaimed_paise || 0
-              )
-            )}
+            {formatINR(paiseToRupees(totalReclaimedPaise))}
           </div>
           <div className="mt-1 text-[11.5px] text-gray-500">
             Credited via Table 4(A)(5) & Table 4(D)(1)
@@ -327,9 +334,34 @@ export function ReversalReclaimLedgerView({
                     dotColor: "bg-gray-400",
                   };
 
-                  const reversedRupees = paiseToRupees(item.reversed_total_tax_paise);
-                  const reclaimedRupees = paiseToRupees(item.reclaimed_total_tax_paise);
-                  const outstandingRupees = Math.max(0, reversedRupees - reclaimedRupees);
+                  const totalRevPaise =
+                    item.reversed_total_tax_paise ??
+                    ((item.reversed_igst_paise || 0) +
+                      (item.reversed_cgst_paise || 0) +
+                      (item.reversed_sgst_paise || 0) +
+                      (item.reversed_cess_paise || 0));
+
+                  const cachedRecPaise =
+                    (item.cached_reclaimed_igst_paise || 0) +
+                    (item.cached_reclaimed_cgst_paise || 0) +
+                    (item.cached_reclaimed_sgst_paise || 0) +
+                    (item.cached_reclaimed_cess_paise || 0);
+
+                  const flatRecPaise =
+                    (item.reclaimed_igst_paise || 0) +
+                    (item.reclaimed_cgst_paise || 0) +
+                    (item.reclaimed_sgst_paise || 0) +
+                    (item.reclaimed_cess_paise || 0);
+
+                  const totalRecPaise =
+                    item.reclaimed_total_tax_paise ?? (cachedRecPaise || flatRecPaise);
+
+                  const reversedRupees = paiseToRupees(totalRevPaise);
+                  const reclaimedRupees = paiseToRupees(totalRecPaise);
+                  const outstandingRupees =
+                    item.remaining_balances_paise?.total != null
+                      ? paiseToRupees(item.remaining_balances_paise.total)
+                      : Math.max(0, reversedRupees - reclaimedRupees);
 
                   return (
                     <tr key={item.id} className="hover:bg-gray-50/60 transition">

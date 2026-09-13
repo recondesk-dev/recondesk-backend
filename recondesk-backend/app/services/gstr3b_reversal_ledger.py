@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
 from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Any, Optional
@@ -36,6 +37,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from supabase import Client
 
 _log = logging.getLogger(__name__)
+_python_fallback_reclaim_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -500,142 +502,142 @@ def execute_reclaim_event(sb: Client, req: ReclaimEventCreate) -> ReclaimExecuti
             )
     except Exception as e:
         err_msg = str(e)
-        if any(k in err_msg for k in ("EXCESS_RECLAIM", "NEGATIVE_RECLAIM", "ZERO_RECLAIM", "REVERSAL_ENTRY_IS_NOT_RECLAIMABLE")):
+        if any(k in err_msg for k in ("EXCESS_RECLAIM", "NEGATIVE_RECLAIM", "ZERO_RECLAIM", "REVERSAL_ENTRY_IS_NOT_RECLAIMABLE", "REVERSAL_LEDGER_ENTRY_NOT_FOUND")):
             raise ValueError(err_msg) from e
         _log.info("RPC not available, running python validation: %s", err_msg)
 
     # Python-level atomic execution (for mock/unit test suites)
-    ledger = get_reversal_ledger_entry(sb, req.ledger_id)
-    if not ledger.get("is_reclaimable") or ledger.get("status") == "NON_RECLAIMABLE":
-        raise ValueError(f"REVERSAL_ENTRY_IS_NOT_RECLAIMABLE: Entry {req.ledger_id} has is_reclaimable=False.")
+    with _python_fallback_reclaim_lock:
+        ledger = get_reversal_ledger_entry(sb, req.ledger_id)
+        if not ledger.get("is_reclaimable") or ledger.get("status") == "NON_RECLAIMABLE":
+            raise ValueError(f"REVERSAL_ENTRY_IS_NOT_RECLAIMABLE: Entry {req.ledger_id} has is_reclaimable=False.")
 
-    cid = req.client_gstin_id or ledger.get("client_gstin_id")
+        cid = req.client_gstin_id or ledger.get("client_gstin_id")
 
-    # Database-level dedicated idempotency check
-    if req.idempotency_key and req.idempotency_key.strip():
-        clean_key = req.idempotency_key.strip()
-        ev_match = (
-            sb.table("gstr3b_reclaim_events")
-            .select("*")
-            .eq("client_gstin_id", cid)
-            .eq("idempotency_key", clean_key)
-            .limit(1)
-            .execute()
-        )
-        if ev_match.data:
-            ev = ev_match.data[0]
-            bal = calculate_available_balance(sb, req.ledger_id)
-            return ReclaimExecutionResult(
-                event_id=str(ev.get("id")),
-                ledger_id=req.ledger_id,
-                status=str(ledger.get("status")),
-                is_idempotent_replay=True,
-                event_type=str(ev.get("event_type", "RECLAIM")),
-                reclaimed_igst_paise=int(ev.get("reclaimed_igst_paise") or 0),
-                reclaimed_cgst_paise=int(ev.get("reclaimed_cgst_paise") or 0),
-                reclaimed_sgst_paise=int(ev.get("reclaimed_sgst_paise") or 0),
-                reclaimed_cess_paise=int(ev.get("reclaimed_cess_paise") or 0),
-                remaining_igst_paise=bal.igst_paise,
-                remaining_cgst_paise=bal.cgst_paise,
-                remaining_sgst_paise=bal.sgst_paise,
-                remaining_cess_paise=bal.cess_paise,
+        # Database-level dedicated idempotency check
+        if req.idempotency_key and req.idempotency_key.strip():
+            clean_key = req.idempotency_key.strip()
+            ev_match = (
+                sb.table("gstr3b_reclaim_events")
+                .select("*")
+                .eq("client_gstin_id", cid)
+                .eq("idempotency_key", clean_key)
+                .limit(1)
+                .execute()
             )
+            if ev_match.data:
+                ev = ev_match.data[0]
+                bal = calculate_available_balance(sb, req.ledger_id)
+                return ReclaimExecutionResult(
+                    event_id=str(ev.get("id")),
+                    ledger_id=req.ledger_id,
+                    status=str(ledger.get("status")),
+                    is_idempotent_replay=True,
+                    event_type=str(ev.get("event_type", "RECLAIM")),
+                    reclaimed_igst_paise=int(ev.get("reclaimed_igst_paise") or 0),
+                    reclaimed_cgst_paise=int(ev.get("reclaimed_cgst_paise") or 0),
+                    reclaimed_sgst_paise=int(ev.get("reclaimed_sgst_paise") or 0),
+                    reclaimed_cess_paise=int(ev.get("reclaimed_cess_paise") or 0),
+                    remaining_igst_paise=bal.igst_paise,
+                    remaining_cgst_paise=bal.cgst_paise,
+                    remaining_sgst_paise=bal.sgst_paise,
+                    remaining_cess_paise=bal.cess_paise,
+                )
 
-    events = get_authoritative_reclaim_history(sb, req.ledger_id)
+        events = get_authoritative_reclaim_history(sb, req.ledger_id)
 
-    cur_igst = 0
-    cur_cgst = 0
-    cur_sgst = 0
-    cur_cess = 0
-    for e in events:
-        mult = 1 if e.get("event_type", "RECLAIM") == "RECLAIM" else -1
-        cur_igst += mult * int(e.get("reclaimed_igst_paise") or 0)
-        cur_cgst += mult * int(e.get("reclaimed_cgst_paise") or 0)
-        cur_sgst += mult * int(e.get("reclaimed_sgst_paise") or 0)
-        cur_cess += mult * int(e.get("reclaimed_cess_paise") or 0)
+        cur_igst = 0
+        cur_cgst = 0
+        cur_sgst = 0
+        cur_cess = 0
+        for e in events:
+            mult = 1 if e.get("event_type", "RECLAIM") == "RECLAIM" else -1
+            cur_igst += mult * int(e.get("reclaimed_igst_paise") or 0)
+            cur_cgst += mult * int(e.get("reclaimed_cgst_paise") or 0)
+            cur_sgst += mult * int(e.get("reclaimed_sgst_paise") or 0)
+            cur_cess += mult * int(e.get("reclaimed_cess_paise") or 0)
 
-    rev_igst = int(ledger.get("reversed_igst_paise") or 0)
-    rev_cgst = int(ledger.get("reversed_cgst_paise") or 0)
-    rev_sgst = int(ledger.get("reversed_sgst_paise") or 0)
-    rev_cess = int(ledger.get("reversed_cess_paise") or 0)
+        rev_igst = int(ledger.get("reversed_igst_paise") or 0)
+        rev_cgst = int(ledger.get("reversed_cgst_paise") or 0)
+        rev_sgst = int(ledger.get("reversed_sgst_paise") or 0)
+        rev_cess = int(ledger.get("reversed_cess_paise") or 0)
 
-    # Tax-head safe validation
-    delta = 1 if req.event_type == ReclaimEventType.RECLAIM else -1
-    if delta == 1:
-        if (cur_igst + req.reclaimed_igst_paise) > rev_igst:
-            raise ValueError(f"EXCESS_RECLAIM_IGST: Requested {req.reclaimed_igst_paise} exceeds available {rev_igst - cur_igst}")
-        if (cur_cgst + req.reclaimed_cgst_paise) > rev_cgst:
-            raise ValueError(f"EXCESS_RECLAIM_CGST: Requested {req.reclaimed_cgst_paise} exceeds available {rev_cgst - cur_cgst}")
-        if (cur_sgst + req.reclaimed_sgst_paise) > rev_sgst:
-            raise ValueError(f"EXCESS_RECLAIM_SGST: Requested {req.reclaimed_sgst_paise} exceeds available {rev_sgst - cur_sgst}")
-        if (cur_cess + req.reclaimed_cess_paise) > rev_cess:
-            raise ValueError(f"EXCESS_RECLAIM_CESS: Requested {req.reclaimed_cess_paise} exceeds available {rev_cess - cur_cess}")
+        # Tax-head safe validation
+        delta = 1 if req.event_type == ReclaimEventType.RECLAIM else -1
+        if delta == 1:
+            if (cur_igst + req.reclaimed_igst_paise) > rev_igst:
+                raise ValueError(f"EXCESS_RECLAIM_IGST: Requested {req.reclaimed_igst_paise} exceeds available {rev_igst - cur_igst}")
+            if (cur_cgst + req.reclaimed_cgst_paise) > rev_cgst:
+                raise ValueError(f"EXCESS_RECLAIM_CGST: Requested {req.reclaimed_cgst_paise} exceeds available {rev_cgst - cur_cgst}")
+            if (cur_sgst + req.reclaimed_sgst_paise) > rev_sgst:
+                raise ValueError(f"EXCESS_RECLAIM_SGST: Requested {req.reclaimed_sgst_paise} exceeds available {rev_sgst - cur_sgst}")
+            if (cur_cess + req.reclaimed_cess_paise) > rev_cess:
+                raise ValueError(f"EXCESS_RECLAIM_CESS: Requested {req.reclaimed_cess_paise} exceeds available {rev_cess - cur_cess}")
 
-    # Insert immutable reclaim event
-    event_payload = {
-        "client_gstin_id": cid,
-        "ledger_id": req.ledger_id,
-        "reclaim_run_id": req.reclaim_run_id,
-        "reclaim_tax_period": req.reclaim_tax_period,
-        "event_type": req.event_type.value,
-        "compensates_event_id": req.compensates_event_id,
-        "reclaimed_igst_paise": req.reclaimed_igst_paise,
-        "reclaimed_cgst_paise": req.reclaimed_cgst_paise,
-        "reclaimed_sgst_paise": req.reclaimed_sgst_paise,
-        "reclaimed_cess_paise": req.reclaimed_cess_paise,
-        "statutory_evidence_type": req.statutory_evidence_type.value,
-        "evidence_reference": req.evidence_reference,
-        "evidence_document_date": str(req.evidence_document_date) if req.evidence_document_date else None,
-        "authorized_by": req.authorized_by,
-        "reclaim_notes": req.reclaim_notes,
-        "idempotency_key": req.idempotency_key.strip() if req.idempotency_key else None,
-    }
-    ins_res = sb.table("gstr3b_reclaim_events").insert(event_payload).execute()
-    event_id = ins_res.data[0].get("id") if ins_res.data else "mock-event-id"
+        # Insert immutable reclaim event
+        event_payload = {
+            "client_gstin_id": cid,
+            "ledger_id": req.ledger_id,
+            "reclaim_run_id": req.reclaim_run_id,
+            "reclaim_tax_period": req.reclaim_tax_period,
+            "event_type": req.event_type.value,
+            "compensates_event_id": req.compensates_event_id,
+            "reclaimed_igst_paise": req.reclaimed_igst_paise,
+            "reclaimed_cgst_paise": req.reclaimed_cgst_paise,
+            "reclaimed_sgst_paise": req.reclaimed_sgst_paise,
+            "reclaimed_cess_paise": req.reclaimed_cess_paise,
+            "statutory_evidence_type": req.statutory_evidence_type.value,
+            "evidence_reference": req.evidence_reference,
+            "evidence_document_date": str(req.evidence_document_date) if req.evidence_document_date else None,
+            "authorized_by": req.authorized_by,
+            "reclaim_notes": req.reclaim_notes,
+            "idempotency_key": req.idempotency_key.strip() if req.idempotency_key else None,
+        }
+        ins_res = sb.table("gstr3b_reclaim_events").insert(event_payload).execute()
+        event_id = ins_res.data[0].get("id") if ins_res.data else "mock-event-id"
 
+        # Compute new cached derived balances
+        new_igst = cur_igst + (delta * req.reclaimed_igst_paise)
+        new_cgst = cur_cgst + (delta * req.reclaimed_cgst_paise)
+        new_sgst = cur_sgst + (delta * req.reclaimed_sgst_paise)
+        new_cess = cur_cess + (delta * req.reclaimed_cess_paise)
 
-    # Compute new cached derived balances
-    new_igst = cur_igst + (delta * req.reclaimed_igst_paise)
-    new_cgst = cur_cgst + (delta * req.reclaimed_cgst_paise)
-    new_sgst = cur_sgst + (delta * req.reclaimed_sgst_paise)
-    new_cess = cur_cess + (delta * req.reclaimed_cess_paise)
+        is_full = (
+            new_igst == rev_igst
+            and new_cgst == rev_cgst
+            and new_sgst == rev_sgst
+            and new_cess == rev_cess
+        )
+        if is_full:
+            new_status = ReversalStatus.FULLY_RECLAIMED.value
+        elif (new_igst + new_cgst + new_sgst + new_cess) > 0:
+            new_status = ReversalStatus.PARTIALLY_RECLAIMED.value
+        else:
+            new_status = ReversalStatus.OPEN.value
 
-    is_full = (
-        new_igst == rev_igst
-        and new_cgst == rev_cgst
-        and new_sgst == rev_sgst
-        and new_cess == rev_cess
-    )
-    if is_full:
-        new_status = ReversalStatus.FULLY_RECLAIMED.value
-    elif (new_igst + new_cgst + new_sgst + new_cess) > 0:
-        new_status = ReversalStatus.PARTIALLY_RECLAIMED.value
-    else:
-        new_status = ReversalStatus.OPEN.value
+        sb.table("gstr3b_reversal_ledger").update({
+            "cached_reclaimed_igst_paise": new_igst,
+            "cached_reclaimed_cgst_paise": new_cgst,
+            "cached_reclaimed_sgst_paise": new_sgst,
+            "cached_reclaimed_cess_paise": new_cess,
+            "status": new_status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", req.ledger_id).execute()
 
-    sb.table("gstr3b_reversal_ledger").update({
-        "cached_reclaimed_igst_paise": new_igst,
-        "cached_reclaimed_cgst_paise": new_cgst,
-        "cached_reclaimed_sgst_paise": new_sgst,
-        "cached_reclaimed_cess_paise": new_cess,
-        "status": new_status,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("id", req.ledger_id).execute()
-
-    return ReclaimExecutionResult(
-        event_id=event_id,
-        ledger_id=req.ledger_id,
-        status=new_status,
-        event_type=req.event_type.value,
-        reclaimed_igst_paise=req.reclaimed_igst_paise,
-        reclaimed_cgst_paise=req.reclaimed_cgst_paise,
-        reclaimed_sgst_paise=req.reclaimed_sgst_paise,
-        reclaimed_cess_paise=req.reclaimed_cess_paise,
-        remaining_igst_paise=rev_igst - new_igst,
-        remaining_cgst_paise=rev_cgst - new_cgst,
-        remaining_sgst_paise=rev_sgst - new_sgst,
-        remaining_cess_paise=rev_cess - new_cess,
-    )
+        return ReclaimExecutionResult(
+            event_id=event_id,
+            ledger_id=req.ledger_id,
+            status=new_status,
+            event_type=req.event_type.value,
+            reclaimed_igst_paise=req.reclaimed_igst_paise,
+            reclaimed_cgst_paise=req.reclaimed_cgst_paise,
+            reclaimed_sgst_paise=req.reclaimed_sgst_paise,
+            reclaimed_cess_paise=req.reclaimed_cess_paise,
+            remaining_igst_paise=rev_igst - new_igst,
+            remaining_cgst_paise=rev_cgst - new_cgst,
+            remaining_sgst_paise=rev_sgst - new_sgst,
+            remaining_cess_paise=rev_cess - new_cess,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -862,7 +864,17 @@ def register_table4_reversals_to_ledger(
         is_r37 = (
             r.category == "rule37_warnings" or bool(r.rule37_flag) or str(r.match_status).upper() in RULE37_CONCERNS
         ) and not (r.match_status == "RULE37A" or r.rule37a_flag)
-        is_r37_reversed = is_r37 and bool(disp_r37 and str(disp_r37.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED"))
+        is_disp_r37_reversed = bool(
+            disp_r37
+            and str(disp_r37.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED")
+            and (
+                str(disp_r37.get("table4_effect", "")).upper() == "4B2"
+                or str(disp_r37.get("exception_type", "")).upper() == "RULE_37"
+            )
+        )
+        is_r37_reversed = is_disp_r37_reversed or (
+            is_r37 and bool(disp_r37 and str(disp_r37.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED"))
+        )
 
         is_r37a = (r.match_status == "RULE37A" or r.rule37a_flag)
         is_r37a_reversed = is_r37a and bool(disp_r37a and str(disp_r37a.get("disposition", "")).upper() in ("REVERSED", "REVERSAL_CONFIRMED", "RULE_37A_VERIFIED", "CONFIRMED_NON_FILER"))

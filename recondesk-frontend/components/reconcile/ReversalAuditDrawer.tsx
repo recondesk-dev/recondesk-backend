@@ -25,9 +25,33 @@ export function ReversalAuditDrawer({ entry, onClose }: ReversalAuditDrawerProps
   };
 
   const evidence = entry.condition_evidence || {};
-  const reversedTotal = paiseToRupees(entry.reversed_total_tax_paise);
-  const reclaimedTotal = paiseToRupees(entry.reclaimed_total_tax_paise);
-  const outstandingTotal = Math.max(0, reversedTotal - reclaimedTotal);
+  const totalRevPaise =
+    entry.reversed_total_tax_paise ??
+    ((entry.reversed_igst_paise || 0) +
+      (entry.reversed_cgst_paise || 0) +
+      (entry.reversed_sgst_paise || 0) +
+      (entry.reversed_cess_paise || 0));
+
+  const cachedRecPaise =
+    (entry.cached_reclaimed_igst_paise || 0) +
+    (entry.cached_reclaimed_cgst_paise || 0) +
+    (entry.cached_reclaimed_sgst_paise || 0) +
+    (entry.cached_reclaimed_cess_paise || 0);
+
+  const flatRecPaise =
+    (entry.reclaimed_igst_paise || 0) +
+    (entry.reclaimed_cgst_paise || 0) +
+    (entry.reclaimed_sgst_paise || 0) +
+    (entry.reclaimed_cess_paise || 0);
+
+  const totalRecPaise = entry.reclaimed_total_tax_paise ?? (cachedRecPaise || flatRecPaise);
+
+  const reversedTotal = paiseToRupees(totalRevPaise);
+  const reclaimedTotal = paiseToRupees(totalRecPaise);
+  const outstandingTotal =
+    entry.remaining_balances_paise?.total != null
+      ? paiseToRupees(entry.remaining_balances_paise.total)
+      : Math.max(0, reversedTotal - reclaimedTotal);
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-black/40 backdrop-blur-sm transition-opacity">

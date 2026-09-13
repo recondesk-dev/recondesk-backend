@@ -200,6 +200,80 @@ class TestTable4OrchestrationScenarios:
     @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
     @patch("app.services.gstr3b_table4_engine.load_exception_dispositions")
     @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
+    def test_b2_matched_invoice_explicit_ca_17_5_override(self, mock_p, mock_disp, mock_adj):
+        """Regression test: MATCHED invoice without original 17(5) signal is routed to 4B1 via explicit CA disposition."""
+        mock_disp.return_value = {
+            "pm:g-1": {
+                "disposition": "CONFIRMED_BLOCKED",
+                "exception_type": "SEC_17_5",
+                "eligibility_effect": "INELIGIBLE",
+                "table4_effect": "4B1",
+            },
+        }
+        sb = MagicMock()
+        sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
+
+        # Clean MATCHED invoice, no blocked_credit_flag, no itc_reason
+        row = _make_outcome_row("pm:g-1", category="matched", amount=5638230, blocked_credit_flag=False, itc_reason=None)
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-1": {"record_data": {"igst_paise": 5638230, "cgst_paise": 0, "sgst_paise": 0, "cess_paise": 0}}}), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={"pr-1": {"record_data": {"igst_paise": 5638230, "cgst_paise": 0, "sgst_paise": 0, "cess_paise": 0}}}):
+            res = compile_gstr3b_table4(sb, "run-1")
+
+        sec4a = res["table_4"]["section_4a"]
+        sec4b = res["table_4"]["section_4b"]
+        sec4c = res["table_4"]["section_4c_net_itc"]
+
+        # Tax-head isolation: IGST goes to 4B1 IGST, CGST/SGST remain 0.0
+        assert sec4a["row_4a5_all_other_itc"]["igst"] == 56382.30
+        assert sec4a["row_4a5_all_other_itc"]["cgst"] == 0.0
+        assert sec4a["row_4a5_all_other_itc"]["sgst"] == 0.0
+
+        assert sec4b["row_4b1_rule38_42_43_sec175"]["igst"] == 56382.30
+        assert sec4b["row_4b1_rule38_42_43_sec175"]["cgst"] == 0.0
+        assert sec4b["row_4b1_rule38_42_43_sec175"]["sgst"] == 0.0
+
+        assert sec4c["igst"] == 0.0
+        assert sec4c["cgst"] == 0.0
+        assert sec4c["sgst"] == 0.0
+
+    @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_exception_dispositions")
+    @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
+    def test_b3_matched_invoice_explicit_rule37_override(self, mock_p, mock_disp, mock_adj):
+        """Matched invoice without original Rule 37 concern is routed to 4B2 via explicit CA disposition."""
+        mock_disp.return_value = {
+            "pm:g-2": {
+                "disposition": "REVERSED",
+                "exception_type": "RULE_37",
+                "eligibility_effect": "REVERSED",
+                "table4_effect": "4B2",
+            },
+        }
+        sb = MagicMock()
+        sb.table().select().eq().limit().execute.return_value.data = [_mock_run_row()]
+
+        # Clean MATCHED invoice, dual-head CGST/SGST
+        row = _make_outcome_row("pm:g-2", category="matched", amount=2034550, rule37_flag=False)
+        with patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([row], {}, {})), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={"g-2": {"record_data": {"igst_paise": 0, "cgst_paise": 1017275, "sgst_paise": 1017275, "cess_paise": 0}}}), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={"pr-2": {"record_data": {"igst_paise": 0, "cgst_paise": 1017275, "sgst_paise": 1017275, "cess_paise": 0}}}):
+            res = compile_gstr3b_table4(sb, "run-1")
+
+        sec4a = res["table_4"]["section_4a"]
+        sec4b = res["table_4"]["section_4b"]
+        sec4c = res["table_4"]["section_4c_net_itc"]
+
+        assert sec4a["row_4a5_all_other_itc"]["cgst"] == 10172.75
+        assert sec4a["row_4a5_all_other_itc"]["sgst"] == 10172.75
+        assert sec4b["row_4b2_others_rule37_37a"]["cgst"] == 10172.75
+        assert sec4b["row_4b2_others_rule37_37a"]["sgst"] == 10172.75
+        assert sec4c["cgst"] == 0.0
+        assert sec4c["sgst"] == 0.0
+
+    @patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[])
+    @patch("app.services.gstr3b_table4_engine.load_exception_dispositions")
+    @patch("app.services.reconciliation_outcomes.load_payload", return_value={})
     def test_c_section_17_5_statutory_exception(self, mock_p, mock_disp, mock_adj):
         """17(5) signal with statutory exception confirmed by CA: remains in 4A5 without 4B1 reversal."""
         mock_disp.return_value = {

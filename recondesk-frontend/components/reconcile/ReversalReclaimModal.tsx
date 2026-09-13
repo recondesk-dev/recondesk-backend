@@ -54,13 +54,38 @@ export function ReversalReclaimModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Available balances from entry
-  const bal = entry?.available_balance_paise || {
-    igst_paise: (entry?.reversed_igst_paise || 0) - (entry?.reclaimed_igst_paise || 0),
-    cgst_paise: (entry?.reversed_cgst_paise || 0) - (entry?.reclaimed_cgst_paise || 0),
-    sgst_paise: (entry?.reversed_sgst_paise || 0) - (entry?.reclaimed_sgst_paise || 0),
-    cess_paise: (entry?.reversed_cess_paise || 0) - (entry?.reclaimed_cess_paise || 0),
-    total_tax_paise: (entry?.reversed_total_tax_paise || 0) - (entry?.reclaimed_total_tax_paise || 0),
-  };
+  const rem = entry?.remaining_balances_paise;
+  const bal = rem
+    ? {
+        igst_paise: rem.igst,
+        cgst_paise: rem.cgst,
+        sgst_paise: rem.sgst,
+        cess_paise: rem.cess,
+        total_tax_paise: rem.total,
+      }
+    : entry?.available_balance_paise || {
+        igst_paise:
+          (entry?.reversed_igst_paise || 0) -
+          (entry?.cached_reclaimed_igst_paise ?? entry?.reclaimed_igst_paise ?? 0),
+        cgst_paise:
+          (entry?.reversed_cgst_paise || 0) -
+          (entry?.cached_reclaimed_cgst_paise ?? entry?.reclaimed_cgst_paise ?? 0),
+        sgst_paise:
+          (entry?.reversed_sgst_paise || 0) -
+          (entry?.cached_reclaimed_sgst_paise ?? entry?.reclaimed_sgst_paise ?? 0),
+        cess_paise:
+          (entry?.reversed_cess_paise || 0) -
+          (entry?.cached_reclaimed_cess_paise ?? entry?.reclaimed_cess_paise ?? 0),
+        total_tax_paise:
+          ((entry?.reversed_igst_paise || 0) +
+            (entry?.reversed_cgst_paise || 0) +
+            (entry?.reversed_sgst_paise || 0) +
+            (entry?.reversed_cess_paise || 0)) -
+          ((entry?.cached_reclaimed_igst_paise ?? entry?.reclaimed_igst_paise ?? 0) +
+            (entry?.cached_reclaimed_cgst_paise ?? entry?.reclaimed_cgst_paise ?? 0) +
+            (entry?.cached_reclaimed_sgst_paise ?? entry?.reclaimed_sgst_paise ?? 0) +
+            (entry?.cached_reclaimed_cess_paise ?? entry?.reclaimed_cess_paise ?? 0)),
+      };
 
   const availablePaise: TaxHeadPaise = {
     igst_paise: Math.max(0, bal.igst_paise),
