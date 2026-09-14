@@ -420,13 +420,31 @@ export const clientsApi = {
   },
 };
 
+export interface ItcWorkItemEvent {
+  id: string;
+  work_item_id: string;
+  event_type: string;
+  from_status?: string | null;
+  to_status?: string | null;
+  actor_id?: string | null;
+  actor_role?: string | null;
+  actor_name?: string | null;
+  note?: string | null;
+  metadata?: Record<string, any>;
+  created_at: string;
+}
+
 export interface ItcWorkItem {
+  id?: string;
   work_item_id: string;
   run_id: string;
   record_id: string;
   exception_type: string;
-  priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
-  priority_score: number;
+  priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | string;
+  system_priority?: string;
+  manual_priority?: string | null;
+  priority_override_reason?: string | null;
+  priority_score?: number;
   supplier_name: string;
   supplier_gstin: string;
   invoice_number: string;
@@ -437,12 +455,167 @@ export interface ItcWorkItem {
   what: string;
   why: string;
   next_action: string;
-  status: string;
+  status:
+    | "OPEN"
+    | "TRIAGED"
+    | "ASSIGNED"
+    | "IN_PROGRESS"
+    | "WAITING_VENDOR"
+    | "READY_FOR_REVIEW"
+    | "RESOLVED"
+    | "DISMISSED"
+    | "NOT_ACTIONABLE"
+    | "CARRIED_FORWARD"
+    | string;
   is_blocking: boolean;
+  assigned_to?: string | null;
+  assigned_to_name?: string | null;
+  due_at?: string | null;
+  sla_status?: "ON_TRACK" | "DUE_SOON" | "OVERDUE" | "NO_DUE_DATE" | string;
+  resolution_code?: string | null;
+  resolution_note?: string | null;
+  resolved_at?: string | null;
+  revalidation_status?: "NONE" | "PENDING" | "REVALIDATED" | string;
   disposition?: string | null;
   disposition_reason?: string | null;
   owner?: string | null;
+  events?: ItcWorkItemEvent[];
 }
+
+export const workItemsApi = {
+  list: (
+    token: string,
+    clientId: string,
+    params?: {
+      period?: string;
+      run_id?: string;
+      status?: string;
+      priority?: string;
+      assigned_to?: string;
+      sla_status?: string;
+      exception_type?: string;
+      search?: string;
+      page?: number;
+      page_size?: number;
+    }
+  ) => {
+    const sp = new URLSearchParams();
+    if (params?.period) sp.set("period", params.period);
+    if (params?.run_id) sp.set("run_id", params.run_id);
+    if (params?.status) sp.set("status", params.status);
+    if (params?.priority) sp.set("priority", params.priority);
+    if (params?.assigned_to) sp.set("assigned_to", params.assigned_to);
+    if (params?.sla_status) sp.set("sla_status", params.sla_status);
+    if (params?.exception_type) sp.set("exception_type", params.exception_type);
+    if (params?.search) sp.set("search", params.search);
+    if (params?.page) sp.set("page", String(params.page));
+    if (params?.page_size) sp.set("page_size", String(params.page_size));
+    const qs = sp.toString();
+    return apiFetch<{
+      work_items: ItcWorkItem[];
+      total_count: number;
+      page: number;
+      page_size: number;
+      total_pages: number;
+    }>(`/api/clients/${clientId}/work-items${qs ? `?${qs}` : ""}`, { token });
+  },
+
+  sync: (token: string, clientId: string, runId: string) =>
+    apiFetch<{
+      run_id: string;
+      client_id: string;
+      created_count: number;
+      preserved_count: number;
+      total_work_items: number;
+    }>(`/api/clients/${clientId}/work-items/sync?run_id=${encodeURIComponent(runId)}`, {
+      method: "POST",
+      token,
+    }),
+
+  get: (token: string, id: string) =>
+    apiFetch<ItcWorkItem & { events: ItcWorkItemEvent[] }>(`/api/work-items/${id}`, { token }),
+
+  updateStatus: (token: string, id: string, status: string, note?: string) =>
+    apiFetch<ItcWorkItem>(`/api/work-items/${id}/status`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ status, note }),
+    }),
+
+  assign: (token: string, id: string, assignedTo: string | null) =>
+    apiFetch<ItcWorkItem>(`/api/work-items/${id}/assign`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ assigned_to: assignedTo }),
+    }),
+
+  overridePriority: (token: string, id: string, priority: string, reason: string) =>
+    apiFetch<ItcWorkItem>(`/api/work-items/${id}/priority`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ priority, reason }),
+    }),
+
+  setDueDate: (token: string, id: string, dueAt: string | null) =>
+    apiFetch<ItcWorkItem>(`/api/work-items/${id}/due-date`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ due_at: dueAt }),
+    }),
+
+  addNote: (token: string, id: string, note: string) =>
+    apiFetch<ItcWorkItem>(`/api/work-items/${id}/notes`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ note }),
+    }),
+
+  resolve: (token: string, id: string, resolutionCode: string, resolutionNote: string) =>
+    apiFetch<ItcWorkItem>(`/api/work-items/${id}/resolve`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ resolution_code: resolutionCode, resolution_note: resolutionNote }),
+    }),
+
+  dismiss: (token: string, id: string, reason: string) =>
+    apiFetch<ItcWorkItem>(`/api/work-items/${id}/dismiss`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ reason }),
+    }),
+
+  reopen: (token: string, id: string, reason: string) =>
+    apiFetch<ItcWorkItem>(`/api/work-items/${id}/reopen`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ reason }),
+    }),
+
+  revalidate: (token: string, id: string) =>
+    apiFetch<ItcWorkItem>(`/api/work-items/${id}/revalidate`, {
+      method: "POST",
+      token,
+    }),
+
+  bulkAction: (
+    token: string,
+    action: "assign" | "status" | "priority" | "due_date",
+    workItemIds: string[],
+    payload: Record<string, any>
+  ) =>
+    apiFetch<{
+      action: string;
+      total: number;
+      success_count: number;
+      failure_count: number;
+      successes: string[];
+      failures: Array<{ id: string; error: string }>;
+    }>("/api/work-items/bulk-action", {
+      method: "POST",
+      token,
+      body: JSON.stringify({ action, work_item_ids: workItemIds, payload }),
+    }),
+};
 
 export interface ItcKpis {
   eligible_itc: number;

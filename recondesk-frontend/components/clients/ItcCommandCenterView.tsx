@@ -11,6 +11,7 @@ import {
   Table4BlockingRecordItem,
 } from "@/lib/api";
 import { Table4DispositionModal } from "@/components/reconcile/Table4DispositionModal";
+import { ItcWorkItemDetailDrawer } from "./ItcWorkItemDetailDrawer";
 
 interface ItcCommandCenterViewProps {
   clientId: string;
@@ -26,6 +27,7 @@ export function ItcCommandCenterView({
   const [selectedExceptionType, setSelectedExceptionType] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const [selectedDetailItem, setSelectedDetailItem] = useState<ItcWorkItem | null>(null);
 
   // Disposition modal state
   const [isDispositionModalOpen, setIsDispositionModalOpen] = useState(false);
@@ -446,6 +448,29 @@ export function ItcCommandCenterView({
                           {item.status}
                         </span>
 
+                        {/* Assignee */}
+                        <span className="text-[11px] text-gray-600 bg-gray-100 px-2 py-0.5 rounded flex items-center gap-1">
+                          <svg className="h-3 w-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                          </svg>
+                          {item.assigned_to_name || "Unassigned"}
+                        </span>
+
+                        {/* SLA Indicator */}
+                        {item.sla_status && item.sla_status !== "NO_DUE_DATE" && (
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wider ${
+                              item.sla_status === "OVERDUE"
+                                ? "bg-rose-50 text-rose-700 border-rose-200"
+                                : item.sla_status === "DUE_SOON"
+                                ? "bg-amber-50 text-amber-700 border-amber-200"
+                                : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            }`}
+                          >
+                            {item.sla_status.replace(/_/g, " ")}
+                          </span>
+                        )}
+
                         {/* Age */}
                         {item.age_days > 0 && (
                           <span className="text-[11px] text-gray-400">
@@ -487,6 +512,15 @@ export function ItcCommandCenterView({
                       </div>
 
                       <div className="flex items-center gap-2">
+                        {/* Phase 5.2 Workflow Drawer Trigger */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDetailItem(item)}
+                          className="rounded-lg bg-black px-3 py-1.5 text-[11.5px] font-semibold text-white hover:bg-gray-800 transition cursor-pointer shadow-xs"
+                        >
+                          Workflow &amp; History →
+                        </button>
+
                         {/* Resolve Exception Button for Blockers */}
                         {item.is_blocking && !is_locked && (
                           <button
@@ -503,7 +537,7 @@ export function ItcCommandCenterView({
                         <button
                           type="button"
                           onClick={() => setExpandedItemId(isExpanded ? null : item.work_item_id)}
-                          className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11.5px] font-medium text-gray-700 hover:bg-gray-100 transition"
+                          className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11.5px] font-medium text-gray-700 hover:bg-gray-100 transition cursor-pointer"
                         >
                           {isExpanded ? "Hide Guidance ▲" : "View Guidance ▼"}
                         </button>
@@ -554,6 +588,21 @@ export function ItcCommandCenterView({
           </div>
         )}
       </div>
+
+      {/* Phase 5.2 Work Item Detail Drawer */}
+      {selectedDetailItem && (
+        <ItcWorkItemDetailDrawer
+          workItem={selectedDetailItem}
+          authToken={authToken}
+          clientId={clientId}
+          onClose={() => setSelectedDetailItem(null)}
+          onUpdated={() => {
+            mutate();
+            void swrMutate((key) => Array.isArray(key) && key[0] === "itc-command-center");
+            void swrMutate((key) => Array.isArray(key) && key[0] === "work-item");
+          }}
+        />
+      )}
 
       {/* Disposition Modal for direct resolution from Command Center */}
       {targetDispositionRecord && run_id && (

@@ -63,6 +63,7 @@ from app.routers.billing import masters as billing_masters_router
 from app.routers.billing import invoices as billing_invoices_router
 from app.routers.billing import irp as billing_irp_router
 from app.routers.billing import cdn as billing_cdn_router
+from app.routers import work_items as work_items_router
 from app.utils.rate_limit import limiter
 
 
@@ -542,6 +543,11 @@ app.include_router(
     einvoice_recon_router,
     prefix="/api/einvoice-recon",
     tags=["E-Invoice Recon"],
+)
+app.include_router(
+    work_items_router.router,
+    prefix="/api",
+    tags=["ITC Work Items"],
 )
 app.include_router(
     filing_router,

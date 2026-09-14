@@ -181,128 +181,223 @@ def get_itc_command_center_data(
             if d_code in ("HELD_GOODS_NOT_RECEIVED", "HOLD", "GOODS_IN_TRANSIT") or r.match_status == "HOLD":
                 on_hold_itc_paise += int(r.amount or 0)
 
-    # 5. Formulate Prioritized Work Items
+    # 5. Formulate Prioritized Work Items (Check persistent itc_work_items first)
     work_items: list[dict[str, Any]] = []
+    persisted_rows: list[dict[str, Any]] = []
 
-    for r in all_outcomes:
-        rec_id = r.id
-        # Skip matched invoices with 0 diff and 0 flags (not an exception)
-        is_clean_match = (
-            r.category == "matched"
-            and not r.rule37_flag
-            and not r.rule37a_flag
-            and not r.blocked_credit_flag
-            and not r.late_filing_flag
-            and r.total_tax_diff_paise == 0
-        )
-        if is_clean_match:
-            continue
+    if target_run and run_id:
+        try:
+            persisted_res = (
+                sb.table("itc_work_items")
+                .select("*")
+                .eq("run_id", run_id)
+                .execute()
+            )
+            persisted_rows = persisted_res.data or []
+            if not persisted_rows and all_outcomes:
+                from app.services.itc_work_item_service import sync_work_items_for_run
+                sync_work_items_for_run(sb, client_id, run_id, user_id=user_id)
+                persisted_res = (
+                    sb.table("itc_work_items")
+                    .select("*")
+                    .eq("run_id", run_id)
+                    .execute()
+                )
+                persisted_rows = persisted_res.data or []
+        except Exception:
+            _log.warning("itc_work_items table lookup failed; fallback to outcome mapping", exc_info=True)
 
-        # Classify Exception Type
-        ex_type = "OTHER"
-        if r.category == "missed_itc" or rec_id.startswith("pr:"):
-            ex_type = "MISSING_2B"
-        elif r.category in ("wrongful_risk", "unmatched_gstr") or rec_id.startswith("gstr:"):
-            ex_type = "2B_ONLY"
-        elif r.blocked_credit_flag or r.category == "blocked_credit" or "17(5)" in (r.itc_reason or ""):
-            ex_type = "SEC_17_5"
-        elif r.rule37_flag or r.category == "rule37_warnings":
-            ex_type = "RULE_37"
-        elif r.rule37a_flag or r.match_status == "RULE37A":
-            ex_type = "RULE_37A"
-        elif r.category == "gstin_mismatch":
-            ex_type = "GSTIN_MISMATCH"
-        elif abs(r.total_tax_diff_paise) > 0:
-            ex_type = "VALUE_MISMATCH"
-        elif r.category == "duplicate_entry" or rec_id.startswith("de:"):
-            ex_type = "DUPLICATE"
-        elif r.itc_available is False or "16(4)" in (r.itc_reason or ""):
-            ex_type = "TIME_BARRED_16_4"
+    if persisted_rows:
+        # Load user profiles for assignees
+        assignee_ids = {str(r["assigned_to"]) for r in persisted_rows if r.get("assigned_to")}
+        user_names: dict[str, str] = {}
+        if assignee_ids:
+            try:
+                prof_res = (
+                    sb.table("user_profiles")
+                    .select("id, full_name, email")
+                    .in_("id", list(assignee_ids))
+                    .execute()
+                )
+                for prf in (prof_res.data or []):
+                    uid_str = str(prf["id"])
+                    user_names[uid_str] = prf.get("full_name") or prf.get("email") or "Staff"
+            except Exception:
+                pass
 
-        is_blocking = rec_id in blocking_record_ids
+        for p_row in persisted_rows:
+            wid = str(p_row.get("id"))
+            rec_id = str(p_row.get("record_id"))
+            ex_type = str(p_row.get("exception_type"))
+            prio = str(p_row.get("priority") or "MEDIUM")
+            status_val = str(p_row.get("status") or "OPEN")
+            tax_paise = int(p_row.get("itc_amount_at_stake_paise") or 0)
+            is_blocking = bool(p_row.get("is_blocking"))
 
-        # Compute ITC Impact
-        impact_paise = abs(r.amount or r.total_tax_diff_paise or 0)
+            # Calculate priority score
+            prio_score = 1000 if is_blocking else (
+                500 if prio == "CRITICAL" else (
+                    250 if prio == "HIGH" else (100 if prio == "MEDIUM" else 50)
+                )
+            )
 
-        # Compute Operational Priority Score
-        priority_score = 0
-        if is_blocking:
-            priority_score += 1000
-        if impact_paise >= 100_000_00:  # >= ₹1,00,000
-            priority_score += 300
-        elif impact_paise >= 25_000_00:  # >= ₹25,000
-            priority_score += 150
-        elif impact_paise >= 5_000_00:   # >= ₹5,000
-            priority_score += 50
+            # SLA
+            sla_val = str(p_row.get("sla_status") or "NO_DUE_DATE")
+            due_str = p_row.get("due_at")
+            if due_str:
+                try:
+                    d_dt = datetime.fromisoformat(due_str.replace("Z", "+00:00"))
+                    from app.services.itc_work_item_service import compute_sla_status
+                    sla_val = compute_sla_status(d_dt)
+                except Exception:
+                    pass
 
-        if ex_type in ("SEC_17_5", "RULE_37", "RULE_37A"):
-            priority_score += 200
-        elif ex_type == "MISSING_2B":
-            priority_score += 100
-        elif ex_type == "2B_ONLY":
-            priority_score += 75
+            aid = str(p_row.get("assigned_to") or "")
+            age_days = _calculate_age_days(p_row.get("invoice_date"))
 
-        # Priority Bucket
-        if priority_score >= 500:
-            priority = "CRITICAL"
-        elif priority_score >= 250:
-            priority = "HIGH"
-        elif priority_score >= 100:
-            priority = "MEDIUM"
-        else:
-            priority = "LOW"
+            work_items.append({
+                "id": wid,
+                "work_item_id": wid,
+                "run_id": run_id,
+                "record_id": rec_id,
+                "exception_type": ex_type,
+                "priority": prio,
+                "system_priority": p_row.get("system_priority") or prio,
+                "manual_priority": p_row.get("manual_priority"),
+                "priority_override_reason": p_row.get("priority_override_reason"),
+                "priority_score": prio_score,
+                "supplier_name": p_row.get("vendor_name") or "—",
+                "supplier_gstin": p_row.get("vendor_gstin") or "—",
+                "invoice_number": p_row.get("invoice_number") or "—",
+                "invoice_date": p_row.get("invoice_date"),
+                "itc_impact": float(p_row.get("itc_amount_at_stake") or paise_to_rupees(tax_paise)),
+                "itc_impact_paise": tax_paise,
+                "age_days": age_days,
+                "what": p_row.get("what") or "",
+                "why": p_row.get("why") or "",
+                "next_action": p_row.get("next_action") or "",
+                "status": status_val,
+                "is_blocking": is_blocking,
+                "assigned_to": aid or None,
+                "assigned_to_name": user_names.get(aid),
+                "due_at": due_str,
+                "sla_status": sla_val,
+                "resolution_code": p_row.get("resolution_code"),
+                "resolution_note": p_row.get("resolution_note"),
+                "resolved_at": p_row.get("resolved_at"),
+                "revalidation_status": p_row.get("revalidation_status") or "NONE",
+                "disposition": p_row.get("resolution_code"),
+                "disposition_reason": p_row.get("resolution_note"),
+                "owner": aid or client_data.get("assigned_to"),
+            })
+    else:
+        for r in all_outcomes:
+            rec_id = r.id
+            is_clean_match = (
+                r.category == "matched"
+                and not r.rule37_flag
+                and not r.rule37a_flag
+                and not r.blocked_credit_flag
+                and not r.late_filing_flag
+                and r.total_tax_diff_paise == 0
+            )
+            if is_clean_match:
+                continue
 
-        # Resolve Existing Disposition
-        disp_entry = dispositions.get(f"{rec_id}:{ex_type}") or dispositions.get(rec_id)
-        is_resolved = bool(disp_entry)
-        disposition_label = str(disp_entry.get("disposition") or "") if disp_entry else None
-        disposition_reason = str(disp_entry.get("reason") or "") if disp_entry else None
+            ex_type = "OTHER"
+            if r.category == "missed_itc" or rec_id.startswith("pr:"):
+                ex_type = "MISSING_2B"
+            elif r.category in ("wrongful_risk", "unmatched_gstr") or rec_id.startswith("gstr:"):
+                ex_type = "2B_ONLY"
+            elif r.blocked_credit_flag or r.category == "blocked_credit" or "17(5)" in (r.itc_reason or ""):
+                ex_type = "SEC_17_5"
+            elif r.rule37_flag or r.category == "rule37_warnings":
+                ex_type = "RULE_37"
+            elif r.rule37a_flag or r.match_status == "RULE37A":
+                ex_type = "RULE_37A"
+            elif r.category == "gstin_mismatch":
+                ex_type = "GSTIN_MISMATCH"
+            elif abs(r.total_tax_diff_paise) > 0:
+                ex_type = "VALUE_MISMATCH"
+            elif r.category == "duplicate_entry" or rec_id.startswith("de:"):
+                ex_type = "DUPLICATE"
+            elif r.itc_available is False or "16(4)" in (r.itc_reason or ""):
+                ex_type = "TIME_BARRED_16_4"
 
-        # Work Item Status
-        if is_resolved:
-            status_label = "RESOLVED"
-        elif is_blocking:
-            status_label = "ACTION_REQUIRED"
-        elif ex_type == "MISSING_2B":
-            status_label = "AWAITING_VENDOR"
-        else:
-            status_label = "OPEN"
+            is_blocking = rec_id in blocking_record_ids
+            impact_paise = abs(r.amount or r.total_tax_diff_paise or 0)
+            priority_score = 0
+            if is_blocking:
+                priority_score += 1000
+            if impact_paise >= 100_000_00:
+                priority_score += 300
+            elif impact_paise >= 25_000_00:
+                priority_score += 150
+            elif impact_paise >= 5_000_00:
+                priority_score += 50
 
-        # Age Calculation
-        age_days = _calculate_age_days(r.invoice_date)
+            if ex_type in ("SEC_17_5", "RULE_37", "RULE_37A"):
+                priority_score += 200
+            elif ex_type == "MISSING_2B":
+                priority_score += 100
+            elif ex_type == "2B_ONLY":
+                priority_score += 75
 
-        # WHAT / WHY / NEXT
-        what_text = r.decision_what or f"{ex_type.replace('_', ' ')} detected on invoice {r.invoice_number or '—'}"
-        why_text = r.decision_why or (
-            f"Tax discrepancy of ₹{impact_paise / 100:,.2f} identified between books and GSTR-2B data."
-        )
-        next_text = r.decision_next or (
-            "Review invoice documentation and record CA audit disposition."
-        )
+            if priority_score >= 500:
+                priority = "CRITICAL"
+            elif priority_score >= 250:
+                priority = "HIGH"
+            elif priority_score >= 100:
+                priority = "MEDIUM"
+            else:
+                priority = "LOW"
 
-        work_items.append({
-            "work_item_id": f"wi:{run_id}:{rec_id}:{ex_type}",
-            "run_id": run_id,
-            "record_id": rec_id,
-            "exception_type": ex_type,
-            "priority": priority,
-            "priority_score": priority_score,
-            "supplier_name": r.supplier_name or "—",
-            "supplier_gstin": r.supplier_gstin or "—",
-            "invoice_number": r.invoice_number or "—",
-            "invoice_date": r.invoice_date,
-            "itc_impact": paise_to_rupees(impact_paise),
-            "itc_impact_paise": impact_paise,
-            "age_days": age_days,
-            "what": what_text,
-            "why": why_text,
-            "next_action": next_text,
-            "status": status_label,
-            "is_blocking": is_blocking,
-            "disposition": disposition_label,
-            "disposition_reason": disposition_reason,
-            "owner": client_data.get("assigned_to"),
-        })
+            disp_entry = dispositions.get(f"{rec_id}:{ex_type}") or dispositions.get(rec_id)
+            is_resolved = bool(disp_entry)
+            disposition_label = str(disp_entry.get("disposition") or "") if disp_entry else None
+            disposition_reason = str(disp_entry.get("reason") or "") if disp_entry else None
+
+            if is_resolved:
+                status_label = "RESOLVED"
+            elif is_blocking:
+                status_label = "ACTION_REQUIRED"
+            elif ex_type == "MISSING_2B":
+                status_label = "AWAITING_VENDOR"
+            else:
+                status_label = "OPEN"
+
+            age_days = _calculate_age_days(r.invoice_date)
+            what_text = r.decision_what or f"{ex_type.replace('_', ' ')} detected on invoice {r.invoice_number or '—'}"
+            why_text = r.decision_why or (
+                f"Tax discrepancy of ₹{impact_paise / 100:,.2f} identified between books and GSTR-2B data."
+            )
+            next_text = r.decision_next or (
+                "Review invoice documentation and record CA audit disposition."
+            )
+
+            work_items.append({
+                "work_item_id": f"wi:{run_id}:{rec_id}:{ex_type}",
+                "run_id": run_id,
+                "record_id": rec_id,
+                "exception_type": ex_type,
+                "priority": priority,
+                "priority_score": priority_score,
+                "supplier_name": r.supplier_name or "—",
+                "supplier_gstin": r.supplier_gstin or "—",
+                "invoice_number": r.invoice_number or "—",
+                "invoice_date": r.invoice_date,
+                "itc_impact": paise_to_rupees(impact_paise),
+                "itc_impact_paise": impact_paise,
+                "age_days": age_days,
+                "what": what_text,
+                "why": why_text,
+                "next_action": next_text,
+                "status": status_label,
+                "is_blocking": is_blocking,
+                "disposition": disposition_label,
+                "disposition_reason": disposition_reason,
+                "owner": client_data.get("assigned_to"),
+            })
 
     # Sort work items: blockers & high priority first, then descending impact
     work_items.sort(key=lambda x: (x["priority_score"], x["itc_impact_paise"]), reverse=True)
