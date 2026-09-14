@@ -11,6 +11,15 @@ import {
   ItcWorkItem,
   ItcWorkItemEvent,
 } from "@/lib/api";
+import {
+  fetchWorkItemVendorProfile,
+  fetchWorkItemFollowupHistory,
+  scheduleWorkItemFollowup,
+  WorkItemVendorProfile,
+  FollowupLog,
+} from "@/lib/vendorFollowupApi";
+import VendorCommunicationModal from "@/components/clients/VendorCommunicationModal";
+import RecordVendorResponseModal from "@/components/clients/RecordVendorResponseModal";
 
 interface ItcWorkItemDetailDrawerProps {
   workItem: ItcWorkItem | null;
@@ -31,7 +40,7 @@ export function ItcWorkItemDetailDrawer({
   onClose,
   onUpdated,
 }: ItcWorkItemDetailDrawerProps) {
-  const [activeTab, setActiveTab] = useState<"overview" | "timeline">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "vendor" | "timeline">("overview");
   const [newNote, setNewNote] = useState("");
   const [isSubmittingNote, setIsSubmittingNote] = useState(false);
 
@@ -72,6 +81,14 @@ export function ItcWorkItemDetailDrawer({
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Phase 5.3: Vendor Resolution modals and state
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [isResponseModalOpen, setIsResponseModalOpen] = useState(false);
+  const [isScheduleFollowupOpen, setIsScheduleFollowupOpen] = useState(false);
+  const [followupDateInput, setFollowupDateInput] = useState("");
+  const [followupNoteInput, setFollowupNoteInput] = useState("");
+  const [isSchedulingFollowup, setIsSchedulingFollowup] = useState(false);
+
   // Fetch live item with events timeline
   const { data: itemData, mutate: mutateItem } = useSWR<ItcWorkItem & { events: ItcWorkItemEvent[] }>(
     workItem?.id && authToken ? [`work-item`, workItem.id] : null,
@@ -83,6 +100,25 @@ export function ItcWorkItemDetailDrawer({
   const { data: teamMembers } = useSWR<TeamMemberListItem[]>(
     authToken ? ["team-members-assign", authToken] : null,
     () => teamApi.list(authToken, { includeOwner: true }),
+    { refreshInterval: 0 }
+  );
+
+  // Phase 5.3: Fetch Vendor Compliance Profile
+  const { data: vendorProfile, mutate: mutateVendorProfile } = useSWR<WorkItemVendorProfile>(
+    workItem?.id && authToken ? ["work-item-vendor-profile", workItem.id] : null,
+    () => fetchWorkItemVendorProfile(workItem!.id!, authToken),
+    { refreshInterval: 0 }
+  );
+
+  // Phase 5.3: Fetch Work Item Communication History
+  const { data: followupHistoryData, mutate: mutateFollowups } = useSWR<{
+    work_item_id: string;
+    client_gstin_id: string;
+    total_logs: number;
+    logs: FollowupLog[];
+  }>(
+    workItem?.id && authToken ? ["work-item-followup-history", workItem.id] : null,
+    () => fetchWorkItemFollowupHistory(workItem!.id!, authToken),
     { refreshInterval: 0 }
   );
 
@@ -102,6 +138,34 @@ export function ItcWorkItemDetailDrawer({
 
   const isCA = currentUserRole === "admin" || currentUserRole === "owner";
   const events = itemData?.events || [];
+  const followups = followupHistoryData?.logs || [];
+
+  const handleScheduleFollowup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!item.id || !followupDateInput) return;
+    setIsSchedulingFollowup(true);
+    setActionError(null);
+    try {
+      await scheduleWorkItemFollowup(
+        item.id,
+        {
+          due_at: followupDateInput,
+          note: followupNoteInput.trim() || undefined,
+        },
+        authToken
+      );
+      setIsScheduleFollowupOpen(false);
+      setFollowupDateInput("");
+      setFollowupNoteInput("");
+      mutateItem();
+      onUpdated();
+      setActionMessage("Next follow-up scheduled and logged to timeline.");
+    } catch (err: any) {
+      setActionError(err.detail || err.message || "Failed to schedule follow-up.");
+    } finally {
+      setIsSchedulingFollowup(false);
+    }
+  };
 
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -425,6 +489,29 @@ export function ItcWorkItemDetailDrawer({
               Overview & Guidance
             </button>
             <button
+              onClick={() => setActiveTab("vendor")}
+              className={`py-2.5 px-3 text-[12.5px] font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+                activeTab === "vendor"
+                  ? "border-black text-black font-semibold"
+                  : "border-transparent text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              <span>Vendor Resolution</span>
+              {vendorProfile && (
+                <span
+                  className={`rounded-full px-1.5 py-0.2 text-[10px] font-semibold border ${
+                    vendorProfile.risk_tier === "CRITICAL_RISK"
+                      ? "bg-rose-100 text-rose-800 border-rose-200"
+                      : vendorProfile.risk_tier === "HIGH_RISK"
+                      ? "bg-orange-100 text-orange-800 border-orange-200"
+                      : "bg-emerald-100 text-emerald-800 border-emerald-200"
+                  }`}
+                >
+                  {vendorProfile.risk_score}/100
+                </span>
+              )}
+            </button>
+            <button
               onClick={() => setActiveTab("timeline")}
               className={`py-2.5 px-3 text-[12.5px] font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
                 activeTab === "timeline"
@@ -663,6 +750,205 @@ export function ItcWorkItemDetailDrawer({
                   </div>
                 </div>
               </>
+            ) : activeTab === "vendor" ? (
+              /* Vendor Resolution Tab */
+              <div className="space-y-6">
+                {/* Vendor Profile Card */}
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-4">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h4 className="text-[14px] font-semibold text-gray-900">
+                        {vendorProfile?.vendor_name || item.supplier_name || item.vendor_name || item.supplier_gstin || "Unknown Vendor"}
+                      </h4>
+                      <p className="text-[12px] font-mono text-gray-500 mt-0.5">
+                        GSTIN: {item.supplier_gstin || item.vendor_gstin || "—"}
+                      </p>
+                    </div>
+
+                    {vendorProfile && (
+                      <div className="text-right">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                            vendorProfile.risk_tier === "CRITICAL_RISK"
+                              ? "bg-rose-50 text-rose-700 border-rose-200"
+                              : vendorProfile.risk_tier === "HIGH_RISK"
+                              ? "bg-orange-50 text-orange-700 border-orange-200"
+                              : vendorProfile.risk_tier === "MEDIUM_RISK"
+                              ? "bg-amber-50 text-amber-700 border-amber-200"
+                              : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          }`}
+                        >
+                          {vendorProfile.risk_tier.replace(/_/g, " ")} • {vendorProfile.risk_score}/100
+                        </span>
+                        <span className="block text-[10.5px] text-gray-400 mt-0.5">Compliance Risk</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Vendor Scorecard Metrics Grid */}
+                  <div className="grid grid-cols-3 gap-2.5 pt-2 border-t border-gray-100 text-[11.5px]">
+                    <div className="p-2 bg-gray-50 rounded-lg">
+                      <span className="text-gray-400 block text-[10.5px]">Total Invoices</span>
+                      <span className="font-semibold text-gray-900">
+                        {vendorProfile?.total_invoices ?? "—"}
+                      </span>
+                    </div>
+
+                    <div className="p-2 bg-gray-50 rounded-lg">
+                      <span className="text-gray-400 block text-[10.5px]">Mismatches</span>
+                      <span className="font-semibold text-gray-900">
+                        {vendorProfile?.mismatch_count ?? 0} (
+                        {vendorProfile?.mismatch_rate ? (vendorProfile.mismatch_rate * 100).toFixed(0) : 0}%)
+                      </span>
+                    </div>
+
+                    <div className="p-2 bg-gray-50 rounded-lg">
+                      <span className="text-gray-400 block text-[10.5px]">Rule 37 Overdue</span>
+                      <span className="font-semibold text-gray-900">
+                        {vendorProfile?.rule37_open_count ?? 0} ({formatINR(vendorProfile?.rule37_at_risk ?? 0)})
+                      </span>
+                    </div>
+
+                    <div className="p-2 bg-gray-50 rounded-lg">
+                      <span className="text-gray-400 block text-[10.5px]">Late Filings</span>
+                      <span className="font-semibold text-gray-900">
+                        {vendorProfile?.late_filing_count ?? 0}
+                      </span>
+                    </div>
+
+                    <div className="p-2 bg-gray-50 rounded-lg">
+                      <span className="text-gray-400 block text-[10.5px]">Open Work Items</span>
+                      <span className="font-semibold text-indigo-700">
+                        {vendorProfile?.open_work_item_count ?? 1} items
+                      </span>
+                    </div>
+
+                    <div className="p-2 bg-gray-50 rounded-lg">
+                      <span className="text-gray-400 block text-[10.5px]">Total ITC at Stake</span>
+                      <span className="font-semibold text-rose-700">
+                        {formatINR(vendorProfile?.itc_at_stake ?? item.itc_impact)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Resolution Action Toolbar */}
+                <div className="space-y-2">
+                  <h4 className="text-[12px] font-semibold text-gray-700 uppercase tracking-wider">
+                    Vendor Resolution Actions
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsContactModalOpen(true)}
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-indigo-200 bg-indigo-50/50 text-indigo-800 text-[12px] font-semibold hover:bg-indigo-100/70 transition-colors shadow-sm"
+                    >
+                      <span>💬</span> Contact Vendor (1-Click)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsResponseModalOpen(true)}
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-emerald-200 bg-emerald-50/50 text-emerald-800 text-[12px] font-semibold hover:bg-emerald-100/70 transition-colors shadow-sm"
+                    >
+                      <span>📝</span> Record Vendor Response
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsScheduleFollowupOpen(true)}
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-white text-gray-800 text-[12px] font-medium hover:bg-gray-50 transition-colors"
+                    >
+                      <span>📅</span> Schedule Follow-up SLA
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleRevalidate}
+                      disabled={isRevalidating}
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-white text-gray-800 text-[12px] font-medium hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                    >
+                      <span>🔄</span> {isRevalidating ? "Registering…" : "Request Revalidation"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Communication & Follow-up History */}
+                <div className="border-t border-gray-200 pt-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[12px] font-semibold text-gray-700 uppercase tracking-wider">
+                      Work Item Communication History
+                    </h4>
+                    <span className="text-[11px] text-gray-400">
+                      {followups.length} dispatch{followups.length === 1 ? "" : "es"}
+                    </span>
+                  </div>
+
+                  {followups.length === 0 ? (
+                    <div className="p-4 border border-dashed border-gray-200 rounded-lg text-center">
+                      <p className="text-[12px] text-gray-400">
+                        No communications dispatched yet for this work item.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setIsContactModalOpen(true)}
+                        className="mt-2 inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-800"
+                      >
+                        Contact Vendor via WhatsApp or Email →
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {followups.map((log) => (
+                        <div
+                          key={log.id}
+                          className="border border-gray-200 rounded-lg p-3 bg-gray-50/50 space-y-1.5 text-[12px]"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10.5px] font-bold ${
+                                  log.channel === "WHATSAPP"
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : "bg-indigo-100 text-indigo-800"
+                                }`}
+                              >
+                                {log.channel}
+                              </span>
+                              <span className="font-medium text-gray-800">
+                                {log.template_type.replace(/_/g, " ")}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-gray-400">
+                              {new Date(log.dispatched_at).toLocaleString("en-IN", {
+                                day: "numeric",
+                                month: "short",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </div>
+
+                          <div className="text-[11.5px] text-gray-500 flex items-center justify-between">
+                            <span>
+                              To: {log.vendor_email || log.vendor_phone || log.supplier_name || log.supplier_gstin}
+                            </span>
+                            <span className="font-semibold text-gray-700">
+                              {formatINR(log.at_risk_itc_rupees)}
+                            </span>
+                          </div>
+
+                          {log.message_body && (
+                            <p className="text-[11px] text-gray-600 bg-white border border-gray-100 rounded p-2 line-clamp-3 whitespace-pre-wrap font-mono">
+                              {log.message_body}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             ) : (
               /* Timeline Tab */
               <div className="space-y-6">
@@ -703,7 +989,17 @@ export function ItcWorkItemDetailDrawer({
                     <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200">
                       {events.map((ev) => (
                         <div key={ev.id} className="relative text-[12px]">
-                          <div className="absolute -left-6 top-1 h-3.5 w-3.5 rounded-full border-2 border-white bg-black shadow-sm" />
+                          <div
+                            className={`absolute -left-6 top-1 h-3.5 w-3.5 rounded-full border-2 border-white shadow-sm ${
+                              ev.event_type === "COMMUNICATION_DISPATCHED"
+                                ? "bg-indigo-600"
+                                : ev.event_type === "VENDOR_RESPONSE_RECORDED"
+                                ? "bg-emerald-600"
+                                : ev.event_type === "FOLLOWUP_SCHEDULED"
+                                ? "bg-amber-600"
+                                : "bg-black"
+                            }`}
+                          />
                           <div className="flex items-center justify-between">
                             <span className="font-semibold text-gray-900">
                               {ev.event_type.replace(/_/g, " ")}
@@ -721,6 +1017,33 @@ export function ItcWorkItemDetailDrawer({
                             By <span className="font-medium text-gray-800">{ev.actor_name || "System"}</span> (
                             {ev.actor_role || "system"})
                           </p>
+
+                          {/* Event Metadata Pills */}
+                          {ev.metadata && Object.keys(ev.metadata).length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1 text-[10.5px]">
+                              {ev.metadata.channel && (
+                                <span className="rounded bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 text-indigo-700 font-medium">
+                                  {ev.metadata.channel}
+                                </span>
+                              )}
+                              {ev.metadata.template_type && (
+                                <span className="rounded bg-gray-100 border border-gray-200 px-1.5 py-0.5 text-gray-700 font-mono">
+                                  {ev.metadata.template_type}
+                                </span>
+                              )}
+                              {ev.metadata.response_category && (
+                                <span className="rounded bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-emerald-800 font-medium">
+                                  Category: {ev.metadata.response_category}
+                                </span>
+                              )}
+                              {ev.metadata.promised_date && (
+                                <span className="rounded bg-amber-50 border border-amber-200 px-1.5 py-0.5 text-amber-800">
+                                  Promised: {ev.metadata.promised_date}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
                           {ev.note && (
                             <p className="mt-1.5 text-gray-800 bg-gray-50 border border-gray-100 rounded-lg p-2 leading-relaxed">
                               {ev.note}
@@ -976,6 +1299,96 @@ export function ItcWorkItemDetailDrawer({
           </div>
         </div>
       )}
+
+      {/* Schedule Followup Modal */}
+      {isScheduleFollowupOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
+            <h3 className="text-[15px] font-semibold text-gray-900">
+              Schedule Next Follow-up
+            </h3>
+            <p className="text-[12px] text-gray-500">
+              Set the next operational follow-up date and audit note for vendor engagement.
+            </p>
+            <form onSubmit={handleScheduleFollowup} className="space-y-3">
+              <div>
+                <label className="block text-[11.5px] text-gray-500 mb-1">
+                  Target Due / Follow-up Date (Required)
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={followupDateInput}
+                  onChange={(e) => setFollowupDateInput(e.target.value)}
+                  className="w-full rounded-lg border border-gray-200 p-2 text-[12px] focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[11.5px] text-gray-500 mb-1">
+                  Follow-up Plan Note
+                </label>
+                <textarea
+                  rows={2}
+                  value={followupNoteInput}
+                  onChange={(e) => setFollowupNoteInput(e.target.value)}
+                  placeholder="E.g., Call vendor accounts desk if GSTR-1 not filed by 11th."
+                  className="w-full rounded-lg border border-gray-200 p-2.5 text-[12px] focus:outline-none"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsScheduleFollowupOpen(false)}
+                  className="rounded-lg px-3 py-1.5 text-[12px] text-gray-600 hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSchedulingFollowup || !followupDateInput}
+                  className="rounded-lg bg-indigo-600 px-4 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {isSchedulingFollowup ? "Scheduling…" : "Save Follow-up"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Contact Vendor Modal (WhatsApp / Email) */}
+      <VendorCommunicationModal
+        isOpen={isContactModalOpen}
+        onClose={() => setIsContactModalOpen(false)}
+        onDispatched={() => {
+          mutateItem();
+          mutateFollowups();
+          onUpdated();
+        }}
+        clientId={clientId}
+        workItemId={item.id!}
+        vendorGstin={item.supplier_gstin || item.vendor_gstin || ""}
+        vendorName={item.supplier_name || item.vendor_name || ""}
+        atRiskItcRupees={item.itc_impact ?? item.itc_amount_at_stake ?? 0}
+        token={authToken}
+      />
+
+      {/* Record Vendor Response Modal */}
+      <RecordVendorResponseModal
+        isOpen={isResponseModalOpen}
+        onClose={() => setIsResponseModalOpen(false)}
+        onRecorded={() => {
+          mutateItem();
+          mutateVendorProfile();
+          onUpdated();
+        }}
+        workItemId={item.id!}
+        vendorGstin={item.supplier_gstin || item.vendor_gstin || ""}
+        vendorName={item.supplier_name || item.vendor_name || ""}
+        isBlocking={item.is_blocking || false}
+        currentStatus={item.status || "OPEN"}
+        token={authToken}
+      />
     </div>
   );
 }

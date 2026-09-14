@@ -447,6 +447,9 @@ export interface ItcWorkItem {
   priority_score?: number;
   supplier_name: string;
   supplier_gstin: string;
+  vendor_name?: string | null;
+  vendor_gstin?: string | null;
+  itc_amount_at_stake?: number;
   invoice_number: string;
   invoice_date: string | null;
   itc_impact: number;

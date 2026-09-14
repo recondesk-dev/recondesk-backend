@@ -26,6 +26,8 @@ from app.services.gstr3b_table4_engine import (
     paise_to_rupees,
 )
 from app.services.firm_access import list_accessible_client_gstin_ids
+from app.services.normalizer import normalize_gstin
+from app.services.supplier_compliance_scorecard import compute_risk_tier
 
 _log = logging.getLogger(__name__)
 
@@ -89,7 +91,7 @@ REVALIDATION_QUALIFYING_CODES = {
 # Centralized Lifecycle State Transition Matrix
 # Mapping of current_status -> set of allowed target_statuses
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-    STATUS_OPEN: {STATUS_TRIAGED, STATUS_ASSIGNED, STATUS_DISMISSED, STATUS_NOT_ACTIONABLE, STATUS_IN_PROGRESS},
+    STATUS_OPEN: {STATUS_TRIAGED, STATUS_ASSIGNED, STATUS_DISMISSED, STATUS_NOT_ACTIONABLE, STATUS_IN_PROGRESS, STATUS_WAITING_VENDOR, STATUS_READY_FOR_REVIEW},
     STATUS_TRIAGED: {STATUS_ASSIGNED, STATUS_IN_PROGRESS, STATUS_DISMISSED, STATUS_NOT_ACTIONABLE},
     STATUS_ASSIGNED: {STATUS_IN_PROGRESS, STATUS_WAITING_VENDOR, STATUS_DISMISSED, STATUS_NOT_ACTIONABLE, STATUS_READY_FOR_REVIEW},
     STATUS_IN_PROGRESS: {STATUS_WAITING_VENDOR, STATUS_READY_FOR_REVIEW, STATUS_RESOLVED, STATUS_DISMISSED, STATUS_NOT_ACTIONABLE},
@@ -150,6 +152,25 @@ def compute_sla_status(due_at: Optional[datetime]) -> str:
     if due_at - now <= timedelta(hours=48):
         return "DUE_SOON"
     return "ON_TRACK"
+
+
+def _parse_iso_datetime(val: Optional[str]) -> Optional[datetime]:
+    """Parse ISO datetime or YYYY-MM-DD string into timezone-aware datetime."""
+    if not val:
+        return None
+    s = str(val).strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        try:
+            from datetime import date
+            d = date.fromisoformat(s)
+            return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=timezone.utc)
+        except Exception:
+            return None
 
 
 def _record_event(
@@ -1099,3 +1120,228 @@ set_due_date = set_work_item_due_date
 add_note = add_work_item_note
 reopen_item = reopen_work_item
 dismiss_item = dismiss_work_item
+
+
+# Phase 5.3: Vendor Resolution & Communication
+VALID_VENDOR_RESPONSE_CATEGORIES = frozenset({
+    "WILL_FILE_NEXT_PERIOD",
+    "INVOICE_AMENDED",
+    "DOCUMENT_PROVIDED",
+    "DISPUTED",
+    "NO_SUCH_INVOICE",
+    "OTHER",
+})
+
+
+def record_vendor_response(
+    sb: Client,
+    work_item_id: str,
+    response_data: dict[str, Any],
+    current_user: dict[str, Any],
+) -> dict[str, Any]:
+    """Record a structured vendor response into itc_work_item_events and update work item status."""
+    category = str(response_data.get("response_category") or "").strip().upper()
+    if category not in VALID_VENDOR_RESPONSE_CATEGORIES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid response category: '{category}'. Must be one of {sorted(VALID_VENDOR_RESPONSE_CATEGORIES)}",
+        )
+
+    item = get_work_item(sb, work_item_id, current_user)
+    current_status = str(item.get("status") or STATUS_OPEN)
+    uid = str(current_user.get("id", ""))
+    user_name = current_user.get("full_name") or current_user.get("email") or "User"
+    user_role = str(current_user.get("role") or "staff").lower()
+    is_blocking = bool(item.get("is_blocking"))
+
+    # Determine target status according to Phase 5.3 semantics
+    requested_status = response_data.get("target_status")
+    if requested_status:
+        target_status = str(requested_status).strip().upper()
+        # Maker-checker invariant: Staff cannot directly mark a blocking item as RESOLVED
+        if target_status == STATUS_RESOLVED and is_blocking and user_role not in ("admin", "owner"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Staff cannot resolve a blocking exception based on vendor response. Submit to READY_FOR_REVIEW for CA sign-off.",
+            )
+        allowed, err_msg = can_transition(current_status, target_status, user_role, is_blocking=is_blocking)
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=err_msg or f"Transition from {current_status} to {target_status} not permitted.",
+            )
+    elif category == "WILL_FILE_NEXT_PERIOD":
+        target_status = STATUS_WAITING_VENDOR
+    elif category == "INVOICE_AMENDED":
+        target_status = STATUS_WAITING_VENDOR if current_status == STATUS_WAITING_VENDOR else STATUS_IN_PROGRESS
+    elif category == "DOCUMENT_PROVIDED":
+        target_status = STATUS_READY_FOR_REVIEW if not is_blocking else STATUS_IN_PROGRESS
+    elif category in ("DISPUTED", "NO_SUCH_INVOICE", "OTHER"):
+        target_status = STATUS_IN_PROGRESS
+    else:
+        target_status = current_status
+
+    if not requested_status:
+        allowed, _ = can_transition(current_status, target_status, user_role, is_blocking=is_blocking)
+        if not allowed:
+            target_status = current_status
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    updates: dict[str, Any] = {
+        "updated_at": now_iso,
+        "updated_by": uid,
+    }
+
+    if target_status != current_status:
+        updates["status"] = target_status
+
+    # Update due date / follow-up if promised_date or due_at is provided
+    promised_date = response_data.get("promised_date") or response_data.get("due_at")
+    if promised_date:
+        parsed_due = _parse_iso_datetime(promised_date) if isinstance(promised_date, str) else promised_date
+        updates["due_at"] = parsed_due.isoformat() if parsed_due else None
+        updates["sla_status"] = compute_sla_status(parsed_due)
+
+    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+
+    # Record immutable VENDOR_RESPONSE_RECORDED event
+    metadata = {
+        "response_category": category,
+        "contact_channel": response_data.get("contact_channel"),
+        "contact_person": response_data.get("contact_person"),
+        "promised_date": str(promised_date) if promised_date else None,
+        "evidence_storage_key": response_data.get("evidence_storage_key"),
+        "evidence_filename": response_data.get("evidence_filename"),
+    }
+    notes = response_data.get("notes") or response_data.get("note") or f"Vendor response recorded: {category}."
+
+    _record_event(
+        sb,
+        work_item_id,
+        "VENDOR_RESPONSE_RECORDED",
+        from_status=current_status,
+        to_status=target_status,
+        actor_id=uid,
+        actor_role=user_role,
+        actor_name=user_name,
+        note=notes,
+        metadata=metadata,
+    )
+
+    return get_work_item(sb, work_item_id, current_user)
+
+
+def schedule_work_item_followup(
+    sb: Client,
+    work_item_id: str,
+    due_at_str: Optional[str],
+    note_text: Optional[str],
+    current_user: dict[str, Any],
+) -> dict[str, Any]:
+    """Schedule follow-up due date and record FOLLOWUP_SCHEDULED event."""
+    item = get_work_item(sb, work_item_id, current_user)
+    uid = str(current_user.get("id", ""))
+    user_name = current_user.get("full_name") or current_user.get("email") or "User"
+    user_role = str(current_user.get("role") or "staff").lower()
+
+    parsed_due = _parse_iso_datetime(due_at_str) if due_at_str else None
+    sla = compute_sla_status(parsed_due)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    updates = {
+        "due_at": parsed_due.isoformat() if parsed_due else None,
+        "sla_status": sla,
+        "updated_at": now_iso,
+        "updated_by": uid,
+    }
+    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+
+    _record_event(
+        sb,
+        work_item_id,
+        "FOLLOWUP_SCHEDULED",
+        actor_id=uid,
+        actor_role=user_role,
+        actor_name=user_name,
+        note=note_text or f"Follow-up scheduled for {due_at_str or 'None'}.",
+        metadata={"due_at": due_at_str, "sla_status": sla},
+    )
+    return get_work_item(sb, work_item_id, current_user)
+
+
+def get_work_item_vendor_profile(
+    sb: Client,
+    work_item_id: str,
+    current_user: dict[str, Any],
+) -> dict[str, Any]:
+    """Fetch vendor compliance scorecard metrics and open work items summary for a work item."""
+    item = get_work_item(sb, work_item_id, current_user)
+    client_id = str(item.get("client_gstin_id") or "")
+    firm_id = str(item.get("firm_owner_id") or "")
+    vendor_gstin = str(item.get("vendor_gstin") or "").strip().upper()
+    vendor_name = str(item.get("vendor_name") or "").strip()
+
+    norm_gstin = None
+    if vendor_gstin:
+        try:
+            norm_gstin = normalize_gstin(vendor_gstin)
+        except Exception:
+            norm_gstin = vendor_gstin
+
+    # 1. Fetch scorecard summary for firm & vendor
+    summary_data = {}
+    if norm_gstin and firm_id:
+        try:
+            res = (
+                sb.table("supplier_compliance_summary")
+                .select("*")
+                .eq("firm_owner_id", firm_id)
+                .eq("supplier_gstin_normalized", norm_gstin)
+                .limit(1)
+                .execute()
+            )
+            if res.data:
+                summary_data = res.data[0]
+        except Exception as exc:
+            _log.warning("Failed to query supplier_compliance_summary for %s: %s", norm_gstin, exc)
+
+    # 2. Count open work items for this vendor in this client
+    open_items_count = 0
+    total_itc_paise = 0
+    if vendor_gstin and client_id:
+        try:
+            items_res = (
+                sb.table("itc_work_items")
+                .select("id, itc_amount_at_stake_paise, status")
+                .eq("client_gstin_id", client_id)
+                .eq("vendor_gstin", vendor_gstin)
+                .execute()
+            )
+            for r in items_res.data or []:
+                st = str(r.get("status") or "")
+                if st not in (STATUS_RESOLVED, STATUS_DISMISSED, STATUS_NOT_ACTIONABLE):
+                    open_items_count += 1
+                    total_itc_paise += int(r.get("itc_amount_at_stake_paise") or 0)
+        except Exception as exc:
+            _log.warning("Failed to count open work items for %s: %s", vendor_gstin, exc)
+
+    risk_score = int(summary_data.get("risk_score") or 0)
+    tier = compute_risk_tier(risk_score)
+
+    return {
+        "work_item_id": work_item_id,
+        "vendor_gstin": vendor_gstin,
+        "vendor_name": summary_data.get("supplier_trade_name") or vendor_name or vendor_gstin,
+        "risk_score": risk_score,
+        "risk_tier": tier,
+        "total_invoices": int(summary_data.get("total_invoices") or 0),
+        "mismatch_count": int(summary_data.get("mismatch_invoice_count") or 0),
+        "mismatch_rate": float(summary_data.get("mismatch_rate") or 0.0),
+        "rule37_open_count": int(summary_data.get("rule37_open_count") or 0),
+        "rule37_at_risk": round(float(summary_data.get("rule37_at_risk_paise") or 0) / 100.0, 2),
+        "section_17_5_count": int(summary_data.get("section_17_5_count") or 0),
+        "late_filing_count": int(summary_data.get("late_filing_count") or 0),
+        "pr_only_count": int(summary_data.get("pr_only_count") or 0),
+        "open_work_item_count": open_items_count,
+        "itc_at_stake": paise_to_rupees(total_itc_paise) if total_itc_paise > 0 else float(item.get("itc_amount_at_stake") or 0),
+    }

@@ -53,6 +53,8 @@ class LogDispatchRequest(BaseModel):
     channel: str = "WHATSAPP"
     template_type: str = "POLITE_REMINDER"
     at_risk_itc_rupees: float = 0.0
+    work_item_id: Optional[str] = None
+    message_body: Optional[str] = None
 
 
 @router.get("/clients/{client_id}")
@@ -144,6 +146,8 @@ async def log_dispatch_endpoint(
             template_type=body.template_type,
             at_risk_itc_rupees=body.at_risk_itc_rupees,
             dispatched_by=user_id,
+            work_item_id=body.work_item_id,
+            message_body=body.message_body,
         )
         return logged
     except Exception as exc:
@@ -172,4 +176,44 @@ async def fetch_followup_history_endpoint(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch follow-up history: {exc}",
+        ) from exc
+
+
+@router.get("/work-items/{work_item_id}/history")
+async def fetch_work_item_followup_history_endpoint(
+    work_item_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Retrieve follow-up dispatch logs specifically linked to a work item."""
+    sb = get_supabase()
+    user_id = str(current_user.get("id") or "")
+
+    wi_res = (
+        sb.table("itc_work_items")
+        .select("id, client_gstin_id")
+        .eq("id", work_item_id)
+        .limit(1)
+        .execute()
+    )
+    if not wi_res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Work item not found",
+        )
+    client_id = str(wi_res.data[0]["client_gstin_id"])
+    _assert_client(sb, client_id, user_id)
+
+    try:
+        logs = vf_svc.get_work_item_followup_history(sb, client_id, work_item_id)
+        return {
+            "work_item_id": work_item_id,
+            "client_gstin_id": client_id,
+            "total_logs": len(logs),
+            "logs": logs,
+        }
+    except Exception as exc:
+        logger.exception("Failed to fetch work item followup history %s: %s", work_item_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch work item followup history: {exc}",
         ) from exc

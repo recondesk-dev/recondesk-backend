@@ -73,6 +73,22 @@ class BulkActionRequest(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class VendorResponseRequest(BaseModel):
+    response_category: str
+    contact_channel: Optional[str] = "PHONE"
+    contact_person: Optional[str] = None
+    promised_date: Optional[str] = None
+    notes: Optional[str] = None
+    evidence_storage_key: Optional[str] = None
+    evidence_filename: Optional[str] = None
+    target_status: Optional[str] = None
+
+
+class ScheduleFollowupRequest(BaseModel):
+    due_at: Optional[str] = None
+    note: Optional[str] = None
+
+
 def _parse_uuid(val: str, field_name: str) -> str:
     try:
         return str(UUID(str(val).strip()))
@@ -323,5 +339,56 @@ async def execute_bulk_action(
         body.action,
         body.work_item_ids,
         body.payload,
+        current_user,
+    )
+
+
+# Phase 5.3: Vendor Resolution & Communication Endpoints
+@router.post("/work-items/{work_item_id}/vendor-response")
+async def record_vendor_response_endpoint(
+    work_item_id: str,
+    body: VendorResponseRequest,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Record structured vendor response into itc_work_item_events and update work item status."""
+    wid = _parse_uuid(work_item_id, "work_item_id")
+    sb = get_supabase()
+    return wis.record_vendor_response(
+        sb,
+        wid,
+        body.model_dump(),
+        current_user,
+    )
+
+
+@router.get("/work-items/{work_item_id}/vendor-profile")
+async def get_work_item_vendor_profile_endpoint(
+    work_item_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Fetch vendor compliance scorecard metrics and open work items summary for a work item."""
+    wid = _parse_uuid(work_item_id, "work_item_id")
+    sb = get_supabase()
+    return wis.get_work_item_vendor_profile(
+        sb,
+        wid,
+        current_user,
+    )
+
+
+@router.post("/work-items/{work_item_id}/schedule-followup")
+async def schedule_work_item_followup_endpoint(
+    work_item_id: str,
+    body: ScheduleFollowupRequest,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Schedule follow-up due date for a work item."""
+    wid = _parse_uuid(work_item_id, "work_item_id")
+    sb = get_supabase()
+    return wis.schedule_work_item_followup(
+        sb,
+        wid,
+        body.due_at,
+        body.note,
         current_user,
     )

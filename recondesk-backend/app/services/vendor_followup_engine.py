@@ -34,10 +34,17 @@ def _ensure_table_exists(conn: Any) -> None:
                 status TEXT NOT NULL DEFAULT 'SENT',
                 notes TEXT,
                 dispatched_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-                dispatched_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+                dispatched_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+                work_item_id UUID REFERENCES public.itc_work_items(id) ON DELETE SET NULL,
+                message_body TEXT
             );
+            ALTER TABLE public.vendor_followup_logs
+                ADD COLUMN IF NOT EXISTS work_item_id UUID REFERENCES public.itc_work_items(id) ON DELETE SET NULL,
+                ADD COLUMN IF NOT EXISTS message_body TEXT;
             CREATE INDEX IF NOT EXISTS idx_vendor_followup_client_supplier
-            ON public.vendor_followup_logs(client_gstin_id, supplier_gstin);
+                ON public.vendor_followup_logs(client_gstin_id, supplier_gstin);
+            CREATE INDEX IF NOT EXISTS idx_vendor_followup_work_item
+                ON public.vendor_followup_logs(work_item_id);
             """
         )
     )
@@ -161,6 +168,23 @@ def generate_whatsapp_payload(
             f"Please file your pending GSTR-1 immediately to avoid legal recovery and vendor block.\n\n"
             f"— Finance & Audit Desk"
         )
+    elif template_type == "MISSING_2B_REQUEST":
+        message = (
+            f"📄 *URGENT: Invoices Missing from GSTR-2B*\n\n"
+            f"Dear {sname} ({supplier_gstin}),\n\n"
+            f"Invoices totaling *₹{at_risk_itc_rupees:,.2f}* are booked in our Purchase Register but are missing from your GSTR-1 / our GSTR-2B.\n\n"
+            f"Under Section 16(2)(aa) of the CGST Act, our input tax credit is blocked until these appear in GSTR-2B.\n\n"
+            f"Kindly upload these invoices in your upcoming GSTR-1 or provide filing confirmation.\n\n"
+            f"— Finance & Tax Team, ReconDesk"
+        )
+    elif template_type == "VALUE_MISMATCH_VERIFICATION":
+        message = (
+            f"🔍 *Notice: Tax / Value Mismatch Verification*\n\n"
+            f"Dear {sname} ({supplier_gstin}),\n\n"
+            f"We identified a tax discrepancy of *₹{at_risk_itc_rupees:,.2f}* between our purchase records and your GSTR-1 return.\n\n"
+            f"Please verify invoice numbers, taxable values, and GST rates, and issue an amendment or credit/debit note if needed.\n\n"
+            f"— Finance & Tax Team, ReconDesk"
+        )
     else:
         message = (
             f"📋 *GST Reconciliation & Invoice Follow-Up*\n\n"
@@ -192,18 +216,33 @@ def generate_email_template(
 ) -> dict[str, str]:
     """Generate formal HTML vendor email notice payload."""
     sname = supplier_name or supplier_gstin
-    subject = f"Notice: GST Reconciliation & ITC Compliance for {supplier_gstin} [₹{at_risk_itc_rupees:,.2f}]"
+
+    if template_type == "RULE37_NOTICE":
+        subject = f"URGENT: Rule 37 Overdue Tax Notice for {supplier_gstin} [₹{at_risk_itc_rupees:,.2f}]"
+        detail_para = "Our records indicate overdue unpaid invoices older than 180 days with total ITC exposure of <strong>₹" + f"{at_risk_itc_rupees:,.2f}" + "</strong>. Under Rule 37 of CGST Rules, failure to reconcile or settle payment will force an immediate ITC reversal with 18% interest."
+    elif template_type == "FINAL_ESCALATION":
+        subject = f"Notice: GST Reconciliation - FINAL ESCALATION for {supplier_gstin} [₹{at_risk_itc_rupees:,.2f}]"
+        detail_para = "This is a final escalation regarding unfiled GSTR-1 invoices / unpaid bills totaling <strong>₹" + f"{at_risk_itc_rupees:,.2f}" + "</strong>. Your GST compliance score has dropped significantly, placing upcoming vendor payments on administrative hold."
+    elif template_type == "MISSING_2B_REQUEST":
+        subject = f"Action Required: Invoices Missing from GSTR-2B for {supplier_gstin} [₹{at_risk_itc_rupees:,.2f}]"
+        detail_para = "Invoices totaling <strong>₹" + f"{at_risk_itc_rupees:,.2f}" + "</strong> are booked in our purchase records but are missing from your GSTR-1 / our GSTR-2B. Under Section 16(2)(aa) of CGST Act, our input tax credit is blocked until these are furnished."
+    elif template_type == "VALUE_MISMATCH_VERIFICATION":
+        subject = f"Notice: Tax Value Discrepancy Verification for {supplier_gstin} [₹{at_risk_itc_rupees:,.2f}]"
+        detail_para = "We identified a tax discrepancy of <strong>₹" + f"{at_risk_itc_rupees:,.2f}" + "</strong> between our purchase records and your GSTR-1 filing. Kindly reconcile invoice taxable values and GST rates and file amendments if necessary."
+    else:
+        subject = f"Notice: GST Reconciliation & ITC Compliance for {supplier_gstin} [₹{at_risk_itc_rupees:,.2f}]"
+        detail_para = "We are currently conducting our period end GST audit and identified unmatched invoices / Rule 37 payment exposures totaling <strong>₹" + f"{at_risk_itc_rupees:,.2f}" + "</strong>."
 
     html_body = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; color: #111827; line-height: 1.6;">
-        <h2 style="color: #4f46e5;">GST Compliance & ITC Reconciliation Follow-Up</h2>
+        <h2 style="color: #4f46e5;">GST Compliance & ITC Reconciliation Notice</h2>
         <p>Dear <strong>{sname}</strong> (GSTIN: <code>{supplier_gstin}</code>),</p>
-        <p>We are currently conducting our period end GST audit and identified unmatched invoices / Rule 37 payment exposures totaling <strong>₹{at_risk_itc_rupees:,.2f}</strong>.</p>
+        <p>{detail_para}</p>
         <div style="background-color: #f3f4f6; border-left: 4px solid #4f46e5; padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
             <strong>Template Category:</strong> {template_type.replace('_', ' ').title()}<br/>
-            <strong>Total ITC at Risk:</strong> ₹{at_risk_itc_rupees:,.2f}
+            <strong>Total ITC at Stake:</strong> ₹{at_risk_itc_rupees:,.2f}
         </div>
-        <p>Kindly verify your GSTR-1 filings and invoice clearance status so we can reconcile input tax credit without interest liability.</p>
+        <p>Kindly verify your GSTR-1 filings and invoice clearance status so we can reconcile input tax credit without statutory exposure.</p>
         <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
         <p style="font-size: 12px; color: #6b7280;">Automated via ReconDesk Compliance Engine.</p>
     </div>
@@ -227,10 +266,12 @@ def log_followup_action(
     template_type: str,
     at_risk_itc_rupees: float,
     dispatched_by: Optional[str] = None,
+    work_item_id: Optional[str] = None,
+    message_body: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Persist follow-up dispatch event into vendor_followup_logs."""
+    """Persist follow-up dispatch event into vendor_followup_logs and record timeline event if work_item_id is provided."""
     status_label = "LINK_OPENED" if channel == "WHATSAPP" else "NOTICE_GENERATED"
-    payload = {
+    payload: dict[str, Any] = {
         "client_gstin_id": client_gstin_id,
         "supplier_gstin": supplier_gstin,
         "supplier_name": supplier_name,
@@ -243,11 +284,16 @@ def log_followup_action(
     }
     if dispatched_by:
         payload["dispatched_by"] = dispatched_by
+    if work_item_id:
+        payload["work_item_id"] = work_item_id
+    if message_body:
+        payload["message_body"] = message_body
 
+    created_record = None
     try:
         res = sb.table("vendor_followup_logs").insert(payload).execute()
         if res.data:
-            return res.data[0]
+            created_record = res.data[0]
     except Exception as exc:
         logger.warning("Supabase insert failed for vendor_followup_logs, using direct SQL fallback: %s", exc)
         try:
@@ -263,8 +309,8 @@ def log_followup_action(
                         sa.text(
                             """
                             INSERT INTO public.vendor_followup_logs
-                            (client_gstin_id, supplier_gstin, supplier_name, vendor_phone, vendor_email, channel, template_type, at_risk_itc_rupees, status)
-                            VALUES (:cid, :sgstin, :sname, :phone, :email, :chan, :ttype, :amt, :stat)
+                            (client_gstin_id, supplier_gstin, supplier_name, vendor_phone, vendor_email, channel, template_type, at_risk_itc_rupees, status, work_item_id, message_body)
+                            VALUES (:cid, :sgstin, :sname, :phone, :email, :chan, :ttype, :amt, :stat, :wid, :mbody)
                             """
                         ),
                         {
@@ -277,6 +323,8 @@ def log_followup_action(
                             "ttype": template_type,
                             "amt": at_risk_itc_rupees,
                             "stat": status_label,
+                            "wid": work_item_id,
+                            "mbody": message_body,
                         },
                     )
                     conn.commit()
@@ -284,7 +332,50 @@ def log_followup_action(
         except Exception as sql_exc:
             logger.error("Direct SQL fallback failed for log_followup_action: %s", sql_exc)
 
-    return payload
+    # If linked to a work item, record COMMUNICATION_DISPATCHED in itc_work_item_events
+    if work_item_id:
+        try:
+            from datetime import datetime, timezone
+            ev_payload = {
+                "work_item_id": work_item_id,
+                "event_type": "COMMUNICATION_DISPATCHED",
+                "actor_id": dispatched_by,
+                "note": f"Dispatched {template_type.replace('_', ' ')} notice to {supplier_name or supplier_gstin} via {channel}.",
+                "metadata": {
+                    "channel": channel,
+                    "template_type": template_type,
+                    "recipient": vendor_email if channel == "EMAIL" else vendor_phone,
+                    "at_risk_itc_rupees": at_risk_itc_rupees,
+                },
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            sb.table("itc_work_item_events").insert(ev_payload).execute()
+        except Exception as ev_exc:
+            logger.warning("Failed to record COMMUNICATION_DISPATCHED event for work item %s: %s", work_item_id, ev_exc)
+
+    return created_record or payload
+
+
+def get_work_item_followup_history(
+    sb: Client,
+    client_gstin_id: str,
+    work_item_id: str,
+) -> list[dict[str, Any]]:
+    """Retrieve follow-up dispatch history explicitly linked to a work item."""
+    try:
+        res = (
+            sb.table("vendor_followup_logs")
+            .select("*")
+            .eq("client_gstin_id", client_gstin_id)
+            .eq("work_item_id", work_item_id)
+            .order("dispatched_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+        return res.data or []
+    except Exception as exc:
+        logger.warning("Failed to fetch work item followup history: %s", exc)
+        return []
 
 
 def get_followup_history(sb: Client, client_gstin_id: str) -> list[dict[str, Any]]:
