@@ -6,17 +6,11 @@ import useSWR from "swr";
 import { formatINR } from "@/lib/format";
 import {
   workItemsApi,
+  teamApi,
+  TeamMemberListItem,
   ItcWorkItem,
   ItcWorkItemEvent,
 } from "@/lib/api";
-
-interface TeamMember {
-  id: string;
-  member_user_id: string;
-  full_name: string;
-  email: string;
-  role: string;
-}
 
 interface ItcWorkItemDetailDrawerProps {
   workItem: ItcWorkItem | null;
@@ -86,15 +80,10 @@ export function ItcWorkItemDetailDrawer({
   );
 
   // Fetch team members for assignment
-  const { data: teamMembers } = useSWR<TeamMember[]>(
-    authToken ? [`team-members-assign`] : null,
-    async () => {
-      const res = await fetch("/api/team/members?include_owner=true", {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!res.ok) return [];
-      return res.json();
-    }
+  const { data: teamMembers } = useSWR<TeamMemberListItem[]>(
+    authToken ? ["team-members-assign", authToken] : null,
+    () => teamApi.list(authToken, { includeOwner: true }),
+    { refreshInterval: 0 }
   );
 
   const item = itemData || workItem;
@@ -519,11 +508,13 @@ export function ItcWorkItemDetailDrawer({
                         className="w-full rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[12px] text-gray-800 focus:border-black focus:outline-none cursor-pointer"
                       >
                         <option value="">Unassigned</option>
-                        {teamMembers?.map((m) => (
-                          <option key={m.member_user_id || m.id} value={m.member_user_id}>
-                            {m.full_name || m.email} ({m.role})
-                          </option>
-                        ))}
+                        {teamMembers
+                          ?.filter((m) => m.status === "active" && m.member_user_id)
+                          .map((m) => (
+                            <option key={m.member_user_id!} value={m.member_user_id!}>
+                              {m.full_name?.trim() || m.email} ({m.role})
+                            </option>
+                          ))}
                       </select>
                     </div>
 
