@@ -219,6 +219,7 @@ function ClientWorkspaceNav({ id }: { id: string }) {
   );
 
   const isOverviewActive = pathname === `/clients/${id}`;
+  const isCommandCenterActive = pathname === `/clients/${id}/command-center` || pathname.startsWith(`/clients/${id}/command-center/`);
 
   const isGroupActive = (group: NavGroup) =>
     group.items.some((item) => item.isActive(pathname, searchParams));
@@ -244,6 +245,20 @@ function ClientWorkspaceNav({ id }: { id: string }) {
           >
             Overview
           </Link>
+
+          {/* ITC Command Center Tab */}
+          <Link
+            href={`/clients/${id}/command-center`}
+            className={
+              isCommandCenterActive
+                ? "rounded-full bg-black px-4 py-2 text-sm font-semibold text-white shadow-sm flex items-center gap-1.5"
+                : "rounded-full bg-white px-4 py-2 text-sm font-medium text-gray-600 shadow-[var(--shadow-soft)] transition-colors hover:text-[var(--ink)] flex items-center gap-1.5"
+            }
+          >
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            <span>ITC Command Center</span>
+          </Link>
+
 
           {/* Grouped Workflow Tabs */}
           {groups.map((group) => {

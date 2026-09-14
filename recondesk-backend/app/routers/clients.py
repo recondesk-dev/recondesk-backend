@@ -683,3 +683,45 @@ async def list_chronic_risks(
         )
     risks = await get_chronic_risks(UUID(cg))
     return {"client_gstin_id": cg, "chronic_risks": risks}
+
+
+@router.get("/{client_id}/command-center")
+@router.get("/{client_id}/itc-command-center")
+async def get_client_itc_command_center(
+    client_id: str,
+    period: Optional[str] = None,
+    priority: Optional[str] = None,
+    exception_type: Optional[str] = None,
+    search: Optional[str] = None,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Retrieve the executive ITC Command Center data and prioritized work items."""
+    cid = _parse_uuid(client_id, "client_id")
+    sb = get_supabase()
+    allowed = list_accessible_client_gstin_ids(sb, current_user)
+    if cid not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="not allowed for this client",
+        )
+    try:
+        from app.services.itc_command_center_service import get_itc_command_center_data
+        data = get_itc_command_center_data(
+            sb,
+            cid,
+            period=period,
+            priority_filter=priority,
+            exception_type_filter=exception_type,
+            search=search,
+            user_id=str(current_user.get("id", "")),
+        )
+        return data
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+    except Exception as exc:
+        _log.exception("get_client_itc_command_center failed for %s", cid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to compile ITC Command Center: {exc}",
+        )
+

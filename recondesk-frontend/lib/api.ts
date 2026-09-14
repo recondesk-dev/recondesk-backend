@@ -398,7 +398,107 @@ export const clientsApi = {
 
   delete: (token: string, id: string) =>
     apiFetch<void>(clientsApiPath(id), { method: "DELETE", token }),
+
+  getCommandCenter: (
+    token: string,
+    id: string,
+    params?: {
+      period?: string;
+      priority?: string;
+      exception_type?: string;
+      search?: string;
+    }
+  ) => {
+    const sp = new URLSearchParams();
+    if (params?.period) sp.set("period", params.period);
+    if (params?.priority) sp.set("priority", params.priority);
+    if (params?.exception_type) sp.set("exception_type", params.exception_type);
+    if (params?.search) sp.set("search", params.search);
+    const qs = sp.toString();
+    const path = clientsApiPath(id, "command-center");
+    return apiFetch<ItcCommandCenterResponse>(qs ? `${path}?${qs}` : path, { token });
+  },
 };
+
+export interface ItcWorkItem {
+  work_item_id: string;
+  run_id: string;
+  record_id: string;
+  exception_type: string;
+  priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+  priority_score: number;
+  supplier_name: string;
+  supplier_gstin: string;
+  invoice_number: string;
+  invoice_date: string | null;
+  itc_impact: number;
+  itc_impact_paise: number;
+  age_days: number;
+  what: string;
+  why: string;
+  next_action: string;
+  status: string;
+  is_blocking: boolean;
+  disposition?: string | null;
+  disposition_reason?: string | null;
+  owner?: string | null;
+}
+
+export interface ItcKpis {
+  eligible_itc: number;
+  on_hold_itc: number;
+  at_risk_itc: number;
+  missed_itc: number;
+  reversed_itc: number;
+  reclaimed_itc: number;
+  net_itc: number;
+  total_itc_position: number;
+  eligible_itc_paise?: number;
+  on_hold_itc_paise?: number;
+  at_risk_itc_paise?: number;
+  missed_itc_paise?: number;
+  reversed_itc_paise?: number;
+  reclaimed_itc_paise?: number;
+  net_itc_paise?: number;
+}
+
+export interface ItcCommandCenterResponse {
+  client: {
+    id: string;
+    gstin: string;
+    trade_name: string;
+    legal_name: string;
+    pan?: string;
+  };
+  periods: Array<{
+    period: string;
+    run_id: string;
+    status: string;
+    is_locked: boolean;
+    finalized_at?: string | null;
+  }>;
+  selected_period: string | null;
+  run_id: string | null;
+  run_status: string | null;
+  is_locked: boolean;
+  audit_hash: string | null;
+  finalized_at: string | null;
+  finalized_by: string | null;
+  kpis: ItcKpis;
+  summary_counts: {
+    total_items: number;
+    critical_count: number;
+    high_count: number;
+    medium_count: number;
+    low_count: number;
+    resolved_count: number;
+    blocking_count: number;
+    total_impact: number;
+    total_impact_paise: number;
+  };
+  work_items: ItcWorkItem[];
+}
+
 
 // ─── GSTN taxpayer OTP (Sandbox GSP) ─────────────────────────────────────────
 // Backend routes: POST /api/clients/{client_gstin_id}/gstn/send-otp|verify-otp
