@@ -59,7 +59,7 @@ def get_itc_command_center_data(
     # 1. Fetch Client Profile
     client_res = (
         sb.table("client_gstins")
-        .select("id, gstin, trade_name, legal_name, pan, is_active, assigned_to")
+        .select("id, gstin, trade_name, legal_name, is_active, assigned_to")
         .eq("id", client_id)
         .limit(1)
         .execute()
@@ -446,7 +446,7 @@ def get_itc_command_center_data(
             "gstin": str(client_data["gstin"]),
             "trade_name": client_data.get("trade_name") or client_data.get("legal_name") or "—",
             "legal_name": client_data.get("legal_name") or "—",
-            "pan": client_data.get("pan"),
+            "pan": client_data.get("pan") or ((client_data.get("gstin") or "")[2:12] if len(client_data.get("gstin") or "") >= 12 else None),
         },
         "periods": period_options,
         "selected_period": selected_period,

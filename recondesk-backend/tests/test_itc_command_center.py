@@ -25,7 +25,6 @@ def _make_mock_client():
             "gstin": GSTIN,
             "trade_name": "Acme Industries",
             "legal_name": "Acme Industries Pvt Ltd",
-            "pan": "AAACB1234A",
             "is_active": True,
             "firm_owner_id": USER_ID,
             "assigned_to": USER_ID,
@@ -170,6 +169,7 @@ def test_command_center_service_aggregation():
         res = get_itc_command_center_data(sb, CLIENT_ID, period="2026-08")
 
     assert res["client"]["gstin"] == GSTIN
+    assert res["client"]["pan"] == "AAACB1234A"
     assert res["selected_period"] == "2026-08"
     assert res["is_locked"] is True
     assert res["audit_hash"] == "mock-hash-123"
