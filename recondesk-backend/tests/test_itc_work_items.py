@@ -170,6 +170,15 @@ def _build_mock_db() -> EnhancedInMemorySupabaseClient:
     sb.table("reconciliation_exception_dispositions").rows = []
     sb.table("itc_work_items").rows = []
     sb.table("itc_work_item_events").rows = []
+    sb.table("team_members").rows = [
+        {
+            "id": "tm-1",
+            "firm_owner_id": ADMIN_USER_ID,
+            "member_user_id": STAFF_USER_ID,
+            "is_active": True,
+            "role": "staff",
+        }
+    ]
     return sb
 
 
@@ -365,7 +374,7 @@ def test_manual_priority_override():
 
         admin_user = {"id": ADMIN_USER_ID, "role": "admin", "full_name": "Admin CA"}
 
-        # Override to LOW with justification
+        # Privileged CA Admin override to LOW with justification
         res = wis.override_work_item_priority(sb, wid, "LOW", "Immaterial threshold for this vendor", admin_user)
         assert res["priority"] == "LOW"
         assert res["manual_priority"] == "LOW"
@@ -373,10 +382,80 @@ def test_manual_priority_override():
         assert res["priority_override_reason"] == "Immaterial threshold for this vendor"
         assert res["priority_changed_by"] == ADMIN_USER_ID
 
+        # Privileged CA Owner override allowed
+        owner_user = {"id": ADMIN_USER_ID, "role": "owner", "full_name": "Owner CA"}
+        res_owner = wis.override_work_item_priority(sb, wid, "MEDIUM", "Adjusted by owner", owner_user)
+        assert res_owner["priority"] == "MEDIUM"
+
+        # Non-privileged normal staff must be rejected with 403 (OBS-03)
+        staff_user = {"id": STAFF_USER_ID, "role": "staff", "full_name": "Staff Junior"}
+        with pytest.raises(Exception) as exc_info:
+            wis.override_work_item_priority(sb, wid, "CRITICAL", "Staff attempting override", staff_user)
+        assert "403" in str(exc_info.value) or "Only an Admin or CA Owner" in str(exc_info.value)
+
+        # Unauthorized cross-firm user rejected with 403 (OBS-03)
+        other_user = {"id": OTHER_FIRM_USER_ID, "role": "admin", "full_name": "Other CA"}
+        with pytest.raises(Exception) as exc_info:
+            wis.override_work_item_priority(sb, wid, "HIGH", "Hacker override", other_user)
+        assert "403" in str(exc_info.value) or "Access denied" in str(exc_info.value)
+
         # Empty reason rejected with 422
         with pytest.raises(Exception) as exc_info:
             wis.override_work_item_priority(sb, wid, "HIGH", "   ", admin_user)
         assert "422" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Test 4B: Assignee Firm-Membership Validation (OBS-02)
+# ---------------------------------------------------------------------------
+
+def test_assign_work_item_firm_membership_validation():
+    sb = _build_mock_db()
+    mock_outcomes = _make_mock_outcomes()
+
+    with patch("app.services.reconciliation_outcomes.load_payload", return_value={}), \
+         patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=(mock_outcomes, {}, {})), \
+         patch("app.services.gstr3b_table4_engine.check_finalization_blocking_exceptions", return_value={"blocking_records": []}):
+
+        wis.sync_work_items_for_run(sb, CLIENT_ID_1, RUN_ID, user_id=ADMIN_USER_ID)
+        item = sb.table("itc_work_items").rows[0]
+        wid = item["id"]
+
+        admin_user = {"id": ADMIN_USER_ID, "role": "admin", "full_name": "Admin CA"}
+        other_user = {"id": OTHER_FIRM_USER_ID, "role": "admin", "full_name": "Other Firm CA"}
+
+        # 1. Valid same-firm team member -> allowed
+        res1 = wis.assign_work_item(sb, wid, STAFF_USER_ID, admin_user)
+        assert res1["assigned_to"] == STAFF_USER_ID
+
+        # 2. Valid firm owner assignee -> allowed
+        res2 = wis.assign_work_item(sb, wid, ADMIN_USER_ID, admin_user)
+        assert res2["assigned_to"] == ADMIN_USER_ID
+
+        # 3. Unassigning (None) -> allowed
+        res3 = wis.assign_work_item(sb, wid, None, admin_user)
+        assert res3["assigned_to"] is None
+
+        # 4. Cross-firm assignee (user from another firm) -> rejected with HTTP 400
+        with pytest.raises(Exception) as exc_info:
+            wis.assign_work_item(sb, wid, OTHER_FIRM_USER_ID, admin_user)
+        assert "400" in str(exc_info.value) or "not an active member of this firm" in str(exc_info.value)
+
+        # 5. Non-member / non-existent user ID -> rejected with HTTP 400
+        non_member_id = "99999999-9999-9999-9999-999999999999"
+        with pytest.raises(Exception) as exc_info:
+            wis.assign_work_item(sb, wid, non_member_id, admin_user)
+        assert "400" in str(exc_info.value) or "not an active member of this firm" in str(exc_info.value)
+
+        # 6. Invalid UUID string -> rejected with HTTP 422
+        with pytest.raises(Exception) as exc_info:
+            wis.assign_work_item(sb, wid, "invalid-uuid-format", admin_user)
+        assert "422" in str(exc_info.value)
+
+        # 7. Unauthorized requester attempting to assign work item -> rejected with HTTP 403
+        with pytest.raises(Exception) as exc_info:
+            wis.assign_work_item(sb, wid, STAFF_USER_ID, other_user)
+        assert "403" in str(exc_info.value) or "Access denied" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------

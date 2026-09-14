@@ -539,13 +539,56 @@ def get_work_item(sb: Client, work_item_id: str, current_user: dict[str, Any]) -
     return item
 
 
+def is_member_of_firm(sb: Client, firm_owner_id: str, user_id: str) -> bool:
+    """Verify if user_id is the firm owner, an active team member, or assigned to a firm client."""
+    uid = str(user_id or "").strip()
+    fo = str(firm_owner_id or "").strip()
+    if not uid or not fo:
+        return False
+    if uid == fo:
+        return True
+
+    # 1. Active team_members row for this firm
+    try:
+        tm = (
+            sb.table("team_members")
+            .select("id")
+            .eq("firm_owner_id", fo)
+            .eq("member_user_id", uid)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if tm.data:
+            return True
+    except Exception:
+        _log.warning("team_members check failed in is_member_of_firm", exc_info=True)
+
+    # 2. Client assignment in client_gstins for this firm (canonical fallback)
+    try:
+        cg = (
+            sb.table("client_gstins")
+            .select("id")
+            .eq("firm_owner_id", fo)
+            .eq("assigned_to", uid)
+            .limit(1)
+            .execute()
+        )
+        if cg.data:
+            return True
+    except Exception:
+        _log.warning("client_gstins check failed in is_member_of_firm", exc_info=True)
+
+    return False
+
+
 def assign_work_item(
     sb: Client,
     work_item_id: str,
     assigned_to: Optional[str],
     current_user: dict[str, Any],
 ) -> dict[str, Any]:
-    """Assign or reassign a work item to a team member."""
+    """Assign or reassign a work item to an authorized team member of the firm."""
     item = get_work_item(sb, work_item_id, current_user)
     uid = str(current_user.get("id", ""))
     user_name = current_user.get("full_name") or current_user.get("email") or "CA User"
@@ -554,9 +597,34 @@ def assign_work_item(
     old_assigned = item.get("assigned_to")
     old_status = item.get("status")
 
+    # Validate assignee if provided
+    assignee_id: Optional[str] = None
+    if assigned_to and str(assigned_to).strip():
+        assignee_id = str(assigned_to).strip()
+        try:
+            UUID(assignee_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid UUID for assigned_to: {assigned_to}",
+            ) from exc
+
+        # Resolve firm owner for the work item
+        firm_owner_id = str(item.get("firm_owner_id") or "").strip()
+        if not firm_owner_id:
+            from app.services.firm_access import get_firm_owner_for_client
+            firm_owner_id = get_firm_owner_for_client(sb, str(item["client_gstin_id"]))
+
+        # Verify assignee is an active member of this firm/team
+        if not is_member_of_firm(sb, firm_owner_id, assignee_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="assigned_to is not an active member of this firm",
+            )
+
     updates: dict[str, Any] = {
-        "assigned_to": assigned_to,
-        "assigned_at": datetime.now(timezone.utc).isoformat() if assigned_to else None,
+        "assigned_to": assignee_id,
+        "assigned_at": datetime.now(timezone.utc).isoformat() if assignee_id else None,
         "assigned_by": uid,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "updated_by": uid,
@@ -564,7 +632,7 @@ def assign_work_item(
 
     # Automatically move from OPEN or TRIAGED to ASSIGNED if newly assigned
     target_status = old_status
-    if assigned_to and old_status in (STATUS_OPEN, STATUS_TRIAGED):
+    if assignee_id and old_status in (STATUS_OPEN, STATUS_TRIAGED):
         target_status = STATUS_ASSIGNED
         updates["status"] = STATUS_ASSIGNED
 
@@ -580,7 +648,7 @@ def assign_work_item(
         actor_id=uid,
         actor_role=user_role,
         actor_name=user_name,
-        note=f"Assigned to {assigned_to or 'Unassigned'}.",
+        note=f"Assigned to {assignee_id or 'Unassigned'}.",
     )
     return get_work_item(sb, work_item_id, current_user)
 
@@ -644,7 +712,7 @@ def override_work_item_priority(
     reason: str,
     current_user: dict[str, Any],
 ) -> dict[str, Any]:
-    """Manually override priority while preserving system_priority."""
+    """Manually override priority while preserving system_priority (CA/Admin/Owner only)."""
     if not reason or not reason.strip():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -660,7 +728,17 @@ def override_work_item_priority(
     item = get_work_item(sb, work_item_id, current_user)
     uid = str(current_user.get("id", ""))
     user_name = current_user.get("full_name") or current_user.get("email") or "User"
-    user_role = str(current_user.get("role") or "staff").lower()
+    user_role = str(current_user.get("role") or "").strip().lower()
+    if not user_role and uid:
+        from app.database import get_user_profile
+        prof = get_user_profile(uid) or {}
+        user_role = str(prof.get("role") or "staff").strip().lower()
+
+    if user_role not in ("admin", "owner"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an Admin or CA Owner can override priority.",
+        )
 
     now_iso = datetime.now(timezone.utc).isoformat()
     updates = {
