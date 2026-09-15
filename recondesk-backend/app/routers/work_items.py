@@ -25,6 +25,7 @@ from app.auth import get_current_active_user
 from app.database import get_supabase
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.services import itc_work_item_service as wis
+from app.services import resolution_intelligence_engine as rie
 
 _log = logging.getLogger(__name__)
 
@@ -392,3 +393,17 @@ async def schedule_work_item_followup_endpoint(
         body.note,
         current_user,
     )
+
+
+# Phase 5.4: Resolution Intelligence / Exception Intelligence Endpoint
+@router.get("/work-items/{work_item_id}/intelligence")
+async def get_work_item_intelligence_endpoint(
+    work_item_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Retrieve synthesized deterministic resolution intelligence for a work item."""
+    wid = _parse_uuid(work_item_id, "work_item_id")
+    sb = get_supabase()
+    item = wis.get_work_item(sb, wid, current_user)
+    return rie.get_work_item_resolution_intelligence(sb, item, current_user)
+

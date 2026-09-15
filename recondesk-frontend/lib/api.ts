@@ -481,8 +481,64 @@ export interface ItcWorkItem {
   revalidation_status?: "NONE" | "PENDING" | "REVALIDATED" | string;
   disposition?: string | null;
   disposition_reason?: string | null;
-  owner?: string | null;
   events?: ItcWorkItemEvent[];
+}
+
+export interface ResolutionIntelligenceEvidence {
+  factor: string;
+  finding: string;
+  source: string;
+  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+}
+
+export interface ResolutionDifficultyFactor {
+  dimension: string;
+  impact_points: number;
+  rationale: string;
+}
+
+export interface ResolutionDifficulty {
+  score: number;
+  tier: "LOW" | "MEDIUM" | "HIGH" | "VERY_HIGH";
+  factors: ResolutionDifficultyFactor[];
+  disclaimer: string;
+}
+
+export interface NextBestAction {
+  action_type: string;
+  title: string;
+  description: string;
+  urgency: "IMMEDIATE" | "HIGH" | "NORMAL";
+  suggested_modal_or_tab: string;
+  requires_role?: string | null;
+  prerequisites: string[];
+}
+
+export interface RevalidationGuidancePrerequisite {
+  item: string;
+  satisfied: boolean;
+}
+
+export interface RevalidationGuidance {
+  status: "READY" | "NOT_READY" | "UNKNOWN";
+  summary: string;
+  prerequisites: RevalidationGuidancePrerequisite[];
+}
+
+export interface ResolutionIntelligenceResponse {
+  work_item_id: string;
+  exception_type: string;
+  root_cause_explanation: {
+    what_happened: string;
+    likely_root_cause: string;
+    statutory_context: string;
+    confidence_level: "HIGH" | "MEDIUM" | "LOW";
+    confidence_rationale: string;
+  };
+  evidence: ResolutionIntelligenceEvidence[];
+  resolution_difficulty: ResolutionDifficulty;
+  next_best_action: NextBestAction;
+  revalidation_guidance: RevalidationGuidance;
 }
 
 export const workItemsApi = {
@@ -537,6 +593,10 @@ export const workItemsApi = {
 
   get: (token: string, id: string) =>
     apiFetch<ItcWorkItem & { events: ItcWorkItemEvent[] }>(`/api/work-items/${id}`, { token }),
+
+  getIntelligence: (token: string, id: string) =>
+    apiFetch<ResolutionIntelligenceResponse>(`/api/work-items/${id}/intelligence`, { token }),
+
 
   updateStatus: (token: string, id: string, status: string, note?: string) =>
     apiFetch<ItcWorkItem>(`/api/work-items/${id}/status`, {

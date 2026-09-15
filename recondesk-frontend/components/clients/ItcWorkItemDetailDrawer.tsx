@@ -10,6 +10,7 @@ import {
   TeamMemberListItem,
   ItcWorkItem,
   ItcWorkItemEvent,
+  ResolutionIntelligenceResponse,
 } from "@/lib/api";
 import {
   fetchWorkItemVendorProfile,
@@ -119,6 +120,17 @@ export function ItcWorkItemDetailDrawer({
   }>(
     workItem?.id && authToken ? ["work-item-followup-history", workItem.id] : null,
     () => fetchWorkItemFollowupHistory(workItem!.id!, authToken),
+    { refreshInterval: 0 }
+  );
+
+  // Phase 5.4: Fetch Deterministic Resolution Intelligence
+  const {
+    data: intelligenceData,
+    mutate: mutateIntelligence,
+    isLoading: isIntelligenceLoading,
+  } = useSWR<ResolutionIntelligenceResponse>(
+    workItem?.id && authToken ? ["work-item-intelligence", workItem.id] : null,
+    () => workItemsApi.getIntelligence(authToken, workItem!.id!),
     { refreshInterval: 0 }
   );
 
@@ -532,8 +544,364 @@ export function ItcWorkItemDetailDrawer({
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
             {activeTab === "overview" ? (
               <>
-                {/* WHAT / WHY / NEXT */}
+                {/* Phase 5.4: Deterministic Resolution Intelligence Section */}
+                <div className="rounded-xl border border-indigo-200 bg-gradient-to-b from-indigo-50/70 to-white p-5 space-y-5 shadow-sm">
+                  {/* Header */}
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600 text-white tracking-wider uppercase">
+                          Phase 5.4
+                        </span>
+                        <span className="text-[14px] font-bold text-gray-900">
+                          Resolution Intelligence & Insights
+                        </span>
+                        <span className="rounded bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-800 border border-indigo-200">
+                          Deterministic Read-Only
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[12px] text-gray-600">
+                        Live synthesis of root cause, cross-source evidence, operational friction, and next action.
+                      </p>
+                    </div>
+                    {isIntelligenceLoading && (
+                      <span className="text-[11px] text-indigo-600 font-medium animate-pulse">
+                        Analyzing…
+                      </span>
+                    )}
+                  </div>
+
+                  {isIntelligenceLoading && !intelligenceData && (
+                    <div className="space-y-3 py-4 animate-pulse">
+                      <div className="h-4 bg-indigo-100 rounded w-3/4"></div>
+                      <div className="h-4 bg-indigo-50 rounded w-1/2"></div>
+                      <div className="h-16 bg-gray-100 rounded w-full"></div>
+                    </div>
+                  )}
+
+                  {intelligenceData && (
+                    <>
+                      {/* 1. Root Cause Explanation */}
+                      <div className="rounded-lg bg-white border border-gray-200 p-4 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-[12.5px] font-bold text-gray-900 flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full bg-indigo-600"></span>
+                            Root Cause Explanation
+                          </h4>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10.5px] font-semibold border ${
+                              intelligenceData.root_cause_explanation.confidence_level === "HIGH"
+                                ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                : intelligenceData.root_cause_explanation.confidence_level === "MEDIUM"
+                                ? "bg-amber-50 text-amber-800 border-amber-200"
+                                : "bg-gray-50 text-gray-700 border-gray-200"
+                            }`}
+                          >
+                            Confidence: {intelligenceData.root_cause_explanation.confidence_level}
+                          </span>
+                        </div>
+                        <div className="text-[12px] space-y-1.5 text-gray-700 leading-relaxed">
+                          <p>
+                            <strong className="text-gray-900">What Happened:</strong>{" "}
+                            {intelligenceData.root_cause_explanation.what_happened}
+                          </p>
+                          <p>
+                            <strong className="text-gray-900">Likely Cause:</strong>{" "}
+                            {intelligenceData.root_cause_explanation.likely_root_cause}
+                          </p>
+                          <p>
+                            <strong className="text-gray-900">Statutory Context:</strong>{" "}
+                            <span className="text-gray-600 italic">
+                              {intelligenceData.root_cause_explanation.statutory_context}
+                            </span>
+                          </p>
+                          {intelligenceData.root_cause_explanation.confidence_rationale && (
+                            <p className="text-[11px] text-gray-500 pt-1 border-t border-gray-100">
+                              <span className="font-semibold text-gray-600">Confidence Rationale:</span>{" "}
+                              {intelligenceData.root_cause_explanation.confidence_rationale}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 2. Concrete Evidence Points */}
+                      {intelligenceData.evidence && intelligenceData.evidence.length > 0 && (
+                        <div className="rounded-lg bg-white border border-gray-200 p-4 space-y-3">
+                          <h4 className="text-[12.5px] font-bold text-gray-900 flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full bg-blue-600"></span>
+                            Supporting Evidence ({intelligenceData.evidence.length})
+                          </h4>
+                          <div className="space-y-2">
+                            {intelligenceData.evidence.map((ev, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-start justify-between gap-3 p-2.5 rounded-lg bg-gray-50/70 border border-gray-100 text-[11.5px]"
+                              >
+                                <div className="space-y-0.5 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-gray-900">{ev.factor}</span>
+                                    <span className="font-mono text-[9.5px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                                      {ev.source}
+                                    </span>
+                                  </div>
+                                  <p className="text-gray-700 leading-snug">{ev.finding}</p>
+                                </div>
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold border uppercase shrink-0 ${
+                                    ev.severity === "CRITICAL"
+                                      ? "bg-rose-50 text-rose-700 border-rose-200"
+                                      : ev.severity === "HIGH"
+                                      ? "bg-orange-50 text-orange-700 border-orange-200"
+                                      : ev.severity === "MEDIUM"
+                                      ? "bg-amber-50 text-amber-700 border-amber-200"
+                                      : ev.severity === "LOW"
+                                      ? "bg-blue-50 text-blue-700 border-blue-200"
+                                      : "bg-gray-50 text-gray-600 border-gray-200"
+                                  }`}
+                                >
+                                  {ev.severity}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. Operational Resolution Difficulty & Disclaimer */}
+                      <div className="rounded-lg bg-white border border-gray-200 p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="text-[12.5px] font-bold text-gray-900 flex items-center gap-2">
+                              <span className="h-2 w-2 rounded-full bg-purple-600"></span>
+                              Operational Resolution Difficulty
+                            </h4>
+                            <span className="text-[11px] text-gray-500">
+                              Deterministic friction assessment (0–100)
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase border ${
+                                intelligenceData.resolution_difficulty.tier === "VERY_HIGH"
+                                  ? "bg-rose-50 text-rose-800 border-rose-200"
+                                  : intelligenceData.resolution_difficulty.tier === "HIGH"
+                                  ? "bg-orange-50 text-orange-800 border-orange-200"
+                                  : intelligenceData.resolution_difficulty.tier === "MEDIUM"
+                                  ? "bg-amber-50 text-amber-800 border-amber-200"
+                                  : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                              }`}
+                            >
+                              {intelligenceData.resolution_difficulty.tier.replace(/_/g, " ")} • {intelligenceData.resolution_difficulty.score}/100
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Progress bar */}
+                        <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              intelligenceData.resolution_difficulty.score >= 75
+                                ? "bg-rose-500"
+                                : intelligenceData.resolution_difficulty.score >= 50
+                                ? "bg-orange-500"
+                                : intelligenceData.resolution_difficulty.score >= 25
+                                ? "bg-amber-500"
+                                : "bg-emerald-500"
+                            }`}
+                            style={{ width: `${Math.min(100, Math.max(5, intelligenceData.resolution_difficulty.score))}%` }}
+                          />
+                        </div>
+
+                        {/* Contributing factors */}
+                        {intelligenceData.resolution_difficulty.factors && intelligenceData.resolution_difficulty.factors.length > 0 && (
+                          <div className="space-y-1.5 pt-1">
+                            <span className="text-[11px] font-semibold text-gray-700 block">
+                              Friction Factors:
+                            </span>
+                            {intelligenceData.resolution_difficulty.factors.map((f, idx) => (
+                              <div key={idx} className="flex items-center justify-between text-[11px] text-gray-600 bg-gray-50 px-2 py-1 rounded">
+                                <span>
+                                  <strong className="text-gray-800">{f.dimension}:</strong> {f.rationale}
+                                </span>
+                                <span className="font-semibold text-purple-700 shrink-0 ml-2">
+                                  +{f.impact_points} pts
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Mandatory Disclaimer */}
+                        <div className="rounded border border-amber-200 bg-amber-50/60 p-2 text-[10.5px] text-amber-900 leading-snug">
+                          <strong>Notice:</strong> {intelligenceData.resolution_difficulty.disclaimer}
+                        </div>
+                      </div>
+
+                      {/* 4. Next Best Action (with 1-click trigger) */}
+                      <div className="rounded-lg bg-white border-2 border-indigo-300 p-4 space-y-3 shadow-sm">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="rounded bg-indigo-600 text-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                              Next Best Action
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ${
+                                intelligenceData.next_best_action.urgency === "IMMEDIATE"
+                                  ? "bg-rose-100 text-rose-800 border-rose-200"
+                                  : intelligenceData.next_best_action.urgency === "HIGH"
+                                  ? "bg-orange-100 text-orange-800 border-orange-200"
+                                  : "bg-blue-100 text-blue-800 border-blue-200"
+                              }`}
+                            >
+                              {intelligenceData.next_best_action.urgency}
+                            </span>
+                          </div>
+                          {intelligenceData.next_best_action.requires_role && (
+                            <span className="text-[10px] text-gray-500">
+                              Role: {intelligenceData.next_best_action.requires_role}
+                            </span>
+                          )}
+                        </div>
+
+                        <div>
+                          <h5 className="text-[13px] font-bold text-gray-900">
+                            {intelligenceData.next_best_action.title}
+                          </h5>
+                          <p className="mt-1 text-[12px] text-gray-700 leading-relaxed">
+                            {intelligenceData.next_best_action.description}
+                          </p>
+                        </div>
+
+                        {intelligenceData.next_best_action.prerequisites && intelligenceData.next_best_action.prerequisites.length > 0 && (
+                          <div className="text-[11px] text-gray-500 bg-gray-50 p-2 rounded">
+                            <span className="font-semibold text-gray-700">Pre-conditions: </span>
+                            {intelligenceData.next_best_action.prerequisites.join(" • ")}
+                          </div>
+                        )}
+
+                        {/* 1-Click Action Buttons */}
+                        <div className="pt-2 flex items-center gap-2">
+                          {intelligenceData.next_best_action.action_type === "DISPATCH_VENDOR_FOLLOWUP" && (
+                            <button
+                              onClick={() => setIsContactModalOpen(true)}
+                              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700 shadow-sm transition-colors flex items-center gap-1.5"
+                            >
+                              <span>Dispatch Vendor Communication</span>
+                              <span>→</span>
+                            </button>
+                          )}
+
+                          {intelligenceData.next_best_action.action_type === "RECORD_VENDOR_RESPONSE" && (
+                            <button
+                              onClick={() => setIsResponseModalOpen(true)}
+                              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700 shadow-sm transition-colors flex items-center gap-1.5"
+                            >
+                              <span>Record Vendor Response</span>
+                              <span>→</span>
+                            </button>
+                          )}
+
+                          {intelligenceData.next_best_action.action_type === "DISPOSITION_OR_RESOLVE" && (
+                            <button
+                              onClick={() => setIsResolutionOpen(true)}
+                              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-emerald-700 shadow-sm transition-colors flex items-center gap-1.5"
+                            >
+                              <span>Apply CA Resolution</span>
+                              <span>→</span>
+                            </button>
+                          )}
+
+                          {intelligenceData.next_best_action.action_type === "REVALIDATE_INVOICE" && (
+                            <button
+                              disabled={isRevalidating}
+                              onClick={handleRevalidate}
+                              className="rounded-lg bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 shadow-sm transition-colors flex items-center gap-1.5"
+                            >
+                              <span>{isRevalidating ? "Requesting…" : "Request Revalidation"}</span>
+                              <span>→</span>
+                            </button>
+                          )}
+
+                          {intelligenceData.next_best_action.action_type === "SWITCH_VENDOR_TAB" && (
+                            <button
+                              onClick={() => setActiveTab("vendor")}
+                              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700 shadow-sm transition-colors flex items-center gap-1.5"
+                            >
+                              <span>View Vendor Resolution Tab</span>
+                              <span>→</span>
+                            </button>
+                          )}
+
+                          {intelligenceData.next_best_action.action_type === "SCHEDULE_FOLLOWUP" && (
+                            <button
+                              onClick={() => setIsScheduleFollowupOpen(true)}
+                              className="rounded-lg bg-purple-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-purple-700 shadow-sm transition-colors flex items-center gap-1.5"
+                            >
+                              <span>Schedule Next Follow-up</span>
+                              <span>→</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 5. Revalidation Guidance */}
+                      <div className="rounded-lg bg-white border border-gray-200 p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-[12.5px] font-bold text-gray-900 flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full bg-teal-600"></span>
+                            Revalidation Readiness
+                          </h4>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10.5px] font-bold uppercase border ${
+                              intelligenceData.revalidation_guidance.status === "READY"
+                                ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                : intelligenceData.revalidation_guidance.status === "NOT_READY"
+                                ? "bg-amber-50 text-amber-800 border-amber-200"
+                                : "bg-gray-50 text-gray-700 border-gray-200"
+                            }`}
+                          >
+                            {intelligenceData.revalidation_guidance.status.replace(/_/g, " ")}
+                          </span>
+                        </div>
+
+                        <p className="text-[12px] text-gray-700 leading-snug">
+                          {intelligenceData.revalidation_guidance.summary}
+                        </p>
+
+                        {intelligenceData.revalidation_guidance.prerequisites && intelligenceData.revalidation_guidance.prerequisites.length > 0 && (
+                          <div className="space-y-1.5 pt-1">
+                            <span className="text-[11px] font-semibold text-gray-600 block">
+                              Prerequisites Checklist:
+                            </span>
+                            {intelligenceData.revalidation_guidance.prerequisites.map((p, idx) => (
+                              <div key={idx} className="flex items-center gap-2 text-[11.5px]">
+                                {p.satisfied ? (
+                                  <span className="text-emerald-600 font-bold">✓</span>
+                                ) : (
+                                  <span className="text-amber-500 font-bold">○</span>
+                                )}
+                                <span className={p.satisfied ? "text-gray-800" : "text-gray-500"}>
+                                  {p.item}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Historical Baseline Guidance (Import Snapshot) */}
                 <div className="space-y-3">
+                  <div className="flex items-center justify-between px-1">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                      Historical Baseline Guidance (Import Snapshot)
+                    </span>
+                    <span className="text-[10px] text-gray-400">
+                      Immutable Run Outputs
+                    </span>
+                  </div>
                   <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
                     <div className="flex items-center gap-2">
                       <span className="rounded bg-blue-600 text-white px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
@@ -1362,6 +1730,7 @@ export function ItcWorkItemDetailDrawer({
         onClose={() => setIsContactModalOpen(false)}
         onDispatched={() => {
           mutateItem();
+          mutateIntelligence();
           mutateFollowups();
           onUpdated();
         }}
@@ -1379,6 +1748,7 @@ export function ItcWorkItemDetailDrawer({
         onClose={() => setIsResponseModalOpen(false)}
         onRecorded={() => {
           mutateItem();
+          mutateIntelligence();
           mutateVendorProfile();
           onUpdated();
         }}
