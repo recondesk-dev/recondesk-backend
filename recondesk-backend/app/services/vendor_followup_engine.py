@@ -329,11 +329,12 @@ def log_followup_action(
                     )
                     conn.commit()
                     eng.dispose()
+                    created_record = dict(payload)
         except Exception as sql_exc:
             logger.error("Direct SQL fallback failed for log_followup_action: %s", sql_exc)
 
-    # If linked to a work item, record COMMUNICATION_DISPATCHED in itc_work_item_events
-    if work_item_id:
+    # Only record COMMUNICATION_DISPATCHED if vendor_followup_logs was successfully persisted
+    if work_item_id and created_record is not None:
         try:
             from datetime import datetime, timezone
             ev_payload = {
@@ -353,7 +354,7 @@ def log_followup_action(
         except Exception as ev_exc:
             logger.warning("Failed to record COMMUNICATION_DISPATCHED event for work item %s: %s", work_item_id, ev_exc)
 
-    return created_record or payload
+    return created_record
 
 
 def get_work_item_followup_history(

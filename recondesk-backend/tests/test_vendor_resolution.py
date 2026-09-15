@@ -246,6 +246,46 @@ def test_log_followup_action_with_work_item_linkage():
     assert events[0]["metadata"]["template_type"] == "MISSING_2B_REQUEST"
 
 
+def test_log_followup_action_failed_persistence_does_not_emit_event():
+    """FIND-5.3-02 Hardening: COMMUNICATION_DISPATCHED must NOT be emitted if log persistence fails."""
+    sb, wid, _ = setup_mock_db()
+
+    mock_table = MagicMock()
+    mock_table.insert.side_effect = RuntimeError("Database connection lost / disk full")
+    orig_table_fn = sb.table
+
+    def failing_table_lookup(name: str):
+        if name == "vendor_followup_logs":
+            return mock_table
+        return orig_table_fn(name)
+
+    with patch.object(sb, "table", side_effect=failing_table_lookup), \
+         patch("app.config.get_settings") as mock_settings:
+        mock_settings.return_value.SUPABASE_DATABASE_URL = None
+        mock_settings.return_value.DATABASE_URL = None
+
+        log = vf_svc.log_followup_action(
+            sb=sb,
+            client_gstin_id=CLIENT_ID_1,
+            supplier_gstin=SUPPLIER_GSTIN,
+            supplier_name=SUPPLIER_NAME,
+            vendor_phone="9876543210",
+            vendor_email="accounts@acme.com",
+            channel="WHATSAPP",
+            template_type="MISSING_2B_REQUEST",
+            at_risk_itc_rupees=25000.0,
+            dispatched_by=ADMIN_USER_ID,
+            work_item_id=wid,
+            message_body="Sample WhatsApp body",
+        )
+
+        assert log is None
+
+        # Verify COMMUNICATION_DISPATCHED was NOT emitted
+        events = [e for e in sb.table("itc_work_item_events").rows if e.get("event_type") == "COMMUNICATION_DISPATCHED"]
+        assert len(events) == 0, "COMMUNICATION_DISPATCHED must NOT be emitted when log persistence fails"
+
+
 # 4. WORK ITEM COMMUNICATION HISTORY ENDPOINT & TENANT ISOLATION
 def test_work_item_communication_history_endpoint_and_isolation():
     sb, wid, _ = setup_mock_db()
