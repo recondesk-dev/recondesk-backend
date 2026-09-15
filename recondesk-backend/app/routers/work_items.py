@@ -316,16 +316,32 @@ async def reopen_work_item(
 @router.post("/work-items/{work_item_id}/revalidate")
 async def request_work_item_revalidation(
     work_item_id: str,
+    target_run_id: Optional[str] = Query(None, description="Optional target run to evaluate against"),
+    execute_now: bool = Query(False, description="Execute revalidation immediately if eligible"),
     current_user: dict = Depends(get_current_active_user),
 ):
-    """Register revalidation hook for Phase 5.5 without altering reconciliation engines."""
+    """Register revalidation request and optionally execute comparison against authoritative target run."""
     wid = _parse_uuid(work_item_id, "work_item_id")
     sb = get_supabase()
-    return wis.request_work_item_revalidation(
-        sb,
-        wid,
-        current_user,
-    )
+    from app.services.itc_revalidation_engine import request_revalidation, execute_revalidation
+    item = request_revalidation(sb, wid, current_user)
+    if execute_now or target_run_id:
+        return execute_revalidation(sb, wid, current_user, target_run_id=target_run_id)
+    return item
+
+
+@router.post("/work-items/{work_item_id}/execute-revalidation")
+async def execute_work_item_revalidation(
+    work_item_id: str,
+    target_run_id: Optional[str] = Query(None, description="Target reconciliation run ID"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Execute authoritative outcome comparison for a PENDING work item."""
+    wid = _parse_uuid(work_item_id, "work_item_id")
+    sb = get_supabase()
+    from app.services.itc_revalidation_engine import execute_revalidation
+    return execute_revalidation(sb, wid, current_user, target_run_id=target_run_id)
+
 
 
 @router.post("/work-items/bulk-action")

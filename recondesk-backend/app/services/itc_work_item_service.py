@@ -1045,31 +1045,10 @@ def request_work_item_revalidation(
     work_item_id: str,
     current_user: dict[str, Any],
 ) -> dict[str, Any]:
-    """Register revalidation request hook for Phase 5.5 without altering reconciliation engines."""
-    item = get_work_item(sb, work_item_id, current_user)
-    uid = str(current_user.get("id", ""))
-    user_name = current_user.get("full_name") or current_user.get("email") or "User"
-    user_role = str(current_user.get("role") or "staff").lower()
+    """Register revalidation request hook for Phase 5.5 via authoritative revalidation engine."""
+    from app.services.itc_revalidation_engine import request_revalidation
+    return request_revalidation(sb, work_item_id, current_user)
 
-    now_iso = datetime.now(timezone.utc).isoformat()
-    updates = {
-        "revalidation_status": "PENDING",
-        "revalidation_requested_at": now_iso,
-        "updated_at": now_iso,
-        "updated_by": uid,
-    }
-    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
-
-    _record_event(
-        sb,
-        work_item_id,
-        "REVALIDATION_REQUESTED",
-        actor_id=uid,
-        actor_role=user_role,
-        actor_name=user_name,
-        note="Revalidation requested for next reconciliation cycle.",
-    )
-    return get_work_item(sb, work_item_id, current_user)
 
 
 def execute_bulk_action(
@@ -1094,6 +1073,8 @@ def execute_bulk_action(
                 override_work_item_priority(sb, wid, payload.get("priority"), payload.get("reason", "Bulk update"), current_user)
             elif act == "due_date":
                 set_work_item_due_date(sb, wid, payload.get("due_at"), current_user)
+            elif act == "revalidate":
+                request_work_item_revalidation(sb, wid, current_user)
             else:
                 failures.append({"id": wid, "error": f"Unknown bulk action: {act}"})
                 continue
