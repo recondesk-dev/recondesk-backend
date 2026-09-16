@@ -29,6 +29,9 @@ import {
   getNotRevalidatedExplanation,
   canRequestRevalidation,
   canRetryRevalidation,
+  canExecuteRevalidation,
+  shouldPollRevalidation,
+  deriveRevalidationActionFeedback,
   isMakerCheckerRequired,
   resolveTaxDiffAfterPaise,
   formatTaxDiffAfter,
@@ -110,7 +113,7 @@ export function ItcWorkItemDetailDrawer({
     {
       refreshInterval: (latestData) => {
         const cur = latestData?.revalidation_status || workItem?.revalidation_status;
-        return cur === "PENDING" || cur === "REVALIDATING" ? 4000 : 0;
+        return shouldPollRevalidation(cur) ? 4000 : 0;
       },
     }
   );
@@ -395,21 +398,35 @@ export function ItcWorkItemDetailDrawer({
     }
   };
 
-  const handleRevalidate = async () => {
-    if (!item.id) return;
+  const runRevalidationFlow = async (isExplicitExecute: boolean = false) => {
+    if (!item.id || isRevalidating) return;
     setIsRevalidating(true);
     setActionError(null);
     try {
-      await workItemsApi.revalidate(authToken, item.id);
+      const updated = isExplicitExecute
+        ? await workItemsApi.executeRevalidation(authToken, item.id)
+        : await workItemsApi.revalidate(authToken, item.id, { execute_now: true });
       mutateItem();
       onUpdated();
-      setActionMessage("Revalidation registered. Authoritative engine will recheck in next reconciliation.");
+      const feedback = deriveRevalidationActionFeedback(updated || item, isCA);
+      if (feedback.error) {
+        setActionError(feedback.error);
+      } else if (feedback.message) {
+        setActionMessage(feedback.message);
+      }
     } catch (err: any) {
-      setActionError(err.detail || err.message || "Failed to request revalidation.");
+      setActionError(
+        err.detail ||
+          err.message ||
+          (isExplicitExecute ? "Failed to execute revalidation." : "Failed to request revalidation.")
+      );
     } finally {
       setIsRevalidating(false);
     }
   };
+
+  const handleRevalidate = () => runRevalidationFlow(false);
+  const handleExecuteRevalidation = () => runRevalidationFlow(true);
 
   const getPriorityBadgeColor = (prio: string) => {
     switch (prio) {
@@ -994,7 +1011,7 @@ export function ItcWorkItemDetailDrawer({
                         className="rounded-lg bg-black px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-gray-800 disabled:opacity-50 transition-colors shadow-sm"
                       >
                         {isRevalidating
-                          ? "Requesting…"
+                          ? "Revalidating…"
                           : effectiveRevalStatus === "ERROR" || effectiveRevalStatus === "NOT_REVALIDATED"
                           ? "Retry Revalidation"
                           : effectiveRevalStatus === "PERSISTS"
@@ -1002,13 +1019,21 @@ export function ItcWorkItemDetailDrawer({
                           : "Request Revalidation"}
                       </button>
                     )}
-                    {!revalActionPermission.allowed &&
-                      (effectiveRevalStatus === "PENDING" || effectiveRevalStatus === "REVALIDATING") && (
-                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-[12px] font-medium text-gray-500">
-                          <span className="h-2 w-2 rounded-full bg-blue-600 animate-ping" />
-                          {effectiveRevalStatus === "REVALIDATING" ? "Evaluating…" : "Queued"}
-                        </span>
-                      )}
+                    {canExecuteRevalidation(effectiveRevalStatus, item.exception_type) && (
+                      <button
+                        disabled={isRevalidating}
+                        onClick={handleExecuteRevalidation}
+                        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
+                      >
+                        {isRevalidating ? "Executing…" : "Execute Revalidation"}
+                      </button>
+                    )}
+                    {effectiveRevalStatus === "REVALIDATING" && (
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-[12px] font-medium text-gray-500">
+                        <span className="h-2 w-2 rounded-full bg-blue-600 animate-ping" />
+                        Evaluating…
+                      </span>
+                    )}
                   </div>
 
                   {/* NONE */}
@@ -1049,10 +1074,21 @@ export function ItcWorkItemDetailDrawer({
                         )}
                       </div>
                       <p className="text-[12px] text-indigo-950 leading-relaxed">
-                        Evaluation uses authoritative reconciliation data. ReconDesk will evaluate this invoice against the latest eligible completed reconciliation run. Duplicate request is disabled while queued.
+                        Evaluation uses authoritative reconciliation data. ReconDesk will evaluate this invoice against the latest eligible completed reconciliation run.
                       </p>
-                      <div className="text-[11px] text-indigo-800 bg-white/80 rounded border border-indigo-100 p-2">
-                        <strong>Status:</strong> Waiting for reconciliation evaluation. No clearance or outcome is assumed until the authoritative comparison executes.
+                      <div className="flex items-center justify-between gap-3 pt-1">
+                        <div className="text-[11px] text-indigo-800 bg-white/80 rounded border border-indigo-100 p-2 flex-1">
+                          <strong>Status:</strong> Waiting for reconciliation evaluation. No clearance or outcome is assumed until the authoritative comparison executes.
+                        </div>
+                        {canExecuteRevalidation(effectiveRevalStatus, item.exception_type) && (
+                          <button
+                            disabled={isRevalidating}
+                            onClick={handleExecuteRevalidation}
+                            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm shrink-0"
+                          >
+                            {isRevalidating ? "Executing…" : "Execute Revalidation"}
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1530,7 +1566,7 @@ export function ItcWorkItemDetailDrawer({
                         className="rounded-lg border border-teal-300 bg-teal-50 px-3 py-1.5 text-[12px] font-semibold text-teal-800 hover:bg-teal-100 disabled:opacity-50"
                       >
                         {isRevalidating
-                          ? "Requesting…"
+                          ? "Revalidating…"
                           : effectiveRevalStatus === "ERROR" || effectiveRevalStatus === "NOT_REVALIDATED"
                           ? "Retry Revalidation"
                           : effectiveRevalStatus === "PERSISTS"
@@ -1538,12 +1574,21 @@ export function ItcWorkItemDetailDrawer({
                           : "Request Revalidation"}
                       </button>
                     )}
-                    {(effectiveRevalStatus === "PENDING" || effectiveRevalStatus === "REVALIDATING") && (
+                    {canExecuteRevalidation(effectiveRevalStatus, item.exception_type) && (
+                      <button
+                        disabled={isRevalidating}
+                        onClick={handleExecuteRevalidation}
+                        className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-[12px] font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+                      >
+                        {isRevalidating ? "Executing…" : "Execute Revalidation"}
+                      </button>
+                    )}
+                    {effectiveRevalStatus === "REVALIDATING" && (
                       <button
                         disabled
                         className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-[12px] font-medium text-gray-400 cursor-not-allowed"
                       >
-                        {effectiveRevalStatus === "REVALIDATING" ? "Revalidation in progress…" : "Revalidation queued"}
+                        Revalidation in progress…
                       </button>
                     )}
                   </div>

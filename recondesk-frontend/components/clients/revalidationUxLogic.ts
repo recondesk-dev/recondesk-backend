@@ -224,6 +224,76 @@ export function canRetryRevalidation(status: RevalUxStatus): boolean {
 }
 
 /**
+ * Evaluates whether executing revalidation is permitted for an already queued work item.
+ */
+export function canExecuteRevalidation(
+  status: RevalUxStatus,
+  exceptionType?: string | null
+): boolean {
+  const exc = (exceptionType || "").toUpperCase();
+  if (exc === "SEC_17_5" || exc === "TIME_BARRED_16_4") {
+    return false;
+  }
+  return status === "PENDING";
+}
+
+/**
+ * Determines whether the UI should actively poll for authoritative revalidation updates.
+ * Polling is required only when an evaluation is in-progress (REVALIDATING) or queued (PENDING).
+ */
+export function shouldPollRevalidation(
+  status?: string | null
+): boolean {
+  const s = (status || "").trim().toUpperCase();
+  return s === "PENDING" || s === "REVALIDATING";
+}
+
+/**
+ * Derives the operational feedback message following an execution response.
+ */
+export function deriveRevalidationActionFeedback(
+  item: {
+    revalidation_status?: string | null;
+    revalidation_result?: string | null;
+    is_blocking?: boolean;
+  },
+  isCA: boolean = false
+): { message?: string; error?: string } {
+  const st = (item.revalidation_status || "").trim().toUpperCase();
+  const res = (item.revalidation_result || "").trim().toUpperCase();
+
+  if (st === "ERROR" || res === "ERROR") {
+    return { error: "Authoritative revalidation encountered an error." };
+  }
+  if (st === "REVALIDATING") {
+    return { message: "Revalidation in progress. Evaluating authoritative outcomes…" };
+  }
+  if (st === "PENDING") {
+    return { message: "Revalidation queued for authoritative reconciliation." };
+  }
+  if (st === "REVALIDATED") {
+    if (res === "CLEARED") {
+      return {
+        message:
+          isCA && !item.is_blocking
+            ? "Revalidation complete: Exception CLEARED (Resolved)."
+            : "Revalidation complete: Exception CLEARED (Submitted to CA for review).",
+      };
+    }
+    if (res === "PERSISTS") {
+      return { message: "Revalidation complete: Exception PERSISTS in authoritative reconciliation." };
+    }
+    if (res === "CHANGED") {
+      return { message: "Revalidation complete: Exception CHANGED in authoritative reconciliation." };
+    }
+    if (res === "NOT_REVALIDATED") {
+      return { message: "Revalidation evaluated: No eligible completed authoritative run found." };
+    }
+  }
+  return { message: "Revalidation processed successfully." };
+}
+
+/**
  * Checks whether maker-checker review is mandatory.
  */
 export function isMakerCheckerRequired(item: {
