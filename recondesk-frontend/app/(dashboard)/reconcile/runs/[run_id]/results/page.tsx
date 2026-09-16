@@ -6365,6 +6365,11 @@ export default function ReconcileResultsPage() {
                 matched records, mismatches, and uploaded files. This cannot be
                 undone.
               </p>
+              {isRunFinalized && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  <span className="font-semibold">⚠️ Warning:</span> This run is <strong>finalized and locked</strong> with GSTR-3B Table 4 workpapers. Deleting it will permanently remove all finalized workpapers, reviews, and ledger records.
+                </div>
+              )}
             </div>
             <button
               type="button"

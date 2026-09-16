@@ -5250,6 +5250,41 @@ def _clear_invoice_tracking_for_run(sb, rid: str) -> None:
     _safe_delete_by_eq(sb, "invoice_tracking", "first_seen_run_id", rid)
 
 
+def _clear_table4_and_ledger_for_run(sb, rid: str) -> None:
+    """Remove dependent GSTR-3B Table 4 snapshots, reclaim events, and reversal ledger rows.
+
+    These tables have ON DELETE RESTRICT foreign keys referencing reconciliation_run(id)
+    to protect historical finalized data, and must be cleaned up before the parent run is deleted.
+    """
+    # 1. Clear circular FK reconciliation_run(table4_summary_id)
+    try:
+        sb.table("reconciliation_run").update({"table4_summary_id": None}).eq("id", rid).execute()
+    except Exception as exc:
+        _log.warning("could not clear table4_summary_id on run %s: %s", rid, exc)
+
+    # 2. Clear reclaim events referencing this run or this run's reversal ledger
+    try:
+        ledger_res = (
+            sb.table("gstr3b_reversal_ledger")
+            .select("id")
+            .eq("source_run_id", rid)
+            .execute()
+        )
+        ledger_ids = [str(r.get("id")) for r in (ledger_res.data or []) if r.get("id")]
+        if ledger_ids:
+            for lid in ledger_ids:
+                _safe_delete_by_eq(sb, "gstr3b_reclaim_events", "ledger_id", lid)
+        _safe_delete_by_eq(sb, "gstr3b_reclaim_events", "reclaim_run_id", rid)
+    except Exception as exc:
+        _log.warning("could not clear gstr3b_reclaim_events for run %s: %s", rid, exc)
+
+    # 3. Clear reversal ledger entries originated by this run
+    _safe_delete_by_eq(sb, "gstr3b_reversal_ledger", "source_run_id", rid)
+
+    # 4. Clear Table 4 summaries for this run
+    _safe_delete_by_eq(sb, "gstr3b_table4_summaries", "run_id", rid)
+
+
 @reconcile_runs_router.delete("/runs/{run_id}")
 async def delete_reconcile_run(
     request: Request,
@@ -5332,23 +5367,27 @@ async def delete_reconcile_run(
                     "pgrst202",
                     "does not exist",
                     "42883",
+                    "23503",
+                    "foreign key",
                 )
             )
             if not rpc_missing:
                 raise
             _log.warning(
-                "delete_reconciliation_run_cascade RPC unavailable for run_id=%s "
+                "delete_reconciliation_run_cascade RPC unavailable or failed for run_id=%s "
                 "(%s); falling back to ordered deletes",
                 rid,
                 rpc_exc,
             )
-            # 1) Non-cascading FK blockers (invoice_tracking)
+            # 1) Non-cascading FK blockers (Table 4 summaries, reversal ledger, reclaim events)
+            _clear_table4_and_ledger_for_run(sb, rid)
+            # 2) Non-cascading FK blockers (invoice_tracking)
             _clear_invoice_tracking_for_run(sb, rid)
-            # 2) Tables without FK to reconciliation_run
+            # 3) Tables without FK to reconciliation_run
             _safe_delete_by_eq(sb, "rule37_actions", "run_id", rid)
             if import_row:
                 _safe_delete_by_eq(sb, "reconciliation_import_runs", "id", rid)
-            # 3) Parent — remaining children cascade via ON DELETE CASCADE
+            # 4) Parent — remaining children cascade via ON DELETE CASCADE
             sb.table("reconciliation_run").delete().eq("id", rid).execute()
 
         # R2 cleanup is best-effort and must not roll back a successful DB delete.
@@ -5406,8 +5445,8 @@ async def delete_reconcile_run(
         low = str(exc).lower()
         if "23503" in low or "foreign key" in low:
             detail = (
-                "Cannot delete run: related records still reference it "
-                f"(likely invoice_tracking). {detail}"
+                "Cannot delete run: related records still reference it. "
+                f"{detail}"
             )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
