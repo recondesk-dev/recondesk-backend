@@ -21,6 +21,19 @@ import {
 } from "@/lib/vendorFollowupApi";
 import VendorCommunicationModal from "@/components/clients/VendorCommunicationModal";
 import RecordVendorResponseModal from "@/components/clients/RecordVendorResponseModal";
+import {
+  deriveEffectiveRevalStatus,
+  REVALIDATION_STATUS_LABELS,
+  getRevalidationBadgeStyle,
+  sanitizeTechnicalReason,
+  getNotRevalidatedExplanation,
+  canRequestRevalidation,
+  canRetryRevalidation,
+  isMakerCheckerRequired,
+  resolveTaxDiffAfterPaise,
+  formatTaxDiffAfter,
+  RevalUxStatus,
+} from "@/components/clients/revalidationUxLogic";
 
 interface ItcWorkItemDetailDrawerProps {
   workItem: ItcWorkItem | null;
@@ -90,11 +103,16 @@ export function ItcWorkItemDetailDrawer({
   const [followupNoteInput, setFollowupNoteInput] = useState("");
   const [isSchedulingFollowup, setIsSchedulingFollowup] = useState(false);
 
-  // Fetch live item with events timeline
+  // Fetch live item with events timeline (polls safely at 4000ms only during PENDING/REVALIDATING)
   const { data: itemData, mutate: mutateItem } = useSWR<ItcWorkItem & { events: ItcWorkItemEvent[] }>(
     workItem?.id && authToken ? [`work-item`, workItem.id] : null,
     () => workItemsApi.get(authToken, workItem!.id!),
-    { refreshInterval: 0 }
+    {
+      refreshInterval: (latestData) => {
+        const cur = latestData?.revalidation_status || workItem?.revalidation_status;
+        return cur === "PENDING" || cur === "REVALIDATING" ? 4000 : 0;
+      },
+    }
   );
 
   // Fetch team members for assignment
@@ -151,6 +169,55 @@ export function ItcWorkItemDetailDrawer({
   const isCA = currentUserRole === "admin" || currentUserRole === "owner";
   const events = itemData?.events || [];
   const followups = followupHistoryData?.logs || [];
+
+  // Phase 5.5B: Revalidation status and event metadata derivation
+  const revalEvents = [...events]
+    .filter((e) =>
+      [
+        "REVALIDATION_COMPLETED",
+        "REVALIDATION_STARTED",
+        "REVALIDATION_REQUESTED",
+        "REVALIDATION_STALE_TARGET_SKIPPED",
+      ].includes(e.event_type)
+    )
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  const latestRevalEvent = revalEvents[0];
+  const effectiveRevalStatus = deriveEffectiveRevalStatus(item, latestRevalEvent);
+  const revalBadgeStyle = getRevalidationBadgeStyle(effectiveRevalStatus);
+  const revalStatusLabel = REVALIDATION_STATUS_LABELS[effectiveRevalStatus];
+  const revalActionPermission = canRequestRevalidation(effectiveRevalStatus, item.exception_type);
+
+  const revalTargetRunId =
+    latestRevalEvent?.metadata?.target_run_id ||
+    latestRevalEvent?.metadata?.evaluated_target_run_id ||
+    item.target_run_id;
+
+  const prevException =
+    latestRevalEvent?.metadata?.previous_exception_type ||
+    item.previous_exception_type ||
+    item.exception_type;
+
+  const newException =
+    latestRevalEvent?.metadata?.new_exception_type ||
+    item.new_exception_type;
+
+  const taxDiffBeforePaise =
+    latestRevalEvent?.metadata?.tax_diff_before ??
+    (item.tax_diff_before != null
+      ? item.tax_diff_before
+      : (item.itc_impact_paise ?? Math.round((item.itc_impact || 0) * 100)));
+
+  const taxDiffAfterPaise = resolveTaxDiffAfterPaise(item, latestRevalEvent);
+
+  const authoritativeRef =
+    latestRevalEvent?.metadata?.authoritative_record_ref ||
+    item.authoritative_record_ref;
+
+  const comparisonReason =
+    latestRevalEvent?.metadata?.comparison_reason ||
+    latestRevalEvent?.note ||
+    item.comparison_reason;
 
   const handleScheduleFollowup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -481,9 +548,12 @@ export function ItcWorkItemDetailDrawer({
               </span>
             </div>
             <div>
-              <span className="text-gray-400 block text-[11px]">Revalidation Hook</span>
-              <span className="font-medium text-gray-700">
-                {item.revalidation_status || "NONE"}
+              <span className="text-gray-400 block text-[11px]">Authoritative Revalidation</span>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 mt-0.5 rounded text-[11px] font-semibold border ${revalBadgeStyle.badgeBg} ${revalBadgeStyle.badgeText} ${revalBadgeStyle.badgeBorder}`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${revalBadgeStyle.dotColor}`} />
+                {revalStatusLabel}
               </span>
             </div>
           </div>
@@ -892,6 +962,386 @@ export function ItcWorkItemDetailDrawer({
                   )}
                 </div>
 
+                {/* Phase 5.5: Dedicated Authoritative Revalidation Section */}
+                <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-4 shadow-sm">
+                  {/* Header */}
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-teal-700 text-white tracking-wider uppercase">
+                          Phase 5.5
+                        </span>
+                        <h3 className="text-[14px] font-bold text-gray-900">
+                          Authoritative Revalidation
+                        </h3>
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${revalBadgeStyle.badgeBg} ${revalBadgeStyle.badgeText} ${revalBadgeStyle.badgeBorder}`}
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full ${revalBadgeStyle.dotColor}`} />
+                          {revalStatusLabel}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[12px] text-gray-600">
+                        Reconciliation verification of exception status against authoritative GST data.
+                      </p>
+                    </div>
+
+                    {/* Action button in header */}
+                    {revalActionPermission.allowed && (
+                      <button
+                        disabled={isRevalidating}
+                        onClick={handleRevalidate}
+                        className="rounded-lg bg-black px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-gray-800 disabled:opacity-50 transition-colors shadow-sm"
+                      >
+                        {isRevalidating
+                          ? "Requesting…"
+                          : effectiveRevalStatus === "ERROR" || effectiveRevalStatus === "NOT_REVALIDATED"
+                          ? "Retry Revalidation"
+                          : effectiveRevalStatus === "PERSISTS"
+                          ? "Re-request Revalidation"
+                          : "Request Revalidation"}
+                      </button>
+                    )}
+                    {!revalActionPermission.allowed &&
+                      (effectiveRevalStatus === "PENDING" || effectiveRevalStatus === "REVALIDATING") && (
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-[12px] font-medium text-gray-500">
+                          <span className="h-2 w-2 rounded-full bg-blue-600 animate-ping" />
+                          {effectiveRevalStatus === "REVALIDATING" ? "Evaluating…" : "Queued"}
+                        </span>
+                      )}
+                  </div>
+
+                  {/* NONE */}
+                  {effectiveRevalStatus === "NONE" && (
+                    <div className="rounded-lg bg-gray-50 border border-gray-200 p-4 space-y-2">
+                      <p className="text-[12.5px] text-gray-700">
+                        This exception has not yet undergone authoritative revalidation against a subsequent reconciliation run.
+                      </p>
+                      <p className="text-[11.5px] text-gray-500">
+                        When a new GSTR-2B or Purchase Register reconciliation run completes, requesting revalidation will compare this invoice against fresh authoritative reconciliation outcomes.
+                      </p>
+                      {revalActionPermission.reason && (
+                        <p className="text-[11.5px] text-amber-700 font-medium">
+                          {revalActionPermission.reason}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* PENDING */}
+                  {effectiveRevalStatus === "PENDING" && (
+                    <div className="rounded-lg bg-indigo-50/70 border border-indigo-200 p-4 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-indigo-900 text-[12.5px] flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full bg-indigo-600" />
+                          Revalidation queued for authoritative reconciliation
+                        </span>
+                        {item.revalidation_requested_at && (
+                          <span className="text-[11px] text-indigo-700 font-medium">
+                            Requested:{" "}
+                            {new Date(item.revalidation_requested_at).toLocaleString("en-IN", {
+                              day: "numeric",
+                              month: "short",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[12px] text-indigo-950 leading-relaxed">
+                        Evaluation uses authoritative reconciliation data. ReconDesk will evaluate this invoice against the latest eligible completed reconciliation run. Duplicate request is disabled while queued.
+                      </p>
+                      <div className="text-[11px] text-indigo-800 bg-white/80 rounded border border-indigo-100 p-2">
+                        <strong>Status:</strong> Waiting for reconciliation evaluation. No clearance or outcome is assumed until the authoritative comparison executes.
+                      </div>
+                    </div>
+                  )}
+
+                  {/* REVALIDATING */}
+                  {effectiveRevalStatus === "REVALIDATING" && (
+                    <div className="rounded-lg bg-blue-50/70 border border-blue-200 p-4 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-blue-900 text-[12.5px] flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full bg-blue-600 animate-pulse" />
+                          Revalidation in progress
+                        </span>
+                        <span className="text-[11px] text-blue-700 font-mono animate-pulse">
+                          Evaluating outcomes…
+                        </span>
+                      </div>
+                      <p className="text-[12px] text-blue-950 leading-relaxed">
+                        Authoritative reconciliation outcome comparison is currently executing. Evaluating invoice business identity against fresh authoritative OutcomeRows.
+                      </p>
+                      <div className="text-[11px] text-blue-800 bg-white/80 rounded border border-blue-100 p-2">
+                        Live evaluation active. Results will refresh automatically upon completion.
+                      </div>
+                    </div>
+                  )}
+
+                  {/* CLEARED */}
+                  {effectiveRevalStatus === "CLEARED" && (
+                    <div className="rounded-lg bg-emerald-50/80 border border-emerald-200 p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-emerald-600" />
+                        <h4 className="font-bold text-emerald-950 text-[13px]">
+                          Authoritative reconciliation indicates that this exception no longer applies.
+                        </h4>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-[12px] bg-white rounded-lg p-3 border border-emerald-100">
+                        <div>
+                          <span className="text-gray-400 block text-[11px]">Previous Exception</span>
+                          <span className="font-semibold text-gray-800 font-mono text-[11.5px]">
+                            {prevException}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400 block text-[11px]">Resulting Classification</span>
+                          <span className="font-semibold text-emerald-700">
+                            Cleared (Eligible Credit)
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400 block text-[11px]">Tax Discrepancy Before</span>
+                          <span className="text-gray-700 font-medium">
+                            {taxDiffBeforePaise != null ? formatINR(taxDiffBeforePaise / 100) : "—"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400 block text-[11px]">Tax Discrepancy After</span>
+                          <span className="text-emerald-700 font-bold">
+                            {formatTaxDiffAfter(taxDiffAfterPaise)}
+                          </span>
+                        </div>
+                        {authoritativeRef && (
+                          <div className="col-span-2 border-t border-gray-100 pt-1.5">
+                            <span className="text-gray-400 block text-[10.5px]">Authoritative Record Reference</span>
+                            <span className="font-mono text-gray-600 text-[11px]">{authoritativeRef}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Maker-checker enforcement */}
+                      {isMakerCheckerRequired(item) ? (
+                        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-[12px] text-amber-900 space-y-1">
+                          <div className="flex items-center gap-1.5 font-bold">
+                            <span className="text-amber-700">⚠️</span>
+                            CA review required before final resolution.
+                          </div>
+                          <p className="text-[11.5px] text-amber-800 leading-snug">
+                            This item is a blocking exception subject to maker-checker governance. Authoritative clearance is recorded, but final operational closure requires CA sign-off.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg bg-emerald-100/60 border border-emerald-200 p-2.5 text-[11.5px] text-emerald-900">
+                          Operational resolution: <strong>RESOLVED</strong> (Vendor correction verified via authoritative reconciliation).
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* PERSISTS */}
+                  {effectiveRevalStatus === "PERSISTS" && (
+                    <div className="rounded-lg bg-rose-50/80 border border-rose-200 p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-rose-600" />
+                        <h4 className="font-bold text-rose-950 text-[13px]">
+                          The authoritative reconciliation still shows this exception.
+                        </h4>
+                      </div>
+
+                      <div className="bg-white rounded-lg p-3 border border-rose-100 space-y-2 text-[12px]">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <span className="text-gray-400 block text-[11px]">Exception Category</span>
+                            <span className="font-semibold text-rose-800 font-mono text-[11.5px]">
+                              {item.exception_type}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-400 block text-[11px]">Tax at Stake</span>
+                            <span className="font-semibold text-gray-800">
+                              {formatINR(item.itc_impact)}
+                            </span>
+                          </div>
+                        </div>
+                        {comparisonReason && (
+                          <div className="border-t border-gray-100 pt-1.5">
+                            <span className="text-gray-400 block text-[10.5px]">Authoritative Difference / Evidence</span>
+                            <p className="text-gray-800 text-[11.5px] mt-0.5 leading-snug">
+                              {comparisonReason}
+                            </p>
+                          </div>
+                        )}
+                        <div className="border-t border-gray-100 pt-1.5">
+                          <span className="text-gray-400 block text-[10.5px]">Recommended Next Action</span>
+                          <p className="text-gray-700 text-[11.5px] mt-0.5 font-medium">
+                            {item.next_action || "Follow up with supplier for GSTR-1 amendment or invoice correction."}
+                          </p>
+                        </div>
+                      </div>
+
+                      <p className="text-[11px] text-gray-500 italic">
+                        Note: Objective reconciliation outcome. Does not automatically imply vendor non-compliance or error.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* CHANGED */}
+                  {effectiveRevalStatus === "CHANGED" && (
+                    <div className="rounded-lg bg-amber-50/80 border border-amber-200 p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-amber-600" />
+                        <h4 className="font-bold text-amber-950 text-[13px]">
+                          The invoice was found again, but its authoritative exception state changed.
+                        </h4>
+                      </div>
+
+                      <div className="bg-white rounded-lg p-3 border border-amber-100 space-y-2 text-[12px]">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <span className="text-gray-400 block text-[11px]">Previous Exception</span>
+                            <span className="font-mono text-gray-800 text-[11.5px]">{prevException}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-400 block text-[11px]">New Exception</span>
+                            <span className="font-mono text-amber-800 font-bold text-[11.5px]">
+                              {newException || "MODIFIED"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-400 block text-[11px]">Difference Before</span>
+                            <span className="text-gray-700">
+                              {taxDiffBeforePaise != null ? formatINR(taxDiffBeforePaise / 100) : "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-400 block text-[11px]">Difference After</span>
+                            <span className="text-gray-900 font-semibold">
+                              {formatTaxDiffAfter(taxDiffAfterPaise)}
+                            </span>
+                          </div>
+                        </div>
+                        {comparisonReason && (
+                          <div className="border-t border-gray-100 pt-1.5">
+                            <span className="text-gray-400 block text-[10.5px]">Authoritative Comparison Evidence</span>
+                            <p className="text-gray-800 text-[11.5px] mt-0.5">{comparisonReason}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <p className="text-[11.5px] text-amber-900 font-medium">
+                        The exception is not cleared; the invoice discrepancy has altered classification in the latest reconciliation run.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* ERROR */}
+                  {effectiveRevalStatus === "ERROR" && (
+                    <div className="rounded-lg bg-red-50/80 border border-red-200 p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-red-600" />
+                        <h4 className="font-bold text-red-950 text-[13px]">
+                          Revalidation could not be completed.
+                        </h4>
+                      </div>
+                      <p className="text-[12px] text-red-900 bg-white rounded p-3 border border-red-100 leading-relaxed">
+                        {sanitizeTechnicalReason(
+                          latestRevalEvent?.metadata?.error_message || latestRevalEvent?.note || actionError
+                        )}
+                      </p>
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[11px] text-gray-500">
+                          The previous work item state was preserved.
+                        </span>
+                        <button
+                          disabled={isRevalidating}
+                          onClick={handleRevalidate}
+                          className="rounded-lg bg-red-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-red-700 disabled:opacity-50 shadow-sm"
+                        >
+                          {isRevalidating ? "Retrying…" : "Retry Revalidation"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* NOT_REVALIDATED */}
+                  {effectiveRevalStatus === "NOT_REVALIDATED" && (
+                    <div className="rounded-lg bg-gray-50 border border-gray-200 p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-gray-500" />
+                        <h4 className="font-bold text-gray-900 text-[13px]">
+                          ReconDesk could not establish a valid authoritative comparison.
+                        </h4>
+                      </div>
+                      <p className="text-[12px] text-gray-800 bg-white rounded p-3 border border-gray-200 leading-relaxed">
+                        {getNotRevalidatedExplanation(latestRevalEvent?.metadata?.reason, comparisonReason)}
+                      </p>
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[11px] text-gray-500">
+                          Status is not marked as PERSISTS. Authoritative comparison requires an eligible completed run.
+                        </span>
+                        {canRetryRevalidation(effectiveRevalStatus) && (
+                          <button
+                            disabled={isRevalidating}
+                            onClick={handleRevalidate}
+                            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[12px] font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                          >
+                            {isRevalidating ? "Retrying…" : "Retry Revalidation"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Authoritative Comparison Run Card (when target run ID exists) */}
+                  {revalTargetRunId && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3.5 space-y-2 text-[12px]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-slate-700" />
+                          Authoritative Comparison
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded">
+                          Authoritative GST Source
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[11.5px] pt-1">
+                        <div>
+                          <span className="text-gray-400 block text-[10.5px]">Target Reconciliation Run</span>
+                          <Link
+                            href={`/reconcile/runs/${revalTargetRunId}/results?search=${encodeURIComponent(
+                              item.invoice_number || ""
+                            )}`}
+                            target="_blank"
+                            className="font-mono text-indigo-600 underline font-medium hover:text-indigo-800"
+                          >
+                            {revalTargetRunId} →
+                          </Link>
+                        </div>
+                        <div>
+                          <span className="text-gray-400 block text-[10.5px]">Comparison Result</span>
+                          <span className="font-semibold text-gray-900">{revalStatusLabel}</span>
+                        </div>
+                        {latestRevalEvent?.created_at && (
+                          <div className="col-span-2">
+                            <span className="text-gray-400 block text-[10.5px]">Evaluated Timestamp</span>
+                            <span className="text-gray-700">
+                              {new Date(latestRevalEvent.created_at).toLocaleString("en-IN", {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* Historical Baseline Guidance (Import Snapshot) */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between px-1">
@@ -1073,13 +1523,27 @@ export function ItcWorkItemDetailDrawer({
                       </button>
                     )}
 
-                    {item.status === "RESOLVED" && item.revalidation_status !== "PENDING" && (
+                    {revalActionPermission.allowed && (
                       <button
                         disabled={isRevalidating}
                         onClick={handleRevalidate}
-                        className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-[12px] font-semibold text-blue-800 hover:bg-blue-100"
+                        className="rounded-lg border border-teal-300 bg-teal-50 px-3 py-1.5 text-[12px] font-semibold text-teal-800 hover:bg-teal-100 disabled:opacity-50"
                       >
-                        {isRevalidating ? "Requesting…" : "Request Revalidation (Phase 5.5)"}
+                        {isRevalidating
+                          ? "Requesting…"
+                          : effectiveRevalStatus === "ERROR" || effectiveRevalStatus === "NOT_REVALIDATED"
+                          ? "Retry Revalidation"
+                          : effectiveRevalStatus === "PERSISTS"
+                          ? "Re-request Revalidation"
+                          : "Request Revalidation"}
+                      </button>
+                    )}
+                    {(effectiveRevalStatus === "PENDING" || effectiveRevalStatus === "REVALIDATING") && (
+                      <button
+                        disabled
+                        className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-[12px] font-medium text-gray-400 cursor-not-allowed"
+                      >
+                        {effectiveRevalStatus === "REVALIDATING" ? "Revalidation in progress…" : "Revalidation queued"}
                       </button>
                     )}
                   </div>
@@ -1365,6 +1829,18 @@ export function ItcWorkItemDetailDrawer({
                                 ? "bg-emerald-600"
                                 : ev.event_type === "FOLLOWUP_SCHEDULED"
                                 ? "bg-amber-600"
+                                : ev.event_type === "REVALIDATION_REQUESTED"
+                                ? "bg-indigo-500"
+                                : ev.event_type === "REVALIDATION_STARTED"
+                                ? "bg-blue-600 animate-pulse"
+                                : ev.event_type === "REVALIDATION_COMPLETED"
+                                ? ev.metadata?.revalidation_result === "CLEARED"
+                                  ? "bg-emerald-600"
+                                  : ev.metadata?.revalidation_result === "ERROR"
+                                  ? "bg-red-600"
+                                  : "bg-amber-600"
+                                : ev.event_type === "REVALIDATION_STALE_TARGET_SKIPPED"
+                                ? "bg-amber-500"
                                 : "bg-black"
                             }`}
                           />
@@ -1389,6 +1865,39 @@ export function ItcWorkItemDetailDrawer({
                           {/* Event Metadata Pills */}
                           {ev.metadata && Object.keys(ev.metadata).length > 0 && (
                             <div className="mt-1 flex flex-wrap gap-1 text-[10.5px]">
+                              {ev.metadata.revalidation_result && (
+                                <span
+                                  className={`rounded border px-1.5 py-0.5 font-bold ${
+                                    ev.metadata.revalidation_result === "CLEARED"
+                                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                      : ev.metadata.revalidation_result === "ERROR"
+                                      ? "bg-red-50 text-red-800 border-red-200"
+                                      : "bg-amber-50 text-amber-800 border-amber-200"
+                                  }`}
+                                >
+                                  Result: {ev.metadata.revalidation_result}
+                                </span>
+                              )}
+                              {ev.metadata.target_run_id && (
+                                <span className="rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-slate-800 font-mono">
+                                  Run: {String(ev.metadata.target_run_id).slice(0, 8)}…
+                                </span>
+                              )}
+                              {ev.metadata.new_exception_type && (
+                                <span className="rounded bg-amber-50 border border-amber-200 px-1.5 py-0.5 text-amber-800 font-mono">
+                                  New: {ev.metadata.new_exception_type}
+                                </span>
+                              )}
+                              {ev.metadata.tax_diff_before != null && (
+                                <span className="rounded bg-gray-100 border border-gray-200 px-1.5 py-0.5 text-gray-700">
+                                  Before: {formatINR(ev.metadata.tax_diff_before / 100)}
+                                </span>
+                              )}
+                              {ev.metadata.tax_diff_after != null && (
+                                <span className="rounded bg-gray-100 border border-gray-200 px-1.5 py-0.5 text-gray-700">
+                                  After: {formatTaxDiffAfter(Number(ev.metadata.tax_diff_after))}
+                                </span>
+                              )}
                               {ev.metadata.channel && (
                                 <span className="rounded bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 text-indigo-700 font-medium">
                                   {ev.metadata.channel}
@@ -1407,6 +1916,11 @@ export function ItcWorkItemDetailDrawer({
                               {ev.metadata.promised_date && (
                                 <span className="rounded bg-amber-50 border border-amber-200 px-1.5 py-0.5 text-amber-800">
                                   Promised: {ev.metadata.promised_date}
+                                </span>
+                              )}
+                              {ev.metadata.reason && (
+                                <span className="rounded bg-gray-50 border border-gray-200 px-1.5 py-0.5 text-gray-600 font-mono">
+                                  Reason: {ev.metadata.reason}
                                 </span>
                               )}
                             </div>

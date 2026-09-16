@@ -478,7 +478,30 @@ export interface ItcWorkItem {
   resolution_code?: string | null;
   resolution_note?: string | null;
   resolved_at?: string | null;
-  revalidation_status?: "NONE" | "PENDING" | "REVALIDATED" | string;
+  revalidation_status?:
+    | "NONE"
+    | "PENDING"
+    | "REVALIDATING"
+    | "REVALIDATED"
+    | "ERROR"
+    | string;
+  revalidation_result?:
+    | "CLEARED"
+    | "PERSISTS"
+    | "CHANGED"
+    | "ERROR"
+    | "NOT_REVALIDATED"
+    | string
+    | null;
+  revalidation_requested_at?: string | null;
+  revalidation_completed_at?: string | null;
+  target_run_id?: string | null;
+  previous_exception_type?: string | null;
+  new_exception_type?: string | null;
+  comparison_reason?: string | null;
+  tax_diff_before?: number | null;
+  tax_diff_after?: number | null;
+  authoritative_record_ref?: string | null;
   disposition?: string | null;
   disposition_reason?: string | null;
   events?: ItcWorkItemEvent[];
@@ -654,11 +677,30 @@ export const workItemsApi = {
       body: JSON.stringify({ reason }),
     }),
 
-  revalidate: (token: string, id: string) =>
-    apiFetch<ItcWorkItem>(`/api/work-items/${id}/revalidate`, {
+  revalidate: (
+    token: string,
+    id: string,
+    params?: { target_run_id?: string; execute_now?: boolean }
+  ) => {
+    const sp = new URLSearchParams();
+    if (params?.target_run_id) sp.set("target_run_id", params.target_run_id);
+    if (params?.execute_now) sp.set("execute_now", "true");
+    const qs = sp.toString();
+    return apiFetch<ItcWorkItem>(`/api/work-items/${id}/revalidate${qs ? `?${qs}` : ""}`, {
       method: "POST",
       token,
-    }),
+    });
+  },
+
+  executeRevalidation: (token: string, id: string, targetRunId?: string) => {
+    const sp = new URLSearchParams();
+    if (targetRunId) sp.set("target_run_id", targetRunId);
+    const qs = sp.toString();
+    return apiFetch<ItcWorkItem>(`/api/work-items/${id}/execute-revalidation${qs ? `?${qs}` : ""}`, {
+      method: "POST",
+      token,
+    });
+  },
 
   bulkAction: (
     token: string,
