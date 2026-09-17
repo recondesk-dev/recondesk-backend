@@ -10,6 +10,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Mapping
 
+from app.services.normalizer import is_urp_gstin, URP_NORMALIZED
 from app.services.vendor_name_matcher import (
     find_best_vendor_match,
     l1_vendor_name_ok,
@@ -649,7 +650,12 @@ def _supplier_gstin(rec: Mapping[str, Any]) -> str:
     v = rec.get("supplier_gstin")
     if v is None or str(v).strip() == "":
         v = rec.get("gstin")
-    return "" if v is None else str(v).strip()
+    if v is None:
+        return ""
+    val_str = str(v).strip().upper()
+    if is_urp_gstin(val_str):
+        return URP_NORMALIZED
+    return val_str
 
 
 def _amount_diff_and_skip(

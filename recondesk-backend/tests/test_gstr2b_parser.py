@@ -1181,3 +1181,18 @@ def test_cdnr_records_flagged_as_credit_or_debit_note():
     for rec in result["records"]:
         assert rec["section"] == "cdnr"
         assert rec["is_amendment"] is False
+
+
+def test_urp_unregistered_supplier_parsed():
+    """URP / unregistered suppliers under RCM should be parsed as valid URP supplier records."""
+    invoices = [
+        _invoice(inum="LTS/MAY26/003", val=14160, itms=[_item(txval=12000, cgst=1080, sgst=1080)]),
+    ]
+    result = parse_gstr2b(_payload(b2b=[_supplier("URP", invoices)]))
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 0
+    rec = result["records"][0]
+    assert rec["supplier_gstin"] == "URP"
+    assert rec["gstin_format_invalid"] is False
+    assert rec["invoice_number"] == "LTSMAY26003"
+    assert rec["invoice_number_raw"] == "LTS/MAY26/003"

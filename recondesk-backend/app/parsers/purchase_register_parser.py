@@ -19,6 +19,8 @@ import pandas as pd
 
 from app.services.normalizer import (
     NormalizationError,
+    is_urp_gstin,
+    URP_NORMALIZED,
     normalize_amount as normalize_amount_to_paise,
     normalize_date,
     normalize_gstin,
@@ -769,7 +771,10 @@ def _normalize_gstin_cell(val: Any) -> str | None:
     s = _safe_cell(val)
     if s is None:
         return None
-    return s.strip().upper()
+    raw = s.strip().upper()
+    if is_urp_gstin(raw):
+        return URP_NORMALIZED
+    return raw
 
 
 def _normalize_invoice_number_cell(val: Any) -> str | None:
@@ -1088,29 +1093,42 @@ def _process_pr_sheet_rows(
             raw_gstin = row.get("gstin")
             if raw_gstin is None:
                 if embedded:
-                    try:
-                        gstin_value = normalize_gstin(embedded)
+                    if is_urp_gstin(embedded):
+                        gstin_value = URP_NORMALIZED
                         gstin_valid = True
-                    except NormalizationError:
-                        gstin_value = embedded
-                        gstin_valid = False
+                    else:
+                        try:
+                            gstin_value = normalize_gstin(embedded)
+                            gstin_valid = True
+                        except NormalizationError:
+                            gstin_value = embedded
+                            gstin_valid = False
                 else:
                     row_errors.append("missing GSTIN")
             else:
-                try:
-                    gstin_value = normalize_gstin(str(raw_gstin).strip())
+                raw_s = str(raw_gstin).strip()
+                if is_urp_gstin(raw_s):
+                    gstin_value = URP_NORMALIZED
                     gstin_valid = True
-                except NormalizationError:
-                    gstin_value = str(raw_gstin).strip().upper() or None
-                    gstin_valid = False
+                else:
+                    try:
+                        gstin_value = normalize_gstin(raw_s)
+                        gstin_valid = True
+                    except NormalizationError:
+                        gstin_value = raw_s.upper() or None
+                        gstin_valid = False
         elif embedded:
             # No dedicated GSTIN column (common Tally quirk) — use embedded value.
-            try:
-                gstin_value = normalize_gstin(embedded)
+            if is_urp_gstin(embedded):
+                gstin_value = URP_NORMALIZED
                 gstin_valid = True
-            except NormalizationError:
-                gstin_value = embedded
-                gstin_valid = False
+            else:
+                try:
+                    gstin_value = normalize_gstin(embedded)
+                    gstin_valid = True
+                except NormalizationError:
+                    gstin_value = embedded
+                    gstin_valid = False
 
         note_raw: str | None = None
         if note_mode and "note_number" in mapping:

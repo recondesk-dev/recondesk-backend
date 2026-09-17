@@ -24,6 +24,8 @@ from app.services.normalizer import (
     ALLOWED_NOTES,
     NormalizationError,
     NormalizationResult,
+    is_urp_gstin,
+    URP_NORMALIZED,
     normalize_amount,
     normalize_date,
     normalize_gstin,
@@ -994,98 +996,105 @@ def _process_section(
             continue
 
         gstin_format_invalid = False
-        try:
-            _gstin_out = normalize_gstin(raw_ctin)
-            # normalize_gstin currently returns a plain str; tolerate a
-            # NormalizationResult-compatible object (e.g. in tests or after a
-            # future refactor) by unwrapping .value when present.
-            if hasattr(_gstin_out, "value") and hasattr(_gstin_out, "notes"):
-                gstin_result = _validate_result(_gstin_out, "supplier_gstin")
-            else:
-                gstin_result = _validate_result(
-                    NormalizationResult(value=_gstin_out, notes=[]),
-                    "supplier_gstin",
-                )
-        except NormalizationError as e:
-            cleaned = re.sub(r"[^0-9A-Z]", "", raw_ctin.strip().upper())
-            # Excel state-code leading zero fix (e.g. 01..09 state codes stripped to 14 chars)
-            if len(cleaned) == 14:
-                candidate = "0" + cleaned
-                try:
-                    _norm = normalize_gstin(candidate)
-                    cleaned = candidate
+        if is_urp_gstin(raw_ctin):
+            gstin_result = _validate_result(
+                NormalizationResult(value=URP_NORMALIZED, notes=[]),
+                "supplier_gstin",
+            )
+            gstin_format_invalid = False
+        else:
+            try:
+                _gstin_out = normalize_gstin(raw_ctin)
+                # normalize_gstin currently returns a plain str; tolerate a
+                # NormalizationResult-compatible object (e.g. in tests or after a
+                # future refactor) by unwrapping .value when present.
+                if hasattr(_gstin_out, "value") and hasattr(_gstin_out, "notes"):
+                    gstin_result = _validate_result(_gstin_out, "supplier_gstin")
+                else:
                     gstin_result = _validate_result(
-                        NormalizationResult(value=_norm, notes=[]),
+                        NormalizationResult(value=_gstin_out, notes=[]),
                         "supplier_gstin",
                     )
-                    gstin_format_invalid = False
-                    e = None
-                except NormalizationError as cand_e:
-                    if cand_e.reason in ("invalid_checksum", "invalid_format"):
+            except NormalizationError as e:
+                cleaned = re.sub(r"[^0-9A-Z]", "", raw_ctin.strip().upper())
+                # Excel state-code leading zero fix (e.g. 01..09 state codes stripped to 14 chars)
+                if len(cleaned) == 14:
+                    candidate = "0" + cleaned
+                    try:
+                        _norm = normalize_gstin(candidate)
                         cleaned = candidate
+                        gstin_result = _validate_result(
+                            NormalizationResult(value=_norm, notes=[]),
+                            "supplier_gstin",
+                        )
+                        gstin_format_invalid = False
+                        e = None
+                    except NormalizationError as cand_e:
+                        if cand_e.reason in ("invalid_checksum", "invalid_format"):
+                            cleaned = candidate
+                            gstin_result = _validate_result(
+                                NormalizationResult(value=cleaned, notes=[]),
+                                "supplier_gstin",
+                            )
+                            gstin_format_invalid = (cand_e.reason == "invalid_format")
+                            e = None
+
+                if e is not None:
+                    if e.reason == "invalid_checksum":
+                        # GSTIN passes format/length/structure checks but fails checksum.
+                        # Accept with cleaned uppercase value — real-world and legacy GSTINs
+                        # may use a different checksum variant.
                         gstin_result = _validate_result(
                             NormalizationResult(value=cleaned, notes=[]),
                             "supplier_gstin",
                         )
-                        gstin_format_invalid = (cand_e.reason == "invalid_format")
-                        e = None
-
-            if e is not None:
-                if e.reason == "invalid_checksum":
-                    # GSTIN passes format/length/structure checks but fails checksum.
-                    # Accept with cleaned uppercase value — real-world and legacy GSTINs
-                    # may use a different checksum variant.
-                    gstin_result = _validate_result(
-                        NormalizationResult(value=cleaned, notes=[]),
-                        "supplier_gstin",
-                    )
-                elif e.reason == "invalid_format":
-                    # The cleaned value IS 15 characters (length check already
-                    # passed) but fails the structural GSTIN/PAN pattern — e.g. a
-                    # single corrupted character from what was otherwise clearly an
-                    # attempt at a real GSTIN. This is deliberately narrower than
-                    # "any GSTIN normalization failure": a hopelessly short/garbage
-                    # string (invalid_length) carries no real signal and stays
-                    # dropped below. Do not silently drop this invoice: a corrupted
-                    # GSTIN digit still leaves a real GSTR-2B invoice that a human
-                    # (or the invoice_number+amount+trade-name fallback matcher in
-                    # execute_phase2_and_3) can reconcile. Dropping it here used to
-                    # make the invoice vanish entirely from Total GSTR and cause its
-                    # legitimate PR-side counterpart to be mislabeled as "supplier
-                    # never filed" (ITC at Risk) when the supplier actually did file,
-                    # just with a mangled GSTIN. Keep the cleaned (whitelisted,
-                    # uppercased) value so matching still has *something* to compare,
-                    # and flag the record so GSTIN is never trusted for it downstream.
-                    gstin_result = _validate_result(
-                        NormalizationResult(value=cleaned, notes=[]),
-                        "supplier_gstin",
-                    )
-                    gstin_format_invalid = True
-                elif raw_ctin.strip().upper() == "UNKNOWN":
-                    # Alt flat-schema/Excel where GSTIN was missing or unmapped
-                    gstin_result = _validate_result(
-                        NormalizationResult(value="UNKNOWN", notes=[]),
-                        "supplier_gstin",
-                    )
-                    gstin_format_invalid = True
-                else:
-                    gstin_category, gstin_reason_code = _classify_norm_error(
-                        e.field, e.reason
-                    )
-                    for inv in inv_list:
-                        inv_num = _get_inv_num(inv, is_cdnr)
-                        skipped.append(
-                            _make_skip_entry(
-                                section_name,
-                                raw_ctin,
-                                inv_num,
-                                str(e),
-                                inv,
-                                category=gstin_category,
-                                reason_code=gstin_reason_code,
-                            )
+                    elif e.reason == "invalid_format":
+                        # The cleaned value IS 15 characters (length check already
+                        # passed) but fails the structural GSTIN/PAN pattern — e.g. a
+                        # single corrupted character from what was otherwise clearly an
+                        # attempt at a real GSTIN. This is deliberately narrower than
+                        # "any GSTIN normalization failure": a hopelessly short/garbage
+                        # string (invalid_length) carries no real signal and stays
+                        # dropped below. Do not silently drop this invoice: a corrupted
+                        # GSTIN digit still leaves a real GSTR-2B invoice that a human
+                        # (or the invoice_number+amount+trade-name fallback matcher in
+                        # execute_phase2_and_3) can reconcile. Dropping it here used to
+                        # make the invoice vanish entirely from Total GSTR and cause its
+                        # legitimate PR-side counterpart to be mislabeled as "supplier
+                        # never filed" (ITC at Risk) when the supplier actually did file,
+                        # just with a mangled GSTIN. Keep the cleaned (whitelisted,
+                        # uppercased) value so matching still has *something* to compare,
+                        # and flag the record so GSTIN is never trusted for it downstream.
+                        gstin_result = _validate_result(
+                            NormalizationResult(value=cleaned, notes=[]),
+                            "supplier_gstin",
                         )
-                    continue
+                        gstin_format_invalid = True
+                    elif raw_ctin.strip().upper() == "UNKNOWN":
+                        # Alt flat-schema/Excel where GSTIN was missing or unmapped
+                        gstin_result = _validate_result(
+                            NormalizationResult(value="UNKNOWN", notes=[]),
+                            "supplier_gstin",
+                        )
+                        gstin_format_invalid = True
+                    else:
+                        gstin_category, gstin_reason_code = _classify_norm_error(
+                            e.field, e.reason
+                        )
+                        for inv in inv_list:
+                            inv_num = _get_inv_num(inv, is_cdnr)
+                            skipped.append(
+                                _make_skip_entry(
+                                    section_name,
+                                    raw_ctin,
+                                    inv_num,
+                                    str(e),
+                                    inv,
+                                    category=gstin_category,
+                                    reason_code=gstin_reason_code,
+                                )
+                            )
+                        continue
 
         supplier_gstin = gstin_result.value
 

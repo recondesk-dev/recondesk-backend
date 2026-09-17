@@ -16,6 +16,20 @@ GSTIN_REGEX = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9][Z][0-9A-Z]$")
 PAN_REGEX = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 WHITELIST_PATTERN = re.compile(r"[^0-9A-Z]")
 
+# Unregistered / RCM supplier placeholder values used in GST portals and accounting software
+URP_NORMALIZED = "URP"
+URP_VARIANTS = frozenset(
+    {"URP", "URPRCM", "UNREGISTERED", "UNREG", "CONSUMER"}
+)
+
+
+def is_urp_gstin(raw: Any) -> bool:
+    """Return True if raw string represents an unregistered/URP supplier under GST."""
+    if not raw or not isinstance(raw, str):
+        return False
+    cleaned = WHITELIST_PATTERN.sub("", raw.strip().upper())
+    return cleaned in URP_VARIANTS or cleaned.startswith("URP")
+
 
 def _gstin_expected_checksum_char(first_14: str) -> str:
     """15th GSTIN character: Luhn mod 36 over the first 14 (GST/CBIC rule).

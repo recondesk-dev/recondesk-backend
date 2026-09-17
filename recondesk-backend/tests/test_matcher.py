@@ -983,3 +983,62 @@ def test_phase1_exact_invoice_wins_over_near_miss_processed_first():
     missed_ids = {m.get("gstr_id") or m.get("id") for m in state.missed_itc}
     assert "g09454" in missed_ids
     assert "g09754" not in missed_ids
+
+
+def test_urp_supplier_reconciliation_matching():
+    """URP / unregistered suppliers under RCM should match cleanly when invoice, date, and amount agree."""
+    from datetime import date
+    from app.services.reconciliation import (
+        ReconState,
+        build_gstr_by_invoice,
+        build_pr_by_invoice,
+        build_pr_candidate_indices,
+        execute_phase2_and_3,
+        process_gstr_records_chunk,
+    )
+
+    g_urp = _base_rec(
+        supplier_gstin="URP",
+        invoice_number="LTS/MAY26/003",
+        invoice_date="2026-05-15",
+        taxable_paise=1200000,
+    )
+    g_urp["id"] = "g_urp_1"
+    g_urp["total_tax_paise"] = 216000
+    g_urp["cgst_paise"] = 108000
+    g_urp["sgst_paise"] = 108000
+    g_urp["vendor_name"] = "Local Transport Services"
+
+    p_urp = _base_rec(
+        supplier_gstin="URP",
+        invoice_number="LTS/MAY26/003",
+        invoice_date="2026-05-15",
+        taxable_paise=1200000,
+    )
+    p_urp["id"] = "p_urp_1"
+    p_urp["total_tax_paise"] = 216000
+    p_urp["cgst_paise"] = 108000
+    p_urp["sgst_paise"] = 108000
+    p_urp["vendor_name"] = "Local Transport Services"
+
+    gstr_list = [g_urp]
+    pr_index = {"URP": [p_urp]}
+    state = ReconState()
+    pr_by_invoice = build_pr_by_invoice(pr_index)
+    cand = build_pr_candidate_indices(pr_index)
+    process_gstr_records_chunk(
+        gstr_list,
+        date(2026, 5, 1),
+        pr_index,
+        {},
+        state,
+        gstr_by_invoice=build_gstr_by_invoice(gstr_list),
+        pr_by_invoice=pr_by_invoice,
+        candidate_indices=cand,
+    )
+    execute_phase2_and_3(gstr_list, [p_urp], state, cand)
+
+    assert len(state.clean_matched) == 1
+    assert state.clean_matched[0]["gstr_id"] == "g_urp_1"
+    assert state.clean_matched[0]["pr_id"] == "p_urp_1"
+    assert len(state.missed_itc) == 0

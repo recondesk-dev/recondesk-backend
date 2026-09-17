@@ -1534,8 +1534,8 @@ def process_gstr_records_chunk(
             
         gstin = str(gstr_record.get("supplier_gstin") or "").strip()
         
-        # A.2 Pre-Phase 1 routing for missing/invalid GSTIN
-        if not gstin or len(gstin) != 15:
+        # A.2 Pre-Phase 1 routing for missing/invalid GSTIN (URP/unregistered is valid)
+        if not gstin or (len(gstin) != 15 and gstin != "URP"):
             continue # Leave for Phase 2
             
         inv_norm = str(gstr_record.get("invoice_number_normalized") or "")
@@ -1944,7 +1944,7 @@ def execute_phase2_and_3(
     for g in unconsumed_gstr:
         gid = str(g["id"])
         gst = str(g.get("supplier_gstin") or "").strip()
-        if not gst or len(gst) != 15:
+        if not gst or (len(gst) != 15 and gst != "URP"):
             continue
             
         inv = str(g.get("invoice_number_normalized") or "")

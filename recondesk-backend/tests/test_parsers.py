@@ -60,3 +60,18 @@ def test_purchase_register_leading_zeros_preserved():
     assert row["invoice_number"] == "00123"
     assert row["invoice_number_normalized"] == "123"
 
+
+def test_purchase_register_urp_vendor():
+    from app.parsers.purchase_register_parser import parse_purchase_register
+    csv_content = (
+        b"Supplier GSTIN,Supplier Invoice No.,Supplier Invoice Date,Taxable Amount,Total Amount\n"
+        b"URP,LTS/MAY26/003,15-05-2026,12000,14160\n"
+        b"URP/RCM,LTS/MAY26/004,16-05-2026,10000,11800\n"
+    )
+    res = parse_purchase_register(csv_content, "pr.csv")
+    assert len(res["records"]) == 2
+    assert res["records"][0]["gstin"] == "URP"
+    assert res["records"][0]["gstin_valid"] is True
+    assert res["records"][1]["gstin"] == "URP"
+    assert res["records"][1]["gstin_valid"] is True
+
