@@ -463,6 +463,39 @@ def _find_best_header_from_raw(
     return None, None, -1
 
 
+def _invoice_col_specificity(col: str) -> int:
+    """Prefer supplier invoice/bill/ref columns over internal voucher numbers."""
+    norm = normalize_header(col)
+    if any(k in norm for k in ("supplier inv", "supplier invoice", "original inv", "bill no", "ref no", "reference no")):
+        return 20
+    if any(k in norm for k in ("inv no", "invoice no", "invoice number", "tax invoice")):
+        return 10
+    if any(k in norm for k in ("vch no", "voucher no", "vch number", "voucher number")):
+        return 1
+    return 5
+
+
+def extract_column_sample_values(df: pd.DataFrame, max_samples: int = 3) -> dict[str, list[str]]:
+    """Return up to max_samples non-empty string values for each column in df."""
+    if df is None or len(df.columns) == 0:
+        return {}
+    samples: dict[str, list[str]] = {}
+    for col in df.columns:
+        col_str = str(col).strip()
+        vals: list[str] = []
+        try:
+            for val in df[col].dropna():
+                s = str(val).strip()
+                if s and s.lower() not in ("nan", "none", "nat") and s not in vals:
+                    vals.append(s)
+                    if len(vals) >= max_samples:
+                        break
+        except Exception:
+            pass
+        samples[col_str] = vals
+    return samples
+
+
 def detect_column_mapping(df: pd.DataFrame, client_gstin: str | None = None) -> dict[str, str]:
     """Map standard field names to the actual column names present in *df*.
 
@@ -503,8 +536,10 @@ def detect_column_mapping(df: pd.DataFrame, client_gstin: str | None = None) -> 
         tier, alias_len, priority, std_name = best
         prev = column_matches.get(std_name)
         if prev is not None:
-            current = (tier, alias_len, priority)
-            previous = prev[:3]
+            spec_cur = _invoice_col_specificity(orig_col) if std_name == "invoice_number" else 0
+            spec_prev = _invoice_col_specificity(prev[3]) if std_name == "invoice_number" else 0
+            current = (spec_cur, tier, alias_len, priority)
+            previous = (spec_prev, prev[0], prev[1], prev[2])
             if current > previous:
                 logger.warning(
                     "Field '%s' matched multiple columns [%s, %s] — "

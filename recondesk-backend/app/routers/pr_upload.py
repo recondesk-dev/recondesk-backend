@@ -55,8 +55,17 @@ async def detect_columns(
     content = await file.read()
     if len(content) > MAX_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File too large (max 20 MB)")
-    headers = cim.extract_headers_from_file(content, filename)
+    df = cim._read_pr_dataframe(content, filename)
+    sample_values: dict[str, list[str]] = {}
+    if df is not None and len(df.columns) > 0:
+        from app.parsers.purchase_register_parser import extract_column_sample_values
+        sample_values = extract_column_sample_values(df, max_samples=3)
+        headers = [str(h).strip() for h in df.columns.tolist()]
+    else:
+        headers = cim.extract_headers_from_file(content, filename)
+
     schema_ok = cim.columns_match_expected_schema(headers)
+    suggested_mapping = cim.suggest_mapping_for_headers(headers)
     saved = None
     covers = False
     if client_gstin_id:
@@ -76,6 +85,8 @@ async def detect_columns(
         "schema_ok": schema_ok,
         "saved_mapping": saved,
         "saved_mapping_covers": covers,
+        "suggested_mapping": suggested_mapping,
+        "sample_values": sample_values,
         "register_type_detection": detection.to_dict(),
     }
 

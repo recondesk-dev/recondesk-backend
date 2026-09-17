@@ -234,6 +234,29 @@ def columns_match_expected_schema(headers: list[str]) -> bool:
     return bool(has_identity and has_date and has_taxable and has_tax)
 
 
+def suggest_mapping_for_headers(headers: list[str]) -> list[dict[str, str]]:
+    """Return auto-detected mappings [{source_column_name: str, target_field: str}] for headers."""
+    if not headers:
+        return []
+    df = pd.DataFrame(columns=headers)
+    try:
+        raw_map = detect_column_mapping(df)
+    except ParseError:
+        return []
+    parser_to_target = {v: k for k, v in TARGET_TO_PARSER_FIELD.items()}
+    suggested: list[dict[str, str]] = []
+    used_targets: set[str] = set()
+    for std_field, orig_col in raw_map.items():
+        tf = parser_to_target.get(std_field)
+        if tf and orig_col in headers and tf not in used_targets:
+            used_targets.add(tf)
+            suggested.append({
+                "source_column_name": orig_col,
+                "target_field": tf,
+            })
+    return suggested
+
+
 def apply_mapping_to_dataframe(
     df: pd.DataFrame, mappings: list[dict[str, Any]]
 ) -> pd.DataFrame:

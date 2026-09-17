@@ -157,3 +157,24 @@ def test_sheet_without_invoice_column_surfaces_missing_count():
     warns = " ".join(result.get("warnings") or []).lower()
     assert "invoice number" in warns
     assert "no invoice col" in warns or "missing invoice" in warns
+
+
+def test_supplier_invoice_preferred_over_voucher_number():
+    """When both Vch No and Supplier Invoice No exist, Supplier Invoice No must win."""
+    from app.parsers.purchase_register_parser import detect_column_mapping
+    df = pd.DataFrame(
+        {
+            "Date": ["01-04-2026"],
+            "Particulars": ["Alpha Traders"],
+            "Vch No.": ["1"],
+            "Supplier Invoice No.": ["INV-REAL-999"],
+            "GSTIN/UIN": ["27AABCU9603R1ZM"],
+            "Taxable Value": [1000.0],
+            "Central Tax": [90.0],
+            "State Tax": [90.0],
+            "Integrated Tax": [0.0],
+        }
+    )
+    mapping = detect_column_mapping(df)
+    assert mapping["invoice_number"] == "Supplier Invoice No."
+

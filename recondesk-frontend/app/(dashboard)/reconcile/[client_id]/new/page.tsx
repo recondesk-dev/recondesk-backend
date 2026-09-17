@@ -310,6 +310,7 @@ export default function NewReconcileWizardPage() {
   const [schemaOk, setSchemaOk] = useState(false);
   const [mappingSaveError, setMappingSaveError] = useState<string | null>(null);
   const [confirmSavedMapping, setConfirmSavedMapping] = useState(false);
+  const [sampleValues, setSampleValues] = useState<Record<string, string[]>>({});
   const [registerTypeDetection, setRegisterTypeDetection] =
     useState<RegisterTypeDetection | null>(null);
   const [registerTypeOverride, setRegisterTypeOverride] = useState<
@@ -738,6 +739,7 @@ export default function NewReconcileWizardPage() {
       setAllHeaders(res.headers);
       setSchemaOk(!!res.schema_ok);
       setSavedMappingCovers(!!res.saved_mapping_covers);
+      setSampleValues(res.sample_values || {});
       if (res.register_type_detection) {
         setRegisterTypeDetection({
           ...res.register_type_detection,
@@ -758,6 +760,12 @@ export default function NewReconcileWizardPage() {
         setConfirmSavedMapping(true);
       } else if (res.saved_mapping?.length) {
         for (const m of res.saved_mapping) {
+          if (res.headers.includes(m.source_column_name)) {
+            next[m.source_column_name] = m.target_field;
+          }
+        }
+      } else if (res.suggested_mapping?.length) {
+        for (const m of res.suggested_mapping) {
           if (res.headers.includes(m.source_column_name)) {
             next[m.source_column_name] = m.target_field;
           }
@@ -2105,10 +2113,11 @@ export default function NewReconcileWizardPage() {
                     </p>
                   )}
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[480px] border-collapse text-left text-sm">
+                    <table className="w-full min-w-[560px] border-collapse text-left text-sm">
                       <thead>
                         <tr className="border-b border-[var(--border)] text-[var(--text-secondary)]">
                           <th className="py-2 pr-3">Your file has:</th>
+                          <th className="py-2 pr-3">Sample data:</th>
                           <th className="py-2 pr-3">Maps to:</th>
                         </tr>
                       </thead>
@@ -2120,9 +2129,19 @@ export default function NewReconcileWizardPage() {
                               .filter(([h, t]) => h !== header && t)
                               .map(([, t]) => t)
                           );
+                          const samples = sampleValues[header] || [];
                           return (
                             <tr key={header} className="border-b border-[var(--border)]">
-                              <td className="py-2 pr-3 font-mono text-xs">{header}</td>
+                              <td className="py-2 pr-3 font-mono text-xs text-[var(--text-primary)]">{header}</td>
+                              <td className="py-2 pr-3 text-xs text-[var(--text-secondary)] max-w-[220px] truncate">
+                                {samples.length > 0 ? (
+                                  <span title={samples.join(" | ")} className="font-mono text-[11px] text-zinc-600">
+                                    {samples.join(", ")}
+                                  </span>
+                                ) : (
+                                  <span className="text-zinc-400 italic">none</span>
+                                )}
+                              </td>
                               <td className="py-2 pr-3">
                                 <select
                                   value={selected}

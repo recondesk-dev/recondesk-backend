@@ -2108,6 +2108,8 @@ export interface PrDetectColumnsResponse {
   saved_mapping: ClientImportMappingRow[] | null;
   saved_mapping_covers: boolean;
   register_type_detection?: RegisterTypeDetection | null;
+  suggested_mapping?: ClientImportMappingItem[] | null;
+  sample_values?: Record<string, string[]> | null;
 }
 
 export interface RunPollStatus {
