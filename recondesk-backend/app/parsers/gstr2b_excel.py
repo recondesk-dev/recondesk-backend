@@ -163,7 +163,9 @@ def _cell_to_jsonish(val: Any) -> Any:
     return str(val)
 
 
-def _dataframe_to_row_dicts(df: pd.DataFrame) -> list[dict[str, Any]]:
+def _dataframe_to_row_dicts(
+    df: pd.DataFrame, mapping: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for _, series in df.iterrows():
         row: dict[str, Any] = {}
@@ -172,6 +174,15 @@ def _dataframe_to_row_dicts(df: pd.DataFrame) -> list[dict[str, Any]]:
             if not key:
                 continue
             row[key] = _cell_to_jsonish(series.get(col))
+        if mapping:
+            if "gstin" in mapping and mapping["gstin"] in df.columns:
+                val = _cell_to_jsonish(series.get(mapping["gstin"]))
+                if val:
+                    row.setdefault("GSTIN", val)
+            if "invoice_number" in mapping and mapping["invoice_number"] in df.columns:
+                val = _cell_to_jsonish(series.get(mapping["invoice_number"]))
+                if val:
+                    row.setdefault("Invoice No", val)
         rows.append(row)
     return rows
 
@@ -233,14 +244,19 @@ def _extract_period_from_title_or_filename(
 
 
 def _read_named_sheet(
-    xl: pd.ExcelFile, sheet_name: str, filename: str = ""
+    xl: pd.ExcelFile,
+    sheet_name: str,
+    filename: str = "",
+    client_gstin: str | None = None,
 ) -> tuple[list[dict[str, Any]], str, str, int]:
     """Return (row dicts, title_gstin, title_period, header_row) for one workbook sheet."""
     raw_df = pd.read_excel(xl, sheet_name=sheet_name, header=None, dtype=object)
     if raw_df is None or raw_df.empty:
         return [], "", "", -1
 
-    body_df, _mapping, header_row = _find_best_header_from_raw(raw_df)
+    body_df, _mapping, header_row = _find_best_header_from_raw(
+        raw_df, client_gstin=client_gstin
+    )
     if body_df is None:
         title = _extract_gstin_from_title_rows(raw_df, max(header_row, 0))
         period = _extract_period_from_title_or_filename(
@@ -252,7 +268,7 @@ def _read_named_sheet(
     period = _extract_period_from_title_or_filename(raw_df, header_row, filename)
     if body_df.empty:
         return [], title, period, header_row
-    return _dataframe_to_row_dicts(body_df), title, period, header_row
+    return _dataframe_to_row_dicts(body_df, mapping=_mapping), title, period, header_row
 
 
 # Disallowed words/compact names in sheet name for GSTR-2B invoice content candidate
@@ -307,7 +323,10 @@ _PR_COLUMN_MARKERS = (
 
 
 def _is_gstr2b_invoice_sheet_by_content(
-    xl: pd.ExcelFile, sheet_name: str, filename: str = ""
+    xl: pd.ExcelFile,
+    sheet_name: str,
+    filename: str = "",
+    client_gstin: str | None = None,
 ) -> tuple[bool, list[dict[str, Any]], str, str]:
     """Inspect a workbook sheet by content to see if it qualifies as a GSTR-2B invoice sheet.
 
@@ -356,7 +375,9 @@ def _is_gstr2b_invoice_sheet_by_content(
             if any(phrase in text for phrase in _PR_TITLE_PHRASES):
                 return False, [], "", ""
 
-    body_df, mapping, header_row = _find_best_header_from_raw(raw_df)
+    body_df, mapping, header_row = _find_best_header_from_raw(
+        raw_df, client_gstin=client_gstin
+    )
     if body_df is None or mapping is None or body_df.empty:
         return False, [], "", ""
 
@@ -391,7 +412,7 @@ def _is_gstr2b_invoice_sheet_by_content(
         ):
             return False, [], "", ""
 
-    rows = _dataframe_to_row_dicts(body_df)
+    rows = _dataframe_to_row_dicts(body_df, mapping=mapping)
     if not rows:
         return False, [], "", ""
 
@@ -400,7 +421,11 @@ def _is_gstr2b_invoice_sheet_by_content(
     return True, rows, title, period
 
 
-def excel_to_alt_2b_dict(file_content: bytes, filename: str = "gstr2b.xlsx") -> dict:
+def excel_to_alt_2b_dict(
+    file_content: bytes,
+    filename: str = "gstr2b.xlsx",
+    client_gstin: str | None = None,
+) -> dict:
     """Convert workbook bytes into the alt flat-JSON dict shape.
 
     Returns::
@@ -440,7 +465,7 @@ def excel_to_alt_2b_dict(file_content: bytes, filename: str = "gstr2b.xlsx") -> 
             continue
         try:
             rows, gstin, period, _hdr = _read_named_sheet(
-                xl, sheet_name, filename=filename
+                xl, sheet_name, filename=filename, client_gstin=client_gstin
             )
         except Exception as exc:
             logger.warning("GSTR-2B Excel sheet %r failed: %s", sheet_name, exc)
@@ -464,7 +489,7 @@ def excel_to_alt_2b_dict(file_content: bytes, filename: str = "gstr2b.xlsx") -> 
             ):
                 continue
             is_valid, rows, gstin, period = _is_gstr2b_invoice_sheet_by_content(
-                xl, sheet_name, filename=filename
+                xl, sheet_name, filename=filename, client_gstin=client_gstin
             )
             if is_valid:
                 logger.info(
@@ -510,7 +535,9 @@ def parse_2b_excel(
     Field mapping and blank-``Sr`` skipping are delegated to
     ``normalize_alt_2b_schema`` (same path as flat JSON exports).
     """
-    alt = excel_to_alt_2b_dict(file_content, filename)
+    alt = excel_to_alt_2b_dict(
+        file_content, filename, client_gstin=fallback_buyer_gstin
+    )
     isd_count = int(alt.pop(_UNPARSED_ISD_COUNT_KEY, 0) or 0)
     impg_count = int(alt.pop(_UNPARSED_IMPG_COUNT_KEY, 0) or 0)
     portal = normalize_alt_2b_schema(

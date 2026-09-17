@@ -1007,56 +1007,85 @@ def _process_section(
                     "supplier_gstin",
                 )
         except NormalizationError as e:
-            if e.reason == "invalid_checksum":
-                # GSTIN passes format/length/structure checks but fails checksum.
-                # Accept with cleaned uppercase value — real-world and legacy GSTINs
-                # may use a different checksum variant.
-                cleaned = re.sub(r"[^0-9A-Z]", "", raw_ctin.strip().upper())
-                gstin_result = _validate_result(
-                    NormalizationResult(value=cleaned, notes=[]),
-                    "supplier_gstin",
-                )
-            elif e.reason == "invalid_format":
-                # The cleaned value IS 15 characters (length check already
-                # passed) but fails the structural GSTIN/PAN pattern — e.g. a
-                # single corrupted character from what was otherwise clearly an
-                # attempt at a real GSTIN. This is deliberately narrower than
-                # "any GSTIN normalization failure": a hopelessly short/garbage
-                # string (invalid_length) carries no real signal and stays
-                # dropped below. Do not silently drop this invoice: a corrupted
-                # GSTIN digit still leaves a real GSTR-2B invoice that a human
-                # (or the invoice_number+amount+trade-name fallback matcher in
-                # execute_phase2_and_3) can reconcile. Dropping it here used to
-                # make the invoice vanish entirely from Total GSTR and cause its
-                # legitimate PR-side counterpart to be mislabeled as "supplier
-                # never filed" (ITC at Risk) when the supplier actually did file,
-                # just with a mangled GSTIN. Keep the cleaned (whitelisted,
-                # uppercased) value so matching still has *something* to compare,
-                # and flag the record so GSTIN is never trusted for it downstream.
-                cleaned = re.sub(r"[^0-9A-Z]", "", raw_ctin.strip().upper())
-                gstin_result = _validate_result(
-                    NormalizationResult(value=cleaned, notes=[]),
-                    "supplier_gstin",
-                )
-                gstin_format_invalid = True
-            else:
-                gstin_category, gstin_reason_code = _classify_norm_error(
-                    e.field, e.reason
-                )
-                for inv in inv_list:
-                    inv_num = _get_inv_num(inv, is_cdnr)
-                    skipped.append(
-                        _make_skip_entry(
-                            section_name,
-                            raw_ctin,
-                            inv_num,
-                            str(e),
-                            inv,
-                            category=gstin_category,
-                            reason_code=gstin_reason_code,
-                        )
+            cleaned = re.sub(r"[^0-9A-Z]", "", raw_ctin.strip().upper())
+            # Excel state-code leading zero fix (e.g. 01..09 state codes stripped to 14 chars)
+            if len(cleaned) == 14:
+                candidate = "0" + cleaned
+                try:
+                    _norm = normalize_gstin(candidate)
+                    cleaned = candidate
+                    gstin_result = _validate_result(
+                        NormalizationResult(value=_norm, notes=[]),
+                        "supplier_gstin",
                     )
-                continue
+                    gstin_format_invalid = False
+                    e = None
+                except NormalizationError as cand_e:
+                    if cand_e.reason in ("invalid_checksum", "invalid_format"):
+                        cleaned = candidate
+                        gstin_result = _validate_result(
+                            NormalizationResult(value=cleaned, notes=[]),
+                            "supplier_gstin",
+                        )
+                        gstin_format_invalid = (cand_e.reason == "invalid_format")
+                        e = None
+
+            if e is not None:
+                if e.reason == "invalid_checksum":
+                    # GSTIN passes format/length/structure checks but fails checksum.
+                    # Accept with cleaned uppercase value — real-world and legacy GSTINs
+                    # may use a different checksum variant.
+                    gstin_result = _validate_result(
+                        NormalizationResult(value=cleaned, notes=[]),
+                        "supplier_gstin",
+                    )
+                elif e.reason == "invalid_format":
+                    # The cleaned value IS 15 characters (length check already
+                    # passed) but fails the structural GSTIN/PAN pattern — e.g. a
+                    # single corrupted character from what was otherwise clearly an
+                    # attempt at a real GSTIN. This is deliberately narrower than
+                    # "any GSTIN normalization failure": a hopelessly short/garbage
+                    # string (invalid_length) carries no real signal and stays
+                    # dropped below. Do not silently drop this invoice: a corrupted
+                    # GSTIN digit still leaves a real GSTR-2B invoice that a human
+                    # (or the invoice_number+amount+trade-name fallback matcher in
+                    # execute_phase2_and_3) can reconcile. Dropping it here used to
+                    # make the invoice vanish entirely from Total GSTR and cause its
+                    # legitimate PR-side counterpart to be mislabeled as "supplier
+                    # never filed" (ITC at Risk) when the supplier actually did file,
+                    # just with a mangled GSTIN. Keep the cleaned (whitelisted,
+                    # uppercased) value so matching still has *something* to compare,
+                    # and flag the record so GSTIN is never trusted for it downstream.
+                    gstin_result = _validate_result(
+                        NormalizationResult(value=cleaned, notes=[]),
+                        "supplier_gstin",
+                    )
+                    gstin_format_invalid = True
+                elif raw_ctin.strip().upper() == "UNKNOWN":
+                    # Alt flat-schema/Excel where GSTIN was missing or unmapped
+                    gstin_result = _validate_result(
+                        NormalizationResult(value="UNKNOWN", notes=[]),
+                        "supplier_gstin",
+                    )
+                    gstin_format_invalid = True
+                else:
+                    gstin_category, gstin_reason_code = _classify_norm_error(
+                        e.field, e.reason
+                    )
+                    for inv in inv_list:
+                        inv_num = _get_inv_num(inv, is_cdnr)
+                        skipped.append(
+                            _make_skip_entry(
+                                section_name,
+                                raw_ctin,
+                                inv_num,
+                                str(e),
+                                inv,
+                                category=gstin_category,
+                                reason_code=gstin_reason_code,
+                            )
+                        )
+                    continue
 
         supplier_gstin = gstin_result.value
 
@@ -1280,7 +1309,9 @@ def is_alt_gstr2b_schema(data: dict) -> bool:
 
 
 def _alt_key_norm(key: Any) -> str:
-    return re.sub(r"\s+", " ", str(key or "").strip().lower())
+    """Normalize column header / dict key: strip punctuation to space, collapse whitespace."""
+    s = re.sub(r"[^\w\s]", " ", str(key or "").lower())
+    return re.sub(r"\s+", " ", s).strip()
 
 
 def _alt_row_get(row: Mapping[str, Any], *names: str) -> Any:
@@ -1419,6 +1450,16 @@ def _alt_extract_buyer_gstin(data: dict) -> str:
     return ""
 
 
+_ALT_GSTIN_ALIASES = (
+    "GSTIN", "gstin", "ctin", "GSTIN of Supplier", "Supplier GSTIN",
+    "GSTIN/UIN", "GSTIN / UIN", "GSTIN/UIN of Supplier", "GSTIN / UIN of Supplier",
+    "GSTIN of the Supplier", "Supplier GSTIN/UIN", "Supplier GSTIN / UIN",
+    "Party GSTIN", "Party's GSTIN", "Supplier's GSTIN", "Vendor GSTIN",
+    "Supplier GSTIN Number", "Supplier GST No", "GSTIN UIN", "GSTIN UIN of Supplier",
+    "Supplier GST", "Vendor GST", "Party GST No",
+)
+
+
 def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     """Map one flat third-party invoice row → portal-ish inv object.
 
@@ -1428,16 +1469,24 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     """
     sr = _alt_row_get(row, "Sr", "sr", "S.No", "S No", "Sl", "Sl.", "Sl. No.")
 
-    gstin = str(
-        _alt_row_get(
-            row, "GSTIN", "gstin", "GSTIN of Supplier",
-            "Supplier GSTIN", "ctin",
-        ) or ""
-    ).strip().upper()
+    gstin = str(_alt_row_get(row, *_ALT_GSTIN_ALIASES) or "").strip().upper()
+    if not gstin:
+        for k, v in row.items():
+            if _alt_blank(v):
+                continue
+            s_val = str(v).strip().upper()
+            m = _GSTIN_IN_TEXT_RE.search(s_val)
+            if m:
+                norm_k = _alt_key_norm(k)
+                if not any(sub in norm_k for sub in ("inv", "doc", "bill", "vch", "note", "ref")):
+                    gstin = m.group(1).upper()
+                    break
+
     inum = str(
         _alt_row_get(
             row, "Invoice No", "Invoice Number", "invoice_no", "inum",
-            "Document Number", "Doc No",
+            "Document Number", "Doc No", "Inv No", "Bill No", "Bill Number",
+            "Supplier Invoice No", "Supplier Bill No",
         ) or ""
     ).strip()
 
@@ -1500,6 +1549,7 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
         _alt_row_get(
             row,
             "SGST", "sgst", "samt", "State/UT Tax",
+            "State UT Tax", "State/UT Tax Amount", "State UT Tax Amount",
             "SGST Amount", "sgst_amount",
             "State Tax Amount", "state_tax_amount",
             "State Tax", "state_tax",
@@ -1573,16 +1623,24 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     """Map one flat credit/debit note row → portal cdnr note object."""
     sr = _alt_row_get(row, "Sr", "sr", "S.No", "S No", "Sl", "Sl.", "Sl. No.")
 
-    gstin = str(
-        _alt_row_get(
-            row, "GSTIN", "gstin", "GSTIN of Supplier",
-            "Supplier GSTIN", "ctin",
-        ) or ""
-    ).strip().upper()
+    gstin = str(_alt_row_get(row, *_ALT_GSTIN_ALIASES) or "").strip().upper()
+    if not gstin:
+        for k, v in row.items():
+            if _alt_blank(v):
+                continue
+            s_val = str(v).strip().upper()
+            m = _GSTIN_IN_TEXT_RE.search(s_val)
+            if m:
+                norm_k = _alt_key_norm(k)
+                if not any(sub in norm_k for sub in ("inv", "doc", "bill", "vch", "note", "ref")):
+                    gstin = m.group(1).upper()
+                    break
+
     nt_num = str(
         _alt_row_get(
             row, "Note No", "Note Number", "nt_num", "ntnum",
-            "Document Number", "Doc No",
+            "Document Number", "Doc No", "Credit Note No", "Debit Note No",
+            "CDN No", "CDN Number",
         ) or ""
     ).strip()
 
@@ -1650,6 +1708,7 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
         _alt_row_get(
             row,
             "SGST", "sgst", "samt", "State/UT Tax",
+            "State UT Tax", "State/UT Tax Amount", "State UT Tax Amount",
             "SGST Amount", "sgst_amount",
             "State Tax Amount", "state_tax_amount",
             "State Tax", "state_tax",

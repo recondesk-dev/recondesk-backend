@@ -547,5 +547,111 @@ def test_gstr2b_excel_note_rows_normalize_taxable_amount_and_derive_val():
     assert cn["invoice_value_paise"] == 236000  # 2000 + 360 = 2360 -> 236000 paise
 
 
+def test_gstr2b_excel_with_gstin_uin_header_and_currency_symbols():
+    """Verify GST portal Excel exports with 'GSTIN/UIN' and currency symbols in headers parse cleanly."""
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "GSTIN/UIN": "27AABCT1332L1ZV",
+                    "Trade/Legal name": "Acme Industrial Supplies",
+                    "Invoice number": "INV/2026/089",
+                    "Invoice Date": "14-05-2026",
+                    "Invoice Value(₹)": 11800.0,
+                    "Taxable Value (₹)": 10000.0,
+                    "Integrated Tax(₹)": 0.0,
+                    "Central Tax(₹)": 900.0,
+                    "State/UT Tax(₹)": 900.0,
+                },
+                {
+                    "GSTIN/UIN": "29ABCDE1234F1Z5",
+                    "Trade/Legal name": "Southern Tech Corp",
+                    "Invoice number": "ST-9988",
+                    "Invoice Date": "18-05-2026",
+                    "Invoice Value(₹)": 5900.0,
+                    "Taxable Value (₹)": 5000.0,
+                    "Integrated Tax(₹)": 900.0,
+                    "Central Tax(₹)": 0.0,
+                    "State/UT Tax(₹)": 0.0,
+                },
+            ]
+        ).to_excel(writer, sheet_name="B2B", index=False)
+
+    raw = buf.getvalue()
+    portal = parse_2b_excel(raw, "gstr2b_gstin_uin.xlsx", fallback_period="2026-05")
+    result = parse_gstr2b(portal, fallback_period="2026-05")
+
+    assert result["total_parsed"] == 2
+    assert result["total_skipped"] == 0
+    invoices = result["records"]
+    assert {inv["invoice_number_raw"] for inv in invoices} == {"INV/2026/089", "ST-9988"}
+    assert {inv["supplier_gstin"] for inv in invoices} == {"27AABCT1332L1ZV", "29ABCDE1234F1Z5"}
+    assert invoices[0]["taxable_value"] in (10000.0, 5000.0)
+
+
+def test_gstr2b_excel_leading_zero_stripped_gstin_repaired():
+    """Verify that state code 01-09 stripped to 14 chars by Excel number export is repaired."""
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "GSTIN of Supplier": "7AAAAA0000A1Z5",  # 14 chars, stripped leading 0 of Delhi (07)
+                    "Invoice Number": "DEL-INV-01",
+                    "Invoice Date": "01-06-2026",
+                    "Taxable Value": 2500.0,
+                    "Integrated Tax": 450.0,
+                }
+            ]
+        ).to_excel(writer, sheet_name="invoice", index=False)
+
+    raw = buf.getvalue()
+    portal = parse_2b_excel(raw, "stripped_gstin.xlsx", fallback_period="2026-06")
+    result = parse_gstr2b(portal, fallback_period="2026-06")
+
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 0
+    assert result["records"][0]["supplier_gstin"] == "07AAAAA0000A1Z5"
+    assert result["records"][0]["gstin_format_invalid"] is False
+
+
+def test_gstr2b_excel_corrupted_gstin_retained_in_records():
+    """Verify that invoices with corrupted GSTIN are retained (not skipped) with gstin_format_invalid=True."""
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "Supplier GSTIN": "UNKNOWN",
+                    "Invoice Number": "CORRUPT-INV-01",
+                    "Invoice Date": "10-06-2026",
+                    "Taxable Value": 3000.0,
+                    "Integrated Tax": 540.0,
+                }
+            ]
+        ).to_excel(writer, sheet_name="invoice", index=False)
+
+    raw = buf.getvalue()
+    portal = parse_2b_excel(raw, "corrupt_gstin.xlsx", fallback_period="2026-06")
+    result = parse_gstr2b(portal, fallback_period="2026-06")
+
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 0
+    rec = result["records"][0]
+    assert rec["invoice_number_raw"] == "CORRUPT-INV-01"
+    assert rec["gstin_format_invalid"] is True
+
+
+
 
 

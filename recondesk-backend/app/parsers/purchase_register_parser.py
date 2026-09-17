@@ -85,6 +85,10 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     "gstin": [
         "gstin", "supplier gstin", "party gstin", "vendor gstin", "gst no",
         "gstn", "gst number", "vendor gst", "party gst no", "buyer gst",
+        "gstin uin", "gstin of supplier", "gstin of the supplier",
+        "gstin uin of supplier", "supplier gstin uin", "party s gstin",
+        "party gstin uin", "supplier gstin number", "supplier gst no",
+        "party gst in", "supplier gst in",
     ],
     "invoice_number": [
         "invoice no", "invoice number", "inv no", "bill no",
@@ -324,6 +328,20 @@ def refine_gstin_column_mapping(
     true supplier GSTIN column.
     """
     if "gstin" not in mapping or df is None or len(df) == 0:
+        if "gstin" not in mapping and df is not None and len(df) > 0:
+            norm_client = client_gstin.strip().upper() if client_gstin else None
+            for col in df.columns:
+                vals = df[col].dropna().astype(str).str.strip().str.upper()
+                clean_vals = [v for v in vals if v and v not in ("NAN", "NONE", "NAT")]
+                if not clean_vals:
+                    continue
+                valid_gstins = [v for v in clean_vals if _is_valid_gstin_str(v)]
+                if valid_gstins and (len(valid_gstins) / len(clean_vals) >= 0.5):
+                    if norm_client and len(set(valid_gstins)) == 1 and norm_client in valid_gstins:
+                        continue
+                    new_mapping = dict(mapping)
+                    new_mapping["gstin"] = col
+                    return new_mapping
         return mapping
 
     current_col = mapping["gstin"]
