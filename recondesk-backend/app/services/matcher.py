@@ -86,6 +86,97 @@ def same_pan(a: str | None, b: str | None) -> bool:
     return bool(pa) and pa == pb
 
 
+def supplier_identity_compatible(
+    gstr_rec: Mapping[str, Any] | str,
+    pr_rec: Mapping[str, Any] | str,
+    g_vendor: str | None = None,
+    p_vendor: str | None = None,
+) -> tuple[bool, str, str]:
+    """Evaluate supplier identity compatibility between GSTR and PR records.
+
+    Centralized supplier identity decision helper for all reconciliation passes.
+    Enforces deterministic identity boundaries to prevent cross-supplier false
+    positives in fuzzy/typo candidate matching.
+
+    Returns:
+        (compatible: bool, reason: str, identity_type: str)
+
+    Identity types:
+        - "EXACT_GSTIN": Identical 15-character GSTIN.
+        - "PAN_MATCH": Same 10-character PAN across different state/branch GSTINs.
+        - "URP_SPECIAL_CASE": Unregistered supplier identity validated via vendor name.
+        - "BOTH_MISSING": Neither record has a GSTIN.
+        - "UNKNOWN": Identity cannot be conclusively verified or refuted.
+        - "IDENTITY_CONFLICT": Explicit conflict between suppliers (different PAN/state
+          or conflicting URP vendor names).
+    """
+    if isinstance(gstr_rec, Mapping):
+        g_gst = str(gstr_rec.get("supplier_gstin") or gstr_rec.get("gstin") or "").strip().upper()
+        g_name = str(gstr_rec.get("supplier_name") or g_vendor or "").strip()
+        g_invalid = bool(gstr_rec.get("gstin_format_invalid"))
+    else:
+        g_gst = str(gstr_rec or "").strip().upper()
+        g_name = str(g_vendor or "").strip()
+        g_invalid = False
+
+    if isinstance(pr_rec, Mapping):
+        p_gst = str(pr_rec.get("supplier_gstin") or pr_rec.get("gstin") or "").strip().upper()
+        p_name = str(pr_rec.get("vendor_name") or pr_rec.get("supplier_name") or p_vendor or "").strip()
+    else:
+        p_gst = str(pr_rec or "").strip().upper()
+        p_name = str(p_vendor or "").strip()
+
+    # Normalize URP identifiers
+    g_is_urp = is_urp_gstin(g_gst) or g_gst in ("URP", "UNREGISTERED", "URP/RCM", "CONSUMER", "UNREG")
+    p_is_urp = is_urp_gstin(p_gst) or p_gst in ("URP", "UNREGISTERED", "URP/RCM", "CONSUMER", "UNREG")
+
+    # 1. URP / Unregistered supplier handling
+    if g_is_urp and p_is_urp:
+        # DO NOT treat literal "URP" as identity; verify actual vendor names
+        if g_name and p_name:
+            if l1_vendor_name_ok(g_name, p_name):
+                return True, "URP supplier names compatible", "URP_SPECIAL_CASE"
+            return False, f"URP supplier identity conflict: {g_name!r} vs {p_name!r}", "IDENTITY_CONFLICT"
+        return True, "URP supplier with unverified vendor name", "UNKNOWN"
+
+    if g_is_urp != p_is_urp and (g_gst and p_gst):
+        # One is explicitly URP and the other has a registered GSTIN
+        return False, "Conflict between unregistered (URP) and registered GSTIN supplier", "IDENTITY_CONFLICT"
+
+    # 2. Both missing GSTIN
+    if not g_gst and not p_gst:
+        if g_name and p_name:
+            if l1_vendor_name_ok(g_name, p_name):
+                return True, "Both GSTINs missing, vendor names compatible", "BOTH_MISSING"
+            return False, f"Both GSTINs missing, vendor names conflict: {g_name!r} vs {p_name!r}", "IDENTITY_CONFLICT"
+        return True, "Both GSTINs missing", "UNKNOWN"
+
+    # 3. One missing GSTIN
+    if not g_gst or not p_gst:
+        if g_name and p_name:
+            if l1_vendor_name_ok(g_name, p_name):
+                return True, "One GSTIN missing, vendor names compatible", "UNKNOWN"
+            return False, f"One GSTIN missing, vendor names conflict: {g_name!r} vs {p_name!r}", "IDENTITY_CONFLICT"
+        return True, "One GSTIN missing", "UNKNOWN"
+
+    # 4. Both have GSTIN - Exact match
+    if g_gst == p_gst:
+        return True, "Exact GSTIN match", "EXACT_GSTIN"
+
+    # 5. GSTINs differ - Check PAN equality
+    pan_g = _pan_of(g_gst)
+    pan_p = _pan_of(p_gst)
+    if pan_g and pan_p and pan_g == pan_p:
+        return True, f"Same PAN ({pan_g}) across different state/branch GSTINs", "PAN_MATCH"
+
+    # 6. Near-match GSTIN (Levenshtein <= 2 for single-character typos/OCR errors)
+    if len(g_gst) >= 14 and len(p_gst) >= 14 and levenshtein(g_gst, p_gst) <= 2:
+        return True, f"GSTIN near-match (Levenshtein distance <= 2: {g_gst} vs {p_gst})", "PAN_MATCH"
+
+    # 7. Explicit GSTIN/PAN conflict
+    return False, f"Supplier GSTIN/PAN conflict: {g_gst} vs {p_gst}", "IDENTITY_CONFLICT"
+
+
 def _is_subsequence(short: str, long: str) -> bool:
     it = iter(long)
     return all(ch in it for ch in short)
@@ -234,6 +325,13 @@ def is_sequential_series_mismatch(
     if not n1 or not n2 or n1 == n2:
         return False
 
+    # Digit transpositions (e.g. 650125 ↔ 605125 or 185025 ↔ 815025) are typos,
+    # not sequential series mismatches.
+    d1 = "".join(re.findall(r"\d", s1)).lstrip("0")
+    d2 = "".join(re.findall(r"\d", s2)).lstrip("0")
+    if len(d1) >= 4 and len(d2) >= 4 and Counter(d1) == Counter(d2):
+        return False
+
     def _extract_nums(s: str) -> list[int]:
         return [int(m) for m in re.findall(r"\d+", s)]
 
@@ -244,6 +342,11 @@ def is_sequential_series_mismatch(
         last1 = nums1[-1]
         last2 = nums2[-1]
         if last1 != last2:
+            # Single-character typos that are not consecutive increments (abs(last1 - last2) != 1)
+            # are legitimate typos, not sequential series mismatches (e.g. TYPO/26/00113 vs TYPO/26/00116).
+            if levenshtein(n1, n2) == 1 and abs(last1 - last2) != 1:
+                return False
+
             # 1. Same leading alphabetic prefix (e.g. "INV" on both)
             p1 = _RE_LEADING_ALPHA.match(n1)
             p2 = _RE_LEADING_ALPHA.match(n2)

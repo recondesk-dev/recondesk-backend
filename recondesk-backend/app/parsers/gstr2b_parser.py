@@ -1789,19 +1789,32 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def _alt_group_by_supplier(mapped_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Build portal ``[{ctin, trdnm, inv: [...]}, ...]`` from mapped flat rows."""
-    order: list[str] = []
-    buckets: dict[str, dict[str, Any]] = {}
+    """Build portal ``[{ctin, trdnm, inv: [...]}, ...]`` from mapped flat rows.
+
+    When suppliers are unregistered (URP / UNREGISTERED / URP/RCM / blank / UNKNOWN),
+    grouping solely by ``ctin`` collapses distinct legal entities into a single bucket,
+    causing the first supplier's trade name to overwrite all subsequent suppliers.
+    For unregistered records, group by ``(ctin, supplier_name)`` so each distinct
+    unregistered vendor retains its own supplier identity deterministically.
+    """
+    order: list[Any] = []
+    buckets: dict[Any, dict[str, Any]] = {}
     for row in mapped_rows:
         ctin = str(row.pop("_supplier_gstin", "") or "").strip().upper() or "UNKNOWN"
         name = str(row.pop("_supplier_name", "") or "").strip()
         row.pop("_rtnprd", None)
-        if ctin not in buckets:
-            order.append(ctin)
-            buckets[ctin] = {"ctin": ctin, "trdnm": name, "inv": []}
-        elif name and not buckets[ctin].get("trdnm"):
-            buckets[ctin]["trdnm"] = name
-        buckets[ctin]["inv"].append(row)
+
+        if is_urp_gstin(ctin) or ctin in ("UNKNOWN", ""):
+            key = (ctin, name.strip().upper())
+        else:
+            key = ctin
+
+        if key not in buckets:
+            order.append(key)
+            buckets[key] = {"ctin": ctin, "trdnm": name, "inv": []}
+        elif name and not buckets[key].get("trdnm"):
+            buckets[key]["trdnm"] = name
+        buckets[key]["inv"].append(row)
     return [buckets[k] for k in order]
 
 

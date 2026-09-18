@@ -19,9 +19,11 @@ from app.services.matcher import (
     build_compared_fields,
     invoice_similarity,
     is_invoice_format_variant,
+    is_sequential_series_mismatch,
     match_gstr_to_pr,
     normalize_invoice,
     same_pan,
+    supplier_identity_compatible,
     _parse_invoice_date,
 )
 from app.services.vendor_name_matcher import find_best_vendor_match, vendor_name_similarity
@@ -1863,6 +1865,13 @@ def execute_phase2_and_3(
             compat, _ = are_document_types_compatible(g, p)
             if not compat:
                 continue
+
+            # Supplier identity gate: Corrupted GSTIN must still have compatible supplier identity
+            # (e.g. near-match GSTIN or non-conflicting PAN/state/vendor)
+            compat_id, id_reason, id_type = supplier_identity_compatible(g, p)
+            if not compat_id or id_type == "IDENTITY_CONFLICT":
+                continue
+
             p_inv_norm = str(p.get("invoice_number_normalized") or "")
             if not g_inv_norm or not p_inv_norm:
                 continue
@@ -1872,6 +1881,14 @@ def execute_phase2_and_3(
                 if g_inv_norm and p_inv_norm
                 else 0.0
             )
+
+            # Sequential series mismatch (e.g. INV1900 vs INV1920) must NEVER match as fuzzy invoice.
+            is_seq_mismatch = is_sequential_series_mismatch(
+                g_inv_norm, p_inv_norm, g_inv_raw, p_inv_raw
+            )
+            if is_seq_mismatch:
+                continue
+
             # Equal-length digit mangling (e.g. INV650125 ↔ INV605125, sim≈0.78)
             # is not a format variant by design — still a credible twin when
             # amount/date corroborate. Align floor with fuzzy-GSTIN / TYPO (0.75).
@@ -2029,6 +2046,8 @@ def execute_phase2_and_3(
             _is_fv = is_invoice_format_variant(inv, p_inv_norm, g_inv_raw_fuzzy, p_inv_raw_fuzzy) if inv and p_inv_norm else False
             if inv_sim < 0.75 and not _is_fv:
                 continue
+            if is_sequential_series_mismatch(inv, p_inv_norm, g_inv_raw_fuzzy, p_inv_raw_fuzzy):
+                continue
             # Amount within 5 % (relaxed from 2 % because we already require a
             # near-match GSTIN *and* a plausible invoice — the extra amount slack
             # only adds a human-review flag, never a clean match).
@@ -2096,6 +2115,12 @@ def execute_phase2_and_3(
                         p_inv_norm = str(p.get("invoice_number_normalized") or "")
                         sim = invoice_similarity(g_inv_norm, p_inv_norm)
                         if sim >= 0.75 and g_inv_norm != p_inv_norm:
+                            g_inv_raw_typo = str(g.get("invoice_number") or "")
+                            p_inv_raw_typo = str(p.get("invoice_number") or "")
+                            if is_sequential_series_mismatch(
+                                g_inv_norm, p_inv_norm, g_inv_raw_typo, p_inv_raw_typo
+                            ):
+                                continue
                             candidates_typo.append((p, sim))
                             
         if candidates_typo:
@@ -2286,6 +2311,16 @@ def execute_phase2_and_3(
 
             # criteria 2: same normalized invoice + amount within 2% + date within 30 days
             if g_inv_norm and g_inv_norm == p_inv_norm and diff_pct <= 0.02 and (not g_date or not p_date or date_diff <= 30):
+                if gst and p_gst and gst != p_gst:
+                    if _pr_has_stronger_same_gstin_gstr_candidate(
+                        p, unconsumed_gstr_by_gstin, state.consumed_gstr_ids
+                    ):
+                        continue
+                    g_vend = str(g.get("supplier_name") or "")
+                    p_vend = str(p.get("supplier_name") or "")
+                    supp_ok, _, _ = supplier_identity_compatible(g, p, g_vend, p_vend)
+                    if not supp_ok:
+                        continue
                 found = (0, "POSSIBLE_MATCH")
 
             # criteria 3: same GSTIN + same normalized invoice → date/amount are secondary
@@ -2457,6 +2492,10 @@ def execute_phase2_and_3(
                 )
                 if not ok:
                     continue
+                g_inv_raw_twin = str(g.get("invoice_number") or "")
+                p_inv_raw_twin = str(p.get("invoice_number") or "")
+                if is_sequential_series_mismatch(g_inv_norm, p_inv_norm, g_inv_raw_twin, p_inv_raw_twin):
+                    continue
                 p_date = _parse_invoice_date(p)
                 date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
                 if g_date and p_date and date_diff > 30:
@@ -2509,6 +2548,10 @@ def execute_phase2_and_3(
                 g_inv_norm, p_inv_norm, sim_min=0.70, digit_dist_max=2
             )
             if not ok:
+                continue
+            g_inv_raw_twin2 = str(g.get("invoice_number") or "")
+            p_inv_raw_twin2 = str(p.get("invoice_number") or "")
+            if is_sequential_series_mismatch(g_inv_norm, p_inv_norm, g_inv_raw_twin2, p_inv_raw_twin2):
                 continue
             p_date = _parse_invoice_date(p)
             date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
