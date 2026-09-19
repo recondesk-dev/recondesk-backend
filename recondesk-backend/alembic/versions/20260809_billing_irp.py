@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "billing_irp"
-down_revision = "92f7064a0b30_merge_billing_and_tally_bridge_heads"
+down_revision = "92f7064a0b30"
 branch_labels = None
 depends_on = None
 
