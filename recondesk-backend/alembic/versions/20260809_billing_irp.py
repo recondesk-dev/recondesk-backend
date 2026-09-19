@@ -7,6 +7,7 @@ Revises: 92f7064a0b30_merge_billing_and_tally_bridge_heads
 from __future__ import annotations
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "billing_irp"
@@ -45,7 +46,7 @@ def upgrade() -> None:
         if not _column_exists("billing_invoices", "irn_ack_number"):
             op.add_column("billing_invoices", sa.Column("irn_ack_number", sa.Text(), nullable=True))
         if not _column_exists("billing_invoices", "irn_ack_date"):
-            op.add_column("billing_invoices", sa.Column("irn_ack_date", sa.TIMESTAMPTZ(), nullable=True))
+            op.add_column("billing_invoices", sa.Column("irn_ack_date", postgresql.TIMESTAMP(timezone=True), nullable=True))
         if not _column_exists("billing_invoices", "irn_qr_code"):
             op.add_column("billing_invoices", sa.Column("irn_qr_code", sa.Text(), nullable=True))
         if not _column_exists("billing_invoices", "irn_signed_json"):
