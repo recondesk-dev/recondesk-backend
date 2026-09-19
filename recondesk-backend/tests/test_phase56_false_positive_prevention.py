@@ -418,3 +418,112 @@ def test_deterministic_date_discrepancy_generator():
     assert offset_date == date(2026, 6, 5)
     assert (offset_date - base).days == 5
     assert (offset_date - base).days > 0
+
+
+# ==============================================================================
+# M. SEQUENTIAL SERIES INVOICE VS CREDIT NOTE TYPO REGRESSION TESTS
+# ==============================================================================
+
+def test_sequential_invoices_po_series_blocked():
+    """Sequential invoices (PO-0101 vs PO-0102) must NEVER fuzzy match or review match."""
+    gstin = "27AAACR5055K1Z7"
+    gstr = [_make_gstr("g_po1", "PO-0101", gstin, 1000000, 180000, doc_type="INVOICE")]
+    pr = [_make_pr("p_po2", "PO-0102", gstin, 1000000, 180000, doc_type="INVOICE")]
+    assert is_sequential_series_mismatch("PO0101", "PO0102", "PO-0101", "PO-0102") is True
+
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+    assert res["stats"]["matched_count"] == 0
+    assert res["stats"]["review_required_count"] == 0
+    assert res["stats"]["missed_itc_count"] == 1
+    assert res["stats"]["wrongful_risk_count"] == 1
+
+
+def test_credit_note_crn901_vs_crn902_reviewed_as_genuine_typo():
+    """Credit notes (CRN-901 vs CRN-902) must be routed to REVIEW_REQUIRED as TYPO_MISMATCH, never clean."""
+    gstin = "27AAACR5055K1Z7"
+    gstr = [_make_gstr("g_crn1", "CRN-901", gstin, 1000000, 180000, doc_type="CREDIT_NOTE")]
+    pr = [_make_pr("p_crn2", "CRN-902", gstin, 1000000, 180000, doc_type="CREDIT_NOTE", pr_note_quarantine=True)]
+    assert is_sequential_series_mismatch("CRN901", "CRN902", "CRN-901", "CRN-902") is False
+
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+    assert res["stats"]["matched_count"] == 0
+    assert res["stats"]["review_required_count"] == 1
+    rr = res["review_required"][0]
+    assert rr["doc_type"] == "CREDIT_NOTE"
+    assert rr["is_credit_note"] is True
+    assert rr["review_reason"] == "TYPO_MISMATCH"
+
+
+def test_credit_note_crn8812_vs_crn8813_reviewed_never_clean():
+    """Credit notes (CRN-8812 vs CRN-8813) must route to REVIEW_REQUIRED as TYPO_MISMATCH, never clean."""
+    gstin = "27AAACR5055K1Z7"
+    gstr = [_make_gstr("g_crn8812", "CRN-8812", gstin, 500000, 90000, doc_type="CREDIT_NOTE")]
+    pr = [_make_pr("p_crn8813", "CRN-8813", gstin, 500000, 90000, doc_type="CREDIT_NOTE", pr_note_quarantine=True)]
+    assert is_sequential_series_mismatch("CRN8812", "CRN8813", "CRN-8812", "CRN-8813") is False
+
+    res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
+    assert res["stats"]["matched_count"] == 0
+    assert res["stats"]["review_required_count"] == 1
+    rr = res["review_required"][0]
+    assert rr["doc_type"] == "CREDIT_NOTE"
+    assert rr["is_credit_note"] is True
+    assert rr["review_reason"] == "TYPO_MISMATCH"
+
+
+# ==============================================================================
+# N. FOCUSED TESTS FOR DELIMITER-AWARE NOTE DETECTION (FINAL OBSERVATION HARDENING)
+# ==============================================================================
+
+def test_is_note_document_delimiter_aware_detection():
+    """Verify delimiter-aware note classification and ordinary invoice rejection."""
+    from app.services.reconciliation import _is_note_document
+
+    # Arbitrary invoice prefixes MUST NOT be classified as notes
+    assert _is_note_document({"invoice_number": "CNTR-100"}) is False
+    assert _is_note_document({"invoice_number": "CNS-100"}) is False
+    assert _is_note_document({"invoice_number": "DNA-100"}) is False
+
+    # Genuine note identifiers MUST be classified as notes
+    assert _is_note_document({"invoice_number": "CRN-8812"}) is True
+    assert _is_note_document({"invoice_number": "DBN-100"}) is True
+    assert _is_note_document({"invoice_number": "CRN-901"}) is True
+    assert _is_note_document({"invoice_number": "DN-100"}) is True
+    assert _is_note_document({"invoice_number": "CDN-100"}) is True
+
+    # Explicit ordinary invoice doc_types MUST NOT be classified as notes
+    assert _is_note_document({"invoice_number": "INV-100", "doc_type": "INVOICE"}) is False
+    assert _is_note_document({"invoice_number": "TAX-100", "doc_type": "TAX_INVOICE"}) is False
+    assert _is_note_document({"invoice_number": "CRN-8812", "doc_type": "INVOICE"}) is False
+    assert _is_note_document({"invoice_number": "DBN-100", "doc_type": "TAX_INVOICE"}) is False
+
+    # Genuine CDN/CDNR/CDNUR records MUST be preserved
+    assert _is_note_document({"invoice_number": "100", "section": "cdnr"}) is True
+    assert _is_note_document({"invoice_number": "100", "section": "cdnra"}) is True
+    assert _is_note_document({"invoice_number": "100", "section": "cdnur"}) is True
+    assert _is_note_document({"invoice_number": "100", "doc_type": "CREDIT_NOTE"}) is True
+    assert _is_note_document({"invoice_number": "100", "doc_type": "DEBIT_NOTE"}) is True
+
+
+def test_cntr_cns_dna_invoices_remain_blocked_by_sequential_guard():
+    """Invoices starting with CNTR, CNS, or DNA must remain protected by the sequential guard."""
+    gstin = "27AAACR5055K1Z7"
+
+    # CNTR sequential invoices
+    g_cntr = [_make_gstr("g_c1", "CNTR-100", gstin, 1000000, 180000, doc_type="INVOICE")]
+    p_cntr = [_make_pr("p_c2", "CNTR-101", gstin, 1000000, 180000, doc_type="INVOICE")]
+    res_cntr = run_bidirectional_reconciliation(g_cntr, p_cntr, gstr_period=PERIOD)
+    assert res_cntr["stats"]["matched_count"] == 0
+    assert res_cntr["stats"]["review_required_count"] == 0
+    assert res_cntr["stats"]["missed_itc_count"] == 1
+    assert res_cntr["stats"]["wrongful_risk_count"] == 1
+
+    # DNA sequential invoices
+    g_dna = [_make_gstr("g_d1", "DNA-100", gstin, 1000000, 180000, doc_type="INVOICE")]
+    p_dna = [_make_pr("p_d2", "DNA-101", gstin, 1000000, 180000, doc_type="INVOICE")]
+    res_dna = run_bidirectional_reconciliation(g_dna, p_dna, gstr_period=PERIOD)
+    assert res_dna["stats"]["matched_count"] == 0
+    assert res_dna["stats"]["review_required_count"] == 0
+    assert res_dna["stats"]["missed_itc_count"] == 1
+    assert res_dna["stats"]["wrongful_risk_count"] == 1
+
+

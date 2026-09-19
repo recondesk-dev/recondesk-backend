@@ -25,6 +25,7 @@ from app.services.matcher import (
     same_pan,
     supplier_identity_compatible,
     _parse_invoice_date,
+    _RE_NOTE_IDENTIFIER,
 )
 from app.services.vendor_name_matcher import find_best_vendor_match, vendor_name_similarity
 from app.services.gstr3b_reconciliation import _paise_to_rupees
@@ -338,6 +339,41 @@ def is_pr_note_quarantine(pr_rec: dict) -> bool:
         or ""
     ).strip().upper()
     return doc in {"CREDIT_NOTE", "DEBIT_NOTE"}
+
+
+def _is_note_document(rec: Mapping[str, Any] | None) -> bool:
+    """True if record represents a credit or debit note."""
+    if not rec:
+        return False
+
+    doc = str(
+        rec.get("doc_type")
+        or rec.get("document_type")
+        or rec.get("invoice_type")
+        or ""
+    ).strip().upper()
+
+    # Explicitly return False for ordinary invoice document types unless explicitly
+    # flagged as a note (e.g. pr_note_quarantine)
+    if doc in {"INVOICE", "TAX_INVOICE", "INV"}:
+        if not (rec.get("is_credit_note") or rec.get("is_debit_note") or rec.get("pr_note_quarantine")):
+            return False
+
+    if doc in {"CREDIT_NOTE", "DEBIT_NOTE", "CRN", "DBN", "CN", "DN", "CREDIT", "DEBIT"}:
+        return True
+
+    sec = str(rec.get("section") or "").strip().lower()
+    if sec in {"cdnr", "cdnra", "cdnur", "cdnura"}:
+        return True
+
+    if rec.get("is_credit_note") or rec.get("is_debit_note") or rec.get("pr_note_quarantine"):
+        return True
+
+    inv_raw = str(rec.get("invoice_number_raw") or rec.get("invoice_number") or "").strip()
+    if inv_raw and _RE_NOTE_IDENTIFIER.search(inv_raw):
+        return True
+
+    return False
 
 
 def quarantine_pr_notes(state: ReconState, pr_records: list[dict]) -> list[dict]:
@@ -1884,7 +1920,11 @@ def execute_phase2_and_3(
 
             # Sequential series mismatch (e.g. INV1900 vs INV1920) must NEVER match as fuzzy invoice.
             is_seq_mismatch = is_sequential_series_mismatch(
-                g_inv_norm, p_inv_norm, g_inv_raw, p_inv_raw
+                g_inv_norm,
+                p_inv_norm,
+                g_inv_raw,
+                p_inv_raw,
+                is_note=_is_note_document(g) or _is_note_document(p),
             )
             if is_seq_mismatch:
                 continue
@@ -2046,7 +2086,13 @@ def execute_phase2_and_3(
             _is_fv = is_invoice_format_variant(inv, p_inv_norm, g_inv_raw_fuzzy, p_inv_raw_fuzzy) if inv and p_inv_norm else False
             if inv_sim < 0.75 and not _is_fv:
                 continue
-            if is_sequential_series_mismatch(inv, p_inv_norm, g_inv_raw_fuzzy, p_inv_raw_fuzzy):
+            if is_sequential_series_mismatch(
+                inv,
+                p_inv_norm,
+                g_inv_raw_fuzzy,
+                p_inv_raw_fuzzy,
+                is_note=_is_note_document(g) or _is_note_document(p),
+            ):
                 continue
             # Amount within 5 % (relaxed from 2 % because we already require a
             # near-match GSTIN *and* a plausible invoice — the extra amount slack
@@ -2118,7 +2164,11 @@ def execute_phase2_and_3(
                             g_inv_raw_typo = str(g.get("invoice_number") or "")
                             p_inv_raw_typo = str(p.get("invoice_number") or "")
                             if is_sequential_series_mismatch(
-                                g_inv_norm, p_inv_norm, g_inv_raw_typo, p_inv_raw_typo
+                                g_inv_norm,
+                                p_inv_norm,
+                                g_inv_raw_typo,
+                                p_inv_raw_typo,
+                                is_note=_is_note_document(g) or _is_note_document(p),
                             ):
                                 continue
                             candidates_typo.append((p, sim))
@@ -2494,7 +2544,13 @@ def execute_phase2_and_3(
                     continue
                 g_inv_raw_twin = str(g.get("invoice_number") or "")
                 p_inv_raw_twin = str(p.get("invoice_number") or "")
-                if is_sequential_series_mismatch(g_inv_norm, p_inv_norm, g_inv_raw_twin, p_inv_raw_twin):
+                if is_sequential_series_mismatch(
+                    g_inv_norm,
+                    p_inv_norm,
+                    g_inv_raw_twin,
+                    p_inv_raw_twin,
+                    is_note=_is_note_document(g) or _is_note_document(p),
+                ):
                     continue
                 p_date = _parse_invoice_date(p)
                 date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
@@ -2551,7 +2607,13 @@ def execute_phase2_and_3(
                 continue
             g_inv_raw_twin2 = str(g.get("invoice_number") or "")
             p_inv_raw_twin2 = str(p.get("invoice_number") or "")
-            if is_sequential_series_mismatch(g_inv_norm, p_inv_norm, g_inv_raw_twin2, p_inv_raw_twin2):
+            if is_sequential_series_mismatch(
+                g_inv_norm,
+                p_inv_norm,
+                g_inv_raw_twin2,
+                p_inv_raw_twin2,
+                is_note=_is_note_document(g) or _is_note_document(p),
+            ):
                 continue
             p_date = _parse_invoice_date(p)
             date_diff = abs((g_date - p_date).days) if g_date and p_date else 0

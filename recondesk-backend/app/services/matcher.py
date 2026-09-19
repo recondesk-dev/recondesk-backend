@@ -37,6 +37,9 @@ _RE_NON_ALNUM = re.compile(r"[^A-Za-z0-9]")
 _RE_LEADING_ALPHA = re.compile(r"^[A-Z]+")
 _RE_SERIES_PREFIX = re.compile(r"^[A-Z0-9]*[A-Z]+")
 _RE_TRAILING_DIGITS = re.compile(r"\d+$")
+_RE_NOTE_IDENTIFIER = re.compile(
+    r"(^|[\-_/])(CRN|CN|DBN|DN|CDN|DRN|CREDIT|DEBIT)([\-_/\s0-9]|$)", re.IGNORECASE
+)
 
 
 def normalise_inv_no(s: Any) -> str:
@@ -305,6 +308,7 @@ def is_sequential_series_mismatch(
     inv2: str | None,
     inv1_raw: str | None = None,
     inv2_raw: str | None = None,
+    is_note: bool | None = None,
 ) -> bool:
     """True when two invoices share the same series/prefix structure but have
     distinct numeric sequence numbers in a sequential series (e.g. INV/25-26/0101
@@ -344,8 +348,18 @@ def is_sequential_series_mismatch(
         if last1 != last2:
             # Single-character typos that are not consecutive increments (abs(last1 - last2) != 1)
             # are legitimate typos, not sequential series mismatches (e.g. TYPO/26/00113 vs TYPO/26/00116).
-            if levenshtein(n1, n2) == 1 and abs(last1 - last2) != 1:
-                return False
+            # Exception: Credit/debit notes (e.g. CRN-8812 vs CRN-8813, CRN-901 vs CRN-902)
+            # are individual adjustments where single-character differences are clerical typos,
+            # not sequential series collisions.
+            is_note_doc = bool(is_note) or bool(
+                _RE_NOTE_IDENTIFIER.search(s1)
+                or _RE_NOTE_IDENTIFIER.search(s2)
+                or _RE_NOTE_IDENTIFIER.search(r1)
+                or _RE_NOTE_IDENTIFIER.search(r2)
+            )
+            if levenshtein(n1, n2) == 1:
+                if is_note_doc or abs(last1 - last2) != 1:
+                    return False
 
             # 1. Same leading alphabetic prefix (e.g. "INV" on both)
             p1 = _RE_LEADING_ALPHA.match(n1)
@@ -890,8 +904,8 @@ def _is_credit_note(rec: Mapping[str, Any] | None) -> bool:
         return True
     if rec.get("credit_note_number") or rec.get("note_number") or rec.get("nt_num") or rec.get("ntnum"):
         return True
-    inv_num = str(rec.get("invoice_number_raw") or rec.get("invoice_number") or "").upper().strip()
-    if inv_num.startswith("CN") or inv_num.endswith("CN") or "-CN" in inv_num or "/CN" in inv_num:
+    inv_num = str(rec.get("invoice_number_raw") or rec.get("invoice_number") or "").strip()
+    if inv_num and re.search(r"(^|[\-_/])(CRN|CN)([\-_/\s0-9]|$)", inv_num, re.IGNORECASE):
         return True
     taxable = rec.get("taxable_amount_paise")
     if taxable is not None:
@@ -915,10 +929,13 @@ def _is_debit_note(rec: Mapping[str, Any] | None) -> bool:
     if not rec:
         return False
     doc_type = str(rec.get("doc_type") or "").upper().strip()
-    if doc_type in ("DEBIT_NOTE", "DN", "DEBIT", "D"):
-        return True
     inv_type = str(rec.get("invoice_type") or "").upper().strip()
-    if inv_type in ("DEBIT_NOTE", "DN", "DEBIT", "D"):
+    if doc_type in ("INVOICE", "TAX_INVOICE", "INV") or inv_type in ("INVOICE", "TAX_INVOICE", "INV"):
+        if not (rec.get("debit_note_number") or rec.get("note_number") or rec.get("nt_num") or rec.get("ntnum") or str(rec.get("ntty") or "").upper().strip() in ("D", "DR")):
+            return False
+    if doc_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN"):
+        return True
+    if inv_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN"):
         return True
     ntty = str(rec.get("ntty") or "").upper().strip()
     if ntty in ("D", "DR", "DEBIT", "DEBIT_NOTE"):
@@ -926,8 +943,8 @@ def _is_debit_note(rec: Mapping[str, Any] | None) -> bool:
     voucher_type = str(rec.get("voucher_type") or "").upper().strip()
     if "DEBIT" in voucher_type or voucher_type in ("DN", "DR NOTE", "DR. NOTE"):
         return True
-    inv_num = str(rec.get("invoice_number_raw") or rec.get("invoice_number") or "").upper().strip()
-    if inv_num.startswith("DN") or inv_num.endswith("DN") or "-DN" in inv_num or "/DN" in inv_num:
+    inv_num = str(rec.get("invoice_number_raw") or rec.get("invoice_number") or "").strip()
+    if inv_num and re.search(r"(^|[\-_/])(DBN|DN)([\-_/\s0-9]|$)", inv_num, re.IGNORECASE):
         return True
     return False
 
