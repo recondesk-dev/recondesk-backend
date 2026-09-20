@@ -2767,6 +2767,8 @@ def _rule37_actions_for_run(sb, run_id: str) -> dict[str, str]:
 
 
 def _decision_statuses_for_run(sb, run_id: str) -> dict[str, str]:
+    if not sb:
+        return {}
     rows: list[dict] = []
     for use_note_type in (True, False):
         try:
@@ -3627,10 +3629,13 @@ def _build_matched_pair_records(
     note_counts: Counter[str],
     fetch_review_required: bool = False,
     precomputed_outcome_rows: Optional[list[Any]] = None,
+    decision_statuses: Optional[dict[str, str]] = None,
 ) -> list[tuple[dict[str, Any], Any]]:
     """Return list of ({api_row}, outcome_row) for pagination / filters."""
     gstr_db = ro.load_gstr_map(sb, rid)
     pr_db = ro.load_pr_map(sb, rid)
+    if decision_statuses is None:
+        decision_statuses = _decision_statuses_for_run(sb, rid) if sb is not None else {}
 
     all_outcome_rows = (
         precomputed_outcome_rows
@@ -3847,7 +3852,7 @@ def _build_matched_pair_records(
                 "decision_next": d_next
                 if d_next
                 else (str(getattr(orow, "decision_next", "")) if orow else None),
-                "decision_status": "pending",
+                "decision_status": _lookup_by_record_id(decision_statuses, rid_str, "pending"),
                 "decision_type": None,
                 "notes_count": int(_lookup_by_record_id(note_counts, rid_str, 0)),
                 "gstr2b_data": gd2,
@@ -4115,6 +4120,19 @@ def _assert_record_ids_in_run(sb, rid: str, record_ids: list[str]) -> None:
                 rid=rid,
                 payload=p,
                 note_counts=notes,
+                decision_statuses={},
+            )
+        )
+    if any(x.startswith("rr:") for x in wanted):
+        valid.update(
+            str(row.get("id") or "")
+            for row, _ in _build_matched_pair_records(
+                sb,
+                rid=rid,
+                payload=p,
+                note_counts=notes,
+                fetch_review_required=True,
+                decision_statuses={},
             )
         )
     if any(x.startswith("r37:") for x in wanted):
