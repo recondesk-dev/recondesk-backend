@@ -246,7 +246,7 @@ class FakeSupabaseForMismatchNotes:
         self._is_delete: bool = False
 
     def table(self, table_name: str):
-        if table_name == "mismatch_notes":
+        if table_name in ("mismatch_notes", "user_profiles"):
             return self
         return MagicMock()
 
@@ -254,6 +254,12 @@ class FakeSupabaseForMismatchNotes:
         self._filter_run = None
         self._filter_rec = None
         self._is_delete = False
+        return self
+
+    def order(self, *args, **kwargs):
+        return self
+
+    def in_(self, *args, **kwargs):
         return self
 
     def delete(self, *args, **kwargs):
@@ -285,6 +291,8 @@ class FakeSupabaseForMismatchNotes:
         filtered = self.rows
         if self._filter_run:
             filtered = [r for r in filtered if r.get("run_id") == self._filter_run]
+        if self._filter_rec:
+            filtered = [r for r in filtered if r.get("record_id") == self._filter_rec]
         return MagicMock(data=filtered)
 
 
@@ -512,4 +520,163 @@ def test_assert_record_ids_in_run_existing_prefixes_preserved(
     with pytest.raises(HTTPException) as exc_info:
         _assert_record_ids_in_run(mock_sb, RUN_ID, ["mi:unrelated-uuid"])
     assert exc_info.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Notes API Separation: Ordinary Notes vs. decision_status Dispositions
+# ---------------------------------------------------------------------------
+
+@patch("app.routers.notes.get_supabase")
+def test_list_notes_excludes_decision_status(
+    mock_get_sb: MagicMock,
+    client: TestClient,
+    auth_headers: dict,
+):
+    """GET /api/notes/{record_id} returns ordinary notes and excludes decision_status rows."""
+    fake_sb = FakeSupabaseForMismatchNotes()
+    # 1 ordinary user note
+    fake_sb.rows.append({
+        "id": "note-uuid-001",
+        "record_id": RR_UUID,
+        "run_id": RUN_ID,
+        "user_id": "00000000-0000-0000-0000-000000000001",
+        "note": "Verified with vendor, invoice number had leading zero.",
+        "record_type": "pr",
+        "note_type": "user_note",
+        "created_at": "2026-09-20T10:00:00Z",
+    })
+    # 1 internal decision_status row
+    fake_sb.rows.append({
+        "id": "decision-uuid-002",
+        "record_id": RR_UUID,
+        "run_id": RUN_ID,
+        "user_id": "00000000-0000-0000-0000-000000000001",
+        "note": "acted",
+        "record_type": "pr",
+        "note_type": "decision_status",
+        "created_at": "2026-09-20T11:00:00Z",
+    })
+    mock_get_sb.return_value = fake_sb
+
+    # Query notes for RR_TAGGED_ID (prefix is stripped to RR_UUID)
+    res = client.get(f"/api/notes/{RR_TAGGED_ID}", headers=auth_headers)
+    assert res.status_code == 200
+    notes = res.json()
+
+    assert len(notes) == 1, "Must only return the 1 user-authored note, excluding decision_status"
+    assert notes[0]["note"] == "Verified with vendor, invoice number had leading zero."
+    assert notes[0]["id"] == "note-uuid-001"
+
+
+@patch("app.routers.reconciliation_api.assert_run_accessible")
+@patch("app.routers.reconciliation_api.get_supabase")
+@patch("app.routers.notes.get_supabase")
+@patch("app.routers.reconciliation_api._payload_or_404")
+@patch("app.routers.reconciliation_api._notes_count_for_run", return_value={})
+@patch("app.routers.reconciliation_api._source_software_for_run", return_value="tally")
+@patch("app.routers.reconciliation_api.ro.load_gstr_map")
+@patch("app.routers.reconciliation_api.ro.load_pr_map")
+@patch("app.routers.reconciliation_api.ro.build_outcome_rows")
+@patch("app.routers.reconciliation_api.invalidate_run_bucket_cache")
+def test_end_to_end_disposition_does_not_leak_into_notes(
+    mock_invalidate: MagicMock,
+    mock_build_outcome_rows: MagicMock,
+    mock_load_pr_map: MagicMock,
+    mock_load_gstr_map: MagicMock,
+    mock_source_software: MagicMock,
+    mock_notes_count: MagicMock,
+    mock_payload_or_404: MagicMock,
+    mock_notes_sb: MagicMock,
+    mock_recon_sb: MagicMock,
+    mock_assert_run: MagicMock,
+    client: TestClient,
+    auth_headers: dict,
+):
+    """After Mark as Acted, the decision_status does not appear in GET /api/notes/{record_id}."""
+    fake_sb = FakeSupabaseForMismatchNotes()
+    mock_recon_sb.return_value = fake_sb
+    mock_notes_sb.return_value = fake_sb
+    mock_assert_run.return_value = {"id": RUN_ID, "is_locked": False, "status": "DRAFT"}
+
+    payload = _make_sample_payload(RR_UUID)
+    outcomes = _make_sample_outcome_rows(RR_UUID)
+    mock_payload_or_404.return_value = payload
+    mock_load_gstr_map.return_value = {
+        RR_UUID: {"matcher": {"total_tax_paise": 18000}, "record_data": {}}
+    }
+    mock_load_pr_map.return_value = {}
+    mock_build_outcome_rows.return_value = (outcomes, {})
+
+    # 1. Mark as Acted
+    res_update = client.patch(
+        "/api/reconcile/records/bulk-update",
+        json={"run_id": RUN_ID, "record_ids": [RR_TAGGED_ID], "decision_status": "acted"},
+        headers=auth_headers,
+    )
+    assert res_update.status_code == 200
+    assert res_update.json() == {"updated_count": 1}
+
+    # 2. Query user notes for the record — must be empty, not showing "acted"
+    res_notes = client.get(f"/api/notes/{RR_TAGGED_ID}", headers=auth_headers)
+    assert res_notes.status_code == 200
+    assert res_notes.json() == [], "decision_status 'acted' must not leak into user notes list"
+
+
+@patch("app.routers.reconciliation_api.assert_run_accessible")
+@patch("app.routers.reconciliation_api.get_supabase")
+@patch("app.routers.reconciliation_api._payload_or_404")
+@patch("app.routers.reconciliation_api._notes_count_for_run", return_value={})
+@patch("app.routers.reconciliation_api._source_software_for_run", return_value="tally")
+@patch("app.routers.reconciliation_api.ro.load_gstr_map")
+@patch("app.routers.reconciliation_api.ro.load_pr_map")
+@patch("app.routers.reconciliation_api.ro.build_outcome_rows")
+@patch("app.routers.reconciliation_api.invalidate_run_bucket_cache")
+def test_reset_to_pending_via_bulk_update(
+    mock_invalidate: MagicMock,
+    mock_build_outcome_rows: MagicMock,
+    mock_load_pr_map: MagicMock,
+    mock_load_gstr_map: MagicMock,
+    mock_source_software: MagicMock,
+    mock_notes_count: MagicMock,
+    mock_payload_or_404: MagicMock,
+    mock_get_supabase: MagicMock,
+    mock_assert_run: MagicMock,
+    client: TestClient,
+    auth_headers: dict,
+):
+    """Records can be reset to pending, which hydrates correctly on subsequent reconstruction."""
+    fake_sb = FakeSupabaseForMismatchNotes()
+    mock_get_supabase.return_value = fake_sb
+    mock_assert_run.return_value = {"id": RUN_ID, "is_locked": False, "status": "DRAFT"}
+
+    payload = _make_sample_payload(RR_UUID)
+    outcomes = _make_sample_outcome_rows(RR_UUID)
+    mock_payload_or_404.return_value = payload
+    mock_load_gstr_map.return_value = {
+        RR_UUID: {"matcher": {"total_tax_paise": 18000}, "record_data": {}}
+    }
+    mock_load_pr_map.return_value = {}
+    mock_build_outcome_rows.return_value = (outcomes, {})
+
+    # 1. Reset to Pending
+    res = client.patch(
+        "/api/reconcile/records/bulk-update",
+        json={"run_id": RUN_ID, "record_ids": [RR_TAGGED_ID], "decision_status": "pending"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json() == {"updated_count": 1}
+
+    # 2. Re-fetch and verify hydration
+    pairs = _build_matched_pair_records(
+        fake_sb,
+        rid=RUN_ID,
+        payload=payload,
+        note_counts={},
+        fetch_review_required=True,
+    )
+    assert len(pairs) == 1
+    api_row, _ = pairs[0]
+    assert api_row["decision_status"] == "pending"
+
 

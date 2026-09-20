@@ -44,6 +44,7 @@ import {
   type MouseEvent,
 } from "react";
 import useSWR, { mutate as swrMutate } from "swr";
+import { revalidateReconciliationRun } from "@/lib/swrReconciliationSync";
 import {
   AmountDisplay,
   CompactStatAmount,
@@ -560,7 +561,7 @@ function mapApiNote(raw: Record<string, unknown>): Note {
   };
 }
 
-type Toast = { id: string; message: string; type: "success" | "error" };
+type Toast = { id: string; message: string; type: "success" | "error" | "warning" };
 
 type LateMatchRow = {
   supplier_gstin: string;
@@ -2076,7 +2077,11 @@ export default function ReconcileResultsPage() {
     void mutateItcOnHold();
     void mutateSummary();
     void mutateTable4();
-    void swrMutate([`table4-workpaper`, runId]);
+    void mutateMatched();
+    void mutateItc();
+    void mutateRisk();
+    void mutateReviewRequired();
+    void revalidateReconciliationRun(runId);
   };
 
   const getInvoiceDispositionState = (invNo?: string, rowId?: string, supplierGstin?: string) => {
@@ -2180,7 +2185,7 @@ export default function ReconcileResultsPage() {
         return next;
       });
       try {
-        await apiFetch<{ updated_count: number }>(
+        const res = await apiFetch<{ updated_count: number }>(
           "/api/reconcile/records/bulk-update",
           {
             method: "PATCH",
@@ -2192,14 +2197,62 @@ export default function ReconcileResultsPage() {
             }),
           }
         );
-        if (section === "itc") await mutateItc();
-        else await mutateRisk();
-        addToast(`${ids.length} records updated`, "success");
+
+        const updatedCount = Number(res?.updated_count ?? 0);
+
+        if (updatedCount === 0) {
+          // Zero records updated on server: treat as failure and rollback
+          setLocalDecisionStatus((prev) => {
+            const next = new Map(prev);
+            for (const id of ids) {
+              if (mapBefore.has(id)) next.set(id, mapBefore.get(id)!);
+              else next.delete(id);
+            }
+            return next;
+          });
+          setSelectedIds((prev) => ({
+            ...prev,
+            [section]: new Set(selectedSnapshot),
+          }));
+          addToast("No records were updated — changes reversed", "error");
+          if (section === "itc") {
+            void mutateItc();
+            void mutateItcAllRows();
+          } else {
+            void mutateRisk();
+            void mutateRiskAllRows();
+          }
+          return;
+        }
+
+        if (updatedCount < ids.length) {
+          addToast(
+            `${updatedCount} of ${ids.length} records updated`,
+            "warning"
+          );
+        } else {
+          addToast(`${ids.length} records updated`, "success");
+        }
+
         setLocalDecisionStatus((prev) => {
           const next = new Map(prev);
           for (const id of ids) next.delete(id);
           return next;
         });
+
+        // Trigger comprehensive revalidation chain for affected views
+        await Promise.all([
+          section === "itc" ? mutateItc() : mutateRisk(),
+          section === "itc" ? mutateItcAllRows() : mutateRiskAllRows(),
+          mutateSummary(),
+          mutateTable4(),
+          mutateMatched(),
+          mutateReviewRequired(),
+          mutateRule37(),
+          mutateSection17(),
+          mutateItcOnHold(),
+          revalidateReconciliationRun(runId),
+        ]);
       } catch {
         setLocalDecisionStatus((prev) => {
           const next = new Map(prev);
@@ -2214,9 +2267,31 @@ export default function ReconcileResultsPage() {
           [section]: new Set(selectedSnapshot),
         }));
         addToast("Update failed — changes reversed", "error");
+        if (section === "itc") {
+          void mutateItc();
+          void mutateItcAllRows();
+        } else {
+          void mutateRisk();
+          void mutateRiskAllRows();
+        }
       }
     },
-    [addToast, authToken, mutateItc, mutateRisk, runId]
+    [
+      addToast,
+      authToken,
+      mutateItc,
+      mutateItcAllRows,
+      mutateItcOnHold,
+      mutateMatched,
+      mutateReviewRequired,
+      mutateRisk,
+      mutateRiskAllRows,
+      mutateRule37,
+      mutateSection17,
+      mutateSummary,
+      mutateTable4,
+      runId,
+    ]
   );
 
   const runSingleDecision = useCallback(
@@ -2230,7 +2305,7 @@ export default function ReconcileResultsPage() {
         return next;
       });
       try {
-        await apiFetch<{ updated_count: number }>(
+        const res = await apiFetch<{ updated_count: number }>(
           "/api/reconcile/records/bulk-update",
           {
             method: "PATCH",
@@ -2242,12 +2317,20 @@ export default function ReconcileResultsPage() {
             }),
           }
         );
+        if (Number(res?.updated_count ?? 0) === 0) {
+          throw new Error("Record update returned 0 updated rows");
+        }
         await Promise.all([
           mutateItc(),
           mutateRisk(),
           mutateMatched(),
+          mutateReviewRequired(),
           mutateRule37(),
           mutateSection17(),
+          mutateTable4(),
+          mutateSummary(),
+          mutateItcOnHold(),
+          revalidateReconciliationRun(runId),
         ]);
         setLocalDecisionStatus((prev) => {
           const next = new Map(prev);
@@ -2266,15 +2349,22 @@ export default function ReconcileResultsPage() {
           return next;
         });
         setDrawerDecisionError("Update failed — try again");
+        void mutateItc();
+        void mutateRisk();
+        void mutateMatched();
       }
     },
     [
+      authToken,
       mutateItc,
+      mutateItcOnHold,
       mutateMatched,
+      mutateReviewRequired,
       mutateRisk,
       mutateRule37,
       mutateSection17,
-      authToken,
+      mutateSummary,
+      mutateTable4,
       runId,
     ]
   );
@@ -2619,6 +2709,9 @@ export default function ReconcileResultsPage() {
           };
         }, { revalidate: false });
         setRule37SummaryRefreshKey((k) => k + 1);
+        void mutateSummary();
+        void mutateTable4();
+        void revalidateReconciliationRun(runId, { table4: true, summary: true, drilldown: true });
         if (status === "resolved") {
           setRule37MarkPaidTarget(null);
           addToast(
@@ -2649,7 +2742,15 @@ export default function ReconcileResultsPage() {
         });
       }
     },
-    [addToast, authToken, mutateRule37, rule37UpdatingIds, runId]
+    [
+      addToast,
+      authToken,
+      mutateRule37,
+      mutateSummary,
+      mutateTable4,
+      rule37UpdatingIds,
+      runId,
+    ]
   );
 
   const submitDeleteRun = useCallback(async () => {
@@ -5271,6 +5372,7 @@ export default function ReconcileResultsPage() {
                         }}
                         status={
                           <div className="flex flex-wrap items-center gap-2">
+                            <DecisionStatusPill status={effectiveStatus(row)} />
                             <MatchLevelBadge level={row.match_level} />
                             <span className="rounded-full bg-[#F5F5F6] px-2.5 py-0.5 text-[11px] font-semibold text-gray-600">
                               {tResults("percentConfidence", {
@@ -6173,27 +6275,93 @@ export default function ReconcileResultsPage() {
                     </span>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={isRunFinalized}
-                    className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    onClick={() =>
-                      void runSingleDecision(activeRecord.id, "acted")
-                    }
-                  >
-                    Mark as Acted
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isRunFinalized}
-                    className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    onClick={() =>
-                      void runSingleDecision(activeRecord.id, "ignored")
-                    }
-                  >
-                    Mark as Ignored
-                  </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {effectiveStatus(activeRecord) === "acted" ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled
+                        aria-pressed="true"
+                        className="rounded-lg border border-[var(--ink)] bg-[var(--ink)] px-4 py-2 text-[13px] font-medium text-white shadow-sm cursor-default"
+                      >
+                        Acted ✓
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isRunFinalized}
+                        className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() =>
+                          void runSingleDecision(activeRecord.id, "ignored")
+                        }
+                      >
+                        Mark as Ignored
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isRunFinalized}
+                        className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-[13px] font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() =>
+                          void runSingleDecision(activeRecord.id, "pending")
+                        }
+                      >
+                        Reset to Pending
+                      </button>
+                    </>
+                  ) : effectiveStatus(activeRecord) === "ignored" ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={isRunFinalized}
+                        className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() =>
+                          void runSingleDecision(activeRecord.id, "acted")
+                        }
+                      >
+                        Mark as Acted
+                      </button>
+                      <button
+                        type="button"
+                        disabled
+                        aria-pressed="true"
+                        className="rounded-lg border border-gray-300 bg-gray-100 px-4 py-2 text-[13px] font-medium text-gray-500 line-through cursor-default"
+                      >
+                        Ignored
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isRunFinalized}
+                        className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-[13px] font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() =>
+                          void runSingleDecision(activeRecord.id, "pending")
+                        }
+                      >
+                        Reset to Pending
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={isRunFinalized}
+                        className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() =>
+                          void runSingleDecision(activeRecord.id, "acted")
+                        }
+                      >
+                        Mark as Acted
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isRunFinalized}
+                        className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-[13px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() =>
+                          void runSingleDecision(activeRecord.id, "ignored")
+                        }
+                      >
+                        Mark as Ignored
+                      </button>
+                    </>
+                  )}
                 </div>
                 {drawerDecisionError && (
                   <p className="mt-2 text-sm text-red-600">
@@ -6542,7 +6710,11 @@ export default function ReconcileResultsPage() {
             key={t.id}
             style={{ transitionDelay: `${i * 40}ms` }}
             className={`pointer-events-auto rounded-xl px-4 py-2 text-[13px] transition-opacity duration-150 ${
-              t.type === "success" ? "bg-gray-900 text-white" : "bg-red-600 text-white"
+              t.type === "success"
+                ? "bg-gray-900 text-white"
+                : t.type === "warning"
+                ? "bg-amber-600 text-white"
+                : "bg-red-600 text-white"
             }`}
           >
             {t.message}

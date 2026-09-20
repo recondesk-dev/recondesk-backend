@@ -185,14 +185,28 @@ async def list_notes(
     # Strip ``pm:`` / ``wr:`` / … tags — PostgREST rejects prefixed values on UUID cols.
     db_record_id = _db_record_id(record_id)
     sb = get_supabase()
-    res = (
-        sb.table("mismatch_notes")
-        .select("id, record_id, record_type, run_id, user_id, note, created_at")
-        .eq("record_id", db_record_id)
-        .order("created_at", desc=True)
-        .execute()
-    )
-    rows = [n for n in (res.data or []) if isinstance(n, dict)]
+    try:
+        res = (
+            sb.table("mismatch_notes")
+            .select("id, record_id, record_type, run_id, user_id, note, created_at, note_type")
+            .eq("record_id", db_record_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception:
+        res = (
+            sb.table("mismatch_notes")
+            .select("id, record_id, record_type, run_id, user_id, note, created_at")
+            .eq("record_id", db_record_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    rows = [
+        n
+        for n in (res.data or [])
+        if isinstance(n, dict)
+        and str(n.get("note_type") or "").strip().lower() != "decision_status"
+    ]
     uids = {str(x.get("user_id")) for x in rows if x.get("user_id")}
     profs = _full_names_by_user_ids(sb, uids)
     return [

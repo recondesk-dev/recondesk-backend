@@ -14,6 +14,7 @@ import { Table4DrilldownDrawer } from "./Table4DrilldownDrawer";
 import { Table4AdjustmentModal } from "./Table4AdjustmentModal";
 import { Table4DispositionModal } from "./Table4DispositionModal";
 import { ReversalReclaimLedgerView } from "./ReversalReclaimLedgerView";
+import { revalidateReconciliationRun } from "@/lib/swrReconciliationSync";
 
 interface Table4WorkpaperViewProps {
   runId: string;
@@ -681,7 +682,10 @@ export function Table4WorkpaperView({
         authToken={authToken}
         isOpen={!isFinalized && isAdjustmentModalOpen}
         onClose={() => setIsAdjustmentModalOpen(false)}
-        onSuccess={() => mutate()}
+        onSuccess={() => {
+          void mutate();
+          void revalidateReconciliationRun(runId, { table4: true, drilldown: true });
+        }}
       />
 
       {/* Exception Disposition Modal */}
@@ -694,10 +698,8 @@ export function Table4WorkpaperView({
           setDispositionTargetRecord(null);
         }}
         onSuccess={() => {
-          mutate();
-          void swrMutate(
-            (key) => Array.isArray(key) && key[0] === "table4-drilldown" && key[1] === runId
-          );
+          void mutate();
+          void revalidateReconciliationRun(runId);
           setIsDispositionModalOpen(false);
           setDispositionTargetRecord(null);
         }}
