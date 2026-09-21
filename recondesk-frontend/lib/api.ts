@@ -196,15 +196,14 @@ function normalizeApiPath(path: string): string {
   return p.replace(/\/+$/, "");
 }
 
-/** Railway (or local) backend base — never routes through the Next.js `/api/reconcile` proxy. */
+/** Backend base URL — resolves full endpoint URL against NEXT_PUBLIC_API_URL. */
 export function backendApiUrl(path: string): string {
   return `${API_URL}${normalizeApiPath(path)}`;
 }
 
 /** Browser paths that have a Next.js same-origin proxy (avoids CORS / Failed to fetch). */
-function usesSameOriginProxy(path: string): boolean {
+export function usesSameOriginProxy(path: string): boolean {
   return (
-    path.startsWith("/api/reconcile") ||
     path.startsWith("/api/notes") ||
     path.startsWith("/api/audit-observations") ||
     path.startsWith("/api/reconciliation") ||
@@ -214,8 +213,8 @@ function usesSameOriginProxy(path: string): boolean {
   );
 }
 
-/** Resolve fetch URL — browser reconcile/notes/etc. go through same-origin Next.js proxy. */
-function resolveApiUrl(path: string, directBackend = false): string {
+/** Resolve fetch URL — browser notes/etc. go through same-origin Next.js proxy; reconcile goes direct to backend. */
+export function resolveApiUrl(path: string, directBackend = false): string {
   const normalized = normalizeApiPath(path);
   if (directBackend) {
     return backendApiUrl(normalized);

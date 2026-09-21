@@ -2122,10 +2122,10 @@ export default function ReconcileResultsPage() {
 
   const einvoiceResKey = useMemo(
     () =>
-      authReady && runId
+      authReady && runId && resultsTab === "einvoice"
         ? ([`/api/einvoice-recon/results/${runId}`, authToken] as const)
         : null,
-    [authReady, runId, authToken]
+    [authReady, runId, resultsTab, authToken]
   );
 
   const { data: einvoiceResData } = useSWR<{
