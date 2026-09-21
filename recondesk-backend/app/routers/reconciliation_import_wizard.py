@@ -804,6 +804,18 @@ async def cancel_run(run_id: uuid.UUID, user_id: str = Depends(get_current_user_
         audit_event="run_cancelled",
         audit_detail={"cancelled_at_step": r.get("current_step")},
     )
+    try:
+        sb.table("reconciliation_run").update({
+            "status": "cancelled",
+            "status_message": "Run cancelled by user",
+            "updated_at": now,
+        }).eq("id", str(run_id)).execute()
+    except Exception as exc:
+        _log.warning(
+            "Failed to mirror cancellation to reconciliation_run for %s: %s",
+            run_id,
+            exc,
+        )
     return ws.fetch_run(sb, str(run_id))
 
 

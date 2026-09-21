@@ -14,7 +14,12 @@ from typing import Any
 from unittest.mock import MagicMock, call, patch
 import pytest
 
-from app.worker.tasks import _bulk_insert, _update_run, run_import_job
+from app.worker.tasks import (
+    _bulk_insert,
+    _update_run,
+    run_import_job,
+    ImportCancelledException,
+)
 from app.worker.reconciliation_task import run_wizard_job
 
 
@@ -370,3 +375,265 @@ class TestRunImportJobProgressIntegration:
 
         # 7. Strictly monotonic throughout
         assert pct_sequence == sorted(pct_sequence)
+
+
+class TestGuardedStagingIdempotencyAndCancellation:
+    """Verifies guarded staging purge on retry and in-flight cancellation handling."""
+
+    @patch("app.worker.tasks._supabase")
+    @patch("app.worker.tasks._s3")
+    @patch("app.worker.tasks.parse_purchase_register")
+    @patch("app.worker.tasks.run_import_sanity")
+    def test_staging_idempotency_purges_unfinalized_run(
+        self,
+        mock_sanity,
+        mock_parse,
+        mock_s3,
+        mock_supabase_fn,
+    ):
+        """run_import_job purges prior staging rows for run_id before inserting new rows."""
+        mock_client = MagicMock()
+        mock_supabase_fn.return_value = mock_client
+
+        mock_pr_table = MagicMock()
+        mock_recon_table = MagicMock()
+        mock_import_runs_table = MagicMock()
+
+        def table_router(name: str):
+            if name == "pr_records":
+                return mock_pr_table
+            if name == "reconciliation_run":
+                return mock_recon_table
+            if name == "reconciliation_import_runs":
+                return mock_import_runs_table
+            return MagicMock()
+
+        mock_client.table.side_effect = table_router
+
+        # Run is in "failed" state (unfinalized retry)
+        mock_recon_table.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [
+            {"client_gstin_id": "cg-1", "period": "2025-04", "status": "failed", "is_locked": False}
+        ]
+        mock_recon_table.select.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+            "gstr_records_imported": None,
+            "pr_records_imported": 10,
+        }
+
+        mock_s3.return_value.get_object.return_value = {"Body": MagicMock(read=MagicMock(return_value=b"data"))}
+        mock_parse.return_value = {
+            "success": True,
+            "records": [{"inv": f"INV-{i}"} for i in range(10)],
+            "sheets_used": [{"sheet": "Sheet1", "records": 10}],
+            "sheets_skipped": [],
+            "warnings": [],
+            "missing_invoice_number_count": 0,
+        }
+        mock_sanity.return_value = []
+
+        run_import_job("run-retry-1", "purchase_register", "uploads/pr.xlsx")
+
+        # Verify delete was called on pr_records specifically for run-retry-1
+        mock_pr_table.delete.assert_called_once()
+        mock_pr_table.delete().eq.assert_called_with("run_id", "run-retry-1")
+
+    @pytest.mark.parametrize("status,is_locked", [
+        ("COMPLETED", False),
+        ("completed", False),
+        ("MATCHING", False),
+        ("processing", False),
+        ("FINAL", False),
+        ("finalized", False),
+        ("failed", True),  # locked flag set
+    ])
+    @patch("app.worker.tasks._supabase")
+    @patch("app.worker.tasks._s3")
+    @patch("app.worker.tasks.parse_purchase_register")
+    def test_staging_idempotency_blocks_completed_or_locked_run(
+        self,
+        mock_parse,
+        mock_s3,
+        mock_supabase_fn,
+        status: str,
+        is_locked: bool,
+    ):
+        """run_import_job raises RuntimeError and never purges or inserts if run is finalized/locked."""
+        mock_client = MagicMock()
+        mock_supabase_fn.return_value = mock_client
+
+        mock_pr_table = MagicMock()
+        mock_recon_table = MagicMock()
+
+        def table_router(name: str):
+            if name == "pr_records":
+                return mock_pr_table
+            if name == "reconciliation_run":
+                return mock_recon_table
+            return MagicMock()
+
+        mock_client.table.side_effect = table_router
+
+        mock_recon_table.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [
+            {"client_gstin_id": "cg-1", "period": "2025-04", "status": status, "is_locked": is_locked}
+        ]
+
+        mock_s3.return_value.get_object.return_value = {"Body": MagicMock(read=MagicMock(return_value=b"data"))}
+        mock_parse.return_value = {
+            "success": True,
+            "records": [{"inv": "INV-1"}],
+            "sheets_used": [{"sheet": "Sheet1", "records": 1}],
+            "sheets_skipped": [],
+            "warnings": [],
+            "missing_invoice_number_count": 0,
+        }
+
+        with pytest.raises(RuntimeError, match=r"Cannot import into run .* \(run is finalized, locked, or processing\)"):
+            run_import_job("run-locked", "purchase_register", "uploads/pr.xlsx")
+
+        # Verify delete and insert were NEVER called on staging table
+        mock_pr_table.delete.assert_not_called()
+        mock_pr_table.insert.assert_not_called()
+
+    @patch("app.worker.tasks._supabase")
+    @patch("app.worker.tasks._s3")
+    @patch("app.worker.tasks.parse_gstr2b")
+    @patch("app.worker.tasks._load_and_normalize_gstr2b_body_for_parse")
+    @patch("app.worker.tasks.run_import_sanity")
+    def test_staging_deletion_scoped_to_run_id_and_target_table(
+        self,
+        mock_sanity,
+        mock_norm,
+        mock_parse,
+        mock_s3,
+        mock_supabase_fn,
+    ):
+        """Importing gstr2b purges gstr_records, not pr_records."""
+        mock_client = MagicMock()
+        mock_supabase_fn.return_value = mock_client
+
+        mock_gstr_table = MagicMock()
+        mock_pr_table = MagicMock()
+        mock_recon_table = MagicMock()
+        mock_import_runs_table = MagicMock()
+
+        def table_router(name: str):
+            if name == "gstr_records":
+                return mock_gstr_table
+            if name == "pr_records":
+                return mock_pr_table
+            if name == "reconciliation_run":
+                return mock_recon_table
+            if name == "reconciliation_import_runs":
+                return mock_import_runs_table
+            return MagicMock()
+
+        mock_client.table.side_effect = table_router
+
+        mock_recon_table.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [
+            {"client_gstin_id": "cg-1", "period": "2025-04", "status": "queued", "is_locked": False}
+        ]
+        mock_recon_table.select.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+            "gstr_records_imported": 5,
+            "pr_records_imported": None,
+        }
+
+        mock_s3.return_value.get_object.return_value = {"Body": MagicMock(read=MagicMock(return_value=b"data"))}
+        mock_norm.return_value = {"b2b": []}
+        mock_parse.return_value = {
+            "success": True,
+            "records": [{"inv": f"INV-{i}"} for i in range(5)],
+        }
+        mock_sanity.return_value = []
+
+        run_import_job("run-gstr-target", "gstr2b", "uploads/gstr.json")
+
+        # Verify gstr_records was purged for run-gstr-target
+        mock_gstr_table.delete.assert_called_once()
+        mock_gstr_table.delete().eq.assert_called_with("run_id", "run-gstr-target")
+
+        # Verify pr_records was NEVER touched
+        mock_pr_table.delete.assert_not_called()
+        mock_pr_table.insert.assert_not_called()
+
+    def test_bulk_insert_cancellation_aborts_early(self):
+        """_bulk_insert aborts immediately and raises ImportCancelledException when cancelled."""
+        mock_client = MagicMock()
+        mock_table = MagicMock()
+        mock_client.table.return_value = mock_table
+
+        rows = [{"run_id": "run-1", "data": i} for i in range(15000)]
+        call_count = 0
+
+        def is_cancelled_sim():
+            nonlocal call_count
+            call_count += 1
+            # Cancel after first batch flush (call_count == 2)
+            return call_count >= 2
+
+        with pytest.raises(ImportCancelledException, match="Import cancelled by user"):
+            _bulk_insert(mock_client, "pr_records", rows, is_cancelled=is_cancelled_sim)
+
+        # 15,000 rows at 500/chunk = 30 chunks total.
+        # It should abort at chunk 10 (5,000 rows) instead of running all 30 chunks!
+        assert mock_table.insert.call_count < 30
+
+    @patch("app.worker.tasks._supabase")
+    @patch("app.worker.tasks._s3")
+    @patch("app.worker.tasks.parse_purchase_register")
+    @patch("app.worker.tasks.run_import_sanity")
+    def test_run_import_job_handles_cancellation_gracefully(
+        self,
+        mock_sanity,
+        mock_parse,
+        mock_s3,
+        mock_supabase_fn,
+    ):
+        """run_import_job catches ImportCancelledException, purges partial records, and exits without failing."""
+        mock_client = MagicMock()
+        mock_supabase_fn.return_value = mock_client
+
+        mock_pr_table = MagicMock()
+        mock_recon_table = MagicMock()
+        mock_import_runs_table = MagicMock()
+
+        def table_router(name: str):
+            if name == "pr_records":
+                return mock_pr_table
+            if name == "reconciliation_run":
+                return mock_recon_table
+            if name == "reconciliation_import_runs":
+                return mock_import_runs_table
+            return MagicMock()
+
+        mock_client.table.side_effect = table_router
+
+        mock_recon_table.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [
+            {"client_gstin_id": "cg-1", "period": "2025-04", "status": "importing", "is_locked": False}
+        ]
+        # In cancellation check, wizard status reports cancelled
+        mock_import_runs_table.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [
+            {"status": "cancelled"}
+        ]
+
+        mock_s3.return_value.get_object.return_value = {"Body": MagicMock(read=MagicMock(return_value=b"data"))}
+        mock_parse.return_value = {
+            "success": True,
+            "records": [{"inv": f"INV-{i}"} for i in range(1000)],
+            "sheets_used": [{"sheet": "Sheet1", "records": 1000}],
+            "sheets_skipped": [],
+            "warnings": [],
+            "missing_invoice_number_count": 0,
+        }
+        mock_sanity.return_value = []
+
+        # Run import job — should NOT raise an unhandled exception
+        run_import_job("run-cancel-test", "purchase_register", "uploads/pr.xlsx")
+
+        # 1. Staging table had delete called to clean up partial records
+        assert mock_pr_table.delete().eq.call_args_list[-1] == call("run_id", "run-cancel-test")
+
+        # 2. reconciliation_run was NOT marked failed or complete
+        for update_call in mock_recon_table.update.call_args_list:
+            patch_dict = update_call[0][0]
+            assert patch_dict.get("status") not in ("failed", "READY", "PURCHASE_IMPORT_COMPLETE", "complete")
+            assert patch_dict.get("progress_percent") != 100
+

@@ -227,11 +227,17 @@ def _update_run(
             )
 
 
+class ImportCancelledException(Exception):
+    """Raised when a running import is cancelled by the user."""
+    pass
+
+
 def _bulk_insert(
     client: Client,
     table: str,
     rows: list[dict[str, Any]],
     on_progress: Callable[[int, int], None] | None = None,
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> None:
     total = len(rows)
     if total == 0:
@@ -247,6 +253,11 @@ def _bulk_insert(
 
     last_flush_count = 0
     last_flush_time = time.monotonic()
+
+    # Initial check before any batch
+    if is_cancelled and is_cancelled():
+        _log.info("[WORKER] Bulk insert for %s aborted due to run cancellation (before start)", table)
+        raise ImportCancelledException("Import cancelled by user")
 
     for i in range(0, total, CHUNK_SIZE):
         chunk = rows[i : i + CHUNK_SIZE]
@@ -267,11 +278,15 @@ def _bulk_insert(
             or (inserted == total)
         )
 
-        if on_progress and should_flush:
-            try:
-                on_progress(inserted, total)
-            except Exception as exc:
-                _log.warning("Progress callback failed (non-fatal): %s", exc)
+        if should_flush:
+            if is_cancelled and is_cancelled():
+                _log.info("[WORKER] Bulk insert for %s aborted due to run cancellation", table)
+                raise ImportCancelledException("Import cancelled by user")
+            if on_progress:
+                try:
+                    on_progress(inserted, total)
+                except Exception as exc:
+                    _log.warning("Progress callback failed (non-fatal): %s", exc)
             last_flush_count = inserted
             last_flush_time = now
 
@@ -598,6 +613,40 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             )
 
         insert_table = "gstr_records" if file_type == "gstr2b" else "pr_records"
+
+        # 1. Guard against completed, matching, or locked runs
+        curr_run = (
+            client.table("reconciliation_run")
+            .select("status, is_locked")
+            .eq("id", run_id)
+            .limit(1)
+            .execute()
+        )
+        curr_status = str((curr_run.data or [{}])[0].get("status") or "").strip().lower()
+        is_locked = bool((curr_run.data or [{}])[0].get("is_locked"))
+
+        _TERMINAL_STATUSES = {"matching", "processing", "completed", "final", "finalized"}
+        if is_locked or curr_status in _TERMINAL_STATUSES:
+            raise RuntimeError(
+                f"Cannot import into run {run_id} in status '{curr_status}' (run is finalized, locked, or processing)"
+            )
+
+        # 2. Guarded staging deletion for this run_id (idempotent retry)
+        try:
+            client.table(insert_table).delete().eq("run_id", run_id).execute()
+            _log.info(
+                "[WORKER] Purged prior staging records from %s for run_id=%s",
+                insert_table,
+                run_id,
+            )
+        except Exception as purge_exc:
+            _log.warning(
+                "Failed to purge prior staging records from %s for run_id=%s (continuing): %s",
+                insert_table,
+                run_id,
+                purge_exc,
+            )
+
         rows = [
             {
                 "run_id": run_id,
@@ -635,8 +684,51 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
                 },
             )
 
+        def _check_cancelled() -> bool:
+            try:
+                wiz_res = (
+                    client.table("reconciliation_import_runs")
+                    .select("status")
+                    .eq("id", run_id)
+                    .limit(1)
+                    .execute()
+                )
+                if (
+                    wiz_res.data
+                    and str(wiz_res.data[0].get("status") or "").strip().lower()
+                    == "cancelled"
+                ):
+                    return True
+
+                r_res = (
+                    client.table("reconciliation_run")
+                    .select("status")
+                    .eq("id", run_id)
+                    .limit(1)
+                    .execute()
+                )
+                if (
+                    r_res.data
+                    and str(r_res.data[0].get("status") or "").strip().lower()
+                    == "cancelled"
+                ):
+                    return True
+            except Exception as exc:
+                _log.warning(
+                    "Failed to check cancellation status for run_id=%s: %s",
+                    run_id,
+                    exc,
+                )
+            return False
+
         if rows:
-            _bulk_insert(client, insert_table, rows, on_progress=_on_insert_progress)
+            _bulk_insert(
+                client,
+                insert_table,
+                rows,
+                on_progress=_on_insert_progress,
+                is_cancelled=_check_cancelled,
+            )
 
         count = len(rows)
         _update_run(
@@ -689,6 +781,26 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             },
         )
 
+    except ImportCancelledException:
+        _log.info(
+            "[WORKER] run_import_job cancelled by user for run_id=%s; cleaning up partial records",
+            run_id,
+        )
+        target_tbl = "gstr_records" if file_type == "gstr2b" else "pr_records"
+        try:
+            client.table(target_tbl).delete().eq("run_id", run_id).execute()
+            _log.info(
+                "[WORKER] Purged partial records from %s for cancelled run_id=%s",
+                target_tbl,
+                run_id,
+            )
+        except Exception as clean_exc:
+            _log.warning(
+                "Failed to clean up partial records on cancellation for run_id=%s: %s",
+                run_id,
+                clean_exc,
+            )
+        return
     except Exception as exc:
         print(f"[WORKER] ERROR: {str(exc)}")
         _log.exception("run_import_job failed for run_id=%s", run_id)
