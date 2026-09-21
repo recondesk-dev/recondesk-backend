@@ -10,7 +10,7 @@ import os
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 
 import boto3
@@ -206,26 +206,49 @@ def _update_run(
     fields: dict[str, Any],
 ) -> None:
     client.table("reconciliation_run").update(fields).eq("id", run_id).execute()
-    # Mirror engine progress into wizard_runs so the poll endpoint stays live.
-    # wizard_runs uses the same run_id; this is a best-effort write (non-fatal).
-    if "progress_percent" in fields:
+    # Mirror engine progress into reconciliation_import_runs so the poll endpoint stays live.
+    # reconciliation_import_runs uses the same run_id; this is a best-effort write (non-fatal).
+    if "progress_percent" in fields or "status_message" in fields:
         try:
-            wiz: dict[str, Any] = {"progress_pct": fields["progress_percent"]}
+            wiz: dict[str, Any] = {}
+            if "progress_percent" in fields:
+                wiz["progress_pct"] = int(fields["progress_percent"])
             if "status_message" in fields:
                 wiz["status_message"] = fields["status_message"]
             if "updated_at" in fields:
                 wiz["updated_at"] = fields["updated_at"]
-            client.table("wizard_runs").update(wiz).eq("id", run_id).execute()
-        except Exception:
-            pass  # never block the engine for a UI progress update
+            if wiz:
+                client.table("reconciliation_import_runs").update(wiz).eq("id", run_id).execute()
+        except Exception as exc:
+            _log.warning(
+                "Failed to mirror progress to reconciliation_import_runs for run_id=%s: %s",
+                run_id,
+                exc,
+            )
 
 
 def _bulk_insert(
     client: Client,
     table: str,
     rows: list[dict[str, Any]],
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> None:
-    for i in range(0, len(rows), CHUNK_SIZE):
+    total = len(rows)
+    if total == 0:
+        if on_progress:
+            try:
+                on_progress(0, 0)
+            except Exception as exc:
+                _log.warning("Progress callback failed on empty insert (non-fatal): %s", exc)
+        return
+
+    FLUSH_ROW_THRESHOLD = 5000
+    FLUSH_TIME_THRESHOLD_SEC = 3.0
+
+    last_flush_count = 0
+    last_flush_time = time.monotonic()
+
+    for i in range(0, total, CHUNK_SIZE):
         chunk = rows[i : i + CHUNK_SIZE]
         try:
             client.table(table).insert(chunk).execute()
@@ -234,6 +257,23 @@ def _bulk_insert(
             raise RuntimeError(
                 f"Insert into {table} failed ({len(chunk)} row(s), offset {i}): {exc}"
             ) from exc
+
+        inserted = min(i + len(chunk), total)
+        now = time.monotonic()
+
+        should_flush = (
+            (inserted - last_flush_count >= FLUSH_ROW_THRESHOLD)
+            or (now - last_flush_time >= FLUSH_TIME_THRESHOLD_SEC)
+            or (inserted == total)
+        )
+
+        if on_progress and should_flush:
+            try:
+                on_progress(inserted, total)
+            except Exception as exc:
+                _log.warning("Progress callback failed (non-fatal): %s", exc)
+            last_flush_count = inserted
+            last_flush_time = now
 
 
 @celery_app.task(
@@ -570,8 +610,33 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
         print(
             f"[WORKER] Inserting {len(rows)} rows into {insert_table}"
         )
+        record_label = (
+            "purchase"
+            if file_type == "purchase_register"
+            else ("GSTR-2B" if file_type == "gstr2b" else file_type)
+        )
+        last_reported_pct = 40
+
+        def _on_insert_progress(inserted: int, total: int) -> None:
+            nonlocal last_reported_pct
+            if total <= 0:
+                pct = 40
+            else:
+                pct = max(last_reported_pct, min(85, 40 + int((inserted / total) * 45)))
+            last_reported_pct = pct
+            msg = f"Importing {record_label} records ({inserted:,} / {total:,})…"
+            _update_run(
+                client,
+                run_id,
+                {
+                    "progress_percent": pct,
+                    "status_message": msg,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
         if rows:
-            _bulk_insert(client, insert_table, rows)
+            _bulk_insert(client, insert_table, rows, on_progress=_on_insert_progress)
 
         count = len(rows)
         _update_run(
@@ -579,6 +644,7 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             run_id,
             {
                 "progress_percent": 90,
+                "status_message": f"Finalizing {record_label} import…",
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
         )

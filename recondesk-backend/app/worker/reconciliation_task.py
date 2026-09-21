@@ -505,7 +505,7 @@ def run_wizard_job(run_id: str) -> None:
     Full pipeline for the import-wizard flow, executed entirely inside the
     Celery worker — NOT in the web-process thread.  Sequence:
 
-      1. Load the wizard_runs row.
+      1. Load the reconciliation_import_runs row.
       2. Import GSTR-2B  (run_import_job).
       3. Import Purchase Register  (run_import_job).
       4. Set reconciliation_run.status → MATCHING.
@@ -525,12 +525,16 @@ def run_wizard_job(run_id: str) -> None:
     def _set_wizard_pct(pct: int, msg: str, final_status: str = None) -> None:
         now = _now_iso()
         try:
-            wiz_update = {"progress_pct": pct, "status_message": msg, "updated_at": now}
+            wiz_update = {"progress_pct": int(pct), "status_message": msg, "updated_at": now}
             if final_status:
                 wiz_update["status"] = final_status
-            sb.table("wizard_runs").update(wiz_update).eq("id", run_id).execute()
-        except Exception:
-            pass  # non-fatal
+            sb.table("reconciliation_import_runs").update(wiz_update).eq("id", run_id).execute()
+        except Exception as exc:
+            _log.warning(
+                "run_wizard_job: failed to update reconciliation_import_runs progress for run_id=%s: %s",
+                run_id,
+                exc,
+            )
             
         try:
             rec_update = {"progress_percent": pct, "updated_at": now}
@@ -539,17 +543,21 @@ def run_wizard_job(run_id: str) -> None:
             if msg:
                 rec_update["status_message"] = msg
             sb.table("reconciliation_run").update(rec_update).eq("id", run_id).execute()
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning(
+                "run_wizard_job: failed to update reconciliation_run progress for run_id=%s: %s",
+                run_id,
+                exc,
+            )
 
     # ── failure helper ────────────────────────────────────────────────────────
     def _fail(detail: str) -> None:
         now = _now_iso()
         msg = (detail or "Processing failed")[:2000]
-        # wizard_runs has error_detail; reconciliation_run does not — write
+        # reconciliation_import_runs has error_detail; reconciliation_run does not — write
         # the real exception into status_message (same as execute_reconciliation).
         try:
-            sb.table("wizard_runs").update(
+            sb.table("reconciliation_import_runs").update(
                 {
                     "status": "error",
                     "error_detail": msg,
@@ -557,9 +565,11 @@ def run_wizard_job(run_id: str) -> None:
                     "updated_at": now,
                 }
             ).eq("id", run_id).execute()
-        except Exception:
-            _log.exception(
-                "run_wizard_job: failed to mark wizard_runs error run_id=%s", run_id
+        except Exception as exc:
+            _log.warning(
+                "run_wizard_job: failed to mark reconciliation_import_runs error run_id=%s: %s",
+                run_id,
+                exc,
             )
         try:
             sb.table("reconciliation_run").update(
@@ -569,15 +579,16 @@ def run_wizard_job(run_id: str) -> None:
                     "updated_at": now,
                 }
             ).eq("id", run_id).execute()
-        except Exception:
-            _log.exception(
-                "run_wizard_job: failed to mark reconciliation_run FAILED run_id=%s",
+        except Exception as exc:
+            _log.warning(
+                "run_wizard_job: failed to mark reconciliation_run FAILED run_id=%s: %s",
                 run_id,
+                exc,
             )
 
     # ── fetch wizard run ──────────────────────────────────────────────────────
     try:
-        row_res = sb.table("wizard_runs").select("*").eq("id", run_id).limit(1).execute()
+        row_res = sb.table("reconciliation_import_runs").select("*").eq("id", run_id).limit(1).execute()
         if not row_res.data:
             _log.error("run_wizard_job: wizard run %s not found", run_id)
             return
