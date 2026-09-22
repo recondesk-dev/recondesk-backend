@@ -4864,6 +4864,21 @@ def _db_section17_to_frontend(syn_id: str, row: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _excel_quote_text(val: Any) -> str:
+    """Format string for CSV export so Excel treats it strictly as text.
+
+    Prevents Excel from dropping leading zeros (e.g. '00123' -> 123) or
+    converting long numbers (e.g. '2024092300012') to scientific notation (2.02E+12).
+    """
+    if val is None:
+        return ""
+    s = str(val).strip()
+    if not s:
+        return ""
+    escaped = s.replace('"', '""')
+    return f'="{escaped}"'
+
+
 def _csv_bytes(headers: tuple[str, ...], data_rows: list[list[Any]]) -> bytes:
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -6625,7 +6640,7 @@ def _csv_missed_bytes(rows: list[dict[str, Any]], rid: str) -> tuple[bytes, str]
         lines.append(
             [
                 rw.get("supplier_gstin", ""),
-                rw.get("invoice_number", ""),
+                _excel_quote_text(rw.get("invoice_number", "")),
                 rw.get("invoice_date", ""),
                 rw.get("amount", ""),
                 (rw.get("decision_what") or ""),
@@ -6651,7 +6666,7 @@ def _csv_risk_bytes(rows: list[dict[str, Any]], rid: str) -> tuple[bytes, str]:
         lines.append(
             [
                 rw.get("supplier_gstin", ""),
-                rw.get("invoice_number", ""),
+                _excel_quote_text(rw.get("invoice_number", "")),
                 rw.get("invoice_date", ""),
                 rw.get("amount", ""),
                 (rw.get("decision_what") or ""),

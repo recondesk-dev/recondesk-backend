@@ -28,6 +28,19 @@ function csvEscape(value: unknown): string {
   return s;
 }
 
+/**
+ * Format string for CSV export so Excel treats it strictly as text.
+ * Prevents Excel from dropping leading zeros (e.g. '00123' -> 123) or
+ * converting long numbers to scientific notation (e.g. 2.02E+14).
+ */
+export function excelTextQuote(value: unknown): string {
+  if (value == null) return "";
+  const s = String(value).trim();
+  if (!s) return "";
+  const escaped = s.replace(/"/g, '""');
+  return `="${escaped}"`;
+}
+
 function rowsToCsv(headers: string[], rows: unknown[][]): string {
   const lines = [
     headers.map(csvEscape).join(","),
@@ -40,7 +53,7 @@ function matchedCsvRows(rows: Gstr1MatchedRow[]): unknown[][] {
   return rows.map((row) => {
     const sr = row.sr_record || {};
     return [
-      recordInvoiceNumber(sr),
+      excelTextQuote(recordInvoiceNumber(sr)),
       recordGstin(sr) || "B2C",
       sr.invoice_date || "",
       recordAmountRupees(sr).toFixed(2),
@@ -61,7 +74,7 @@ function unmatchedCsvRows(rows: Gstr1UnmatchedRow[]): unknown[][] {
     return [
       mismatchTypeShort(row.mismatch_type),
       row.mismatch_severity || "",
-      recordInvoiceNumber(rec),
+      excelTextQuote(recordInvoiceNumber(rec)),
       recordGstin(rec) || row.recipient_gstin || "B2C",
       rec.invoice_date || "",
       recordAmountRupees(rec).toFixed(2),
@@ -178,7 +191,7 @@ export function downloadGstr1ExcelReport(result: Gstr1ReconcileResult): void {
       (result.mismatches || []).map((m) => [
         mismatchTypeShort(m.mismatch_type),
         m.mismatch_severity || "",
-        m.invoice_number || "",
+        excelTextQuote(m.invoice_number),
         m.recipient_gstin || "",
         m.decision_what || "",
         m.decision_why || "",
@@ -266,7 +279,7 @@ export function downloadGstr1aReadyExcel(result: Gstr1ReconcileResult): void {
 
       rows.push([
         group.period,
-        m.invoice_number || "",
+        excelTextQuote(m.invoice_number),
         gstin,
         taxablePaise != null ? paiseToRupees(taxablePaise).toFixed(2) : "",
         taxPaise != null ? paiseToRupees(taxPaise).toFixed(2) : "",

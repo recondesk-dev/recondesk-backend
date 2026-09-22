@@ -911,3 +911,63 @@ class TestSection175ExportSheet:
         ws = wb["Rule 37 & Section 17-5"]
         # Only the header + empty-state message (no data rows)
         assert ws.cell(row=2, column=1).value == "No Rule 37 or Section 17(5) flags found."
+
+
+class TestCsvExcelQuoting:
+    """Verifies CSV exports format invoice numbers as Excel text formulas (="<num>")."""
+
+    def test_csv_missed_bytes_quotes_numeric_invoices(self):
+        from app.routers.reconciliation_api import _csv_missed_bytes
+        rows = [
+            {
+                "supplier_gstin": "27ABCDE1234F1Z0",
+                "invoice_number": "004521",
+                "invoice_date": "2024-04-01",
+                "amount": 1000.0,
+                "decision_what": "Missing in Books",
+                "decision_why": "In GSTR-2B but not in PR",
+                "decision_next": "Add to purchase register",
+            },
+            {
+                "supplier_gstin": "27XYZDE5678F1Z0",
+                "invoice_number": "9876543210123456",
+                "invoice_date": "2024-04-02",
+                "amount": 25000.0,
+                "decision_what": "Missing in Books",
+                "decision_why": "Large numeric invoice",
+                "decision_next": "Claim ITC",
+            },
+        ]
+        csv_bytes, filename = _csv_missed_bytes(rows, "test-run-12345678")
+        text = csv_bytes.decode("utf-8")
+        assert '"=""004521"""' in text
+        assert '"=""9876543210123456"""' in text
+        assert filename == "missed_itc_export_test-run.csv"
+
+    def test_csv_risk_bytes_quotes_numeric_invoices(self):
+        from app.routers.reconciliation_api import _csv_risk_bytes
+        rows = [
+            {
+                "supplier_gstin": "27PQRDE1234F1Z0",
+                "invoice_number": "000987",
+                "invoice_date": "2024-04-03",
+                "amount": 500.0,
+                "decision_what": "Risk: Missing in 2B",
+                "decision_why": "Not found in portal",
+                "decision_next": "Hold payment",
+            }
+        ]
+        csv_bytes, filename = _csv_risk_bytes(rows, "test-run-12345678")
+        text = csv_bytes.decode("utf-8")
+        assert '"=""000987"""' in text
+        assert filename == "risk_export_test-run.csv"
+
+    def test_excel_quote_text_edge_cases(self):
+        from app.routers.reconciliation_api import _excel_quote_text
+        assert _excel_quote_text(None) == ""
+        assert _excel_quote_text("") == ""
+        assert _excel_quote_text("   ") == ""
+        assert _excel_quote_text("00123") == '="00123"'
+        assert _excel_quote_text('INV"123"') == '="INV""123"""'
+        assert _excel_quote_text(12345) == '="12345"'
+
