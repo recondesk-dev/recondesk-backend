@@ -93,7 +93,7 @@ Code-backed map of the Next.js frontend (`recondesk-frontend/`) and FastAPI back
 - **Where it lives**: `app/ims/ims_writeback_client.py`, `ims_action_store.py`, `app/routers/ims_actions.py`; frontend IMS panel confirm + poll
 - **Key logic**: Idempotent claim RPC `claim_ims_action_submission` — INSERT ON CONFLICT DO NOTHING; reclaim `failed` or stale `claiming` >5m. Hold-to-commit + expected-count gate on UI.
 - **APIs/DB touched**: `POST …/ims/actions/confirm`, `GET …/ims/actions/status?reference_id=`. Table: `ims_action_submissions`. Migrations: `20260727190000_ims_action_claim_rpc.sql`, `20260728120000_ims_claim_stale_reclaim.sql`.
-- **Status**: partial / in-progress — recommend + claim/writeback/poll **complete**; **Phase 4 post-action 2B sync intentionally stubbed** (`phase4_post_action_2b_sync_pending=true`, not started in confirm handler)
+- **Status**: complete — recommend + claim/writeback/poll + post-action GSTR-2B overlay sync (POST /runs/{run_id}/ims/sync) complete
 
 ### GSTR-3B vs Books ITC Check (Per Run)
 - **What it does**: Compares run ITC buckets to uploaded/parsed GSTR-3B figures; surfaces Rule 88D / DRC-01C threshold context.
@@ -510,8 +510,8 @@ Code-backed map of the Next.js frontend (`recondesk-frontend/`) and FastAPI back
 
 | Feature | What’s done | What’s missing |
 |--------|-------------|----------------|
-| **IMS writeback** | Recommend + confirm + atomic claim + dual-status poll | Phase 4 post-action GSTR-2B sync (`phase4_post_action_2b_sync_pending`) |
-| **CDN / credit-note matching** | Quarantine list + UI tab | Matching PR notes against GSTR-2B `note[]` |
+| **IMS writeback & sync** | Recommend + confirm + atomic claim + dual-status poll + post-action GSTR-2B sync | Live portal production GSP rollout |
+| **CDN / credit-note matching** | Bilateral 4-tier CDNR matching (REM-04) + quarantine list + UI tab | Fully automated |
 | **GSTR-3B filing** | Full Save → Offset → EVC → File UI + API | Production flag off by default — live rollout gated |
 | **In-app product tour** | Landing marketing carousel | No driver.js / guided in-app tour |
 | **Legacy `/v1/billing`** | Plans/order stubs | Razorpay plan IDs TODO |

@@ -36,6 +36,7 @@ import {
 } from "@/components/reconcile/imsActionLogic";
 import { formatINR } from "@/lib/format";
 import { imsApi, isApiError } from "@/lib/api";
+import { revalidateReconciliationRun } from "@/lib/swrReconciliationSync";
 
 const POLL_MS = 2_000;
 const MAX_POLLS = 45;
@@ -52,6 +53,8 @@ type Props = {
   authToken: string;
   /** Optional bump to clear loaded recommendations (never auto-loads). */
   refreshKey?: number;
+  /** Optional callback after actions are confirmed on GSTN and synced. */
+  onActionConfirmed?: () => void;
 };
 
 function actionBadgeClass(action: ImsRecommendedAction): string {
@@ -80,7 +83,12 @@ function amountLabel(paise: number | null | undefined): string | null {
  * GSTN writes require count-based confirm + hold-to-commit.
  * Mounted like AuditObservationsPanel (purchase results IMS tab).
  */
-export function ImsActionPanel({ runId, authToken, refreshKey = 0 }: Props) {
+export function ImsActionPanel({
+  runId,
+  authToken,
+  refreshKey = 0,
+  onActionConfirmed,
+}: Props) {
   const [loadState, setLoadState] = useState<LoadState>({ status: "idle" });
   const [rows, setRows] = useState<Map<string, ImsRowState>>(new Map());
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -91,6 +99,8 @@ export function ImsActionPanel({ runId, authToken, refreshKey = 0 }: Props) {
   const [pollNote, setPollNote] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [phase4Note, setPhase4Note] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
 
   // Never auto-load on mount / refreshKey — only clear stale draft state.
   useEffect(() => {
@@ -101,6 +111,7 @@ export function ImsActionPanel({ runId, authToken, refreshKey = 0 }: Props) {
     setPollNote(null);
     setActionError(null);
     setPhase4Note(null);
+    setSyncNote(null);
   }, [runId, refreshKey]);
 
 
@@ -141,6 +152,25 @@ export function ImsActionPanel({ runId, authToken, refreshKey = 0 }: Props) {
       setRows(new Map());
     }
   }, [authToken, runId]);
+
+  const runImsSync = useCallback(async () => {
+    if (!runId || !authToken) return;
+    setSyncing(true);
+    setSyncNote(null);
+    try {
+      const res = await imsApi.syncRun(authToken, runId);
+      setSyncNote(res.message || `Synchronized ${res.invoices_updated} invoice(s) with GSTR-2B.`);
+      await loadRecommendations();
+      void revalidateReconciliationRun(runId);
+      if (onActionConfirmed) onActionConfirmed();
+    } catch (err) {
+      setSyncNote(
+        isApiError(err) ? err.detail : err instanceof Error ? err.message : "IMS sync failed"
+      );
+    } finally {
+      setSyncing(false);
+    }
+  }, [runId, authToken, loadRecommendations, onActionConfirmed]);
 
   const invoices: ImsInvoiceRecommendation[] =
     loadState.status === "available" ? loadState.data.invoices : [];
@@ -276,11 +306,20 @@ export function ImsActionPanel({ runId, authToken, refreshKey = 0 }: Props) {
 
         if (finalOutcome === "confirmed") {
           setPollNote(
-            "GSTN confirmed IMS action (inner status_cd P)."
+            "GSTN confirmed IMS action. Synchronizing GSTR-2B & IMS overlay…"
           );
-          // PHASE 4 HOOK — post-action GSTR-2B / IMS overlay sync.
-          // After live UI testing, call a 2B re-fetch / overlay refresh here
-          // using res.phase4_post_action_2b_sync_pending.
+          try {
+            const syncRes = await imsApi.syncRun(authToken, runId);
+            setPollNote(
+              `GSTN confirmed. Synchronized ${syncRes.invoices_updated} invoice(s) with GSTR-2B.`
+            );
+          } catch (syncErr) {
+            setPollNote(
+              "GSTN confirmed IMS action (inner status_cd P). Auto-sync scheduled."
+            );
+          }
+          void revalidateReconciliationRun(runId);
+          if (onActionConfirmed) onActionConfirmed();
           break;
         }
         if (finalOutcome === "failed") {
@@ -364,16 +403,32 @@ export function ImsActionPanel({ runId, authToken, refreshKey = 0 }: Props) {
               {loadState.status === "loading" ? "Loading…" : "Load recommendations"}
             </button>
           ) : (
-            <button
-              type="button"
-              disabled={confirmBusy}
-              onClick={() => void loadRecommendations()}
-              className="rounded-full px-3 py-1 text-[12px] font-medium text-amber-900/70 hover:bg-amber-100/60 disabled:opacity-40"
-            >
-              Reload
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={syncing || confirmBusy}
+                onClick={() => void runImsSync()}
+                className="rounded-full border border-amber-800/20 bg-white px-3 py-1 text-[12px] font-semibold text-amber-950 hover:bg-amber-50 disabled:opacity-40"
+              >
+                {syncing ? "Syncing 2B…" : "Sync GSTR-2B"}
+              </button>
+              <button
+                type="button"
+                disabled={confirmBusy}
+                onClick={() => void loadRecommendations()}
+                className="rounded-full px-3 py-1 text-[12px] font-medium text-amber-900/70 hover:bg-amber-100/60 disabled:opacity-40"
+              >
+                Reload
+              </button>
+            </div>
           )}
         </div>
+
+        {syncNote ? (
+          <p className="mt-2 text-[12px] font-medium text-emerald-800">
+            {syncNote}
+          </p>
+        ) : null}
 
         {loadState.status === "loading" ? (
           <p className="mt-2 flex items-center gap-2 text-[12px] text-amber-950/70">

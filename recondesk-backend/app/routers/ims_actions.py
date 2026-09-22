@@ -29,6 +29,7 @@ from app.ims.ims_writeback_client import (
 from app.services.firm_access import assert_run_accessible
 from app.services.gst_fetch.token import ensure_fresh_gstn_token, load_client_gstin
 from app.services.sandbox_gst_client import SandboxClientError
+from app.services.ims_sync_service import sync_ims_run_overlay
 from app.integrations.gstn_error_mapper import gstn_http_exception
 
 _log = logging.getLogger(__name__)
@@ -235,10 +236,10 @@ async def confirm_ims_actions_route(
     payload = result.as_dict()
     payload["run_id"] = str(run_row.get("id") or run_id)
     payload["confirmation_summary"] = body.confirmation_summary
-    # PHASE 4: after poll confirms GSTN success, re-sync GSTR-2B / IMS overlay
-    # for this run. Intentionally not started here.
+    # Phase 4 hook: after poll confirms GSTN success, trigger post-action
+    # GSTR-2B / IMS overlay sync via POST /runs/{run_id}/ims/sync.
     payload["phase4_note"] = (
-        "Post-action 2B sync not started — wire after live UI testing "
+        "Action writeback registered. Trigger post-action sync via /runs/{run_id}/ims/sync "
         "(phase4_post_action_2b_sync_pending=true)."
     )
     return payload
@@ -273,3 +274,50 @@ async def get_ims_action_status(
     payload = result.as_dict()
     payload["run_id"] = str(run_row.get("id") or run_id)
     return payload
+
+
+@router.post("/runs/{run_id}/ims/sync")
+async def sync_ims_run_route(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Synchronize stored GSTR-2B records and reconciliation results with updated IMS status.
+
+    Executed post-writeback or on-demand by the CA to reflect latest GSTN portal decisions.
+    """
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, run_id, current_user)
+
+    access_token: str | None = None
+    buyer_gstin: str | None = None
+    try:
+        client_row = _client_row_for_run(sb, run_row)
+        buyer_gstin = str(client_row.get("gstin") or "").strip() or None
+        if client_row.get("gstn_access_token"):
+            try:
+                access_token = ensure_fresh_gstn_token(sb, client_row)
+            except HTTPException:
+                access_token = None
+    except HTTPException:
+        pass
+
+    try:
+        result = sync_ims_run_overlay(
+            sb,
+            run_id=str(run_row.get("id") or run_id),
+            access_token=access_token,
+            buyer_gstin=buyer_gstin,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        _log.error("IMS sync failed for run_id=%s: %s", run_id, exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"IMS sync failed: {exc}",
+        ) from exc
+
+    return result.as_dict()

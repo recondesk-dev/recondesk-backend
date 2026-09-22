@@ -5480,6 +5480,7 @@ export default function ReconcileResultsPage() {
           <ImsActionPanel
             runId={runId}
             authToken={authToken}
+            onActionConfirmed={() => void revalidateReconciliationRun(runId)}
           />
         ) : (
           <div className={sectionContainerClass}>

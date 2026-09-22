@@ -3219,6 +3219,14 @@ export type ImsActionStatusResponse = {
   run_id?: string;
 };
 
+export type ImsSyncResponse = {
+  synced: boolean;
+  run_id: string;
+  invoices_updated: number;
+  phase4_post_action_2b_sync_pending: boolean;
+  message: string;
+};
+
 export const imsApi = {
   /** Explicit Load only — never call from useEffect on mount. */
   getRecommendations: (token: string, runId: string) =>
@@ -3261,6 +3269,15 @@ export const imsApi = {
       { token, cache: "no-store", timeoutMs: STATUS_POLL_REQUEST_TIMEOUT_MS }
     );
   },
+
+  syncRun: (token: string, runId: string) =>
+    apiFetch<ImsSyncResponse>(
+      `/api/reconcile/runs/${encodeURIComponent(runId)}/ims/sync`,
+      {
+        method: "POST",
+        token,
+      }
+    ),
 };
 
 // ─── E-Invoicing / Billing Module API Client ───────────────────────────────
