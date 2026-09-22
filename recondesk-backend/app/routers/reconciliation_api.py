@@ -19,7 +19,7 @@ from urllib.parse import unquote
 TSeq = TypeVar("TSeq")
 TRet = TypeVar("TRet")
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from uuid import UUID
@@ -64,7 +64,9 @@ from app.services.gstr3b_table4_engine import (
     check_finalization_blocking_exceptions,
     compile_and_save_final_table4_snapshot,
     compile_gstr3b_table4,
+    compute_table4_adjustments_digest,
     get_table4_drilldown,
+    load_table4_adjustments,
     rupees_to_paise,
 )
 from app.services.gstr3b_table4_export import generate_table4_excel_workpaper
@@ -7385,6 +7387,7 @@ class Table4AdjustmentInput(BaseModel):
     reason: str
     reference_doc: Optional[str] = None
     turnover_ratio_data: Optional[dict[str, Any]] = None
+    expected_digest: Optional[str] = None
 
 
 class ExceptionDispositionInput(BaseModel):
@@ -7436,9 +7439,13 @@ async def get_gstr3b_table4_drilldown(
 async def add_gstr3b_table4_adjustment(
     run_id: str,
     body: Table4AdjustmentInput,
+    if_match: Optional[str] = Header(None, alias="If-Match"),
     current_user: dict = Depends(get_current_active_user),
 ):
-    """Add a verified external adjustment (Rules 42/43/38/RCM) to a provisional run."""
+    """Add a verified external adjustment (Rules 42/43/38/RCM) to a provisional run.
+
+    Enforces optimistic concurrency control (OCC) if expected_digest or If-Match header is provided.
+    """
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
     assert_run_accessible(sb, rid, current_user)
@@ -7465,6 +7472,32 @@ async def add_gstr3b_table4_adjustment(
             detail="Reason must be at least 10 characters explaining the statutory basis.",
         )
 
+    # Optimistic Concurrency Control (OCC) Check
+    raw_expected = body.expected_digest or (if_match.strip('"') if if_match else None)
+    current_adjs = load_table4_adjustments(sb, rid)
+    current_adj_digest = compute_table4_adjustments_digest(current_adjs, run_id=rid)
+
+    if raw_expected:
+        expected_clean = raw_expected.strip()
+        matches = (expected_clean == current_adj_digest)
+        if not matches:
+            # Also accept the full workpaper audit_hash so clients can provide either token
+            try:
+                wp = compile_gstr3b_table4(sb, rid)
+                matches = (expected_clean == (wp.get("audit_hash") or wp.get("source_state_digest")))
+            except Exception:
+                pass
+
+        if not matches:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Table 4 workpaper adjustments have changed since last retrieved "
+                    f"(expected '{expected_clean}', current '{current_adj_digest}'). "
+                    f"Please refresh the workpaper before saving adjustments."
+                ),
+            )
+
     uid = current_user.get("id")
     insert_data = {
         "run_id": rid,
@@ -7481,21 +7514,31 @@ async def add_gstr3b_table4_adjustment(
         "reference_doc": (body.reference_doc or "").strip() or None,
         "turnover_ratio_data": body.turnover_ratio_data,
         "created_by": uid,
+        "is_deleted": False,
     }
 
     res = sb.table("gstr3b_table4_adjustments").insert(insert_data).execute()
     if not res.data:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save adjustment")
-    return res.data[0]
+
+    saved_row = dict(res.data[0])
+    updated_adjs = [*current_adjs, saved_row]
+    saved_row["new_adjustments_digest"] = compute_table4_adjustments_digest(updated_adjs, run_id=rid)
+    return saved_row
 
 
 @reconcile_runs_router.delete("/runs/{run_id}/gstr3b/table4/adjust/{adj_id}")
 async def delete_gstr3b_table4_adjustment(
     run_id: str,
     adj_id: str,
+    expected_digest: Optional[str] = Query(None, description="Optional expected concurrency token"),
+    if_match: Optional[str] = Header(None, alias="If-Match"),
     current_user: dict = Depends(get_current_active_user),
 ):
-    """Soft delete an adjustment from a provisional run."""
+    """Soft delete an adjustment from a provisional run.
+
+    Enforces optimistic concurrency control (OCC) if expected_digest or If-Match header is provided.
+    """
     rid = _parse_uuid(run_id, "run_id")
     aid = _parse_uuid(adj_id, "adj_id")
     sb = get_supabase()
@@ -7517,8 +7560,49 @@ async def delete_gstr3b_table4_adjustment(
             detail="Finalized reconciliation runs are immutable; adjustments cannot be deleted.",
         )
 
+    # Fetch target adjustment
+    adj_row = (
+        sb.table("gstr3b_table4_adjustments")
+        .select("*")
+        .eq("id", aid)
+        .eq("run_id", rid)
+        .limit(1)
+        .execute()
+    )
+    if not adj_row.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Adjustment not found")
+    target_adj = adj_row.data[0]
+    if bool(target_adj.get("is_deleted")):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Adjustment has already been deleted.")
+
+    # Concurrency verification if expected token supplied
+    raw_expected = expected_digest or (if_match.strip('"') if if_match else None)
+    current_adjs = load_table4_adjustments(sb, rid)
+    current_adj_digest = compute_table4_adjustments_digest(current_adjs, run_id=rid)
+
+    if raw_expected:
+        expected_clean = raw_expected.strip()
+        matches = (expected_clean == current_adj_digest)
+        if not matches:
+            try:
+                wp = compile_gstr3b_table4(sb, rid)
+                matches = (expected_clean == (wp.get("audit_hash") or wp.get("source_state_digest")))
+            except Exception:
+                pass
+        if not matches:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Table 4 workpaper adjustments have changed since last retrieved "
+                    f"(expected '{expected_clean}', current '{current_adj_digest}'). "
+                    f"Please refresh the workpaper before deleting adjustments."
+                ),
+            )
+
     sb.table("gstr3b_table4_adjustments").update({"is_deleted": True}).eq("id", aid).eq("run_id", rid).execute()
-    return {"deleted": True, "id": aid}
+    remaining_adjs = [a for a in current_adjs if str(a.get("id")) != str(aid)]
+    new_digest = compute_table4_adjustments_digest(remaining_adjs, run_id=rid)
+    return {"deleted": True, "id": aid, "new_adjustments_digest": new_digest}
 
 
 @reconcile_runs_router.post("/runs/{run_id}/dispositions")

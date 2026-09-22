@@ -682,6 +682,7 @@ export function Table4WorkpaperView({
         authToken={authToken}
         isOpen={!isFinalized && isAdjustmentModalOpen}
         onClose={() => setIsAdjustmentModalOpen(false)}
+        expectedDigest={data?.adjustments_digest || data?.audit_hash}
         onSuccess={() => {
           void mutate();
           void revalidateReconciliationRun(runId, { table4: true, drilldown: true });

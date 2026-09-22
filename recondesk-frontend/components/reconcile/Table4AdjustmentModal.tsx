@@ -9,6 +9,7 @@ interface Table4AdjustmentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  expectedDigest?: string;
 }
 
 const CATEGORIES = [
@@ -29,6 +30,7 @@ export function Table4AdjustmentModal({
   isOpen,
   onClose,
   onSuccess,
+  expectedDigest,
 }: Table4AdjustmentModalProps) {
   const [category, setCategory] = useState(CATEGORIES[0].value);
   const [rowId, setRowId] = useState(CATEGORIES[0].defaultRow);
@@ -70,6 +72,7 @@ export function Table4AdjustmentModal({
       cess: parseFloat(cess) || 0,
       reason: reason.trim(),
       reference_doc: refDoc.trim() || undefined,
+      expected_digest: expectedDigest,
     };
 
     try {
@@ -77,7 +80,12 @@ export function Table4AdjustmentModal({
       onSuccess();
       onClose();
     } catch (err: any) {
-      setError(err?.detail || err?.message || "Failed to save adjustment.");
+      const errMsg = typeof err?.detail === "string" ? err.detail : err?.detail?.message || err?.message || "Failed to save adjustment.";
+      setError(errMsg);
+      // If concurrent modification conflict occurred, trigger background revalidation
+      if (err?.status === 409 || errMsg.toLowerCase().includes("changed") || errMsg.toLowerCase().includes("conflict")) {
+        onSuccess();
+      }
     } finally {
       setLoading(false);
     }

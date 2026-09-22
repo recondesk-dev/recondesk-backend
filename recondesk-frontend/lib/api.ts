@@ -1150,12 +1150,17 @@ export const gstr3bApi = {
   deleteTable4Adjustment: (
     token: string,
     runId: string,
-    adjId: string
-  ): Promise<{ deleted: boolean; id: string }> =>
-    apiFetch<{ deleted: boolean; id: string }>(
-      `/api/reconcile/runs/${encodeURIComponent(runId)}/gstr3b/table4/adjust/${encodeURIComponent(adjId)}`,
+    adjId: string,
+    expectedDigest?: string
+  ): Promise<{ deleted: boolean; id: string; new_adjustments_digest?: string }> => {
+    const url = expectedDigest
+      ? `/api/reconcile/runs/${encodeURIComponent(runId)}/gstr3b/table4/adjust/${encodeURIComponent(adjId)}?expected_digest=${encodeURIComponent(expectedDigest)}`
+      : `/api/reconcile/runs/${encodeURIComponent(runId)}/gstr3b/table4/adjust/${encodeURIComponent(adjId)}`;
+    return apiFetch<{ deleted: boolean; id: string; new_adjustments_digest?: string }>(
+      url,
       { method: "DELETE", token }
-    ),
+    );
+  },
 
   recordDisposition: (
     token: string,
@@ -1465,6 +1470,8 @@ export type Gstr3bTable4WorkpaperResponse = {
   finalized_at: string | null;
   finalized_by: string | null;
   audit_hash: string;
+  source_state_digest?: string;
+  adjustments_digest?: string;
   workpaper_title: string;
   disclaimer: string;
   table_4: {
@@ -1550,6 +1557,7 @@ export type Table4AdjustmentPayload = {
   reason: string;
   reference_doc?: string;
   turnover_ratio_data?: any;
+  expected_digest?: string;
 };
 
 export type Table4DispositionPayload = {

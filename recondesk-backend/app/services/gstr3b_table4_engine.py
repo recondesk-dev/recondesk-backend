@@ -228,6 +228,37 @@ def load_table4_adjustments(sb: Client, run_id: str) -> list[dict[str, Any]]:
         return []
 
 
+def compute_table4_adjustments_digest(
+    adjustments: Sequence[dict[str, Any]],
+    run_id: Optional[str] = None,
+) -> str:
+    """Compute a deterministic, tamper-evident SHA-256 concurrency digest across active adjustments.
+
+    Used for optimistic concurrency control (OCC) when adding or deleting manual adjustments.
+    """
+    if not adjustments:
+        seed = f"empty_table4_adjustments:{run_id or 'none'}"
+        return hashlib.sha256(seed.encode("utf-8")).hexdigest()
+
+    sorted_adjs = sorted(
+        adjustments,
+        key=lambda a: str(a.get("id") or ""),
+    )
+    tokens: list[str] = []
+    for a in sorted_adjs:
+        aid = str(a.get("id") or "")
+        row_id = str(a.get("row_id") or "").upper().strip()
+        adj_type = str(a.get("adjustment_type") or "ADDITION").upper().strip()
+        igst = int(a.get("igst_paise") or 0)
+        cgst = int(a.get("cgst_paise") or 0)
+        sgst = int(a.get("sgst_paise") or 0)
+        cess = int(a.get("cess_paise") or 0)
+        tokens.append(f"{aid}:{row_id}:{adj_type}:{igst}:{cgst}:{sgst}:{cess}")
+
+    payload = "|".join(tokens)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def load_rule37_settlements(sb: Client, run_id: str) -> set[str]:
     """Load settled record identifiers from rule37_actions and rule37_resolutions."""
     settled: set[str] = set()
@@ -705,6 +736,8 @@ def compile_gstr3b_table4(
     # 8. Evaluate Finalization Gate
     gate = check_finalization_blocking_exceptions(sb, run_id, payload=p)
 
+    adjustments_digest = compute_table4_adjustments_digest(adjustments, run_id=run_id)
+
     compiled_snapshot = {
         "table_4a1": t4a1.to_dict(),
         "table_4a2": t4a2.to_dict(),
@@ -720,6 +753,7 @@ def compile_gstr3b_table4(
         "table_4d2": t4d2.to_dict(),
         "audit_hash": audit_hash,
         "source_state_digest": audit_hash,
+        "adjustments_digest": adjustments_digest,
         "contributing_outcome_ids": contributing_record_ids,
         "contributing_disposition_ids": list(dispositions.keys()),
         "contributing_adjustment_ids": [str(a.get("id")) for a in adjustments if a.get("id")],
@@ -769,6 +803,7 @@ def _format_table4_response(
         "version": snap.get("version") or version,
         "audit_hash": snap.get("audit_hash") or "",
         "source_state_digest": snap.get("source_state_digest") or snap.get("audit_hash") or "",
+        "adjustments_digest": snap.get("adjustments_digest") or snap.get("audit_hash") or "",
         "workpaper_title": WORKPAPER_TITLE,
         "disclaimer": DISCLAIMER_TEXT,
         "table_4": {
