@@ -73,7 +73,11 @@ START_TIME = datetime.now(timezone.utc)
 
 # ── Sentry ────────────────────────────────────────────────────────────────────
 if settings.SENTRY_DSN:
-    from app.filing.log_safety import sentry_scrub_event
+    from app.filing.log_safety import (
+        sentry_scrub_breadcrumb,
+        sentry_scrub_event,
+        sentry_scrub_transaction,
+    )
 
     sentry_sdk.init(
         dsn=settings.SENTRY_DSN,
@@ -86,8 +90,10 @@ if settings.SENTRY_DSN:
         profiles_sample_rate=0.1,
         send_default_pii=False,
         # File GSTR-1 puts EVC OTP on Sandbox query string (?otp=&pan=).
-        # Scrub those keys from any captured request URL / exception text.
+        # Scrub those keys and mask GSTIN PII from any captured request URL / exception text / breadcrumbs / transactions.
         before_send=sentry_scrub_event,
+        before_send_transaction=sentry_scrub_transaction,
+        before_breadcrumb=sentry_scrub_breadcrumb,
     )
 
 _HEALTH_PROBE_KEY = "__recondesk/health_probe__"
