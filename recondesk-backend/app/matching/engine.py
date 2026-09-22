@@ -8,6 +8,7 @@ from app.services.reconciliation import (  # noqa: F401
     prepass_duplicate_ambiguity,
     resolve_orphans,
     process_gstr_records_chunk,
+    execute_credit_note_reconciliation,
     execute_phase2_and_3,
     flag_fuzzy_duplicates_of_linked_prs,
     flag_fuzzy_pr_peer_duplicates,
@@ -71,6 +72,13 @@ def run_bidirectional_reconciliation(
         candidate_indices=candidate_indices,
     )
 
+    # Dedicated bilateral Credit Note (CDNR) & Debit Note reconciliation phase
+    execute_credit_note_reconciliation(
+        effective_gstr,
+        pr_records,
+        state,
+    )
+
     execute_phase2_and_3(
         effective_gstr,
         pr_records,
@@ -94,6 +102,7 @@ __all__ = [
     "build_wrongful_itc_risk",
     "prepass_duplicate_ambiguity",
     "process_gstr_records_chunk",
+    "execute_credit_note_reconciliation",
     "run_bidirectional_reconciliation",
     "flag_fuzzy_duplicates_of_linked_prs",
     "flag_fuzzy_pr_peer_duplicates",

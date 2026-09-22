@@ -829,3 +829,306 @@ def test_cdn_20_ambiguous_multiple_pr_candidates():
     assert len(res["matched"]) == 1
     assert len(res["duplicate_entries"]) >= 1
     assert len(res["wrongful_itc_risk"]) == 0
+
+
+def test_cdn_21_pr_note_number_with_original_invoice_number():
+    """PR note carrying note_number and separate invoice_number (pointing to original invoice).
+
+    Before REM-04, this dropped into unmatched_notes because invoice numbers differed
+    ('CN-2023-01' vs 'INV-1001'). With REM-04, Pathway A matches on exact note number.
+    """
+    gstr_records = [
+        {
+            "id": "gstr_cn_21",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "CN-2023-01",
+            "invoice_number_normalized": "CN202301",
+            "invoice_date": "2023-09-15",
+            "original_invoice_number": "INV-1001",
+            "original_invoice_number_normalized": "INV1001",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180000,
+            "doc_type": "CREDIT_NOTE",
+        }
+    ]
+    pr_records = [
+        {
+            "id": "pr_cn_21",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "note_number": "CN-2023-01",
+            "invoice_number": "INV-1001",
+            "invoice_number_normalized": "INV1001",
+            "original_invoice_number": "INV-1001",
+            "original_invoice_number_normalized": "INV1001",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180000,
+            "doc_type": "CREDIT_NOTE",
+            "pr_note_quarantine": True,
+        }
+    ]
+    res = run_bidirectional_reconciliation(gstr_records, pr_records, "092023")
+    assert len(res["matched"]) == 1
+    m = res["matched"][0]
+    assert m["gstr_id"] == "gstr_cn_21"
+    assert m["pr_id"] == "pr_cn_21"
+    assert m["doc_type"] == "CREDIT_NOTE"
+    assert m["is_credit_note"] is True
+    assert m["match_level"] == 1
+    assert len(res["unmatched_notes"]) == 0
+    assert len(res["missed_itc"]) == 0
+    assert len(res["wrongful_itc_risk"]) == 0
+
+
+def test_cdn_22_cross_reference_gstr_oinum_matches_pr_invoice():
+    """GSTR CDNR oinum matches PR credit note whose invoice field recorded the original invoice.
+
+    Vendor PR only recorded invoice_number = 'INV-2002' and doc_type = CREDIT_NOTE without note_number.
+    GSTR CDNR has invoice_number = 'CRN-999' and original_invoice_number = 'INV-2002'.
+    Matches via Pathway C (cross-reference).
+    """
+    gstr_records = [
+        {
+            "id": "gstr_cn_22",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "CRN-999",
+            "invoice_number_normalized": "CRN999",
+            "invoice_date": "2023-09-15",
+            "original_invoice_number": "INV-2002",
+            "original_invoice_number_normalized": "INV2002",
+            "taxable_amount_paise": 500000,
+            "total_tax_paise": 90000,
+            "doc_type": "CREDIT_NOTE",
+        }
+    ]
+    pr_records = [
+        {
+            "id": "pr_cn_22",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "INV-2002",
+            "invoice_number_normalized": "INV2002",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 500000,
+            "total_tax_paise": 90000,
+            "doc_type": "CREDIT_NOTE",
+            "pr_note_quarantine": True,
+        }
+    ]
+    res = run_bidirectional_reconciliation(gstr_records, pr_records, "092023")
+    assert len(res["matched"]) == 1
+    m = res["matched"][0]
+    assert m["gstr_id"] == "gstr_cn_22"
+    assert m["pr_id"] == "pr_cn_22"
+    assert m["match_level"] == 2
+    assert len(res["unmatched_notes"]) == 0
+    assert len(res["missed_itc"]) == 0
+
+
+def test_cdn_23_tolerance_boundary_1_rupee_paise():
+    """Statutory ₹1 (100 paise) tolerance boundary verification on Credit Notes.
+
+    50 paise difference clean matches within tolerance.
+    101 paise difference is NOT clean matched (routed to review for exact note match).
+    """
+    # Test 23a: 50 paise difference -> Clean Match
+    gstr_records_a = [
+        {
+            "id": "gstr_cn_23a",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "CN-TOL-01",
+            "invoice_number_normalized": "CNTOL01",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180050,  # ₹1,800.50
+            "doc_type": "CREDIT_NOTE",
+        }
+    ]
+    pr_records_a = [
+        {
+            "id": "pr_cn_23a",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "note_number": "CN-TOL-01",
+            "invoice_number": "CN-TOL-01",
+            "invoice_number_normalized": "CNTOL01",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180000,  # ₹1,800.00 (diff = 50 paise <= 100 paise)
+            "doc_type": "CREDIT_NOTE",
+            "pr_note_quarantine": True,
+        }
+    ]
+    res_a = run_bidirectional_reconciliation(gstr_records_a, pr_records_a, "092023")
+    assert len(res_a["matched"]) == 1
+    assert res_a["matched"][0]["taxable_diff_paise"] == 0
+    assert len(res_a["review_required"]) == 0
+
+    # Test 23b: 101 paise difference -> Review Required (exceeds ₹1 statutory tolerance)
+    gstr_records_b = [
+        {
+            "id": "gstr_cn_23b",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "CN-TOL-02",
+            "invoice_number_normalized": "CNTOL02",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180101,  # ₹1,801.01
+            "doc_type": "CREDIT_NOTE",
+        }
+    ]
+    pr_records_b = [
+        {
+            "id": "pr_cn_23b",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "note_number": "CN-TOL-02",
+            "invoice_number": "CN-TOL-02",
+            "invoice_number_normalized": "CNTOL02",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180000,  # diff = 101 paise > 100 paise
+            "doc_type": "CREDIT_NOTE",
+            "pr_note_quarantine": True,
+        }
+    ]
+    res_b = run_bidirectional_reconciliation(gstr_records_b, pr_records_b, "092023")
+    assert len(res_b["matched"]) == 0
+    assert len(res_b["review_required"]) == 1
+    assert res_b["review_required"][0]["review_reason"] in ("AMOUNT_MISMATCH", "Amount/Date mismatch")
+
+    # Test 23c: 101 paise difference where PR has note_number and distinct original invoice_number
+    # Handled specifically by execute_credit_note_reconciliation -> AMOUNT_MISMATCH
+    gstr_records_c = [
+        {
+            "id": "gstr_cn_23c",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "CN-TOL-03",
+            "invoice_number_normalized": "CNTOL03",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180101,  # ₹1,801.01
+            "doc_type": "CREDIT_NOTE",
+        }
+    ]
+    pr_records_c = [
+        {
+            "id": "pr_cn_23c",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "note_number": "CN-TOL-03",
+            "invoice_number": "INV-ORIG-99",
+            "invoice_number_normalized": "INVORIG99",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 1000000,
+            "total_tax_paise": 180000,  # diff = 101 paise > 100 paise
+            "doc_type": "CREDIT_NOTE",
+            "pr_note_quarantine": True,
+        }
+    ]
+    res_c = run_bidirectional_reconciliation(gstr_records_c, pr_records_c, "092023")
+    assert len(res_c["matched"]) == 0
+    assert len(res_c["review_required"]) == 1
+    assert res_c["review_required"][0]["review_reason"] == "AMOUNT_MISMATCH"
+
+
+def test_cdn_24_format_variant_prefix_stripped_matching():
+    """GSTR 'CN-000452' matches PR note_number '452' via Pathway D."""
+    gstr_records = [
+        {
+            "id": "gstr_cn_24",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "CN-000452",
+            "invoice_number_normalized": "CN000452",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 300000,
+            "total_tax_paise": 54000,
+            "doc_type": "CREDIT_NOTE",
+        }
+    ]
+    pr_records = [
+        {
+            "id": "pr_cn_24",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "note_number": "452",
+            "invoice_number": "452",
+            "invoice_number_normalized": "452",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 300000,
+            "total_tax_paise": 54000,
+            "doc_type": "CREDIT_NOTE",
+            "pr_note_quarantine": True,
+        }
+    ]
+    res = run_bidirectional_reconciliation(gstr_records, pr_records, "092023")
+    assert len(res["matched"]) == 1
+    m = res["matched"][0]
+    assert m["gstr_id"] == "gstr_cn_24"
+    assert m["pr_id"] == "pr_cn_24"
+    assert m["match_level"] == 2
+
+
+def test_cdn_25_unconsumed_residual_quarantine_integrity():
+    """Mixed matched & unmatched credit notes preserve exact arithmetic invariant.
+
+    Total GSTR = 2 (1 matched, 1 unbooked)
+    Total PR = 2 (1 matched, 1 unmatched)
+    Invariant: matched_count + missed_itc_count + review_gstr_count == total_gstr
+    """
+    gstr_records = [
+        {
+            "id": "gstr_matched",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "CN-PAIR-01",
+            "invoice_number_normalized": "CNPAIR01",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 100000,
+            "total_tax_paise": 18000,
+            "doc_type": "CREDIT_NOTE",
+        },
+        {
+            "id": "gstr_unbooked",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "invoice_number": "CN-GSTR-ONLY",
+            "invoice_number_normalized": "CNGSTRONLY",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 200000,
+            "total_tax_paise": 36000,
+            "doc_type": "CREDIT_NOTE",
+        },
+    ]
+    pr_records = [
+        {
+            "id": "pr_matched",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "note_number": "CN-PAIR-01",
+            "invoice_number": "CN-PAIR-01",
+            "invoice_number_normalized": "CNPAIR01",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 100000,
+            "total_tax_paise": 18000,
+            "doc_type": "CREDIT_NOTE",
+            "pr_note_quarantine": True,
+        },
+        {
+            "id": "pr_unmatched",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "note_number": "CN-PR-ONLY",
+            "invoice_number": "CN-PR-ONLY",
+            "invoice_number_normalized": "CNPRONLY",
+            "invoice_date": "2023-09-15",
+            "taxable_amount_paise": 400000,
+            "total_tax_paise": 72000,
+            "doc_type": "CREDIT_NOTE",
+            "pr_note_quarantine": True,
+        },
+    ]
+    res = run_bidirectional_reconciliation(gstr_records, pr_records, "092023")
+    assert len(res["matched"]) == 1
+    assert res["matched"][0]["gstr_id"] == "gstr_matched"
+    assert len(res["missed_itc"]) == 1
+    assert res["missed_itc"][0]["gstr_id"] == "gstr_unbooked"
+    assert res["missed_itc"][0]["requires_reversal"] is True
+    assert len(res["unmatched_notes"]) == 1
+    assert res["unmatched_notes"][0]["id"] == "pr_unmatched"
+    assert len(res["wrongful_itc_risk"]) == 0
+    # Invariant: 1 matched + 1 missed_itc + 0 review == 2 total_gstr
+    stats = res["stats"]
+    assert stats["sanity_passed"] is True
+    assert stats["matched_count"] + stats["missed_itc_count"] + stats["review_required_count"] == len(gstr_records)

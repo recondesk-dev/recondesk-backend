@@ -16,6 +16,7 @@ from app.services.matcher import (
     INVOICE_SIMILARITY_L5_MIN,
     TOTAL_TOLERANCE_PAISE,
     MatchResult,
+    are_document_types_compatible,
     build_compared_fields,
     invoice_similarity,
     is_invoice_format_variant,
@@ -580,6 +581,254 @@ def _push_review_required(
     if pr_id:
         state.consumed_pr_ids.add(str(pr_id))
     state.consumed_gstr_ids.add(str(gstr_id))
+
+
+def _is_note_prefix_variant(a_norm: str | None, b_norm: str | None) -> bool:
+    """True when two note numbers differ only by note prefix (CN, CRN, DN, DBN) and/or leading zeros."""
+    if not a_norm or not b_norm:
+        return False
+    if a_norm == b_norm:
+        return True
+
+    def _strip_prefix(s: str) -> str:
+        s = str(s).upper()
+        for pfx in ("CRN", "CDN", "DBN", "CN", "DN"):
+            if s.startswith(pfx):
+                s = s[len(pfx):]
+                break
+        return s.lstrip("0")
+
+    sa = _strip_prefix(a_norm)
+    sb = _strip_prefix(b_norm)
+    if sa and sb and sa == sb:
+        return True
+    return False
+
+
+def execute_credit_note_reconciliation(
+    gstr_records: list[dict],
+    pr_records: list[dict],
+    state: ReconState,
+    amount_tolerance_paise: int = TOTAL_TOLERANCE_PAISE,
+) -> None:
+    """Dedicated bilateral Credit Note (CDNR) & Debit Note reconciliation phase.
+
+    Executes after Phase 1 and before Phase 2/3 / residual quarantine.
+    Reconciles GSTR-2B CDNR notes with PR credit/debit notes across four pathways:
+      - Pathway A: Exact Note Number match (GSTR nt_num == PR note_number).
+      - Pathway B: GSTR Note Number matches PR Invoice Number.
+      - Pathway C: Cross-reference original invoice (GSTR oinum == PR invoice_number or PR original_invoice).
+      - Pathway D: Format-variant / Prefix-stripped note match.
+    Enforces semantic direction (are_document_types_compatible) and statutory ₹1 tolerance.
+    Clean matches are added to state.clean_matched with is_credit_note=True and consumed.
+    Matches with exact note number but amount mismatch exceeding ₹1 are routed to
+    state.review_required so they do not falsely drop into unmatched notes or missed ITC.
+    """
+    unconsumed_gstr = [
+        g for g in gstr_records
+        if str(g.get("id") or "") not in state.consumed_gstr_ids
+        and _is_note_document(g)
+    ]
+    if not unconsumed_gstr:
+        return
+
+    unconsumed_pr = [
+        p for p in pr_records
+        if str(p.get("id") or "") not in state.consumed_pr_ids
+        and (is_pr_note_quarantine(p) or _is_note_document(p))
+    ]
+    if not unconsumed_pr:
+        return
+
+    pr_by_gstin: dict[str, list[dict]] = defaultdict(list)
+    for p in unconsumed_pr:
+        gst = str(p.get("supplier_gstin") or p.get("gstin") or "").strip().upper()
+        if gst:
+            pr_by_gstin[gst].append(p)
+
+    for g in unconsumed_gstr:
+        gid = str(g.get("id") or "")
+        if gid in state.consumed_gstr_ids:
+            continue
+
+        g_gst = str(g.get("supplier_gstin") or g.get("gstin") or "").strip().upper()
+        if not g_gst:
+            continue
+
+        candidates = pr_by_gstin.get(g_gst, [])
+        if not candidates:
+            candidates = [
+                p for p in unconsumed_pr
+                if str(p.get("id") or "") not in state.consumed_pr_ids
+                and supplier_identity_compatible(g, p)[0]
+            ]
+
+        if not candidates:
+            continue
+
+        g_inv_raw = str(g.get("invoice_number_raw") or g.get("invoice_number") or "").strip()
+        g_note_norm = normalize_invoice(g.get("invoice_number_normalized") or g_inv_raw)
+        g_orig_raw = str(
+            g.get("original_invoice_number_raw")
+            or g.get("original_invoice_number")
+            or g.get("oinum")
+            or g.get("ont_num")
+            or ""
+        ).strip()
+        g_orig_norm = (
+            normalize_invoice(g.get("original_invoice_number_normalized") or g_orig_raw)
+            if (g.get("original_invoice_number_normalized") or g_orig_raw)
+            else None
+        )
+
+        g_tax = int(g.get("total_tax_paise") or 0)
+        g_taxable = int(g.get("taxable_amount_paise") or 0)
+
+        best_match = None
+        best_priority = 999
+        best_diff = float("inf")
+
+        for p in candidates:
+            pid = str(p.get("id") or "")
+            if not pid or pid in state.consumed_pr_ids:
+                continue
+
+            # 1. Semantic Direction Gate
+            compat, _ = are_document_types_compatible(g, p)
+            if not compat:
+                continue
+
+            # 2. Supplier Identity Gate
+            id_compat, _, _ = supplier_identity_compatible(g, p)
+            if not id_compat:
+                continue
+
+            p_note_raw = str(p.get("note_number") or "").strip()
+            p_note_norm = normalize_invoice(p_note_raw) if p_note_raw else None
+
+            p_inv_raw = str(p.get("invoice_number_raw") or p.get("invoice_number") or "").strip()
+            p_inv_norm = (
+                normalize_invoice(p.get("invoice_number_normalized") or p_inv_raw)
+                if (p.get("invoice_number_normalized") or p_inv_raw)
+                else None
+            )
+
+            p_orig_raw = str(
+                p.get("original_invoice_number_raw")
+                or p.get("original_invoice_number")
+                or p.get("original_invoice")
+                or p.get("orig_inv_num")
+                or p.get("against_invoice_number")
+                or ""
+            ).strip()
+            p_orig_norm = (
+                normalize_invoice(p.get("original_invoice_number_normalized") or p_orig_raw)
+                if (p.get("original_invoice_number_normalized") or p_orig_raw)
+                else None
+            )
+
+            pathway = None
+            priority = 999
+            pathway_desc = ""
+
+            # Pathway A: Exact Note Number Match
+            if g_note_norm and p_note_norm and g_note_norm == p_note_norm:
+                pathway = "PATHWAY_A_EXACT_NOTE_NUMBER"
+                priority = 1
+                pathway_desc = f"Exact note number {g_inv_raw}"
+            # Pathway B: GSTR Note Number matches PR Invoice Number
+            elif g_note_norm and p_inv_norm and g_note_norm == p_inv_norm:
+                pathway = "PATHWAY_B_NOTE_TO_INVOICE"
+                priority = 2
+                pathway_desc = f"Note number {g_inv_raw} matches PR invoice number"
+            # Pathway C: Cross-reference original invoice
+            elif (
+                (g_orig_norm and p_inv_norm and g_orig_norm == p_inv_norm)
+                or (g_orig_norm and p_orig_norm and g_orig_norm == p_orig_norm)
+                or (p_orig_norm and g_note_norm and p_orig_norm == g_note_norm)
+            ):
+                pathway = "PATHWAY_C_ORIGINAL_INVOICE_CROSS_REF"
+                priority = 3
+                pathway_desc = f"Original invoice cross-reference ({g_orig_raw or p_orig_raw})"
+            # Pathway D: Format-variant / prefix-stripped note match
+            elif (
+                is_invoice_format_variant(g_inv_raw, p_note_raw or p_inv_raw)
+                or _is_note_prefix_variant(g_note_norm, p_note_norm or p_inv_norm)
+            ):
+                pathway = "PATHWAY_D_FORMAT_VARIANT_NOTE"
+                priority = 4
+                pathway_desc = f"Format-variant note {g_inv_raw} ~ {p_note_raw or p_inv_raw}"
+
+            if not pathway:
+                continue
+
+            p_tax = int(p.get("total_tax_paise") or 0)
+            p_taxable = int(p.get("taxable_amount_paise") or 0)
+            tax_diff = abs(abs(g_tax) - abs(p_tax))
+            taxable_diff = abs(abs(g_taxable) - abs(p_taxable))
+
+            if g_tax != 0 or p_tax != 0:
+                is_tolerance_match = (tax_diff <= amount_tolerance_paise)
+                primary_diff = tax_diff
+            else:
+                is_tolerance_match = (taxable_diff <= amount_tolerance_paise)
+                primary_diff = taxable_diff
+
+            if priority < best_priority or (priority == best_priority and primary_diff < best_diff):
+                best_match = (p, pathway, priority, pathway_desc, is_tolerance_match, tax_diff, taxable_diff)
+                best_priority = priority
+                best_diff = primary_diff
+
+        if best_match:
+            p_best, pathway, priority, pathway_desc, is_tol_match, tax_diff, taxable_diff = best_match
+            pid = str(p_best["id"])
+
+            if is_tol_match:
+                m_level = 1 if priority in (1, 2) else 2
+                score = 100 if m_level == 1 else 90
+                mr = MatchResult(
+                    level=m_level,
+                    matched=True,
+                    confidence=score,
+                    requires_human_review=False,
+                    decision_what="Matched Credit/Debit Note",
+                    decision_why=f"Bilateral note reconciliation: {pathway_desc}",
+                    decision_next="Auto-accepted",
+                    identity_confidence="High",
+                    financial_status="Exact" if (tax_diff == 0 and taxable_diff == 0) else "Tolerance",
+                    compared_fields=build_compared_fields(g, p_best),
+                )
+                _push_clean_matched(
+                    state=state,
+                    gstr_id=gid,
+                    pr_id=pid,
+                    score=score,
+                    best_result=mr,
+                    gstr_rec=g,
+                    pr_rec=p_best,
+                )
+            elif priority in (1, 2):
+                mr = MatchResult(
+                    level=4,
+                    matched=False,
+                    confidence=70,
+                    requires_human_review=True,
+                    decision_what="Review Credit/Debit Note Amount",
+                    decision_why=f"Note numbers match ({pathway_desc}) but tax differs by ₹{tax_diff/100:.2f}",
+                    decision_next="CA review required for note value discrepancy",
+                    review_reason="AMOUNT_MISMATCH",
+                    compared_fields=build_compared_fields(g, p_best),
+                )
+                _push_review_required(
+                    state=state,
+                    gstr_id=gid,
+                    pr_id=pid,
+                    score=70,
+                    review_type="AMOUNT_MISMATCH",
+                    best_result=mr,
+                    gstr_rec=g,
+                    pr_rec=p_best,
+                )
 
 
 def _dup_group_key(gstin: str | None, inv_norm: str | None) -> tuple[str, str] | None:

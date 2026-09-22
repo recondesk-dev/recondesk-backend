@@ -33,6 +33,7 @@ from app.services.reconciliation import (
     notify_reconciliation_run_completed_email_maybe,
     prepass_duplicate_ambiguity,
     process_gstr_records_chunk,
+    execute_credit_note_reconciliation,
     execute_phase2_and_3,
     quarantine_pr_notes,
     is_pr_note_quarantine,
@@ -1040,6 +1041,13 @@ def execute_reconciliation(run_id: str) -> None:
 
         pr_by_id: dict[str, dict] = {str(p["id"]): p for p in pr_current}
         gstr_by_id: dict[str, dict] = {str(x.get("id")): x for x in gstr_matcher}
+
+        # Dedicated bilateral Credit Note (CDNR) & Debit Note reconciliation phase
+        execute_credit_note_reconciliation(
+            gstr_matcher,
+            pr_current,
+            state,
+        )
 
         # Orphan resolver: pair GSTIN-typo orphans and collapse duplicate filings so
         # no invoice is counted in both Missed ITC and ITC at Risk (double counting).

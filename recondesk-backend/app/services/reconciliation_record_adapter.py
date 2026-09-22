@@ -216,6 +216,18 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     if taxable_paise == 0 and note_amt_paise is not None and note_amt_paise != 0:
         taxable_paise = note_amt_paise
 
+    orig_inv_raw = (
+        rd.get("original_invoice_number")
+        or rd.get("original_invoice")
+        or rd.get("orig_inv_num")
+        or rd.get("against_invoice_number")
+        or rd.get("oinum")
+        or rd.get("ont_num")
+        or ""
+    )
+    orig_inv_str = str(orig_inv_raw).strip() if orig_inv_raw else ""
+    orig_inv_norm = normalize_invoice(orig_inv_str) if orig_inv_str else None
+
     return {
         "id": str(rid),
         "supplier_gstin": gstin,
@@ -240,4 +252,6 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "note_number": note_no,
         "note_amount_paise": note_amt_paise,
         "pr_note_quarantine": bool(rd.get("pr_note_quarantine")),
+        "original_invoice_number": orig_inv_str or None,
+        "original_invoice_number_normalized": orig_inv_norm,
     }

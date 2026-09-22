@@ -157,3 +157,37 @@ def test_gstr_row_uses_root_taxable_not_invoice_value_when_items_empty():
     assert m["cgst_paise"] == 2_226_202
     assert m["sgst_paise"] == 2_226_202
 
+
+def test_pr_row_extracts_original_invoice_number():
+    """PR credit note row extracts original_invoice_number from aliases and normalizes."""
+    row = {
+        "id": 99,
+        "record_data": {
+            "gstin": "27AABCU9603R1ZX",
+            "invoice_number": "INV-1001",
+            "note_number": "CN-2023-01",
+            "original_invoice_number": "INV-1001",
+            "taxable_amount_paise": 1_000_000,
+            "total_tax_paise": 180_000,
+            "document_type": "CREDIT_NOTE",
+        },
+    }
+    m = pr_db_row_to_matcher_row(row)
+    assert m["note_number"] == "CN-2023-01"
+    assert m["original_invoice_number"] == "INV-1001"
+    assert m["original_invoice_number_normalized"] == "INV1001"
+
+    # Test alias against_invoice_number
+    row_alias = {
+        "id": 100,
+        "record_data": {
+            "gstin": "27AABCU9603R1ZX",
+            "note_number": "CN-2023-02",
+            "against_invoice_number": "INV/2023/88",
+            "document_type": "CREDIT_NOTE",
+        },
+    }
+    m_alias = pr_db_row_to_matcher_row(row_alias)
+    assert m_alias["original_invoice_number"] == "INV/2023/88"
+    assert m_alias["original_invoice_number_normalized"] == "INV202388"
+
