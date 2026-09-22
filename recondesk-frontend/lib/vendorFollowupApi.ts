@@ -94,9 +94,12 @@ export async function generateWhatsAppLink(
   payload: {
     supplier_gstin: string;
     supplier_name?: string;
+    trade_name?: string;
+    contact_person?: string;
     vendor_phone?: string;
     at_risk_itc_rupees: number;
     template_type: string;
+    custom_template?: string;
   },
   token: string
 ): Promise<WhatsAppPayloadResponse> {
@@ -112,8 +115,11 @@ export async function generateEmailNotice(
   payload: {
     supplier_gstin: string;
     supplier_name?: string;
+    trade_name?: string;
+    contact_person?: string;
     at_risk_itc_rupees: number;
     template_type: string;
+    custom_template?: string;
   },
   token: string
 ): Promise<EmailNoticeResponse> {

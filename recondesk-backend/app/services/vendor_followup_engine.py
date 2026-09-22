@@ -7,12 +7,142 @@ pre-formats 1-click WhatsApp deep links & formal email notices, and tracks dispa
 from __future__ import annotations
 
 import logging
+import re
 from urllib.parse import quote
 from typing import Any, Optional
 
 from supabase import Client
 
 logger = logging.getLogger(__name__)
+
+# Standard sanitization fallbacks for missing vendor master tokens
+DEFAULT_CONTACT_FALLBACK = "Accounts Payable Team"
+DEFAULT_SUPPLIER_NAME_FALLBACK = "Valued Supplier"
+
+
+def resolve_supplier_display_name(
+    supplier_name: Optional[str] = None,
+    trade_name: Optional[str] = None,
+    supplier_gstin: str = "",
+) -> str:
+    """Resolve a clean, professional supplier display name avoiding duplicate GSTIN salutations."""
+    gstin_clean = (supplier_gstin or "").strip().upper()
+
+    t_clean = str(trade_name or "").strip()
+    if t_clean and t_clean.upper() != gstin_clean:
+        return t_clean
+
+    s_clean = str(supplier_name or "").strip()
+    if s_clean and s_clean.upper() != gstin_clean:
+        return s_clean
+
+    return DEFAULT_SUPPLIER_NAME_FALLBACK
+
+
+def resolve_contact_salutation(
+    supplier_name: Optional[str] = None,
+    trade_name: Optional[str] = None,
+    contact_person: Optional[str] = None,
+    supplier_gstin: str = "",
+) -> str:
+    """Resolve a professional greeting line for email/WhatsApp follow-ups.
+
+    Hierarchy:
+    1. If contact person present: 'Dear {contact_person} ({display_name})'
+    2. If display name present: 'Dear {display_name} ({gstin})'
+    3. If only GSTIN available: 'Dear Valued Supplier ({gstin})'
+    """
+    gstin_clean = (supplier_gstin or "").strip().upper()
+    display_name = resolve_supplier_display_name(supplier_name, trade_name, supplier_gstin)
+    contact_clean = str(contact_person or "").strip()
+
+    if contact_clean:
+        if display_name != DEFAULT_SUPPLIER_NAME_FALLBACK:
+            return f"Dear {contact_clean} ({display_name})"
+        if gstin_clean:
+            return f"Dear {contact_clean} ({gstin_clean})"
+        return f"Dear {contact_clean}"
+
+    if display_name != DEFAULT_SUPPLIER_NAME_FALLBACK:
+        return f"Dear {display_name} ({gstin_clean})" if gstin_clean else f"Dear {display_name}"
+
+    return f"Dear Valued Supplier ({gstin_clean})" if gstin_clean else "Dear Valued Supplier"
+
+
+def sanitize_template_tokens(
+    template_text: str,
+    context: dict[str, Any],
+) -> str:
+    """Replace standard template placeholders with sanitized vendor master tokens or safe fallbacks.
+
+    Tokens handled:
+    - {supplier_contact}, {contact_person} -> contact_person or 'Accounts Payable Team'
+    - {supplier_trade_name}, {trade_name}  -> trade_name or supplier_name or 'Valued Supplier'
+    - {supplier_name}, {legal_name}        -> supplier_name or trade_name or 'Valued Supplier'
+    - {supplier_gstin}                     -> normalized 15-character uppercase GSTIN
+    - {at_risk_itc}, {at_risk_itc_rupees}  -> formatted INR currency string
+    - {company_name}, {client_name}        -> client / company name or 'Finance & Tax Team'
+    """
+    if not template_text:
+        return ""
+
+    supplier_gstin = (context.get("supplier_gstin") or "").strip().upper()
+
+    contact_person = str(context.get("contact_person") or context.get("supplier_contact") or "").strip()
+    contact_val = contact_person if contact_person else DEFAULT_CONTACT_FALLBACK
+
+    trade_name = str(context.get("trade_name") or context.get("supplier_trade_name") or "").strip()
+    supplier_name = str(context.get("supplier_name") or context.get("legal_name") or "").strip()
+
+    # Apply display name resolution hierarchy
+    trade_name_val = trade_name if (trade_name and trade_name.upper() != supplier_gstin) else ""
+    supplier_name_val = supplier_name if (supplier_name and supplier_name.upper() != supplier_gstin) else ""
+
+    if not trade_name_val:
+        trade_name_val = supplier_name_val or DEFAULT_SUPPLIER_NAME_FALLBACK
+    if not supplier_name_val:
+        supplier_name_val = trade_name_val or DEFAULT_SUPPLIER_NAME_FALLBACK
+
+    # Format at-risk ITC amount
+    amt = context.get("at_risk_itc_rupees", 0.0)
+    try:
+        amt_float = float(amt or 0.0)
+        formatted_num = f"{amt_float:,.2f}"
+        formatted_amt = f"₹{amt_float:,.2f}"
+    except (ValueError, TypeError):
+        formatted_num = str(amt)
+        formatted_amt = str(amt)
+
+    company_val = str(context.get("company_name") or context.get("client_name") or "Finance & Tax Team").strip()
+
+    replacements = {
+        "{supplier_contact}": contact_val,
+        "{contact_person}": contact_val,
+        "{supplier_trade_name}": trade_name_val,
+        "{trade_name}": trade_name_val,
+        "{supplier_name}": supplier_name_val,
+        "{legal_name}": supplier_name_val,
+        "{supplier_gstin}": supplier_gstin or "—",
+        "₹{at_risk_itc}": formatted_amt,
+        "₹{at_risk_itc_rupees}": formatted_amt,
+        "{at_risk_itc}": formatted_amt,
+        "{at_risk_itc_rupees}": formatted_num,
+        "{company_name}": company_val,
+        "{client_name}": company_val,
+    }
+
+    result = template_text
+    for token, val in replacements.items():
+        # Case-insensitive replacement of token
+        pattern = re.compile(re.escape(token), re.IGNORECASE)
+        result = pattern.sub(val, result)
+
+    # Clean any accidental double currency symbol
+    result = result.replace("₹₹", "₹")
+
+    # Scrub any lingering unmapped {token} placeholders to avoid bracket leaks in sent text
+    result = re.sub(r"\{[a-zA-Z0-9_-]+\}", "", result)
+    return result
 
 
 def _ensure_table_exists(conn: Any) -> None:
@@ -67,9 +197,11 @@ def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str
             if client_gstin_id in c_ids or not c_ids:
                 gstin = str(row.get("supplier_gstin_normalized") or "").strip().upper()
                 if gstin:
+                    t_name = str(row.get("supplier_trade_name") or "").strip()
+                    disp_name = resolve_supplier_display_name(supplier_name=t_name, trade_name=t_name, supplier_gstin=gstin)
                     vendor_map[gstin] = {
                         "supplier_gstin": gstin,
-                        "supplier_name": str(row.get("supplier_trade_name") or gstin).strip(),
+                        "supplier_name": disp_name,
                         "vendor_phone": str(row.get("vendor_phone") or "").strip(),
                         "vendor_email": str(row.get("vendor_email") or "").strip(),
                         "total_invoices": int(row.get("total_invoices") or 0),
@@ -97,10 +229,12 @@ def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str
             if not gstin:
                 continue
             amt = round((float(r.get("at_risk_itc_paise") or 0)) / 100.0, 2)
+            s_name = str(r.get("supplier_name") or "").strip()
+            disp_name = resolve_supplier_display_name(supplier_name=s_name, trade_name=None, supplier_gstin=gstin)
             if gstin not in vendor_map:
                 vendor_map[gstin] = {
                     "supplier_gstin": gstin,
-                    "supplier_name": str(r.get("supplier_name") or gstin).strip(),
+                    "supplier_name": disp_name,
                     "vendor_phone": "",
                     "vendor_email": "",
                     "total_invoices": 1,
@@ -138,22 +272,36 @@ def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str
 
 def generate_whatsapp_payload(
     supplier_gstin: str,
-    supplier_name: str,
-    vendor_phone: str,
-    at_risk_itc_rupees: float,
+    supplier_name: Optional[str] = None,
+    vendor_phone: Optional[str] = "",
+    at_risk_itc_rupees: float = 0.0,
     template_type: str = "POLITE_REMINDER",
+    trade_name: Optional[str] = None,
+    contact_person: Optional[str] = None,
+    custom_template: Optional[str] = None,
 ) -> dict[str, str]:
     """Generate pre-formatted WhatsApp wa.me deep link with encoded message text."""
-    phone_clean = "".join(c for c in vendor_phone if c.isdigit())
+    phone_clean = "".join(c for c in (vendor_phone or "") if c.isdigit())
     if len(phone_clean) == 10:
         phone_clean = f"91{phone_clean}"
 
-    sname = supplier_name or supplier_gstin
+    display_name = resolve_supplier_display_name(supplier_name, trade_name, supplier_gstin)
+    salutation = resolve_contact_salutation(supplier_name, trade_name, contact_person, supplier_gstin)
 
-    if template_type == "RULE37_NOTICE":
+    context = {
+        "supplier_gstin": supplier_gstin,
+        "supplier_name": supplier_name,
+        "trade_name": trade_name,
+        "contact_person": contact_person,
+        "at_risk_itc_rupees": at_risk_itc_rupees,
+    }
+
+    if custom_template and custom_template.strip():
+        message = sanitize_template_tokens(custom_template.strip(), context)
+    elif template_type == "RULE37_NOTICE":
         message = (
             f"⚠️ *URGENT: Rule 37 Overdue Tax Risk Notice*\n\n"
-            f"Dear {sname} ({supplier_gstin}),\n\n"
+            f"{salutation},\n\n"
             f"Our records indicate overdue unpaid invoices older than 180 days with total ITC exposure of *₹{at_risk_itc_rupees:,.2f}*.\n\n"
             f"Under Rule 37 of CGST Rules, failure to reconcile or settle payment will force an immediate ITC reversal with 18% interest.\n\n"
             f"Please share payment clearance confirmation or updated GSTR-1 filing status urgently.\n\n"
@@ -162,7 +310,7 @@ def generate_whatsapp_payload(
     elif template_type == "FINAL_ESCALATION":
         message = (
             f"🚨 *FINAL NOTICE: Tax Compliance & Payment Escalation*\n\n"
-            f"Dear {sname} ({supplier_gstin}),\n\n"
+            f"{salutation},\n\n"
             f"This is a final escalation regarding unfiled GSTR-1 invoices / unpaid bills totaling *₹{at_risk_itc_rupees:,.2f}*.\n\n"
             f"Your GST compliance score has dropped significantly, placing upcoming vendor payments on administrative hold.\n\n"
             f"Please file your pending GSTR-1 immediately to avoid legal recovery and vendor block.\n\n"
@@ -171,7 +319,7 @@ def generate_whatsapp_payload(
     elif template_type == "MISSING_2B_REQUEST":
         message = (
             f"📄 *URGENT: Invoices Missing from GSTR-2B*\n\n"
-            f"Dear {sname} ({supplier_gstin}),\n\n"
+            f"{salutation},\n\n"
             f"Invoices totaling *₹{at_risk_itc_rupees:,.2f}* are booked in our Purchase Register but are missing from your GSTR-1 / our GSTR-2B.\n\n"
             f"Under Section 16(2)(aa) of the CGST Act, our input tax credit is blocked until these appear in GSTR-2B.\n\n"
             f"Kindly upload these invoices in your upcoming GSTR-1 or provide filing confirmation.\n\n"
@@ -180,7 +328,7 @@ def generate_whatsapp_payload(
     elif template_type == "VALUE_MISMATCH_VERIFICATION":
         message = (
             f"🔍 *Notice: Tax / Value Mismatch Verification*\n\n"
-            f"Dear {sname} ({supplier_gstin}),\n\n"
+            f"{salutation},\n\n"
             f"We identified a tax discrepancy of *₹{at_risk_itc_rupees:,.2f}* between our purchase records and your GSTR-1 return.\n\n"
             f"Please verify invoice numbers, taxable values, and GST rates, and issue an amendment or credit/debit note if needed.\n\n"
             f"— Finance & Tax Team, ReconDesk"
@@ -188,19 +336,22 @@ def generate_whatsapp_payload(
     else:
         message = (
             f"📋 *GST Reconciliation & Invoice Follow-Up*\n\n"
-            f"Dear {sname} ({supplier_gstin}),\n\n"
+            f"{salutation},\n\n"
             f"This is a gentle reminder regarding pending GSTR-1 filings / invoice reconciliations with total ITC amount of *₹{at_risk_itc_rupees:,.2f}*.\n\n"
             f"Kindly upload these invoices in your upcoming GSTR-1 so we can claim input tax credit smoothly.\n\n"
             f"Thank you for your prompt cooperation!\n\n"
             f"— ReconDesk Automated Tax Hub"
         )
 
+    # Sanitize any residual tokens in message
+    message = sanitize_template_tokens(message, context)
+
     encoded_msg = quote(message)
     wa_url = f"https://wa.me/{phone_clean}?text={encoded_msg}" if phone_clean else f"https://wa.me/?text={encoded_msg}"
 
     return {
         "supplier_gstin": supplier_gstin,
-        "supplier_name": sname,
+        "supplier_name": display_name,
         "vendor_phone": phone_clean,
         "template_type": template_type,
         "message_text": message,
@@ -210,12 +361,24 @@ def generate_whatsapp_payload(
 
 def generate_email_template(
     supplier_gstin: str,
-    supplier_name: str,
-    at_risk_itc_rupees: float,
+    supplier_name: Optional[str] = None,
+    at_risk_itc_rupees: float = 0.0,
     template_type: str = "POLITE_REMINDER",
+    trade_name: Optional[str] = None,
+    contact_person: Optional[str] = None,
+    custom_template: Optional[str] = None,
 ) -> dict[str, str]:
     """Generate formal HTML vendor email notice payload."""
-    sname = supplier_name or supplier_gstin
+    display_name = resolve_supplier_display_name(supplier_name, trade_name, supplier_gstin)
+    contact_clean = str(contact_person or "").strip()
+
+    context = {
+        "supplier_gstin": supplier_gstin,
+        "supplier_name": supplier_name,
+        "trade_name": trade_name,
+        "contact_person": contact_person,
+        "at_risk_itc_rupees": at_risk_itc_rupees,
+    }
 
     if template_type == "RULE37_NOTICE":
         subject = f"URGENT: Rule 37 Overdue Tax Notice for {supplier_gstin} [₹{at_risk_itc_rupees:,.2f}]"
@@ -233,11 +396,25 @@ def generate_email_template(
         subject = f"Notice: GST Reconciliation & ITC Compliance for {supplier_gstin} [₹{at_risk_itc_rupees:,.2f}]"
         detail_para = "We are currently conducting our period end GST audit and identified unmatched invoices / Rule 37 payment exposures totaling <strong>₹" + f"{at_risk_itc_rupees:,.2f}" + "</strong>."
 
+    if contact_clean:
+        if display_name != DEFAULT_SUPPLIER_NAME_FALLBACK:
+            salutation_html = f"<p>Dear <strong>{contact_clean}</strong> ({display_name} / GSTIN: <code>{supplier_gstin}</code>),</p>"
+        else:
+            salutation_html = f"<p>Dear <strong>{contact_clean}</strong> (GSTIN: <code>{supplier_gstin}</code>),</p>"
+    else:
+        salutation_html = f"<p>Dear <strong>{display_name}</strong> (GSTIN: <code>{supplier_gstin}</code>),</p>"
+
+    if custom_template and custom_template.strip():
+        sanitized_custom = sanitize_template_tokens(custom_template.strip(), context)
+        content_body = f"<p>{sanitized_custom}</p>"
+    else:
+        content_body = f"<p>{detail_para}</p>"
+
     html_body = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; color: #111827; line-height: 1.6;">
         <h2 style="color: #4f46e5;">GST Compliance & ITC Reconciliation Notice</h2>
-        <p>Dear <strong>{sname}</strong> (GSTIN: <code>{supplier_gstin}</code>),</p>
-        <p>{detail_para}</p>
+        {salutation_html}
+        {content_body}
         <div style="background-color: #f3f4f6; border-left: 4px solid #4f46e5; padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
             <strong>Template Category:</strong> {template_type.replace('_', ' ').title()}<br/>
             <strong>Total ITC at Stake:</strong> ₹{at_risk_itc_rupees:,.2f}
@@ -249,9 +426,10 @@ def generate_email_template(
     """
 
     return {
-        "subject": subject,
+        "subject": sanitize_template_tokens(subject, context),
         "html_body": html_body,
         "supplier_gstin": supplier_gstin,
+        "supplier_name": display_name,
     }
 
 

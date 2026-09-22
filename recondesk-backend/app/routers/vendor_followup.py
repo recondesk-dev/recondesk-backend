@@ -31,17 +31,23 @@ class WhatsAppGenerateRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
     supplier_gstin: str
     supplier_name: Optional[str] = None
+    trade_name: Optional[str] = None
+    contact_person: Optional[str] = None
     vendor_phone: Optional[str] = ""
     at_risk_itc_rupees: float = 0.0
     template_type: str = "POLITE_REMINDER"
+    custom_template: Optional[str] = None
 
 
 class EmailGenerateRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
     supplier_gstin: str
     supplier_name: Optional[str] = None
+    trade_name: Optional[str] = None
+    contact_person: Optional[str] = None
     at_risk_itc_rupees: float = 0.0
     template_type: str = "POLITE_REMINDER"
+    custom_template: Optional[str] = None
 
 
 class LogDispatchRequest(BaseModel):
@@ -97,10 +103,13 @@ async def generate_whatsapp_link_endpoint(
 
     return vf_svc.generate_whatsapp_payload(
         supplier_gstin=body.supplier_gstin,
-        supplier_name=body.supplier_name or body.supplier_gstin,
+        supplier_name=body.supplier_name,
+        trade_name=body.trade_name,
+        contact_person=body.contact_person,
         vendor_phone=body.vendor_phone or "",
         at_risk_itc_rupees=body.at_risk_itc_rupees,
         template_type=body.template_type,
+        custom_template=body.custom_template,
     )
 
 
@@ -117,9 +126,12 @@ async def generate_email_notice_endpoint(
 
     return vf_svc.generate_email_template(
         supplier_gstin=body.supplier_gstin,
-        supplier_name=body.supplier_name or body.supplier_gstin,
+        supplier_name=body.supplier_name,
+        trade_name=body.trade_name,
+        contact_person=body.contact_person,
         at_risk_itc_rupees=body.at_risk_itc_rupees,
         template_type=body.template_type,
+        custom_template=body.custom_template,
     )
 
 
