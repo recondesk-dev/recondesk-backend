@@ -2222,6 +2222,9 @@ export default function ReconcileResultsPage() {
             void mutateRisk();
             void mutateRiskAllRows();
           }
+          void mutateSummary();
+          void mutateTable4();
+          void revalidateReconciliationRun(runId);
           return;
         }
 
@@ -2274,6 +2277,9 @@ export default function ReconcileResultsPage() {
           void mutateRisk();
           void mutateRiskAllRows();
         }
+        void mutateSummary();
+        void mutateTable4();
+        void revalidateReconciliationRun(runId);
       }
     },
     [
@@ -2352,6 +2358,9 @@ export default function ReconcileResultsPage() {
         void mutateItc();
         void mutateRisk();
         void mutateMatched();
+        void mutateSummary();
+        void mutateTable4();
+        void revalidateReconciliationRun(runId);
       }
     },
     [
@@ -2802,6 +2811,8 @@ export default function ReconcileResultsPage() {
         mutateMatched(),
         mutateRule37(),
         mutateSection17(),
+        mutateTable4(),
+        revalidateReconciliationRun(runId),
       ]);
       setFinalizeModalOpen(false);
       setChecklist({ ...EMPTY_FINALIZE_CHECKLIST });
@@ -2830,6 +2841,7 @@ export default function ReconcileResultsPage() {
     mutateRule37,
     mutateSection17,
     mutateSummary,
+    mutateTable4,
     runId,
     authToken,
   ]);
@@ -3170,6 +3182,7 @@ export default function ReconcileResultsPage() {
             <ResultsBucketTabs
               active={resultsTab}
               onChange={setResultsTab}
+              isRunFinalized={isRunFinalized}
               tabCounts={{
                 matched: summary.clean_matched_count ?? summary.matched_count,
                 itc_on_hold: summary.itc_on_hold_count ?? (itcOnHoldData?.total ?? 0),
@@ -3184,6 +3197,9 @@ export default function ReconcileResultsPage() {
                 ...(rule37Data != null ? { rule37: rule37Data.total } : {}),
                 ...(einvoiceResData?.summary != null
                   ? { einvoice: einvoiceResData.summary.total_records }
+                  : {}),
+                ...(table4Data?.gate_audit != null
+                  ? { gstr3b: table4Data.gate_audit.unresolved_blocking_exceptions ?? 0 }
                   : {}),
               }}
             />
@@ -4884,6 +4900,8 @@ export default function ReconcileResultsPage() {
             variant="embedded"
             onFinalizeSuccess={() => {
               void mutateSummary();
+              void mutateTable4();
+              void revalidateReconciliationRun(runId);
             }}
           />
         )}
@@ -5727,6 +5745,9 @@ export default function ReconcileResultsPage() {
                                     addToast("Match approved & settled", "success");
                                     setRule37SummaryRefreshKey((k) => k + 1);
                                     void mutateRule37();
+                                    void mutateSummary();
+                                    void mutateTable4();
+                                    void revalidateReconciliationRun(runId, { table4: true, summary: true, drilldown: true });
                                   })
                                   .catch((err) => {
                                     addToast(err.message || "Failed to resolve review", "error");
@@ -5766,6 +5787,9 @@ export default function ReconcileResultsPage() {
                                     addToast("Match rejected", "success");
                                     setRule37SummaryRefreshKey((k) => k + 1);
                                     void mutateRule37();
+                                    void mutateSummary();
+                                    void mutateTable4();
+                                    void revalidateReconciliationRun(runId, { table4: true, summary: true, drilldown: true });
                                   })
                                   .catch((err) => {
                                     addToast(err.message || "Failed to resolve review", "error");

@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { isRunKeyMatch } from "../../lib/swrReconciliationSync.ts";
+import { getTable4GateBadgeInfo } from "../../lib/table4GateBadge.ts";
 
 // ---------------------------------------------------------------------------
 // Pure State Transition Simulation Helpers (mirroring results/page.tsx logic)
@@ -286,3 +287,38 @@ describe("REM-01: Table 4 and Summary SWR Cross-View Synchronization", () => {
     }
   });
 });
+
+describe("REM-01: Table 4 Gate Badge Invariant Resolution", () => {
+  it("resolves Finalized badge when isRunFinalized is true regardless of unresolved count", () => {
+    const res = getTable4GateBadgeInfo(3, true);
+    assert.equal(res.badgeText, "Finalized");
+    assert.equal(res.dotClass, "bg-slate-400");
+    assert.equal(res.badgeClass, "bg-slate-100 text-slate-600");
+  });
+
+  it("resolves amber blocking badge when unresolved exceptions exist on unfinalized run", () => {
+    const res1 = getTable4GateBadgeInfo(5, false);
+    assert.equal(res1.badgeText, "5 blocking");
+    assert.equal(res1.dotClass, "bg-amber-500");
+    assert.equal(res1.badgeClass, "bg-[#FEF3C7] text-[#92400E]");
+
+    const res2 = getTable4GateBadgeInfo(1, false);
+    assert.equal(res2.badgeText, "1 blocking");
+    assert.equal(res2.dotClass, "bg-amber-500");
+  });
+
+  it("resolves emerald Gate Clear badge when 0 unresolved blocking exceptions exist", () => {
+    const res = getTable4GateBadgeInfo(0, false);
+    assert.equal(res.badgeText, "Gate Clear");
+    assert.equal(res.dotClass, "bg-emerald-500");
+    assert.equal(res.badgeClass, "bg-[#DCFCE7] text-[#166534]");
+  });
+
+  it("resolves default neutral state when gate count is undefined", () => {
+    const res = getTable4GateBadgeInfo(undefined, false);
+    assert.equal(res.badgeText, undefined);
+    assert.equal(res.dotClass, "bg-[#2563EB]");
+    assert.equal(res.badgeClass, undefined);
+  });
+});
+

@@ -687,12 +687,19 @@ export const SALES_RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string 
 ];
 
 
+import {
+  getTable4GateBadgeInfo,
+  type Table4GateBadgeInfo,
+} from "@/lib/table4GateBadge";
+export { getTable4GateBadgeInfo, type Table4GateBadgeInfo };
+
 export function ResultsBucketTabs({
   active,
   onChange,
   rightContent,
   tabCounts,
   tabs,
+  isRunFinalized,
   ariaLabel = "Reconciliation results",
 }: {
   active: ResultsBucketTabId;
@@ -705,6 +712,7 @@ export function ResultsBucketTabs({
    * Sales / GSTR-1 pages should pass `SALES_RESULTS_BUCKET_TABS`.
    */
   tabs?: { id: ResultsBucketTabId; label: string }[];
+  isRunFinalized?: boolean;
   ariaLabel?: string;
 }) {
   const isCustomTabs = tabs != null;
@@ -920,18 +928,28 @@ export function ResultsBucketTabs({
           {tResults("rcm")}
         </button>
 
-        <button
-          type="button"
-          onClick={() => onChange("gstr3b")}
-          className={`cursor-pointer rounded-[6px] border px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all inline-flex items-center gap-1.5 ${
-            active === "gstr3b"
-              ? "border-[#2563EB] bg-[#EFF6FF] text-[#2563EB] ring-1 ring-[#2563EB]/20 shadow-xs"
-              : "border-blue-200 bg-blue-50/50 text-[#1D4ED8] hover:border-[#2563EB] hover:bg-[#EFF6FF]"
-          }`}
-        >
-          <span className="h-1.5 w-1.5 rounded-full bg-[#2563EB]" />
-          {tResults("gstr3bTieOut")}
-        </button>
+        {(() => {
+          const gateInfo = getTable4GateBadgeInfo(tabCounts?.gstr3b, isRunFinalized);
+          return (
+            <button
+              type="button"
+              onClick={() => onChange("gstr3b")}
+              className={`cursor-pointer rounded-[6px] border px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all inline-flex items-center gap-1.5 ${
+                active === "gstr3b"
+                  ? "border-[#2563EB] bg-[#EFF6FF] text-[#2563EB] ring-1 ring-[#2563EB]/20 shadow-xs"
+                  : "border-blue-200 bg-blue-50/50 text-[#1D4ED8] hover:border-[#2563EB] hover:bg-[#EFF6FF]"
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${gateInfo.dotClass}`} />
+              <span>{tResults("gstr3bTieOut")}</span>
+              {gateInfo.badgeText && gateInfo.badgeClass && (
+                <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${gateInfo.badgeClass}`}>
+                  {gateInfo.badgeText}
+                </span>
+              )}
+            </button>
+          );
+        })()}
 
         <button
           type="button"
