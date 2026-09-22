@@ -30,6 +30,8 @@ import {
   DecisionInvoiceCard,
   DecisionInvoiceList,
 } from "@/components/reconcile/DecisionInvoiceCard";
+import { VirtualizedDecisionInvoiceList } from "@/components/reconcile/VirtualizedDecisionInvoiceList";
+import { VirtualizedTable } from "@/components/reconcile/VirtualizedTableContainer";
 import { GstinCell } from "@/components/ui/GstinCell";
 import { HoverTextCell } from "@/components/ui/HoverTextCell";
 import Link from "next/link";
@@ -3567,7 +3569,9 @@ export default function ReconcileResultsPage() {
                     description="Adjust amount, GSTIN, or date filters to see recoverable invoices."
                   />
                 ) : (
-                <DecisionInvoiceList
+                <VirtualizedDecisionInvoiceList
+                  items={itcRows.filter((r) => checkDocType(r, docTypeFilterItc))}
+                  getItemKey={(row) => row.id}
                   selectAll={
                     <>
                       <input
@@ -3597,8 +3601,7 @@ export default function ReconcileResultsPage() {
                       </span>
                     </>
                   }
-                >
-                  {itcRows.filter((r) => checkDocType(r, docTypeFilterItc)).map((row, i) => (
+                  renderItem={(row, i) => (
                     <DecisionInvoiceCard
                       key={row.id}
                       index={(itcPage - 1) * itcPageData.limit + i + 1}
@@ -3655,8 +3658,8 @@ export default function ReconcileResultsPage() {
                         ) : null
                       }
                     />
-                  ))}
-                </DecisionInvoiceList>
+                  )}
+                />
                 )}
                 {itcPageData.data.length > 0 && (
                 <ReconcilePaginationFooter
@@ -4119,7 +4122,9 @@ export default function ReconcileResultsPage() {
                     description="Adjust amount, GSTIN, or risk level filters to see compliance risk invoices."
                   />
                 ) : (
-                <DecisionInvoiceList
+                <VirtualizedDecisionInvoiceList
+                  items={riskRows.filter((r) => checkDocType(r, docTypeFilterRisk))}
+                  getItemKey={(row) => row.id}
                   selectAll={
                     <>
                       <input
@@ -4149,8 +4154,7 @@ export default function ReconcileResultsPage() {
                       </span>
                     </>
                   }
-                >
-                  {riskRows.filter((r) => checkDocType(r, docTypeFilterRisk)).map((row, i) => (
+                  renderItem={(row, i) => (
                     <DecisionInvoiceCard
                       key={row.id}
                       index={(riskPage - 1) * riskPageData.limit + i + 1}
@@ -4217,8 +4221,8 @@ export default function ReconcileResultsPage() {
                         ) : null
                       }
                     />
-                  ))}
-                </DecisionInvoiceList>
+                  )}
+                />
                 )}
                 {riskPageData.data.length > 0 && (
                 <ReconcilePaginationFooter
@@ -4461,8 +4465,13 @@ export default function ReconcileResultsPage() {
             )}
           {matchedData && !matchedError && matchedData.data.length > 0 && (
             <>
-              <div className={tableWrapClass}>
-                <table className={matchedTableClass}>
+              <VirtualizedTable
+                rows={matchedData.data.filter(r => checkDocType(r, docTypeFilterMatched))}
+                getRowKey={(row) => row.id}
+                colSpan={9}
+                tableClassName={matchedTableClass}
+                containerClassName={tableWrapClass}
+                renderHeader={() => (
                   <thead className={tableHeadClass}>
                     <tr>
                       <th className={matchedThGstin}>Supplier GSTIN</th>
@@ -4476,24 +4485,25 @@ export default function ReconcileResultsPage() {
                       <th className={matchedThNotes}>Notes</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {matchedData.data.filter(r => checkDocType(r, docTypeFilterMatched)).map((row) => {
-                      let taxDiff = formatTaxDifferenceDisplay(
-                        row.tax_difference_paise,
-                        row.discrepancy_note
-                      );
+                )}
+                renderRow={(row, _idx, measureRef) => {
+                  let taxDiff = formatTaxDifferenceDisplay(
+                    row.tax_difference_paise,
+                    row.discrepancy_note
+                  );
 
-                      if (taxDiff.display === "₹0.00" && row.discrepancy_reason) {
-                        const reasonDisplay = row.discrepancy_reason.replace(/_/g, " ");
-                        const titleCased = reasonDisplay === reasonDisplay.toUpperCase()
-                          ? reasonDisplay.charAt(0).toUpperCase() + reasonDisplay.slice(1).toLowerCase()
-                          : reasonDisplay;
-                        taxDiff = { display: titleCased, tooltip: row.discrepancy_reason };
-                      }
+                  if (taxDiff.display === "₹0.00" && row.discrepancy_reason) {
+                    const reasonDisplay = row.discrepancy_reason.replace(/_/g, " ");
+                    const titleCased = reasonDisplay === reasonDisplay.toUpperCase()
+                      ? reasonDisplay.charAt(0).toUpperCase() + reasonDisplay.slice(1).toLowerCase()
+                      : reasonDisplay;
+                    taxDiff = { display: titleCased, tooltip: row.discrepancy_reason };
+                  }
 
-                      return (
-                      <Fragment key={row.id}>
+                  return (
+                    <Fragment key={row.id}>
                       <tr
+                        ref={measureRef}
                         className={`group cursor-pointer ${tableRowClass}`}
                         onClick={() => {
                           setActiveRecord(row);
@@ -4579,12 +4589,10 @@ export default function ReconcileResultsPage() {
                       {rationaleExpandedId === row.id && (
                         <ComparedFieldsAccordionRow row={row} colSpan={9} />
                       )}
-                      </Fragment>
-                    );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                    </Fragment>
+                  );
+                }}
+              />
               <ReconcilePaginationFooter
                 page={matchedData.page}
                 totalPages={matchedData.total_pages}
@@ -5350,102 +5358,101 @@ export default function ReconcileResultsPage() {
             )}
           {reviewRequiredData && !reviewRequiredError && reviewRequiredData.data.length > 0 && (
             <>
-              <DecisionInvoiceList>
-                {(() => {
-                  const validRows = reviewRequiredData.data
-                    .filter((r) => checkDocType(r, docTypeFilterReviewRequired))
-                    .filter(
-                      (r) =>
-                        r.supplier_gstin ||
-                        r.invoice_number ||
-                        (r.amount && r.amount > 0)
-                    );
-                  return validRows.map((row, i) => {
-                    let taxDiff = formatTaxDifferenceDisplay(
-                      row.tax_difference_paise,
-                      row.discrepancy_note
-                    );
+              <VirtualizedDecisionInvoiceList
+                items={reviewRequiredData.data
+                  .filter((r) => checkDocType(r, docTypeFilterReviewRequired))
+                  .filter(
+                    (r) =>
+                      r.supplier_gstin ||
+                      r.invoice_number ||
+                      (r.amount && r.amount > 0)
+                  )}
+                getItemKey={(row) => row.id}
+                renderItem={(row, i) => {
+                  let taxDiff = formatTaxDifferenceDisplay(
+                    row.tax_difference_paise,
+                    row.discrepancy_note
+                  );
 
-                    if (taxDiff.display === "₹0.00" && row.discrepancy_reason) {
-                      const localizedReason = localizeDiscrepancyReason(row.discrepancy_reason, locale);
-                      taxDiff = { display: localizedReason, tooltip: row.discrepancy_reason };
-                    }
+                  if (taxDiff.display === "₹0.00" && row.discrepancy_reason) {
+                    const localizedReason = localizeDiscrepancyReason(row.discrepancy_reason, locale);
+                    taxDiff = { display: localizedReason, tooltip: row.discrepancy_reason };
+                  }
 
-                    return (
-                      <DecisionInvoiceCard
-                        key={row.id}
-                        index={
-                          (reviewRequiredData.page - 1) * reviewRequiredData.limit +
-                          i +
-                          1
-                        }
-                        gstin={row.supplier_gstin}
-                        invoiceNumber={row.invoice_number}
-                        invoiceDate={formatDate(row.invoice_date)}
-                        amount={row.amount}
-                        onOpen={() => {
-                          setActiveRecord(row);
-                          setDrawerDecisionError(null);
-                          setNotePostError(null);
-                        }}
-                        status={
-                          <div className="flex flex-wrap items-center gap-2">
-                            <DecisionStatusPill status={effectiveStatus(row)} />
-                            <MatchLevelBadge level={row.match_level} />
-                            <span className="rounded-full bg-[#F5F5F6] px-2.5 py-0.5 text-[11px] font-semibold text-gray-600">
-                              {tResults("percentConfidence", {
-                                score: Math.round(
-                                  Math.min(100, Math.max(0, row.confidence_score))
-                                ),
-                              })}
+                  return (
+                    <DecisionInvoiceCard
+                      key={row.id}
+                      index={
+                        (reviewRequiredData.page - 1) * reviewRequiredData.limit +
+                        i +
+                        1
+                      }
+                      gstin={row.supplier_gstin}
+                      invoiceNumber={row.invoice_number}
+                      invoiceDate={formatDate(row.invoice_date)}
+                      amount={row.amount}
+                      onOpen={() => {
+                        setActiveRecord(row);
+                        setDrawerDecisionError(null);
+                        setNotePostError(null);
+                      }}
+                      status={
+                        <div className="flex flex-wrap items-center gap-2">
+                          <DecisionStatusPill status={effectiveStatus(row)} />
+                          <MatchLevelBadge level={row.match_level} />
+                          <span className="rounded-full bg-[#F5F5F6] px-2.5 py-0.5 text-[11px] font-semibold text-gray-600">
+                            {tResults("percentConfidence", {
+                              score: Math.round(
+                                Math.min(100, Math.max(0, row.confidence_score))
+                              ),
+                            })}
+                          </span>
+                          {row.auto_approved ? (
+                            <span className="inline-flex items-center whitespace-nowrap rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                              {tResults("autoApproved")}
                             </span>
-                            {row.auto_approved ? (
-                              <span className="inline-flex items-center whitespace-nowrap rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                                {tResults("autoApproved")}
-                              </span>
-                            ) : null}
-                            {row.notes_count > 0 ? (
-                              <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                                {tResults("notesCount", { count: row.notes_count })}
-                              </span>
-                            ) : null}
-                          </div>
-                        }
-                        meta={
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span
-                              className="rounded-full bg-white px-2.5 py-0.5 text-[11px] font-medium text-gray-600 ring-1 ring-[#E8E8EC]"
-                              title={taxDiff.tooltip ?? undefined}
-                            >
-                              {taxDiff.display}
+                          ) : null}
+                          {row.notes_count > 0 ? (
+                            <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                              {tResults("notesCount", { count: row.notes_count })}
                             </span>
-                            {(row.compared_fields?.length ?? 0) > 0 ? (
-                              <WhyRationaleButton
-                                expanded={rationaleExpandedId === row.id}
-                                onToggle={(e) => toggleRationale(e, row.id)}
-                              />
-                            ) : null}
-                            {row.match_confidence != null ? (
-                              <MatchConfidenceBadge
-                                score={row.match_confidence}
-                                onClick={(e) => toggleRationale(e, row.id)}
-                              />
-                            ) : null}
-                          </div>
-                        }
-                        what={row.decision_what}
-                        why={row.decision_why}
-                        next={row.decision_next}
-                        expandedContent={
-                          rationaleExpandedId === row.id ? (
-                            <ComparedFieldsPanel row={row} />
-                          ) : null
-                        }
-                      />
-                    );
-                  });
-                })()}
-              </DecisionInvoiceList>
+                          ) : null}
+                        </div>
+                      }
+                      meta={
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span
+                            className="rounded-full bg-white px-2.5 py-0.5 text-[11px] font-medium text-gray-600 ring-1 ring-[#E8E8EC]"
+                            title={taxDiff.tooltip ?? undefined}
+                          >
+                            {taxDiff.display}
+                          </span>
+                          {(row.compared_fields?.length ?? 0) > 0 && (
+                            <WhyRationaleButton
+                              expanded={rationaleExpandedId === row.id}
+                              onToggle={(e) => toggleRationale(e, row.id)}
+                            />
+                          )}
+                          {row.match_confidence != null ? (
+                            <MatchConfidenceBadge
+                              score={row.match_confidence}
+                              onClick={(e) => toggleRationale(e, row.id)}
+                            />
+                          ) : null}
+                        </div>
+                      }
+                      what={row.decision_what}
+                      why={row.decision_why}
+                      next={row.decision_next}
+                      expandedContent={
+                        rationaleExpandedId === row.id ? (
+                          <ComparedFieldsPanel row={row} />
+                        ) : null
+                      }
+                    />
+                  );
+                }}
+              />
               <ReconcilePaginationFooter
                 page={reviewRequiredData.page}
                 totalPages={reviewRequiredData.total_pages}
