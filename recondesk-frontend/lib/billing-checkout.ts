@@ -95,8 +95,17 @@ export async function startPlanCheckout(
     throw new Error("Razorpay failed to initialize");
   }
 
-  const limit = orderBody.gstin_limit || (plan === "starter" ? 25 : plan === "growth" ? 60 : 100);
-  const description = `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan · ${limit} GSTINs / ${cycle}`;
+  const limit =
+    orderBody.gstin_limit ||
+    (plan === "solo"
+      ? 25
+      : plan === "firm"
+        ? 75
+        : plan === "large_firm"
+          ? 150
+          : 2);
+  const planTitle = plan.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const description = `${planTitle} Plan · ${limit} GSTINs / ${cycle}`;
 
   await new Promise<void>((resolve, reject) => {
     const rzp = new window.Razorpay!({

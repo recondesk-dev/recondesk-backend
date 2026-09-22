@@ -12,10 +12,12 @@ from app.models.base import StrictModel
 # --- Existing SaaS Subscription Models ---
 class PlanType(str, Enum):
     FREE = "free"
+    SOLO = "solo"
+    FIRM = "firm"
+    LARGE_FIRM = "large_firm"
     STARTER = "starter"
     GROWTH = "growth"
     PRO = "pro"
-    FIRM = "firm"
     MONTHLY = "monthly"
     ENTERPRISE = "enterprise"
 

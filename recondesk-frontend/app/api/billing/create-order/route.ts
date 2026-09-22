@@ -8,25 +8,38 @@ type PlanPricing = {
 };
 
 const PLAN_CATALOG: Record<string, PlanPricing> = {
-  starter: {
+  solo: {
     monthly: { priceInr: 799, gstinLimit: 25, periodDays: 30 },
-    yearly: { priceInr: 7999, gstinLimit: 25, periodDays: 365 },
-  },
-  growth: {
-    monthly: { priceInr: 1299, gstinLimit: 60, periodDays: 30 },
-    yearly: { priceInr: 11999, gstinLimit: 60, periodDays: 365 },
-  },
-  pro: {
-    monthly: { priceInr: 1799, gstinLimit: 100, periodDays: 30 },
-    yearly: { priceInr: 15999, gstinLimit: 100, periodDays: 365 },
+    yearly: { priceInr: 5999, gstinLimit: 25, periodDays: 365 },
   },
   firm: {
-    monthly: { priceInr: 1799, gstinLimit: 100, periodDays: 30, overagePerGstin: 20 },
-    yearly: { priceInr: 15999, gstinLimit: 100, periodDays: 365, overagePerGstin: 200 },
+    monthly: { priceInr: 1499, gstinLimit: 75, periodDays: 30 },
+    yearly: { priceInr: 8999, gstinLimit: 75, periodDays: 365 },
+  },
+  large_firm: {
+    monthly: { priceInr: 2499, gstinLimit: 150, periodDays: 30 },
+    yearly: { priceInr: 14999, gstinLimit: 150, periodDays: 365 },
+  },
+  "large-firm": {
+    monthly: { priceInr: 2499, gstinLimit: 150, periodDays: 30 },
+    yearly: { priceInr: 14999, gstinLimit: 150, periodDays: 365 },
+  },
+  // Legacy aliases for backward compatibility
+  starter: {
+    monthly: { priceInr: 799, gstinLimit: 25, periodDays: 30 },
+    yearly: { priceInr: 5999, gstinLimit: 25, periodDays: 365 },
+  },
+  growth: {
+    monthly: { priceInr: 1499, gstinLimit: 75, periodDays: 30 },
+    yearly: { priceInr: 8999, gstinLimit: 75, periodDays: 365 },
+  },
+  pro: {
+    monthly: { priceInr: 2499, gstinLimit: 150, periodDays: 30 },
+    yearly: { priceInr: 14999, gstinLimit: 150, periodDays: 365 },
   },
   monthly: {
     monthly: { priceInr: 799, gstinLimit: 25, periodDays: 30 },
-    yearly: { priceInr: 7999, gstinLimit: 25, periodDays: 365 },
+    yearly: { priceInr: 5999, gstinLimit: 25, periodDays: 365 },
   },
 };
 
@@ -63,19 +76,10 @@ export async function POST(request: Request) {
     const cycleKey = billing_cycle === "monthly" ? "monthly" : "yearly";
     const cycleConfig = tierConfig[cycleKey];
 
-    let baseAmountInr = cycleConfig.priceInr;
-    let gstinLimit = cycleConfig.gstinLimit;
-    let overageGstins = 0;
-    const overageRateInr = cycleConfig.overagePerGstin || 0;
-
-    if (planNameLower === "firm") {
-      const requestedLimit = parseInt(String(custom_gstin_limit), 10);
-      if (!Number.isNaN(requestedLimit) && requestedLimit > 100) {
-        overageGstins = requestedLimit - 100;
-        gstinLimit = requestedLimit;
-        baseAmountInr += overageGstins * overageRateInr;
-      }
-    }
+    const baseAmountInr = cycleConfig.priceInr;
+    const gstinLimit = cycleConfig.gstinLimit;
+    const overageGstins = 0;
+    const overageRateInr = 0;
 
     const baseAmountPaise = baseAmountInr * 100;
     const gstPaise = Math.round(baseAmountPaise * 0.18);

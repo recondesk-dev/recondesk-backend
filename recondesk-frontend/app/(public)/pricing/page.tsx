@@ -3,12 +3,12 @@ import { PricingGrid } from "@/components/billing/PricingGrid";
 
 const pricingFaq = [
   {
-    q: "Is there a free trial?",
-    a: "Yes. Your first 2 reconciliations are free — no credit card needed. Free accounts can manage up to 1 GSTIN.",
+    q: "Is there a free plan?",
+    a: "Yes. Our Free plan gives you up to 2 GSTINs completely free forever with unlimited reconciliation runs and zero feature gating — no credit card needed.",
   },
   {
     q: "What am I paying for?",
-    a: "You pay a subscription based on your firm's GSTIN capacity (Starter: up to 25 GSTINs, Growth: up to 60 GSTINs, Pro: up to 100 GSTINs, Firm: 100+ GSTINs). Every plan includes unlimited reconciliation runs during the subscription period.",
+    a: "You pay a subscription based on your firm's GSTIN capacity (Solo: up to 25 GSTINs, Firm: up to 75 GSTINs, Large Firm: up to 150 GSTINs). Every plan includes unlimited reconciliation runs during the subscription period.",
   },
   {
     q: "What is the difference between the plans?",
@@ -16,19 +16,19 @@ const pricingFaq = [
   },
   {
     q: "Can I upgrade my plan anytime?",
-    a: "Yes. You can upgrade from Starter to Growth, Pro, or Firm whenever your firm expands client capacity. Purchasing an upgrade immediately extends your capacity and period.",
+    a: "Yes. You can upgrade from Solo to Firm or Large Firm whenever your firm expands client capacity. Purchasing an upgrade immediately extends your capacity and period.",
   },
   {
     q: "How does billing work?",
-    a: "Payments are processed securely via Razorpay. Choose monthly or save up to 26% with yearly billing. Yearly plans are manual one-time payments per annual cycle.",
+    a: "Payments are processed securely via Razorpay. Choose monthly or save up to almost 6 months free with annual billing. Annual plans are manual one-time payments per annual cycle.",
   },
   {
     q: "Are prices inclusive of GST?",
-    a: "Listed prices exclude 18% GST. Standard 18% GST is added at checkout with a formal tax invoice provided for input tax credit.",
+    a: "Listed prices exclude 18% GST (+18% GST applies to all paid plans). Standard 18% GST is added at checkout with a formal tax invoice provided for input tax credit.",
   },
   {
-    q: "What if my firm manages more than 100 GSTINs?",
-    a: "Select our Firm tier (₹1,799/mo + ₹20 per GSTIN beyond 100, or ₹15,999/yr + ₹200 per GSTIN beyond 100) or email contact@recondesk.in for tailored enterprise SLAs.",
+    q: "What if my firm manages more than 150 GSTINs?",
+    a: "Email contact@recondesk.in for tailored enterprise deployments and custom multi-partner firm setups.",
   },
 ] as const;
 
@@ -58,7 +58,7 @@ export default function PricingPage() {
       <PricingGrid />
 
       <p className="mx-auto mt-8 max-w-6xl text-center text-xs text-gray-500">
-        Free to start · 2 reconciliations included · Manual Razorpay annual renewal · No auto-debit
+        Free to start · 2 GSTINs included forever · Unlimited runs · Manual Razorpay annual renewal · No auto-debit
       </p>
 
       <SubscriptionFeatures />

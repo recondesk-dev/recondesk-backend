@@ -96,7 +96,7 @@ export default function LandingPage() {
             Stop Losing ITC. Start Recovering It.
           </h2>
           <p className="relative mx-auto mt-4 max-w-xl text-sm leading-relaxed text-[#6B6B6B] sm:text-base">
-            One GSTIN 100% free forever. Upload your GSTR portal files and purchase register now to see results in 60 seconds.
+            2 GSTINs 100% free forever. Upload your GSTR portal files and purchase register now to see results in 60 seconds.
           </p>
           
           <div className="relative mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
@@ -104,7 +104,7 @@ export default function LandingPage() {
               href="/auth/signup"
               className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-[8px] bg-[#7B5CFA] px-8 text-sm font-semibold text-white transition-colors hover:bg-[#6C4DE6] active:scale-[0.99] sm:w-auto"
             >
-              <span>Start Free — One GSTIN, Forever</span>
+              <span>Start Free — 2 GSTINs Forever</span>
               <span>→</span>
             </Link>
             <a

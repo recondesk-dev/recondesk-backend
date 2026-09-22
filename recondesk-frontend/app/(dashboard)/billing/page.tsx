@@ -46,6 +46,10 @@ function fmtDateShort(iso: string | null | undefined): string {
 
 function planBadgeClass(plan: string | null | undefined): string {
   const p = (plan || "").toLowerCase();
+  if (p === "solo") return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200/50";
+  if (p === "firm") return "bg-[var(--ink)] text-white";
+  if (p === "large_firm" || p === "large firm") return "bg-[#F0F0F0] text-[var(--ink)] ring-1 ring-black/10";
+  if (p === "free") return "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/50";
   if (p === "starter") return "bg-[#F0F0F0] text-gray-700";
   if (p === "growth") return "bg-[var(--ink)] text-white";
   if (p === "pro") return "bg-[#F0F0F0] text-[var(--ink)] ring-1 ring-black/10";
@@ -130,13 +134,13 @@ export default function BillingPage() {
     document.getElementById("choose-plan")?.scrollIntoView({ behavior: "smooth" });
   }
 
-  async function onBuyPlan(plan: CheckoutPlan, cycle: "monthly" | "yearly" = "yearly", customGstinLimit?: number) {
+  async function onBuyPlan(plan: CheckoutPlan, cycle: "monthly" | "yearly" = "yearly") {
+    if (plan === "free") return;
     setCheckoutError(null);
     setCheckoutPlan(plan);
     try {
       await startPlanCheckout(plan, {
         billingCycle: cycle,
-        customGstinLimit,
         onSuccess: () => {
           void mutateStatus();
           void mutateHistory();
@@ -167,7 +171,7 @@ export default function BillingPage() {
         <div className="dashboard-card p-5">
           <p className="text-sm font-medium text-gray-500">GSTINs used</p>
           <p className="mt-2 text-[1.85rem] font-semibold tracking-tight tabular-nums text-[var(--ink)]">
-            {status ? `${status.gstins_used ?? 0} / ${status.gstin_limit ?? 1}` : "—"}
+            {status ? `${status.gstins_used ?? 0} / ${status.gstin_limit ?? 2}` : "—"}
           </p>
         </div>
         <div className="dashboard-card p-5">
@@ -286,8 +290,8 @@ export default function BillingPage() {
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Choose a plan</h2>
           <p className="mt-1 max-w-3xl text-sm text-gray-500">
-            One product. Four tiers (Starter, Growth, Pro, Firm). Every plan includes the full desk — you only scale
-            GSTIN capacity. All prices exclude 18% GST.
+            One product. Four tiers (Free, Solo, Firm, Large Firm). Every plan includes the full desk — you only scale
+            GSTIN capacity. All paid plans show +18% GST.
           </p>
         </div>
 
@@ -296,8 +300,8 @@ export default function BillingPage() {
         <PricingGrid
           isDashboard
           loadingPlan={checkoutPlan}
-          connectedGstins={status?.gstins_used || 100}
-          onSelectPlan={(planId, cycle, customLimit) => void onBuyPlan(planId, cycle, customLimit)}
+          connectedGstins={status?.gstins_used || 2}
+          onSelectPlan={(planId, cycle) => void onBuyPlan(planId, cycle)}
         />
       </section>
 
@@ -388,7 +392,7 @@ function BillingBanner({
       <div className="rounded-[1.25rem] bg-[var(--ink)] px-5 py-4 text-sm text-white">
         You have {status.free_runs_remaining} free reconciliation
         {status.free_runs_remaining === 1 ? "" : "s"} remaining — no payment needed. Free tier
-        allows up to {status.gstin_limit ?? 1} GSTINs.
+        allows up to {status.gstin_limit ?? 2} GSTINs.
       </div>
     );
   }
@@ -431,10 +435,13 @@ function BillingBanner({
 
 function gstinsForPlan(plan: string | null | undefined): string {
   const p = (plan || "").toLowerCase();
+  if (p === "free") return "2";
+  if (p === "solo") return "25";
+  if (p === "firm") return "75";
+  if (p === "large_firm" || p === "large firm") return "150";
   if (p === "starter") return "25";
   if (p === "growth") return "60";
   if (p === "pro") return "100";
-  if (p === "firm") return "100+";
   if (p === "monthly") return "25";
   return "—";
 }

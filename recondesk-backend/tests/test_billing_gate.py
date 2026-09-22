@@ -22,59 +22,43 @@ def test_free_runs_allocation_is_two():
     assert FREE_RUNS_ALLOCATION == 2
 
 
-def test_free_gstin_limit_is_one():
-    assert FREE_GSTIN_LIMIT == 1
+def test_free_gstin_limit_is_two():
+    assert FREE_GSTIN_LIMIT == 2
 
 
 def test_gstin_plan_catalog_v2():
-    assert {"starter", "growth", "pro", "firm"}.issubset(set(PLAN_CONFIG))
-    # Starter
-    st_yr = get_plan_details("starter", "yearly")
-    assert st_yr["gstin_limit"] == 25
-    assert st_yr["period_days"] == 365
-    assert st_yr["base_paise"] == 7999_00
-    st_mo = get_plan_details("starter", "monthly")
-    assert st_mo["gstin_limit"] == 25
-    assert st_mo["period_days"] == 30
-    assert st_mo["base_paise"] == 799_00
+    assert {"free", "solo", "firm", "large_firm"}.issubset(set(PLAN_CONFIG))
 
-    # Growth
-    gr_yr = get_plan_details("growth", "yearly")
-    assert gr_yr["gstin_limit"] == 60
-    assert gr_yr["base_paise"] == 11999_00
-    gr_mo = get_plan_details("growth", "monthly")
-    assert gr_mo["gstin_limit"] == 60
-    assert gr_mo["base_paise"] == 1299_00
+    # Free
+    fr_yr = get_plan_details("free", "yearly")
+    assert fr_yr["gstin_limit"] == 2
+    assert fr_yr["base_paise"] == 0
 
-    # Pro
-    pro_yr = get_plan_details("pro", "yearly")
-    assert pro_yr["gstin_limit"] == 100
-    assert pro_yr["base_paise"] == 15999_00
-    pro_mo = get_plan_details("pro", "monthly")
-    assert pro_mo["gstin_limit"] == 100
-    assert pro_mo["base_paise"] == 1799_00
+    # Solo
+    so_yr = get_plan_details("solo", "yearly")
+    assert so_yr["gstin_limit"] == 25
+    assert so_yr["period_days"] == 365
+    assert so_yr["base_paise"] == 5999_00
+    so_mo = get_plan_details("solo", "monthly")
+    assert so_mo["gstin_limit"] == 25
+    assert so_mo["period_days"] == 30
+    assert so_mo["base_paise"] == 799_00
 
-    # Firm base and overage
-    firm_yr = get_plan_details("firm", "yearly", total_gstins=120)
-    assert firm_yr["gstin_limit"] == 120
-    assert firm_yr["overage_gstins"] == 20
-    assert firm_yr["base_paise"] == 15999_00 + 20 * 200_00
+    # Firm
+    fi_yr = get_plan_details("firm", "yearly")
+    assert fi_yr["gstin_limit"] == 75
+    assert fi_yr["base_paise"] == 8999_00
+    fi_mo = get_plan_details("firm", "monthly")
+    assert fi_mo["gstin_limit"] == 75
+    assert fi_mo["base_paise"] == 1499_00
 
-    firm_mo = get_plan_details("firm", "monthly", total_gstins=110)
-    assert firm_mo["gstin_limit"] == 110
-    assert firm_mo["overage_gstins"] == 10
-    assert firm_mo["base_paise"] == 1799_00 + 10 * 20_00
-
-    # Firm user prompt examples
-    assert get_plan_details("firm", "monthly", total_gstins=101)["base_paise"] == 1819_00
-    assert get_plan_details("firm", "monthly", total_gstins=150)["base_paise"] == 2799_00
-    assert get_plan_details("firm", "monthly", total_gstins=200)["base_paise"] == 3799_00
-    assert get_plan_details("firm", "monthly", total_gstins=300)["base_paise"] == 5799_00
-
-    assert get_plan_details("firm", "yearly", total_gstins=101)["base_paise"] == 16199_00
-    assert get_plan_details("firm", "yearly", total_gstins=150)["base_paise"] == 25999_00
-    assert get_plan_details("firm", "yearly", total_gstins=200)["base_paise"] == 35999_00
-    assert get_plan_details("firm", "yearly", total_gstins=300)["base_paise"] == 55999_00
+    # Large Firm
+    lf_yr = get_plan_details("large_firm", "yearly")
+    assert lf_yr["gstin_limit"] == 150
+    assert lf_yr["base_paise"] == 14999_00
+    lf_mo = get_plan_details("large_firm", "monthly")
+    assert lf_mo["gstin_limit"] == 150
+    assert lf_mo["base_paise"] == 2499_00
 
 
 def test_expected_free_runs_after_successful_runs():

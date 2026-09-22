@@ -4,10 +4,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import crypto from "crypto";
 
 const DEFAULT_TIER_LIMITS: Record<string, number> = {
+  free: 2,
+  solo: 25,
+  firm: 75,
+  large_firm: 150,
+  "large-firm": 150,
   starter: 25,
   growth: 60,
   pro: 100,
-  firm: 100,
   monthly: 25,
 };
 

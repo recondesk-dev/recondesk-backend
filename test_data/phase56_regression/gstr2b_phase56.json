@@ -1,0 +1,196 @@
+{
+  "status_cd": "1",
+  "data": {
+    "gstin": "27ISKPK1273H1ZF",
+    "fp": "052026",
+    "version": "GSTR2B_v1.0",
+    "b2b": [
+      {
+        "ctin": "27TESTS0001A1Z7",
+        "trdnm": "Alpha Test Solutions Pvt Ltd",
+        "inv": [
+          {
+            "inum": "INV-5601",
+            "idt": "10-05-2026",
+            "val": 118000.0,
+            "pos": "27",
+            "rchrg": "N",
+            "inv_typ": "R",
+            "itcavl": "Y",
+            "itms": [
+              {
+                "num": 1,
+                "itm_det": {
+                  "rt": 18.0,
+                  "txval": 100000.0,
+                  "iamt": 0.0,
+                  "camt": 9000.0,
+                  "samt": 9000.0,
+                  "csamt": 0.0
+                }
+              }
+            ]
+          },
+          {
+            "inum": "CRN-8814",
+            "idt": "14-05-2026",
+            "val": 59000.0,
+            "pos": "27",
+            "rchrg": "N",
+            "inv_typ": "R",
+            "itcavl": "Y",
+            "itms": [
+              {
+                "num": 1,
+                "itm_det": {
+                  "rt": 18.0,
+                  "txval": 50000.0,
+                  "iamt": 0.0,
+                  "camt": 4500.0,
+                  "samt": 4500.0,
+                  "csamt": 0.0
+                }
+              }
+            ]
+          },
+          {
+            "inum": "BILL/1877",
+            "idt": "04-05-2026",
+            "val": 247814.52,
+            "pos": "27",
+            "rchrg": "N",
+            "inv_typ": "R",
+            "itcavl": "Y",
+            "itms": [
+              {
+                "num": 1,
+                "itm_det": {
+                  "rt": 28.0,
+                  "txval": 193605.09,
+                  "iamt": 0.0,
+                  "camt": 27104.72,
+                  "samt": 27104.71,
+                  "csamt": 0.0
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "ctin": "URP",
+        "trdnm": "City Logistics & Courier",
+        "inv": [
+          {
+            "inum": "URP-101",
+            "idt": "10-05-2026",
+            "val": 11800.0,
+            "pos": "27",
+            "rchrg": "N",
+            "inv_typ": "R",
+            "itcavl": "Y",
+            "itms": [
+              {
+                "num": 1,
+                "itm_det": {
+                  "rt": 18.0,
+                  "txval": 10000.0,
+                  "iamt": 0.0,
+                  "camt": 900.0,
+                  "samt": 900.0,
+                  "csamt": 0.0
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "ctin": "URP",
+        "trdnm": "National Security Guard Services",
+        "inv": [
+          {
+            "inum": "URP-103",
+            "idt": "15-05-2026",
+            "val": 23600.0,
+            "pos": "27",
+            "rchrg": "N",
+            "inv_typ": "R",
+            "itcavl": "Y",
+            "itms": [
+              {
+                "num": 1,
+                "itm_det": {
+                  "rt": 18.0,
+                  "txval": 20000.0,
+                  "iamt": 0.0,
+                  "camt": 1800.0,
+                  "samt": 1800.0,
+                  "csamt": 0.0
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "ctin": "27TESTS0002B1Z4",
+        "trdnm": "Beta Engineering Works",
+        "inv": [
+          {
+            "inum": "INV/1900",
+            "idt": "11-05-2026",
+            "val": 176549.2,
+            "pos": "27",
+            "rchrg": "N",
+            "inv_typ": "R",
+            "itcavl": "Y",
+            "itms": [
+              {
+                "num": 1,
+                "itm_det": {
+                  "rt": 5.0,
+                  "txval": 168142.1,
+                  "iamt": 0.0,
+                  "camt": 4203.55,
+                  "samt": 4203.55,
+                  "csamt": 0.0
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "cdnr": [
+      {
+        "ctin": "27TESTS0001A1Z7",
+        "trdnm": "Alpha Test Solutions Pvt Ltd",
+        "nt": [
+          {
+            "ntnum": "CRN-8812",
+            "nt_dt": "10-05-2026",
+            "ntty": "C",
+            "val": 59000.0,
+            "pos": "27",
+            "rchrg": "N",
+            "itcavl": "Y",
+            "itms": [
+              {
+                "num": 1,
+                "itm_det": {
+                  "rt": 18.0,
+                  "txval": 50000.0,
+                  "iamt": 0.0,
+                  "camt": 4500.0,
+                  "samt": 4500.0,
+                  "csamt": 0.0
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
