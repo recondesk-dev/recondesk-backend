@@ -18,6 +18,11 @@ type RazorpayOptions = {
   description: string;
   order_id: string;
   handler: (response: RazorpaySuccessResponse) => void;
+  prefill?: {
+    name?: string;
+    email?: string;
+    contact?: string;
+  };
   theme?: { color?: string };
   modal?: { ondismiss?: () => void };
 };
@@ -54,11 +59,19 @@ function loadRazorpayScript(): Promise<void> {
   });
 }
 
+export type BillingDetails = {
+  firmName?: string;
+  firmGstin?: string;
+  city?: string;
+  stateCode?: string;
+};
+
 export async function startPlanCheckout(
   plan: CheckoutPlan,
   opts?: {
     billingCycle?: BillingCycle;
     customGstinLimit?: number;
+    billingDetails?: BillingDetails;
     onSuccess?: () => void;
     onDismiss?: () => void;
   }
@@ -77,6 +90,10 @@ export async function startPlanCheckout(
       plan_name: plan,
       billing_cycle: cycle,
       custom_gstin_limit: opts?.customGstinLimit,
+      customer_gstin: opts?.billingDetails?.firmGstin,
+      customer_trade_name: opts?.billingDetails?.firmName,
+      customer_city: opts?.billingDetails?.city,
+      customer_state_code: opts?.billingDetails?.stateCode,
     }),
   });
   const orderBody = (await orderRes.json().catch(() => ({}))) as {
@@ -115,6 +132,11 @@ export async function startPlanCheckout(
       name: "ReconDesk",
       description,
       order_id: orderBody.order_id!,
+      prefill: opts?.billingDetails?.firmName
+        ? {
+            name: opts.billingDetails.firmName,
+          }
+        : undefined,
       theme: { color: "#111111" },
       modal: {
         ondismiss: () => {

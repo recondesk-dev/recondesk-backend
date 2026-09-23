@@ -93,8 +93,14 @@ class Settings(BaseSettings):
     # Explicit true/false always wins.
     GSTR3B_FILING_ENABLED: Optional[bool] = None
 
-    # Feature Showcase: static 7-screen post-signup showcase.
-    SHOWCASE_ONBOARDING_ENABLED: Optional[bool] = None
+    # Seller Invoicing / B2B GST compliance
+    SELLER_LEGAL_NAME: str = "ReconDesk Technologies"
+    SELLER_TRADE_NAME: str = "ReconDesk"
+    SELLER_GSTIN: str = ""
+    SELLER_ADDRESS: str = "Hadapsar, Pune, Maharashtra 411028, India"
+    SELLER_STATE: str = "Maharashtra"
+    SELLER_STATE_CODE: str = "27"
+    SELLER_SAC_CODE: str = "998314"
 
     @computed_field  # type: ignore[misc]
     @property

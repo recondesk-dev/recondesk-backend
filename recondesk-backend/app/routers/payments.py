@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import hmac
 import io
@@ -12,7 +13,7 @@ from typing import Any
 from uuid import UUID
 
 import razorpay
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from supabase import Client
@@ -35,7 +36,11 @@ from app.services.billing_gate import (
 )
 from app.services.billing_service import verify_payment_signature
 from app.services.firm_access import assert_run_accessible, user_can_access_firm
-from app.services.receipt_pdf import build_tax_invoice_pdf, invoice_filename_and_number
+from app.services.receipt_pdf import (
+    GST_STATE_MAP,
+    build_tax_invoice_pdf,
+    invoice_filename_and_number,
+)
 from app.utils.audit import log_action
 from app.utils.rate_limit import limiter
 
@@ -61,6 +66,10 @@ class CreateOrderBody(BaseModel):
     run_id: str = Field(..., min_length=1)
     billing_period: str = Field(default="yearly")
     custom_gstin_limit: int | None = None
+    customer_gstin: str | None = None
+    customer_trade_name: str | None = None
+    customer_city: str | None = None
+    customer_state_code: str | None = None
 
 
 class VerifyBody(BaseModel):
@@ -71,6 +80,10 @@ class VerifyBody(BaseModel):
     plan: str = Field(..., min_length=1)
     billing_period: str = Field(default="yearly")
     custom_gstin_limit: int | None = None
+    customer_gstin: str | None = None
+    customer_trade_name: str | None = None
+    customer_city: str | None = None
+    customer_state_code: str | None = None
 
 
 def _parse_uuid(run_id: str, field: str = "run_id") -> str:
@@ -137,6 +150,10 @@ async def payments_create_order(
                     "gstin_limit": str(details["gstin_limit"]),
                     "period_days": str(details["period_days"]),
                     "overage_gstins": str(details["overage_gstins"]),
+                    "customer_gstin": (payload.customer_gstin or "").strip().upper()[:15],
+                    "customer_trade_name": (payload.customer_trade_name or "").strip()[:255],
+                    "customer_city": (payload.customer_city or "").strip()[:128],
+                    "customer_state_code": (payload.customer_state_code or "").strip()[:2],
                 },
             }
         )
@@ -224,6 +241,28 @@ async def payments_verify(
     firm_owner = get_firm_owner_for_client(db, str(row["client_gstin_id"]))
     details = get_plan_details(plan, billing_period, payload.custom_gstin_limit)
 
+    seller_state_code = (getattr(settings, "SELLER_STATE_CODE", "") or "27").strip()
+    cust_gstin = (payload.customer_gstin or "").strip().upper() or None
+    cust_name = (payload.customer_trade_name or "").strip() or None
+    cust_city = (payload.customer_city or "").strip() or None
+    cust_state_code = (payload.customer_state_code or "").strip() or None
+    if not cust_state_code and cust_gstin and len(cust_gstin) >= 2 and cust_gstin[:2].isdigit():
+        cust_state_code = cust_gstin[:2]
+    if not cust_state_code:
+        cust_state_code = seller_state_code
+
+    is_inter = cust_state_code != seller_state_code
+    tax_type = "inter" if is_inter else "intra"
+    gst_val = int(details["gst_paise"])
+    if is_inter:
+        igst_paise = gst_val
+        cgst_paise = 0
+        sgst_paise = 0
+    else:
+        igst_paise = 0
+        cgst_paise = gst_val // 2
+        sgst_paise = gst_val - cgst_paise
+
     pay_row = {
         "firm_owner_id": firm_owner,
         "run_id": run_id,
@@ -239,8 +278,16 @@ async def payments_verify(
         "overage_rate_paise": int(details["overage_rate_paise"]),
         "runs_purchased": 0,
         "base_amount_paise": int(details["base_paise"]),
-        "gst_paise": int(details["gst_paise"]),
+        "gst_paise": gst_val,
         "total_amount_paise": int(details["total_paise"]),
+        "customer_gstin": cust_gstin,
+        "customer_trade_name": cust_name,
+        "customer_city": cust_city,
+        "customer_state_code": cust_state_code,
+        "tax_type": tax_type,
+        "cgst_paise": cgst_paise,
+        "sgst_paise": sgst_paise,
+        "igst_paise": igst_paise,
     }
     try:
         ins = db.table("payments").insert(pay_row).execute()
@@ -256,13 +303,26 @@ async def payments_verify(
             "plan": details["plan"],
             "runs_purchased": 0,
             "base_amount_paise": int(details["base_paise"]),
-            "gst_paise": int(details["gst_paise"]),
+            "gst_paise": gst_val,
             "total_amount_paise": int(details["total_paise"]),
         }
         ins = db.table("payments").insert(fallback_row).execute()
 
     payment_rec = (ins.data or [{}])[0]
     payment_uuid = str(payment_rec.get("id", ""))
+
+    try:
+        prof_updates: dict[str, Any] = {}
+        if cust_gstin:
+            prof_updates["firm_gstin"] = cust_gstin
+        if cust_name:
+            prof_updates["firm_name"] = cust_name
+        if cust_city:
+            prof_updates["firm_city"] = cust_city
+        if prof_updates:
+            db.table("user_profiles").update(prof_updates).eq("id", firm_owner).execute()
+    except Exception as exc:
+        _log.warning("Failed to auto-update profile from checkout: %s", exc)
 
     sub = await activate_subscription(
         firm_owner,
@@ -479,8 +539,10 @@ async def payments_receipt(
 
     prof = get_user_profile(owner) or {}
     bill_to = {
-        "firm_name": str(prof.get("firm_name") or ""),
-        "firm_city": str(prof.get("firm_city") or "—"),
+        "firm_name": str(pay.get("customer_trade_name") or prof.get("firm_name") or ""),
+        "firm_city": str(pay.get("customer_city") or prof.get("firm_city") or "—"),
+        "firm_gstin": str(pay.get("customer_gstin") or prof.get("firm_gstin") or ""),
+        "customer_state_code": str(pay.get("customer_state_code") or ""),
     }
     pdf = build_tax_invoice_pdf(pay, bill_to)
     fname, _ = invoice_filename_and_number(pay)
@@ -490,6 +552,104 @@ async def payments_receipt(
         bio,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@payments_router.get("/export-gstr1")
+@limiter.limit("30/minute")
+async def payments_export_gstr1(
+    request: Request,  # noqa: ARG001
+    year: int | None = None,
+    month: int | None = None,
+    current_user: dict = Depends(get_current_active_user),
+    db: Client = Depends(supabase_client),
+):
+    """Export B2B & B2C sales register formatted for GSTR-1 filing."""
+    firm_owner = resolve_firm_owner_for_billing(db, current_user)
+    if not user_can_access_firm(db, current_user, firm_owner):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    query = (
+        db.table("payments")
+        .select("*")
+        .eq("status", "paid")
+        .order("created_at", desc=True)
+    )
+    if current_user.get("role") != "admin":
+        query = query.eq("firm_owner_id", firm_owner)
+
+    res = query.execute()
+    payments_data = res.data or []
+
+    if year or month:
+        filtered = []
+        for p in payments_data:
+            dt = _parse_ts(p.get("created_at"))
+            if not dt:
+                continue
+            if year and dt.year != year:
+                continue
+            if month and dt.month != month:
+                continue
+            filtered.append(p)
+        payments_data = filtered
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "GSTIN/UIN of Recipient",
+        "Receiver Name",
+        "Invoice Number",
+        "Invoice Date",
+        "Invoice Value",
+        "Place Of Supply",
+        "Reverse Charge",
+        "Applicable % of Tax Rate",
+        "Invoice Type",
+        "E-Commerce GSTIN",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount",
+    ])
+
+    seller_state_code = (getattr(settings, "SELLER_STATE_CODE", "") or "27").strip()
+    for p in payments_data:
+        _, inv_no = invoice_filename_and_number(p)
+        inv_dt = _format_invoice_date(p.get("created_at"))
+        base_val = round((p.get("base_amount_paise") or p.get("amount_paise") or 0) / 100, 2)
+        tot_val = round((p.get("total_amount_paise") or p.get("amount_paise") or 0) / 100, 2)
+        cust_gstin = str(p.get("customer_gstin") or "").strip().upper()
+        cust_name = str(p.get("customer_trade_name") or "Customer").strip()
+        state_code = str(
+            p.get("customer_state_code")
+            or (cust_gstin[:2] if len(cust_gstin) >= 2 and cust_gstin[:2].isdigit() else seller_state_code)
+        ).strip()
+        state_name = GST_STATE_MAP.get(state_code, "Other")
+        pos = f"{state_code}-{state_name}"
+        inv_type = "Regular" if cust_gstin else "B2C"
+
+        writer.writerow([
+            cust_gstin or "URP",
+            cust_name,
+            inv_no,
+            inv_dt,
+            f"{tot_val:.2f}",
+            pos,
+            "N",
+            "",
+            inv_type,
+            "",
+            "18.0",
+            f"{base_val:.2f}",
+            "0.00",
+        ])
+
+    csv_data = output.getvalue()
+    filename = f"GSTR1_Sales_Register_{year or 'all'}_{month or 'all'}.csv"
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

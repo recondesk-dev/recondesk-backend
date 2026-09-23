@@ -1936,6 +1936,25 @@ export async function openPaymentReceipt(
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+/** Downloads GSTR-1 Sales Register CSV (Bearer token). */
+export async function downloadGstr1SalesCsv(token: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/payments/export-gstr1`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw { detail: `Export HTTP ${res.status}`, status: res.status } satisfies ApiError;
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `GSTR1_Sales_Register_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export const usersApi = {
   onboardingComplete: (token: string) =>
     apiFetch<{ success: boolean }>("/api/users/onboarding-complete", {

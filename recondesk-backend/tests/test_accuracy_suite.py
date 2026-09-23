@@ -518,17 +518,18 @@ class TestModule5Rule37Logic:
     today = datetime.date(2024, 7, 1)
 
     def test_clock_90_days_old_warns_not_overdue(self):
-        inv_90 = (self.today - datetime.timedelta(days=90)).isoformat()
+        # Invoice 135 days old -> 45 days remaining to 180-day deadline -> inside 60-day warning window
+        inv_warn = (self.today - datetime.timedelta(days=135)).isoformat()
         pr_rec = {
             "id": "pr-1",
-            "invoice_date": inv_90,
+            "invoice_date": inv_warn,
             "payment_status": "unpaid",
             "invoice_value_paise": 11800000,
             "total_tax_paise": 1800000,
             "itc_claimed": True,
         }
         res = check_rule_37_compliance([pr_rec], [], today=self.today)
-        assert len(res) == 1, f"Expected 90-day-old invoice to produce a Rule 37 entry, got {len(res)}"
+        assert len(res) == 1, f"Expected invoice in warning window to produce a Rule 37 entry, got {len(res)}"
         assert res[0]["status"] != OVERDUE_UNPAID
         assert res[0]["status"] in (WARNING_30_DAYS, WARNING_60_DAYS, "RULE37_WARNING")
 

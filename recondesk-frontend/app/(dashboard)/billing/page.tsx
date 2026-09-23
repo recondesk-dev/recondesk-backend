@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import {
   billingApi,
+  downloadGstr1SalesCsv,
   isApiError,
   openPaymentReceipt,
   type BillingStatus,
@@ -12,7 +13,10 @@ import {
 } from "@/lib/api";
 import { SubscriptionFeatures } from "@/components/billing/SubscriptionFeatures";
 import { PricingGrid } from "@/components/billing/PricingGrid";
-import { startPlanCheckout, type CheckoutPlan } from "@/lib/billing-checkout";
+import { CheckoutBillingModal } from "@/components/billing/CheckoutBillingModal";
+import { startPlanCheckout, type CheckoutPlan, type BillingDetails } from "@/lib/billing-checkout";
+import { type PricingTierId } from "@/lib/pricing-data";
+import { authProfileFetcher, AUTH_PROFILE_SWR_OPTIONS } from "@/lib/auth-profile";
 import { subscribeAccessToken } from "@/lib/supabase/client";
 
 function formatInrPaise(paise: number | null | undefined): string {
@@ -130,6 +134,17 @@ export default function BillingPage() {
     revalidateOnFocus: true,
   });
 
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedPlanForModal, setSelectedPlanForModal] = useState<PricingTierId | null>(null);
+  const [selectedCycleForModal, setSelectedCycleForModal] = useState<"monthly" | "yearly">("yearly");
+  const [isExportingGstr1, setIsExportingGstr1] = useState(false);
+
+  const { data: meProfile } = useSWR(
+    typeof accessToken === "string" && accessToken ? ["auth/me", accessToken] : null,
+    ([, t]) => authProfileFetcher(t),
+    AUTH_PROFILE_SWR_OPTIONS
+  );
+
   function scrollChoosePlan() {
     document.getElementById("choose-plan")?.scrollIntoView({ behavior: "smooth" });
   }
@@ -137,19 +152,44 @@ export default function BillingPage() {
   async function onBuyPlan(plan: CheckoutPlan, cycle: "monthly" | "yearly" = "yearly") {
     if (plan === "free") return;
     setCheckoutError(null);
-    setCheckoutPlan(plan);
+    setSelectedPlanForModal(plan as PricingTierId);
+    setSelectedCycleForModal(cycle);
+    setModalOpen(true);
+  }
+
+  async function handleModalProceed(billingDetails: BillingDetails) {
+    if (!selectedPlanForModal) return;
+    setCheckoutError(null);
+    setCheckoutPlan(selectedPlanForModal);
     try {
-      await startPlanCheckout(plan, {
-        billingCycle: cycle,
+      await startPlanCheckout(selectedPlanForModal, {
+        billingCycle: selectedCycleForModal,
+        billingDetails,
         onSuccess: () => {
+          setModalOpen(false);
           void mutateStatus();
           void mutateHistory();
+        },
+        onDismiss: () => {
+          setModalOpen(false);
         },
       });
     } catch (err) {
       setCheckoutError(err instanceof Error ? err.message : "Checkout failed");
     } finally {
       setCheckoutPlan(null);
+    }
+  }
+
+  async function handleExportGstr1() {
+    if (typeof accessToken !== "string" || !accessToken) return;
+    setIsExportingGstr1(true);
+    try {
+      await downloadGstr1SalesCsv(accessToken);
+    } catch (err) {
+      window.alert("Failed to export GSTR-1 Sales Register.");
+    } finally {
+      setIsExportingGstr1(false);
     }
   }
 
@@ -310,7 +350,22 @@ export default function BillingPage() {
       </section>
 
       <section className="dashboard-card space-y-4 p-6">
-        <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Payment history</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Payment history</h2>
+          {history && history.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void handleExportGstr1()}
+              disabled={isExportingGstr1}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition disabled:opacity-50"
+            >
+              <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              {isExportingGstr1 ? "Exporting..." : "Export GSTR-1 Sales (CSV)"}
+            </button>
+          )}
+        </div>
         <div className="overflow-x-auto rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
           <table className="w-full min-w-[960px] text-left text-sm">
             <thead className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
@@ -356,6 +411,20 @@ export default function BillingPage() {
           </table>
         </div>
       </section>
+
+      <CheckoutBillingModal
+        isOpen={modalOpen}
+        planId={selectedPlanForModal}
+        cycle={selectedCycleForModal}
+        initialData={{
+          firmName: meProfile?.firm_name,
+          firmGstin: meProfile?.firm_gstin,
+          firmCity: meProfile?.firm_city,
+        }}
+        loading={checkoutPlan !== null}
+        onClose={() => setModalOpen(false)}
+        onProceed={handleModalProceed}
+      />
     </div>
   );
 }
