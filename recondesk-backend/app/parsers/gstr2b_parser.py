@@ -775,25 +775,32 @@ def _parse_cdnr_invoice(
     original_invoice_date_raw = None
     original_invoice_date = None
 
-    if is_amendment:
-        ointnum_raw = invoice.get("ointnum")
-        if ointnum_raw is not None:
-            original_invoice_number_raw = str(ointnum_raw)
-            result = _validate_result(
-                normalize_invoice_number(original_invoice_number_raw),
-                "original_invoice_number",
-            )
-            if result.notes:
-                normalization_notes["original_invoice_number"] = result.notes
-            original_invoice_number = normalize_invoice(result.value)
+    orig_num_raw = (
+        invoice.get("ointnum")
+        if is_amendment
+        else (invoice.get("oinum") or invoice.get("inum") or invoice.get("ointnum") or invoice.get("orig_inv_num"))
+    )
+    if orig_num_raw is not None and str(orig_num_raw).strip():
+        original_invoice_number_raw = str(orig_num_raw).strip()
+        result = _validate_result(
+            normalize_invoice_number(original_invoice_number_raw),
+            "original_invoice_number",
+        )
+        if result.notes:
+            normalization_notes["original_invoice_number"] = result.notes
+        original_invoice_number = normalize_invoice(result.value)
 
-        ointdt_raw = invoice.get("ointdt")
-        if ointdt_raw is not None:
-            original_invoice_date_raw = str(ointdt_raw)
-            result = _validate_result(normalize_date(ointdt_raw), "original_invoice_date")
-            if result.notes:
-                normalization_notes["original_invoice_date"] = result.notes
-            original_invoice_date = result.value
+    orig_dt_raw = (
+        invoice.get("ointdt")
+        if is_amendment
+        else (invoice.get("oidt") or invoice.get("idt") or invoice.get("ointdt") or invoice.get("orig_inv_dt"))
+    )
+    if orig_dt_raw is not None and str(orig_dt_raw).strip():
+        original_invoice_date_raw = str(orig_dt_raw).strip()
+        result = _validate_result(normalize_date(orig_dt_raw), "original_invoice_date")
+        if result.notes:
+            normalization_notes["original_invoice_date"] = result.notes
+        original_invoice_date = result.value
 
     items_list = _invoice_items_list(invoice)
     item_records, raw_txvals = _parse_items(items_list)
@@ -1734,6 +1741,25 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     if val == 0.0 and (txval > 0.0 or igst > 0.0 or cgst > 0.0 or sgst > 0.0 or cess > 0.0):
         val = round(txval + igst + cgst + sgst + cess, 2)
 
+    orig_inv = str(
+        _alt_row_get(
+            row,
+            "Original Invoice Number", "Original Invoice No",
+            "Original Inv No", "Original Inv Number",
+            "Against Invoice Number", "Against Inv No",
+            "against_invoice_number", "original_invoice_number",
+            "oinum", "ont_num", "ointnum", "inum",
+        ) or ""
+    ).strip()
+    orig_dt = _alt_invoice_date_portal(
+        _alt_row_get(
+            row,
+            "Original Invoice Date", "Original Inv Date",
+            "Against Invoice Date", "Against Inv Date",
+            "oidt", "ointdt", "idt",
+        )
+    )
+
     return {
         "_supplier_gstin": gstin,
         "_supplier_name": party,
@@ -1748,6 +1774,10 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
                 "Document Date", "Doc Date",
             )
         ),
+        "inum": orig_inv or None,
+        "oinum": orig_inv or None,
+        "oidt": orig_dt or None,
+        "idt": orig_dt or None,
         "val": val,
         "txval": txval,
         "igst": igst,

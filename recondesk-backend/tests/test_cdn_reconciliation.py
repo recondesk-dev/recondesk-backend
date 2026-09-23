@@ -1132,3 +1132,94 @@ def test_cdn_25_unconsumed_residual_quarantine_integrity():
     stats = res["stats"]
     assert stats["sanity_passed"] is True
     assert stats["matched_count"] + stats["missed_itc_count"] + stats["review_required_count"] == len(gstr_records)
+
+
+def test_cdn_gstr2b_parser_extracts_oinum_standard_note():
+    """Verify that _parse_cdnr_invoice extracts original_invoice_number on standard notes."""
+    from app.parsers.gstr2b_parser import _parse_cdnr_invoice
+
+    raw_note = {
+        "ntty": "C",
+        "nt_num": "CN-2023-01",
+        "dt": "15-09-2023",
+        "val": 11800.0,
+        "inum": "INV-ORIG-999",
+        "idt": "01-09-2023",
+        "itcavl": "Y",
+        "pos": "27",
+        "items": [
+            {
+                "num": 1,
+                "item_detail": {
+                    "rt": 18.0,
+                    "txval": 10000.0,
+                    "iamt": 1800.0,
+                },
+            }
+        ],
+    }
+
+    parsed = _parse_cdnr_invoice(
+        invoice=raw_note,
+        supplier_gstin="27AABCU9603R1ZM",
+        supplier_gstin_raw="27AABCU9603R1ZM",
+        section="CDNR",
+        is_amendment=False,
+    )
+
+    assert parsed["doc_type"] == "CREDIT_NOTE"
+    assert parsed["invoice_number"] == "CN202301"
+    assert parsed["original_invoice_number"] == "INVORIG999"
+    assert parsed["original_invoice_date_norm"] == "2023-09-01"
+
+
+def test_cdn_excel_export_unmatched_notes_sheet():
+    """Verify that build_excel_workbook_bytes includes the 'Unmatched Notes' sheet."""
+    import openpyxl
+    import io
+    from datetime import datetime, timezone
+    from app.services.reconcile_export_workbook import build_excel_workbook_bytes
+
+    unmatched_notes = [
+        {
+            "id": "un:p1",
+            "document_type": "CREDIT_NOTE",
+            "supplier_gstin": "27AABCU9603R1ZM",
+            "supplier_name": "Acme Corp",
+            "invoice_number": "CN-999",
+            "invoice_date": "2023-09-20",
+            "amount": 18000,
+            "decision_what": "Unmatched Credit Note",
+            "decision_why": "Quarantined note has no matching GSTR-2B CDNR entry",
+            "decision_next": "Follow up with supplier",
+        }
+    ]
+
+    xlsx_bytes, fn = build_excel_workbook_bytes(
+        run_id="run-cdn-export-1",
+        firm_name="Test CA Firm",
+        client_trade_name="Client Trade",
+        period_raw="092023",
+        summary={"total_gstr_records": 10, "matched_count": 8, "unmatched_notes_count": 1},
+        matched_pairs=[],
+        missed_rows=[],
+        risk_rows=[],
+        rule37_rows=[],
+        section17_rows=[],
+        review_required_rows=[],
+        unmatched_note_rows=unmatched_notes,
+        generated_at=datetime.now(timezone.utc),
+        generated_by_name="Auditor",
+    )
+
+    wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes))
+    sheet_names = wb.sheetnames
+    assert "Unmatched Notes" in sheet_names
+
+    ws = wb["Unmatched Notes"]
+    assert ws["A1"].value == "Type"
+    assert ws["D1"].value == "Note#"
+    assert ws["A2"].value == "Credit Note"
+    assert ws["B2"].value == "27AABCU9603R1ZM"
+    assert ws["D2"].value == "CN-999"
+

@@ -81,6 +81,7 @@ STANDARD_TO_CANONICAL: dict[str, str] = {
     "note_amount": "note_amount_paise",
     "note_type": "note_type",
     "note_reason": "note_reason",
+    "original_invoice_number": "original_invoice_number",
 }
 
 _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
@@ -162,6 +163,12 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     ],
     "note_reason": [
         "reason", "note reason", "remarks", "remark",
+    ],
+    "original_invoice_number": [
+        "original invoice no", "original invoice number", "original invoice",
+        "original inv no", "original inv number", "against invoice number",
+        "against invoice no", "against inv no", "against inv number",
+        "orig inv no", "orig inv num", "oinum", "ont num", "ointnum",
     ],
 }
 
@@ -268,6 +275,7 @@ _FIELD_MATCH_PRIORITY: dict[str, int] = {
     "note_amount": 45,
     "note_type": 50,
     "note_reason": 30,
+    "original_invoice_number": 35,
 }
 
 # Sheet / header signals that a PR sheet is credit/debit notes, not invoices.
@@ -885,6 +893,10 @@ def normalize_dataframe_to_canonical_schema(
             out_cols[canon] = ser.map(_amount_int_signed)
         elif canon in ("note_type", "note_reason"):
             out_cols[canon] = ser.map(_safe_cell)
+        elif canon == "original_invoice_number":
+            out_cols[canon] = ser.map(
+                lambda v: (s.upper() if (s := _safe_cell(v)) else None)
+            )
 
     if not out_cols:
         return pd.DataFrame(index=df.index)
@@ -1354,6 +1366,10 @@ def _process_pr_sheet_rows(
             _hsn = row.get("hsn")
             if _hsn is not None and not (isinstance(_hsn, float) and pd.isna(_hsn)):
                 out["hsn"] = str(_hsn).strip()
+        if "original_invoice_number" in mapping:
+            _orig_inv = _safe_cell(row.get("original_invoice_number"))
+            if _orig_inv:
+                out["original_invoice_number"] = _orig_inv
 
         records.append(out)
 

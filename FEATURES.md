@@ -45,14 +45,14 @@ Code-backed map of the Next.js frontend (`recondesk-frontend/`) and FastAPI back
 - **Where it lives**: `app/services/carry_forward.py`, `late_filing_tracker.py`, `amendment_handler.py`, `credit_note_handler.py`; results tabs for late-matches / unmatched notes
 - **Key logic**: Carry-forward upserts tracking rows per client; CN/DN excluded from primary invoice matching (see CDN stub below).
 - **APIs/DB touched**: `GET …/late-matches`, ITC/risk buckets. Tracking + payload on `reconciliation_run` / results JSON.
-- **Status**: complete (CDN↔GSTR-2B note matching is stubbed — see below)
+- **Status**: complete
 
-### Unmatched Credit/Debit Notes (CDN Quarantine)
-- **What it does**: Lists PR credit/debit notes excluded from invoice matching so they don’t distort ITC match rates.
-- **Where it lives**: Results tab `unmatched_notes` in `results/page.tsx`; backend `reconciliation_outcomes.py`, `purchase_register_parser.py`
-- **Key logic**: Quarantine only — full matching against GSTR-2B `note[]` is explicitly not implemented.
-- **APIs/DB touched**: Unmatched-notes list via reconcile run payload / outcomes.
-- **Status**: partial / in-progress — UI + quarantine complete; **CDN↔GSTR-2B note matching missing**
+### Credit/Debit Note (CDN) Matching Engine & Quarantine
+- **What it does**: Matches purchase register credit and debit notes against GSTR-2B CDNR/CDNRA records via direct note number, original invoice reference (Pathway C), and date/amount tolerances. Unmatched notes remain quarantined to avoid distorting invoice match rates and are surfaced in a dedicated audit tab and Excel export.
+- **Where it lives**: Results tab `unmatched_notes` in `results/page.tsx`; backend `app/services/cdn_reconciliation.py`, `reconciliation_outcomes.py`, `reconcile_export_workbook.py`, `gstr2b_parser.py`, `purchase_register_parser.py`, `gstr2b_excel.py`.
+- **Key logic**: Multi-pathway matching (direct note match, original invoice cross-reference, fuzzy date/amount); accounting negative ERP sign normalization; unmatched notes surfaced with supplier follow-up action recommendations.
+- **APIs/DB touched**: Reconcile run payload / outcomes (`category=unmatched_notes`), `/summary` (`matched_notes_count`, `unmatched_notes_count`), Excel export ("Unmatched Notes" worksheet).
+- **Status**: complete
 
 ### Rule 37 (180-Day Payment / ITC Reversal)
 - **What it does**: Tracks unpaid/partially-paid PR invoices past invoice_date+180; surfaces warnings, overdue, paid-late; lets CAs mark settled (with TDS/payment coverage).

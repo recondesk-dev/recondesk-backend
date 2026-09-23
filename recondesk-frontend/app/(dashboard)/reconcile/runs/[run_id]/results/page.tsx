@@ -249,6 +249,8 @@ type ReconcileRow = {
   cgst?: number;
   sgst?: number;
   igst?: number;
+  document_type?: string | null;
+  is_credit_note?: boolean;
 };
 
 /** Small pill showing L5/fuzzy invoice-similarity score. Only renders when match_confidence is present. */
@@ -427,6 +429,7 @@ type RunSummary = {
   wrongful_risk_purchase_total_amount?: number;
   duplicate_entry_count?: number;
   unmatched_notes_count?: number;
+  matched_notes_count?: number;
   purchase_value_at_risk_paise?: number;
   late_match_count?: number | null;
   match_rate_percent: number;
@@ -3048,7 +3051,7 @@ export default function ReconcileResultsPage() {
             role="alert"
           >
             <span>
-              {(summary.unmatched_notes_count ?? 0).toLocaleString("en-IN")} credit/debit notes were excluded from invoice matching.
+              {(summary.unmatched_notes_count ?? 0).toLocaleString("en-IN")} purchase credit/debit notes were quarantined and remain unmatched against GSTR-2B.
             </span>
             <button
               type="button"
@@ -4438,6 +4441,12 @@ export default function ReconcileResultsPage() {
                   <span className="h-1.5 w-1.5 rounded-full bg-[#D97706]" aria-hidden />
                   {Math.max(0, (summary?.clean_matched_count ?? summary?.matched_count ?? 0) - (summary?.exact_match_count ?? 0)).toLocaleString("en-IN")} Non-exact
                 </div>
+                {(summary?.matched_notes_count ?? 0) > 0 && (
+                  <div className="flex items-center gap-1.5 rounded-full border border-purple-200 bg-purple-50 px-2.5 py-1 text-[11px] font-medium text-purple-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-purple-600" aria-hidden />
+                    {(summary?.matched_notes_count ?? 0).toLocaleString("en-IN")} Notes Matched
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -4536,10 +4545,22 @@ export default function ReconcileResultsPage() {
                           <GstinCell gstin={row.supplier_gstin} />
                         </td>
                         <td className={matchedTdInvoice}>
-                          <HoverTextCell
-                            text={row.invoice_number}
-                            displayClassName="text-[12px] font-medium text-[#2563EB] hover:underline"
-                          />
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <HoverTextCell
+                              text={row.invoice_number}
+                              displayClassName="text-[12px] font-medium text-[#2563EB] hover:underline"
+                            />
+                            {row.document_type === "CREDIT_NOTE" && (
+                              <span className="inline-flex items-center rounded bg-purple-50 px-1.5 py-0.5 text-[10px] font-medium text-purple-700 ring-1 ring-inset ring-purple-600/20" title="Credit Note">
+                                CN
+                              </span>
+                            )}
+                            {row.document_type === "DEBIT_NOTE" && (
+                              <span className="inline-flex items-center rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-inset ring-indigo-600/20" title="Debit Note">
+                                DN
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className={matchedTdDate}>
                           {formatDate(row.invoice_date)}
@@ -5047,7 +5068,7 @@ export default function ReconcileResultsPage() {
         {resultsTab === "unmatched_notes" && (
           <div className={sectionContainerClass}>
             <h2 className="mb-1 text-[15px] font-semibold tracking-tight text-gray-900">
-              Notes — Not Auto-Matched{" "}
+              Unmatched Credit &amp; Debit Notes{" "}
               {summary != null && (
                 <span className="font-normal text-gray-500">
                   ({(summary.unmatched_notes_count ?? 0).toLocaleString("en-IN")})
@@ -5055,14 +5076,9 @@ export default function ReconcileResultsPage() {
               )}
             </h2>
             <p className="mb-5 text-[12px] leading-relaxed text-gray-500">
-              Credit and debit notes from the purchase register were quarantined
-              before matching and are{" "}
-              <span className="font-medium text-gray-700">
-                not automatically reconciled
-              </span>
-              . They are kept out of Matched, Review Required, and ITC at Risk —
-              Not in GSTR-2B. Full matching against GSTR-2B note[] is not
-              implemented yet — review these manually.
+              These credit and debit notes from the purchase register were quarantined
+              and did not match any corresponding CDNR entries in GSTR-2B.
+              Verify whether your suppliers have reported them in their GSTR-1 filings.
             </p>
             {(summary?.unmatched_notes_count ?? 0) <= 0 ? (
               <EmptyTableState
@@ -5119,7 +5135,7 @@ export default function ReconcileResultsPage() {
                         </td>
                         <td className="px-3 py-2 text-gray-600">
                           {row.decision_why ||
-                            "CDN↔GSTR-2B note matching not implemented yet."}
+                            "No matching credit/debit note entry found in GSTR-2B CDNR."}
                         </td>
                       </tr>
                     ))}

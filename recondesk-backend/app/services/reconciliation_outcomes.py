@@ -283,6 +283,7 @@ class OutcomeRow:
     rule37a_flag: bool = False
     itc_available: bool = True
     itc_reason: Optional[str] = None
+    document_type: str = "INVOICE"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -307,6 +308,7 @@ class OutcomeRow:
             "blocked_credit_flag": self.blocked_credit_flag,
             "late_filing_flag": self.late_filing_flag,
             "is_credit_note": self.is_credit_note,
+            "document_type": self.document_type,
             "amount": self.amount,
             "matched_pr_id": self.matched_pr_id,
             "match_confidence": self.match_confidence,
@@ -318,7 +320,7 @@ class OutcomeRow:
 
 
 def _mr_to_decisions(
-    g: dict[str, Any], p: dict[str, Any]
+    g: dict[str, Any], p: dict[str, Any], *, is_credit_note: bool = False
 ) -> tuple[str, str, str, int, int, int, int, int, str]:
     """Return decision enums + diffs; derive match_status from financial diffs only.
 
@@ -344,20 +346,37 @@ def _mr_to_decisions(
         int(p.get("cgst_paise") or 0),
         int(p.get("sgst_paise") or 0),
     )
-    tvd = tg - tp
-    igd, cgd, sgd = g_ig - p_ig, g_cg - p_cg, g_sg - p_sg
     g_tt = int(g.get("total_tax_paise") or 0)
     p_tt = int(p.get("total_tax_paise") or 0)
-    ttd = g_tt - p_tt
+
+    if is_credit_note:
+        # In many ERPs (Tally, SAP), PR credit notes carry negative amounts while GSTR-2B
+        # CDNR carries positive amounts. Compare absolute magnitudes so opposite signs
+        # do not trigger a false 2x financial mismatch.
+        tg_eff, tp_eff = abs(tg), abs(tp)
+        g_tt_eff, p_tt_eff = abs(g_tt), abs(p_tt)
+        tvd = tg_eff - tp_eff
+        ttd = g_tt_eff - p_tt_eff
+        igd = abs(g_ig) - abs(p_ig)
+        cgd = abs(g_cg) - abs(p_cg)
+        sgd = abs(g_sg) - abs(p_sg)
+    else:
+        tg_eff, tp_eff = tg, tp
+        g_tt_eff, p_tt_eff = g_tt, p_tt
+        tvd = tg - tp
+        igd, cgd, sgd = g_ig - p_ig, g_cg - p_cg, g_sg - p_sg
+        ttd = g_tt - p_tt
+
     # match_status is MATCHED when both taxable and total-tax diffs are within
     # rounding tolerance.  This is the only classification used here; the engine
     # payload is authoritative for whether the pair is in the Matched vs Review
     # Required bucket.
     st = "MATCHED" if (abs(tvd) <= TOTAL_TOLERANCE_PAISE and abs(ttd) <= TOTAL_TOLERANCE_PAISE) else "MISMATCHED"
-    if g_tt > p_tt:
+    if g_tt_eff > p_tt_eff:
         d_why = DecisionWhy.GSTR_AMOUNT_HIGHER
     else:
         d_why = DecisionWhy.BOOKS_AMOUNT_HIGHER
+
     if abs(tvd) > TOTAL_TOLERANCE_PAISE or abs(ttd) > TOTAL_TOLERANCE_PAISE:
         d_next = DecisionNext.FOLLOW_UP_SUPPLIER
         if abs(tvd) >= abs(ttd):
@@ -365,7 +384,12 @@ def _mr_to_decisions(
         else:
             d_what = DecisionWhat.MISMATCH_AMOUNT
     else:
-        d_what = DecisionWhat.MISMATCH_AMOUNT
+        d_what = "Matched Credit/Debit Note" if is_credit_note else DecisionWhat.MISMATCH_AMOUNT
+        d_why = (
+            "Credit/debit note values match between GSTR-2B CDNR and purchase register."
+            if is_credit_note
+            else d_why
+        )
         d_next = DecisionNext.NO_ACTION
     return (d_what, d_why, d_next, tvd, igd, cgd, sgd, ttd, st)
 
@@ -493,6 +517,7 @@ def build_outcome_rows(
                     blocked_credit_flag=False,
                     late_filing_flag=False,
                     is_credit_note=True,
+                    document_type="CREDIT_NOTE",
                     amount=_opt_int(m.get("total_tax_paise")),
                 )
             )
@@ -506,7 +531,24 @@ def build_outcome_rows(
         sname = _gstr_name(g_rd) if g_rd else None
         invn = str(g.get("invoice_number_normalized") or p.get("invoice_number_normalized") or "")
         invd = g.get("invoice_date") or p.get("invoice_date")
-        d_what, d_why, d_next, tvd, igd, cgd, sgd, ttd, mst = _mr_to_decisions(g, p)
+        is_cn = bool(
+            m0.get("is_credit_note")
+            or g.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
+            or p.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
+            or p.get("pr_note_quarantine")
+            or str(g.get("section") or "").lower() in ("cdnr", "cdnra")
+        )
+        doc_type = (
+            str(m0.get("doc_type") or g.get("doc_type") or p.get("doc_type") or "")
+            .strip()
+            .upper()
+        )
+        if not doc_type or doc_type not in ("CREDIT_NOTE", "DEBIT_NOTE"):
+            doc_type = "CREDIT_NOTE" if is_cn else "INVOICE"
+
+        d_what, d_why, d_next, tvd, igd, cgd, sgd, ttd, mst = _mr_to_decisions(
+            g, p, is_credit_note=is_cn
+        )
         r37r = r37x.get(p_id, {})
         r37f = (r37r.get("status") or "") in _RULE37_CONCERNS
         _bpair = (
@@ -589,7 +631,8 @@ def build_outcome_rows(
                     itc_reason=itc_rsn,
                     blocked_credit_flag=bflag,
                     late_filing_flag=lf_flag,
-                    is_credit_note=False,
+                    is_credit_note=is_cn,
+                    document_type=doc_type,
                     amount=_opt_int(g.get("total_tax_paise")) if _opt_int(g.get("total_tax_paise")) is not None else _opt_int(p.get("total_tax_paise")),
                     match_confidence=m0.get("match_confidence"),
                     compared_fields=m0.get("compared_fields"),
@@ -626,7 +669,8 @@ def build_outcome_rows(
                     itc_reason=itc_rsn,
                     blocked_credit_flag=True,
                     late_filing_flag=lf_flag,
-                    is_credit_note=False,
+                    is_credit_note=is_cn,
+                    document_type=doc_type,
                     amount=_opt_int(g.get("total_tax_paise")) if _opt_int(g.get("total_tax_paise")) is not None else _opt_int(p.get("total_tax_paise")),
                     match_confidence=m0.get("match_confidence"),
                     compared_fields=m0.get("compared_fields"),
@@ -656,7 +700,8 @@ def build_outcome_rows(
                     itc_reason=itc_rsn if not is_itc_avail else None,
                     blocked_credit_flag=bflag,
                     late_filing_flag=lf_flag,
-                    is_credit_note=False,
+                    is_credit_note=is_cn,
+                    document_type=doc_type,
                     amount=_opt_int(g.get("total_tax_paise")) if _opt_int(g.get("total_tax_paise")) is not None else _opt_int(p.get("total_tax_paise")),
                     match_confidence=m0.get("match_confidence"),
                     compared_fields=m0.get("compared_fields"),
@@ -705,6 +750,14 @@ def build_outcome_rows(
             ).strip()
             or None
         )
+        is_cn = bool(
+            mi.get("is_credit_note")
+            or g.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
+            or str(g.get("section") or "").lower() in ("cdnr", "cdnra")
+        )
+        doc_type = str(mi.get("doc_type") or g.get("doc_type") or "").strip().upper()
+        if not doc_type or doc_type not in ("CREDIT_NOTE", "DEBIT_NOTE"):
+            doc_type = "CREDIT_NOTE" if is_cn else "INVOICE"
 
         rows.append(
             OutcomeRow(
@@ -729,7 +782,8 @@ def build_outcome_rows(
                 itc_reason=itc_rsn,
                 blocked_credit_flag=False,
                 late_filing_flag=False,
-                is_credit_note=False,
+                is_credit_note=is_cn,
+                document_type=doc_type,
                 amount=amt,
             )
         )
@@ -743,6 +797,15 @@ def build_outcome_rows(
         invd = wr.get("invoice_date") or p.get("invoice_date")
         r37r = r37x.get(pid, {})
         r37f = (r37r.get("status") or "") in _RULE37_CONCERNS
+        is_cn = bool(
+            wr.get("is_credit_note")
+            or p.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
+            or p.get("pr_note_quarantine")
+        )
+        doc_type = str(wr.get("doc_type") or p.get("doc_type") or rd.get("document_type") or "").strip().upper()
+        if not doc_type or doc_type not in ("CREDIT_NOTE", "DEBIT_NOTE"):
+            doc_type = "CREDIT_NOTE" if is_cn else "INVOICE"
+
         rows.append(
             OutcomeRow(
                 id=f"wr:{pid}",
@@ -763,7 +826,8 @@ def build_outcome_rows(
                 rule37_flag=r37f,
                 blocked_credit_flag=False,
                 late_filing_flag=False,
-                is_credit_note=False,
+                is_credit_note=is_cn,
+                document_type=doc_type,
                 amount=_opt_int(wr.get("total_tax_paise")),
             )
         )
@@ -836,6 +900,14 @@ def build_outcome_rows(
         invn = str(dup.get("invoice_number_normalized") or m_rec.get("invoice_number_normalized") or "")
         invd = dup.get("invoice_date") or m_rec.get("invoice_date")
         reason = str(dup.get("reason") or "DUPLICATE_CONFLICT")
+        is_cn = bool(
+            dup.get("is_credit_note")
+            or m_rec.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
+            or m_rec.get("pr_note_quarantine")
+        )
+        doc_type = str(dup.get("doc_type") or m_rec.get("doc_type") or "").strip().upper()
+        if not doc_type or doc_type not in ("CREDIT_NOTE", "DEBIT_NOTE"):
+            doc_type = "CREDIT_NOTE" if is_cn else "INVOICE"
         
         d_what = reason.replace("_", " ").title() if reason else "Manual Review Required"
         d_next = "Manual review required to verify correct pairing."
@@ -860,7 +932,8 @@ def build_outcome_rows(
                 rule37_flag=False,
                 blocked_credit_flag=False,
                 late_filing_flag=False,
-                is_credit_note=False,
+                is_credit_note=is_cn,
+                document_type=doc_type,
                 amount=_opt_int(dup.get("total_tax_paise")) if _opt_int(dup.get("total_tax_paise")) is not None else _opt_int(m_rec.get("total_tax_paise")),
                 match_confidence=dup.get("match_confidence"),
                 compared_fields=dup.get("compared_fields"),
@@ -963,21 +1036,21 @@ def build_outcome_rows(
                 igst_diff=0,
                 cgst_diff=0,
                 sgst_diff=0,
-                total_tax_diff_paise=0,
-                decision_what="Notes — Not Matched",
+                decision_what=f"Unmatched {doc.replace('_', ' ').title()}",
                 decision_why=(
-                    f"{doc.replace('_', ' ').title()} from purchase register "
-                    "(value adjustment). Full credit/debit note matching against "
-                    "GSTR-2B note[] is not implemented yet."
+                    f"{doc.replace('_', ' ').title()} from purchase register was quarantined "
+                    "and has no matching entry in GSTR-2B CDNR for this supplier. "
+                    "Verify whether the supplier has filed this note in GSTR-1."
                 ),
                 decision_next=(
-                    "Review manually if needed. Do not treat as unclaimed ITC "
-                    "or reverse ITC for this row."
+                    "Follow up with supplier to file the credit/debit note in their GSTR-1, "
+                    "or verify whether note is applicable to a different period."
                 ),
                 rule37_flag=False,
                 blocked_credit_flag=False,
                 late_filing_flag=False,
                 is_credit_note=(doc == "CREDIT_NOTE"),
+                document_type=doc,
                 amount=amt,
             )
         )

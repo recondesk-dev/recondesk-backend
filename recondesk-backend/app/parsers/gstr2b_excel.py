@@ -183,6 +183,10 @@ def _dataframe_to_row_dicts(
                 val = _cell_to_jsonish(series.get(mapping["invoice_number"]))
                 if val:
                     row.setdefault("Invoice No", val)
+            if "original_invoice_number" in mapping and mapping["original_invoice_number"] in df.columns:
+                val = _cell_to_jsonish(series.get(mapping["original_invoice_number"]))
+                if val:
+                    row.setdefault("Original Invoice Number", val)
         rows.append(row)
     return rows
 

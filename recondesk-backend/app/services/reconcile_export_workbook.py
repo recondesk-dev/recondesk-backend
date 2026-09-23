@@ -203,6 +203,7 @@ def build_excel_workbook_bytes(
     generated_at: datetime,
     generated_by_name: str,
     duplicate_rows: list[dict[str, Any]] | None = None,
+    unmatched_note_rows: list[dict[str, Any]] | None = None,
     gstr3b_result: dict[str, Any] | None = None,
     followup_rows: list[dict[str, Any]] | None = None,
 ) -> tuple[bytes, str]:
@@ -212,6 +213,7 @@ def build_excel_workbook_bytes(
     headers and a status/placeholder row — never omit sheets based on UI tab.
     """
     duplicate_rows = list(duplicate_rows or [])
+    unmatched_note_rows = list(unmatched_note_rows or [])
     followup_rows = list(followup_rows or [])
     tracks: list[_SheetTrack] = []
 
@@ -255,6 +257,10 @@ def build_excel_workbook_bytes(
             (
                 "Duplicate Entries",
                 summary.get("duplicate_entry_count", len(duplicate_rows)),
+            ),
+            (
+                "Unmatched Notes",
+                summary.get("unmatched_notes_count", len(unmatched_note_rows)),
             ),
             ("Match Rate %", summary.get("match_rate_percent", 0)),
             ("Missed ITC Count", summary.get("missed_itc_count", 0)),
@@ -685,6 +691,58 @@ def build_excel_workbook_bytes(
     except Exception as e:
         _log.exception("excel duplicate entries sheet failed run=%s", run_id)
         tracks.append(_SheetTrack("Duplicate Entries", 0, f"FAILED: {e}"))
+
+    # --- Unmatched Notes ---
+    try:
+        ws_notes = wb.create_sheet("Unmatched Notes")
+        headers = (
+            "Type",
+            "Supplier GSTIN",
+            "Supplier Name",
+            "Note#",
+            "Date",
+            "Amount",
+            "WHAT IS WRONG",
+            "WHY",
+            "WHAT TO DO NEXT",
+        )
+        hdr_fill = PatternFill("solid", fgColor=_HEADER_ORANGE)
+        hdr_font = Font(bold=True, color="FFFFFF")
+        for col, h in enumerate(headers, 1):
+            c = ws_notes.cell(row=1, column=col, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+        ws_notes.freeze_panes = "A2"
+        if not unmatched_note_rows:
+            ws_notes["A2"] = "No unmatched credit or debit notes for this reconciliation run."
+        else:
+            r = 2
+            for row in unmatched_note_rows:
+                vals = (
+                    _doc_type_display(row.get("document_type") or row.get("match_status")),
+                    row.get("supplier_gstin") or "—",
+                    row.get("supplier_name") or "—",
+                    row.get("invoice_number") or "—",
+                    row.get("invoice_date") or "—",
+                    _comma_int(_outcome_amount_rupees(row)),
+                    _decision_cell(row.get("decision_what")),
+                    _decision_cell(row.get("decision_why")),
+                    _decision_cell(row.get("decision_next")),
+                )
+                for col, v in enumerate(vals, 1):
+                    ws_notes.cell(row=r, column=col, value=v)
+                r += 1
+        _autosize_columns(ws_notes)
+        tracks.append(
+            _SheetTrack(
+                "Unmatched Notes",
+                row_count=len(unmatched_note_rows),
+                status="OK",
+            )
+        )
+    except Exception as e:
+        _log.exception("excel unmatched notes sheet failed run=%s", run_id)
+        tracks.append(_SheetTrack("Unmatched Notes", 0, f"FAILED: {e}"))
 
     # --- GSTR-3B Check ---
     try:

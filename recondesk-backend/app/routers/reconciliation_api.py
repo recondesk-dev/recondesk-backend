@@ -3248,6 +3248,9 @@ def _build_reconcile_summary(
         "unmatched_notes_count": sum(
             1 for r in outcome_rows if r.category == "unmatched_notes"
         ),
+        "matched_notes_count": sum(
+            1 for r in outcome_rows if r.category == "matched" and getattr(r, "is_credit_note", False)
+        ),
         "itc_on_hold_count": sum(
             1 for r in outcome_rows if r.id.startswith("pm:") and r.category in ("rule37_warnings", "blocked_credit")
         ),
@@ -3752,7 +3755,7 @@ def _build_matched_pair_records(
                 if not fetch_review_required
                 else (oc_matched_in_order[idx] if idx < len(oc_matched_in_order) else None)
             )
-            if not fetch_review_required and orow is None:
+            if not fetch_review_required and all_outcome_rows and orow is None:
                 continue
             mst_disp = getattr(orow, "match_status", None)
             lvl = _matched_ui_match_level(
@@ -6851,6 +6854,9 @@ async def reconcile_export_excel_workbook(
         duplicate_rows = [
             x.as_dict() for x in summ_outcome_rows if x.category == "duplicate_entry"
         ]
+        unmatched_note_rows = [
+            x.as_dict() for x in summ_outcome_rows if x.category == "unmatched_notes"
+        ]
 
         gstr3b_result: Optional[dict[str, Any]] = None
         try:
@@ -6896,6 +6902,7 @@ async def reconcile_export_excel_workbook(
             section17_rows=s17,
             review_required_rows=review_rows,
             duplicate_rows=duplicate_rows,
+            unmatched_note_rows=unmatched_note_rows,
             gstr3b_result=gstr3b_result,
             followup_rows=followup_rows,
             generated_at=datetime.now(timezone.utc),
