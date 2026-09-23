@@ -255,9 +255,11 @@ function PricingCard({
                 </span>
               </div>
               {/* Sub-text: billed annually (₹X,XXX/yr) */}
-              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-gray-500 font-medium">
-                <span className="font-semibold text-slate-700">billed annually</span>
-                <span>({formatRupeeText(`${formatInr(plan.priceYearly)}/yr`)})</span>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-medium text-gray-500">billed annually</span>
+                <span className="text-sm font-bold text-[#7B5CFA] tabular-nums">
+                  ({formatRupeeText(`${formatInr(plan.priceYearly)}/yr`)})
+                </span>
               </div>
             </div>
           ) : (
