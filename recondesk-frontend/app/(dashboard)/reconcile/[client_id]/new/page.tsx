@@ -322,6 +322,8 @@ export default function NewReconcileWizardPage() {
   const [start409, setStart409] = useState<string | null>(null);
   const [creatingRun, setCreatingRun] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [zeroRecordConfirmed, setZeroRecordConfirmed] = useState(false);
+  const [checkingRunStatus, setCheckingRunStatus] = useState(false);
 
   const [poll, setPoll] = useState<{ pct: number; message: string; status: string } | null>(null);
   const [pollSlow, setPollSlow] = useState(false);
@@ -1311,6 +1313,52 @@ export default function NewReconcileWizardPage() {
     }
   };
 
+  const checkRunStatus = async () => {
+    if (typeof token !== "string" || !runId) return;
+    setCheckingRunStatus(true);
+    try {
+      const st = await importWizardApi.pollStatus(token, runId);
+      const r = await refreshRun(runId, token);
+      setRun(r);
+      if (st.status === "complete" || r.status === "complete") {
+        router.push(`/reconcile/runs/${runId}/results`);
+        return;
+      }
+      if (st.status === "processing" || st.status === "pending") {
+        setErr(null);
+        setRun((prev) => (prev ? { ...prev, status: "processing" as const } : prev));
+        pollStartRef.current = Date.now();
+        setPollSlow(false);
+        setPoll({
+          pct: st.progress_pct ?? 0,
+          message: st.message || "Reconciliation is running on the server…",
+          status: "processing",
+        });
+        return;
+      }
+      if (st.status === "error" || r.status === "error") {
+        setErr(
+          extractErrorMessage(
+            r.error_detail || st.message,
+            "Processing failed on the server."
+          )
+        );
+        return;
+      }
+      if (r.status === "pr_uploaded") {
+        setErr(
+          "Reconciliation has not started yet on the server. You can click 'Start reconciliation' below."
+        );
+      }
+    } catch {
+      setErr(
+        "Could not reach server to verify run status. Please check your internet connection."
+      );
+    } finally {
+      setCheckingRunStatus(false);
+    }
+  };
+
   useEffect(() => {
     if (typeof token !== "string" || !runId) return;
     if (run?.status !== "pending" && run?.status !== "processing") return;
@@ -1513,8 +1561,25 @@ export default function NewReconcileWizardPage() {
       ) : null}
 
       {err ? (
-        <div className="rounded-lg border border-[var(--danger)] bg-red-50 px-4 py-3 text-sm text-red-900">
-          {err}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-[var(--danger)] bg-red-50 px-4 py-3 text-sm text-red-900">
+          <p className="flex-1">{err}</p>
+          {runId ? (
+            <button
+              type="button"
+              onClick={() => void checkRunStatus()}
+              disabled={checkingRunStatus}
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-800 shadow-sm hover:bg-red-50 disabled:opacity-50"
+            >
+              {checkingRunStatus ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Checking…
+                </>
+              ) : (
+                "Check Run Status"
+              )}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -1722,11 +1787,14 @@ export default function NewReconcileWizardPage() {
               </p>
               <div className="flex flex-wrap items-center gap-3">
                 <Link
-                  href={`/clients/${clientId}`}
+                  href={`/clients/${clientId}?return_to=${encodeURIComponent(`/reconcile/${clientId}/new${runId ? `?run_id=${runId}` : ""}`)}`}
                   className="rounded-full border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-900 hover:bg-red-100"
                 >
                   Reconnect GSTN
                 </Link>
+                <span className="text-xs text-red-700">
+                  (Your wizard progress is saved and you can resume anytime)
+                </span>
                 <button
                   type="button"
                   onClick={() => {
@@ -2479,13 +2547,28 @@ export default function NewReconcileWizardPage() {
           {run?.status === "error" ? (
             <div className="rounded-lg border border-[var(--danger)] bg-red-50 p-3 text-sm text-red-900">
               {extractErrorMessage(run.error_detail, "Processing failed.")}
-              <div className="mt-2">
+              <div className="mt-2 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={onRetryError}
                   className="rounded-lg border border-[var(--border)] bg-white px-3 py-1 text-sm font-medium"
                 >
                   Try again
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void checkRunStatus()}
+                  disabled={checkingRunStatus}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1 text-sm font-medium text-red-800 hover:bg-red-50 disabled:opacity-50"
+                >
+                  {checkingRunStatus ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Checking status…
+                    </>
+                  ) : (
+                    "Check Run Status"
+                  )}
                 </button>
               </div>
             </div>
@@ -2518,6 +2601,45 @@ export default function NewReconcileWizardPage() {
             </p>
           </div>
 
+          {(() => {
+            const hasZeroGstr2b = (run?.gstr2b_record_count ?? 0) === 0;
+            const hasZeroPr = (run?.pr_record_count ?? 0) === 0;
+            if (!hasZeroGstr2b && !hasZeroPr) return null;
+
+            return (
+              <div className="rounded-xl border border-amber-300 bg-amber-50/90 p-4 text-sm text-amber-950 space-y-2.5">
+                <div className="flex items-start gap-2.5">
+                  <span className="inline-block mt-0.5 text-base">⚠️</span>
+                  <div className="space-y-1">
+                    <p className="font-semibold text-amber-900">
+                      {hasZeroGstr2b && hasZeroPr
+                        ? "Zero Records in Both GSTR-2B and Purchase Register"
+                        : hasZeroGstr2b
+                        ? "Zero GSTR-2B Records Detected"
+                        : "Zero Purchase Register Records Detected"}
+                    </p>
+                    <p className="text-xs text-amber-900/90 leading-relaxed">
+                      {hasZeroGstr2b && hasZeroPr
+                        ? "Both datasets are empty for this period. Starting reconciliation will produce an empty match result."
+                        : hasZeroGstr2b
+                        ? `Zero GSTR-2B records found for this period. Starting reconciliation will match 0 invoices and classify all ${run?.pr_record_count ?? 0} Purchase Register records as 'Missing in GSTR-2B (ITC at Risk)'. If your client or their suppliers file quarterly or haven't filed yet, verify the filing period before continuing.`
+                        : `Zero Purchase Register records provided. Starting reconciliation will classify all ${run?.gstr2b_record_count ?? 0} GSTR-2B records as 'Missing in Books (Missed ITC)'.`}
+                    </p>
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 pt-1 border-t border-amber-200/80 cursor-pointer text-xs font-semibold text-amber-950">
+                  <input
+                    type="checkbox"
+                    checked={zeroRecordConfirmed}
+                    onChange={(e) => setZeroRecordConfirmed(e.target.checked)}
+                    className="h-4 w-4 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                  />
+                  <span>I understand that 0 invoices will match and want to proceed with this run</span>
+                </label>
+              </div>
+            );
+          })()}
+
           {start409 ? (
             <div className="rounded-lg border border-[var(--warning)] bg-amber-50 p-3 text-sm">
               {extractErrorMessage(start409, "Cannot start.")}
@@ -2526,7 +2648,13 @@ export default function NewReconcileWizardPage() {
 
           <button
             type="button"
-            disabled={startBusy || run?.status === "error" || !highRiskWarningsOk}
+            disabled={
+              startBusy ||
+              run?.status === "error" ||
+              !highRiskWarningsOk ||
+              (((run?.gstr2b_record_count ?? 0) === 0 || (run?.pr_record_count ?? 0) === 0) &&
+                !zeroRecordConfirmed)
+            }
             onClick={onStart}
             className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:opacity-90"
           >

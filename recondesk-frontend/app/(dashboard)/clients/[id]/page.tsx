@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, Suspense, useEffect, useMemo, useState } from "react";
 import useSWR, { mutate } from "swr";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import {
   ConnectGstnModal,
@@ -83,7 +83,10 @@ function itcTrendFromRuns(runsNewestFirst: ReconciliationRun[]): ItcTrendPoint[]
   }));
 }
 
-export default function ClientDetailPage() {
+function ClientDetailContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get("return_to");
   const params = useParams();
   const id = params?.id as string;
   const tokenState = useAccessToken();
@@ -235,6 +238,23 @@ export default function ClientDetailPage() {
 
   return (
     <div className="space-y-6" id="top">
+      {returnTo ? (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-[1.25rem] border border-blue-200 bg-blue-50/80 p-4 text-sm text-blue-900 shadow-[var(--shadow-soft)]">
+          <div>
+            <p className="font-semibold text-blue-950">Active Reconciliation Wizard in Progress</p>
+            <p className="mt-0.5 text-xs text-blue-800">
+              You navigated here to connect GSTN or manage client settings. Your wizard progress is saved.
+            </p>
+          </div>
+          <Link
+            href={returnTo}
+            className="shrink-0 inline-flex items-center gap-1 rounded-full bg-[var(--ink)] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90 transition-opacity"
+          >
+            ← Return to Wizard
+          </Link>
+        </div>
+      ) : null}
+
       {clientError && (
         <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
           Could not load client details.
@@ -388,6 +408,9 @@ export default function ClientDetailPage() {
           onSuccess={() => {
             void mutateClient();
             if (clientKey) void mutate(clientKey);
+            if (returnTo) {
+              router.push(returnTo);
+            }
           }}
         />
       )}
@@ -597,5 +620,13 @@ export default function ClientDetailPage() {
         )}
       </section>
     </div>
+  );
+}
+
+export default function ClientDetailPage() {
+  return (
+    <Suspense fallback={<CardSkeleton />}>
+      <ClientDetailContent />
+    </Suspense>
   );
 }

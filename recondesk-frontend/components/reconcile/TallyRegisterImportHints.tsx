@@ -100,8 +100,8 @@ export function RegisterTypeDetectionBanner({
   const otherHref =
     detected === "sales"
       ? clientId
-        ? `/reconcile/gstr1/new?client_gstin_id=${encodeURIComponent(clientId)}`
-        : "/reconcile/gstr1/new"
+        ? `/reconcile/gstr1/new?client_gstin_id=${encodeURIComponent(clientId)}&from=gstr2b_wizard`
+        : "/reconcile/gstr1/new?from=gstr2b_wizard"
       : clientId
         ? `/reconcile/${clientId}/new`
         : "/clients";

@@ -54,6 +54,7 @@ function Gstr1ReconcileNewContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const clientGstinId = searchParams.get("client_gstin_id")?.trim() || null;
+  const fromParam = searchParams.get("from")?.trim() || null;
   const tokenState = useAccessToken();
   const token =
     typeof tokenState === "string" && tokenState.length > 0 ? tokenState : null;
@@ -225,6 +226,39 @@ function Gstr1ReconcileNewContent() {
         >
           ← Back to Purchase Reconciliation
         </Link>
+      ) : (
+        <Link
+          href="/reconcile"
+          className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 transition-colors mb-4"
+        >
+          ← Back to Reconciliation
+        </Link>
+      )}
+
+      {fromParam === "gstr2b_wizard" ? (
+        <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50/80 p-4 text-[13px] text-blue-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-[var(--shadow-soft)]">
+          <div>
+            <p className="font-semibold text-blue-950">Switched from Purchase Reconciliation</p>
+            <p className="mt-0.5 text-blue-800">
+              We detected a Sales Register and routed you here. If your file was actually a Purchase Register, you can return to the purchase wizard anytime.
+            </p>
+          </div>
+          {clientGstinId ? (
+            <Link
+              href={`/reconcile/${clientGstinId}/new`}
+              className="shrink-0 inline-flex items-center gap-1 rounded-full border border-blue-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-blue-900 shadow-sm hover:bg-blue-50 transition-colors"
+            >
+              ← Return to Purchase Wizard
+            </Link>
+          ) : (
+            <Link
+              href="/reconcile"
+              className="shrink-0 inline-flex items-center gap-1 rounded-full border border-blue-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-blue-900 shadow-sm hover:bg-blue-50 transition-colors"
+            >
+              ← Return to Reconcile
+            </Link>
+          )}
+        </div>
       ) : null}
       <div className="mb-6">
         <p className="text-[11px] font-medium uppercase tracking-widest text-gray-400">
