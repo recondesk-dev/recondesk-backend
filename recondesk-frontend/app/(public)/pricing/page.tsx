@@ -20,7 +20,7 @@ const pricingFaq = [
   },
   {
     q: "How does billing work?",
-    a: "Payments are processed securely via Razorpay. Choose monthly or save up to almost 6 months free with annual billing. Annual plans are manual one-time payments per annual cycle.",
+    a: "Payments are processed securely via Razorpay. Choose monthly billing or get a discounted effective monthly rate billed annually. Annual plans are manual one-time payments per annual cycle.",
   },
   {
     q: "Are prices inclusive of GST?",

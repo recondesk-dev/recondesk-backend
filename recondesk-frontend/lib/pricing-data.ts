@@ -9,9 +9,9 @@ export type PricingPlan = {
   badgeYearly?: string;
   valueTagMonthly?: string;
   valueTagYearly?: string;
-  annualSavingsText?: string;
   priceMonthly: number;
   priceYearly: number;
+  effectiveMonthlyPrice: number;
   gstinCapacity: string;
   gstinLimit: number;
   blurb: string;
@@ -31,6 +31,7 @@ export const PRICING_PLANS: PricingPlan[] = [
     name: "Free",
     priceMonthly: 0,
     priceYearly: 0,
+    effectiveMonthlyPrice: 0,
     gstinCapacity: "2 GSTINs",
     gstinLimit: 2,
     blurb: "Essential reconciliation suite to get started. 100% free with full features.",
@@ -55,12 +56,11 @@ export const PRICING_PLANS: PricingPlan[] = [
   {
     id: "solo",
     name: "Solo",
-    badgeYearly: "Save ₹3,589",
     valueTagMonthly: "₹32 / GSTIN / mo",
     valueTagYearly: "₹240/GSTIN/yr",
-    annualSavingsText: "Save ₹3,589 — almost 5 months free",
     priceMonthly: 799,
     priceYearly: 5999,
+    effectiveMonthlyPrice: 500,
     gstinCapacity: "25 GSTINs",
     gstinLimit: 25,
     blurb: "Essential full-featured reconciliation suite for solo CAs & boutique practices.",
@@ -76,8 +76,8 @@ export const PRICING_PLANS: PricingPlan[] = [
         benefit: "Manage up to 25 active GSTINs with unlimited reconciliation runs",
       },
       {
-        header: "Annual Savings",
-        benefit: "Save ₹3,589 — almost 5 months free with annual billing",
+        header: "Billed Annually",
+        benefit: "₹799/mo → ₹500/mo billed annually (₹5,999/yr)",
       },
     ],
   },
@@ -88,9 +88,9 @@ export const PRICING_PLANS: PricingPlan[] = [
     badgeYearly: "Most Popular",
     valueTagMonthly: "₹20 / GSTIN / mo",
     valueTagYearly: "₹120/GSTIN/yr",
-    annualSavingsText: "Save ₹8,989 — almost 6 months free",
     priceMonthly: 1499,
     priceYearly: 8999,
+    effectiveMonthlyPrice: 750,
     gstinCapacity: "75 GSTINs",
     gstinLimit: 75,
     blurb: "High-capacity suite for growing CA practices and multi-partner firms.",
@@ -106,8 +106,8 @@ export const PRICING_PLANS: PricingPlan[] = [
         benefit: "Manage up to 75 active GSTINs with unlimited reconciliation runs",
       },
       {
-        header: "Annual Savings",
-        benefit: "Save ₹8,989 — almost 6 months free with annual billing",
+        header: "Billed Annually",
+        benefit: "₹1,499/mo → ₹750/mo billed annually (₹8,999/yr)",
       },
       {
         header: "Multi-Staff Collaboration",
@@ -118,12 +118,11 @@ export const PRICING_PLANS: PricingPlan[] = [
   {
     id: "large_firm",
     name: "Large Firm",
-    badgeYearly: "Save ₹14,989",
     valueTagMonthly: "₹17 / GSTIN / mo",
     valueTagYearly: "₹100/GSTIN/yr",
-    annualSavingsText: "Save ₹14,989 — almost 5 months free",
     priceMonthly: 2499,
     priceYearly: 14999,
+    effectiveMonthlyPrice: 1250,
     gstinCapacity: "150 GSTINs",
     gstinLimit: 150,
     blurb: "Comprehensive capacity for large CA firms and dedicated compliance teams.",
@@ -139,8 +138,8 @@ export const PRICING_PLANS: PricingPlan[] = [
         benefit: "Best rate per GSTIN with unlimited reconciliation runs for all clients",
       },
       {
-        header: "Annual Savings",
-        benefit: "Save ₹14,989 — almost 5 months free with annual billing",
+        header: "Billed Annually",
+        benefit: "₹2,499/mo → ₹1,250/mo billed annually (₹14,999/yr)",
       },
       {
         header: "Dedicated Support & ERP",
