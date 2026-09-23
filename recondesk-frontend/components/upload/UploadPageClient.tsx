@@ -177,6 +177,7 @@ export default function UploadPageClient({ token }: { token: string }) {
   const [fileQueue, setFileQueue] = useState<FileQueueItem[]>([]);
   const [dropError, setDropError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounter = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -669,19 +670,34 @@ export default function UploadPageClient({ token }: { token: string }) {
                           ? "border-[var(--ink)] bg-gray-50 scale-[0.99]"
                           : "border-gray-300 hover:border-gray-400 bg-white"
                       }`}
-                      onDragOver={(event) => {
-                        event.preventDefault();
-                        setIsDragOver(true);
+                      onDragEnter={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        dragCounter.current += 1;
+                        if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+                          setIsDragOver(true);
+                        }
                       }}
-                      onDragLeave={(event) => {
-                        event.preventDefault();
-                        setIsDragOver(false);
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        dragCounter.current -= 1;
+                        if (dragCounter.current <= 0) {
+                          dragCounter.current = 0;
+                          setIsDragOver(false);
+                        }
                       }}
-                      onDrop={(event) => {
-                        event.preventDefault();
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        dragCounter.current = 0;
                         setIsDragOver(false);
-                        if (event.dataTransfer.files.length > 0) {
-                          addFiles(event.dataTransfer.files);
+                        if (e.dataTransfer.files.length > 0) {
+                          addFiles(e.dataTransfer.files);
                         }
                       }}
                       onClick={() => fileInputRef.current?.click()}

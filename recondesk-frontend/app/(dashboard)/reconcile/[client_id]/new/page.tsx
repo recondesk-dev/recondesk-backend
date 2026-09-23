@@ -23,6 +23,7 @@ import { isGstnConnected } from "@/components/clients/ConnectGstnModal";
 import {
   RegisterTypeDetectionBanner,
 } from "@/components/reconcile/TallyRegisterImportHints";
+import { FileDropzone } from "@/components/ui/FileDropzone";
 import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 
 const MAX_UPLOAD = 20 * 1024 * 1024;
@@ -1840,32 +1841,21 @@ export default function NewReconcileWizardPage() {
                       </button>
                     </div>
                   ) : null}
-                  <input
-                    type="file"
+                  <FileDropzone
                     accept=".json,.xlsx,.xls,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    onChange={(e) => setGstrFile(e.target.files?.[0] ?? null)}
-                    className="text-sm"
+                    allowedExtensions={[".json", ".xlsx", ".xls"]}
+                    selectedFile={gstrFile}
+                    onFileSelect={setGstrFile}
+                    progress={gstrProgress}
+                    title="Drop GSTR-2B file here, or click to browse"
+                    subtitle="Official GSTN JSON or portal Excel (.json, .xlsx, .xls)"
+                    hintTags={["GSTN JSON", "Portal Excel", "Max 25 MB"]}
+                    disabled={busy || gstnFetchBusy}
                   />
-                  {gstrFile ? (
-                    <p className="font-mono text-xs text-[var(--text-secondary)]">
-                      Selected: {gstrFile.name} ({formatBytes(gstrFile.size)})
-                      {gstrFile.size < 10000 ? (
-                        <span className="ml-1 text-amber-800">
-                          — expected GSTN export is usually larger; confirm this is not the test-set copy
-                        </span>
-                      ) : null}
+                  {gstrFile && gstrFile.size < 10000 ? (
+                    <p className="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+                      ⚠️ Expected GSTN export is usually larger than 10 KB; please confirm this is not the sample copy.
                     </p>
-                  ) : null}
-                  {gstrProgress > 0 && gstrProgress < 100 ? (
-                    <div className="space-y-1">
-                      <div className="h-2 w-full overflow-hidden rounded bg-[var(--border)]">
-                        <div
-                          className="h-full bg-[var(--ink)]"
-                          style={{ width: `${gstrProgress}%` }}
-                        />
-                      </div>
-                      <p className="font-mono text-xs text-[var(--text-secondary)]">{gstrProgress}%</p>
-                    </div>
                   ) : null}
                   <button
                     type="button"
@@ -2102,11 +2092,16 @@ export default function NewReconcileWizardPage() {
             </p>
           ) : (
             <>
-              <input
-                type="file"
+              <FileDropzone
                 accept=".csv,.xlsx,.xls"
-                onChange={(e) => void onPrFileSelected(e.target.files?.[0] ?? null)}
-                className="text-sm"
+                allowedExtensions={[".xlsx", ".xls", ".csv"]}
+                selectedFile={prFile}
+                onFileSelect={(f) => void onPrFileSelected(f)}
+                progress={prProgress}
+                title="Drop Purchase Register here, or click to browse"
+                subtitle="Tally, Busy, Marg, or custom Excel/CSV registers"
+                hintTags={["TallyPrime", "Busy", "Excel .xlsx", "CSV", "Max 25 MB"]}
+                disabled={busy}
               />
               <div className="rounded-xl border border-brand-dim bg-brand-dim/30 p-3 text-xs text-gray-800">
                 <span className="font-semibold text-brand">✨ Low-effort upload:</span> We auto-detect Tally, Busy, and Excel layouts automatically — no template or formatting needed!
@@ -2141,14 +2136,6 @@ export default function NewReconcileWizardPage() {
                   </p>
                 </details>
               )}
-              {prProgress > 0 && prProgress < 100 ? (
-                <div className="space-y-1">
-                  <div className="h-2 w-full overflow-hidden rounded bg-[var(--border)]">
-                    <div className="h-full bg-[var(--ink)]" style={{ width: `${prProgress}%` }} />
-                  </div>
-                  <p className="font-mono text-xs text-[var(--text-secondary)]">{prProgress}%</p>
-                </div>
-              ) : null}
 
               {savedMappingCovers && allHeaders.length > 0 && !mappingLocal?.length ? (
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
