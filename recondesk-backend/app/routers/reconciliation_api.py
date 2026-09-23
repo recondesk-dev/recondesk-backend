@@ -3195,6 +3195,12 @@ def _build_reconcile_summary(
 
         isd_impg_warning = format_isd_impg_warning(isd_count, impg_count)
 
+    decision_statuses = _decision_statuses_for_run(sb, rid) if sb is not None else {}
+    decisions_acted_count = sum(1 for s in decision_statuses.values() if s == "acted")
+    decisions_ignored_count = sum(1 for s in decision_statuses.values() if s == "ignored")
+    action_needed_count = review_required_count + missed_count + wrongful_count
+    decisions_pending_count = max(0, action_needed_count - decisions_acted_count - decisions_ignored_count)
+
     return {
         "run_id": rid,
         "client_name": client_display,
@@ -3259,6 +3265,9 @@ def _build_reconcile_summary(
             ),
             2,
         ),
+        "decisions_acted_count": decisions_acted_count,
+        "decisions_ignored_count": decisions_ignored_count,
+        "decisions_pending_count": decisions_pending_count,
     }
 
 

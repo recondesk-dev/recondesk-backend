@@ -445,6 +445,9 @@ type RunSummary = {
   rule37a_count?: number;
   blocked_credit_count?: number;
   itc_on_hold_total_amount?: number;
+  decisions_acted_count?: number;
+  decisions_ignored_count?: number;
+  decisions_pending_count?: number;
 };
 
 type ConfidenceSummary = {
@@ -3117,10 +3120,28 @@ export default function ReconcileResultsPage() {
 
             {/* Right: Action required */}
             <div className="overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-white">
-              <div className="flex items-center gap-2 border-b border-[#FEF2F2] bg-[#FFF7F7] px-6 py-3">
-                <div className="h-2 w-2 rounded-full bg-[#DC2626]" />
-                <div className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#991B1B]">
-                  {((summary.review_required_count ?? 0) + (summary.missed_itc_count ?? 0) + (summary.wrongful_risk_count ?? 0)).toLocaleString("en-IN")} {tResults("invoicesNeedAction")}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#FEF2F2] bg-[#FFF7F7] px-6 py-3">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-[#DC2626]" />
+                  <div className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#991B1B]">
+                    {((summary.review_required_count ?? 0) + (summary.missed_itc_count ?? 0) + (summary.wrongful_risk_count ?? 0)).toLocaleString("en-IN")} {tResults("invoicesNeedAction")}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 border border-emerald-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    {(summary.decisions_acted_count ?? 0).toLocaleString("en-IN")} Acted
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 font-medium text-amber-700 border border-amber-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                    {(summary.decisions_pending_count ?? Math.max(0, ((summary.review_required_count ?? 0) + (summary.missed_itc_count ?? 0) + (summary.wrongful_risk_count ?? 0)) - (summary.decisions_acted_count ?? 0) - (summary.decisions_ignored_count ?? 0))).toLocaleString("en-IN")} Pending
+                  </span>
+                  {(summary.decisions_ignored_count ?? 0) > 0 ? (
+                    <span className="inline-flex items-center gap-1 rounded bg-gray-50 px-2 py-0.5 font-medium text-gray-600 border border-gray-200">
+                      <span className="h-1.5 w-1.5 rounded-full bg-gray-400" />
+                      {(summary.decisions_ignored_count ?? 0).toLocaleString("en-IN")} Ignored
+                    </span>
+                  ) : null}
                 </div>
               </div>
               <div
@@ -4964,7 +4985,10 @@ export default function ReconcileResultsPage() {
               </div>
             )}
             {(summary?.duplicate_entry_count ?? 0) <= 0 ? (
-              <p className="text-sm text-gray-500">No duplicate entries in this run.</p>
+              <EmptyTableState
+                title="No duplicate entries"
+                description="No duplicate invoice numbers or identical booking lines were detected in this purchase register."
+              />
             ) : duplicateEntryLoading ? (
               <p className="text-sm text-gray-500">Loading…</p>
             ) : duplicateEntryError ? (
@@ -5041,9 +5065,10 @@ export default function ReconcileResultsPage() {
               implemented yet — review these manually.
             </p>
             {(summary?.unmatched_notes_count ?? 0) <= 0 ? (
-              <p className="text-sm text-gray-500">
-                No credit/debit note rows in this run.
-              </p>
+              <EmptyTableState
+                title="No credit/debit notes"
+                description="No unmatched credit notes or debit notes were quarantined for this run."
+              />
             ) : unmatchedNotesLoading ? (
               <p className="text-sm text-gray-500">Loading…</p>
             ) : unmatchedNotesError ? (
@@ -5122,8 +5147,9 @@ export default function ReconcileResultsPage() {
 
           <div className="mb-5 flex flex-col gap-2.5 rounded-xl border border-[#EFEFF2] bg-[#FAFAFA] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <p className="text-xs sm:text-[13px] font-semibold text-[var(--ink)]">
-                {tResults("autoApproveThreshold")}
+              <p className="text-xs sm:text-[13px] font-semibold text-[var(--ink)] flex items-center gap-1.5">
+                <span>{tResults("autoApproveThreshold")}</span>
+                <span className="rounded bg-[#E2E8F0] px-1.5 py-0.5 text-[10px] font-medium text-[#475569]">Next run</span>
               </p>
               <p className="mt-0.5 text-xs leading-relaxed text-gray-500">
                 {tResults("autoApproveDesc")}{" "}

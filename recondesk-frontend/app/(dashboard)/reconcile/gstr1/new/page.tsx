@@ -218,6 +218,14 @@ function Gstr1ReconcileNewContent() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-8 py-8">
+      {clientGstinId ? (
+        <Link
+          href={`/reconcile/${clientGstinId}/new`}
+          className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 transition-colors mb-4"
+        >
+          ← Back to Purchase Reconciliation
+        </Link>
+      ) : null}
       <div className="mb-6">
         <p className="text-[11px] font-medium uppercase tracking-widest text-gray-400">
           Sales Reconciliation

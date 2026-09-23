@@ -4,6 +4,7 @@ import { Analytics } from "@/lib/analytics";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import {
   clientsApi,
   gstnApi,
@@ -1544,9 +1545,16 @@ export default function NewReconcileWizardPage() {
             type="button"
             disabled={!period || creatingRun}
             onClick={onConfirmPeriod}
-            className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:opacity-90"
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--ink)] px-5 py-2.5 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50 hover:opacity-90"
           >
-            {creatingRun ? "Creating…" : "Continue"}
+            {creatingRun ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin text-white" />
+                <span>Creating…</span>
+              </>
+            ) : (
+              <span>Continue</span>
+            )}
           </button>
         </div>
       ) : null}
