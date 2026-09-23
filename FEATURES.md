@@ -248,7 +248,7 @@ Code-backed map of the Next.js frontend (`recondesk-frontend/`) and FastAPI back
 - **What it does**: Unauthenticated tokenized upload for client-requested files; multipart to signed URL.
 - **Where it lives**: `app/upload/[token]/page.tsx`, `UploadPageClient.tsx`; communication center generates links
 - **APIs/DB touched**: Supabase `upload_requests`, `uploaded_files`; signed URL against backend `API_URL`
-- **Status**: complete (minor branding stub: org logo/name TODO)
+- **Status**: complete — CA firm branding, client GSTIN entity box, live upload progress, and digital receipts active
 
 ### Sales / GSTR-1 / GSTR-3B Parsers
 - **What it does**: Parse sales register, GSTR-1, GSTR-3B workbooks/JSON for reconcile and filing flows.
@@ -516,7 +516,7 @@ Code-backed map of the Next.js frontend (`recondesk-frontend/`) and FastAPI back
 | **In-app product tour** | Landing marketing carousel | No driver.js / guided in-app tour |
 | **Legacy `/v1/billing`** | Plans/order stubs | Razorpay plan IDs TODO |
 | **Legacy reports/jobs** | Old PDF/job routes | Superseded by `reconciliation_run` flow |
-| **Public upload branding** | Token upload works | Org logo/name TODO |
+| **Public upload branding** | Token upload, CA firm branding, client GSTIN card, live progress, digital receipt | Complete |
 
 ---
 

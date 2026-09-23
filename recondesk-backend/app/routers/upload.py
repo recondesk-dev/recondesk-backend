@@ -67,6 +67,21 @@ class ClientPresignedUrlResponse(BaseModel):
     public_url: str
 
 
+class UploadRequestInfoResponse(BaseModel):
+    id: str
+    token: str
+    title: str
+    description: str | None = None
+    expires_at: str | None = None
+    is_expired: bool = False
+    client_name: str | None = None
+    client_gstin: str | None = None
+    firm_name: str | None = None
+    firm_city: str | None = None
+    ca_name: str | None = None
+    created_at: str | None = None
+
+
 def _sanitize_filename(filename: str) -> str:
     name = re.sub(r"[/\\]", "", filename)
     name = re.sub(r"[^\w\s\-.]", "", name)
@@ -151,7 +166,7 @@ def _get_upload_request_by_token(token: str) -> dict:
     supabase = get_supabase()
     result = (
         supabase.table("upload_requests")
-        .select("id, expires_at")
+        .select("id, client_id, created_by_user_id, title, description, expires_at, created_at")
         .eq("token", token)
         .limit(1)
         .execute()
@@ -163,6 +178,75 @@ def _get_upload_request_by_token(token: str) -> dict:
             detail="Upload link not found",
         )
     return rows[0]
+
+
+@public_router.get("/info/{token}", response_model=UploadRequestInfoResponse)
+async def get_upload_request_info(token: str) -> UploadRequestInfoResponse:
+    row = _get_upload_request_by_token(token.strip())
+    expires_at_raw = row.get("expires_at")
+    is_expired = False
+    if expires_at_raw:
+        try:
+            is_expired = _parse_expires_at(str(expires_at_raw)) < datetime.now(timezone.utc)
+        except Exception:
+            is_expired = False
+
+    client_name = None
+    client_gstin = None
+    firm_name = None
+    firm_city = None
+    ca_name = None
+
+    supabase = get_supabase()
+    client_id = row.get("client_id")
+    if client_id:
+        try:
+            c_res = (
+                supabase.table("client_gstins")
+                .select("trade_name, legal_name, gstin")
+                .eq("id", str(client_id))
+                .limit(1)
+                .execute()
+            )
+            c_rows = c_res.data or []
+            if c_rows:
+                client_name = c_rows[0].get("trade_name") or c_rows[0].get("legal_name")
+                client_gstin = c_rows[0].get("gstin")
+        except Exception as e:
+            logger.warning("Could not fetch client details for upload token: %s", e)
+
+    created_by = row.get("created_by_user_id")
+    if created_by:
+        try:
+            u_res = (
+                supabase.table("user_profiles")
+                .select("firm_name, full_name, firm_city")
+                .eq("id", str(created_by))
+                .limit(1)
+                .execute()
+            )
+            u_rows = u_res.data or []
+            if u_rows:
+                firm_name = u_rows[0].get("firm_name")
+                ca_name = u_rows[0].get("full_name")
+                firm_city = u_rows[0].get("firm_city")
+        except Exception as e:
+            logger.warning("Could not fetch firm details for upload token: %s", e)
+
+    return UploadRequestInfoResponse(
+        id=str(row["id"]),
+        token=token.strip(),
+        title=str(row.get("title") or "Document Upload Request"),
+        description=row.get("description"),
+        expires_at=str(expires_at_raw) if expires_at_raw else None,
+        is_expired=is_expired,
+        client_name=client_name,
+        client_gstin=client_gstin,
+        firm_name=firm_name or "Chartered Accountant & Tax Advisors",
+        firm_city=firm_city,
+        ca_name=ca_name,
+        created_at=str(row.get("created_at")) if row.get("created_at") else None,
+    )
 
 
 @public_router.post("/presigned-url", response_model=ClientPresignedUrlResponse)
