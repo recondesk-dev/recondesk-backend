@@ -33,7 +33,7 @@ const FAQ_ITEMS: FaqItem[] = [
     category: "statutory",
     categoryLabel: "Notice Shield",
     q: "How does ReconDesk prevent Rule 88D & DRC-01C notices?",
-    a: "ReconDesk automatically pre-checks your GSTR-3B ITC claim against GSTR-2B before you file. If the variance exceeds 10% and ₹25 Lakhs (the statutory notice trigger threshold), it alerts you immediately and generates a pre-formatted explanatory reply statement citing Section 16(4) carry-forwards, timing differences, and supplier filing delays.",
+    a: "ReconDesk automatically pre-checks your GSTR-3B ITC claim against GSTR-2B before you file. If the variance exceeds 20% and ₹25 Lakhs (the statutory notice trigger threshold), it alerts you immediately and generates a pre-formatted explanatory reply statement citing Section 16(4) carry-forwards, timing differences, and supplier filing delays.",
   },
   {
     id: "rule-37-tracker",

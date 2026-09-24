@@ -137,7 +137,7 @@ export function FeatureStatsStrip() {
                   <span>Rule 88D Statutory Notice Threshold Monitoring</span>
                 </span>
                 <span className="rounded bg-blue-200/60 px-1.5 py-0.2 text-[9px] font-bold text-[#1E40AF]">
-                  SAFE (&lt;10%)
+                  SAFE (&lt;20%)
                 </span>
               </div>
             </div>

@@ -34,7 +34,8 @@ export function SecurityTrustStrip() {
 
   return (
     <section
-      className="mx-auto my-16 max-w-6xl px-4 sm:px-6 lg:px-8 border-t border-[#E5E5E2] pt-16"
+      id="security"
+      className="scroll-mt-20 mx-auto my-16 max-w-6xl px-4 sm:px-6 lg:px-8 border-t border-[#E5E5E2] pt-16"
       aria-label="Security and data protection"
     >
       {/* Section Header */}

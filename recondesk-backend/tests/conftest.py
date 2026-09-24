@@ -28,3 +28,10 @@ def auth_headers() -> dict:
         algorithm="HS256",
     )
     return {"Authorization": f"Bearer {tok}"}
+
+
+@pytest.fixture(autouse=True)
+def clean_dependency_overrides():
+    """Ensure FastAPI dependency overrides don't leak across tests."""
+    yield
+    app.dependency_overrides.clear()

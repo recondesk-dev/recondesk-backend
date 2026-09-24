@@ -293,7 +293,7 @@ export function GstrModulesGrid() {
                   </div>
                   <div className="mt-2 flex items-center justify-between rounded bg-white p-1.5 px-2 border border-[#E2E8F0]">
                     <span className="text-[10px] font-bold text-amber-800">
-                      📄 DRC-01B Reply Narrative
+                      📄 DRC-01C Reply Narrative
                     </span>
                     <span className="rounded bg-amber-100 px-1.5 py-0.2 text-[9px] font-bold text-amber-900">
                       Ready
@@ -321,7 +321,7 @@ export function GstrModulesGrid() {
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-amber-600 shrink-0" />
-                  <span>Instant DRC-01B draft reply narrative generator</span>
+                  <span>Instant DRC-01C draft reply narrative generator</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-amber-600 shrink-0" />
@@ -382,7 +382,7 @@ export function GstrModulesGrid() {
 
                 <div className="mt-2.5 space-y-1.5 text-[11px]">
                   <div className="flex items-center justify-between">
-                    <span className="text-[#64748B]">Table 8A (GSTR-2B):</span>
+                    <span className="text-[#64748B]">Table 8A (GSTR-2A):</span>
                     <span className="font-bold text-[#0F172A]">₹5,78,94,200</span>
                   </div>
                   <div className="flex items-center justify-between">
@@ -710,7 +710,7 @@ export function GstrModulesGrid() {
                       Under Rule 88D, the GST portal generates an automated <strong>Form GST DRC-01C</strong> notice whenever the ITC claimed in <strong>Table 4(A) of GSTR-3B</strong> exceeds the ITC available in <strong>GSTR-2B</strong> by:
                     </p>
                     <div className="mt-2 flex items-center gap-3 font-mono font-bold text-xs text-amber-950 bg-white/80 rounded p-2 border border-amber-200">
-                      <span>Threshold: Variance &gt; 10%</span>
+                      <span>Threshold: Variance &gt; 20%</span>
                       <span>AND</span>
                       <span>Variance &gt; ₹25,00,000</span>
                     </div>
@@ -719,7 +719,7 @@ export function GstrModulesGrid() {
                   {/* Auto-Drafted Statement Preview */}
                   <div className="rounded-[10px] border border-[#E2E8F0] bg-white p-4">
                     <div className="font-bold text-[#0F172A] mb-1.5 flex items-center justify-between">
-                      <span>One-Click DRC-01B Draft Reply Statement</span>
+                      <span>One-Click DRC-01C Draft Reply Statement</span>
                       <span className="rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5">CA Format</span>
                     </div>
                     <p className="text-[#64748B] text-[11px] mb-3">

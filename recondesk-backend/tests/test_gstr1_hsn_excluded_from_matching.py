@@ -28,11 +28,18 @@ def test_hsn_summary_is_not_invoice_level():
             "invoice_number": "RD2026273001",
         }
     )
-    assert _is_invoice_level_gstr1_record(
+    assert not _is_invoice_level_gstr1_record(
         {
             "section": "b2cs",
             "invoice_type": "B2C_SMALL",
             "invoice_number": "B2CS-27-Maharashtra-18.0-0",
+        }
+    )
+    assert _is_invoice_level_gstr1_record(
+        {
+            "section": "b2cl",
+            "invoice_type": "B2C_LARGE",
+            "invoice_number": "B2CL-2026-001",
         }
     )
 
