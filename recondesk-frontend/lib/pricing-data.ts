@@ -28,14 +28,14 @@ export type PricingPlan = {
 export const PRICING_PLANS: PricingPlan[] = [
   {
     id: "free",
-    name: "Free",
+    name: "Free Trial (60 Days)",
     priceMonthly: 0,
     priceYearly: 0,
     effectiveMonthlyPrice: 0,
     gstinCapacity: "2 GSTINs",
     gstinLimit: 2,
-    blurb: "Essential reconciliation suite to get started. 100% free with full features.",
-    cta: "Start Free — 2 GSTINs Forever",
+    blurb: "Full-featured reconciliation suite to test 2 full monthly filing cycles. 100% free for 60 days.",
+    cta: "Start 60-Day Free Trial",
     featured: false,
     isFree: true,
     highlights: [
@@ -48,8 +48,8 @@ export const PRICING_PLANS: PricingPlan[] = [
         benefit: "Manage up to 2 active GSTINs with unlimited reconciliation runs",
       },
       {
-        header: "Free Forever",
-        benefit: "Zero payment required — no credit card needed to get started",
+        header: "60 Days Full Access",
+        benefit: "2 full monthly filing cycles included — zero payment or card required",
       },
     ],
   },

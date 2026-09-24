@@ -1263,7 +1263,7 @@ export default function ReconDepthPage() {
               Experience the Full Depth of ReconDesk Free
             </h2>
             <p className="relative mx-auto mt-4 max-w-xl text-base sm:text-lg text-[#64748B] leading-relaxed">
-              One GSTIN is 100% free forever with all 103+ statutory rules, multi-phase matching, and full audit workpapers unlocked.
+              2 GSTINs are 100% free for 60 days with all 103+ statutory rules, multi-phase matching, and full audit workpapers unlocked.
             </p>
 
             <div className="relative mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -1271,7 +1271,7 @@ export default function ReconDepthPage() {
                 href="/auth/signup"
                 className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-full bg-[#7B5CFA] px-8 py-3.5 text-base font-bold text-white shadow-sm transition-all hover:bg-[#6C4DE6] hover:shadow-md"
               >
-                <span>Start Free — One GSTIN, Forever</span>
+                <span>Start 60-Day Free Trial (2 GSTINs)</span>
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link

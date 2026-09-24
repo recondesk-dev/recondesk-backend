@@ -240,7 +240,7 @@ function PricingCard({
                   ₹0
                 </span>
               </div>
-              <p className="mt-1 text-xs text-gray-500 font-medium">Free forever</p>
+              <p className="mt-1 text-xs text-gray-500 font-medium">Free for 60 days (2 monthly cycles)</p>
             </div>
           ) : isYearly ? (
             <div>
@@ -321,7 +321,7 @@ function PricingCard({
                   disabled
                   className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-slate-200 px-6 py-2.5 text-sm font-semibold text-slate-600 cursor-default"
                 >
-                  Free Tier (2 GSTINs)
+                  60-Day Trial (2 GSTINs)
                 </button>
               ) : (
                 <button

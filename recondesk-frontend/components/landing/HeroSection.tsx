@@ -47,7 +47,7 @@ export function HeroSection() {
             href="/auth/signup"
             className="inline-flex min-h-[46px] w-full items-center justify-center gap-1.5 rounded-[8px] bg-[#7B5CFA] px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#6C4DE6] active:scale-[0.99] sm:w-auto"
           >
-            <span>Start Free — 2 GSTINs Forever</span>
+            <span>Start 60-Day Free Trial (2 GSTINs)</span>
             <span>→</span>
           </Link>
 
@@ -72,7 +72,7 @@ export function HeroSection() {
           </span>
           <span className="hidden text-[#E5E5E2] sm:inline">•</span>
           <span className="flex items-center gap-1.5">
-            <Check className="h-3.5 w-3.5 text-emerald-600" /> 2 GSTINs 100% free forever
+            <Check className="h-3.5 w-3.5 text-emerald-600" /> 2 GSTINs free for 60 days (2 monthly cycles)
           </span>
         </div>
       </div>

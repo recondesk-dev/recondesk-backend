@@ -17,16 +17,16 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     id: "free-tier",
     category: "pricing",
-    categoryLabel: "Free Tier",
-    q: "Is 2 GSTINs really 100% free forever?",
-    a: "Yes. You can reconcile 2 GSTINs completely free forever across all 12 monthly periods with zero feature gating. You get access to the full 5-level matching engine, Rule 37 tracking, Section 17(5) scanner, and Excel audit export. No credit card is required. You only upgrade if your firm manages multiple client GSTINs.",
+    categoryLabel: "60-Day Trial",
+    q: "How does the 60-day free trial work?",
+    a: "You get 100% full product access for up to 2 client GSTINs completely free for 60 days (covering 2 complete monthly return filing cycles) with zero feature gating. You get access to the full 5-level matching engine, Rule 37 tracking, Section 17(5) scanner, and Excel audit export. No credit card is required. After 60 days, you can choose a plan like Solo or Firm to keep running new reconciliations, while all your past data remains accessible.",
   },
   {
     id: "pricing-structure",
     category: "pricing",
     categoryLabel: "Pricing & Capacity",
     q: "How is pricing structured for CA firms?",
-    a: "Plans are based strictly on active client GSTIN capacity with unlimited staff seats and unlimited reconciliation runs — Free up to 2 GSTINs (₹0), Solo up to 25 GSTINs (₹799/mo · ₹5,999/yr), Firm up to 75 GSTINs (₹1,499/mo · ₹8,999/yr), and Large Firm up to 150 GSTINs (₹2,499/mo · ₹11,999/yr). Every plan includes 100% full product access with zero feature gating.",
+    a: "Plans are based strictly on active client GSTIN capacity with unlimited staff seats and unlimited reconciliation runs — 60-Day Free Trial up to 2 GSTINs (₹0), Solo up to 25 GSTINs (₹799/mo · ₹5,999/yr), Firm up to 75 GSTINs (₹1,499/mo · ₹8,999/yr), and Large Firm up to 150 GSTINs (₹2,499/mo · ₹11,999/yr). Every plan includes 100% full product access with zero feature gating.",
   },
   {
     id: "rule-88d-notice",

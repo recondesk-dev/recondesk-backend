@@ -3,8 +3,8 @@ import { PricingGrid } from "@/components/billing/PricingGrid";
 
 const pricingFaq = [
   {
-    q: "Is there a free plan?",
-    a: "Yes. Our Free plan gives you up to 2 GSTINs completely free forever with unlimited reconciliation runs and zero feature gating — no credit card needed.",
+    q: "Is there a free trial?",
+    a: "Yes. Our 60-Day Free Trial gives you up to 2 GSTINs completely free for 2 months (covering 2 complete monthly return filing cycles) with unlimited reconciliation runs and zero feature gating — no credit card needed.",
   },
   {
     q: "What am I paying for?",
@@ -58,7 +58,7 @@ export default function PricingPage() {
       <PricingGrid />
 
       <p className="mx-auto mt-8 max-w-6xl text-center text-xs text-gray-500">
-        Free to start · 2 GSTINs included forever · Unlimited runs · Manual Razorpay annual renewal · No auto-debit
+        Free to start · 2 GSTINs included for 60 days · Unlimited runs · Manual Razorpay renewal · No auto-debit
       </p>
 
       <SubscriptionFeatures />

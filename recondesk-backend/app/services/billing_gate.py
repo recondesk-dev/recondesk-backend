@@ -28,10 +28,10 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
     "free": {
         **_with_gst(0),
         "gstin_limit": 2,
-        "period_days": 365,
-        "billing_period": "yearly",
-        "monthly": {**_with_gst(0), "period_days": 30, "gstin_limit": 2},
-        "yearly": {**_with_gst(0), "period_days": 365, "gstin_limit": 2},
+        "period_days": 60,
+        "billing_period": "trial",
+        "monthly": {**_with_gst(0), "period_days": 60, "gstin_limit": 2},
+        "yearly": {**_with_gst(0), "period_days": 60, "gstin_limit": 2},
     },
     "solo": {
         **_with_gst(5999_00),
