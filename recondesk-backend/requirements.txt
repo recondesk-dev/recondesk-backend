@@ -62,8 +62,10 @@ alembic>=1.13.0
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.9
 
-# PDF generation
+# PDF processing & generation
 reportlab>=4.1.0
+pypdf>=4.2.0
+pdfplumber>=0.11.0
 
 # Testing
 pytest>=8.1.0

@@ -175,3 +175,114 @@ def test_notices_api_export_excel():
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     assert "attachment" in resp.headers["content-disposition"]
+
+
+def test_notice_defense_oversized_alleged_demand_isolates_residual():
+    """When the department's alleged demand exceeds all explained items, cleanly isolate DRC-03 residual."""
+    mock_sb = MagicMock()
+    mock_sb.table().select().eq().limit().execute.return_value.data = [
+        {"id": "client-1", "gstin": "27AABCT1234F1Z1", "trade_name": "Acme Corp Ltd"}
+    ]
+
+    # Large demand of 2,000,000 INR
+    notice_input = {
+        "notice_reference": "DIN-OVERSIZED-001",
+        "notice_type": "ASMT-10",
+        "tax_period": "032024",
+        "alleged_tax_demand": 2000000.0,
+        "alleged_igst": 2000000.0,
+    }
+
+    result = compute_notice_defense(mock_sb, "client-1", notice_input)
+    summary = result["defense_summary"]
+
+    assert summary["alleged_total"] == 2000000.0
+    assert summary["total_explained"] < summary["alleged_total"]
+    assert summary["unexplained_balance"] > 0.0
+    assert summary["unexplained_balance"] == round(summary["alleged_total"] - summary["total_explained"], 2)
+    assert summary["reconciliation_status"] == "PARTIALLY_EXPLAINED"
+    # Ensure formal reply explicitly isolates the residual for voluntary DRC-03
+    assert "BALANCE UNEXPLAINED" in result["formal_reply_text"]
+    assert "DRC-03" in result["formal_reply_text"]
+
+
+def test_notice_defense_zero_or_negative_demand_safety():
+    """Verify engine handles 0.0 demand gracefully without DivisionByZero errors."""
+    mock_sb = MagicMock()
+    mock_sb.table().select().eq().limit().execute.return_value.data = [
+        {"id": "client-1", "gstin": "27AABCT1234F1Z1", "trade_name": "Zero Demand Client"}
+    ]
+
+    notice_input = {
+        "notice_reference": "DIN-ZERO-001",
+        "notice_type": "DRC-01C",
+        "tax_period": "032024",
+        "alleged_tax_demand": 0.0,
+    }
+
+    result = compute_notice_defense(mock_sb, "client-1", notice_input)
+    summary = result["defense_summary"]
+
+    assert summary["alleged_total"] == 0.0
+    assert summary["reconciled_pct"] == 100.0
+    assert summary["unexplained_balance"] == 0.0
+    assert summary["reconciliation_status"] == "FULLY_RECONCILED"
+
+
+def test_notice_defense_drc01b_form_support():
+    """Verify DRC-01B outward liability mismatch notice behavior."""
+    mock_sb = MagicMock()
+    mock_sb.table().select().eq().limit().execute.return_value.data = [
+        {"id": "client-1", "gstin": "27AABCT1234F1Z1", "trade_name": "Sales Corp"}
+    ]
+
+    notice_input = {
+        "notice_reference": "DIN-DRC01B-001",
+        "notice_type": "DRC-01B",
+        "tax_period": "032024",
+        "alleged_tax_demand": 150000.0,
+        "discrepancy_category": "OUTWARD_LIABILITY_1_VS_3B",
+    }
+
+    result = compute_notice_defense(mock_sb, "client-1", notice_input)
+    assert result["notice_type"] == "DRC-01B"
+    assert "DRC-01B" in result["formal_reply_text"]
+    assert "DIN-DRC01B-001" in result["formal_reply_text"]
+
+
+def test_notice_defense_unlinked_run_fallback():
+    """When run_id is None, engine must generate valid representative statutory defense."""
+    mock_sb = MagicMock()
+    mock_sb.table().select().eq().limit().execute.return_value.data = [
+        {"id": "client-1", "gstin": "27AABCT1234F1Z1", "trade_name": "Unlinked Client"}
+    ]
+
+    notice_input = {
+        "notice_reference": "DIN-UNLINKED-001",
+        "notice_type": "DRC-01C",
+        "tax_period": "092023",
+        "alleged_tax_demand": 300000.0,
+    }
+
+    result = compute_notice_defense(mock_sb, "client-1", notice_input, run_id=None)
+    assert result["reconciliation_run_id"] is None
+    assert len(result["invoices_schedule"]) >= 2
+    assert result["defense_summary"]["total_explained"] > 0
+    assert "DIN-UNLINKED-001" in result["formal_reply_text"]
+
+
+def test_find_matching_reconciliation_runs_scoring():
+    """Verify period normalization sorts exact period match to top."""
+    from app.services.notice_defense_engine import find_matching_reconciliation_runs
+
+    mock_sb = MagicMock()
+    mock_sb.table().select().eq().order().execute.return_value.data = [
+        {"id": "run-older", "period": "012024", "status": "COMPLETED"},
+        {"id": "run-target", "period": "032024", "status": "COMPLETED"},
+        {"id": "run-other", "period": "022024", "status": "QUEUED"},
+    ]
+
+    runs = find_matching_reconciliation_runs(mock_sb, "client-1", tax_period="2024-03")
+    assert len(runs) == 3
+    # Target period (032024 vs 2024-03) must be ranked first
+    assert runs[0]["id"] == "run-target"

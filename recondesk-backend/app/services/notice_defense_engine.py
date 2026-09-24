@@ -32,20 +32,47 @@ _log = logging.getLogger(__name__)
 def parse_notice_pdf(file_bytes: bytes) -> dict[str, Any]:
     """Extract structured notice metadata from an uploaded GST notice PDF.
 
-    Uses PyPDF2 to extract text and heuristic regex patterns to identify
-    DIN, Notice Form (DRC-01C, ASMT-10, DRC-01B, DRC-01), dates, tax period,
-    issuing authority, and alleged demand amounts.
+    Extracts text using pdfplumber, pypdf, or PyPDF2 (in order of availability)
+    and applies heuristic regex patterns to identify DIN, Notice Form
+    (DRC-01C, ASMT-10, DRC-01B, DRC-01), dates, tax period, issuing authority,
+    and alleged demand amounts.
     """
     extracted_text = ""
-    try:
-        import PyPDF2
 
-        reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-        for page in reader.pages:
-            t = page.extract_text() or ""
-            extracted_text += t + "\n"
+    # 1. Try pdfplumber (preferred for complex tabular layouts)
+    try:
+        import pdfplumber
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            for page in pdf.pages:
+                extracted_text += (page.extract_text() or "") + "\n"
+    except ImportError:
+        pass
     except Exception as exc:
-        _log.warning("PyPDF2 extraction error: %s", exc)
+        _log.warning("pdfplumber extraction error: %s", exc)
+
+    # 2. Try pypdf (modern pypdf library)
+    if not extracted_text.strip():
+        try:
+            import pypdf
+            reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+            for page in reader.pages:
+                extracted_text += (page.extract_text() or "") + "\n"
+        except ImportError:
+            pass
+        except Exception as exc:
+            _log.warning("pypdf extraction error: %s", exc)
+
+    # 3. Fallback to PyPDF2
+    if not extracted_text.strip():
+        try:
+            import PyPDF2
+            reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+            for page in reader.pages:
+                extracted_text += (page.extract_text() or "") + "\n"
+        except ImportError:
+            pass
+        except Exception as exc:
+            _log.warning("PyPDF2 extraction error: %s", exc)
 
     text_upper = extracted_text.upper()
 
@@ -191,6 +218,30 @@ def parse_notice_pdf(file_bytes: bytes) -> dict[str, Any]:
 # Reconciliation Run Matching
 # ---------------------------------------------------------------------------
 
+def _normalize_period_variants(period_str: str) -> set[str]:
+    s = (period_str or "").strip().replace("/", "-")
+    if not s:
+        return set()
+    variants = {s, s.replace("-", "")}
+    # Pattern YYYY-MM
+    m_iso = re.match(r"^(\d{4})-(\d{2})$", s)
+    if m_iso:
+        y, m = m_iso.group(1), m_iso.group(2)
+        variants.add(f"{m}{y}")
+        variants.add(f"{y}{m}")
+        variants.add(f"{m}-{y}")
+        variants.add(f"{y}-{m}")
+    # Pattern MM-YYYY or MMYYYY
+    m_mmyyyy = re.match(r"^(\d{2})-?(\d{4})$", s)
+    if m_mmyyyy:
+        m, y = m_mmyyyy.group(1), m_mmyyyy.group(2)
+        variants.add(f"{m}{y}")
+        variants.add(f"{y}{m}")
+        variants.add(f"{m}-{y}")
+        variants.add(f"{y}-{m}")
+    return variants
+
+
 def find_matching_reconciliation_runs(
     sb: Client,
     client_id: str,
@@ -210,13 +261,16 @@ def find_matching_reconciliation_runs(
         return []
 
     # Sort matching period to the top
-    norm_p = tax_period.replace("-", "").replace("/", "").strip()
+    target_variants = _normalize_period_variants(tax_period)
 
     def _sort_score(r: dict[str, Any]) -> int:
-        p = str(r.get("period") or "").replace("-", "").replace("/", "").strip()
+        raw_p = str(r.get("period") or "").strip()
+        run_variants = _normalize_period_variants(raw_p)
         score = 0
-        if norm_p and (norm_p == p or norm_p in p or p in norm_p):
+        if target_variants and (target_variants & run_variants):
             score += 100
+        elif target_variants and any(t in raw_p or raw_p in t for t in target_variants):
+            score += 50
         if str(r.get("status") or "").upper() == "COMPLETED":
             score += 20
         return score

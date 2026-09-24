@@ -9,11 +9,13 @@ import {
   Clock,
   Copy,
   Download,
+  ExternalLink,
   FileCheck,
   FileSpreadsheet,
   FileText,
   HelpCircle,
   Loader2,
+  ShieldAlert,
   ShieldCheck,
   Upload,
   X,
@@ -83,6 +85,7 @@ export function NoticeDefenseModal({
   const [downloadingExcel, setDownloadingExcel] = useState(false);
   const [savingNotice, setSavingNotice] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [certifiedByCa, setCertifiedByCa] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Reset when modal opens
@@ -92,6 +95,7 @@ export function NoticeDefenseModal({
       setErrorMsg(null);
       setDefenseResult(null);
       setSaveSuccess(false);
+      setCertifiedByCa(false);
     }
   }, [open]);
 
@@ -181,6 +185,11 @@ export function NoticeDefenseModal({
   // Copy formal reply
   function handleCopyReply() {
     if (!defenseResult?.formal_reply_text) return;
+    if (!certifiedByCa) {
+      setErrorMsg("Please certify that you have reviewed the underlying vouchers and Table 4 figures prior to copying the formal reply.");
+      return;
+    }
+    setErrorMsg(null);
     navigator.clipboard.writeText(defenseResult.formal_reply_text);
     setCopySuccess(true);
     setTimeout(() => setCopySuccess(false), 2500);
@@ -505,12 +514,35 @@ export function NoticeDefenseModal({
                   <p className="text-xs font-medium">Finding matching reconciliation workpapers...</p>
                 </div>
               ) : matchingRuns.length === 0 ? (
-                <div className="p-6 text-center border border-dashed border-slate-200 rounded-xl">
-                  <HelpCircle className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                  <p className="text-sm font-bold text-slate-700">No previous reconciliation run found for this period</p>
-                  <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
-                    ReconDesk will still build a statutory defense grounded in Section 16(4) timing differences, Rule 37 provisos, and CBIC Circular 183/2022.
-                  </p>
+                <div className="p-6 text-center border-2 border-dashed border-amber-200 rounded-2xl bg-amber-50/50 space-y-3">
+                  <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center mx-auto shadow-sm">
+                    <AlertCircle className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      No reconciliation workpaper found for period {noticeData.tax_period || "specified"}
+                    </h4>
+                    <p className="text-xs text-slate-600 max-w-md mx-auto mt-1">
+                      To compile an exact invoice-by-invoice mathematical defense annexure from your client's actual books, run a GSTR-2B reconciliation first.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                    <a
+                      href={`/reconcile/${clientId}/new?period=${encodeURIComponent(noticeData.tax_period || "")}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+                    >
+                      <span>Start GSTR-2B Reconciliation for {noticeData.tax_period || "Period"}</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                    <button
+                      onClick={handleRunDefense}
+                      className="px-4 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold"
+                    >
+                      Proceed with Statutory Defense Grounds Only →
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-72 overflow-y-auto">
@@ -768,17 +800,47 @@ export function NoticeDefenseModal({
 
               {/* TAB 3: FORMAL REPLY LETTER */}
               {activeTab === "reply" && (
-                <div className="relative border border-slate-200 rounded-xl p-4 bg-slate-900 text-slate-100 font-mono text-xs max-h-80 overflow-y-auto leading-relaxed whitespace-pre-wrap selection:bg-indigo-600">
-                  <div className="sticky top-2 right-2 flex justify-end mb-2">
+                <div className="space-y-3">
+                  {/* CA Statutory Review Gate Banner */}
+                  <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
+                    <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <div className="font-bold text-amber-950">
+                        Statutory Practitioner Review Gate (CGST Rule 26)
+                      </div>
+                      <p className="text-amber-800 leading-relaxed text-[11px]">
+                        This reply draft and mathematical Annexure A have been compiled from client reconciliation records.
+                        Under ICAI standards and CGST rules, a Chartered Accountant / Tax Practitioner must review supporting
+                        vouchers and certify calculations prior to filing on the GST portal.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={certifiedByCa}
+                        onChange={(e) => setCertifiedByCa(e.target.checked)}
+                        className="w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                      />
+                      <span>I certify that I have verified the underlying vouchers and figures prior to submission.</span>
+                    </label>
+
                     <button
                       onClick={handleCopyReply}
-                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-sans text-xs font-bold flex items-center gap-1.5 shadow-md"
+                      className={`px-3 py-1.5 rounded-lg text-white font-sans text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all shrink-0 ${
+                        certifiedByCa ? "bg-indigo-600 hover:bg-indigo-700" : "bg-slate-400 opacity-70"
+                      }`}
                     >
                       {copySuccess ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                       {copySuccess ? "Copied Reply!" : "Copy Full Text"}
                     </button>
                   </div>
-                  {defenseResult.formal_reply_text}
+
+                  <div className="relative border border-slate-200 rounded-xl p-4 bg-slate-900 text-slate-100 font-mono text-xs max-h-80 overflow-y-auto leading-relaxed whitespace-pre-wrap selection:bg-indigo-600">
+                    {defenseResult.formal_reply_text}
+                  </div>
                 </div>
               )}
             </div>
