@@ -21,6 +21,8 @@ export interface VendorRiskSummary {
   promised_period?: string | null;
   token?: string | null;
   viewed_at?: string | null;
+  promise_broken?: boolean;
+  promise_broken_note?: string | null;
 }
 
 export interface VendorPortalInvoice {
@@ -258,9 +260,12 @@ export async function submitVendorPortalResponse(
   status: string;
   response_action: string;
   reference_id: string;
+  token?: string;
   responded_at: string;
   arn_number?: string;
   promised_period?: string;
+  dispute_reason?: string;
+  attachment_key?: string;
   message: string;
 }> {
   const res = await fetch(`${API_URL}/api/public/v/${encodeURIComponent(token)}/respond`, {

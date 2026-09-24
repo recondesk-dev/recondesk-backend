@@ -273,6 +273,14 @@ function VendorFollowupHubContent() {
   };
 
   const renderStatusPill = (v: VendorRiskSummary) => {
+    if (v.followup_status === "PROMISE_BROKEN" || v.promise_broken) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-red-300 bg-red-100 px-2.5 py-0.5 text-xs font-extrabold text-red-800 animate-pulse">
+          <AlertTriangle className="h-3 w-3 text-red-600" />
+          🔴 Promise Broken ({v.promised_period ? `${v.promised_period}` : "Overdue"})
+        </span>
+      );
+    }
     if (v.followup_status === "FILING_CONFIRMED" || v.response_action === "ALREADY_FILED") {
       return (
         <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700">
@@ -534,6 +542,14 @@ function VendorFollowupHubContent() {
                             </>
                           )}
                         </div>
+                        {v.promise_broken && (
+                          <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50/90 px-3 py-1.5 text-xs font-semibold text-red-700">
+                            <AlertTriangle className="h-4 w-4 shrink-0 text-red-600" />
+                            <span>
+                              {v.promise_broken_note || "Filing deadline missed — invoices remain unfiled and missing from GSTR-2B"}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -644,6 +660,8 @@ function VendorFollowupHubContent() {
                               className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
                                 log.status === "FILING_CONFIRMED"
                                   ? "bg-emerald-100 text-emerald-800"
+                                  : log.status === "PROMISE_BROKEN"
+                                  ? "bg-red-100 text-red-800"
                                   : log.status === "PROMISED_NEXT_CYCLE"
                                   ? "bg-amber-100 text-amber-800"
                                   : log.status === "DISPUTED"
@@ -655,6 +673,8 @@ function VendorFollowupHubContent() {
                             >
                               {log.status === "FILING_CONFIRMED"
                                 ? `Confirmed ${log.arn_number ? `(ARN: ${log.arn_number})` : ""}`
+                                : log.status === "PROMISE_BROKEN"
+                                ? `Promise Broken (${log.promised_period || "Overdue"})`
                                 : log.status === "PROMISED_NEXT_CYCLE"
                                 ? `Promised (${log.promised_period || "Next Cycle"})`
                                 : log.status === "DISPUTED"

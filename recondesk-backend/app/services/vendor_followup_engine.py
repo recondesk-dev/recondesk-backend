@@ -206,6 +206,80 @@ def _ensure_table_exists(conn: Any) -> None:
     conn.commit()
 
 
+def is_promise_period_overdue(promised_period: Optional[str], dispatched_at: Optional[str] = None) -> bool:
+    """Determine if a vendor's committed filing cycle or return deadline has passed.
+    Under GST Law, GSTR-1 for return period M is due on the 11th of month M+1.
+    If the 11th of month M+1 has passed, or if the promise period is in the past, the promise is broken.
+    """
+    now = datetime.now(timezone.utc)
+    if not promised_period or not str(promised_period).strip():
+        if dispatched_at:
+            try:
+                disp_dt = datetime.fromisoformat(str(dispatched_at).replace("Z", "+00:00"))
+                return (now - disp_dt).days > 35
+            except Exception:
+                pass
+        return False
+
+    text = str(promised_period).strip().lower()
+
+    months = {
+        "january": 1, "jan": 1,
+        "february": 2, "feb": 2,
+        "march": 3, "mar": 3,
+        "april": 4, "apr": 4,
+        "may": 5,
+        "june": 6, "jun": 6,
+        "july": 7, "jul": 7,
+        "august": 8, "aug": 8,
+        "september": 9, "sep": 9, "sept": 9,
+        "october": 10, "oct": 10,
+        "november": 11, "nov": 11,
+        "december": 12, "dec": 12,
+    }
+
+    year_match = re.search(r"\b(20[2-3][0-9])\b", text)
+    year = int(year_match.group(1)) if year_match else now.year
+
+    target_month = None
+    for m_name, m_num in months.items():
+        if re.search(rf"\b{m_name}\b", text):
+            target_month = m_num
+            break
+
+    if not target_month:
+        iso_match = re.search(r"(\d{4})-(\d{2})", text)
+        if iso_match:
+            year = int(iso_match.group(1))
+            target_month = int(iso_match.group(2))
+        else:
+            alt_match = re.search(r"(\d{2})-(\d{4})", text)
+            if alt_match:
+                target_month = int(alt_match.group(1))
+                year = int(alt_match.group(2))
+
+    if target_month and 1 <= target_month <= 12:
+        # Statutory GSTR-1 cutoff is the 11th of the month following the return period
+        if target_month == 12:
+            deadline_year = year + 1
+            deadline_month = 1
+        else:
+            deadline_year = year
+            deadline_month = target_month + 1
+
+        deadline_dt = datetime(deadline_year, deadline_month, 11, 23, 59, 59, tzinfo=timezone.utc)
+        return now > deadline_dt
+
+    if dispatched_at:
+        try:
+            disp_dt = datetime.fromisoformat(str(dispatched_at).replace("Z", "+00:00"))
+            return (now - disp_dt).days > 35
+        except Exception:
+            pass
+
+    return False
+
+
 def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str, Any]]:
     """Fetch high-risk vendor summary list for a client with total at-risk ITC."""
     vendor_map: dict[str, dict[str, Any]] = {}
@@ -241,6 +315,8 @@ def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str
                         "response_action": None,
                         "arn_number": None,
                         "promised_period": None,
+                        "promise_broken": False,
+                        "promise_broken_note": None,
                         "token": None,
                         "viewed_at": None,
                     }
@@ -280,6 +356,8 @@ def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str
                     "response_action": None,
                     "arn_number": None,
                     "promised_period": None,
+                    "promise_broken": False,
+                    "promise_broken_note": None,
                     "token": None,
                     "viewed_at": None,
                 }
@@ -290,7 +368,7 @@ def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str
     except Exception as exc:
         logger.warning("Error fetching rule37_actions for vendor follow-up: %s", exc)
 
-    # 3. Attach past follow-up dispatch history
+    # 3. Attach past follow-up dispatch history and evaluate promise status
     try:
         logs = get_followup_history(sb, client_gstin_id)
         for log in logs:
@@ -299,10 +377,30 @@ def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str
                 vendor_map[gstin]["followup_count"] += 1
                 if not vendor_map[gstin]["last_followup_at"]:
                     vendor_map[gstin]["last_followup_at"] = log.get("dispatched_at")
-                    vendor_map[gstin]["followup_status"] = log.get("status")
-                    vendor_map[gstin]["response_action"] = log.get("response_action")
+                    f_status = log.get("status")
+                    resp_act = log.get("response_action")
+                    p_period = log.get("promised_period")
+                    disp_at = log.get("dispatched_at")
+
+                    is_broken = False
+                    if f_status == "PROMISED_NEXT_CYCLE" or resp_act == "PROMISED_NEXT_CYCLE":
+                        if is_promise_period_overdue(p_period, disp_at):
+                            f_status = "PROMISE_BROKEN"
+                            is_broken = True
+
+                    vendor_map[gstin]["followup_status"] = f_status
+                    vendor_map[gstin]["response_action"] = resp_act
                     vendor_map[gstin]["arn_number"] = log.get("arn_number")
-                    vendor_map[gstin]["promised_period"] = log.get("promised_period")
+                    vendor_map[gstin]["promised_period"] = p_period
+                    vendor_map[gstin]["promise_broken"] = is_broken
+                    if is_broken:
+                        vendor_map[gstin]["promise_broken_note"] = (
+                            f"Promised in {p_period}, but invoices remain unfiled" if p_period
+                            else "Filing commitment period has passed — invoices remain unfiled"
+                        )
+                        # Auto-escalate risk score by 20 points
+                        vendor_map[gstin]["risk_score"] = min(100, vendor_map[gstin]["risk_score"] + 20)
+
                     vendor_map[gstin]["token"] = log.get("token")
                     vendor_map[gstin]["viewed_at"] = log.get("viewed_at")
     except Exception as exc:
@@ -694,15 +792,13 @@ def create_or_get_followup_token(
     now = datetime.now(timezone.utc)
     expires_at = (now + timedelta(days=45)).isoformat()
 
-    # Fetch missing invoices snapshot
-    invoices = fetch_vendor_invoices(sb, client_gstin_id, norm_gstin)
-
     # Check if a recent unexpired unresponded token exists for this client + supplier
     existing_token = None
+    existing_invoices_count = 0
     try:
         res = (
             sb.table("vendor_followup_logs")
-            .select("id, token, expires_at, status")
+            .select("id, token, expires_at, status, invoices_snapshot")
             .eq("client_gstin_id", client_gstin_id)
             .eq("supplier_gstin", norm_gstin)
             .not_.is_("token", "null")
@@ -717,13 +813,23 @@ def create_or_get_followup_token(
                 exp_dt = datetime.fromisoformat(str(exp_raw).replace("Z", "+00:00"))
                 if exp_dt > now and row.get("status") not in ("FILING_CONFIRMED", "PROMISED_NEXT_CYCLE", "DISPUTED"):
                     existing_token = row.get("token")
+                    snap = row.get("invoices_snapshot")
+                    if isinstance(snap, str):
+                        try:
+                            import json
+                            snap = json.loads(snap)
+                        except Exception:
+                            snap = []
+                    existing_invoices_count = len(snap) if isinstance(snap, list) else 0
     except Exception as exc:
         logger.warning("Error checking existing token: %s", exc)
 
     token = existing_token or secrets.token_urlsafe(32)
 
-    # If no existing token, create record
+    # If no existing token, take an immutable snapshot and persist record
     if not existing_token:
+        invoices = fetch_vendor_invoices(sb, client_gstin_id, norm_gstin)
+        invoices_count = len(invoices)
         log_followup_action(
             sb=sb,
             client_gstin_id=client_gstin_id,
@@ -740,6 +846,8 @@ def create_or_get_followup_token(
             expires_at=expires_at,
             invoices_snapshot=invoices,
         )
+    else:
+        invoices_count = existing_invoices_count
 
     from app.config import get_settings
     settings = get_settings()
@@ -750,7 +858,7 @@ def create_or_get_followup_token(
         "token": token,
         "portal_url": portal_url,
         "expires_at": expires_at,
-        "invoices_count": len(invoices),
+        "invoices_count": invoices_count,
     }
 
 
@@ -840,10 +948,30 @@ def get_vendor_portal_data(sb: Client, token: str) -> dict[str, Any]:
     except Exception as exc:
         logger.warning("Failed to fetch client details for portal: %s", exc)
 
-    # 5. Retrieve invoice list
-    invoices = log_row.get("invoices_snapshot") or []
+    # 5. Retrieve invoice list strictly from immutable snapshot taken at notice dispatch time
+    raw_snap = log_row.get("invoices_snapshot")
+    invoices = []
+    if raw_snap:
+        if isinstance(raw_snap, str):
+            try:
+                import json
+                invoices = json.loads(raw_snap)
+            except Exception as e:
+                logger.warning("Failed parsing invoices_snapshot JSON: %s", e)
+                invoices = []
+        elif isinstance(raw_snap, list):
+            invoices = raw_snap
+
+    # If no snapshot was recorded (legacy notices only), snapshot once and freeze
     if not invoices and client_id and log_row.get("supplier_gstin"):
         invoices = fetch_vendor_invoices(sb, client_id, log_row["supplier_gstin"])
+        if invoices:
+            try:
+                sb.table("vendor_followup_logs").update({
+                    "invoices_snapshot": invoices
+                }).eq("id", log_row["id"]).execute()
+            except Exception as exc:
+                logger.warning("Could not freeze fallback invoices_snapshot: %s", exc)
 
     return {
         "id": str(log_row.get("id")),
@@ -976,9 +1104,12 @@ def submit_vendor_portal_response(
         "status": status_val,
         "response_action": clean_action,
         "reference_id": log_id,
+        "token": clean_token,
         "responded_at": now_iso,
         "arn_number": update_payload["arn_number"],
         "promised_period": update_payload["promised_period"],
+        "dispute_reason": update_payload["dispute_reason"],
+        "attachment_key": update_payload["attachment_key"],
         "message": "Thank you! Your response has been securely recorded for GST reconciliation.",
     }
 

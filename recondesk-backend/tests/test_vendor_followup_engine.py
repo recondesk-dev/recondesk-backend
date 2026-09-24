@@ -519,3 +519,125 @@ def test_public_vendor_portal_router_endpoints():
         assert resp_data["arn_number"] == "AA2708260012345678"
 
 
+def test_is_promise_period_overdue_logic():
+    """Verify GST GSTR-1 cutoff (11th of month M+1) accurately determines overdue cycles."""
+    from datetime import datetime, timezone
+    from unittest.mock import patch
+    from app.services.vendor_followup_engine import is_promise_period_overdue
+
+    # Fix current time to September 25, 2026
+    fixed_now = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
+    with patch("app.services.vendor_followup_engine.datetime") as mock_dt:
+        mock_dt.now.return_value = fixed_now
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.side_effect = lambda *args, **kw: datetime(*args, **kw)
+
+        # 1. August 2026 GSTR-1 was due on Sept 11, 2026. On Sept 25, it is overdue!
+        assert is_promise_period_overdue("August 2026") is True
+        assert is_promise_period_overdue("2026-08") is True
+
+        # 2. September 2026 GSTR-1 is due on Oct 11, 2026. On Sept 25, it is NOT overdue!
+        assert is_promise_period_overdue("September 2026") is False
+        assert is_promise_period_overdue("2026-09") is False
+
+        # 3. October 2026 is in the future
+        assert is_promise_period_overdue("October 2026") is False
+
+
+def test_get_vendor_risk_summaries_escalates_broken_promise():
+    """Verify vendor with an overdue filing promise is auto-escalated to PROMISE_BROKEN."""
+    from unittest.mock import MagicMock, patch
+    from app.services.vendor_followup_engine import get_vendor_risk_summaries
+
+    mock_sb = MagicMock()
+    # 1. Mock supplier compliance summary with 1 vendor
+    mock_summary = [{
+        "supplier_gstin_normalized": "27ABCDE1234F1Z5",
+        "supplier_trade_name": "Kalyan Packaging Works",
+        "vendor_phone": "9876543210",
+        "vendor_email": "kalyan@packaging.com",
+        "total_invoices": 3,
+        "mismatch_invoice_count": 2,
+        "rule37_open_count": 0,
+        "rule37_at_risk_paise": 5400000,
+        "risk_score": 60,
+        "client_gstin_ids": ["client-uuid-1"],
+    }]
+    mock_sb.table("supplier_compliance_summary").select().execute.return_value.data = mock_summary
+    mock_sb.table("rule37_actions").select().eq().execute.return_value.data = []
+
+    # 2. Mock past followup log where vendor promised August 2026 (now overdue)
+    mock_logs = [{
+        "id": "log-1",
+        "supplier_gstin": "27ABCDE1234F1Z5",
+        "supplier_name": "Kalyan Packaging Works",
+        "status": "PROMISED_NEXT_CYCLE",
+        "response_action": "PROMISED_NEXT_CYCLE",
+        "promised_period": "August 2026",
+        "dispatched_at": "2026-08-05T10:00:00Z",
+        "token": "tok-1",
+        "viewed_at": "2026-08-06T10:00:00Z",
+    }]
+
+    with patch("app.services.vendor_followup_engine.get_followup_history", return_value=mock_logs), \
+         patch("app.services.vendor_followup_engine.is_promise_period_overdue", return_value=True):
+
+        vendors = get_vendor_risk_summaries(mock_sb, "client-uuid-1")
+        assert len(vendors) == 1
+        v = vendors[0]
+        assert v["supplier_gstin"] == "27ABCDE1234F1Z5"
+        assert v["followup_status"] == "PROMISE_BROKEN"
+        assert v["promise_broken"] is True
+        assert "Promised in August 2026" in v["promise_broken_note"]
+        # Risk score escalated by 20 points: 60 + 20 = 80
+        assert v["risk_score"] == 80
+
+
+def test_portal_reads_immutable_snapshot():
+    """Verify get_vendor_portal_data strictly serves frozen invoices_snapshot without re-querying live DB."""
+    from unittest.mock import MagicMock, patch
+    from app.services.vendor_followup_engine import get_vendor_portal_data
+
+    mock_sb = MagicMock()
+    frozen_invoices = [
+        {"invoice_number": "INV-ORIG-001", "invoice_date": "2026-07-01", "taxable_value": 100000.0, "tax_amount": 18000.0, "reason": "Missing in GSTR-2B"},
+        {"invoice_number": "INV-ORIG-002", "invoice_date": "2026-07-15", "taxable_value": 200000.0, "tax_amount": 36000.0, "reason": "Missing in GSTR-2B"},
+    ]
+
+    mock_log = {
+        "id": "log-abc",
+        "token": "frozen-token-xyz",
+        "client_gstin_id": "client-uuid-1",
+        "supplier_gstin": "27ABCDE1234F1Z5",
+        "supplier_name": "Supplier X",
+        "at_risk_itc_rupees": 54000.0,
+        "status": "DISPATCHED",
+        "invoices_snapshot": frozen_invoices,
+        "viewed_at": None,
+        "expires_at": None,
+    }
+
+    def mock_table(table_name):
+        t = MagicMock()
+        if table_name == "vendor_followup_logs":
+            t.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [mock_log]
+            t.update.return_value.eq.return_value.execute.return_value.data = [mock_log]
+        elif table_name == "client_gstins":
+            t.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [{
+                "gstin": "27AAACB1234A1Z5",
+                "legal_name": "Client Corp",
+            }]
+        return t
+
+    mock_sb.table.side_effect = mock_table
+
+    with patch("app.services.vendor_followup_engine.fetch_vendor_invoices") as mock_fetch:
+        portal_info = get_vendor_portal_data(mock_sb, "frozen-token-xyz")
+        # Ensure fetch_vendor_invoices was NOT called because snapshot exists
+        mock_fetch.assert_not_called()
+        assert len(portal_info["invoices"]) == 2
+        assert portal_info["invoices"][0]["invoice_number"] == "INV-ORIG-001"
+        assert portal_info["invoices"][1]["invoice_number"] == "INV-ORIG-002"
+
+
+

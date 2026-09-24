@@ -54,10 +54,14 @@ export default function VendorResponsePortalClient({ token }: { token: string })
   const [submissionSuccess, setSubmissionSuccess] = useState(false);
   const [submissionResult, setSubmissionResult] = useState<{
     referenceId: string;
+    token?: string;
     respondedAt: string;
     action: string;
     arn?: string | null;
     period?: string | null;
+    disputeReason?: string | null;
+    attachmentFilename?: string | null;
+    attachmentKey?: string | null;
   } | null>(null);
 
   useEffect(() => {
@@ -75,10 +79,13 @@ export default function VendorResponsePortalClient({ token }: { token: string })
         setSubmissionSuccess(true);
         setSubmissionResult({
           referenceId: data.id,
+          token: data.token || token,
           respondedAt: data.responded_at || new Date().toISOString(),
           action: data.response_action || data.status,
           arn: data.arn_number,
           period: data.promised_period,
+          disputeReason: data.dispute_reason,
+          attachmentKey: data.attachment_key,
         });
       }
     } catch (err: any) {
@@ -155,10 +162,14 @@ export default function VendorResponsePortalClient({ token }: { token: string })
       setSubmissionSuccess(true);
       setSubmissionResult({
         referenceId: res.reference_id,
+        token: res.token || token,
         respondedAt: res.responded_at,
         action: res.response_action,
         arn: res.arn_number,
         period: res.promised_period,
+        disputeReason: res.dispute_reason || (selectedAction === "DISPUTED" ? disputeReason.trim() : undefined),
+        attachmentFilename: uploadedFile?.name,
+        attachmentKey: res.attachment_key,
       });
     } catch (err: any) {
       alert(err?.message || "Failed to submit response. Please try again.");
@@ -326,74 +337,191 @@ export default function VendorResponsePortalClient({ token }: { token: string })
 
         {/* State A: Submission Success / Already Responded */}
         {submissionSuccess && submissionResult && (
-          <div className="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-8 shadow-sm">
-            <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-md">
-                <CheckCircle2 className="h-7 w-7" />
+          <div className="mt-8 rounded-2xl border border-emerald-300 bg-white p-6 sm:p-8 shadow-md">
+            <div className="flex items-start justify-between gap-4 border-b border-gray-200 pb-5">
+              <div className="flex items-start gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-md">
+                  <CheckCircle2 className="h-7 w-7" />
+                </div>
+                <div>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-0.5 text-xs font-bold text-emerald-800">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Statutory Acknowledgment Certificate
+                  </span>
+                  <h3 className="mt-1.5 text-xl font-extrabold text-gray-900">
+                    Vendor Response Recorded &amp; Certified
+                  </h3>
+                  <p className="mt-1 text-xs sm:text-sm text-gray-600">
+                    This formal electronic response has been recorded into the GST compliance audit trail for{" "}
+                    <strong>{portalData.client_name}</strong>.
+                  </p>
+                </div>
               </div>
-              <div className="flex-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
-                  Response Confirmed &amp; Logged
-                </span>
-                <h3 className="mt-1 text-xl font-extrabold text-gray-900">
-                  Thank You! Your Response is Recorded.
-                </h3>
-                <p className="mt-1 text-sm text-gray-600">
-                  Your confirmation has been permanently attached to the GST audit paper trail for{" "}
-                  <strong>{portalData.client_name}</strong>. No further action is required from you.
-                </p>
 
-                <div className="mt-5 rounded-xl border border-emerald-200 bg-white p-4 text-sm space-y-2">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-gray-500 font-medium">Recorded Action:</span>
-                    <span className="font-bold text-gray-900">
-                      {submissionResult.action === "ALREADY_FILED"
-                        ? "✓ Already Filed in GSTR-1"
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="hidden sm:inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-xs font-bold text-gray-700 shadow-sm hover:bg-gray-50 transition print:hidden"
+              >
+                <Printer className="h-4 w-4 text-gray-500" />
+                Print / Save PDF
+              </button>
+            </div>
+
+            {/* Certificate Body */}
+            <div className="mt-6 space-y-5">
+              {/* Reference & Timestamp Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-xl bg-slate-50 p-4 border border-slate-200 text-xs">
+                <div>
+                  <span className="font-semibold text-gray-500 uppercase tracking-wider block text-[11px]">
+                    Reference ID
+                  </span>
+                  <span className="font-mono font-bold text-gray-800 break-all">
+                    {submissionResult.referenceId}
+                  </span>
+                </div>
+                <div>
+                  <span className="font-semibold text-gray-500 uppercase tracking-wider block text-[11px]">
+                    Security Token
+                  </span>
+                  <span className="font-mono font-bold text-indigo-700 break-all">
+                    {submissionResult.token || token}
+                  </span>
+                </div>
+                <div>
+                  <span className="font-semibold text-gray-500 uppercase tracking-wider block text-[11px]">
+                    Recorded Timestamp
+                  </span>
+                  <span className="font-semibold text-gray-800">
+                    {new Date(submissionResult.respondedAt).toLocaleString("en-IN", {
+                      dateStyle: "medium",
+                      timeStyle: "medium",
+                    })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Resolution Action Summary */}
+              <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-4">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                    Selected Resolution
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-extrabold ${
+                      submissionResult.action === "ALREADY_FILED"
+                        ? "bg-emerald-100 text-emerald-800"
                         : submissionResult.action === "PROMISED_NEXT_CYCLE"
-                        ? "⏳ Will File in Next Return Cycle"
-                        : "✕ Invoice Canceled / Not Ours"}
-                    </span>
-                  </div>
+                        ? "bg-amber-100 text-amber-800"
+                        : "bg-rose-100 text-rose-800"
+                    }`}
+                  >
+                    {submissionResult.action === "ALREADY_FILED"
+                      ? "✓ Already Filed in GSTR-1"
+                      : submissionResult.action === "PROMISED_NEXT_CYCLE"
+                      ? "⏳ Will File in Next Return Cycle"
+                      : "✕ Invoice Canceled / Not Ours"}
+                  </span>
+                </div>
 
-                  {submissionResult.arn && (
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-gray-500 font-medium">Filing ARN:</span>
-                      <span className="font-mono font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
-                        {submissionResult.arn}
+                {/* Submissions Detail */}
+                {submissionResult.action === "ALREADY_FILED" && (
+                  <div className="rounded-xl bg-emerald-50/60 p-4 border border-emerald-200 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-emerald-900 uppercase">
+                        GSTN Application Reference Number (ARN)
+                      </span>
+                      <span className="text-[11px] font-semibold text-emerald-700">
+                        18-Character Verified
                       </span>
                     </div>
-                  )}
-
-                  {submissionResult.period && (
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-gray-500 font-medium">Target Cycle:</span>
-                      <span className="font-semibold text-gray-900">{submissionResult.period}</span>
+                    <div className="font-mono text-base font-extrabold text-emerald-900 bg-white px-3.5 py-2 rounded-lg border border-emerald-300 tracking-wider">
+                      {submissionResult.arn || "ARN Recorded"}
                     </div>
-                  )}
+                    <p className="text-xs text-emerald-800">
+                      The supplier has legally affirmed that these invoices were included under the verified ARN above.
+                    </p>
+                  </div>
+                )}
 
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-gray-500 font-medium">Timestamp:</span>
-                    <span className="text-gray-700">
-                      {new Date(submissionResult.respondedAt).toLocaleString("en-IN")}
+                {submissionResult.action === "PROMISED_NEXT_CYCLE" && (
+                  <div className="rounded-xl bg-amber-50/60 p-4 border border-amber-200 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-900 uppercase">
+                        Committed Return Cycle
+                      </span>
+                      <span className="text-[11px] font-semibold text-amber-700">
+                        Scheduled for Tracking
+                      </span>
+                    </div>
+                    <div className="text-base font-extrabold text-amber-950 bg-white px-3.5 py-2 rounded-lg border border-amber-300">
+                      {submissionResult.period || "Next Return Cycle"}
+                    </div>
+                    <p className="text-xs text-amber-800">
+                      The supplier has formally undertaken to file and reflect these invoices in GSTR-1 by the statutory deadline for the cycle indicated.
+                    </p>
+                  </div>
+                )}
+
+                {submissionResult.action === "DISPUTED" && (
+                  <div className="rounded-xl bg-rose-50/60 p-4 border border-rose-200 space-y-2">
+                    <span className="text-xs font-bold text-rose-900 uppercase">
+                      Supplier Dispute Statement (Verbatim)
                     </span>
+                    <blockquote className="italic text-sm text-rose-950 bg-white px-4 py-3 rounded-lg border border-rose-300">
+                      &ldquo;{submissionResult.disputeReason || "Invoice canceled / goods rejected / not recognized."}&rdquo;
+                    </blockquote>
+                    <p className="text-xs text-rose-800">
+                      This formal statement serves as supplier declaration that the transaction is disputed, allowing the buyer to review purchase register entries.
+                    </p>
                   </div>
+                )}
 
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-gray-500 font-medium">Reference ID:</span>
-                    <span className="font-mono text-gray-400">{submissionResult.referenceId}</span>
+                {/* Attachment note */}
+                {(submissionResult.attachmentFilename || submissionResult.attachmentKey) && (
+                  <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3.5 py-2 border border-gray-200 text-xs text-gray-700">
+                    <FileText className="h-4 w-4 text-indigo-600 shrink-0" />
+                    <span>Attached Document:</span>
+                    <strong className="font-mono text-gray-900">
+                      {submissionResult.attachmentFilename || submissionResult.attachmentKey}
+                    </strong>
+                    <span className="text-emerald-700 font-semibold">(Uploaded &amp; Archived)</span>
                   </div>
-                </div>
+                )}
+              </div>
 
-                <div className="mt-5 flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-xs font-semibold text-gray-700 shadow-sm hover:bg-gray-50 transition"
-                  >
-                    <Printer className="h-4 w-4 text-gray-500" />
-                    Print Acknowledgment
-                  </button>
+              {/* Covered Scope */}
+              <div className="rounded-xl border border-gray-200 bg-slate-50/70 p-4 text-xs space-y-2">
+                <div className="flex justify-between items-center font-bold text-gray-800">
+                  <span>Scope of Acknowledgment:</span>
+                  <span>{portalData.invoices.length} Invoice(s) — Total ITC {formatINR(portalData.at_risk_itc_rupees)}</span>
                 </div>
+                <div className="text-gray-600">
+                  Buyer: <strong>{portalData.client_name}</strong> ({portalData.client_gstin || "—"}) | Supplier: <strong>{portalData.supplier_name}</strong> ({portalData.supplier_gstin})
+                </div>
+              </div>
+
+              {/* Statutory Non-Repudiation Footer */}
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 text-xs text-indigo-900 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <ShieldCheck className="h-4 w-4 text-indigo-700 shrink-0" />
+                  <span>Statutory Non-Repudiation Notice</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-indigo-800">
+                  This electronic acknowledgment was generated upon verified submission and constitutes supplier communication under Section 16(2)(c) and Rule 37 of the Central Goods and Services Tax (CGST) Act, 2017. Both buyer and supplier may produce this certificate as evidence during GST audit, scrutiny, or show-cause notice proceedings.
+                </p>
+              </div>
+
+              {/* Print Button (Mobile & Desktop) */}
+              <div className="pt-2 flex justify-end print:hidden">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-black transition"
+                >
+                  <Printer className="h-4 w-4" />
+                  Print / Save Acknowledgment (PDF)
+                </button>
               </div>
             </div>
           </div>

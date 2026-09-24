@@ -138,6 +138,15 @@ function ClientWorkspaceNav({ id }: { id: string }) {
                 p.startsWith(`/clients/${id}/gstr9/`)) &&
               sp?.get("tab") === "gstr9c",
           },
+          {
+            label: "Notice Defense & Workpapers",
+            href: `/clients/${id}/notices`,
+            description:
+              "Form GST DRC-01C, ASMT-10 & DRC-01 audit defense & mathematical reconciliation annexures",
+            isActive: (p) =>
+              p === `/clients/${id}/notices` ||
+              p.startsWith(`/clients/${id}/notices/`),
+          },
         ],
       },
       {
