@@ -332,8 +332,13 @@ async def log_action(
         prof = get_user_profile(user_id)
         if prof:
             user = {**prof, "id": user_id}
+    try:
+        sb = get_supabase()
+    except Exception as exc:
+        logger.warning("Supabase client unavailable for audit logging action=%s: %s", action, exc)
+        return
     await log_audit(
-        get_supabase(),
+        sb,
         user,
         action,
         entity_type,
@@ -360,8 +365,13 @@ def log_action_sync(
         prof = get_user_profile(user_id)
         if prof:
             user = {**prof, "id": user_id}
+    try:
+        sb = get_supabase()
+    except Exception as exc:
+        logger.warning("Supabase client unavailable for sync audit logging action=%s: %s", action, exc)
+        return
     log_audit_sync(
-        get_supabase(),
+        sb,
         user,
         action,
         entity_type,

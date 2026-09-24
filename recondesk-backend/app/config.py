@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     # Explicit true/false always wins.
     GSTR3B_FILING_ENABLED: Optional[bool] = None
 
+    # Showcase onboarding
+    SHOWCASE_ONBOARDING_ENABLED: Optional[bool] = None
+
     # Seller Invoicing / B2B GST compliance
     SELLER_LEGAL_NAME: str = "ReconDesk Technologies"
     SELLER_TRADE_NAME: str = "ReconDesk"

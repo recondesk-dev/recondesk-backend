@@ -305,7 +305,10 @@ def aggregate_gstr1(
                     agg.sgst_paise += mult * diff_samt
                     agg.cess_paise += mult * diff_csamt
                     agg.record_count += 1
-            continue
+                continue
+            elif prior_records:
+                # Prior records were provided, but no original was verified — skip to avoid double counting
+                continue
 
         # Determine inclusion
         if section in _CDN_SECTIONS:
@@ -323,6 +326,7 @@ def aggregate_gstr1(
         elif (
             section in _BASE_TAXABLE_SECTIONS
             or section in _TAXABLE_SUPPLY_SECTIONS
+            or section in ("b2ba", "b2cla", "b2csa")
         ):
             sign = 1
         else:
@@ -362,7 +366,8 @@ def aggregate_gstr1_by_rate(
             continue
 
         if section in _AMENDMENT_SECTIONS or _is_amendment_row(rec):
-            continue
+            if prior_records:
+                continue
 
         rate = rec.get("rate")
         if rate is not None:

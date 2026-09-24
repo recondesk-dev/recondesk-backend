@@ -32,13 +32,21 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+import pytest
 import app.services.reconciliation_outcomes as ro
 from app.matching.engine import run_bidirectional_reconciliation
 from app.services.matcher import normalize_invoice
 from app.services.reconciliation_payload_store import build_stored_results_payload
 
-RUN_ID = "11111111-1111-1111-1111-111111111111"
+RUN_ID = "77777777-7777-7777-7777-777777777777"
 PERIOD = date(2024, 3, 1)
+
+
+@pytest.fixture(autouse=True)
+def _clear_outcomes_process_cache():
+    ro._process_map_cache.clear()
+    yield
+    ro._process_map_cache.clear()
 
 # Same category mix as tests/test_benchmark_6k.py -- comfortably exceeds the
 # 1,000-row-per-request server cap on both the gstr_records and pr_records

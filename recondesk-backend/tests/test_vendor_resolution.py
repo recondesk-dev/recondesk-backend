@@ -182,6 +182,8 @@ def setup_mock_db():
 # 1. DATABASE MIGRATION & SCHEMA CHECK
 def test_database_migration_file_exists():
     migration_path = "supabase/migrations/20260914140000_vendor_followup_work_item.sql"
+    if not os.path.exists(migration_path):
+        migration_path = "recondesk-backend/supabase/migrations/20260914140000_vendor_followup_work_item.sql"
     assert os.path.exists(migration_path), "Migration file must exist"
     with open(migration_path) as f:
         content = f.read()

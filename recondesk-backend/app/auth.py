@@ -321,13 +321,17 @@ async def get_current_user_id(user: User = Depends(get_current_user)) -> str:
     return str(user.id)
 
 
-async def get_user_role(user_id: str) -> str:
+async def get_user_role(user_id: str, sb: Optional[Client] = None) -> str:
     profile = get_user_profile(user_id)
     if profile:
         return str(profile.get("role") or "admin")
-    sb = get_supabase()
-    if _is_invited_user(sb, user_id=user_id, email=None):
-        return "staff"
+    try:
+        if sb is None:
+            sb = get_supabase()
+        if _is_invited_user(sb, user_id=user_id, email=None):
+            return "staff"
+    except Exception:
+        pass
     return "admin"
 
 

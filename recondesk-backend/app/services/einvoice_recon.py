@@ -240,10 +240,11 @@ def reconcile_books_vs_einvoice(
                 irp_record = matched_candidate
                 books_irn = books_row.get("irn")
                 irp_irn = irp_record.get("irn")
-                if not books_irn:
+                has_books_irn_field = ("irn" in books_row)
+                if has_books_irn_field and not books_irn:
                     category = "IRN_MISSING"
                     dec = generate_decision("EINVOICE_IRN_MISSING")
-                elif books_irn != irp_irn:
+                elif books_irn and irp_irn and books_irn != irp_irn:
                     category = "IRN_MISMATCH"
                     dec = generate_decision("EINVOICE_IRN_MISSING")
                 else:
