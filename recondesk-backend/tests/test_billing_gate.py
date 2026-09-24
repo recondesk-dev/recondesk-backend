@@ -50,7 +50,7 @@ def test_gstin_plan_catalog_v2():
     assert fi_yr["base_paise"] == 8999_00
     fi_mo = get_plan_details("firm", "monthly")
     assert fi_mo["gstin_limit"] == 75
-    assert fi_mo["base_paise"] == 1499_00
+    assert fi_mo["base_paise"] == 1199_00
 
     # Large Firm
     lf_yr = get_plan_details("large_firm", "yearly")
@@ -58,7 +58,7 @@ def test_gstin_plan_catalog_v2():
     assert lf_yr["base_paise"] == 11999_00
     lf_mo = get_plan_details("large_firm", "monthly")
     assert lf_mo["gstin_limit"] == 150
-    assert lf_mo["base_paise"] == 2499_00
+    assert lf_mo["base_paise"] == 1899_00
 
 
 def test_expected_free_runs_after_successful_runs():

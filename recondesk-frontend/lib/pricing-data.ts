@@ -86,9 +86,9 @@ export const PRICING_PLANS: PricingPlan[] = [
     name: "Firm",
     badge: "Most Popular",
     badgeYearly: "Most Popular",
-    valueTagMonthly: "₹20 / GSTIN / mo",
+    valueTagMonthly: "₹16 / GSTIN / mo",
     valueTagYearly: "₹120/GSTIN/yr",
-    priceMonthly: 1499,
+    priceMonthly: 1199,
     priceYearly: 8999,
     effectiveMonthlyPrice: 750,
     gstinCapacity: "75 GSTINs",
@@ -107,7 +107,7 @@ export const PRICING_PLANS: PricingPlan[] = [
       },
       {
         header: "Billed Annually",
-        benefit: "₹1,499/mo → ₹750/mo billed annually (₹8,999/yr)",
+        benefit: "₹1,199/mo → ₹750/mo billed annually (₹8,999/yr)",
       },
       {
         header: "Multi-Staff Collaboration",
@@ -118,9 +118,9 @@ export const PRICING_PLANS: PricingPlan[] = [
   {
     id: "large_firm",
     name: "Large Firm",
-    valueTagMonthly: "₹17 / GSTIN / mo",
+    valueTagMonthly: "₹13 / GSTIN / mo",
     valueTagYearly: "₹80/GSTIN/yr",
-    priceMonthly: 2499,
+    priceMonthly: 1899,
     priceYearly: 11999,
     effectiveMonthlyPrice: 1000,
     gstinCapacity: "150 GSTINs",
@@ -139,7 +139,7 @@ export const PRICING_PLANS: PricingPlan[] = [
       },
       {
         header: "Billed Annually",
-        benefit: "₹2,499/mo → ₹1,000/mo billed annually (₹11,999/yr)",
+        benefit: "₹1,899/mo → ₹1,000/mo billed annually (₹11,999/yr)",
       },
       {
         header: "Dedicated Support & ERP",

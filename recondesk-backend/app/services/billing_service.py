@@ -6,13 +6,13 @@ _client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_
 
 PLAN_PRICES = {
     "solo": {"monthly": 799_00, "yearly": 5999_00},
-    "firm": {"monthly": 1499_00, "yearly": 8999_00},
-    "large_firm": {"monthly": 2499_00, "yearly": 11999_00},
-    "large firm": {"monthly": 2499_00, "yearly": 11999_00},
+    "firm": {"monthly": 1199_00, "yearly": 8999_00},
+    "large_firm": {"monthly": 1899_00, "yearly": 11999_00},
+    "large firm": {"monthly": 1899_00, "yearly": 11999_00},
     # Legacy aliases
     "starter": {"monthly": 799_00, "yearly": 5999_00},
-    "growth": {"monthly": 1499_00, "yearly": 8999_00},
-    "pro": {"monthly": 2499_00, "yearly": 11999_00},
+    "growth": {"monthly": 1199_00, "yearly": 8999_00},
+    "pro": {"monthly": 1899_00, "yearly": 11999_00},
     "monthly": {"monthly": 799_00, "yearly": 5999_00},
 }
 

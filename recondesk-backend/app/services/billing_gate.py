@@ -46,7 +46,7 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
         "gstin_limit": 75,
         "period_days": 365,
         "billing_period": "yearly",
-        "monthly": {**_with_gst(1499_00), "period_days": 30, "gstin_limit": 75},
+        "monthly": {**_with_gst(1199_00), "period_days": 30, "gstin_limit": 75},
         "yearly": {**_with_gst(8999_00), "period_days": 365, "gstin_limit": 75},
     },
     "large_firm": {
@@ -54,7 +54,7 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
         "gstin_limit": 150,
         "period_days": 365,
         "billing_period": "yearly",
-        "monthly": {**_with_gst(2499_00), "period_days": 30, "gstin_limit": 150},
+        "monthly": {**_with_gst(1899_00), "period_days": 30, "gstin_limit": 150},
         "yearly": {**_with_gst(11999_00), "period_days": 365, "gstin_limit": 150},
     },
     "large firm": {
@@ -62,7 +62,7 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
         "gstin_limit": 150,
         "period_days": 365,
         "billing_period": "yearly",
-        "monthly": {**_with_gst(2499_00), "period_days": 30, "gstin_limit": 150},
+        "monthly": {**_with_gst(1899_00), "period_days": 30, "gstin_limit": 150},
         "yearly": {**_with_gst(11999_00), "period_days": 365, "gstin_limit": 150},
     },
     # Backward compatibility for legacy keys
@@ -79,7 +79,7 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
         "gstin_limit": 75,
         "period_days": 365,
         "billing_period": "yearly",
-        "monthly": {**_with_gst(1499_00), "period_days": 30, "gstin_limit": 75},
+        "monthly": {**_with_gst(1199_00), "period_days": 30, "gstin_limit": 75},
         "yearly": {**_with_gst(8999_00), "period_days": 365, "gstin_limit": 75},
     },
     "pro": {
@@ -87,7 +87,7 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
         "gstin_limit": 150,
         "period_days": 365,
         "billing_period": "yearly",
-        "monthly": {**_with_gst(2499_00), "period_days": 30, "gstin_limit": 150},
+        "monthly": {**_with_gst(1899_00), "period_days": 30, "gstin_limit": 150},
         "yearly": {**_with_gst(11999_00), "period_days": 365, "gstin_limit": 150},
     },
     "monthly": {
