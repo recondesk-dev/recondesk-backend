@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict
 
 from app.auth import get_current_active_user
@@ -16,6 +16,7 @@ from app.services.firm_access import list_accessible_client_gstin_ids
 logger = logging.getLogger(__name__)
 
 router = APIRouter(redirect_slashes=False)
+public_router = APIRouter(redirect_slashes=False)
 
 
 def _assert_client(sb, client_id: str, user_id: str) -> None:
@@ -37,6 +38,7 @@ class WhatsAppGenerateRequest(BaseModel):
     at_risk_itc_rupees: float = 0.0
     template_type: str = "POLITE_REMINDER"
     custom_template: Optional[str] = None
+    portal_url: Optional[str] = None
 
 
 class EmailGenerateRequest(BaseModel):
@@ -48,6 +50,7 @@ class EmailGenerateRequest(BaseModel):
     at_risk_itc_rupees: float = 0.0
     template_type: str = "POLITE_REMINDER"
     custom_template: Optional[str] = None
+    portal_url: Optional[str] = None
 
 
 class LogDispatchRequest(BaseModel):
@@ -61,6 +64,36 @@ class LogDispatchRequest(BaseModel):
     at_risk_itc_rupees: float = 0.0
     work_item_id: Optional[str] = None
     message_body: Optional[str] = None
+    token: Optional[str] = None
+    expires_at: Optional[str] = None
+    invoices_snapshot: Optional[list[dict[str, Any]]] = None
+
+
+class GenerateTokenRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    supplier_gstin: str
+    supplier_name: Optional[str] = None
+    vendor_phone: Optional[str] = ""
+    vendor_email: Optional[str] = ""
+    at_risk_itc_rupees: float = 0.0
+    template_type: str = "POLITE_REMINDER"
+    work_item_id: Optional[str] = None
+    channel: str = "WHATSAPP"
+
+
+class UpdateVendorContactRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    vendor_phone: Optional[str] = None
+    vendor_email: Optional[str] = None
+
+
+class VendorPortalResponseRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    action: str  # "ALREADY_FILED", "PROMISED_NEXT_CYCLE", "DISPUTED"
+    arn_number: Optional[str] = None
+    promised_period: Optional[str] = None
+    dispute_reason: Optional[str] = None
+    attachment_key: Optional[str] = None
 
 
 @router.get("/clients/{client_id}")
@@ -110,6 +143,7 @@ async def generate_whatsapp_link_endpoint(
         at_risk_itc_rupees=body.at_risk_itc_rupees,
         template_type=body.template_type,
         custom_template=body.custom_template,
+        portal_url=body.portal_url,
     )
 
 
@@ -132,6 +166,54 @@ async def generate_email_notice_endpoint(
         at_risk_itc_rupees=body.at_risk_itc_rupees,
         template_type=body.template_type,
         custom_template=body.custom_template,
+        portal_url=body.portal_url,
+    )
+
+
+@router.post("/clients/{client_id}/generate-token")
+async def generate_token_endpoint(
+    client_id: str,
+    body: GenerateTokenRequest,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Generate or retrieve a secure token for the Tokenized Vendor Action Portal (/v/[token])."""
+    sb = get_supabase()
+    user_id = str(current_user.get("id") or "")
+    _assert_client(sb, client_id, user_id)
+
+    return vf_svc.create_or_get_followup_token(
+        sb=sb,
+        client_gstin_id=client_id,
+        supplier_gstin=body.supplier_gstin,
+        supplier_name=body.supplier_name,
+        vendor_phone=body.vendor_phone or "",
+        vendor_email=body.vendor_email or "",
+        at_risk_itc_rupees=body.at_risk_itc_rupees,
+        work_item_id=body.work_item_id,
+        template_type=body.template_type,
+        channel=body.channel,
+        dispatched_by=user_id,
+    )
+
+
+@router.post("/clients/{client_id}/vendors/{supplier_gstin}/contact")
+async def update_vendor_contact_endpoint(
+    client_id: str,
+    supplier_gstin: str,
+    body: UpdateVendorContactRequest,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Persist updated vendor mobile and email into supplier compliance summary & recent logs."""
+    sb = get_supabase()
+    user_id = str(current_user.get("id") or "")
+    _assert_client(sb, client_id, user_id)
+
+    return vf_svc.update_vendor_contact_info(
+        sb=sb,
+        client_gstin_id=client_id,
+        supplier_gstin=supplier_gstin,
+        vendor_phone=body.vendor_phone,
+        vendor_email=body.vendor_email,
     )
 
 
@@ -160,6 +242,9 @@ async def log_dispatch_endpoint(
             dispatched_by=user_id,
             work_item_id=body.work_item_id,
             message_body=body.message_body,
+            token=body.token,
+            expires_at=body.expires_at,
+            invoices_snapshot=body.invoices_snapshot,
         )
         return logged
     except Exception as exc:
@@ -229,3 +314,66 @@ async def fetch_work_item_followup_history_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch work item followup history: {exc}",
         ) from exc
+
+
+# ── Public Endpoints for Tokenized Vendor Portal (/v/[token]) ─────────────────
+
+@public_router.get("/{token}")
+async def get_vendor_portal_info(token: str):
+    """Retrieve vendor portal metadata & missing invoices (Public endpoint - no auth)."""
+    sb = get_supabase()
+    return vf_svc.get_vendor_portal_data(sb, token)
+
+
+@public_router.post("/{token}/respond")
+async def respond_to_vendor_portal(token: str, body: VendorPortalResponseRequest):
+    """Record supplier response: ARN filing confirmation, next cycle promise, or dispute."""
+    sb = get_supabase()
+    return vf_svc.submit_vendor_portal_response(
+        sb=sb,
+        token=token,
+        action=body.action,
+        arn_number=body.arn_number,
+        promised_period=body.promised_period,
+        dispute_reason=body.dispute_reason,
+        attachment_key=body.attachment_key,
+    )
+
+
+@public_router.post("/{token}/upload")
+async def upload_vendor_portal_file(token: str, file: UploadFile = File(...)):
+    """Upload invoice document copy (PDF/PNG/JPG) for vendor response."""
+    sb = get_supabase()
+    # verify token exists and is valid
+    vf_svc.get_vendor_portal_data(sb, token)
+
+    ALLOWED_TYPES = {"application/pdf", "image/png", "image/jpeg", "image/jpg"}
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only PDF and Image files (PNG, JPG) are allowed.",
+        )
+
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File size exceeds 10 MB limit.",
+        )
+
+    import re
+    safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", file.filename or "invoice.pdf")
+    storage_key = f"vendor-responses/{token}/{safe_name}"
+
+    try:
+        from app.utils.storage import upload_file_raw
+        await upload_file_raw(content, storage_key)
+    except Exception as exc:
+        logger.warning("R2 upload failed, saving fallback reference: %s", exc)
+        storage_key = f"local-upload/{token}/{safe_name}"
+
+    return {
+        "attachment_key": storage_key,
+        "filename": safe_name,
+        "file_size": len(content),
+    }

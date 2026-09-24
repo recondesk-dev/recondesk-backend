@@ -17,6 +17,8 @@ import {
   RefreshCw,
   X,
   ExternalLink,
+  Phone,
+  Eye,
 } from "lucide-react";
 
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
@@ -26,6 +28,8 @@ import {
   fetchVendorRiskSummaries,
   generateWhatsAppLink,
   generateEmailNotice,
+  generateVendorToken,
+  updateVendorContact,
   logFollowupDispatch,
   fetchFollowupHistory,
   type VendorRiskSummary,
@@ -62,6 +66,11 @@ function VendorFollowupHubContent() {
   const [selectedVendorForModal, setSelectedVendorForModal] = useState<VendorRiskSummary | null>(null);
   const [emailModalNotice, setEmailModalNotice] = useState<{ subject: string; html: string } | null>(null);
 
+  const [addPhoneModalVendor, setAddPhoneModalVendor] = useState<VendorRiskSummary | null>(null);
+  const [newVendorPhone, setNewVendorPhone] = useState("");
+  const [newVendorEmail, setNewVendorEmail] = useState("");
+  const [savingContact, setSavingContact] = useState(false);
+
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   useEffect(() => {
@@ -86,10 +95,78 @@ function VendorFollowupHubContent() {
     }
   };
 
+  const handleSaveContact = async () => {
+    if (!addPhoneModalVendor || !token || !clientId) return;
+    if (!newVendorPhone.trim()) {
+      toast("Please enter a valid phone number", "error");
+      return;
+    }
+    setSavingContact(true);
+    try {
+      await updateVendorContact(
+        clientId,
+        addPhoneModalVendor.supplier_gstin,
+        {
+          vendor_phone: newVendorPhone.trim(),
+          vendor_email: newVendorEmail.trim() || undefined,
+        },
+        token
+      );
+      toast(`Contact details saved for ${addPhoneModalVendor.supplier_gstin}`, "success");
+      setVendors((prev) =>
+        prev.map((item) =>
+          item.supplier_gstin === addPhoneModalVendor.supplier_gstin
+            ? {
+                ...item,
+                vendor_phone: newVendorPhone.trim(),
+                vendor_email: newVendorEmail.trim() || item.vendor_email,
+              }
+            : item
+        )
+      );
+      setAddPhoneModalVendor(null);
+    } catch (err: any) {
+      toast(err?.detail || err?.message || "Failed to save contact information", "error");
+    } finally {
+      setSavingContact(false);
+    }
+  };
+
   const handleWhatsAppDispatch = async (v: VendorRiskSummary) => {
     if (!token || !clientId) return;
+    if (!v.vendor_phone || !v.vendor_phone.trim()) {
+      setAddPhoneModalVendor(v);
+      setNewVendorPhone("");
+      setNewVendorEmail(v.vendor_email || "");
+      return;
+    }
+
     setActionLoading(`wa-${v.supplier_gstin}`);
     try {
+      // 1. Generate tokenized action portal URL
+      let portalUrl: string | undefined;
+      let actionToken: string | undefined;
+      try {
+        const tokRes = await generateVendorToken(
+          clientId,
+          {
+            supplier_gstin: v.supplier_gstin,
+            supplier_name: v.supplier_name,
+            vendor_phone: v.vendor_phone,
+            vendor_email: v.vendor_email,
+            at_risk_itc_rupees: v.at_risk_itc_rupees,
+            template_type: templateType,
+            channel: "WHATSAPP",
+          },
+          token
+        );
+        portalUrl = tokRes.portal_url;
+        actionToken = tokRes.token;
+      } catch (tokErr) {
+        console.warn("Portal token generation error:", tokErr);
+      }
+
+      // 2. Generate WhatsApp payload with portal URL
       const payload = await generateWhatsAppLink(
         clientId,
         {
@@ -98,11 +175,12 @@ function VendorFollowupHubContent() {
           vendor_phone: v.vendor_phone,
           at_risk_itc_rupees: v.at_risk_itc_rupees,
           template_type: templateType,
+          portal_url: portalUrl,
         },
         token
       );
 
-      // Log dispatch action
+      // 3. Log dispatch action with token
       await logFollowupDispatch(
         clientId,
         {
@@ -112,6 +190,7 @@ function VendorFollowupHubContent() {
           channel: "WHATSAPP",
           template_type: templateType,
           at_risk_itc_rupees: v.at_risk_itc_rupees,
+          token: actionToken,
         },
         token
       );
@@ -131,6 +210,30 @@ function VendorFollowupHubContent() {
     if (!token || !clientId) return;
     setActionLoading(`email-${v.supplier_gstin}`);
     try {
+      // 1. Generate tokenized action portal URL
+      let portalUrl: string | undefined;
+      let actionToken: string | undefined;
+      try {
+        const tokRes = await generateVendorToken(
+          clientId,
+          {
+            supplier_gstin: v.supplier_gstin,
+            supplier_name: v.supplier_name,
+            vendor_phone: v.vendor_phone,
+            vendor_email: v.vendor_email,
+            at_risk_itc_rupees: v.at_risk_itc_rupees,
+            template_type: templateType,
+            channel: "EMAIL",
+          },
+          token
+        );
+        portalUrl = tokRes.portal_url;
+        actionToken = tokRes.token;
+      } catch (tokErr) {
+        console.warn("Portal token generation error:", tokErr);
+      }
+
+      // 2. Generate email notice with portal URL
       const notice = await generateEmailNotice(
         clientId,
         {
@@ -138,6 +241,7 @@ function VendorFollowupHubContent() {
           supplier_name: v.supplier_name,
           at_risk_itc_rupees: v.at_risk_itc_rupees,
           template_type: templateType,
+          portal_url: portalUrl,
         },
         token
       );
@@ -145,7 +249,7 @@ function VendorFollowupHubContent() {
       setSelectedVendorForModal(v);
       setEmailModalNotice({ subject: notice.subject, html: notice.html_body });
 
-      // Log email dispatch event
+      // 3. Log email dispatch event with token
       await logFollowupDispatch(
         clientId,
         {
@@ -156,14 +260,69 @@ function VendorFollowupHubContent() {
           channel: "EMAIL",
           template_type: templateType,
           at_risk_itc_rupees: v.at_risk_itc_rupees,
+          token: actionToken,
         },
         token
       );
+      loadData();
     } catch (err: any) {
       toast("Failed to generate email notice payload", "error");
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const renderStatusPill = (v: VendorRiskSummary) => {
+    if (v.followup_status === "FILING_CONFIRMED" || v.response_action === "ALREADY_FILED") {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          🟢 Confirmed {v.arn_number ? `(${v.arn_number.slice(0, 8)}...)` : ""}
+        </span>
+      );
+    }
+    if (v.followup_status === "PROMISED_NEXT_CYCLE" || v.response_action === "PROMISED_NEXT_CYCLE") {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-bold text-amber-700">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+          🟡 Promised {v.promised_period ? `(${v.promised_period})` : "Next Cycle"}
+        </span>
+      );
+    }
+    if (v.followup_status === "DISPUTED" || v.response_action === "DISPUTED") {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-0.5 text-xs font-bold text-rose-700">
+          <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+          🔴 Disputed
+        </span>
+      );
+    }
+    if (v.followup_status === "VIEWED" || Boolean(v.viewed_at)) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-purple-50 px-2.5 py-0.5 text-xs font-bold text-purple-700">
+          <Eye className="h-3 w-3 text-purple-600" />
+          🟣 Viewed
+        </span>
+      );
+    }
+    if (
+      v.followup_status === "DISPATCHED" ||
+      v.followup_status === "SENT" ||
+      v.followup_status === "LINK_OPENED" ||
+      (v.followup_count && v.followup_count > 0)
+    ) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-bold text-blue-700">
+          <Send className="h-3 w-3 text-blue-600" />
+          🔵 Dispatched
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-100 px-2.5 py-0.5 text-xs font-bold text-gray-500">
+        ⚪ Unsent
+      </span>
+    );
   };
 
   const handleCopyEmailBody = () => {
@@ -336,18 +495,44 @@ function VendorFollowupHubContent() {
                         {v.risk_score}
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <h3 className="text-base font-bold text-gray-900">{v.supplier_name}</h3>
                           <span className="rounded bg-gray-100 px-2 py-0.5 font-mono text-xs font-bold text-gray-600">
                             {v.supplier_gstin}
                           </span>
+                          {renderStatusPill(v)}
                         </div>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-4 text-xs text-gray-500">
+                        <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-gray-500">
                           <span>Rule 37 Invoices: <strong>{v.rule37_count}</strong></span>
                           <span>•</span>
                           <span>Rule 37 Tax Risk: <strong className="text-amber-700">{formatINR(v.rule37_at_risk_rupees)}</strong></span>
                           <span>•</span>
                           <span>Follow-ups Sent: <strong>{v.followup_count}</strong></span>
+                          {v.vendor_phone ? (
+                            <>
+                              <span>•</span>
+                              <span className="font-mono text-gray-700">📱 {v.vendor_phone}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>•</span>
+                              <span className="font-medium text-amber-600">⚠️ No Phone Saved</span>
+                            </>
+                          )}
+                          {v.token && (
+                            <>
+                              <span>•</span>
+                              <a
+                                href={`/v/${v.token}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
+                              >
+                                Portal Link
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -358,19 +543,34 @@ function VendorFollowupHubContent() {
                         <p className="text-lg font-bold text-red-600">{formatINR(v.at_risk_itc_rupees)}</p>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleWhatsAppDispatch(v)}
-                        disabled={actionLoading === `wa-${v.supplier_gstin}`}
-                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
-                      >
-                        {actionLoading === `wa-${v.supplier_gstin}` ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <MessageSquare className="h-4 w-4" />
-                        )}
-                        WhatsApp Notice
-                      </button>
+                      {v.vendor_phone && v.vendor_phone.trim() ? (
+                        <button
+                          type="button"
+                          onClick={() => handleWhatsAppDispatch(v)}
+                          disabled={actionLoading === `wa-${v.supplier_gstin}`}
+                          className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                          {actionLoading === `wa-${v.supplier_gstin}` ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <MessageSquare className="h-4 w-4" />
+                          )}
+                          WhatsApp Notice
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAddPhoneModalVendor(v);
+                            setNewVendorPhone("");
+                            setNewVendorEmail(v.vendor_email || "");
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-gray-300 bg-gray-100 px-3.5 py-2.5 text-xs font-semibold text-gray-700 shadow-sm transition hover:bg-gray-200 hover:border-gray-400"
+                        >
+                          <Phone className="h-3.5 w-3.5 text-gray-500" />
+                          + Add Phone
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -419,7 +619,10 @@ function VendorFollowupHubContent() {
                         <td className="px-4 py-3 font-mono text-xs">
                           {new Date(log.dispatched_at).toLocaleString("en-IN")}
                         </td>
-                        <td className="px-4 py-3 font-bold text-gray-900">{log.supplier_gstin}</td>
+                        <td className="px-4 py-3 font-bold text-gray-900">
+                          <div>{log.supplier_gstin}</div>
+                          {log.supplier_name && <div className="text-xs font-normal text-gray-500">{log.supplier_name}</div>}
+                        </td>
                         <td className="px-4 py-3">
                           <span
                             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
@@ -432,17 +635,50 @@ function VendorFollowupHubContent() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-xs font-semibold text-gray-700">
-                          {log.template_type.replace("_", " ")}
+                          {log.template_type.replace(/_/g, " ")}
                         </td>
                         <td className="px-4 py-3 font-bold text-gray-900">{formatINR(log.at_risk_itc_rupees)}</td>
                         <td className="px-4 py-3">
-                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-800">
-                            {log.status === "LINK_OPENED"
-                              ? "Link Opened"
-                              : log.status === "NOTICE_GENERATED"
-                              ? "Notice Generated"
-                              : log.status}
-                          </span>
+                          <div className="flex flex-col gap-1 items-start">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                                log.status === "FILING_CONFIRMED"
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : log.status === "PROMISED_NEXT_CYCLE"
+                                  ? "bg-amber-100 text-amber-800"
+                                  : log.status === "DISPUTED"
+                                  ? "bg-rose-100 text-rose-800"
+                                  : log.status === "VIEWED"
+                                  ? "bg-purple-100 text-purple-800"
+                                  : "bg-slate-100 text-slate-800"
+                              }`}
+                            >
+                              {log.status === "FILING_CONFIRMED"
+                                ? `Confirmed ${log.arn_number ? `(ARN: ${log.arn_number})` : ""}`
+                                : log.status === "PROMISED_NEXT_CYCLE"
+                                ? `Promised (${log.promised_period || "Next Cycle"})`
+                                : log.status === "DISPUTED"
+                                ? "Disputed"
+                                : log.status === "VIEWED"
+                                ? "Viewed"
+                                : log.status === "LINK_OPENED"
+                                ? "Link Opened"
+                                : log.status === "NOTICE_GENERATED"
+                                ? "Notice Generated"
+                                : log.status}
+                            </span>
+                            {log.token && (
+                              <a
+                                href={`/v/${log.token}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 font-mono text-[10px] text-indigo-600 hover:underline"
+                              >
+                                /v/{log.token.slice(0, 8)}...
+                                <ExternalLink className="h-2.5 w-2.5" />
+                              </a>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -453,6 +689,80 @@ function VendorFollowupHubContent() {
           </div>
         )}
       </div>
+
+      {/* Add Phone Number Modal */}
+      {addPhoneModalVendor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Add Vendor Contact</h3>
+                <p className="text-xs text-gray-500">
+                  {addPhoneModalVendor.supplier_name} ({addPhoneModalVendor.supplier_gstin})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAddPhoneModalVendor(null)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-600">WhatsApp Mobile Number *</label>
+                <div className="mt-1 flex rounded-lg shadow-sm">
+                  <span className="inline-flex items-center rounded-l-lg border border-r-0 border-gray-300 bg-gray-50 px-3 text-sm text-gray-500">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    placeholder="9876543210"
+                    value={newVendorPhone}
+                    onChange={(e) => setNewVendorPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                    className="block w-full flex-1 rounded-none rounded-r-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:ring-indigo-500"
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-gray-500">
+                  Required for 1-click WhatsApp compliance notice dispatch with reconciliation link.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-600">Email Address (Optional)</label>
+                <input
+                  type="email"
+                  placeholder="accounts@vendor.com"
+                  value={newVendorEmail}
+                  onChange={(e) => setNewVendorEmail(e.target.value)}
+                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-gray-200 bg-gray-50 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setAddPhoneModalVendor(null)}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveContact}
+                disabled={savingContact || !newVendorPhone.trim()}
+                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {savingContact ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Save Contact
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Email Notice Modal */}
       {selectedVendorForModal && emailModalNotice && (

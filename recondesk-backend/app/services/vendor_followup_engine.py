@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import logging
 import re
+import secrets
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 from typing import Any, Optional
 
+from fastapi import HTTPException, status
 from supabase import Client
 
 logger = logging.getLogger(__name__)
@@ -166,15 +169,37 @@ def _ensure_table_exists(conn: Any) -> None:
                 dispatched_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
                 dispatched_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
                 work_item_id UUID REFERENCES public.itc_work_items(id) ON DELETE SET NULL,
-                message_body TEXT
+                message_body TEXT,
+                token TEXT UNIQUE,
+                viewed_at TIMESTAMPTZ,
+                arn_number TEXT,
+                promised_period TEXT,
+                dispute_reason TEXT,
+                attachment_key TEXT,
+                expires_at TIMESTAMPTZ,
+                invoices_snapshot JSONB,
+                response_action TEXT,
+                responded_at TIMESTAMPTZ
             );
             ALTER TABLE public.vendor_followup_logs
                 ADD COLUMN IF NOT EXISTS work_item_id UUID REFERENCES public.itc_work_items(id) ON DELETE SET NULL,
-                ADD COLUMN IF NOT EXISTS message_body TEXT;
+                ADD COLUMN IF NOT EXISTS message_body TEXT,
+                ADD COLUMN IF NOT EXISTS token TEXT UNIQUE,
+                ADD COLUMN IF NOT EXISTS viewed_at TIMESTAMPTZ,
+                ADD COLUMN IF NOT EXISTS arn_number TEXT,
+                ADD COLUMN IF NOT EXISTS promised_period TEXT,
+                ADD COLUMN IF NOT EXISTS dispute_reason TEXT,
+                ADD COLUMN IF NOT EXISTS attachment_key TEXT,
+                ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ,
+                ADD COLUMN IF NOT EXISTS invoices_snapshot JSONB,
+                ADD COLUMN IF NOT EXISTS response_action TEXT,
+                ADD COLUMN IF NOT EXISTS responded_at TIMESTAMPTZ;
             CREATE INDEX IF NOT EXISTS idx_vendor_followup_client_supplier
                 ON public.vendor_followup_logs(client_gstin_id, supplier_gstin);
             CREATE INDEX IF NOT EXISTS idx_vendor_followup_work_item
                 ON public.vendor_followup_logs(work_item_id);
+            CREATE INDEX IF NOT EXISTS idx_vendor_followup_token
+                ON public.vendor_followup_logs(token);
             """
         )
     )
@@ -212,6 +237,12 @@ def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str
                         "risk_score": int(row.get("risk_score") or 0),
                         "last_followup_at": None,
                         "followup_count": 0,
+                        "followup_status": None,
+                        "response_action": None,
+                        "arn_number": None,
+                        "promised_period": None,
+                        "token": None,
+                        "viewed_at": None,
                     }
     except Exception as exc:
         logger.warning("Error fetching supplier_compliance_summary: %s", exc)
@@ -245,6 +276,12 @@ def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str
                     "risk_score": 85,
                     "last_followup_at": None,
                     "followup_count": 0,
+                    "followup_status": None,
+                    "response_action": None,
+                    "arn_number": None,
+                    "promised_period": None,
+                    "token": None,
+                    "viewed_at": None,
                 }
             else:
                 vendor_map[gstin]["rule37_count"] += 1
@@ -262,6 +299,12 @@ def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str
                 vendor_map[gstin]["followup_count"] += 1
                 if not vendor_map[gstin]["last_followup_at"]:
                     vendor_map[gstin]["last_followup_at"] = log.get("dispatched_at")
+                    vendor_map[gstin]["followup_status"] = log.get("status")
+                    vendor_map[gstin]["response_action"] = log.get("response_action")
+                    vendor_map[gstin]["arn_number"] = log.get("arn_number")
+                    vendor_map[gstin]["promised_period"] = log.get("promised_period")
+                    vendor_map[gstin]["token"] = log.get("token")
+                    vendor_map[gstin]["viewed_at"] = log.get("viewed_at")
     except Exception as exc:
         logger.warning("Error attaching follow-up history: %s", exc)
 
@@ -279,6 +322,7 @@ def generate_whatsapp_payload(
     trade_name: Optional[str] = None,
     contact_person: Optional[str] = None,
     custom_template: Optional[str] = None,
+    portal_url: Optional[str] = None,
 ) -> dict[str, str]:
     """Generate pre-formatted WhatsApp wa.me deep link with encoded message text."""
     phone_clean = "".join(c for c in (vendor_phone or "") if c.isdigit())
@@ -343,6 +387,9 @@ def generate_whatsapp_payload(
             f"— ReconDesk Automated Tax Hub"
         )
 
+    if portal_url and portal_url.strip():
+        message = f"{message}\n\n🔗 *Action Required — Confirm Status in 1-Click:*\n{portal_url.strip()}"
+
     # Sanitize any residual tokens in message
     message = sanitize_template_tokens(message, context)
 
@@ -356,6 +403,7 @@ def generate_whatsapp_payload(
         "template_type": template_type,
         "message_text": message,
         "whatsapp_url": wa_url,
+        "portal_url": portal_url or "",
     }
 
 
@@ -367,6 +415,7 @@ def generate_email_template(
     trade_name: Optional[str] = None,
     contact_person: Optional[str] = None,
     custom_template: Optional[str] = None,
+    portal_url: Optional[str] = None,
 ) -> dict[str, str]:
     """Generate formal HTML vendor email notice payload."""
     display_name = resolve_supplier_display_name(supplier_name, trade_name, supplier_gstin)
@@ -410,15 +459,27 @@ def generate_email_template(
     else:
         content_body = f"<p>{detail_para}</p>"
 
+    cta_block = ""
+    if portal_url and portal_url.strip():
+        cta_block = f"""
+        <div style="margin: 28px 0; text-align: center;">
+            <a href="{portal_url.strip()}" style="background-color: #4f46e5; color: #ffffff; padding: 12px 24px; font-weight: bold; border-radius: 8px; text-decoration: none; display: inline-block;">
+                Review Invoices &amp; Confirm Filing in 1-Click
+            </a>
+            <p style="font-size: 11px; color: #6b7280; margin-top: 8px;">No login required. Submit ARN or schedule next filing cycle securely under CGST Act, 2017.</p>
+        </div>
+        """
+
     html_body = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; color: #111827; line-height: 1.6;">
-        <h2 style="color: #4f46e5;">GST Compliance & ITC Reconciliation Notice</h2>
+        <h2 style="color: #4f46e5;">GST Compliance &amp; ITC Reconciliation Notice</h2>
         {salutation_html}
         {content_body}
         <div style="background-color: #f3f4f6; border-left: 4px solid #4f46e5; padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
             <strong>Template Category:</strong> {template_type.replace('_', ' ').title()}<br/>
             <strong>Total ITC at Stake:</strong> ₹{at_risk_itc_rupees:,.2f}
         </div>
+        {cta_block}
         <p>Kindly verify your GSTR-1 filings and invoice clearance status so we can reconcile input tax credit without statutory exposure.</p>
         <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
         <p style="font-size: 12px; color: #6b7280;">Automated via ReconDesk Compliance Engine.</p>
@@ -430,7 +491,72 @@ def generate_email_template(
         "html_body": html_body,
         "supplier_gstin": supplier_gstin,
         "supplier_name": display_name,
+        "portal_url": portal_url or "",
     }
+
+
+def fetch_vendor_invoices(sb: Client, client_gstin_id: str, supplier_gstin: str) -> list[dict[str, Any]]:
+    """Retrieve at-risk invoices for a vendor from itc_work_items and rule37_actions."""
+    invoices: list[dict[str, Any]] = []
+    seen = set()
+
+    # 1. Query itc_work_items
+    try:
+        q = (
+            sb.table("itc_work_items")
+            .select("invoice_number, invoice_date, taxable_value, total_tax, itc_amount_at_stake, exception_type, status")
+            .eq("client_gstin_id", client_gstin_id)
+            .eq("vendor_gstin", supplier_gstin)
+        )
+        if hasattr(q, "neq"):
+            q = q.neq("status", "RESOLVED")
+        wi_res = q.limit(50).execute()
+        for r in wi_res.data or []:
+            if r.get("status") == "RESOLVED":
+                continue
+            inv_no = str(r.get("invoice_number") or "").strip()
+            if not inv_no or inv_no in seen:
+                continue
+            seen.add(inv_no)
+            tax_val = float(r.get("total_tax") or r.get("itc_amount_at_stake") or 0.0)
+            invoices.append({
+                "invoice_number": inv_no,
+                "invoice_date": r.get("invoice_date"),
+                "taxable_value": float(r.get("taxable_value") or 0.0),
+                "tax_amount": tax_val,
+                "reason": r.get("exception_type") or "Missing in GSTR-2B",
+            })
+    except Exception as exc:
+        logger.warning("Error fetching itc_work_items for vendor %s: %s", supplier_gstin, exc)
+
+    # 2. Query rule37_actions
+    try:
+        r37_res = (
+            sb.table("rule37_actions")
+            .select("invoice_number, invoice_date, taxable_value_paise, at_risk_itc_paise, action_status")
+            .eq("client_gstin_id", client_gstin_id)
+            .eq("supplier_gstin", supplier_gstin)
+            .limit(50)
+            .execute()
+        )
+        for r in r37_res.data or []:
+            inv_no = str(r.get("invoice_number") or "").strip()
+            if not inv_no or inv_no in seen:
+                continue
+            seen.add(inv_no)
+            tax_val = round(float(r.get("at_risk_itc_paise") or 0.0) / 100.0, 2)
+            taxable = round(float(r.get("taxable_value_paise") or 0.0) / 100.0, 2)
+            invoices.append({
+                "invoice_number": inv_no,
+                "invoice_date": r.get("invoice_date"),
+                "taxable_value": taxable,
+                "tax_amount": tax_val,
+                "reason": "Rule 37 Overdue (180 Days)",
+            })
+    except Exception as exc:
+        logger.warning("Error fetching rule37_actions for vendor %s: %s", supplier_gstin, exc)
+
+    return invoices
 
 
 def log_followup_action(
@@ -446,9 +572,17 @@ def log_followup_action(
     dispatched_by: Optional[str] = None,
     work_item_id: Optional[str] = None,
     message_body: Optional[str] = None,
+    token: Optional[str] = None,
+    expires_at: Optional[str] = None,
+    invoices_snapshot: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     """Persist follow-up dispatch event into vendor_followup_logs and record timeline event if work_item_id is provided."""
     status_label = "LINK_OPENED" if channel == "WHATSAPP" else "NOTICE_GENERATED"
+    actual_token = token or secrets.token_urlsafe(32)
+    actual_expires_at = expires_at or (datetime.now(timezone.utc) + timedelta(days=45)).isoformat()
+    if invoices_snapshot is None:
+        invoices_snapshot = fetch_vendor_invoices(sb, client_gstin_id, supplier_gstin)
+
     payload: dict[str, Any] = {
         "client_gstin_id": client_gstin_id,
         "supplier_gstin": supplier_gstin,
@@ -459,6 +593,9 @@ def log_followup_action(
         "template_type": template_type,
         "at_risk_itc_rupees": at_risk_itc_rupees,
         "status": status_label,
+        "token": actual_token,
+        "expires_at": actual_expires_at,
+        "invoices_snapshot": invoices_snapshot,
     }
     if dispatched_by:
         payload["dispatched_by"] = dispatched_by
@@ -476,6 +613,7 @@ def log_followup_action(
         logger.warning("Supabase insert failed for vendor_followup_logs, using direct SQL fallback: %s", exc)
         try:
             from app.config import get_settings
+            import json
             import sqlalchemy as sa
             s = get_settings()
             db_url = s.SUPABASE_DATABASE_URL or s.DATABASE_URL
@@ -487,8 +625,8 @@ def log_followup_action(
                         sa.text(
                             """
                             INSERT INTO public.vendor_followup_logs
-                            (client_gstin_id, supplier_gstin, supplier_name, vendor_phone, vendor_email, channel, template_type, at_risk_itc_rupees, status, work_item_id, message_body)
-                            VALUES (:cid, :sgstin, :sname, :phone, :email, :chan, :ttype, :amt, :stat, :wid, :mbody)
+                            (client_gstin_id, supplier_gstin, supplier_name, vendor_phone, vendor_email, channel, template_type, at_risk_itc_rupees, status, work_item_id, message_body, token, expires_at, invoices_snapshot)
+                            VALUES (:cid, :sgstin, :sname, :phone, :email, :chan, :ttype, :amt, :stat, :wid, :mbody, :tok, :exp, :inv_snap)
                             """
                         ),
                         {
@@ -503,6 +641,9 @@ def log_followup_action(
                             "stat": status_label,
                             "wid": work_item_id,
                             "mbody": message_body,
+                            "tok": actual_token,
+                            "exp": actual_expires_at,
+                            "inv_snap": json.dumps(invoices_snapshot) if invoices_snapshot else None,
                         },
                     )
                     conn.commit()
@@ -514,7 +655,6 @@ def log_followup_action(
     # Only record COMMUNICATION_DISPATCHED if vendor_followup_logs was successfully persisted
     if work_item_id and created_record is not None:
         try:
-            from datetime import datetime, timezone
             ev_payload = {
                 "work_item_id": work_item_id,
                 "event_type": "COMMUNICATION_DISPATCHED",
@@ -525,6 +665,7 @@ def log_followup_action(
                     "template_type": template_type,
                     "recipient": vendor_email if channel == "EMAIL" else vendor_phone,
                     "at_risk_itc_rupees": at_risk_itc_rupees,
+                    "token": actual_token,
                 },
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -533,6 +674,357 @@ def log_followup_action(
             logger.warning("Failed to record COMMUNICATION_DISPATCHED event for work item %s: %s", work_item_id, ev_exc)
 
     return created_record
+
+
+def create_or_get_followup_token(
+    sb: Client,
+    client_gstin_id: str,
+    supplier_gstin: str,
+    supplier_name: Optional[str] = None,
+    vendor_phone: Optional[str] = "",
+    vendor_email: Optional[str] = "",
+    at_risk_itc_rupees: float = 0.0,
+    work_item_id: Optional[str] = None,
+    template_type: str = "POLITE_REMINDER",
+    channel: str = "WHATSAPP",
+    dispatched_by: Optional[str] = None,
+) -> dict[str, Any]:
+    """Generate or retrieve a secure 32-byte cryptographic token for vendor action portal."""
+    norm_gstin = (supplier_gstin or "").strip().upper()
+    now = datetime.now(timezone.utc)
+    expires_at = (now + timedelta(days=45)).isoformat()
+
+    # Fetch missing invoices snapshot
+    invoices = fetch_vendor_invoices(sb, client_gstin_id, norm_gstin)
+
+    # Check if a recent unexpired unresponded token exists for this client + supplier
+    existing_token = None
+    try:
+        res = (
+            sb.table("vendor_followup_logs")
+            .select("id, token, expires_at, status")
+            .eq("client_gstin_id", client_gstin_id)
+            .eq("supplier_gstin", norm_gstin)
+            .not_.is_("token", "null")
+            .order("dispatched_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            row = res.data[0]
+            exp_raw = row.get("expires_at")
+            if exp_raw:
+                exp_dt = datetime.fromisoformat(str(exp_raw).replace("Z", "+00:00"))
+                if exp_dt > now and row.get("status") not in ("FILING_CONFIRMED", "PROMISED_NEXT_CYCLE", "DISPUTED"):
+                    existing_token = row.get("token")
+    except Exception as exc:
+        logger.warning("Error checking existing token: %s", exc)
+
+    token = existing_token or secrets.token_urlsafe(32)
+
+    # If no existing token, create record
+    if not existing_token:
+        log_followup_action(
+            sb=sb,
+            client_gstin_id=client_gstin_id,
+            supplier_gstin=norm_gstin,
+            supplier_name=supplier_name or norm_gstin,
+            vendor_phone=vendor_phone or "",
+            vendor_email=vendor_email or "",
+            channel=channel,
+            template_type=template_type,
+            at_risk_itc_rupees=at_risk_itc_rupees,
+            dispatched_by=dispatched_by,
+            work_item_id=work_item_id,
+            token=token,
+            expires_at=expires_at,
+            invoices_snapshot=invoices,
+        )
+
+    from app.config import get_settings
+    settings = get_settings()
+    base_url = (getattr(settings, "FRONTEND_URL", None) or "https://recondesk.in").rstrip("/")
+    portal_url = f"{base_url}/v/{token}"
+
+    return {
+        "token": token,
+        "portal_url": portal_url,
+        "expires_at": expires_at,
+        "invoices_count": len(invoices),
+    }
+
+
+def get_vendor_portal_data(sb: Client, token: str) -> dict[str, Any]:
+    """Retrieve vendor portal metadata, missing invoice list, and record viewed_at timestamp."""
+    clean_token = (token or "").strip()
+    if not clean_token:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Vendor portal token is required",
+        )
+
+    # 1. Lookup followup log by token
+    log_row = None
+    try:
+        res = sb.table("vendor_followup_logs").select("*").eq("token", clean_token).limit(1).execute()
+        if res.data:
+            log_row = res.data[0]
+    except Exception as exc:
+        logger.warning("PostgREST query by token failed, attempting SQL fallback: %s", exc)
+        try:
+            from app.config import get_settings
+            import sqlalchemy as sa
+            s = get_settings()
+            db_url = s.SUPABASE_DATABASE_URL or s.DATABASE_URL
+            if db_url:
+                eng = sa.create_engine(db_url)
+                with eng.connect() as conn:
+                    _ensure_table_exists(conn)
+                    q = conn.execute(
+                        sa.text("SELECT * FROM public.vendor_followup_logs WHERE token = :tok LIMIT 1"),
+                        {"tok": clean_token},
+                    )
+                    r = q.mappings().first()
+                    if r:
+                        log_row = dict(r)
+                eng.dispose()
+        except Exception as sql_exc:
+            logger.error("SQL fallback failed for token lookup: %s", sql_exc)
+
+    if not log_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invalid or expired vendor verification link. Please request a new link from your client.",
+        )
+
+    # 2. Check expiration
+    expires_at_raw = log_row.get("expires_at")
+    if expires_at_raw:
+        try:
+            exp_dt = datetime.fromisoformat(str(expires_at_raw).replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > exp_dt:
+                raise HTTPException(
+                    status_code=status.HTTP_410_GONE,
+                    detail="This vendor reconciliation link has expired (45-day validity period exceeded).",
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning("Error parsing expires_at: %s", e)
+
+    # 3. Record viewed_at if not set (DPDP Act 2023 compliant: NO IP logging!)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if not log_row.get("viewed_at"):
+        try:
+            current_status = log_row.get("status")
+            new_status = "VIEWED" if current_status in ("SENT", "LINK_OPENED", "DISPATCHED") else current_status
+            sb.table("vendor_followup_logs").update({
+                "viewed_at": now_iso,
+                "status": new_status,
+            }).eq("id", log_row["id"]).execute()
+            log_row["viewed_at"] = now_iso
+            log_row["status"] = new_status
+        except Exception as exc:
+            logger.warning("Failed to update viewed_at timestamp: %s", exc)
+
+    # 4. Resolve client display info
+    client_id = str(log_row.get("client_gstin_id") or "")
+    client_name = "Finance & Tax Team"
+    client_gstin = ""
+    try:
+        c_res = sb.table("client_gstins").select("gstin, legal_name, trade_name").eq("id", client_id).limit(1).execute()
+        if c_res.data:
+            c_row = c_res.data[0]
+            client_gstin = str(c_row.get("gstin") or "").strip()
+            client_name = str(c_row.get("trade_name") or c_row.get("legal_name") or "Valued Client").strip()
+    except Exception as exc:
+        logger.warning("Failed to fetch client details for portal: %s", exc)
+
+    # 5. Retrieve invoice list
+    invoices = log_row.get("invoices_snapshot") or []
+    if not invoices and client_id and log_row.get("supplier_gstin"):
+        invoices = fetch_vendor_invoices(sb, client_id, log_row["supplier_gstin"])
+
+    return {
+        "id": str(log_row.get("id")),
+        "token": clean_token,
+        "client_name": client_name,
+        "client_gstin": client_gstin,
+        "supplier_name": log_row.get("supplier_name") or log_row.get("supplier_gstin"),
+        "supplier_gstin": log_row.get("supplier_gstin"),
+        "at_risk_itc_rupees": float(log_row.get("at_risk_itc_rupees") or 0.0),
+        "status": log_row.get("status"),
+        "response_action": log_row.get("response_action"),
+        "arn_number": log_row.get("arn_number"),
+        "promised_period": log_row.get("promised_period"),
+        "dispute_reason": log_row.get("dispute_reason"),
+        "attachment_key": log_row.get("attachment_key"),
+        "viewed_at": log_row.get("viewed_at"),
+        "responded_at": log_row.get("responded_at"),
+        "expires_at": log_row.get("expires_at"),
+        "invoices": invoices,
+    }
+
+
+def submit_vendor_portal_response(
+    sb: Client,
+    token: str,
+    action: str,
+    arn_number: Optional[str] = None,
+    promised_period: Optional[str] = None,
+    dispute_reason: Optional[str] = None,
+    attachment_key: Optional[str] = None,
+) -> dict[str, Any]:
+    """Process vendor response: Validate statutory ARN, cycle selection, or dispute note."""
+    clean_token = (token or "").strip()
+    clean_action = (action or "").strip().upper()
+
+    log_data = get_vendor_portal_data(sb, clean_token)
+    log_id = log_data["id"]
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    arn_clean = (arn_number or "").strip().upper()
+
+    if clean_action == "ALREADY_FILED":
+        if not arn_clean:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="18-character Application Reference Number (ARN) is required to confirm filing.",
+            )
+        # Validate ARN format: AA followed by 2 digits followed by 14 alphanumeric chars
+        if not re.match(r"^AA[0-9]{2}[A-Z0-9]{14}$", arn_clean):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid ARN format. Must be an 18-character GST Application Reference Number (e.g. AA2708260012345).",
+            )
+        status_val = "FILING_CONFIRMED"
+    elif clean_action == "PROMISED_NEXT_CYCLE":
+        if not (promised_period or "").strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Target filing cycle (e.g. 'September 2026') is required.",
+            )
+        status_val = "PROMISED_NEXT_CYCLE"
+    elif clean_action == "DISPUTED":
+        if not (dispute_reason or "").strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Please provide a brief explanation for why this invoice is canceled or not recognized.",
+            )
+        status_val = "DISPUTED"
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid response action. Must be ALREADY_FILED, PROMISED_NEXT_CYCLE, or DISPUTED.",
+        )
+
+    update_payload = {
+        "status": status_val,
+        "response_action": clean_action,
+        "arn_number": arn_clean if clean_action == "ALREADY_FILED" else None,
+        "promised_period": (promised_period or "").strip() if clean_action == "PROMISED_NEXT_CYCLE" else None,
+        "dispute_reason": (dispute_reason or "").strip() if clean_action == "DISPUTED" else None,
+        "attachment_key": (attachment_key or "").strip() or None,
+        "responded_at": now_iso,
+    }
+
+    try:
+        sb.table("vendor_followup_logs").update(update_payload).eq("id", log_id).execute()
+    except Exception as exc:
+        logger.warning("Supabase update failed, attempting direct SQL: %s", exc)
+        try:
+            from app.config import get_settings
+            import sqlalchemy as sa
+            s = get_settings()
+            db_url = s.SUPABASE_DATABASE_URL or s.DATABASE_URL
+            if db_url:
+                eng = sa.create_engine(db_url)
+                with eng.connect() as conn:
+                    _ensure_table_exists(conn)
+                    conn.execute(
+                        sa.text(
+                            """
+                            UPDATE public.vendor_followup_logs
+                            SET status = :stat,
+                                response_action = :act,
+                                arn_number = :arn,
+                                promised_period = :pperiod,
+                                dispute_reason = :dreason,
+                                attachment_key = :akey,
+                                responded_at = :resp_at
+                            WHERE id = :lid
+                            """
+                        ),
+                        {
+                            "stat": status_val,
+                            "act": clean_action,
+                            "arn": update_payload["arn_number"],
+                            "pperiod": update_payload["promised_period"],
+                            "dreason": update_payload["dispute_reason"],
+                            "akey": update_payload["attachment_key"],
+                            "resp_at": now_iso,
+                            "lid": log_id,
+                        },
+                    )
+                    conn.commit()
+                eng.dispose()
+        except Exception as sql_exc:
+            logger.error("SQL update failed in submit_vendor_portal_response: %s", sql_exc)
+
+    return {
+        "success": True,
+        "status": status_val,
+        "response_action": clean_action,
+        "reference_id": log_id,
+        "responded_at": now_iso,
+        "arn_number": update_payload["arn_number"],
+        "promised_period": update_payload["promised_period"],
+        "message": "Thank you! Your response has been securely recorded for GST reconciliation.",
+    }
+
+
+def update_vendor_contact_info(
+    sb: Client,
+    client_gstin_id: str,
+    supplier_gstin: str,
+    vendor_phone: Optional[str] = None,
+    vendor_email: Optional[str] = None,
+) -> dict[str, Any]:
+    """Persist updated vendor mobile and email into supplier compliance summary & recent logs."""
+    gstin_norm = (supplier_gstin or "").strip().upper()
+    phone_clean = "".join(c for c in (vendor_phone or "") if c.isdigit())
+    email_clean = (vendor_email or "").strip().lower()
+
+    # 1. Update in supplier_compliance_summary if row exists
+    try:
+        upd = {}
+        if phone_clean:
+            upd["vendor_phone"] = phone_clean
+        if email_clean:
+            upd["vendor_email"] = email_clean
+        if upd:
+            sb.table("supplier_compliance_summary").update(upd).eq("supplier_gstin_normalized", gstin_norm).execute()
+    except Exception as exc:
+        logger.warning("Could not update supplier_compliance_summary: %s", exc)
+
+    # 2. Update existing followup logs for this client & supplier so UI displays immediately
+    try:
+        log_upd = {}
+        if phone_clean:
+            log_upd["vendor_phone"] = phone_clean
+        if email_clean:
+            log_upd["vendor_email"] = email_clean
+        if log_upd:
+            sb.table("vendor_followup_logs").update(log_upd).eq("client_gstin_id", client_gstin_id).eq("supplier_gstin", gstin_norm).execute()
+    except Exception as exc:
+        logger.warning("Could not update vendor_followup_logs: %s", exc)
+
+    return {
+        "supplier_gstin": gstin_norm,
+        "vendor_phone": phone_clean,
+        "vendor_email": email_clean,
+        "message": "Vendor contact details updated successfully.",
+    }
 
 
 def get_work_item_followup_history(

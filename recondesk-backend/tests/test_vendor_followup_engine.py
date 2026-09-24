@@ -333,3 +333,189 @@ def test_router_generate_email_endpoint_with_fallbacks():
 
     app.dependency_overrides.clear()
 
+
+# ---------------------------------------------------------------------------
+# Tokenized Vendor Action Portal Tests (/v/[token])
+# ---------------------------------------------------------------------------
+
+def test_whatsapp_and_email_with_portal_url():
+    """Verify portal_url is cleanly embedded in WhatsApp message and email CTA button."""
+    portal_link = "https://recondesk.in/v/test-portal-token-123"
+    wa_res = generate_whatsapp_payload(
+        supplier_gstin="27ABCDE1234F1Z5",
+        supplier_name="Acme Solutions",
+        vendor_phone="9876543210",
+        at_risk_itc_rupees=45000.0,
+        portal_url=portal_link,
+    )
+    assert portal_link in wa_res["message_text"]
+    assert "Action Required — Confirm Status in 1-Click" in wa_res["message_text"]
+    assert wa_res["portal_url"] == portal_link
+
+    email_res = generate_email_template(
+        supplier_gstin="27ABCDE1234F1Z5",
+        supplier_name="Acme Solutions",
+        at_risk_itc_rupees=45000.0,
+        portal_url=portal_link,
+    )
+    assert portal_link in email_res["html_body"]
+    assert "Review Invoices &amp; Confirm Filing in 1-Click" in email_res["html_body"]
+    assert email_res["portal_url"] == portal_link
+
+
+def test_submit_vendor_portal_response_arn_validation():
+    """Verify standard 18-char ARN (AA + 2 digit state code + 14 chars) succeeds and invalid format raises 422."""
+    from unittest.mock import MagicMock, patch
+    from fastapi import HTTPException
+    from app.services.vendor_followup_engine import submit_vendor_portal_response
+
+    mock_sb = MagicMock()
+    mock_log = {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "client_gstin_id": "22222222-2222-2222-2222-222222222222",
+        "supplier_gstin": "27ABCDE1234F1Z5",
+        "supplier_name": "Test Supplier",
+        "at_risk_itc_rupees": 25000.0,
+        "status": "VIEWED",
+        "token": "valid-token-xyz",
+        "expires_at": None,
+        "viewed_at": "2026-09-25T00:00:00Z",
+    }
+
+    with patch("app.services.vendor_followup_engine.get_vendor_portal_data", return_value=mock_log):
+        # 1. Valid 18-character ARN (AA + 27 + 14 alphanumeric = 18 chars)
+        res = submit_vendor_portal_response(
+            sb=mock_sb,
+            token="valid-token-xyz",
+            action="ALREADY_FILED",
+            arn_number="AA2708260012345678",
+        )
+        assert res["success"] is True
+        assert res["status"] == "FILING_CONFIRMED"
+        assert res["arn_number"] == "AA2708260012345678"
+
+        # 2. Invalid ARN: 15 chars (not 18)
+        try:
+            submit_vendor_portal_response(
+                sb=mock_sb,
+                token="valid-token-xyz",
+                action="ALREADY_FILED",
+                arn_number="AA2708260012",
+            )
+            assert False, "Should have raised 422 for invalid ARN length"
+        except HTTPException as exc:
+            assert exc.status_code == 422
+            assert "Invalid ARN format" in exc.detail
+
+        # 3. Invalid ARN: doesn't start with AA
+        try:
+            submit_vendor_portal_response(
+                sb=mock_sb,
+                token="valid-token-xyz",
+                action="ALREADY_FILED",
+                arn_number="BB27082600123456",
+            )
+            assert False, "Should have raised 422 for ARN not starting with AA"
+        except HTTPException as exc:
+            assert exc.status_code == 422
+
+        # 4. Cycle promise action
+        cycle_res = submit_vendor_portal_response(
+            sb=mock_sb,
+            token="valid-token-xyz",
+            action="PROMISED_NEXT_CYCLE",
+            promised_period="September 2026",
+        )
+        assert cycle_res["success"] is True
+        assert cycle_res["status"] == "PROMISED_NEXT_CYCLE"
+        assert cycle_res["promised_period"] == "September 2026"
+
+        # 5. Dispute action
+        disp_res = submit_vendor_portal_response(
+            sb=mock_sb,
+            token="valid-token-xyz",
+            action="DISPUTED",
+            dispute_reason="Goods were rejected and invoice canceled before delivery",
+        )
+        assert disp_res["success"] is True
+        assert disp_res["status"] == "DISPUTED"
+
+
+def test_public_vendor_portal_router_endpoints():
+    """Verify public endpoints /api/public/v/{token} and /v/{token} work without auth."""
+    from unittest.mock import MagicMock, patch
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+
+    mock_portal_data = {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "token": "test-portal-token-456",
+        "client_name": "Bharat Trading Corp",
+        "client_gstin": "27AAACB1234A1Z5",
+        "supplier_name": "Kalyan Packaging Works",
+        "supplier_gstin": "27ABCDE1234F1Z5",
+        "at_risk_itc_rupees": 54200.0,
+        "status": "VIEWED",
+        "response_action": None,
+        "arn_number": None,
+        "promised_period": None,
+        "dispute_reason": None,
+        "attachment_key": None,
+        "viewed_at": "2026-09-25T01:00:00Z",
+        "responded_at": None,
+        "expires_at": "2026-11-09T01:00:00Z",
+        "invoices": [
+            {
+                "invoice_number": "INV-2026-099",
+                "invoice_date": "2026-08-10",
+                "taxable_value": 300000.0,
+                "tax_amount": 54000.0,
+                "reason": "Missing in GSTR-2B",
+            }
+        ],
+    }
+
+    mock_response_result = {
+        "success": True,
+        "status": "FILING_CONFIRMED",
+        "response_action": "ALREADY_FILED",
+        "reference_id": "11111111-1111-1111-1111-111111111111",
+        "responded_at": "2026-09-25T01:05:00Z",
+        "arn_number": "AA2708260012345678",
+        "promised_period": None,
+        "message": "Thank you! Your response has been securely recorded for GST reconciliation.",
+    }
+
+    with patch("app.routers.vendor_followup.get_supabase"), \
+         patch("app.services.vendor_followup_engine.get_vendor_portal_data", return_value=mock_portal_data), \
+         patch("app.services.vendor_followup_engine.submit_vendor_portal_response", return_value=mock_response_result):
+
+        # 1. GET /api/public/v/{token} (no auth header needed)
+        res_info = client.get("/api/public/v/test-portal-token-456")
+        assert res_info.status_code == 200
+        info_data = res_info.json()
+        assert info_data["supplier_gstin"] == "27ABCDE1234F1Z5"
+        assert info_data["client_name"] == "Bharat Trading Corp"
+        assert len(info_data["invoices"]) == 1
+
+        # 2. GET /v/{token} (alternate prefix)
+        res_info_v = client.get("/v/test-portal-token-456")
+        assert res_info_v.status_code == 200
+        assert res_info_v.json()["token"] == "test-portal-token-456"
+
+        # 3. POST /api/public/v/{token}/respond
+        res_resp = client.post(
+            "/api/public/v/test-portal-token-456/respond",
+            json={
+                "action": "ALREADY_FILED",
+                "arn_number": "AA2708260012345678",
+            },
+        )
+        assert res_resp.status_code == 200
+        resp_data = res_resp.json()
+        assert resp_data["success"] is True
+        assert resp_data["arn_number"] == "AA2708260012345678"
+
+
