@@ -305,9 +305,18 @@ Code-backed map of the Next.js frontend (`recondesk-frontend/`) and FastAPI back
 - **Status**: complete
 
 ### Client Detail Workspace
-- **What it does**: Per-client overview (runs history, ITC trend, GSTN connect CTA) with tabs for gstr9c, follow-up, communication, import-mapping.
+- **What it does**: Per-client overview (runs history, ITC trend, GSTN connect CTA) with tabs for command-center, gstr9c, follow-up, communication, import-mapping.
 - **Where it lives**: `clients/[id]/page.tsx`, `layout.tsx`
 - **APIs/DB touched**: `clientsApi.get`, reconcile runs, team members, `listGstr1Runs`
+- **Status**: complete
+
+### Client ITC Command Center & Statutory Timelines
+- **What it does**: Executive client-level command center with live Indian GST statutory deadline countdown timers (GSTR-1 on 11th, GSTR-2B on 14th, GSTR-3B on 20th), filing cycle phase tracker, net claimable Table 4 ITC position card, CA operational quick actions bar, and prioritized exception work items queue.
+- **Where it lives**:
+  - Backend: `app/routers/clients.py` (`GET /{client_id}/command-center`), `app/services/itc_command_center_service.py`
+  - Frontend: `app/(dashboard)/clients/[id]/command-center/page.tsx`, `components/clients/ItcCommandCenterView.tsx`, `StatutoryCountdownCard.tsx`, `CommandCenterQuickActions.tsx`, `CumulativeItcExposureCard.tsx`, `lib/statutoryCompliance.ts`
+- **Key logic**: IST-based deadline computation; period-specific compliance evaluation (on-time vs overdue); Net ITC claimable formula ($4A5 - 4B + 4D1$); Rule 88D (DRC-01C) & Rule 37 180-day automated safeguard alerts; 1-click launchpad to new reconcile run, client document requests, and reversal ledgers.
+- **APIs/DB touched**: `GET /api/clients/{id}/command-center`
 - **Status**: complete
 
 ### Supplier Follow-up Letters + Audit Trail

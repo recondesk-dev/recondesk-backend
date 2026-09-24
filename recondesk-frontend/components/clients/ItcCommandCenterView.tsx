@@ -12,6 +12,9 @@ import {
 } from "@/lib/api";
 import { Table4DispositionModal } from "@/components/reconcile/Table4DispositionModal";
 import { ItcWorkItemDetailDrawer } from "./ItcWorkItemDetailDrawer";
+import { StatutoryCountdownCard } from "./StatutoryCountdownCard";
+import { CommandCenterQuickActions } from "./CommandCenterQuickActions";
+import { CumulativeItcExposureCard } from "./CumulativeItcExposureCard";
 
 interface ItcCommandCenterViewProps {
   clientId: string;
@@ -96,7 +99,18 @@ export function ItcCommandCenterView({
     );
   }
 
-  const { client, periods, kpis, summary_counts, work_items, run_id, run_status, is_locked, audit_hash } = data;
+  const {
+    client,
+    periods,
+    kpis,
+    summary_counts,
+    work_items,
+    run_id,
+    run_status,
+    is_locked,
+    audit_hash,
+    finalized_at,
+  } = data;
 
   const getPriorityBadgeClass = (priority: string) => {
     switch (priority) {
@@ -207,7 +221,32 @@ export function ItcCommandCenterView({
         )}
       </div>
 
-      {/* 2. Executive ITC KPI Metrics Cards */}
+      {/* 2. CA Operational Quick Actions Bar */}
+      <CommandCenterQuickActions
+        clientId={clientId}
+        clientGstin={client.gstin}
+        runId={run_id}
+      />
+
+      {/* 3. Statutory Compliance Countdown & Cumulative Net Position Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div className="lg:col-span-7">
+          <StatutoryCountdownCard
+            selectedPeriod={data.selected_period}
+            isLocked={is_locked}
+            finalizedAt={finalized_at}
+          />
+        </div>
+        <div className="lg:col-span-5">
+          <CumulativeItcExposureCard
+            kpis={kpis}
+            totalRunsCount={periods.length}
+            finalizedRunsCount={periods.filter((p) => p.is_locked).length}
+          />
+        </div>
+      </div>
+
+      {/* 4. Executive ITC KPI Metrics Cards */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-[14px] font-bold text-gray-900 tracking-tight">

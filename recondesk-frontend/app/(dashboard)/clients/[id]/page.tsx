@@ -316,6 +316,21 @@ function ClientDetailContent() {
                 Workflows & Reconciliations
               </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <Link
+                  href={id ? `/clients/${id}/command-center` : "#"}
+                  title="ITC Command Center — Statutory countdowns, executive KPIs & work items"
+                  className="flex flex-col items-start gap-1 rounded-[1.25rem] border border-black bg-black px-4 py-3 text-left transition-opacity hover:opacity-90 shadow-sm"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-sm font-semibold text-white">
+                      ITC Command Center
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-medium leading-snug text-white/80">
+                    Statutory countdowns, Table 4 position & audit queue
+                  </span>
+                </Link>
                 {startDisabled || !reconcileNewHref ? (
                   <button
                     type="button"
