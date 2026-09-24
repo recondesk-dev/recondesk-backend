@@ -119,10 +119,10 @@ export const PRICING_PLANS: PricingPlan[] = [
     id: "large_firm",
     name: "Large Firm",
     valueTagMonthly: "₹17 / GSTIN / mo",
-    valueTagYearly: "₹100/GSTIN/yr",
+    valueTagYearly: "₹80/GSTIN/yr",
     priceMonthly: 2499,
-    priceYearly: 14999,
-    effectiveMonthlyPrice: 1250,
+    priceYearly: 11999,
+    effectiveMonthlyPrice: 1000,
     gstinCapacity: "150 GSTINs",
     gstinLimit: 150,
     blurb: "Comprehensive capacity for large CA firms and dedicated compliance teams.",
@@ -139,7 +139,7 @@ export const PRICING_PLANS: PricingPlan[] = [
       },
       {
         header: "Billed Annually",
-        benefit: "₹2,499/mo → ₹1,250/mo billed annually (₹14,999/yr)",
+        benefit: "₹2,499/mo → ₹1,000/mo billed annually (₹11,999/yr)",
       },
       {
         header: "Dedicated Support & ERP",

@@ -18,11 +18,11 @@ const PLAN_CATALOG: Record<string, PlanPricing> = {
   },
   large_firm: {
     monthly: { priceInr: 2499, gstinLimit: 150, periodDays: 30 },
-    yearly: { priceInr: 14999, gstinLimit: 150, periodDays: 365 },
+    yearly: { priceInr: 11999, gstinLimit: 150, periodDays: 365 },
   },
   "large-firm": {
     monthly: { priceInr: 2499, gstinLimit: 150, periodDays: 30 },
-    yearly: { priceInr: 14999, gstinLimit: 150, periodDays: 365 },
+    yearly: { priceInr: 11999, gstinLimit: 150, periodDays: 365 },
   },
   // Legacy aliases for backward compatibility
   starter: {
@@ -35,7 +35,7 @@ const PLAN_CATALOG: Record<string, PlanPricing> = {
   },
   pro: {
     monthly: { priceInr: 2499, gstinLimit: 150, periodDays: 30 },
-    yearly: { priceInr: 14999, gstinLimit: 150, periodDays: 365 },
+    yearly: { priceInr: 11999, gstinLimit: 150, periodDays: 365 },
   },
   monthly: {
     monthly: { priceInr: 799, gstinLimit: 25, periodDays: 30 },

@@ -50,20 +50,20 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
         "yearly": {**_with_gst(8999_00), "period_days": 365, "gstin_limit": 75},
     },
     "large_firm": {
-        **_with_gst(14999_00),
+        **_with_gst(11999_00),
         "gstin_limit": 150,
         "period_days": 365,
         "billing_period": "yearly",
         "monthly": {**_with_gst(2499_00), "period_days": 30, "gstin_limit": 150},
-        "yearly": {**_with_gst(14999_00), "period_days": 365, "gstin_limit": 150},
+        "yearly": {**_with_gst(11999_00), "period_days": 365, "gstin_limit": 150},
     },
     "large firm": {
-        **_with_gst(14999_00),
+        **_with_gst(11999_00),
         "gstin_limit": 150,
         "period_days": 365,
         "billing_period": "yearly",
         "monthly": {**_with_gst(2499_00), "period_days": 30, "gstin_limit": 150},
-        "yearly": {**_with_gst(14999_00), "period_days": 365, "gstin_limit": 150},
+        "yearly": {**_with_gst(11999_00), "period_days": 365, "gstin_limit": 150},
     },
     # Backward compatibility for legacy keys
     "starter": {
@@ -83,12 +83,12 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
         "yearly": {**_with_gst(8999_00), "period_days": 365, "gstin_limit": 75},
     },
     "pro": {
-        **_with_gst(14999_00),
+        **_with_gst(11999_00),
         "gstin_limit": 150,
         "period_days": 365,
         "billing_period": "yearly",
         "monthly": {**_with_gst(2499_00), "period_days": 30, "gstin_limit": 150},
-        "yearly": {**_with_gst(14999_00), "period_days": 365, "gstin_limit": 150},
+        "yearly": {**_with_gst(11999_00), "period_days": 365, "gstin_limit": 150},
     },
     "monthly": {
         **_with_gst(799_00),

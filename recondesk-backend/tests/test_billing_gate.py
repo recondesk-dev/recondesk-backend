@@ -55,7 +55,7 @@ def test_gstin_plan_catalog_v2():
     # Large Firm
     lf_yr = get_plan_details("large_firm", "yearly")
     assert lf_yr["gstin_limit"] == 150
-    assert lf_yr["base_paise"] == 14999_00
+    assert lf_yr["base_paise"] == 11999_00
     lf_mo = get_plan_details("large_firm", "monthly")
     assert lf_mo["gstin_limit"] == 150
     assert lf_mo["base_paise"] == 2499_00

@@ -26,7 +26,7 @@ const FAQ_ITEMS: FaqItem[] = [
     category: "pricing",
     categoryLabel: "Pricing & Capacity",
     q: "How is pricing structured for CA firms?",
-    a: "Plans are based strictly on active client GSTIN capacity with unlimited staff seats and unlimited reconciliation runs — Free up to 2 GSTINs (₹0), Solo up to 25 GSTINs (₹799/mo · ₹5,999/yr), Firm up to 75 GSTINs (₹1,499/mo · ₹8,999/yr), and Large Firm up to 150 GSTINs (₹2,499/mo · ₹14,999/yr). Every plan includes 100% full product access with zero feature gating.",
+    a: "Plans are based strictly on active client GSTIN capacity with unlimited staff seats and unlimited reconciliation runs — Free up to 2 GSTINs (₹0), Solo up to 25 GSTINs (₹799/mo · ₹5,999/yr), Firm up to 75 GSTINs (₹1,499/mo · ₹8,999/yr), and Large Firm up to 150 GSTINs (₹2,499/mo · ₹11,999/yr). Every plan includes 100% full product access with zero feature gating.",
   },
   {
     id: "rule-88d-notice",
