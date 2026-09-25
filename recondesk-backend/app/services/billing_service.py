@@ -5,15 +5,15 @@ from app.config import settings
 _client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 PLAN_PRICES = {
-    "solo": {"monthly": 799_00, "yearly": 5999_00},
-    "firm": {"monthly": 1199_00, "yearly": 8999_00},
+    "solo": {"monthly": 799_00, "yearly": 4999_00},
+    "firm": {"monthly": 1199_00, "yearly": 7999_00},
     "large_firm": {"monthly": 1899_00, "yearly": 11999_00},
     "large firm": {"monthly": 1899_00, "yearly": 11999_00},
     # Legacy aliases
-    "starter": {"monthly": 799_00, "yearly": 5999_00},
-    "growth": {"monthly": 1199_00, "yearly": 8999_00},
+    "starter": {"monthly": 799_00, "yearly": 4999_00},
+    "growth": {"monthly": 1199_00, "yearly": 7999_00},
     "pro": {"monthly": 1899_00, "yearly": 11999_00},
-    "monthly": {"monthly": 799_00, "yearly": 5999_00},
+    "monthly": {"monthly": 799_00, "yearly": 4999_00},
 }
 
 
@@ -23,7 +23,7 @@ def create_order(plan: str, billing_period: str = "yearly") -> dict:
     if amount is None:
         # Fallback: first available period for the plan, else starter yearly
         periods = PLAN_PRICES.get(plan) or PLAN_PRICES["starter"]
-        amount = next(iter(periods.values()), 599_900)
+        amount = next(iter(periods.values()), 4999_00)
     order_data = {
         "amount": amount,
         "currency": "INR",

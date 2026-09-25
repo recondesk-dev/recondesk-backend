@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Download, FileCheck, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import useSWR from "swr";
 
 import { Gstr3bEvcAndFilePanel } from "@/components/filing/gstr3b/Gstr3bEvcAndFilePanel";
@@ -15,6 +15,7 @@ import {
 } from "@/components/filing/gstr3b/OffsetLiabilityGate";
 import {
   emptyGstr3bFigures,
+  figuresToSaveBody,
   type Gstr3bFiguresState,
   type ItcOthSuggestion,
   type OutwardSuggestion,
@@ -22,12 +23,20 @@ import {
 } from "@/components/filing/gstr3b/figuresModel";
 import { GstnSessionPanel } from "@/components/filing/GstnSessionPanel";
 import { toFilingPeriodYyyyMm } from "@/components/filing/filingHelpers";
+import { downloadJsonFile } from "@/components/filing/downloadJsonFile";
 import {
   pageContentClass,
   sectionContainerClass,
   SectionHeader,
 } from "@/components/reconcile/ResultsUi";
-import { clientsApi, filingApi, gstr3bFilingApi, type ClientGstin } from "@/lib/api";
+import {
+  clientsApi,
+  filingApi,
+  gstr3bFilingApi,
+  isApiError,
+  type ClientGstin,
+  type Gstr3bTable4SuggestionResponse,
+} from "@/lib/api";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 const EMPTY_RUN: Gstr3bRunState = {
@@ -176,30 +185,58 @@ function Gstr3bFilingPageContent() {
     };
   }, [token, clientGstinId, period]);
 
+  const loadTable4Suggestion = useCallback(async (): Promise<Gstr3bTable4SuggestionResponse> => {
+    if (!token || !clientGstinId || !period) {
+      return {
+        available: false,
+        status: "unavailable",
+        period: period || "",
+        client_gstin_id: clientGstinId || "",
+        reason: "missing_client_or_period",
+      };
+    }
+    return await gstr3bFilingApi.suggestTable4(token, period, {
+      client_gstin_id: clientGstinId,
+    });
+  }, [token, clientGstinId, period]);
+
+  const [exportingJson, setExportingJson] = useState(false);
+  const [exportSuccess, setExportSuccess] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleExportJson = useCallback(async () => {
+    if (!token || !clientGstinId || !period) return;
+    setExportingJson(true);
+    setExportError(null);
+    setExportSuccess(null);
+    try {
+      const res = await gstr3bFilingApi.exportJson(token, period, {
+        client_gstin_id: clientGstinId,
+        figures: figuresToSaveBody(figures),
+      });
+      downloadJsonFile(res.filename, res.payload);
+      const taxNote =
+        res.summary?.total_tax_liability != null
+          ? ` (Tax liability: ₹${res.summary.total_tax_liability.toLocaleString("en-IN")})`
+          : "";
+      setExportSuccess(`Successfully downloaded ${res.filename}${taxNote}`);
+    } catch (err: unknown) {
+      setExportError(
+        isApiError(err)
+          ? err.detail
+          : err instanceof Error
+            ? err.message
+            : "Failed to export GSTR-3B JSON"
+      );
+    } finally {
+      setExportingJson(false);
+    }
+  }, [token, clientGstinId, period, figures]);
+
   if (tokenState === null || featuresLoading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center px-8 text-[13px] text-gray-500">
         Loading…
-      </div>
-    );
-  }
-
-  if (!gstr3bFilingEnabled) {
-    return (
-      <div className="mx-auto max-w-lg space-y-4 px-8 py-16 text-center">
-        <h1 className="text-xl font-semibold text-[var(--ink)]">
-          GSTR-3B filing unavailable
-        </h1>
-        <p className="text-[14px] text-gray-500">
-          GSTR-3B filing is not yet available. Save → Offset → File has not been
-          live-proven end-to-end against GSTN.
-        </p>
-        <Link
-          href="/settings"
-          className="inline-flex rounded-full bg-[var(--ink)] px-5 py-2.5 text-[13px] font-semibold text-white"
-        >
-          Back to Settings
-        </Link>
       </div>
     );
   }
@@ -234,25 +271,42 @@ function Gstr3bFilingPageContent() {
 
   return (
     <div className={pageContentClass}>
-      <div className="mb-2 flex items-center gap-4">
-        <Link
-          href="/filing/gstr-3b"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-gray-500 shadow-[var(--shadow-soft)] transition hover:text-[var(--ink)]"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
-            File GSTR-3B
-          </h1>
-          <p className="text-sm text-gray-500">
-            Period {period}
-            {gstin ? ` · ${gstin}` : ""}
-            {selectedClient?.trade_name
-              ? ` · ${selectedClient.trade_name}`
-              : ""}
-          </p>
+      <div className="mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <Link
+            href="/filing/gstr-3b"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-gray-500 shadow-[var(--shadow-soft)] transition hover:text-[var(--ink)]"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
+              File GSTR-3B
+            </h1>
+            <p className="text-sm text-gray-500">
+              Period {period}
+              {gstin ? ` · ${gstin}` : ""}
+              {selectedClient?.trade_name
+                ? ` · ${selectedClient.trade_name}`
+                : ""}
+            </p>
+          </div>
         </div>
+        {gstin && clientGstinId ? (
+          <button
+            type="button"
+            disabled={exportingJson}
+            onClick={() => void handleExportJson()}
+            className="inline-flex items-center gap-2 self-start sm:self-center rounded-full border border-gray-300 bg-white px-4 py-2 text-xs font-semibold text-gray-800 shadow-xs hover:bg-gray-50 disabled:opacity-50 transition"
+          >
+            {exportingJson ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5 text-blue-600" />
+            )}
+            <span>Download GSTN JSON (Offline Upload)</span>
+          </button>
+        ) : null}
       </div>
 
       <section className={sectionContainerClass}>
@@ -301,6 +355,7 @@ function Gstr3bFilingPageContent() {
           onChange={setFigures}
           onLoadOutwardSuggestion={loadOutwardSuggestion}
           onLoadOthSuggestion={loadOthSuggestion}
+          onLoadTable4Suggestion={loadTable4Suggestion}
           readOnly={
             runState.serverRunStatus === "offset_complete" ||
             runState.serverRunStatus === "evc_pending" ||
@@ -322,6 +377,65 @@ function Gstr3bFilingPageContent() {
       ) : null}
 
       {gstin && clientGstinId ? (
+        <section className={sectionContainerClass}>
+          <SectionHeader title="GST Portal Offline Upload" dotColor="#2563eb" />
+          <p className="mt-1 text-[13px] text-gray-500">
+            Export the official GSTN offline JSON to file this return on{" "}
+            <code className="text-gray-700 font-mono">services.gst.gov.in</code>.
+          </p>
+
+          {exportSuccess ? (
+            <div className="mt-4 flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-[13px] text-emerald-800 border border-emerald-200">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{exportSuccess}</span>
+            </div>
+          ) : null}
+
+          {exportError ? (
+            <div className="mt-4 flex items-center gap-2 rounded-xl bg-rose-50 px-4 py-3 text-[13px] text-rose-800 border border-rose-200">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+              <span>{exportError}</span>
+            </div>
+          ) : null}
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={exportingJson}
+              onClick={() => void handleExportJson()}
+              className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-5 py-2.5 text-[13px] font-semibold text-white shadow-xs hover:bg-blue-700 transition disabled:opacity-50"
+            >
+              {exportingJson ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              <span>Download Official GSTR-3B JSON</span>
+            </button>
+            <span className="text-[12px] text-gray-400">
+              Upload via GST Portal → Returns Dashboard → GSTR-3B → Prepare Offline
+            </span>
+          </div>
+        </section>
+      ) : null}
+
+      {gstin && clientGstinId && !gstr3bFilingEnabled ? (
+        <section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-5 text-blue-900 shadow-xs">
+          <div className="flex items-start gap-3">
+            <FileCheck className="h-5 w-5 shrink-0 text-blue-600 mt-0.5" />
+            <div>
+              <h4 className="text-[13px] font-semibold text-blue-950">
+                Direct GSTN API Offset & Filing Disabled in this Environment
+              </h4>
+              <p className="mt-1 text-[12px] text-blue-800 leading-relaxed">
+                Direct electronic ledger cash/ITC offset and EVC filing via API are protected. Use the <strong>Download Official GSTR-3B JSON</strong> button above to upload and file on <code className="text-blue-900 font-mono">services.gst.gov.in</code>.
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {gstin && clientGstinId && gstr3bFilingEnabled ? (
         <OffsetLiabilityGate
           token={token}
           period={period}
@@ -332,7 +446,7 @@ function Gstr3bFilingPageContent() {
         />
       ) : null}
 
-      {gstin && clientGstinId ? (
+      {gstin && clientGstinId && gstr3bFilingEnabled ? (
         <Gstr3bEvcAndFilePanel
           token={token}
           period={period}

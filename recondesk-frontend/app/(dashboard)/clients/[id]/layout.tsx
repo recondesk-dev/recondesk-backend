@@ -94,10 +94,17 @@ function ClientWorkspaceNav({ id }: { id: string }) {
         label: "Compliance",
         items: [
           {
-            label: "GSTR-3B",
-            href: "/filing/gstr-3b",
+            label: "GSTR-1",
+            href: `/filing/gstr-1?client_gstin_id=${encodeURIComponent(id)}`,
             description:
-              "Table 4 ITC compilation & return summary (Filing gated)",
+              "Sales Register to GSTR-1 mapping, HSN breakdown & GSTN JSON export",
+            isActive: (p) => p.startsWith("/filing/gstr-1"),
+          },
+          {
+            label: "GSTR-3B",
+            href: `/filing/gstr-3b?client_gstin_id=${encodeURIComponent(id)}`,
+            description:
+              "1-click Table 4 reconciliation sync, offset & GSTN JSON export",
             isActive: (p) => p.startsWith("/filing/gstr-3b"),
           },
           {

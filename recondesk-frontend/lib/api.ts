@@ -2555,6 +2555,7 @@ function filingPeriodPath(period: string): string {
 
 export type FilingFeaturesResponse = {
   gstr1_filing_enabled: boolean;
+  gstr3b_preparation_enabled?: boolean;
   gstr3b_filing_enabled: boolean;
 };
 
@@ -2785,6 +2786,48 @@ export const filingApi = {
       method: "POST",
       token,
     }),
+
+  exportGstr1Json: (
+    token: string,
+    period: string,
+    body: {
+      client_gstin_id: string;
+      records: Record<string, unknown>[];
+      gt?: number;
+      cur_gt?: number;
+    }
+  ) =>
+    apiFetch<Gstr1ExportJsonResponse>(
+      `${filingPeriodPath(period)}/export-json`,
+      { method: "POST", body: JSON.stringify(body), token }
+    ),
+
+  exportGstr1JsonUpload: (
+    token: string,
+    period: string,
+    params: {
+      client_gstin_id: string;
+      sales_register_file: File;
+      gt?: number;
+      cur_gt?: number;
+    }
+  ) => {
+    const form = new FormData();
+    form.append("client_gstin_id", params.client_gstin_id);
+    form.append("sales_register_file", params.sales_register_file);
+    if (params.gt != null) form.append("gt", String(params.gt));
+    if (params.cur_gt != null) form.append("cur_gt", String(params.cur_gt));
+    return apiFetch<Gstr1ExportJsonResponse>(
+      `${filingPeriodPath(period)}/export-json-upload`,
+      { method: "POST", body: form, token }
+    );
+  },
+
+  history: (token: string, clientGstinId: string) =>
+    apiFetch<ClientFilingHistoryResponse>(
+      `/api/filing/history/${encodeURIComponent(clientGstinId)}`,
+      { token, cache: "no-store" }
+    ),
 };
 
 
@@ -2856,6 +2899,82 @@ export type Gstr3bItcOthSuggestionResponse = {
   camt?: number;
   samt?: number;
   csamt?: number;
+};
+
+export type Gstr1ExportJsonResponse = {
+  filename: string;
+  gstin: string;
+  fp: string;
+  record_count: number;
+  source_filename?: string;
+  summary: {
+    b2b: number;
+    b2cl: number;
+    b2cs: number;
+    cdnr: number;
+    cdnur: number;
+    exp: number;
+    hsn: number;
+    nil: number;
+  };
+  payload: Record<string, unknown>;
+};
+
+export type Gstr3bTable4SuggestionResponse = {
+  available: boolean;
+  status?: "available" | "unavailable";
+  reason?: string;
+  period?: string;
+  run_id?: string | null;
+  client_gstin_id?: string;
+  source?: string;
+  table_4?: Record<string, unknown>;
+  summary?: {
+    itc_available_tax: number;
+    itc_reversed_tax: number;
+    net_itc_tax: number;
+    ineligible_tax: number;
+    breakdown?: {
+      all_other_itc?: number;
+      rule37_reversals?: number;
+      blocked_17_5?: number;
+      ineligible_16_4?: number;
+    };
+  };
+  itc_elg?: {
+    itc_avl: Array<{ ty: string; iamt: number; camt: number; samt: number; csamt: number }>;
+    itc_rev: Array<{ ty: string; iamt: number; camt: number; samt: number; csamt: number }>;
+    itc_net: Array<{ ty: string; iamt: number; camt: number; samt: number; csamt: number }>;
+    itc_inelg: Array<{ ty: string; iamt: number; camt: number; samt: number; csamt: number }>;
+  };
+};
+
+export type Gstr3bExportJsonResponse = {
+  filename: string;
+  gstin: string;
+  ret_period: string;
+  payload: Record<string, unknown>;
+  summary?: {
+    total_tax_liability: number;
+  };
+};
+
+export type ClientFilingHistoryResponse = {
+  gstin: string;
+  client_gstin_id: string;
+  filings: Array<{
+    id: string;
+    return_type: string;
+    period: string;
+    status: string;
+    reference_id: string | null;
+    arn: string | null;
+    filing_method: string | null;
+    created_at: string;
+    updated_at: string;
+    offset_completed_at: string | null;
+    filed_at: string | null;
+  }>;
 };
 
 export type Gstr3bSaveResponse = {
@@ -3040,6 +3159,36 @@ export const gstr3bFilingApi = {
       { token, cache: "no-store" }
     );
   },
+
+  suggestTable4: (
+    token: string,
+    period: string,
+    params: { client_gstin_id: string }
+  ) => {
+    const sp = new URLSearchParams();
+    sp.set("client_gstin_id", params.client_gstin_id);
+    return apiFetch<Gstr3bTable4SuggestionResponse>(
+      `${gstr3bPeriodPath(period)}/suggestions/table4?${sp.toString()}`,
+      { token, cache: "no-store" }
+    );
+  },
+
+  exportJson: (
+    token: string,
+    period: string,
+    body: {
+      client_gstin_id: string;
+      figures?: Record<string, unknown>;
+    }
+  ) =>
+    apiFetch<Gstr3bExportJsonResponse>(
+      `${gstr3bPeriodPath(period)}/export-json`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
 
   save: (
     token: string,

@@ -17,6 +17,7 @@ import {
   SectionHeader,
   sectionContainerClass,
 } from "@/components/reconcile/ResultsUi";
+import { type Gstr3bTable4SuggestionResponse } from "@/lib/api";
 
 type Props = {
   gstin: string;
@@ -26,6 +27,7 @@ type Props = {
   onChange: (next: Gstr3bFiguresState) => void;
   onLoadOutwardSuggestion: () => Promise<SuggestionLoadResult<OutwardSuggestion>>;
   onLoadOthSuggestion: () => Promise<SuggestionLoadResult<ItcOthSuggestion>>;
+  onLoadTable4Suggestion?: () => Promise<Gstr3bTable4SuggestionResponse>;
   readOnly?: boolean;
 };
 
@@ -36,6 +38,7 @@ export function Gstr3bFiguresForm({
   onChange,
   onLoadOutwardSuggestion,
   onLoadOthSuggestion,
+  onLoadTable4Suggestion,
   readOnly,
 }: Props) {
   useEffect(() => {
@@ -65,6 +68,7 @@ export function Gstr3bFiguresForm({
           value={value.itc_elg}
           onChange={(itc_elg) => onChange({ ...value, itc_elg })}
           onLoadOthSuggestion={onLoadOthSuggestion}
+          onLoadTable4Suggestion={onLoadTable4Suggestion}
         />
         <InwardAndInterestSections value={value} onChange={onChange} readOnly={readOnly} />
       </div>

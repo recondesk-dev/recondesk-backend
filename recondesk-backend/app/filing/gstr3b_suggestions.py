@@ -257,3 +257,135 @@ def load_itc_oth_suggestion(
     base["period"] = normalize_period_yyyy_mm(period) or period
     base["run_id"] = run_id or None
     return base
+
+
+def load_table4_suggestion(
+    sb,
+    *,
+    client_gstin_id: str,
+    period: str,
+) -> dict[str, Any]:
+    """Draft full GSTR-3B Table 4 from the latest purchase reconcile run."""
+    run = _latest_gstr2b_run(sb, client_gstin_id=client_gstin_id, period=period)
+    if not run:
+        return {
+            "available": False,
+            "status": "unavailable",
+            "reason": REASON_NO_GSTR2B_RUN,
+            "period": normalize_period_yyyy_mm(period) or period,
+        }
+
+    run_id = str(run.get("id") or "")
+    source = f"Reconciliation Run Table 4 (run {run_id[:8]})"
+    try:
+        from app.services.gstr3b_table4_engine import compile_gstr3b_table4
+        t4_data = compile_gstr3b_table4(sb, run_id)
+        t4 = t4_data.get("table_4") or {}
+        sec_4a = t4.get("section_4a") or {}
+        sec_4b = t4.get("section_4b") or {}
+        sec_4c = t4.get("section_4c_net_itc") or {}
+        sec_4d = t4.get("section_4d") or {}
+
+        def _tax(d: Any) -> dict[str, float]:
+            if not isinstance(d, dict):
+                return {"igst": 0.0, "cgst": 0.0, "sgst": 0.0, "cess": 0.0}
+            return {
+                "igst": round(float(d.get("igst") or 0.0), 2),
+                "cgst": round(float(d.get("cgst") or 0.0), 2),
+                "sgst": round(float(d.get("sgst") or d.get("samt") or 0.0), 2),
+                "cess": round(float(d.get("cess") or d.get("csamt") or 0.0), 2),
+            }
+
+        impg = _tax(sec_4a.get("row_4a1_import_goods"))
+        imps = _tax(sec_4a.get("row_4a2_import_services"))
+        rcm = _tax(sec_4a.get("row_4a3_inward_rcm"))
+        isd = _tax(sec_4a.get("row_4a4_isd"))
+        oth = _tax(sec_4a.get("row_4a5_all_other_itc"))
+
+        rul_rev = _tax(sec_4b.get("row_4b1_rule38_42_43_sec175"))
+        oth_rev = _tax(sec_4b.get("row_4b2_others_rule37_37a"))
+
+        net = _tax(sec_4c)
+
+        reclaimed = _tax(sec_4d.get("row_4d1_reclaimed"))
+        ineligible_pos = _tax(sec_4d.get("row_4d2_ineligible_16_4_pos"))
+
+        total_avl = round(impg["igst"] + impg["cess"] + imps["igst"] + imps["cess"] + rcm["igst"] + rcm["cgst"] + rcm["sgst"] + rcm["cess"] + isd["igst"] + isd["cgst"] + isd["sgst"] + isd["cess"] + oth["igst"] + oth["cgst"] + oth["sgst"] + oth["cess"], 2)
+        total_rev = round(rul_rev["igst"] + rul_rev["cgst"] + rul_rev["sgst"] + rul_rev["cess"] + oth_rev["igst"] + oth_rev["cgst"] + oth_rev["sgst"] + oth_rev["cess"], 2)
+        total_net = round(net["igst"] + net["cgst"] + net["sgst"] + net["cess"], 2)
+        total_inelg = round(reclaimed["igst"] + reclaimed["cgst"] + reclaimed["sgst"] + reclaimed["cess"] + ineligible_pos["igst"] + ineligible_pos["cgst"] + ineligible_pos["sgst"] + ineligible_pos["cess"], 2)
+
+        return {
+            "available": True,
+            "status": "available",
+            "period": normalize_period_yyyy_mm(period) or period,
+            "run_id": run_id,
+            "source": source,
+            "summary": {
+                "itc_available_tax": total_avl,
+                "itc_reversed_tax": total_rev,
+                "net_itc_tax": total_net,
+                "ineligible_tax": total_inelg,
+            },
+            "itc_elg": {
+                "itc_avl": [
+                    {"ty": "IMPG", "iamt": impg["igst"], "camt": 0.0, "samt": 0.0, "csamt": impg["cess"]},
+                    {"ty": "IMPS", "iamt": imps["igst"], "camt": 0.0, "samt": 0.0, "csamt": imps["cess"]},
+                    {"ty": "ISRC", "iamt": rcm["igst"], "camt": rcm["cgst"], "samt": rcm["sgst"], "csamt": rcm["cess"]},
+                    {"ty": "ISD", "iamt": isd["igst"], "camt": isd["cgst"], "samt": isd["sgst"], "csamt": isd["cess"]},
+                    {"ty": "OTH", "iamt": oth["igst"], "camt": oth["cgst"], "samt": oth["sgst"], "csamt": oth["cess"]},
+                ],
+                "itc_rev": [
+                    {"ty": "RUL", "iamt": rul_rev["igst"], "camt": rul_rev["cgst"], "samt": rul_rev["sgst"], "csamt": rul_rev["cess"]},
+                    {"ty": "OTH", "iamt": oth_rev["igst"], "camt": oth_rev["cgst"], "samt": oth_rev["sgst"], "csamt": oth_rev["cess"]},
+                ],
+                "itc_net": [
+                    {"ty": "", "iamt": net["igst"], "camt": net["cgst"], "samt": net["sgst"], "csamt": net["cess"]},
+                ],
+                "itc_inelg": [
+                    {"ty": "RUL", "iamt": reclaimed["igst"], "camt": reclaimed["cgst"], "samt": reclaimed["sgst"], "csamt": reclaimed["cess"]},
+                    {"ty": "OTH", "iamt": ineligible_pos["igst"], "camt": ineligible_pos["cgst"], "samt": ineligible_pos["sgst"], "csamt": ineligible_pos["cess"]},
+                ],
+            },
+        }
+    except Exception as exc:
+        _log.warning("load_table4_suggestion failed for run %s: %s; falling back to OTH suggestion", run_id, exc)
+        oth_res = load_itc_oth_suggestion(sb, client_gstin_id=client_gstin_id, period=period)
+        if not oth_res.get("available"):
+            oth_res["status"] = "unavailable"
+            return oth_res
+        oth_tax = round(float(oth_res.get("iamt") or 0.0) + float(oth_res.get("camt") or 0.0) + float(oth_res.get("samt") or 0.0), 2)
+        return {
+            "available": True,
+            "status": "available",
+            "period": normalize_period_yyyy_mm(period) or period,
+            "run_id": run_id,
+            "source": f"GSTR-2B OTH fallback (run {run_id[:8]})",
+            "summary": {
+                "itc_available_tax": oth_tax,
+                "itc_reversed_tax": 0.0,
+                "net_itc_tax": oth_tax,
+                "ineligible_tax": 0.0,
+            },
+            "itc_elg": {
+                "itc_avl": [
+                    {"ty": "IMPG", "iamt": 0.0, "camt": 0.0, "samt": 0.0, "csamt": 0.0},
+                    {"ty": "IMPS", "iamt": 0.0, "camt": 0.0, "samt": 0.0, "csamt": 0.0},
+                    {"ty": "ISRC", "iamt": 0.0, "camt": 0.0, "samt": 0.0, "csamt": 0.0},
+                    {"ty": "ISD", "iamt": 0.0, "camt": 0.0, "samt": 0.0, "csamt": 0.0},
+                    {"ty": "OTH", "iamt": oth_res.get("iamt", 0.0), "camt": oth_res.get("camt", 0.0), "samt": oth_res.get("samt", 0.0), "csamt": 0.0},
+                ],
+                "itc_rev": [
+                    {"ty": "RUL", "iamt": 0.0, "camt": 0.0, "samt": 0.0, "csamt": 0.0},
+                    {"ty": "OTH", "iamt": 0.0, "camt": 0.0, "samt": 0.0, "csamt": 0.0},
+                ],
+                "itc_net": [
+                    {"ty": "", "iamt": oth_res.get("iamt", 0.0), "camt": oth_res.get("camt", 0.0), "samt": oth_res.get("samt", 0.0), "csamt": 0.0},
+                ],
+                "itc_inelg": [
+                    {"ty": "RUL", "iamt": 0.0, "camt": 0.0, "samt": 0.0, "csamt": 0.0},
+                    {"ty": "OTH", "iamt": 0.0, "camt": 0.0, "samt": 0.0, "csamt": 0.0},
+                ],
+            },
+        }
+

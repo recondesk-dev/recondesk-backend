@@ -17,7 +17,10 @@ from app.filing.gstr1_orchestrator import (
     map_sales_register_to_gstr1,
     serialize_gstr1_readiness,
 )
-from app.filing.gstr3b_filing_mapper import apply_system_late_fee_to_save_body
+from app.filing.gstr3b_filing_mapper import (
+    apply_system_late_fee_to_save_body,
+    normalize_gstr3b_save_body,
+)
 from app.filing.gstr3b_offset import (
     Gstr3bOffsetBuildError,
     build_gstr3b_offset_body,
@@ -27,6 +30,7 @@ from app.filing.gstr3b_offset import (
 from app.filing.gstr3b_suggestions import (
     load_itc_oth_suggestion,
     load_osup_det_suggestion,
+    load_table4_suggestion,
 )
 from app.filing.sandbox_filing_client import (
     FilingApiError,
@@ -68,11 +72,11 @@ def require_gstr3b_filing_enabled() -> None:
         )
 
 
-# GSTR-3B money path — gated until live Save→Offset→File is proven.
-# Included under the same /api/filing prefix; returns 503 (not 404).
+# GSTR-3B filing router.
+# Preparation, Table 4 reconciliation suggestions, and offline JSON exports are always enabled.
+# Mutating ledger operations (Offset Liability and File) are strictly protected by require_gstr3b_filing_enabled.
 gstr3b_router = APIRouter(
     redirect_slashes=False,
-    dependencies=[Depends(require_gstr3b_filing_enabled)],
 )
 
 
@@ -81,6 +85,7 @@ def filing_features():
     """Public feature flags for filing UI entry points (no auth)."""
     return {
         "gstr1_filing_enabled": True,
+        "gstr3b_preparation_enabled": True,
         "gstr3b_filing_enabled": get_settings().gstr3b_filing_enabled,
     }
 
@@ -157,6 +162,34 @@ class ReadinessBody(_StripModel):
     records: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("client_gstin_id", "period")
+    @classmethod
+    def _req(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
+
+
+class ExportGstr3bJsonBody(_StripModel):
+    client_gstin_id: str
+    figures: Optional[dict[str, Any]] = None
+
+    @field_validator("client_gstin_id")
+    @classmethod
+    def _req(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
+
+
+class ExportGstr1JsonBody(_StripModel):
+    client_gstin_id: str
+    records: list[dict[str, Any]] = Field(default_factory=list)
+    gt: float = 0.0
+    cur_gt: float = 0.0
+
+    @field_validator("client_gstin_id")
     @classmethod
     def _req(cls, v: str) -> str:
         v = v.strip()
@@ -878,6 +911,106 @@ async def save_gstr1_upload(
     )
 
 
+@router.post("/gstr-1/{period}/export-json")
+def gstr1_export_json(
+    period: str,
+    body: ExportGstr1JsonBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Generate official GSTN GSTR-1 offline JSON file from records."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, body.client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+    state_code = gstin[:2]
+    fp = period_to_fp(period)
+
+    if not body.records:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No records provided to export",
+        )
+
+    map_res = map_sales_register_to_gstr1(
+        body.records, filer_state=state_code, filing_period=period,
+    )
+    save_body = build_save_body(
+        map_res.save_payload, gstin=gstin, period=period, gt=body.gt, cur_gt=body.cur_gt,
+    )
+    filename = f"gstr1_{gstin}_{fp}.json"
+    return {
+        "filename": filename,
+        "gstin": gstin,
+        "fp": fp,
+        "record_count": len(body.records),
+        "summary": {
+            "b2b": len(map_res.save_payload.get("b2b", [])),
+            "b2cl": len(map_res.save_payload.get("b2cl", [])),
+            "b2cs": len(map_res.save_payload.get("b2cs", [])),
+            "cdnr": len(map_res.save_payload.get("cdnr", [])),
+            "cdnur": len(map_res.save_payload.get("cdnur", [])),
+            "exp": len(map_res.save_payload.get("exp", [])),
+            "hsn": len(map_res.save_payload.get("hsn", {}).get("data", [])),
+            "nil": len(map_res.save_payload.get("nil", {}).get("inv", [])),
+        },
+        "payload": save_body,
+    }
+
+
+@router.post("/gstr-1/{period}/export-json-upload")
+async def gstr1_export_json_upload(
+    period: str,
+    client_gstin_id: str = Form(...),
+    sales_register_file: UploadFile = File(...),
+    gt: float = Form(0.0),
+    cur_gt: float = Form(0.0),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Parse uploaded Sales Register and generate official GSTN GSTR-1 offline JSON file."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+    state_code = gstin[:2]
+    fp = period_to_fp(period)
+
+    content = await sales_register_file.read()
+    records = _parse_sr_upload(content, sales_register_file.filename or "upload.xlsx")
+    if not records:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No valid sales register rows found in uploaded file",
+        )
+
+    map_res = map_sales_register_to_gstr1(
+        records, filer_state=state_code, filing_period=period,
+    )
+    save_body = build_save_body(
+        map_res.save_payload, gstin=gstin, period=period, gt=gt, cur_gt=cur_gt,
+    )
+    filename = f"gstr1_{gstin}_{fp}.json"
+    return {
+        "filename": filename,
+        "gstin": gstin,
+        "fp": fp,
+        "record_count": len(records),
+        "source_filename": sales_register_file.filename,
+        "summary": {
+            "b2b": len(map_res.save_payload.get("b2b", [])),
+            "b2cl": len(map_res.save_payload.get("b2cl", [])),
+            "b2cs": len(map_res.save_payload.get("b2cs", [])),
+            "cdnr": len(map_res.save_payload.get("cdnr", [])),
+            "cdnur": len(map_res.save_payload.get("cdnur", [])),
+            "exp": len(map_res.save_payload.get("exp", [])),
+            "hsn": len(map_res.save_payload.get("hsn", {}).get("data", [])),
+            "nil": len(map_res.save_payload.get("nil", {}).get("inv", [])),
+        },
+        "payload": save_body,
+    }
+
+
 @router.get("/gstr-1/{period}/status")
 def return_status(
     period: str,
@@ -1261,6 +1394,62 @@ def gstr3b_suggest_itc_oth(
     )
 
 
+@gstr3b_router.get("/gstr-3b/{period}/suggestions/table4")
+def gstr3b_suggest_table4(
+    period: str,
+    client_gstin_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Auto-compile GSTR-3B Table 4 from the latest purchase reconcile run."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    _firm_id(sb, current_user)
+    _assert_client_access(sb, current_user, client_gstin_id.strip())
+    return load_table4_suggestion(
+        sb, client_gstin_id=client_gstin_id.strip(), period=period,
+    )
+
+
+@gstr3b_router.post("/gstr-3b/{period}/export-json")
+def gstr3b_export_json(
+    period: str,
+    body: ExportGstr3bJsonBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Generate official GSTN GSTR-3B offline JSON file for direct portal upload."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, body.client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+    ret_period = period_to_fp(period)
+
+    save_body = dict(body.figures) if isinstance(body.figures, dict) else {}
+    save_body["gstin"] = gstin
+    save_body["ret_period"] = ret_period
+
+    normalized = normalize_gstr3b_save_body(save_body)
+    filename = f"gstr3b_{gstin}_{ret_period}.json"
+    sup = normalized.get("sup_details", {})
+    osup_det = sup.get("osup_det", {}) if isinstance(sup, dict) else {}
+    total_tax = round(
+        float(osup_det.get("iamt") or 0.0)
+        + float(osup_det.get("camt") or 0.0)
+        + float(osup_det.get("samt") or 0.0)
+        + float(osup_det.get("csamt") or 0.0),
+        2,
+    )
+    return {
+        "filename": filename,
+        "gstin": gstin,
+        "ret_period": ret_period,
+        "payload": normalized,
+        "summary": {
+            "total_tax_liability": total_tax,
+        },
+    }
+
+
 @gstr3b_router.get("/gstr-3b/{period}/offset-preview")
 def gstr3b_offset_preview(
     period: str,
@@ -1497,7 +1686,10 @@ def gstr3b_return_status(
     }
 
 
-@gstr3b_router.post("/gstr-3b/{period}/offset")
+@gstr3b_router.post(
+    "/gstr-3b/{period}/offset",
+    dependencies=[Depends(require_gstr3b_filing_enabled)],
+)
 def offset_gstr3b(
     period: str,
     body: OffsetGstr3bBody,
@@ -1622,7 +1814,10 @@ def generate_evc_otp_gstr3b(
     }
 
 
-@gstr3b_router.post("/gstr-3b/{period}/file")
+@gstr3b_router.post(
+    "/gstr-3b/{period}/file",
+    dependencies=[Depends(require_gstr3b_filing_enabled)],
+)
 def file_gstr3b(
     period: str,
     body: FileGstr3bBody,
@@ -1801,5 +1996,34 @@ def retry_filing_batch(
     return filing_store.get_batch(sb, batch_id)
 
 
+@router.get("/history/{client_gstin_id}")
+def filing_history(
+    client_gstin_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Retrieve filing history and ARNs for a client across all return types."""
+    sb = get_supabase()
+    _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+    runs = (
+        sb.table("filing_runs")
+        .select(
+            "id, return_type, period, status, reference_id, arn, filing_method, "
+            "created_at, updated_at, offset_completed_at, filed_at"
+        )
+        .eq("gstin", gstin)
+        .order("created_at", desc=True)
+        .limit(100)
+        .execute()
+    )
+    return {
+        "gstin": gstin,
+        "client_gstin_id": client_gstin_id.strip(),
+        "filings": runs.data or [],
+    }
+
+
 router.include_router(gstr3b_router)
+
 

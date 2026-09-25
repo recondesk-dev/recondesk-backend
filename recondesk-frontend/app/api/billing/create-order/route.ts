@@ -10,11 +10,11 @@ type PlanPricing = {
 const PLAN_CATALOG: Record<string, PlanPricing> = {
   solo: {
     monthly: { priceInr: 799, gstinLimit: 25, periodDays: 30 },
-    yearly: { priceInr: 5999, gstinLimit: 25, periodDays: 365 },
+    yearly: { priceInr: 4999, gstinLimit: 25, periodDays: 365 },
   },
   firm: {
     monthly: { priceInr: 1199, gstinLimit: 75, periodDays: 30 },
-    yearly: { priceInr: 8999, gstinLimit: 75, periodDays: 365 },
+    yearly: { priceInr: 7999, gstinLimit: 75, periodDays: 365 },
   },
   large_firm: {
     monthly: { priceInr: 1899, gstinLimit: 150, periodDays: 30 },
@@ -27,11 +27,11 @@ const PLAN_CATALOG: Record<string, PlanPricing> = {
   // Legacy aliases for backward compatibility
   starter: {
     monthly: { priceInr: 799, gstinLimit: 25, periodDays: 30 },
-    yearly: { priceInr: 5999, gstinLimit: 25, periodDays: 365 },
+    yearly: { priceInr: 4999, gstinLimit: 25, periodDays: 365 },
   },
   growth: {
     monthly: { priceInr: 1199, gstinLimit: 75, periodDays: 30 },
-    yearly: { priceInr: 8999, gstinLimit: 75, periodDays: 365 },
+    yearly: { priceInr: 7999, gstinLimit: 75, periodDays: 365 },
   },
   pro: {
     monthly: { priceInr: 1899, gstinLimit: 150, periodDays: 30 },
@@ -39,7 +39,7 @@ const PLAN_CATALOG: Record<string, PlanPricing> = {
   },
   monthly: {
     monthly: { priceInr: 799, gstinLimit: 25, periodDays: 30 },
-    yearly: { priceInr: 5999, gstinLimit: 25, periodDays: 365 },
+    yearly: { priceInr: 4999, gstinLimit: 25, periodDays: 365 },
   },
 };
 

@@ -16,9 +16,9 @@ def test_intra_state_b2b_tax_invoice_generation():
         "plan": "firm",
         "billing_cycle": "yearly",
         "gstin_limit": 75,
-        "base_amount_paise": 899900,
-        "gst_paise": 161982,
-        "total_amount_paise": 1061882,
+        "base_amount_paise": 799900,
+        "gst_paise": 143982,
+        "total_amount_paise": 943882,
         "created_at": "2026-09-23T10:00:00Z",
     }
     bill_to = {
@@ -56,9 +56,9 @@ def test_inter_state_b2b_tax_invoice_generation():
         "plan": "solo",
         "billing_cycle": "yearly",
         "gstin_limit": 25,
-        "base_amount_paise": 599900,
-        "gst_paise": 107982,
-        "total_amount_paise": 707882,
+        "base_amount_paise": 499900,
+        "gst_paise": 89982,
+        "total_amount_paise": 589882,
         "created_at": "2026-09-23T10:00:00Z",
     }
     bill_to = {

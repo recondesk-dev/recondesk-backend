@@ -34,20 +34,20 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
         "yearly": {**_with_gst(0), "period_days": 60, "gstin_limit": 2},
     },
     "solo": {
-        **_with_gst(5999_00),
+        **_with_gst(4999_00),
         "gstin_limit": 25,
         "period_days": 365,
         "billing_period": "yearly",
         "monthly": {**_with_gst(799_00), "period_days": 30, "gstin_limit": 25},
-        "yearly": {**_with_gst(5999_00), "period_days": 365, "gstin_limit": 25},
+        "yearly": {**_with_gst(4999_00), "period_days": 365, "gstin_limit": 25},
     },
     "firm": {
-        **_with_gst(8999_00),
+        **_with_gst(7999_00),
         "gstin_limit": 75,
         "period_days": 365,
         "billing_period": "yearly",
         "monthly": {**_with_gst(1199_00), "period_days": 30, "gstin_limit": 75},
-        "yearly": {**_with_gst(8999_00), "period_days": 365, "gstin_limit": 75},
+        "yearly": {**_with_gst(7999_00), "period_days": 365, "gstin_limit": 75},
     },
     "large_firm": {
         **_with_gst(11999_00),
@@ -67,20 +67,20 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
     },
     # Backward compatibility for legacy keys
     "starter": {
-        **_with_gst(5999_00),
+        **_with_gst(4999_00),
         "gstin_limit": 25,
         "period_days": 365,
         "billing_period": "yearly",
         "monthly": {**_with_gst(799_00), "period_days": 30, "gstin_limit": 25},
-        "yearly": {**_with_gst(5999_00), "period_days": 365, "gstin_limit": 25},
+        "yearly": {**_with_gst(4999_00), "period_days": 365, "gstin_limit": 25},
     },
     "growth": {
-        **_with_gst(8999_00),
+        **_with_gst(7999_00),
         "gstin_limit": 75,
         "period_days": 365,
         "billing_period": "yearly",
         "monthly": {**_with_gst(1199_00), "period_days": 30, "gstin_limit": 75},
-        "yearly": {**_with_gst(8999_00), "period_days": 365, "gstin_limit": 75},
+        "yearly": {**_with_gst(7999_00), "period_days": 365, "gstin_limit": 75},
     },
     "pro": {
         **_with_gst(11999_00),
@@ -96,7 +96,7 @@ PLAN_CONFIG: dict[str, dict[str, Any]] = {
         "period_days": 30,
         "billing_period": "monthly",
         "monthly": {**_with_gst(799_00), "period_days": 30, "gstin_limit": 25},
-        "yearly": {**_with_gst(5999_00), "period_days": 365, "gstin_limit": 25},
+        "yearly": {**_with_gst(4999_00), "period_days": 365, "gstin_limit": 25},
     },
 }
 
@@ -114,7 +114,7 @@ def get_plan_details(
 
     cfg = PLAN_CONFIG[plan_key]
     sub_cfg = cfg.get(period_key, cfg)
-    base_paise = int(sub_cfg.get("base_paise", 5999_00))
+    base_paise = int(sub_cfg.get("base_paise", 4999_00))
     period_days = int(sub_cfg.get("period_days", 365 if period_key == "yearly" else 30))
     gstin_limit = int(cfg.get("gstin_limit", 25))
 

@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, Download, CheckCircle2 } from "lucide-react";
 import useSWR from "swr";
+
+import { downloadJsonFile } from "@/components/filing/downloadJsonFile";
 
 import { ExternalInputGapsPanel } from "@/components/filing/ExternalInputGapsPanel";
 import { EvcAndFilePanel } from "@/components/filing/EvcAndFilePanel";
@@ -111,6 +113,48 @@ function Gstr1FilingPageContent() {
       );
     } finally {
       setReadinessBusy(false);
+    }
+  }, [clientGstinId, period, srFile, token]);
+
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportSuccess, setExportSuccess] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleExportJson = useCallback(async () => {
+    if (!token || !period || !clientGstinId || !srFile) {
+      setExportError("Please upload a Sales Register file first.");
+      return;
+    }
+    setExportBusy(true);
+    setExportError(null);
+    setExportSuccess(null);
+    try {
+      const res = await filingApi.exportGstr1JsonUpload(token, period, {
+        client_gstin_id: clientGstinId,
+        sales_register_file: srFile,
+      });
+      downloadJsonFile(res.filename, res.payload);
+      const counts = [
+        res.summary.b2b ? `${res.summary.b2b} B2B` : null,
+        res.summary.b2cs ? `${res.summary.b2cs} B2CS` : null,
+        res.summary.cdnr ? `${res.summary.cdnr} CDNR` : null,
+        res.summary.hsn ? `${res.summary.hsn} HSN` : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      setExportSuccess(
+        `Downloaded ${res.filename} (${counts || `${res.record_count} records`}). Ready for direct upload to GST portal!`
+      );
+    } catch (err) {
+      setExportError(
+        isApiError(err)
+          ? err.detail
+          : err instanceof Error
+            ? err.message
+            : "Failed to export GSTN JSON"
+      );
+    } finally {
+      setExportBusy(false);
     }
   }, [clientGstinId, period, srFile, token]);
 
@@ -226,7 +270,7 @@ function Gstr1FilingPageContent() {
           </label>
         </div>
 
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
             type="button"
             disabled={readinessBusy || !srFile || !clientGstinId}
@@ -238,7 +282,34 @@ function Gstr1FilingPageContent() {
             ) : null}
             Check readiness
           </button>
+
+          <button
+            type="button"
+            disabled={exportBusy || !srFile || !clientGstinId}
+            onClick={() => void handleExportJson()}
+            className="inline-flex items-center gap-2 rounded-full border border-gray-300 bg-white px-5 py-2.5 text-[13px] font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:opacity-40"
+          >
+            {exportBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 text-gray-500" />
+            )}
+            Download GSTN JSON (Offline Upload)
+          </button>
         </div>
+
+        {exportSuccess ? (
+          <div className="mt-3 flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-[13px] font-medium text-emerald-800 ring-1 ring-emerald-200">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+            <span>{exportSuccess}</span>
+          </div>
+        ) : null}
+
+        {exportError ? (
+          <div className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-[13px] text-red-600 ring-1 ring-red-200">
+            {exportError}
+          </div>
+        ) : null}
 
         {readinessError ? (
           <div className="mt-3 rounded-xl bg-[#F7F7F8] px-4 py-3 text-[13px] text-[var(--ink)] ring-1 ring-[#E8E8EA]">

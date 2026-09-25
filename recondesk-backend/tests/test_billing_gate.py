@@ -38,7 +38,7 @@ def test_gstin_plan_catalog_v2():
     so_yr = get_plan_details("solo", "yearly")
     assert so_yr["gstin_limit"] == 25
     assert so_yr["period_days"] == 365
-    assert so_yr["base_paise"] == 5999_00
+    assert so_yr["base_paise"] == 4999_00
     so_mo = get_plan_details("solo", "monthly")
     assert so_mo["gstin_limit"] == 25
     assert so_mo["period_days"] == 30
@@ -47,7 +47,7 @@ def test_gstin_plan_catalog_v2():
     # Firm
     fi_yr = get_plan_details("firm", "yearly")
     assert fi_yr["gstin_limit"] == 75
-    assert fi_yr["base_paise"] == 8999_00
+    assert fi_yr["base_paise"] == 7999_00
     fi_mo = get_plan_details("firm", "monthly")
     assert fi_mo["gstin_limit"] == 75
     assert fi_mo["base_paise"] == 1199_00
