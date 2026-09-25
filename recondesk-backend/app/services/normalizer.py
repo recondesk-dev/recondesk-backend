@@ -178,6 +178,8 @@ ALLOWED_NOTES: frozenset = frozenset({
     "excel_serial_converted",
     "time_stripped",
     "two_digit_year_expanded",
+    "mm_dd_yyyy_converted",
+    "mm_dd_yy_converted",
     "leading_zeros_stripped",
     "uppercased",
     "truncated_to_50_chars",
@@ -290,17 +292,21 @@ def normalize_date(raw) -> NormalizationResult:
             raise NormalizationError("date", raw, "invalid_date")
         return NormalizationResult(value=date_val, notes=notes)
 
-    # --- DD-MM-YYYY (4-digit year last) ---
+    # --- DD-MM-YYYY (4-digit year last, fallback to MM-DD-YYYY) ---
     m = re.fullmatch(r"(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})", s)
     if m:
         day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
         try:
             date_val = datetime.date(year, month, day)
         except ValueError:
-            raise NormalizationError("date", raw, "invalid_date")
+            try:
+                date_val = datetime.date(year, day, month)
+                _note(notes, "mm_dd_yyyy_converted")
+            except ValueError:
+                raise NormalizationError("date", raw, "invalid_date")
         return NormalizationResult(value=date_val, notes=notes)
 
-    # --- DD-MM-YY (2-digit year — always treated as DD-MM-YY, never YYYY) ---
+    # --- DD-MM-YY (2-digit year — fallback to MM-DD-YY) ---
     m = re.fullmatch(r"(\d{1,2})[-/.](\d{1,2})[-/.](\d{2})", s)
     if m:
         day, month, yy = int(m.group(1)), int(m.group(2)), int(m.group(3))
@@ -309,7 +315,11 @@ def normalize_date(raw) -> NormalizationResult:
         try:
             date_val = datetime.date(year, month, day)
         except ValueError:
-            raise NormalizationError("date", raw, "invalid_date")
+            try:
+                date_val = datetime.date(year, day, month)
+                _note(notes, "mm_dd_yy_converted")
+            except ValueError:
+                raise NormalizationError("date", raw, "invalid_date")
         return NormalizationResult(value=date_val, notes=notes)
 
     # --- Month-name formats: DD MMM YYYY / DD-MMM-YYYY / DD-MMM-YY ---
@@ -395,6 +405,11 @@ def normalize_amount(value) -> NormalizationResult:
         if m.group(1).upper() == "CR":
             is_negative = True
         s = s[: m.start()].strip()
+
+    if s.startswith("(") and s.endswith(")"):
+        is_negative = not is_negative
+        s = s[1:-1].strip()
+        _note(notes, "parentheses_negative")
 
     s2 = _CURRENCY_PREFIX_RE.sub("", s).strip()
     if s2 != s:

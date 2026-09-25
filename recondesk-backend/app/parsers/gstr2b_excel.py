@@ -640,6 +640,52 @@ def load_gstr2b_upload_payload(
     as a parsed ``dict`` for ``parse_gstr2b`` to handle (portal or alt).
     """
     name = filename or ""
+    import zipfile
+    if (name.lower().endswith(".zip") or body[:4] == b"PK\x03\x04") and not is_gstr2b_excel_filename(name):
+        try:
+            with zipfile.ZipFile(io.BytesIO(body)) as zf:
+                if any(n.startswith("xl/") or n == "[Content_Types].xml" for n in zf.namelist()):
+                    return parse_2b_excel(
+                        body,
+                        name or "gstr2b.xlsx",
+                        fallback_buyer_gstin=fallback_buyer_gstin,
+                        fallback_period=fallback_period,
+                    )
+                members = [
+                    m for m in zf.namelist()
+                    if not m.startswith("__MACOSX/") and not os.path.basename(m).startswith(".") and not m.endswith("/")
+                ]
+                json_members = [m for m in members if m.lower().endswith(".json")]
+                if json_members:
+                    json_members.sort()
+                    merged_payload = None
+                    for jm in json_members:
+                        chunk_bytes = zf.read(jm)
+                        chunk_data = json.loads(chunk_bytes.decode("utf-8"))
+                        if merged_payload is None:
+                            merged_payload = chunk_data
+                        else:
+                            base_data = merged_payload.get("data") if isinstance(merged_payload.get("data"), dict) else merged_payload
+                            c_data = chunk_data.get("data") if isinstance(chunk_data.get("data"), dict) else chunk_data
+                            for key in ("b2b", "cdnr", "b2ba", "cdnra"):
+                                if isinstance(c_data.get(key), list):
+                                    if key not in base_data or not isinstance(base_data.get(key), list):
+                                        base_data[key] = []
+                                    base_data[key].extend(c_data[key])
+                    return merged_payload
+
+                excel_members = [m for m in members if any(m.lower().endswith(ext) for ext in _EXCEL_EXTS)]
+                if excel_members:
+                    excel_bytes = zf.read(excel_members[0])
+                    return parse_2b_excel(
+                        excel_bytes,
+                        os.path.basename(excel_members[0]),
+                        fallback_buyer_gstin=fallback_buyer_gstin,
+                        fallback_period=fallback_period,
+                    )
+        except (zipfile.BadZipFile, Exception):
+            pass
+
     if is_gstr2b_excel_filename(name) or (
         not name.lower().endswith(".json") and is_gstr2b_excel_bytes(body)
     ):

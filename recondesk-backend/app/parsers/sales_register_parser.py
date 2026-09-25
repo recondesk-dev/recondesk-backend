@@ -109,6 +109,9 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         # Tally / books exports
         "gst reg no", "gst reg. no", "gst registration no",
         "gst registration number", "gstin/uin", "gstin / uin",
+        "party tin", "tin", "buyer gst no", "customer gst no",
+        "tax id", "gst identification no", "gst identification number",
+        "cparty gstin", "party's gstin/uin", "customer gstin / uin",
     ],
     "invoice_number": [
         "invoice no", "invoice number", "inv no", "bill no",
@@ -116,33 +119,61 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "vch number", "vch no.", "invoice #", "tax invoice no",
         "ref no", "doc no", "document number", "sale invoice no",
         "sales invoice no",
+        "inv num", "invoice num", "inv #", "bill num", "voucher num",
+        "vch num", "doc num", "doc #", "reference no", "reference number",
+        "ref num", "sale bill no", "sale inv no", "txn no", "transaction no",
+        "transaction number", "inv id",
     ],
     "invoice_date": [
         "invoice date", "bill date", "bill dt", "date", "voucher date",
         "doc date", "document date", "sale date", "sales date",
+        "inv date", "inv dt", "invoice dt", "posting date", "entry date",
+        "voucher dt", "bill dt.", "date of invoice", "tx date", "transaction date",
     ],
     "taxable_amount": [
         "taxable value", "taxable amount", "base amount", "taxable",
         "assessable value", "value", "net amount",
         "amount", "invoice value", "total amount",
-        "taxable amt",
+        "taxable amt", "taxable amt.", "taxable val", "taxable turnover",
+        "assessable amt", "assessable amt.", "assessable val", "assessable value rs",
+        "assessable value (rs.)", "taxable value rs", "taxable value (rs.)",
+        "net taxable amount", "taxable goods value", "basic amount", "basic amt",
+        "basic value", "net sales", "sale amount", "sales amount", "taxable amt rs",
+        "taxable amt (rs)",
     ],
     "igst": [
         "igst", "integrated tax", "igst amount", "igst tax", "i.g.s.t",
         "igst paid", "igst collected",
+        "igst amt", "igst amt.", "integrated gst", "igst (rs)",
     ],
-    "cgst": ["cgst", "central tax", "cgst amount", "cgst tax", "c.g.s.t"],
+    "cgst": [
+        "cgst", "central tax", "cgst amount", "cgst tax", "c.g.s.t",
+        "cgst amt", "cgst amt.", "central gst", "cgst (rs)",
+    ],
     "sgst": [
         "sgst", "state tax", "sgst amount", "sgst tax", "utgst",
         "s.g.s.t", "u.t.g.s.t",
+        "sgst amt", "sgst amt.", "state gst", "state gst amt", "utgst amt", "sgst (rs)",
     ],
-    "cess": ["cess", "cess amount", "gst cess", "compensation cess"],
-    "total_tax": ["total tax", "gst amount", "tax amount", "total gst"],
+    "cess": [
+        "cess", "cess amount", "gst cess", "compensation cess",
+        "cess amt", "cess amt.", "cess (rs)",
+    ],
+    "total_tax": [
+        "total tax", "gst amount", "tax amount", "total gst",
+        "tax amt", "tax amt.", "total tax amt", "total tax amt.",
+        "total tax amount", "total gst amount", "total gst amt",
+        "gst amt", "gst amt.", "total tax rs", "total gst rs",
+    ],
     "total_amount": [
         "total invoice value", "total value", "invoice value", "invoice amount",
         "total amount", "gross amount", "gross value", "gross total",
         "bill amount", "bill value",
         "net amount", "net value", "total", "grand total",
+        "inv total", "invoice total", "bill total", "bill amt", "bill amt.",
+        "gross amt", "gross amt.", "invoice gross amount", "invoice net amount",
+        "invoice total amount", "total amt", "total amt.", "total inv value",
+        "total bill amount", "net bill amount", "final amount", "payable amount",
     ],
     "recipient_name": [
         "recipient name", "recipient", "buyer name", "buyer",
@@ -150,10 +181,15 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "ledger name", "ledger", "sold to", "bill to",
         "consignee", "debtor name", "debtor", "to", "name",
         "particulars",  # Tally sales register
+        "party's name", "party s name", "party's a/c name", "party s a c name",
+        "party a/c name", "party ac name", "party account name", "account name",
+        "buyer / customer name", "customer / buyer name", "debtor's name",
+        "client name", "client", "company name",
     ],
     "place_of_supply": [
         "place of supply", "place of supply state code", "pos", "state",
         "state name", "destination state", "supply state",
+        "place of delivery", "pos state", "state code",
     ],
     "invoice_type": [
         "invoice type", "document type", "doc type", "type",
@@ -168,7 +204,10 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "is interstate", "interstate", "inter state", "igst applicable",
         "supply type interstate",
     ],
-    "reverse_charge": ["reverse charge", "rcm", "reverse charge applicable"],
+    "reverse_charge": [
+        "reverse charge", "rcm", "reverse charge applicable",
+        "reverse charge flag", "is reverse charge", "rcm applicable", "reverse charge yn", "rev charge",
+    ],
     "hsn": [
         "hsn", "hsn code", "hsn/sac", "sac", "sac code", "hsn code/sac code",
     ],
@@ -486,6 +525,14 @@ _TOTAL_KEYWORDS: tuple[str, ...] = (
     "subtotal",
     "total",
     "sum",
+    "closing balance",
+    "opening balance",
+    "carried over",
+    "carried forward",
+    "brought forward",
+    "balance c/f",
+    "balance b/f",
+    "page total",
 )
 
 
@@ -876,6 +923,10 @@ def _classify_invoice_type_from_column(raw_type: str | None) -> str | None:
     return None
 
 
+_CREDIT_NOTE_PREFIXES: tuple[str, ...] = ("CREDIT", "CRN", "CN", "CR")
+_DEBIT_NOTE_PREFIXES: tuple[str, ...] = ("DEBIT", "DRN", "DN", "DR")
+
+
 def _classify_invoice_type(
     invoice_number: str | None,
     original_taxable: int | None,
@@ -901,11 +952,12 @@ def _classify_invoice_type(
 
     # 2. Invoice number prefix
     inv = (invoice_number or "").strip().upper()
-    if inv.startswith("CN") or (
+    norm_inv = re.sub(r"[^A-Z0-9]", "", inv)
+    if any(norm_inv.startswith(p) for p in _CREDIT_NOTE_PREFIXES) or (
         original_taxable is not None and original_taxable < 0
     ):
         return "CREDIT_NOTE"
-    if inv.startswith("DN"):
+    if any(norm_inv.startswith(p) for p in _DEBIT_NOTE_PREFIXES):
         return "DEBIT_NOTE"
 
     # 3. (Negative taxable already handled above with CN prefix check)
@@ -942,15 +994,11 @@ def _df_cell_int(val: Any) -> int | None:
 def _invoice_type_consistency_errors(
     invoice_type: str, original_taxable: int | None
 ) -> list[str]:
-    """Return row-level error fragments when sign and type disagree."""
-    errs: list[str] = []
-    if original_taxable is None:
-        return errs
-    if invoice_type == "CREDIT_NOTE" and original_taxable > 0:
-        errs.append("credit note with positive value")
-    if invoice_type in ("B2B", "B2C", "EXPORT") and original_taxable < 0:
-        errs.append("invoice with negative value")
-    return errs
+    """Return row-level error fragments when sign and type disagree.
+
+    Credit notes with positive values and negative sales adjustments are supported.
+    """
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -1272,8 +1320,23 @@ def _process_sr_sheet_rows(
                 sgst_paise = other
             # else: leave component columns unset — total_tax_paise is enough
 
-        if invoice_type == "CREDIT_NOTE" and total_tax_paise is not None and total_tax_paise > 0:
-            total_tax_paise = -total_tax_paise
+        if invoice_type == "CREDIT_NOTE":
+            if total_tax_paise is not None and total_tax_paise > 0:
+                total_tax_paise = -total_tax_paise
+            if taxable_amount_paise is not None and taxable_amount_paise > 0:
+                taxable_amount_paise = -taxable_amount_paise
+            if igst_paise is not None and igst_paise > 0:
+                igst_paise = -igst_paise
+            if cgst_paise is not None and cgst_paise > 0:
+                cgst_paise = -cgst_paise
+            if sgst_paise is not None and sgst_paise > 0:
+                sgst_paise = -sgst_paise
+            if cess_paise is not None and cess_paise > 0:
+                cess_paise = -cess_paise
+
+        tot_amt = _df_cell_int(row.get("total_amount_paise"))
+        if invoice_type == "CREDIT_NOTE" and tot_amt is not None and tot_amt > 0:
+            tot_amt = -tot_amt
 
         # --- Reverse charge ---
         _rcell = row.get("reverse_charge")
@@ -1292,6 +1355,8 @@ def _process_sr_sheet_rows(
             "document_type": invoice_type,
             # Derived recon category (B2B / B2C / EXPORT / …).
             "invoice_type": invoice_type,
+            "is_credit_note": (invoice_type == "CREDIT_NOTE" or (taxable_amount_paise is not None and taxable_amount_paise < 0)),
+            "is_debit_note": (invoice_type == "DEBIT_NOTE"),
             # Raw workbook text from invoice type / supply type column (pre-classify).
             "invoice_type_raw": explicit_invoice_type,
             "invoice_date": date_value,
@@ -1304,7 +1369,7 @@ def _process_sr_sheet_rows(
             "sgst_paise": sgst_paise,
             "cess_paise": cess_paise,
             "total_tax_paise": total_tax_paise,
-            "total_amount_paise": _df_cell_int(row.get("total_amount_paise")),
+            "total_amount_paise": tot_amt,
             "place_of_supply": place_of_supply,
             "reverse_charge": reverse_out,
             "source_file": filename,

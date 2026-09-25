@@ -290,12 +290,23 @@ def run_sanity_gstr2b_json(
         )
         return checks, 0
 
+    import zipfile
+    is_zip = name.lower().endswith(".zip") or (
+        raw[:4] == b"PK\x03\x04" and not is_excel
+    )
+
+    file_detail = (
+        "ZIP GSTR-2B export (auto-extracted)"
+        if is_zip
+        else ("Excel GSTR-2B export" if is_excel else "JSON GSTR-2B export")
+    )
+
     checks.append(
         {
             "id": "file_parse",
             "label": "Valid file",
             "status": "pass",
-            "detail": "Excel GSTR-2B export" if is_excel else "JSON GSTR-2B export",
+            "detail": file_detail,
             "affected_records": [],
         }
     )
