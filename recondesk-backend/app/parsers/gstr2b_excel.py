@@ -163,6 +163,29 @@ def _cell_to_jsonish(val: Any) -> Any:
     return str(val)
 
 
+_CANONICAL_FIELD_TO_STD_KEY: tuple[tuple[str, str], ...] = (
+    ("gstin", "GSTIN"),
+    ("supplier_name", "Party"),
+    ("invoice_number", "Invoice No"),
+    ("invoice_date", "Invoice Date"),
+    ("taxable_amount", "Taxable Value"),
+    ("total_amount", "Invoice Value"),
+    ("igst", "Integrated Tax"),
+    ("cgst", "Central Tax"),
+    ("sgst", "State/UT Tax"),
+    ("cess", "Cess"),
+    ("total_tax", "Total Tax"),
+    ("place_of_supply", "POS"),
+    ("reverse_charge", "Reverse Charge"),
+    ("itc_eligibility", "ITC Available"),
+    ("note_number", "Note Number"),
+    ("note_amount", "Note Value"),
+    ("note_type", "Note Type"),
+    ("note_reason", "Reason"),
+    ("original_invoice_number", "Original Invoice Number"),
+)
+
+
 def _dataframe_to_row_dicts(
     df: pd.DataFrame, mapping: dict[str, str] | None = None
 ) -> list[dict[str, Any]]:
@@ -175,18 +198,12 @@ def _dataframe_to_row_dicts(
                 continue
             row[key] = _cell_to_jsonish(series.get(col))
         if mapping:
-            if "gstin" in mapping and mapping["gstin"] in df.columns:
-                val = _cell_to_jsonish(series.get(mapping["gstin"]))
-                if val:
-                    row.setdefault("GSTIN", val)
-            if "invoice_number" in mapping and mapping["invoice_number"] in df.columns:
-                val = _cell_to_jsonish(series.get(mapping["invoice_number"]))
-                if val:
-                    row.setdefault("Invoice No", val)
-            if "original_invoice_number" in mapping and mapping["original_invoice_number"] in df.columns:
-                val = _cell_to_jsonish(series.get(mapping["original_invoice_number"]))
-                if val:
-                    row.setdefault("Original Invoice Number", val)
+            for std_field, target_key in _CANONICAL_FIELD_TO_STD_KEY:
+                col_name = mapping.get(std_field)
+                if col_name and col_name in df.columns:
+                    val = _cell_to_jsonish(series.get(col_name))
+                    if val != "" and val is not None:
+                        row.setdefault(target_key, val)
         rows.append(row)
     return rows
 

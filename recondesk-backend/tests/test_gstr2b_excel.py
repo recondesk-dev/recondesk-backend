@@ -652,6 +652,86 @@ def test_gstr2b_excel_corrupted_gstin_retained_in_records():
     assert rec["gstin_format_invalid"] is True
 
 
+def test_gstr2b_excel_currency_headers_and_derived_taxable_value():
+    """Verify headers with (Rs) currency indicators and missing Taxable Value derive txval = val - tax."""
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "GSTIN of Supplier": "06JBUTK7684P6ZA",
+                    "Trade/Legal Name": "QSWUKZ SERVICES",
+                    "Invoice Number": "INV1894/274/25-26",
+                    "Invoice Date": "11-03-2025",
+                    "Invoice Value (Rs)": 812583.39,
+                    "Place of Supply": "06-Haryana",
+                    "Reverse Charge": "N",
+                    "Integrated Tax (Rs)": 87062.51,
+                    "Central Tax (Rs)": 0.0,
+                    "State/UT Tax (Rs)": 0.0,
+                    "Cess (Rs)": 0.0,
+                    "ITC Availability": "Yes",
+                    "Reason if ITC N/A": "",
+                }
+            ]
+        ).to_excel(writer, sheet_name="B2B", index=False)
+
+    raw = buf.getvalue()
+    portal = parse_2b_excel(raw, "2b_currency.xlsx", fallback_period="2025-03")
+    result = parse_gstr2b(portal, fallback_period="2025-03")
+
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 0
+    rec = result["records"][0]
+    assert rec["invoice_number_raw"] == "INV1894/274/25-26"
+    assert rec["supplier_gstin"] == "06JBUTK7684P6ZA"
+    assert rec["supplier_name"] == "QSWUKZ SERVICES"
+    assert rec["invoice_value_paise"] == 81258339
+    assert rec["taxable_value_paise"] == 72552088
+    assert rec["igst_paise"] == 8706251
+    assert rec["cgst_paise"] == 0
+    assert rec["sgst_paise"] == 0
+    assert rec["itc_available"] is True
+
+
+def test_gstr2b_excel_derived_total_value_and_sgst_matching():
+    """Verify headers with (₹) currency indicators, SGST matching, and derived total value."""
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "GSTIN of Supplier": "27AABCT1332L1ZV",
+                    "Trade/Legal Name": "LOCAL VENDOR",
+                    "Invoice Number": "INV-LOCAL-001",
+                    "Invoice Date": "15-03-2025",
+                    "Taxable Value (₹)": 100000.0,
+                    "Place of Supply": "27-Maharashtra",
+                    "Central Tax (₹)": 9000.0,
+                    "State/UT Tax (₹)": 9000.0,
+                }
+            ]
+        ).to_excel(writer, sheet_name="B2B", index=False)
+
+    raw = buf.getvalue()
+    portal = parse_2b_excel(raw, "2b_sgst.xlsx", fallback_period="2025-03")
+    result = parse_gstr2b(portal, fallback_period="2025-03")
+
+    assert result["total_parsed"] == 1
+    rec = result["records"][0]
+    assert rec["taxable_value_paise"] == 10000000
+    assert rec["cgst_paise"] == 900000
+    assert rec["sgst_paise"] == 900000
+    assert rec["invoice_value_paise"] == 11800000
+
+
+
 
 
 

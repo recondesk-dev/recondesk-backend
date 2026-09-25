@@ -113,6 +113,9 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     "cgst": ["cgst", "central tax", "cgst amount", "cgst tax", "c.g.s.t"],
     "sgst": [
         "sgst", "state tax", "sgst amount", "sgst tax", "utgst", "s.g.s.t", "u.t.g.s.t",
+        "state ut tax", "state/ut tax", "state / ut tax", "state ut tax amount",
+        "state/ut tax amount", "ut tax", "state tax amount", "sgst/utgst",
+        "sgst / utgst", "sgst utgst", "state gst", "utgst amt", "sgst amt",
     ],
     "cess": ["cess", "cess amount", "gst cess", "compensation cess"],
     "total_tax": ["total tax", "gst amount", "tax amount", "total gst"],
@@ -125,6 +128,9 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "supplier name", "supplier", "vendor name", "vendor", "party name",
         "party", "ledger name", "ledger", "seller name", "seller",
         "creditor name", "creditor", "from", "name",
+        "trade/legal name", "trade legal name", "legal name", "trade name",
+        "trade/legal name of supplier", "trade legal name of supplier",
+        "supplier trade name", "supplier legal name",
     ],
     "place_of_supply": ["place of supply", "pos", "state"],
     "reverse_charge": ["reverse charge", "rcm", "reverse charge applicable"],
@@ -143,8 +149,8 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     "itc_eligibility": [
         "itc eligible", "itc eligibility", "is itc eligible", "eligible for itc",
         "itc status", "eligible",
-        # Production PR template uses "ITC Claimed" with Yes/No values:
         "itc claimed", "itc claim", "itc availed", "itc availed yn",
+        "itc availability", "itc available", "itc available yn", "itc avl", "itcavl",
     ],
     "hsn": [
         "hsn", "hsn code", "hsn/sac", "sac", "sac code", "hsn code/sac code",
@@ -233,6 +239,8 @@ def _alias_matches(col_norm: str, alias_norm: str) -> bool:
     This handles real-world column headers that append extra descriptors such as
     ``(Mandatory)``, ``(Rs.)``, or ``of Supplier`` after the core alias text.
     """
+    if alias_norm == "state" and col_norm.startswith(("state tax", "state ut", "state gst", "state / ut", "state cess")):
+        return False
     return col_norm == alias_norm or col_norm.startswith(alias_norm + " ")
 
 
@@ -243,6 +251,8 @@ def _alias_match_quality(col_norm: str, alias_norm: str) -> tuple[int, int] | No
     tier ``1`` is a prefix match (alias plus trailing descriptor words).
     ``None`` when there is no match.
     """
+    if alias_norm == "state" and col_norm.startswith(("state tax", "state ut", "state gst", "state / ut", "state cess")):
+        return None
     if col_norm == alias_norm:
         return (2, len(alias_norm))
     if col_norm.startswith(alias_norm + " "):
@@ -1269,6 +1279,11 @@ def _process_pr_sheet_rows(
         total_amount_paise = (
             None if note_mode else _df_cell_int(row.get("total_amount_paise"))
         )
+        if not note_mode:
+            if total_amount_paise is None and taxable_amount_paise is not None and total_tax_paise is not None:
+                total_amount_paise = taxable_amount_paise + total_tax_paise
+            elif taxable_amount_paise is None and total_amount_paise is not None and total_tax_paise is not None:
+                taxable_amount_paise = total_amount_paise - total_tax_paise
         if (
             not note_mode
             and invoice_type == "CREDIT_NOTE"

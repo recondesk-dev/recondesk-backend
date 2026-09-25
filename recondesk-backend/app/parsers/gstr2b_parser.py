@@ -1325,16 +1325,26 @@ def is_alt_gstr2b_schema(data: dict) -> bool:
 
 
 def _alt_key_norm(key: Any) -> str:
-    """Normalize column header / dict key: strip punctuation to space, collapse whitespace."""
-    s = re.sub(r"[^\w\s]", " ", str(key or "").lower())
+    """Normalize column header / dict key: strip currency/unit indicators, strip punctuation, collapse whitespace."""
+    s = str(key or "").lower()
+    # Strip leading numbered bullets e.g. "1. ", "2) ", "3 - "
+    s = re.sub(r"^\s*\d+\s*[\.\-\)]\s*", "", s)
+    # Strip bracketed currency tokens e.g. (Rs), (Rs.), [INR], (₹), (in Rs), (in Rs.)
+    s = re.sub(r"[\(\[\{]\s*(?:in\s+)?(?:rs\.?|inr|inrs|rupees?|₹)\s*[\)\]\}]", " ", s)
+    # Strip standalone currency words with boundary, e.g. "invoice value in rs", "invoice value in inr"
+    s = re.sub(r"\b(?:in\s+)?(?:rs\.?|inr|inrs|rupees?|₹)\b", " ", s)
+    # Strip common parenthetical annotations
+    s = re.sub(r"\((?:mandatory|optional|auto[- ]?populated|recommended)\)", " ", s)
+    s = re.sub(r"[^\w\s]", " ", s)
     return re.sub(r"\s+", " ", s).strip()
 
 
 def _alt_row_get(row: Mapping[str, Any], *names: str) -> Any:
-    """Case/space-insensitive field lookup (handles ``Invoice Value ``)."""
+    """Case/space/currency-insensitive field lookup with exact and prefix matching."""
     wanted = {_alt_key_norm(n) for n in names}
     first_blank = None
     has_blank = False
+    # 1. Exact match pass
     for k, v in row.items():
         if _alt_key_norm(k) in wanted:
             if not _alt_blank(v):
@@ -1342,6 +1352,21 @@ def _alt_row_get(row: Mapping[str, Any], *names: str) -> Any:
             if not has_blank:
                 first_blank = v
                 has_blank = True
+    if has_blank and first_blank is not None:
+        return first_blank
+
+    # 2. Prefix / descriptor fallback pass
+    for k, v in row.items():
+        k_norm = _alt_key_norm(k)
+        if not k_norm:
+            continue
+        for w in wanted:
+            if len(w) >= 3 and (k_norm.startswith(w + " ") or w.startswith(k_norm + " ")):
+                if not _alt_blank(v):
+                    return v
+                if not has_blank:
+                    first_blank = v
+                    has_blank = True
     return first_blank if has_blank else None
 
 
@@ -1523,7 +1548,8 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
         _alt_row_get(
             row, "Party", "Supplier", "supplier_name",
             "Trade/Legal Name", "Trade/Legal Name of Supplier",
-            "Trade Name", "Legal Name", "trdnm",
+            "Trade Name", "Legal Name", "trdnm", "Supplier Name",
+            "Vendor Name", "Vendor", "Party Name",
         ) or ""
     ).strip()
 
@@ -1533,7 +1559,8 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "Invoice Value", "invoice_value",
             "Invoice Amount", "invoice_amount",
             "Total Amount", "total_amount",
-            "Document Value", "Total Value", "val",
+            "Document Value", "Total Value", "val", "Gross Amount",
+            "Bill Value", "Bill Amount",
         )
     )
     txval = _alt_num(
@@ -1542,7 +1569,7 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "Taxable Value", "taxable_value",
             "Taxable Amount", "taxable_amount",
             "Taxable Amt", "taxable_amt",
-            "Taxable", "txval",
+            "Taxable", "txval", "Base Amount", "Net Amount",
         )
     )
     igst = _alt_num(
@@ -1568,7 +1595,7 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "State UT Tax", "State/UT Tax Amount", "State UT Tax Amount",
             "SGST Amount", "sgst_amount",
             "State Tax Amount", "state_tax_amount",
-            "State Tax", "state_tax",
+            "State Tax", "state_tax", "UTGST", "utgst", "UT Tax",
         )
     )
     cess = _alt_num(
@@ -1581,6 +1608,22 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     )
     if val == 0.0 and (txval > 0.0 or igst > 0.0 or cgst > 0.0 or sgst > 0.0 or cess > 0.0):
         val = round(txval + igst + cgst + sgst + cess, 2)
+    elif txval == 0.0 and val > 0.0:
+        tot_tax = round(igst + cgst + sgst + cess, 2)
+        if tot_tax == 0.0:
+            tot_tax = _alt_num(
+                _alt_row_get(
+                    row,
+                    "Total Tax", "total_tax",
+                    "Tax Amount", "tax_amount",
+                    "GST Amount", "gst_amount",
+                    "Total GST", "total_gst",
+                )
+            )
+        if 0.0 <= tot_tax <= val:
+            txval = round(val - tot_tax, 2)
+        elif tot_tax == 0.0:
+            txval = val
 
     return {
         "_supplier_gstin": gstin,
@@ -1631,6 +1674,8 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "Ineligibility Reason",
             "itc_reason",
             "reason",
+            "Reason if ITC N/A",
+            "Reason if ITC NA",
         ),
     }
 
@@ -1681,7 +1726,8 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
         _alt_row_get(
             row, "Party", "Supplier", "supplier_name",
             "Trade/Legal Name", "Trade/Legal Name of Supplier",
-            "Trade Name", "Legal Name", "trdnm",
+            "Trade Name", "Legal Name", "trdnm", "Supplier Name",
+            "Vendor Name", "Vendor", "Party Name",
         ) or ""
     ).strip()
 
@@ -1692,7 +1738,8 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "Invoice Value", "invoice_value",
             "Invoice Amount", "invoice_amount",
             "Total Amount", "total_amount",
-            "Document Value", "Total Value", "val",
+            "Document Value", "Total Value", "val", "Gross Amount",
+            "Bill Value", "Bill Amount", "CDN Amount",
         )
     )
     txval = _alt_num(
@@ -1701,7 +1748,7 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "Taxable Value", "taxable_value",
             "Taxable Amount", "taxable_amount",
             "Taxable Amt", "taxable_amt",
-            "Taxable", "txval",
+            "Taxable", "txval", "Base Amount", "Net Amount",
         )
     )
     igst = _alt_num(
@@ -1727,7 +1774,7 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "State UT Tax", "State/UT Tax Amount", "State UT Tax Amount",
             "SGST Amount", "sgst_amount",
             "State Tax Amount", "state_tax_amount",
-            "State Tax", "state_tax",
+            "State Tax", "state_tax", "UTGST", "utgst", "UT Tax",
         )
     )
     cess = _alt_num(
@@ -1740,6 +1787,22 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     )
     if val == 0.0 and (txval > 0.0 or igst > 0.0 or cgst > 0.0 or sgst > 0.0 or cess > 0.0):
         val = round(txval + igst + cgst + sgst + cess, 2)
+    elif txval == 0.0 and val > 0.0:
+        tot_tax = round(igst + cgst + sgst + cess, 2)
+        if tot_tax == 0.0:
+            tot_tax = _alt_num(
+                _alt_row_get(
+                    row,
+                    "Total Tax", "total_tax",
+                    "Tax Amount", "tax_amount",
+                    "GST Amount", "gst_amount",
+                    "Total GST", "total_gst",
+                )
+            )
+        if 0.0 <= tot_tax <= val:
+            txval = round(val - tot_tax, 2)
+        elif tot_tax == 0.0:
+            txval = val
 
     orig_inv = str(
         _alt_row_get(
