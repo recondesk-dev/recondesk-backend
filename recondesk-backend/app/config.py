@@ -19,7 +19,7 @@ class Settings(BaseSettings):
         default="development",
         description="Use 'production' in live deployments.",
     )
-    APP_VERSION: str = "1.0"
+    APP_VERSION: str = "1.0.1"
     SECRET_KEY: str = "dev-local-secret-key-32b-minimum!!!!"
     ALLOWED_ORIGINS: str = "http://localhost:3000"
     FRONTEND_URL: str = ""
