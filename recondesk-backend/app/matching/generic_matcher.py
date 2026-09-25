@@ -1062,8 +1062,8 @@ def generic_match_one_to_many(
                     inv_ident_ok
                     and a_gstin == b_gstin
                     and abs(
-                        abs(int(rec_a.get("taxable_amount_paise") or 0))
-                        - abs(int(rec_b.get("taxable_amount_paise") or 0))
+                        abs(int(_optional_taxable(rec_a) or 0))
+                        - abs(int(_optional_taxable(rec_b) or 0))
                     )
                     <= 100
                 ):
@@ -1112,8 +1112,8 @@ def generic_match_one_to_many(
             )
             and _get_gstin(c["rec_b"], config.b_gstin_fields) == a_gstin
             and abs(
-                abs(int(c["rec_b"].get("taxable_amount_paise") or 0))
-                - abs(int(rec_a.get("taxable_amount_paise") or 0))
+                abs(int(_optional_taxable(c["rec_b"]) or 0))
+                - abs(int(_optional_taxable(rec_a) or 0))
             )
             <= 100
         )

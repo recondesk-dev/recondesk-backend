@@ -591,10 +591,107 @@ def _safe_paise_field(rec: Mapping[str, Any], key: str) -> int:
     return int(v)
 
 
+def _optional_taxable(rec: Mapping[str, Any]) -> int | None:
+    # 1. Direct paise fields (PR standard: taxable_amount_paise; GSTR standard: taxable_value_paise)
+    for k in ("taxable_amount_paise", "taxable_value_paise", "taxable_paise"):
+        if k in rec:
+            v = rec[k]
+            if v is not None:
+                return int(v)
+
+    # 2. Rupee fields (taxable_amount, taxable_value, txval, taxable_amt)
+    for k in ("taxable_amount", "taxable_value", "txval", "taxable_amt"):
+        if k in rec:
+            v = rec[k]
+            if v is not None:
+                try:
+                    return int(round(float(v) * 100))
+                except (ValueError, TypeError):
+                    pass
+
+    # 3. Item-level roll-up if items array present
+    items = rec.get("items")
+    if isinstance(items, list) and items:
+        total_items = 0
+        has_item = False
+        for itm in items:
+            if isinstance(itm, dict):
+                iv = itm.get("taxable_value_paise") or itm.get("taxable_amount_paise")
+                if iv is not None:
+                    total_items += int(iv)
+                    has_item = True
+                elif itm.get("txval") is not None or itm.get("taxable_value") is not None:
+                    try:
+                        total_items += int(round(float(itm.get("txval") or itm.get("taxable_value")) * 100))
+                        has_item = True
+                    except (ValueError, TypeError):
+                        pass
+        if has_item:
+            return total_items
+
+    # 4. Derivation from total invoice value minus total tax
+    inv_val = None
+    for k in ("invoice_value_paise", "total_amount_paise", "total_value_paise"):
+        if k in rec and rec[k] is not None:
+            try:
+                inv_val = int(rec[k])
+                break
+            except (ValueError, TypeError):
+                pass
+    if inv_val is None:
+        for k in ("invoice_value", "total_amount", "val", "total_value"):
+            if k in rec and rec[k] is not None:
+                try:
+                    inv_val = int(round(float(rec[k]) * 100))
+                    break
+                except (ValueError, TypeError):
+                    pass
+
+    if inv_val is not None:
+        tot_tax = _safe_paise_field(rec, "total_tax_paise")
+        if tot_tax == 0:
+            tot_tax = (
+                _safe_paise_field(rec, "igst_paise")
+                + _safe_paise_field(rec, "cgst_paise")
+                + _safe_paise_field(rec, "sgst_paise")
+                + _safe_paise_field(rec, "cess_paise")
+            )
+        if tot_tax >= 0 and inv_val >= tot_tax:
+            return inv_val - tot_tax
+
+    return None
+
+
 def _invoice_total_paise(rec: Mapping[str, Any]) -> int:
-    return _safe_paise_field(rec, "taxable_amount_paise") + _safe_paise_field(
-        rec, "total_tax_paise"
-    )
+    # 1. Prefer explicit invoice total when present and non-zero
+    for k in ("invoice_value_paise", "total_amount_paise", "total_value_paise"):
+        if k in rec and rec[k] is not None:
+            try:
+                v = int(rec[k])
+                if v != 0:
+                    return v
+            except (ValueError, TypeError):
+                pass
+    for k in ("invoice_value", "total_amount", "val", "total_value"):
+        if k in rec and rec[k] is not None:
+            try:
+                v = int(round(float(rec[k]) * 100))
+                if v != 0:
+                    return v
+            except (ValueError, TypeError):
+                pass
+
+    # 2. Derive as taxable + total tax
+    taxable = _optional_taxable(rec) or 0
+    tot_tax = _safe_paise_field(rec, "total_tax_paise")
+    if tot_tax == 0:
+        tot_tax = (
+            _safe_paise_field(rec, "igst_paise")
+            + _safe_paise_field(rec, "cgst_paise")
+            + _safe_paise_field(rec, "sgst_paise")
+            + _safe_paise_field(rec, "cess_paise")
+        )
+    return taxable + tot_tax
 
 
 def _gstin_match_spec(gstr_rec: Mapping[str, Any], pr_rec: Mapping[str, Any]) -> bool:
@@ -719,18 +816,6 @@ def _financial_downgrade_l13(
     )
 
 
-def _optional_taxable(rec: Mapping[str, Any]) -> int | None:
-    if "taxable_amount_paise" in rec:
-        v = rec["taxable_amount_paise"]
-        if v is None:
-            return None
-        return int(v)
-    if "taxable_amount" in rec:
-        v = rec["taxable_amount"]
-        if v is None:
-            return None
-        return int(round(float(v) * 100))
-    return None
 
 
 def _parse_invoice_date(rec: Mapping[str, Any]) -> date | None:
@@ -907,7 +992,7 @@ def _is_credit_note(rec: Mapping[str, Any] | None) -> bool:
     inv_num = str(rec.get("invoice_number_raw") or rec.get("invoice_number") or "").strip()
     if inv_num and re.search(r"(^|[\-_/])(CRN|CN)([\-_/\s0-9]|$)", inv_num, re.IGNORECASE):
         return True
-    taxable = rec.get("taxable_amount_paise")
+    taxable = _optional_taxable(rec)
     if taxable is not None:
         try:
             if int(taxable) < 0:
@@ -979,7 +1064,7 @@ def are_document_types_compatible(
         return True, "INVOICE_PAIR"
 
     # 2. Both are notes — evaluate directional semantic compatibility
-    p_taxable = pr_rec.get("taxable_amount_paise")
+    p_taxable = _optional_taxable(pr_rec)
     p_taxable_val = int(p_taxable) if p_taxable is not None else 0
     p_is_negative = p_taxable_val < 0
 
@@ -1465,8 +1550,8 @@ def match_gstr_to_pr(
                     == invoice_match_key_for_record(pr)
                     and gstr.get("supplier_gstin") == pr.get("supplier_gstin")
                     and abs(
-                        abs(int(gstr.get("taxable_amount_paise") or 0))
-                        - abs(int(pr.get("taxable_amount_paise") or 0))
+                        abs(int(_optional_taxable(gstr) or 0))
+                        - abs(int(_optional_taxable(pr) or 0))
                     )
                     <= 100
                 ):
@@ -1516,8 +1601,8 @@ def match_gstr_to_pr(
             == invoice_match_key_for_record(gstr)
             and c["pr"].get("supplier_gstin") == gstr.get("supplier_gstin")
             and abs(
-                abs(int(c["pr"].get("taxable_amount_paise") or 0))
-                - abs(int(gstr.get("taxable_amount_paise") or 0))
+                abs(int(_optional_taxable(c["pr"]) or 0))
+                - abs(int(_optional_taxable(gstr) or 0))
             )
             <= 100
         )

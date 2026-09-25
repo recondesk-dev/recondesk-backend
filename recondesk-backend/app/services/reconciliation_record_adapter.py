@@ -29,12 +29,29 @@ def _iso_date(val: Any) -> str | None:
 def _gstr_taxable_paise_from_record(rd: dict[str, Any]) -> int:
     items = rd.get("items") or []
     if items:
-        return sum(int(i.get("taxable_value_paise") or 0) for i in items)
-    # Flat GSTR invoices store taxable at root (txval → taxable_value_paise).
-    # Do not fall back to invoice_value_paise — that is total value (val), not
-    # taxable, and would fabricate AMOUNT_MISMATCH against a correct PR row.
-    if rd.get("taxable_value_paise") is not None:
-        return int(rd.get("taxable_value_paise") or 0)
+        total = sum(int(i.get("taxable_value_paise") or i.get("taxable_amount_paise") or 0) for i in items)
+        if total != 0:
+            return total
+    for k in ("taxable_amount_paise", "taxable_value_paise", "taxable_paise"):
+        if rd.get(k) is not None:
+            return int(rd[k] or 0)
+    for k in ("taxable_value", "taxable_amount", "txval"):
+        if rd.get(k) is not None:
+            try:
+                return int(round(float(rd[k]) * 100))
+            except (ValueError, TypeError):
+                pass
+    inv_val = int(rd.get("invoice_value_paise") or rd.get("total_amount_paise") or 0)
+    tot_tax = int(rd.get("total_tax_paise") or 0)
+    if tot_tax == 0:
+        tot_tax = (
+            int(rd.get("igst_paise") or 0)
+            + int(rd.get("cgst_paise") or 0)
+            + int(rd.get("sgst_paise") or 0)
+            + int(rd.get("cess_paise") or 0)
+        )
+    if inv_val > 0 and tot_tax >= 0 and inv_val >= tot_tax:
+        return inv_val - tot_tax
     return 0
 
 
@@ -89,6 +106,7 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     cg, sg, ig, cs, ttp = _gstr_tax_paise_from_record(rd)
     taxable = _gstr_taxable_paise_from_record(rd)
     inv_d = _iso_date(rd.get("invoice_date_norm") or rd.get("invoice_date"))
+    inv_val = int(rd.get("invoice_value_paise") or rd.get("total_amount_paise") or (taxable + ttp) or 0)
     return {
         "id": str(rid),
         "supplier_gstin": sup,
@@ -97,11 +115,14 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "invoice_number_normalized": inv,
         "invoice_date": inv_d,
         "taxable_amount_paise": int(taxable),
+        "taxable_value_paise": int(taxable),
         "cgst_paise": int(cg),
         "sgst_paise": int(sg),
         "igst_paise": int(ig),
         "cess_paise": int(cs),
         "total_tax_paise": int(ttp if ttp else 0),
+        "invoice_value_paise": inv_val,
+        "total_amount_paise": inv_val,
         # Carried from gstr2b_parser.py — True when ``supplier_gstin`` above is
         # a best-effort cleaned value that failed strict GSTIN format
         # validation. Matching code must not trust supplier_gstin equality for
@@ -207,7 +228,7 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     if total_tax == 0:
         total_tax = cgst + sgst + igst + cess
 
-    taxable_paise = _pr_stored_paise(rd.get("taxable_amount_paise"))
+    taxable_paise = _pr_stored_paise(rd.get("taxable_amount_paise") or rd.get("taxable_value_paise"))
     note_amt_paise = (
         _pr_stored_paise(rd.get("note_amount_paise"))
         if rd.get("note_amount_paise") is not None
@@ -215,6 +236,10 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     )
     if taxable_paise == 0 and note_amt_paise is not None and note_amt_paise != 0:
         taxable_paise = note_amt_paise
+
+    total_amt_raw = _pr_stored_paise(rd.get("total_amount_paise") or rd.get("invoice_value_paise"))
+    if taxable_paise == 0 and total_amt_raw != 0 and total_amt_raw >= total_tax:
+        taxable_paise = total_amt_raw - total_tax
 
     orig_inv_raw = (
         rd.get("original_invoice_number")
@@ -228,7 +253,7 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
     orig_inv_str = str(orig_inv_raw).strip() if orig_inv_raw else ""
     orig_inv_norm = normalize_invoice(orig_inv_str) if orig_inv_str else None
 
-    return {
+    res = {
         "id": str(rid),
         "supplier_gstin": gstin,
         "vendor_name": vendor_name,
@@ -236,6 +261,7 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "invoice_number_normalized": invn,
         "invoice_date": inv_d,
         "taxable_amount_paise": taxable_paise,
+        "taxable_value_paise": taxable_paise,
         "cgst_paise": cgst,
         "sgst_paise": sgst,
         "igst_paise": igst,
@@ -255,3 +281,7 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "original_invoice_number": orig_inv_str or None,
         "original_invoice_number_normalized": orig_inv_norm,
     }
+    if total_amt_raw != 0:
+        res["total_amount_paise"] = total_amt_raw
+        res["invoice_value_paise"] = total_amt_raw
+    return res

@@ -692,7 +692,7 @@ def headers_indicate_notes(columns: list[Any]) -> bool:
         for alias in COLUMN_ALIASES.get("note_number", []):
             if _alias_matches(col_norm, normalize_header(alias)):
                 return True
-        for alias in COLUMN_ALIASES.get("note_type", []):
+        for alias in ("note type", "cn dn", "cndn", "credit debit note", "cr dr note"):
             if _alias_matches(col_norm, normalize_header(alias)):
                 return True
     return False

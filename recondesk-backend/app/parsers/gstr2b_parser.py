@@ -598,6 +598,8 @@ def _build_invoice_record(
     }
     if invoice_level_paise:
         record.update(invoice_level_paise)
+        if "taxable_amount_paise" not in record and "taxable_value_paise" in record:
+            record["taxable_amount_paise"] = record["taxable_value_paise"]
         record["total_tax_paise"] = (
             int(invoice_level_paise.get("cgst_paise") or 0)
             + int(invoice_level_paise.get("sgst_paise") or 0)
@@ -880,9 +882,32 @@ def _enrich_record(record: dict, buyer_gstin: str) -> None:
         total_paise = sum(item.get("taxable_value_paise", 0) for item in items)
     elif record.get("taxable_value_paise") is not None:
         total_paise = int(record.get("taxable_value_paise") or 0)
+    elif record.get("taxable_amount_paise") is not None:
+        total_paise = int(record.get("taxable_amount_paise") or 0)
     else:
-        total_paise = record.get("invoice_value_paise", 0)
+        inv_val = int(record.get("invoice_value_paise") or 0)
+        tot_tax = int(record.get("total_tax_paise") or 0)
+        if inv_val > 0 and tot_tax >= 0 and inv_val >= tot_tax:
+            total_paise = inv_val - tot_tax
+        else:
+            total_paise = inv_val
     record["taxable_value"] = round(total_paise / 100)
+    record["taxable_value_paise"] = total_paise
+    record["taxable_amount_paise"] = total_paise
+
+    if items:
+        if record.get("cgst_paise") is None:
+            record["cgst_paise"] = sum(int(item.get("cgst_paise") or 0) for item in items)
+        if record.get("sgst_paise") is None:
+            record["sgst_paise"] = sum(int(item.get("sgst_paise") or 0) for item in items)
+        if record.get("igst_paise") is None:
+            record["igst_paise"] = sum(int(item.get("igst_paise") or 0) for item in items)
+        if record.get("cess_paise") is None:
+            record["cess_paise"] = sum(int(item.get("cess_paise") or 0) for item in items)
+        if record.get("total_tax_paise") is None:
+            record["total_tax_paise"] = (
+                record["cgst_paise"] + record["sgst_paise"] + record["igst_paise"] + record["cess_paise"]
+            )
 
     # unique_key — stable string, safe for JSON / DB keys
     record["unique_key"] = (

@@ -6,8 +6,10 @@ import asyncio
 import logging
 import re
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import date
+from typing import Any
 
 from app.services.matching_core import THRESHOLD, choose_best_candidate, compute_match_score
 from supabase import Client
@@ -97,11 +99,30 @@ def get_search_periods(
     return [gstr_period] + rest
 
 
-def _taxable_paise(rec: dict) -> int:
-    v = rec.get("taxable_amount_paise")
-    if v is None:
+def _taxable_paise(rec: Mapping[str, Any] | None) -> int:
+    if not rec or not isinstance(rec, Mapping):
         return 0
-    return int(v)
+    for k in ("taxable_amount_paise", "taxable_value_paise", "taxable_paise"):
+        if k in rec and rec[k] is not None:
+            return int(rec[k])
+    for k in ("taxable_amount", "taxable_value", "txval", "taxable_amt"):
+        if k in rec and rec[k] is not None:
+            try:
+                return int(round(float(rec[k]) * 100))
+            except (ValueError, TypeError):
+                pass
+    inv_val = int(rec.get("invoice_value_paise") or rec.get("total_amount_paise") or 0)
+    tot_tax = int(rec.get("total_tax_paise") or 0)
+    if tot_tax == 0:
+        tot_tax = (
+            int(rec.get("igst_paise") or 0)
+            + int(rec.get("cgst_paise") or 0)
+            + int(rec.get("sgst_paise") or 0)
+            + int(rec.get("cess_paise") or 0)
+        )
+    if inv_val > 0 and tot_tax >= 0 and inv_val >= tot_tax:
+        return inv_val - tot_tax
+    return 0
 
 
 def _tie_key(
@@ -231,7 +252,7 @@ def build_pr_candidate_indices(pr_index: dict[str, list[dict]]) -> PRCandidateIn
         taxable_dict = defaultdict(list)
         tax_dict = defaultdict(list)
         for pr in prs:
-            tb = _get_tax_bucket(pr.get("taxable_amount_paise"))
+            tb = _get_tax_bucket(_taxable_paise(pr))
             txb = _get_tax_bucket(pr.get("total_tax_paise"))
             taxable_dict[tb].append(pr)
             tax_dict[txb].append(pr)
@@ -270,7 +291,7 @@ def _get_narrowed_candidates(
     if direct:
         candidates_set[str(direct["id"])] = direct
 
-    g_taxable = gstr_record.get("taxable_amount_paise")
+    g_taxable = _taxable_paise(gstr_record)
     g_tax = gstr_record.get("total_tax_paise")
 
     tb = _get_tax_bucket(g_taxable)
@@ -465,8 +486,8 @@ def _push_clean_matched(
     g_taxable: int | None = None
     p_taxable: int | None = None
     if gstr_rec is not None and pr_rec is not None:
-        g_taxable = int(gstr_rec.get("taxable_amount_paise") or 0)
-        p_taxable = int(pr_rec.get("taxable_amount_paise") or 0)
+        g_taxable = _taxable_paise(gstr_rec)
+        p_taxable = _taxable_paise(pr_rec)
         taxable_diff = abs(abs(g_taxable) - abs(p_taxable))
 
     match_dict = {
@@ -536,11 +557,13 @@ def _push_review_required(
     # which recomputes live from the DB and is what the UI actually reads).
     taxable_diff: int = 0
     if gstr_rec is not None and pr_rec is not None:
-        g_taxable = int(gstr_rec.get("taxable_amount_paise") or 0)
-        p_taxable = int(pr_rec.get("taxable_amount_paise") or 0)
+        g_taxable = _taxable_paise(gstr_rec)
+        p_taxable = _taxable_paise(pr_rec)
         g_tt = int(gstr_rec.get("total_tax_paise") or 0)
         p_tt = int(pr_rec.get("total_tax_paise") or 0)
-        taxable_diff = abs((g_taxable + g_tt) - (p_taxable + p_tt))
+        g_tot = int(gstr_rec.get("invoice_value_paise") or gstr_rec.get("total_amount_paise") or (g_taxable + g_tt))
+        p_tot = int(pr_rec.get("total_amount_paise") or pr_rec.get("invoice_value_paise") or (p_taxable + p_tt))
+        taxable_diff = abs(g_tot - p_tot)
 
     compared_fields = list(getattr(best_result, "compared_fields", None) or [])
     if not compared_fields and gstr_rec is not None and pr_rec is not None:

@@ -333,9 +333,8 @@ def _mr_to_decisions(
     match_status purely from financial diffs — the same numeric threshold the engine
     uses — without re-invoking the matcher.
     """
-    tg, tp = int(g.get("taxable_amount_paise") or 0), int(
-        p.get("taxable_amount_paise") or 0
-    )
+    tg = int(g.get("taxable_amount_paise") or g.get("taxable_value_paise") or 0)
+    tp = int(p.get("taxable_amount_paise") or p.get("taxable_value_paise") or 0)
     g_ig, g_cg, g_sg = (
         int(g.get("igst_paise") or 0),
         int(g.get("cgst_paise") or 0),
@@ -348,6 +347,18 @@ def _mr_to_decisions(
     )
     g_tt = int(g.get("total_tax_paise") or 0)
     p_tt = int(p.get("total_tax_paise") or 0)
+    if g_tt == 0 and (g_ig != 0 or g_cg != 0 or g_sg != 0):
+        g_tt = g_ig + g_cg + g_sg + int(g.get("cess_paise") or 0)
+    if p_tt == 0 and (p_ig != 0 or p_cg != 0 or p_sg != 0):
+        p_tt = p_ig + p_cg + p_sg + int(p.get("cess_paise") or 0)
+    if tg == 0 and g.get("invoice_value_paise"):
+        g_inv = int(g["invoice_value_paise"])
+        if g_inv >= g_tt:
+            tg = g_inv - g_tt
+    if tp == 0 and p.get("total_amount_paise"):
+        p_tot = int(p["total_amount_paise"])
+        if p_tot >= p_tt:
+            tp = p_tot - p_tt
 
     if is_credit_note:
         # In many ERPs (Tally, SAP), PR credit notes carry negative amounts while GSTR-2B
