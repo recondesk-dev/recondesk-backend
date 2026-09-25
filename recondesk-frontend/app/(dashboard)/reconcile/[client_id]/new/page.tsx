@@ -278,6 +278,7 @@ export default function NewReconcileWizardPage() {
   const [completedForPeriod, setCompletedForPeriod] = useState(false);
 
   const [gstrFile, setGstrFile] = useState<File | null>(null);
+  const [changeGstrFile, setChangeGstrFile] = useState(false);
   const [gstrProgress, setGstrProgress] = useState(0);
   const [gstrUploadFailed, setGstrUploadFailed] = useState(false);
   const [sanityChecks, setSanityChecks] = useState<SanityCheckItem[] | null>(null);
@@ -524,21 +525,23 @@ export default function NewReconcileWizardPage() {
 
   const runId = run?.id ?? null;
 
-  const runSanityWithRetry = async () => {
-    if (typeof token !== "string" || !runId) return;
+  const runSanityWithRetry = async (activeRun?: ImportWizardRun) => {
+    const currentRun = activeRun ?? run;
+    const currentRunId = currentRun?.id ?? runId;
+    if (typeof token !== "string" || !currentRunId) return;
     // Guard: only call if the run is in gstr_uploaded status — calling on a
     // "draft" run returns 409 and sets a confusing generic error banner.
-    if (run?.status !== "gstr_uploaded") return;
+    if (currentRun?.status !== "gstr_uploaded") return;
     setSanityBusy(true);
     setErr(null);
     try {
       const res = await withRetries(
-        () => importWizardApi.sanityCheckGstr2b(token, runId),
+        () => importWizardApi.sanityCheckGstr2b(token, currentRunId),
         3,
         1500
       );
       setSanityChecks(res.checks);
-      await refreshRun(runId, token);
+      await refreshRun(currentRunId, token);
     } catch (e) {
       const ae = e as ApiError;
       setErr(ae.detail ?? "Sanity check failed.");
@@ -620,7 +623,9 @@ export default function NewReconcileWizardPage() {
         setSanityChecks(asRun.sanity_check_results);
       } else {
         setRun(updated);
-        await runSanityWithRetry();
+        await runSanityWithRetry(updated);
+        setGstrFile(null);
+        setChangeGstrFile(false);
       }
       return true;
     } catch (e) {
@@ -1812,10 +1817,22 @@ export default function NewReconcileWizardPage() {
 
           {(!gstnConnected || showManualGstrUpload || !!run?.gstr2b_file_name) && (
             <>
-              {run?.gstr2b_file_name && !gstrFile && sanityErrors.length === 0 ? (
-                <p className="text-sm text-[var(--text-secondary)]">
-                  Uploaded: <strong>{run.gstr2b_file_name}</strong> ({formatBytes(run.gstr2b_file_size)})
-                </p>
+              {run?.gstr2b_file_name && !gstrFile && sanityErrors.length === 0 && !changeGstrFile ? (
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3">
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    Uploaded: <strong className="text-[var(--ink)]">{run.gstr2b_file_name}</strong> ({formatBytes(run.gstr2b_file_size)})
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChangeGstrFile(true);
+                      setShowManualGstrUpload(true);
+                    }}
+                    className="text-sm font-medium text-[var(--ink)] hover:underline"
+                  >
+                    Change file
+                  </button>
+                </div>
               ) : (
                 <>
                   {run?.gstr2b_file_name && sanityErrors.length > 0 && !gstrFile ? (
@@ -1833,11 +1850,25 @@ export default function NewReconcileWizardPage() {
                         type="button"
                         onClick={() => {
                           setShowManualGstrUpload(false);
+                          setChangeGstrFile(false);
                           setGstnFetchError(null);
                         }}
                         className="text-sm text-[var(--ink)] hover:underline"
                       >
                         Back to auto-fetch
+                      </button>
+                    </div>
+                  ) : changeGstrFile ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-medium text-[var(--text-primary)]">
+                        Upload GSTR-2B
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => setChangeGstrFile(false)}
+                        className="text-sm text-[var(--text-secondary)] hover:underline"
+                      >
+                        Cancel
                       </button>
                     </div>
                   ) : null}
