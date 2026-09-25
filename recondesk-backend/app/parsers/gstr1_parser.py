@@ -1448,13 +1448,18 @@ def _process_gstin_grouped_section(
                     "recipient_gstin",
                 )
         except NormalizationError as e:
-            if e.reason in ("invalid_checksum", "invalid_format"):
-                cleaned = re.sub(r"[^0-9A-Z]", "", raw_ctin.strip().upper())
+            cleaned = re.sub(r"[^0-9A-Z]", "", raw_ctin.strip().upper())
+            if e.reason in ("invalid_checksum", "invalid_format") or (
+                e.reason == "invalid_length" and (
+                    (len(cleaned) in (13, 14, 15, 16) and cleaned[:2].isdigit())
+                    or (len(cleaned) == 10 and cleaned[:5].isalpha() and cleaned[5:9].isdigit())
+                )
+            ):
                 gstin_result = _validate_result(
                     NormalizationResult(value=cleaned, notes=[]),
                     "recipient_gstin",
                 )
-                gstin_format_invalid = e.reason == "invalid_format"
+                gstin_format_invalid = e.reason != "invalid_checksum"
             else:
                 gstin_category, gstin_reason_code = _classify_norm_error(
                     e.field, e.reason

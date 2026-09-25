@@ -1822,7 +1822,7 @@ def process_gstr_records_chunk(
         gstin = str(gstr_record.get("supplier_gstin") or "").strip()
         
         # A.2 Pre-Phase 1 routing for missing/invalid GSTIN (URP/unregistered is valid)
-        if not gstin or (len(gstin) != 15 and gstin != "URP"):
+        if not gstin or (len(gstin) != 15 and gstin != "URP" and gstin not in pr_index):
             continue # Leave for Phase 2
             
         inv_norm = str(gstr_record.get("invoice_number_normalized") or "")
@@ -3106,7 +3106,12 @@ def _finalize_reconciliation_result(
     invalid_gstin_records = [g for g in (gstr_records or []) if g.get("gstin_format_invalid")]
     invalid_gstin_count = len(invalid_gstin_records)
     invalid_gstin_amount_paise = sum(int(g.get("total_tax_paise") or 0) for g in invalid_gstin_records)
-    invalid_gstin_matched_count = int(state.metrics.get("invalid_gstin_matched_count", 0))
+    invalid_g_ids = {str(g["id"]) for g in invalid_gstin_records}
+    invalid_gstin_matched_count = sum(
+        1 for m in state.clean_matched if str(m.get("gstr_id")) in invalid_g_ids
+    ) + sum(
+        1 for r in state.review_required if str(r.get("gstr_id")) in invalid_g_ids
+    )
     invalid_gstin_unresolved_count = invalid_gstin_count - invalid_gstin_matched_count
 
     sanity_passed = (

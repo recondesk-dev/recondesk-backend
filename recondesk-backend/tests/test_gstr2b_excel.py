@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.parsers.gstr2b_excel import (
     excel_to_alt_2b_dict,
+    load_gstr2b_upload_payload,
     parse_2b_excel,
 )
 from app.parsers.gstr2b_parser import normalize_alt_2b_schema, parse_gstr2b
@@ -729,6 +730,50 @@ def test_gstr2b_excel_derived_total_value_and_sgst_matching():
     assert rec["cgst_paise"] == 900000
     assert rec["sgst_paise"] == 900000
     assert rec["invoice_value_paise"] == 11800000
+
+
+def test_gstr2b_excel_synthetic_16char_gstin_and_metadata_sheet():
+    """Verify that benchmark exports with 16-char synthetic GSTINs and Metadata sheet parse cleanly."""
+    import io
+    import pandas as pd
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "Supplier GSTIN": "27TESTX00001A1Z1",
+                    "Supplier Name": "Supplier 0001",
+                    "Invoice No": "INV-0001",
+                    "Invoice Date": "2026-05-20",
+                    "Taxable Value": 50000.0,
+                    "Integrated Tax": 0.0,
+                    "Central Tax": 3000.0,
+                    "State Tax": 3000.0,
+                    "Invoice Value": 56000.0,
+                }
+            ]
+        ).to_excel(writer, sheet_name="GSTR-2B", index=False)
+        pd.DataFrame(
+            [
+                {"Field": "Recipient GSTIN", "Value": "27ISKPK1273H1ZF"},
+                {"Field": "Return Period", "Value": "05-2026"},
+            ]
+        ).to_excel(writer, sheet_name="Metadata", index=False)
+
+    raw = buf.getvalue()
+    payload = load_gstr2b_upload_payload(raw, "GSTR2B_2000_Invoices_27ISKPK1273H1ZF_May2026.xlsx")
+    assert payload["data"]["gstin"] == "27ISKPK1273H1ZF"
+    assert payload["data"]["rtnprd"] == "052026"
+
+    result = parse_gstr2b(payload)
+    assert result["total_parsed"] == 1
+    assert result["total_skipped"] == 0
+    rec = result["records"][0]
+    assert rec["supplier_gstin"] == "27TESTX00001A1Z1"
+    assert rec["gstin_format_invalid"] is True
+    assert rec["invoice_number_raw"] == "INV-0001"
+
 
 
 

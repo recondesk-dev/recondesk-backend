@@ -1084,6 +1084,17 @@ def _process_section(
                             "supplier_gstin",
                         )
                         gstin_format_invalid = True
+                    elif e.reason == "invalid_length" and (
+                        (len(cleaned) in (13, 14, 15, 16) and cleaned[:2].isdigit())
+                        or (len(cleaned) == 10 and cleaned[:5].isalpha() and cleaned[5:9].isdigit())
+                    ):
+                        # Synthetic (e.g. 16-char benchmark), truncated (13-14 chars), or embedded PAN (10 chars).
+                        # Do not drop: retain record with cleaned value so reconciliation can compare.
+                        gstin_result = _validate_result(
+                            NormalizationResult(value=cleaned, notes=[]),
+                            "supplier_gstin",
+                        )
+                        gstin_format_invalid = True
                     else:
                         gstin_category, gstin_reason_code = _classify_norm_error(
                             e.field, e.reason
@@ -1384,7 +1395,7 @@ def _alt_parse_period_to_rtnprd(raw: Any) -> str | None:
     if _alt_blank(raw):
         return None
     s = str(raw).strip()
-    m = re.match(r"^([A-Za-z]{3,9})\s*,?\s*(\d{4})$", s)
+    m = re.match(r"^([A-Za-z]{3,9})[-_,\s]*(\d{4})$", s)
     if m:
         token = m.group(1).lower()
         mon = _MONTH_ABBR_TO_NUM.get(

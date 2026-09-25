@@ -23,7 +23,9 @@ from app.parsers.gstr2b_parser import (
     _GSTIN_IN_TEXT_RE,
     _UNPARSED_IMPG_COUNT_KEY,
     _UNPARSED_ISD_COUNT_KEY,
+    _alt_invoice_date_portal,
     _alt_parse_period_to_rtnprd,
+    _alt_row_get,
     normalize_alt_2b_schema,
 )
 from app.parsers.purchase_register_parser import (
@@ -254,7 +256,9 @@ def _extract_period_from_title_or_filename(
     if filename:
         fn = os.path.basename(filename)
         m_fn = re.search(
-            r"(?:_|-|\b)(\d{4}[-_]\d{2}|\d{2}[-_]\d{4}|\d{6})(?:_|-|\.|\b)", fn
+            r"(?:_|-|\b)([A-Za-z]{3,9}[-_]?\d{4}|\d{4}[-_]\d{2}|\d{2}[-_]\d{4}|\d{6})(?:_|-|\.|\b)",
+            fn,
+            re.IGNORECASE,
         )
         if m_fn:
             token = m_fn.group(1).replace("_", "-")
@@ -530,6 +534,57 @@ def excel_to_alt_2b_dict(
             "gstr2b_excel_no_invoice_sheet: expected an 'invoice' (and optional "
             "'note') sheet with Sr / GSTIN / Invoice No columns"
         )
+
+    # Inspect auxiliary sheets (e.g. Metadata, Summary, Info) if title_gstin or title_period is missing
+    if not title_gstin or not title_period:
+        for sheet_name in xl.sheet_names:
+            str_name = str(sheet_name).lower()
+            if any(term in str_name for term in ("meta", "sum", "info", "about", "header", "control")):
+                try:
+                    meta_df = pd.read_excel(xl, sheet_name=sheet_name, header=None, dtype=object)
+                    if meta_df is not None and not meta_df.empty:
+                        for r in range(min(len(meta_df), 30)):
+                            for c in range(min(meta_df.shape[1], 10)):
+                                cell_val = str(meta_df.iat[r, c] or "").strip()
+                                if not title_gstin and any(k in cell_val.lower() for k in ("recipient gstin", "buyer gstin", "taxpayer gstin", "gstin")):
+                                    for dc, dr in [(1, 0), (0, 1)]:
+                                        nr, nc = r + dr, c + dc
+                                        if nr < len(meta_df) and nc < meta_df.shape[1]:
+                                            cand = str(meta_df.iat[nr, nc] or "").strip().upper()
+                                            m_g = _GSTIN_IN_TEXT_RE.search(cand)
+                                            if m_g:
+                                                title_gstin = m_g.group(1).upper()
+                                                break
+                                    if not title_gstin:
+                                        m_g = _GSTIN_IN_TEXT_RE.search(cell_val.upper())
+                                        if m_g:
+                                            title_gstin = m_g.group(1).upper()
+                                if not title_period and any(k in cell_val.lower() for k in ("return period", "filing period", "period", "month")):
+                                    for dc, dr in [(1, 0), (0, 1)]:
+                                        nr, nc = r + dr, c + dc
+                                        if nr < len(meta_df) and nc < meta_df.shape[1]:
+                                            cand = str(meta_df.iat[nr, nc] or "").strip()
+                                            p_cand = _alt_parse_period_to_rtnprd(cand)
+                                            if p_cand:
+                                                title_period = p_cand
+                                                break
+                except Exception:
+                    pass
+
+    # Fallback for period: derive from invoice dates in rows if still missing
+    if not title_period and invoice_rows:
+        date_votes: list[str] = []
+        for row in invoice_rows[:100]:
+            d_val = _alt_invoice_date_portal(
+                _alt_row_get(
+                    row, "Invoice Date", "invoice_date", "idt",
+                    "Document Date", "Doc Date", "Date"
+                )
+            )
+            if d_val and len(d_val) == 10 and d_val[2] == "-" and d_val[5] == "-":
+                date_votes.append(d_val[3:5] + d_val[6:])
+        if date_votes:
+            title_period = max(set(date_votes), key=date_votes.count)
 
     payload: dict[str, Any] = {
         "invoice": invoice_rows,
