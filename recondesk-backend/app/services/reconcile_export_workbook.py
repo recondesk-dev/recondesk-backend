@@ -9,7 +9,7 @@ from datetime import date, datetime
 from typing import Any
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 _log = logging.getLogger(__name__)
@@ -28,6 +28,13 @@ _FILL_TOTAL_RED = "FCE4D6"
 _FILL_R37_CRIT = "FFE7E7"
 _FILL_R37_HIGH = "FFF0E0"
 _FILL_R37_MED = "FFFDE7"
+
+_PRIO_STYLE: dict[str, tuple[PatternFill, Font]] = {
+    "URGENT": (PatternFill("solid", fgColor="FEE2E2"), Font(name="Calibri", size=10, bold=True, color="991B1B")),
+    "HIGH": (PatternFill("solid", fgColor="FFEDD5"), Font(name="Calibri", size=10, bold=True, color="9A3412")),
+    "MEDIUM": (PatternFill("solid", fgColor="FEF9C3"), Font(name="Calibri", size=10, bold=True, color="854D0E")),
+    "LOW": (PatternFill("solid", fgColor="F3F4F6"), Font(name="Calibri", size=10, bold=False, color="4B5563")),
+}
 
 
 def _decision_cell(v: Any) -> str:
@@ -789,6 +796,8 @@ def build_excel_workbook_bytes(
 
     # --- Sheet 6 Review Required ---
     try:
+        from app.services.review_priority import classify_review_priority, review_priority_sort_key
+
         ws_rev = wb.create_sheet("Review Required")
         ws_rev.append(
             [
@@ -797,16 +806,20 @@ def build_excel_workbook_bytes(
                 "Invoice Date",
                 "Reason",
                 "Amount",
+                "Priority",
                 "Match Confidence",
                 "Match Rationale",
             ]
         )
         hdr_fill = PatternFill("solid", fgColor=_HEADER_ORANGE)
-        for c in range(1, 8):
+        for c in range(1, 9):
             ws_rev.cell(row=1, column=c).font = Font(bold=True, color="FFFFFF")
             ws_rev.cell(row=1, column=c).fill = hdr_fill
+
+        sorted_review_rows = sorted(review_required_rows, key=review_priority_sort_key)
         r = 2
-        for row in review_required_rows:
+        for row in sorted_review_rows:
+            prio = str(row.get("priority") or classify_review_priority(row)).strip().upper()
             ws_rev.append(
                 [
                     row.get("supplier_gstin") or "—",
@@ -814,10 +827,17 @@ def build_excel_workbook_bytes(
                     row.get("invoice_date") or "—",
                     row.get("decision_why") or row.get("discrepancy_reason") or "—",
                     _rs_int(_outcome_amount_rupees(row) if isinstance(row.get("amount"), int) else float(row.get("amount") or 0)),
+                    prio,
                     _format_match_confidence(row.get("match_confidence")),
                     _format_match_rationale(row.get("compared_fields")),
                 ]
             )
+            if prio in _PRIO_STYLE:
+                fill, font = _PRIO_STYLE[prio]
+                cell = ws_rev.cell(row=r, column=6)
+                cell.fill = fill
+                cell.font = font
+                cell.alignment = Alignment(horizontal="center")
             r += 1
         if not review_required_rows:
             ws_rev["A2"] = "No review-required records for this reconciliation run."

@@ -583,9 +583,11 @@ class TestExcelConfidenceColumns:
             "Reason",
             "Amount",
         ]
+        assert headers[5] == "Priority"
         assert headers[-2:] == ["Match Confidence", "Match Rationale"]
-        assert ws.cell(row=2, column=6).value == "82%"
-        assert "Invoice#: fuzzy 82%" in str(ws.cell(row=2, column=7).value)
+        assert ws.cell(row=2, column=6).value in ("URGENT", "HIGH", "MEDIUM", "LOW")
+        assert ws.cell(row=2, column=7).value == "82%"
+        assert "Invoice#: fuzzy 82%" in str(ws.cell(row=2, column=8).value)
 
 
 class TestFuzzyWhatIsWrongAmountDiff:

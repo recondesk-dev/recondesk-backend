@@ -251,6 +251,7 @@ type ReconcileRow = {
   igst?: number;
   document_type?: string | null;
   is_credit_note?: boolean;
+  priority?: "URGENT" | "HIGH" | "MEDIUM" | "LOW" | string | null;
 };
 
 /** Small pill showing L5/fuzzy invoice-similarity score. Only renders when match_confidence is present. */
@@ -742,6 +743,7 @@ async function authJsonFetcher<T>([path, token]: FetcherKey): Promise<T> {
 
 /** Shared `?sort=` values for reconcile bucket APIs + client-side duplicate sort. */
 type ReconcileSortValue =
+  | "priority"
   | "amount_desc"
   | "amount_asc"
   | "invoice_date_desc"
@@ -765,6 +767,14 @@ const RECONCILE_SORT_OPTIONS_WITH_CONFIDENCE: {
   ...RECONCILE_SORT_OPTIONS_BASE.slice(0, 4),
   { value: "confidence_asc", label: "Confidence: Low to High" },
   ...RECONCILE_SORT_OPTIONS_BASE.slice(4),
+];
+
+const RECONCILE_SORT_OPTIONS_REVIEW_REQUIRED: {
+  value: ReconcileSortValue;
+  label: string;
+}[] = [
+  { value: "priority", label: "Priority: Urgent first" },
+  ...RECONCILE_SORT_OPTIONS_WITH_CONFIDENCE,
 ];
 
 function sortDuplicateEntryRows<
@@ -977,6 +987,41 @@ function MatchLevelBadge({ level }: { level: MatchLevel }) {
       {level}
     </span>
   );
+}
+
+function PriorityBadge({ priority }: { priority?: string | null }) {
+  if (!priority) return null;
+  const p = priority.toUpperCase();
+  if (p === "URGENT") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-bold bg-[#FEE2E2] text-[#991B1B] border border-red-200">
+        <span className="h-1.5 w-1.5 rounded-full bg-red-600 animate-pulse" />
+        URGENT
+      </span>
+    );
+  }
+  if (p === "HIGH") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-semibold bg-[#FFEDD5] text-[#9A3412] border border-orange-200">
+        HIGH
+      </span>
+    );
+  }
+  if (p === "MEDIUM") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium bg-[#FEF9C3] text-[#854D0E] border border-yellow-200">
+        MEDIUM
+      </span>
+    );
+  }
+  if (p === "LOW") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium bg-[#F3F4F6] text-[#4B5563] border border-gray-200">
+        LOW
+      </span>
+    );
+  }
+  return null;
 }
 
 function SectionError({
@@ -1218,11 +1263,11 @@ export default function ReconcileResultsPage() {
     ims_status: "",
   });
 
-  /** Defaults: Matched → newest date; Review Required → lowest confidence first. */
+  /** Defaults: Matched → newest date; Review Required → priority (urgent first). */
   const [matchedSort, setMatchedSort] =
     useState<ReconcileSortValue>("invoice_date_desc");
   const [reviewRequiredSort, setReviewRequiredSort] =
-    useState<ReconcileSortValue>("confidence_asc");
+    useState<ReconcileSortValue>("priority");
   const [duplicateEntrySort, setDuplicateEntrySort] =
     useState<ReconcileSortValue>("amount_desc");
 
@@ -5287,7 +5332,7 @@ export default function ReconcileResultsPage() {
                   setReviewRequiredSort(e.target.value as ReconcileSortValue)
                 }
               >
-                {RECONCILE_SORT_OPTIONS_WITH_CONFIDENCE.map((opt) => (
+                {RECONCILE_SORT_OPTIONS_REVIEW_REQUIRED.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
@@ -5440,6 +5485,7 @@ export default function ReconcileResultsPage() {
                       }}
                       status={
                         <div className="flex flex-wrap items-center gap-2">
+                          <PriorityBadge priority={row.priority} />
                           <DecisionStatusPill status={effectiveStatus(row)} />
                           <MatchLevelBadge level={row.match_level} />
                           <span className="rounded-full bg-[#F5F5F6] px-2.5 py-0.5 text-[11px] font-semibold text-gray-600">
@@ -6247,11 +6293,14 @@ export default function ReconcileResultsPage() {
                 <p className="font-mono text-xs text-gray-500">
                   {activeRecord.supplier_gstin}
                 </p>
-                <p className="font-semibold text-gray-900">
-                  {activeRecord.invoice_number}
-                  <span className="font-normal text-gray-400"> · </span>
-                  {formatDate(activeRecord.invoice_date)}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold text-gray-900">
+                    {activeRecord.invoice_number}
+                    <span className="font-normal text-gray-400"> · </span>
+                    {formatDate(activeRecord.invoice_date)}
+                  </p>
+                  <PriorityBadge priority={activeRecord.priority} />
+                </div>
               </div>
               <button
                 type="button"

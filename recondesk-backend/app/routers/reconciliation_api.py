@@ -3660,6 +3660,16 @@ def _matched_pr_matcher_for_diff(
     return out
 
 
+def _classify_review_prio_fallback(en_row: Any, discrepancy_reason: str, tax_diff_paise: Optional[int]) -> str:
+    from app.services.review_priority import classify_review_priority
+    rec = dict(en_row) if isinstance(en_row, dict) else {}
+    if discrepancy_reason:
+        rec.setdefault("reason", discrepancy_reason)
+    if tax_diff_paise is not None:
+        rec.setdefault("taxable_diff_paise", tax_diff_paise)
+    return classify_review_priority(rec)
+
+
 def _build_matched_pair_records(
     sb,
     *,
@@ -3914,12 +3924,24 @@ def _build_matched_pair_records(
                 ),
                 "itc_available": itc_avl,
                 "itc_reason": itc_rsn_val,
+                "priority": str(
+                    en_row.get("priority")
+                    or (
+                        _classify_review_prio_fallback(en_row, discrepancy_reason, tax_diff_paise)
+                        if fetch_review_required
+                        else "LOW"
+                    )
+                ),
             }
             out_pairs.append((api_row, orow))
         except Exception as e:
             _log.error(f"Error building matched pair record (idx={idx}): {e}")
             continue
-    out_pairs.sort(key=lambda t: (-t[0]["amount"], t[0]["id"]))
+    if fetch_review_required:
+        from app.services.review_priority import review_priority_sort_key
+        out_pairs.sort(key=lambda t: review_priority_sort_key(t[0]))
+    else:
+        out_pairs.sort(key=lambda t: (-t[0]["amount"], t[0]["id"]))
     return out_pairs
 
 
@@ -4231,7 +4253,11 @@ def _row_confidence_sort_value(row: dict[str, Any]) -> float:
 
 def _sort_reconcile_bucket_rows(rows: list[dict[str, Any]], sort: str) -> None:
     s = (sort or "amount_desc").strip().lower()
-    if s == "amount_asc":
+    if s == "priority":
+        from app.services.review_priority import review_priority_sort_key
+
+        rows.sort(key=review_priority_sort_key)
+    elif s == "amount_asc":
         rows.sort(key=lambda x: (float(x.get("amount") or 0), str(x.get("id"))))
     elif s == "amount_desc":
         rows.sort(key=lambda x: (-float(x.get("amount") or 0), str(x.get("id"))))

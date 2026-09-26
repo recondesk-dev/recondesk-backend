@@ -607,6 +607,8 @@ def _push_review_required(
             match_dict["decision_what"] = best_result.decision_what
         if getattr(best_result, "decision_next", None):
             match_dict["decision_next"] = best_result.decision_next
+    from app.services.review_priority import classify_review_priority
+    match_dict["priority"] = classify_review_priority(match_dict)
     state.review_required.append(match_dict)
     if pr_id:
         state.consumed_pr_ids.add(str(pr_id))
