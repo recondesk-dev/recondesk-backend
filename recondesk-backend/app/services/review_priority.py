@@ -27,6 +27,8 @@ URGENT_REASONS = {
     "PERIOD_BOUNDARY_DATE_MISMATCH",
     "GSTIN_MISMATCH",
     "GSTIN_MISMATCH: same PAN, different GSTIN",
+    "RCM_FLAG_CONFLICT",
+    "TAX_HEAD_MISMATCH",
 }
 
 HIGH_REASONS = {
@@ -45,9 +47,15 @@ def classify_review_priority(record: Mapping[str, Any]) -> str:
         return PRIORITY_LOW
 
     reason = str(record.get("review_reason") or record.get("reason") or "").strip()
+    reason_upper = reason.upper()
 
     # 1. Statutory audit hazards & legal compliance violations -> URGENT
-    if any(u in reason for u in URGENT_REASONS):
+    if (
+        any(u in reason_upper for u in URGENT_REASONS)
+        or "RCM" in reason_upper
+        or "TAX_HEAD" in reason_upper
+        or "TAX_STRUCTURE" in reason_upper
+    ):
         return PRIORITY_URGENT
 
     # 2. Extract financial delta (paise)

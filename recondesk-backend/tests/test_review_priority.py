@@ -17,6 +17,8 @@ def test_urgent_statutory_reasons():
     assert classify_review_priority({"review_reason": "PERIOD_BOUNDARY_DATE_MISMATCH"}) == PRIORITY_URGENT
     assert classify_review_priority({"review_reason": "GSTIN_MISMATCH"}) == PRIORITY_URGENT
     assert classify_review_priority({"reason": "GSTIN_MISMATCH: same PAN, different GSTIN"}) == PRIORITY_URGENT
+    assert classify_review_priority({"review_reason": "RCM_FLAG_CONFLICT", "taxable_diff_paise": 0}) == PRIORITY_URGENT
+    assert classify_review_priority({"review_reason": "TAX_HEAD_MISMATCH", "taxable_diff_paise": 0}) == PRIORITY_URGENT
 
 
 def test_urgent_high_financial_magnitude():

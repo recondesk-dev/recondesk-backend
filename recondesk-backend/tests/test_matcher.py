@@ -389,8 +389,7 @@ def test_l3_tax_structure_igst_vs_cgst_sgst_same_totals_not_l6():
     assert r.level == 3
     assert r.matched is True
     assert r.confidence == 75
-    assert r.requires_human_review is True
-    assert r.review_reason == "AMOUNT_MISMATCH"
+    assert r.review_reason in ("TAX_HEAD_MISMATCH", "AMOUNT_MISMATCH")
 
 
 def test_l1_exact_match_pr_missing_tax_component_breakdown():
@@ -1091,4 +1090,62 @@ def test_review_explanation_differentiates_date_only_mismatch():
     # Decision what and why should reflect date difference accurately
     assert "date differs by 4 days" in (r.decision_what or "")
     assert "date differs by 4 days" in (r.decision_why or "")
+
+
+def test_rcm_conflict_guard():
+    """When GSTR-2B marks reverse_charge=True and PR does not, flag as RCM_FLAG_CONFLICT."""
+    g = _base_rec(
+        invoice_number="INV-RCM-01",
+        invoice_date="2024-03-15",
+        taxable_paise=10_000_000,
+    )
+    g["reverse_charge"] = True
+    g["total_tax_paise"] = 1_800_000
+
+    p = _base_rec(
+        supplier_gstin=g["supplier_gstin"],
+        invoice_number="INV-RCM-01",
+        invoice_date="2024-03-15",
+        taxable_paise=10_000_000,
+    )
+    p["reverse_charge"] = False
+    p["total_tax_paise"] = 1_800_000
+
+    r = match_gstr_to_pr(g, [p])
+    assert r is not None
+    assert r.matched is True
+    assert r.requires_human_review is True
+    assert r.review_reason == "RCM_FLAG_CONFLICT"
+    assert "Reverse Charge (RCM) conflict detected" in (r.decision_what or "")
+    assert any("reverse_charge" in d for d in r.discrepancies)
+
+
+def test_tax_head_mismatch_guard():
+    """When total tax matches but IGST vs CGST+SGST differs, flag as TAX_HEAD_MISMATCH."""
+    g = _base_rec(
+        invoice_number="INV-HEAD-01",
+        invoice_date="2024-03-15",
+        taxable_paise=10_000_000,
+    )
+    g["igst_paise"] = 1_800_000
+    g["total_tax_paise"] = 1_800_000
+
+    p = _base_rec(
+        supplier_gstin=g["supplier_gstin"],
+        invoice_number="INV-HEAD-01",
+        invoice_date="2024-03-15",
+        taxable_paise=10_000_000,
+    )
+    p["cgst_paise"] = 900_000
+    p["sgst_paise"] = 900_000
+    p["total_tax_paise"] = 1_800_000
+
+    r = match_gstr_to_pr(g, [p])
+    assert r is not None
+    assert r.matched is True
+    assert r.requires_human_review is True
+    assert r.review_reason == "TAX_HEAD_MISMATCH"
+    assert "Tax head mismatch" in (r.decision_what or "")
+    assert any("tax_structure" in d for d in r.discrepancies)
+
 

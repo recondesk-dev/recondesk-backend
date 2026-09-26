@@ -1093,6 +1093,36 @@ def _is_debit_note(rec: Mapping[str, Any] | None) -> bool:
     return False
 
 
+def _is_record_rcm(rec: Mapping[str, Any] | None) -> bool | None:
+    """Return True if Reverse Charge applies, False if Forward Charge, None if unspecified.
+
+    Checks standard GSTN keys (rev, rchrg, reverse_charge) as well as PR columns.
+    """
+    if not rec:
+        return None
+    rc = rec.get("reverse_charge")
+    if isinstance(rc, bool):
+        return rc
+    if isinstance(rc, str):
+        rc_str = rc.strip().upper()
+        if rc_str in ("Y", "YES", "TRUE", "1", "RCM"):
+            return True
+        if rc_str in ("N", "NO", "FALSE", "0", "FCM"):
+            return False
+
+    for k in ("rev", "rchrg", "rev_chg", "rcm", "is_rcm", "reverse_charge_applicable"):
+        val = rec.get(k)
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, str):
+            v_str = val.strip().upper()
+            if v_str in ("Y", "YES", "TRUE", "1", "RCM"):
+                return True
+            if v_str in ("N", "NO", "FALSE", "0", "FCM"):
+                return False
+    return None
+
+
 def are_document_types_compatible(
     gstr_rec: Mapping[str, Any] | None, pr_rec: Mapping[str, Any] | None
 ) -> tuple[bool, str]:
@@ -1470,6 +1500,39 @@ def _match_gstr_to_pr_pair(
             review_reason="DOC_TYPE_NOTE_IN_B2B",
         )
 
+    # ── Reverse Charge (RCM) conflict guard ──────────────────────────────────
+    # If GSTR-2B marks the supply as Reverse Charge (rev_chg="Y") while PR does
+    # not, or PR books RCM while GSTR-2B is Forward Charge, this pair cannot be
+    # auto-approved as clean domestic ITC. Under Section 9(3)/9(4) of the CGST Act,
+    # RCM requires tax payment in cash under GSTR-3B Table 3.1(d).
+    g_rcm = _is_record_rcm(gstr_rec)
+    p_rcm = _is_record_rcm(pr_rec)
+    rcm_conflict = (g_rcm is True and p_rcm is not True) or (g_rcm is False and p_rcm is True)
+    if rcm_conflict and gstin_match and (inv_ok or format_variant):
+        g_lbl = "Yes (RCM)" if g_rcm else "No (Forward Charge)"
+        p_lbl = "Yes (RCM)" if p_rcm else ("No (Forward Charge)" if p_rcm is False else "Unspecified / Forward Charge")
+        rcm_discrepancies = list(discrepancies) + [f"reverse_charge: GSTR={g_lbl}, PR={p_lbl}"]
+        return _ret(
+            level=3,
+            matched=True,
+            confidence=75,
+            requires_human_review=True,
+            decision_what="Reverse Charge (RCM) conflict detected",
+            decision_why=(
+                f"GSTR-2B indicates RCM={g_lbl}, but Purchase Register has RCM={p_lbl}. "
+                "Reverse charge supplies require recipient tax liability discharge in cash under Table 3.1(d)."
+            ),
+            decision_next=(
+                "Verify whether supply falls under Section 9(3)/9(4) (e.g. GTA, legal, security). "
+                "If RCM applies, pay tax in cash in GSTR-3B Table 3.1(d) and claim in Table 4(A)(3). "
+                "Do not claim as regular domestic ITC in Table 4(A)(5)."
+            ),
+            discrepancies=rcm_discrepancies,
+            identity_confidence="High",
+            financial_status=financial_status,
+            review_reason="RCM_FLAG_CONFLICT",
+        )
+
     # ── Zero-discrepancy invariant — single authoritative rule ───────────────
     # If the supplier GSTIN, invoice identity, and vendor name all agree, and
     # BOTH the taxable amount and the total tax agree (within Rs1 rounding),
@@ -1496,6 +1559,7 @@ def _match_gstr_to_pr_pair(
         and zero_discrepancy
         and date_within_l1
         and tax_structure_match
+        and not rcm_conflict
     ):
         # L1 only when raw invoice strings are identical. Normalized / format-
         # variant identity with zero financial diff stays on Matched as L2
@@ -1567,15 +1631,35 @@ def _match_gstr_to_pr_pair(
         # exceed L2 (e.g. 5.83% amount + 10-day date gap), link as Review Required.
         # Returning L6 here previously orphaned the pair into Missed ITC + ITC at
         # Risk as if the invoice numbers had never matched.
-        if not tax_structure_match or not l12_finance_ok or not amount_within_l2:
+        if not tax_structure_match:
+            g_lbl = "IGST" if gstr_is_igst else "CGST+SGST"
+            p_lbl = "IGST" if pr_is_igst else "CGST+SGST"
+            rr = "TAX_HEAD_MISMATCH"
+            d_what = f"Tax head mismatch ({g_lbl} vs {p_lbl})"
+            d_why = (
+                f"GSTR-2B reports {g_lbl} while Purchase Register records {p_lbl}. "
+                "Cross-head claiming violates Section 77 CGST / Section 19 IGST Act."
+            )
+            d_next = (
+                f"Verify Place of Supply and invoice copy. If supplier charged {g_lbl}, "
+                f"buyer books must be amended from {p_lbl} to {g_lbl}. "
+                "Do not claim cross-head credit without rectification."
+            )
+        elif not l12_finance_ok or not amount_within_l2:
             rr = "AMOUNT_MISMATCH"
+            d_what = "Invoice matched but with differences"
+            d_why = "Same invoice number and GSTIN, but amount or date differ"
+            d_next = "Review differences and correct if needed"
         else:
             rr = "Amount Mismatch or Date mismatch"
+            d_what = "Invoice matched but with differences"
+            d_why = "Same invoice number and GSTIN, but amount or date differ"
+            d_next = "Review differences and correct if needed"
         return _ret(
             level=3, matched=True, confidence=75, requires_human_review=True,
-            decision_what="Invoice matched but with differences",
-            decision_why="Same invoice number and GSTIN, but amount or date differ",
-            decision_next="Review differences and correct if needed",
+            decision_what=d_what,
+            decision_why=d_why,
+            decision_next=d_next,
             review_reason=rr,
             discrepancies=discrepancies,
             identity_confidence="High", financial_status=financial_status,
