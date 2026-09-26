@@ -3956,6 +3956,7 @@ def _filter_matched(
     review_required: bool,
     section174: bool,
     ims_status_filter: Optional[str] = None,
+    discrepancy_reason_filter: Optional[str] = None,
 ) -> list[tuple[dict[str, Any], Any]]:
     out_f: list[tuple[dict[str, Any], Any]] = []
     for api_row, orow in pairs:
@@ -4003,6 +4004,11 @@ def _filter_matched(
             want = ims_status_filter.strip().lower()
             got = str(api_row.get("ims_status") or "no_action_taken").strip().lower()
             if got != want:
+                continue
+
+        if discrepancy_reason_filter:
+            dr = str(api_row.get("discrepancy_reason") or "").strip().upper()
+            if dr != discrepancy_reason_filter.strip().upper():
                 continue
 
         out_f.append((api_row, orow))
@@ -6267,6 +6273,7 @@ async def reconcile_run_matched_bucket(
     amount_min: Optional[str] = None,
     amount_max: Optional[str] = None,
     ims_status: Optional[str] = None,
+    reason: Optional[str] = None,
     current_user: dict = Depends(get_current_active_user),
 ):
     rid = _parse_uuid(run_id, "run_id")
@@ -6310,6 +6317,7 @@ async def reconcile_run_matched_bucket(
             review_required=rr_req,
             section174=s174,
             ims_status_filter=ims_status,
+            discrepancy_reason_filter=reason,
         )
         extracted = [pair[0] for pair in filtered_pairs]
         _sort_reconcile_bucket_rows(extracted, sort)

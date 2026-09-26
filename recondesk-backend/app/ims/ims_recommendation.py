@@ -51,6 +51,8 @@ REASON_RULE37A_NON_FILER = "RULE37A_NON_FILER"
 REASON_UNLINKED_CREDIT_NOTE = "UNLINKED_CREDIT_NOTE"
 REASON_LOW_MATCH_CONFIDENCE = "LOW_MATCH_CONFIDENCE"
 REASON_NO_MATCH_CONFIDENCE = "NO_MATCH_CONFIDENCE"
+REASON_RCM_FLAG_CONFLICT = "RCM_FLAG_CONFLICT"
+REASON_TAX_HEAD_MISMATCH = "TAX_HEAD_MISMATCH"
 
 ConfidenceSource = Literal[
     "matcher_fuzzy",
@@ -88,6 +90,7 @@ class InvoiceRecommendationInput:
     blocked_credit_reason: Optional[str] = None
     pr_supplier_gstin: Optional[str] = None
     gstr_supplier_gstin: Optional[str] = None
+    review_reason: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -491,6 +494,33 @@ def recommend_invoice(
         )
 
     if category == "review_required":
+        rev_reason = str(inp.review_reason or inp.match_status or "").strip().upper()
+        if rev_reason in ("RCM_FLAG_CONFLICT", "RCM_CONFLICT"):
+            return _rec(
+                inp,
+                action="hold",
+                score=score,
+                conf_source=conf_source,
+                codes=(REASON_RCM_FLAG_CONFLICT, REASON_NEEDS_REVIEW),
+                why=(
+                    "Reverse charge treatment conflict: GSTR-2B reverse-charge indicator contradicts "
+                    "the Purchase Register. Hold on IMS until RCM applicability under Section 9(3)/9(4) "
+                    "is verified to prevent incorrect Table 3.1(d) / 4(A)(3) tax reporting."
+                ),
+            )
+        if rev_reason in ("TAX_HEAD_MISMATCH", "TAX_HEADS_MISMATCH"):
+            return _rec(
+                inp,
+                action="hold",
+                score=score,
+                conf_source=conf_source,
+                codes=(REASON_TAX_HEAD_MISMATCH, REASON_NEEDS_REVIEW),
+                why=(
+                    "Tax head allocation mismatch: GSTR-2B and Purchase Register allocate tax to different "
+                    "heads (IGST vs CGST+SGST or cess discrepancy) despite matching total tax. "
+                    "Hold on IMS until Place of Supply is verified and supplier issues a Section 34 Credit Note or amendment."
+                ),
+            )
         conf_bit = (
             f" Matcher confidence={score:.0%}."
             if score is not None

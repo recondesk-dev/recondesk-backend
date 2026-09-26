@@ -992,6 +992,7 @@ def build_outcome_rows(
                 compared_fields=rr.get("compared_fields"),
                 is_rcm=is_rcm_val,
                 supply_type="RCM" if is_rcm_val else "REGULAR",
+                normalized_reason=reason,
             )
         )
 

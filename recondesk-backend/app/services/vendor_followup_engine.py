@@ -475,6 +475,24 @@ def generate_whatsapp_payload(
             f"Please verify invoice numbers, taxable values, and GST rates, and issue an amendment or credit/debit note if needed.\n\n"
             f"— Finance & Tax Team, ReconDesk"
         )
+    elif template_type == "TAX_HEAD_MISMATCH_NOTICE":
+        message = (
+            f"🏛️ *URGENT: Tax Head / Place of Supply Discrepancy Notice*\n\n"
+            f"{salutation},\n\n"
+            f"We identified a tax head discrepancy on invoice(s) with total ITC exposure of *₹{at_risk_itc_rupees:,.2f}* between your GSTR-1 return and our purchase register (e.g. IGST filed instead of CGST/SGST, or asymmetric heads).\n\n"
+            f"Under Section 77 of the CGST Act and Section 19 of the IGST Act, incorrect tax heads cannot be adjusted and will trigger tax demands and interest.\n\n"
+            f"Please verify the Place of Supply (POS) and issue a Credit Note under Section 34 and re-issue the invoice with correct tax heads, or file the necessary amendment in your upcoming GSTR-1.\n\n"
+            f"— Finance & Tax Team, ReconDesk"
+        )
+    elif template_type == "RCM_CONFLICT_NOTICE":
+        message = (
+            f"⚠️ *Notice: Reverse Charge (RCM) Treatment Discrepancy*\n\n"
+            f"{salutation},\n\n"
+            f"We noted a discrepancy in the Reverse Charge (RCM) classification on invoice(s) totaling *₹{at_risk_itc_rupees:,.2f}* between your GSTR-1 return and our purchase records.\n\n"
+            f"If this supply attracts RCM under Section 9(3)/9(4) of the CGST Act, tax must be discharged in cash by the recipient and not billed by the supplier. If it is a forward charge supply, please amend your GSTR-1 return.\n\n"
+            f"Kindly confirm the correct statutory treatment urgently so our GSTR-3B filings can be aligned.\n\n"
+            f"— Finance & Tax Team, ReconDesk"
+        )
     else:
         message = (
             f"📋 *GST Reconciliation & Invoice Follow-Up*\n\n"
@@ -539,6 +557,12 @@ def generate_email_template(
     elif template_type == "VALUE_MISMATCH_VERIFICATION":
         subject = f"Notice: Tax Value Discrepancy Verification for {supplier_gstin} [₹{at_risk_itc_rupees:,.2f}]"
         detail_para = "We identified a tax discrepancy of <strong>₹" + f"{at_risk_itc_rupees:,.2f}" + "</strong> between our purchase records and your GSTR-1 filing. Kindly reconcile invoice taxable values and GST rates and file amendments if necessary."
+    elif template_type == "TAX_HEAD_MISMATCH_NOTICE":
+        subject = f"Notice: Tax Head / Place of Supply Discrepancy for {supplier_gstin} [₹{at_risk_itc_rupees:,.2f}]"
+        detail_para = "We identified a tax head allocation mismatch on invoice(s) totaling <strong>₹" + f"{at_risk_itc_rupees:,.2f}" + "</strong> between your GSTR-1 filing and our purchase records (e.g. IGST declared instead of CGST/SGST, or asymmetric intra-state heads). Under Section 77 of the CGST Act and Section 19 of the IGST Act, cross-utilization of incorrectly paid tax is restricted and may attract interest. Kindly verify the Place of Supply (POS), issue a Section 34 Credit Note, and re-issue the invoice with correct tax heads or file the amendment in your upcoming GSTR-1 return."
+    elif template_type == "RCM_CONFLICT_NOTICE":
+        subject = f"Notice: Reverse Charge (RCM) Classification Discrepancy for {supplier_gstin} [₹{at_risk_itc_rupees:,.2f}]"
+        detail_para = "A discrepancy has been identified regarding the Reverse Charge (RCM) treatment on invoice(s) totaling <strong>₹" + f"{at_risk_itc_rupees:,.2f}" + "</strong> between your GSTR-1 filing and our purchase register. If the supply falls under Section 9(3) or 9(4) of the CGST Act, recipient discharge is mandatory; otherwise, forward charge reporting must be maintained. Please confirm the statutory classification or furnish an amended return."
     else:
         subject = f"Notice: GST Reconciliation & ITC Compliance for {supplier_gstin} [₹{at_risk_itc_rupees:,.2f}]"
         detail_para = "We are currently conducting our period end GST audit and identified unmatched invoices / Rule 37 payment exposures totaling <strong>₹" + f"{at_risk_itc_rupees:,.2f}" + "</strong>."

@@ -824,6 +824,7 @@ function buildMatchedQuery(
     amount_min: string;
     amount_max: string;
     ims_status: string;
+    reason?: string;
     /** When true, forces review_required=true in the query (Review Required tab). */
     force_review_required?: boolean;
   }
@@ -841,6 +842,7 @@ function buildMatchedQuery(
   if (f.amount_min.trim()) p.set("amount_min", f.amount_min.trim());
   if (f.amount_max.trim()) p.set("amount_max", f.amount_max.trim());
   if (f.ims_status.trim()) p.set("ims_status", f.ims_status.trim());
+  if (f.reason?.trim()) p.set("reason", f.reason.trim());
   return p.toString();
 }
 
@@ -853,6 +855,7 @@ function hasActiveMatchedFilters(
     amount_min: string;
     amount_max: string;
     ims_status: string;
+    reason?: string;
   }
 ): boolean {
   return (
@@ -862,7 +865,8 @@ function hasActiveMatchedFilters(
     f.section_17_5 ||
     !!f.amount_min.trim() ||
     !!f.amount_max.trim() ||
-    !!f.ims_status.trim()
+    !!f.ims_status.trim() ||
+    !!f.reason?.trim()
   );
 }
 
@@ -1261,6 +1265,7 @@ export default function ReconcileResultsPage() {
     amount_min: "",
     amount_max: "",
     ims_status: "",
+    reason: "",
   });
 
   /** Defaults: Matched → newest date; Review Required → priority (urgent first). */
@@ -5301,6 +5306,23 @@ export default function ReconcileResultsPage() {
                 <option value="FUZZY">FUZZY</option>
                 <option value="MANUAL">MANUAL</option>
               </select>
+              <select
+                className={filterDropdownClass}
+                aria-label="Filter by review discrepancy reason"
+                value={reviewRequiredFilters.reason}
+                onChange={(e) =>
+                  setReviewRequiredFilters((f) => ({
+                    ...f,
+                    reason: e.target.value,
+                  }))
+                }
+              >
+                <option value="">All Review Reasons</option>
+                <option value="RCM_FLAG_CONFLICT">RCM Conflict</option>
+                <option value="TAX_HEAD_MISMATCH">Tax-Head Mismatch</option>
+                <option value="AMOUNT_MISMATCH">Amount Mismatch</option>
+                <option value="GSTIN_MISMATCH">GSTIN Mismatch</option>
+              </select>
               <input
                 className={filterAmountInputClass}
                 placeholder="₹ Min"
@@ -5372,6 +5394,7 @@ export default function ReconcileResultsPage() {
               </button>
               {(!!debouncedReviewRequiredSearch.trim() ||
                 !!reviewRequiredFilters.match_level ||
+                !!reviewRequiredFilters.reason ||
                 reviewRequiredFilters.has_notes ||
                 reviewRequiredFilters.section_17_5 ||
                 !!reviewRequiredFilters.amount_min.trim() ||
@@ -5391,6 +5414,7 @@ export default function ReconcileResultsPage() {
                       amount_min: "",
                       amount_max: "",
                       ims_status: "",
+                      reason: "",
                     });
                     setReviewRequiredPage(1);
                   }}
@@ -5434,6 +5458,7 @@ export default function ReconcileResultsPage() {
                         amount_min: "",
                         amount_max: "",
                         ims_status: "",
+                        reason: "",
                       });
                       setReviewRequiredPage(1);
                     }}
@@ -5461,7 +5486,16 @@ export default function ReconcileResultsPage() {
                     row.discrepancy_note
                   );
 
-                  if (taxDiff.display === "₹0.00" && row.discrepancy_reason) {
+                  const normReason = String(row.discrepancy_reason || "")
+                    .toUpperCase()
+                    .replace(/\s+/g, "_");
+                  const isRcmOrTaxHeadMismatch =
+                    normReason === "RCM_FLAG_CONFLICT" ||
+                    normReason === "RCM_CONFLICT" ||
+                    normReason === "TAX_HEAD_MISMATCH" ||
+                    normReason === "TAX_HEADS_MISMATCH";
+
+                  if ((taxDiff.display === "₹0.00" || isRcmOrTaxHeadMismatch) && row.discrepancy_reason) {
                     const localizedReason = localizeDiscrepancyReason(row.discrepancy_reason, locale);
                     taxDiff = { display: localizedReason, tooltip: row.discrepancy_reason };
                   }
@@ -5510,7 +5544,11 @@ export default function ReconcileResultsPage() {
                       meta={
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span
-                            className="rounded-full bg-white px-2.5 py-0.5 text-[11px] font-medium text-gray-600 ring-1 ring-[#E8E8EC]"
+                            className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                              isRcmOrTaxHeadMismatch
+                                ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200 font-semibold"
+                                : "bg-white text-gray-600 ring-1 ring-[#E8E8EC]"
+                            }`}
                             title={taxDiff.tooltip ?? undefined}
                           >
                             {taxDiff.display}

@@ -159,6 +159,7 @@ def build_recommendations_for_run(
                 blocked_credit_reason=bc_reason,
                 pr_supplier_gstin=row.pr_supplier_gstin,
                 gstr_supplier_gstin=row.gstr_supplier_gstin,
+                review_reason=getattr(row, "normalized_reason", None) or getattr(row, "match_status", None),
             )
         )
 

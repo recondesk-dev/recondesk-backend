@@ -87,6 +87,24 @@ const EXACT_TRANSLATIONS: Record<string, string> = {
   "ITC unavailable in GSTR-2B (Supplier GSTR-3B Non-Filer / Rule 37A)":
     "GSTR-2B में ITC अनुपलब्ध (सप्लायर GSTR-3B नॉन-फाइलर / Rule 37A)",
 
+  // RCM Conflict
+  "Reverse charge treatment differs between GSTR-2B and Purchase Register.":
+    "GSTR-2B और परचेज रजिस्टर के बीच रिवर्स चार्ज उपचार भिन्न है।",
+  "GSTR-2B marks this invoice as reverse charge (tax payable by recipient under Section 9(3)/9(4)), but Purchase Register treats it as regular forward charge.":
+    "GSTR-2B इस इनवॉइस को रिवर्स चार्ज (Section 9(3)/9(4) के तहत प्राप्तकर्ता द्वारा देय कर) के रूप में चिह्नित करता है, लेकिन परचेज रजिस्टर इसे नियमित फॉरवर्ड चार्ज मानता है।",
+  "Purchase Register marks this invoice as reverse charge, but supplier reported it as regular forward charge in GSTR-1.":
+    "परचेज रजिस्टर इस इनवॉइस को रिवर्स चार्ज के रूप में चिह्नित करता है, लेकिन सप्लायर ने GSTR-1 में इसे नियमित फॉरवर्ड चार्ज के रूप में रिपोर्ट किया।",
+  "Verify reverse charge applicability under Section 9(3)/9(4). If RCM applies, pay tax under Table 3.1(d) in cash and claim ITC under Table 4(A)(3). Do not claim under Table 4(A)(5).":
+    "Section 9(3)/9(4) के तहत रिवर्स चार्ज प्रयोज्यता सत्यापित करें। यदि RCM लागू होता है, तो टेबल 3.1(d) के तहत नकद कर का भुगतान करें और टेबल 4(A)(3) के तहत ITC का दावा करें। टेबल 4(A)(5) के तहत दावा न करें।",
+  "Confirm whether supply actually attracts RCM. If yes, request supplier amend GSTR-1. If no, reclassify in purchase register to forward charge.":
+    "पुष्टि करें कि क्या आपूर्ति वास्तव में RCM आकर्षित करती है। यदि हां, तो सप्लायर से GSTR-1 में संशोधन करने का अनुरोध करें। यदि नहीं, तो परचेज रजिस्टर में फॉरवर्ड चार्ज के रूप में पुनर्वर्गीकृत करें।",
+
+  // Tax Head Mismatch
+  "Tax head allocation differs between GSTR-2B and Purchase Register. Claiming wrong tax heads leads to demand under Section 77 / IGST Section 19.":
+    "GSTR-2B और परचेज रजिस्टर के बीच टैक्स हेड आवंटन भिन्न है। गलत टैक्स हेड का दावा करने से Section 77 / IGST Section 19 के तहत टैक्स मांग हो सकती है।",
+  "Verify Place of Supply and invoice copy. Amend purchase register to match the invoice tax heads before filing GSTR-3B. Do not claim IGST credit against CGST/SGST liability without cross-utilization rules.":
+    "Place of Supply और इनवॉइस कॉपी सत्यापित करें। GSTR-3B दाखिल करने से पहले इनवॉइस टैक्स हेड्स से मेल खाने के लिए परचेज रजिस्टर में संशोधन करें।",
+
   // General fallbacks
   "Mismatch detected": "विसंगति का पता चला",
   "Unable to determine specific reason": "विशिष्ट कारण निर्धारित करने में असमर्थ",
@@ -208,27 +226,70 @@ export function localizeDiscrepancyReason(
   locale: string
 ): string {
   if (!reason) return "";
-  if (locale !== "hi") return reason;
-
   const normalized = reason.toUpperCase().replace(/\s+/g, "_");
+
+  if (locale === "hi") {
+    switch (normalized) {
+      case "RCM_FLAG_CONFLICT":
+      case "RCM_CONFLICT":
+        return "RCM फ्लैग विरोध (RCM Conflict)";
+      case "TAX_HEAD_MISMATCH":
+      case "TAX_HEADS_MISMATCH":
+        return "कर शीर्ष मिसमैच (Tax-Head Mismatch)";
+      case "GSTIN_MISMATCH":
+        return "GSTIN मिसमैच";
+      case "AMOUNT_MISMATCH":
+      case "AMOUNT_DIFF":
+        return "राशि मिसमैच";
+      case "INVOICE_NUM_MISMATCH":
+      case "INVOICE_MISMATCH":
+        return "इनवॉइस # मिसमैच";
+      case "DATE_MISMATCH":
+        return "तारीख मिसमैच";
+      case "ROUNDING_DIFF":
+        return "राउंडिंग अंतर";
+      case "DUPLICATE_ENTRY":
+      case "DUPLICATE":
+        return "डुप्लिकेट प्रविष्टि";
+      case "PR_CLAIMED_BY_BETTER_MATCH":
+        return "Claimed by better-matched purchase register entry";
+      case "SECTION_17_5":
+      case "SECTION17":
+        return "Section 17(5)";
+      case "RULE_37":
+      case "RULE37":
+        return "Rule 37";
+      case "RULE_37A":
+      case "RULE37A":
+        return "Rule 37A";
+      default:
+        return reason;
+    }
+  }
+
+  // English formatted labels
   switch (normalized) {
+    case "RCM_FLAG_CONFLICT":
+    case "RCM_CONFLICT":
+      return "RCM Conflict";
+    case "TAX_HEAD_MISMATCH":
+    case "TAX_HEADS_MISMATCH":
+      return "Tax-Head Mismatch";
     case "GSTIN_MISMATCH":
-      return "GSTIN मिसमैच";
+      return "GSTIN Mismatch";
     case "AMOUNT_MISMATCH":
     case "AMOUNT_DIFF":
-      return "राशि मिसमैच";
+      return "Amount Mismatch";
     case "INVOICE_NUM_MISMATCH":
     case "INVOICE_MISMATCH":
-      return "इनवॉइस # मिसमैच";
+      return "Invoice # Mismatch";
     case "DATE_MISMATCH":
-      return "तारीख मिसमैच";
+      return "Date Mismatch";
     case "ROUNDING_DIFF":
-      return "राउंडिंग अंतर";
+      return "Rounding Difference";
     case "DUPLICATE_ENTRY":
     case "DUPLICATE":
-      return "डुप्लिकेट प्रविष्टि";
-    case "PR_CLAIMED_BY_BETTER_MATCH":
-      return "Claimed by better-matched purchase register entry";
+      return "Duplicate Entry";
     case "SECTION_17_5":
     case "SECTION17":
       return "Section 17(5)";
