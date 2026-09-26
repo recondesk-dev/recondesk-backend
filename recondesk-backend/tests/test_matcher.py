@@ -5,6 +5,7 @@ import pytest
 from app.services.matcher import (
     explain_invoice_difference,
     invoice_similarity,
+    is_invoice_format_variant,
     levenshtein,
     match_gstr_to_pr,
     normalize_invoice,
@@ -1042,3 +1043,52 @@ def test_urp_supplier_reconciliation_matching():
     assert state.clean_matched[0]["gstr_id"] == "g_urp_1"
     assert state.clean_matched[0]["pr_id"] == "p_urp_1"
     assert len(state.missed_itc) == 0
+
+
+def test_format_variant_branch_location_prefix():
+    # Branch prefix: MUM/INV/101 vs INV/101 or HO-INV-55 vs INV-55
+    assert is_invoice_format_variant("MUM/INV/101", "INV/101") is True
+    assert is_invoice_format_variant("INV/101", "MUM/INV/101") is True
+    assert is_invoice_format_variant("HO-INV-55", "INV-55") is True
+    assert is_invoice_format_variant("BLR/SI/902", "SI/902") is True
+
+
+def test_format_variant_financial_year_omission_and_expansion():
+    # FY omission: INV/24-25/78 vs INV-78
+    assert is_invoice_format_variant("INV/24-25/78", "INV-78") is True
+    assert is_invoice_format_variant("INV-78", "INV/24-25/78") is True
+    # FY numeric prefix: 2024-25/089 vs 89
+    assert is_invoice_format_variant("2024-25/089", "89") is True
+    assert is_invoice_format_variant("2024-25/089", "089") is True
+
+
+def test_format_variant_standard_doc_prefixes():
+    # TAXINV, SI, PI, etc.
+    assert is_invoice_format_variant("TAXINV/100", "100") is True
+    assert is_invoice_format_variant("TAX_INV_100", "100") is True
+    assert is_invoice_format_variant("SI/2024/50", "50") is True
+
+
+def test_review_explanation_differentiates_date_only_mismatch():
+    g = _base_rec(
+        invoice_date="2024-01-01",
+        invoice_number="INV-001",
+        taxable_paise=10_000_000,
+    )
+    p = _base_rec(
+        supplier_gstin=g["supplier_gstin"],
+        invoice_number="INV-001",
+        invoice_date="2024-01-05",  # 4 days difference (> 3 days L1 boundary)
+        taxable_paise=10_000_000,   # exact amount
+    )
+    r = match_gstr_to_pr(g, [p])
+    assert r.matched is True
+    assert r.level == 2
+    assert r.requires_human_review is True
+    # Discrepancies should report date difference clearly without claiming amount discrepancy
+    assert any("diff=4 days" in d for d in r.discrepancies)
+    assert not any("amount:" in d for d in r.discrepancies)
+    # Decision what and why should reflect date difference accurately
+    assert "date differs by 4 days" in (r.decision_what or "")
+    assert "date differs by 4 days" in (r.decision_why or "")
+

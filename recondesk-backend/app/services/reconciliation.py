@@ -430,7 +430,7 @@ def quarantine_pr_notes(state: ReconState, pr_records: list[dict]) -> list[dict]
         note_no = str(p.get("note_number") or p.get("invoice_number") or "").strip()
         note_amt = p.get("note_amount_paise")
         if note_amt is None:
-            note_amt = p.get("taxable_amount_paise")
+            note_amt = _taxable_paise(p)
         try:
             note_amt_i = int(note_amt) if note_amt is not None else None
         except (TypeError, ValueError):
@@ -705,7 +705,7 @@ def execute_credit_note_reconciliation(
         )
 
         g_tax = int(g.get("total_tax_paise") or 0)
-        g_taxable = int(g.get("taxable_amount_paise") or 0)
+        g_taxable = _taxable_paise(g)
 
         best_match = None
         best_priority = 999
@@ -786,7 +786,7 @@ def execute_credit_note_reconciliation(
                 continue
 
             p_tax = int(p.get("total_tax_paise") or 0)
-            p_taxable = int(p.get("taxable_amount_paise") or 0)
+            p_taxable = _taxable_paise(p)
             tax_diff = abs(abs(g_tax) - abs(p_tax))
             taxable_diff = abs(abs(g_taxable) - abs(p_taxable))
 
@@ -864,8 +864,8 @@ def _dup_group_key(gstin: str | None, inv_norm: str | None) -> tuple[str, str] |
 
 def _duplicate_pair_cost(g: dict, p: dict) -> tuple[int, int]:
     """(amount_diff_paise, date_diff_days) — lower is a better candidate pairing."""
-    g_amt = int(g.get("total_tax_paise") or g.get("taxable_amount_paise") or 0)
-    p_amt = int(p.get("total_tax_paise") or p.get("taxable_amount_paise") or 0)
+    g_amt = int(g.get("total_tax_paise") or _taxable_paise(g) or 0)
+    p_amt = int(p.get("total_tax_paise") or _taxable_paise(p) or 0)
     gd = _parse_invoice_date_safe(g)
     pd = _parse_invoice_date_safe(p)
     date_diff = abs((gd - pd).days) if gd and pd else 0
@@ -914,10 +914,17 @@ def _is_multiline_pr_split(
     """
     if len(p_ids) < 2:
         return False
-    g_taxable = int(g.get("taxable_amount_paise") or 0)
+    g_taxable = _taxable_paise(g)
     g_tax = int(g.get("total_tax_paise") or 0)
+    if g_tax == 0:
+        g_tax = (
+            int(g.get("igst_paise") or 0)
+            + int(g.get("cgst_paise") or 0)
+            + int(g.get("sgst_paise") or 0)
+            + int(g.get("cess_paise") or 0)
+        )
     prs = [pr_by_id[pid] for pid in p_ids]
-    sum_taxable = sum(int(p.get("taxable_amount_paise") or 0) for p in prs)
+    sum_taxable = sum(_taxable_paise(p) for p in prs)
     sum_tax = sum(int(p.get("total_tax_paise") or 0) for p in prs)
     if abs(sum_taxable - g_taxable) > tolerance_paise:
         return False
@@ -925,7 +932,7 @@ def _is_multiline_pr_split(
         return False
     # Pure duplicates: at least one PR row already equals the full invoice.
     for p in prs:
-        p_taxable = int(p.get("taxable_amount_paise") or 0)
+        p_taxable = _taxable_paise(p)
         p_tax = int(p.get("total_tax_paise") or 0)
         if (
             abs(p_taxable - g_taxable) <= tolerance_paise
@@ -972,11 +979,11 @@ def _is_true_duplicate_pr_group(
     """
     if len(p_ids) < 2:
         return False
-    g_taxable = abs(int(g.get("taxable_amount_paise") or 0))
+    g_taxable = abs(_taxable_paise(g))
     g_tax = abs(int(g.get("total_tax_paise") or 0))
     for pid in p_ids:
         p = pr_by_id[pid]
-        p_taxable = abs(int(p.get("taxable_amount_paise") or 0))
+        p_taxable = abs(_taxable_paise(p))
         p_tax = abs(int(p.get("total_tax_paise") or 0))
         if not _exact_invoice_amounts_near(
             g_taxable, g_tax, p_taxable, p_tax, tolerance_paise=tolerance_paise
@@ -1015,12 +1022,12 @@ def _flag_pr_to_pr_clone_duplicates(
     clusters: list[list[str]] = []
     for pid in remaining:
         p = pr_by_id[pid]
-        p_taxable = abs(int(p.get("taxable_amount_paise") or 0))
+        p_taxable = abs(_taxable_paise(p))
         p_tax = abs(int(p.get("total_tax_paise") or 0))
         placed = False
         for cluster in clusters:
             rep = pr_by_id[cluster[0]]
-            r_taxable = abs(int(rep.get("taxable_amount_paise") or 0))
+            r_taxable = abs(_taxable_paise(rep))
             r_tax = abs(int(rep.get("total_tax_paise") or 0))
             if _exact_invoice_amounts_near(
                 p_taxable,
@@ -1110,7 +1117,7 @@ def flag_fuzzy_duplicates_of_linked_prs(
         gst = str(p.get("supplier_gstin") or "").strip().upper()
         if not gst:
             continue
-        by_gstin_taxable[(gst, int(p.get("taxable_amount_paise") or 0))].append(p)
+        by_gstin_taxable[(gst, _taxable_paise(p))].append(p)
 
     # Also index all linked PRs by GSTIN for the high-sim / 2% taxable path
     # (when total_tax drifts beyond paise tolerance on messy clones).
@@ -1132,7 +1139,7 @@ def flag_fuzzy_duplicates_of_linked_prs(
         gst = str(p.get("supplier_gstin") or "").strip().upper()
         if not gst:
             continue
-        tax = int(p.get("taxable_amount_paise") or 0)
+        tax = _taxable_paise(p)
         tot = abs(int(p.get("total_tax_paise") or 0))
         inv = str(p.get("invoice_number_normalized") or "")
         if not inv:
@@ -1156,7 +1163,7 @@ def flag_fuzzy_duplicates_of_linked_prs(
             cid = str(cp["id"])
             if cid == pid:
                 continue
-            c_tax = abs(int(cp.get("taxable_amount_paise") or 0))
+            c_tax = abs(_taxable_paise(cp))
             c_tot = abs(int(cp.get("total_tax_paise") or 0))
             c_inv = str(cp.get("invoice_number_normalized") or "")
             if not c_inv:
@@ -1272,7 +1279,7 @@ def flag_fuzzy_pr_peer_duplicates(
             if cid in state.consumed_pr_ids or cid in claimed:
                 continue
             c_inv = str(canon.get("invoice_number_normalized") or "")
-            c_tax = abs(int(canon.get("taxable_amount_paise") or 0))
+            c_tax = abs(_taxable_paise(canon))
             c_tot = abs(int(canon.get("total_tax_paise") or 0))
             c_date = _parse_invoice_date(canon)
             for extra in ordered[i + 1 :]:
@@ -1285,7 +1292,7 @@ def flag_fuzzy_pr_peer_duplicates(
                 ok, sim = _peer_pr_invoice_clone_ok(c_inv, e_inv)
                 if not ok:
                     continue
-                e_tax = abs(int(extra.get("taxable_amount_paise") or 0))
+                e_tax = abs(_taxable_paise(extra))
                 e_tot = abs(int(extra.get("total_tax_paise") or 0))
                 exact_inv = c_inv == e_inv
                 if exact_inv:
@@ -1434,9 +1441,9 @@ def _push_multiline_clean_match(
             "Invoice numbers match after normalization or format variant"
         )
     # Group-level taxable delta (primary line alone is a partial booking).
-    g_taxable = int(g.get("taxable_amount_paise") or 0)
+    g_taxable = _taxable_paise(g)
     p_taxable_sum = sum(
-        int(pr_by_id[pid].get("taxable_amount_paise") or 0) for pid in p_ids
+        _taxable_paise(pr_by_id[pid]) for pid in p_ids
     )
     taxable_diff = abs(g_taxable - p_taxable_sum)
     match_dict["taxable_diff_paise"] = taxable_diff
@@ -1701,8 +1708,8 @@ def resolve_orphans(
             w = pr_by_id_local[pid]
             g_gstin = str(mi.get("supplier_gstin") or "")
             w_gstin = str(w.get("supplier_gstin") or "")
-            g_taxable = int(mi.get("taxable_amount_paise") or 0)
-            w_taxable = int(w.get("taxable_amount_paise") or 0)
+            g_taxable = _taxable_paise(mi)
+            w_taxable = _taxable_paise(w)
 
             if g_gstin != w_gstin and abs(w_taxable - g_taxable) <= amount_tolerance_paise:
                 gstin_mismatch.append({
@@ -1752,17 +1759,17 @@ def resolve_orphans(
 
         if len(g_ids) == len(p_ids) and len(g_ids) > 1:
             g_sigs = [
-                (int(gstr_by_id_local[gid].get("taxable_amount_paise") or 0), str(gstr_by_id_local[gid].get("invoice_date") or ""))
+                (_taxable_paise(gstr_by_id_local[gid]), str(gstr_by_id_local[gid].get("invoice_date") or ""))
                 for gid in g_ids
             ]
             p_sigs = [
-                (int(pr_by_id_local[pid].get("taxable_amount_paise") or 0), str(pr_by_id_local[pid].get("invoice_date") or ""))
+                (_taxable_paise(pr_by_id_local[pid]), str(pr_by_id_local[pid].get("invoice_date") or ""))
                 for pid in p_ids
             ]
             if len(set(g_sigs)) == len(g_ids) and sorted(g_sigs) == sorted(p_sigs):
                 for gid, pid in zip(
-                    sorted(g_ids, key=lambda x: (int(gstr_by_id_local[x].get("taxable_amount_paise") or 0), str(gstr_by_id_local[x].get("invoice_date") or ""))),
-                    sorted(p_ids, key=lambda x: (int(pr_by_id_local[x].get("taxable_amount_paise") or 0), str(pr_by_id_local[x].get("invoice_date") or ""))),
+                    sorted(g_ids, key=lambda x: (_taxable_paise(gstr_by_id_local[x]), str(gstr_by_id_local[x].get("invoice_date") or ""))),
+                    sorted(p_ids, key=lambda x: (_taxable_paise(pr_by_id_local[x]), str(pr_by_id_local[x].get("invoice_date") or ""))),
                 ):
                     if (gid, pid) in matched_pairs_by_ids:
                         matched_final.append(matched_pairs_by_ids[(gid, pid)])
@@ -1777,7 +1784,7 @@ def resolve_orphans(
                                 "pr_supplier_gstin": p_gstin,
                                 "invoice_number_normalized": gstr_by_id_local[gid].get("invoice_number_normalized"),
                                 "invoice_date": gstr_by_id_local[gid].get("invoice_date"),
-                                "taxable_amount_paise": int(pr_by_id_local[pid].get("taxable_amount_paise") or 0),
+                                "taxable_amount_paise": _taxable_paise(pr_by_id_local[pid]),
                                 "total_tax_paise": int(gstr_by_id_local[gid].get("total_tax_paise") or 0),
                                 "reason": "GSTIN_MISMATCH",
                             })
@@ -1962,7 +1969,7 @@ def build_wrongful_itc_risk(
         if pr_id in matched_pr_ids:
             continue
         ttp = pr_rec.get("total_tax_paise")
-        tap = pr_rec.get("taxable_amount_paise")
+        tap = _taxable_paise(pr_rec)
         out.append(
             {
                 "id": pr_id,
@@ -1990,7 +1997,7 @@ def build_filing_status_itc_risk(gstr_records: list[dict]) -> list[dict]:
             continue
         gid = str(g.get("id") or "")
         ttp = int(g.get("total_tax_paise") or 0)
-        tap = int(g.get("taxable_amount_paise") or 0)
+        tap = _taxable_paise(g)
         out.append(
             {
                 "gstr_id": gid,
@@ -2785,7 +2792,7 @@ def execute_phase2_and_3(
         p_gst = str(p.get("supplier_gstin") or "").strip()
         if not p_gst:
             continue
-        pr_by_gstin_taxable[(p_gst, int(p.get("taxable_amount_paise") or 0))].append(p)
+        pr_by_gstin_taxable[(p_gst, _taxable_paise(p))].append(p)
         pr_by_gstin_all[p_gst].append(p)
 
     twin_pairs: list[tuple] = []
@@ -2795,7 +2802,7 @@ def execute_phase2_and_3(
         gst = str(g.get("supplier_gstin") or "").strip()
         if not gst:
             continue
-        g_taxable = int(g.get("taxable_amount_paise") or 0)
+        g_taxable = _taxable_paise(g)
         g_inv_norm = str(g.get("invoice_number_normalized") or "")
         if not g_inv_norm:
             continue
@@ -2828,7 +2835,7 @@ def execute_phase2_and_3(
                 date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
                 if g_date and p_date and date_diff > 30:
                     continue
-                taxable_diff = abs(g_taxable - int(p.get("taxable_amount_paise") or 0))
+                taxable_diff = abs(g_taxable - _taxable_paise(p))
                 pair = (-sim, taxable_diff, date_diff, gid, pid, g, p)
                 twin_pairs.append(pair)
                 twins_by_gid[gid].append(pair)
@@ -2851,7 +2858,7 @@ def execute_phase2_and_3(
         gst = str(g.get("supplier_gstin") or "").strip()
         if not gst:
             continue
-        g_taxable = int(g.get("taxable_amount_paise") or 0)
+        g_taxable = _taxable_paise(g)
         g_tax = int(g.get("total_tax_paise") or 0)
         g_inv_norm = str(g.get("invoice_number_normalized") or "")
         if not g_inv_norm:
@@ -2864,7 +2871,7 @@ def execute_phase2_and_3(
             p_inv_norm = str(p.get("invoice_number_normalized") or "")
             if not p_inv_norm or p_inv_norm == g_inv_norm:
                 continue
-            p_taxable = int(p.get("taxable_amount_paise") or 0)
+            p_taxable = _taxable_paise(p)
             p_tax = int(p.get("total_tax_paise") or 0)
             taxable_diff = abs(g_taxable - p_taxable)
             exact_taxable = taxable_diff <= 100
@@ -2906,7 +2913,7 @@ def execute_phase2_and_3(
     unconsumed_gstr = [g for g in gstr_records if str(g["id"]) not in state.consumed_gstr_ids]
     for g in unconsumed_gstr:
         ttp = g.get("total_tax_paise")
-        tap = g.get("taxable_amount_paise")
+        tap = _taxable_paise(g)
         entry = {
             "gstr_id": str(g["id"]),
             "supplier_gstin": str(g.get("supplier_gstin") or ""),
@@ -2957,7 +2964,7 @@ def execute_phase2_and_3(
         pid = str(m.get("pr_id") or "")
         if pid and pid in pr_by_id:
             matched_pr_amounts[pid] = (
-                int(pr_by_id[pid].get("taxable_amount_paise") or 0),
+                _taxable_paise(pr_by_id[pid]),
                 int(pr_by_id[pid].get("total_tax_paise") or 0),
             )
     for r in state.review_required:
@@ -2968,7 +2975,7 @@ def execute_phase2_and_3(
             pid = str(r.get("pr_id") or "")
             if pid and pid in pr_by_id:
                 matched_pr_amounts[pid] = (
-                    int(pr_by_id[pid].get("taxable_amount_paise") or 0),
+                    _taxable_paise(pr_by_id[pid]),
                     int(pr_by_id[pid].get("total_tax_paise") or 0),
                 )
 
@@ -2978,7 +2985,7 @@ def execute_phase2_and_3(
             matched_pid = str(d.get("matched_pr_id") or "")
             if (d_inv and d_inv in claimed_inv_norms) or d.get("gstr_id"):
                 m_amt = matched_pr_amounts.get(matched_pid)
-                d_taxable = int(d.get("taxable_amount_paise") or 0)
+                d_taxable = _taxable_paise(d)
                 d_tax = int(d.get("total_tax_paise") or 0)
                 if m_amt and abs(m_amt[0] - d_taxable) <= 100 and abs(m_amt[1] - d_tax) <= 100:
                     d["reason"] = "DUPLICATE_ENTRY"
@@ -3101,7 +3108,7 @@ def _finalize_reconciliation_result(
                 p.get("invoice_number_normalized") or ""
             ),
             "invoice_date": p.get("invoice_date"),
-            "taxable_amount_paise": int(p.get("taxable_amount_paise") or 0),
+            "taxable_amount_paise": _taxable_paise(p),
             "total_tax_paise": int(p.get("total_tax_paise") or 0),
             "risk_reason": "PR_ONLY",
             "risk_category": "pr_ghost",

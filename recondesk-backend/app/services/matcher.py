@@ -219,8 +219,8 @@ def is_invoice_format_variant(
     if na == nb:
         return True
 
-    # Check 1: Shared prefix and financial-year expansion
-    # e.g. DS/26/78 (DS2678) vs DS-2026-00078 (DS202678)
+    # Check 1: Shared prefix and financial-year expansion or omission
+    # e.g. DS/26/78 (DS2678) vs DS-2026-00078 (DS202678), or INV/24-25/78 vs INV-78
     pa = _RE_SERIES_PREFIX.match(na)
     pb = _RE_SERIES_PREFIX.match(nb)
     if pa and pb and pa.group(0) == pb.group(0):
@@ -234,25 +234,55 @@ def is_invoice_format_variant(
         # Trailing 2-digit FY expansion: e.g. 7826 -> 782026
         if len(rem_s) >= 2 and 20 <= int(rem_s[-2:]) <= 35 and rem_s[:-2] + "20" + rem_s[-2:] == rem_l:
             return True
+        # FY expansion: 2425 -> 20242025
+        if len(rem_s) >= 4 and rem_s[:4].isdigit() and len(rem_l) >= 8 and rem_l[:8].isdigit():
+            if rem_s[:2] == rem_l[2:4] and rem_s[2:4] == rem_l[6:8] and rem_l[:2] == "20" and rem_l[4:6] == "20":
+                if rem_s[4:] == rem_l[8:]:
+                    return True
+        # FY omission: PR dropped the financial year prefix, e.g. INV/24-25/78 (INV242578) vs INV-78 (INV78)
+        diff = len(rem_l) - len(rem_s)
+        if diff in (2, 4, 6, 8) and rem_l[diff:] == rem_s and rem_s:
+            fy_tok = rem_l[:diff]
+            raw_l = (a_raw or a or "") if len(na) > len(nb) else (b_raw or b or "")
+            # Check FY span pairs: 2425, 202425, 20242025
+            if diff == 4 and 20 <= int(fy_tok[:2]) <= 35 and int(fy_tok[2:]) == int(fy_tok[:2]) + 1:
+                return True
+            if diff == 6 and 2020 <= int(fy_tok[:4]) <= 2035 and int(fy_tok[4:]) == int(fy_tok[2:4]) + 1:
+                return True
+            if diff == 8 and 2020 <= int(fy_tok[:4]) <= 2035 and int(fy_tok[4:]) == int(fy_tok[:4]) + 1:
+                return True
+            # For single-year token (diff 2 or 4), must be bounded by delimiters in raw string
+            if diff in (2, 4) and raw_l:
+                if (diff == 2 and 20 <= int(fy_tok) <= 35) or (diff == 4 and 2020 <= int(fy_tok) <= 2035):
+                    if re.search(rf"(?:^|[^0-9A-Za-z]){fy_tok}(?:[^0-9A-Za-z]|$)", raw_l):
+                        return True
 
     # Check 2: Shared exact core numeric sequence (using raw tokens to split by separators)
     # We enforce len(na) != len(nb) so we don't accidentally swallow equal-length typos like "INV1" vs "INX1"
     if len(na) != len(nb):
-        def _extract_numeric(s: str) -> set[int]:
+        def _extract_numeric(s: str) -> list[int]:
             # Include numbers >= 1 not directly followed by letters (prevents '2' in '2BONLY' matching '2')
-            return {int(t) for t in re.findall(r"\d+(?![A-Za-z])", str(s)) if int(t) >= 1}
+            return [int(t) for t in re.findall(r"\d+(?![A-Za-z])", str(s)) if int(t) >= 1]
 
-        nums_a = _extract_numeric(a_raw or a or "")
-        nums_b = _extract_numeric(b_raw or b or "")
-        if nums_a and nums_b:
-            shared_nums = nums_a & nums_b
+        tokens_a = _extract_numeric(a_raw or a or "")
+        tokens_b = _extract_numeric(b_raw or b or "")
+        if tokens_a and tokens_b:
+            shared_nums = set(tokens_a) & set(tokens_b)
             # Financial-year tokens (e.g. 26 or 2026) cannot by themselves establish format variance
             meaningful_shared = {n for n in shared_nums if not (20 <= n <= 35 or 2020 <= n <= 2035)}
             if meaningful_shared:
                 has_alpha_a = bool(re.search(r'[A-Za-z]', (a_raw or a or "")))
                 has_alpha_b = bool(re.search(r'[A-Za-z]', (b_raw or b or "")))
-                # Extra guard: one side must have more structure (alpha prefix or longer numeric)
-                # to prevent "123" matching "456" via coincidence
+
+                # Sub-check A: Pure numeric invoices with financial year prefix (e.g. 2024-25/089 vs 89)
+                if not has_alpha_a and not has_alpha_b and len(tokens_a) != len(tokens_b):
+                    short_n, long_n = (tokens_a, tokens_b) if len(tokens_a) < len(tokens_b) else (tokens_b, tokens_a)
+                    if short_n and long_n[-len(short_n):] == short_n:
+                        pref_tokens = long_n[:-len(short_n)]
+                        if all(20 <= t <= 35 or 2020 <= t <= 2035 for t in pref_tokens):
+                            return True
+
+                # Sub-check B: Alphanumeric invoices with prefixes/suffixes
                 if has_alpha_a or has_alpha_b:
                     if pa and pb:
                         pref_a = pa.group(0)
@@ -264,8 +294,13 @@ def is_invoice_format_variant(
                             short2, long2 = (na, nb) if len(na) <= len(nb) else (nb, na)
                             if _extra_chars_are_digits_only(short2, long2):
                                 return True
-                        elif pref_a.startswith(pref_b) or pref_b.startswith(pref_a):
-                            # Prefix abbreviation (e.g. "FZ" vs "F"); neither side should have a trailing letter suffix
+                        elif (
+                            pref_a.startswith(pref_b)
+                            or pref_b.startswith(pref_a)
+                            or pref_a.endswith(pref_b)
+                            or pref_b.endswith(pref_a)
+                        ):
+                            # Prefix abbreviation (e.g. "FZ" vs "F") or branch prefix (e.g. "MUMINV" vs "INV")
                             if na[-1].isdigit() and nb[-1].isdigit():
                                 return True
                     elif not (pa and pb):
@@ -935,7 +970,10 @@ def normalise_inv_no(s: Any) -> str:
     return re.sub(r"[^0-9a-zA-Z]", "", val).upper()
 
 
-_STANDARD_DOC_PREFIXES = ("INV", "TAX", "BILL", "CN", "DN", "INVOICE", "DOC", "CR", "DR", "RET")
+_STANDARD_DOC_PREFIXES = (
+    "INV", "TAX", "BILL", "CN", "DN", "INVOICE", "DOC", "CR", "DR", "RET",
+    "SI", "TI", "PI", "VCH", "PV", "TAXINV", "TAX_INV",
+)
 
 
 def invoices_effectively_match(g_inv: str, p_inv: str) -> bool:
@@ -1419,10 +1457,20 @@ def _match_gstr_to_pr_pair(
             # A genuinely zero-discrepancy pair is already handled by the
             # zero-discrepancy invariant above and never reaches this branch;
             # anything landing here has a real (if small) amount/date diff.
+            if amount_within_l1 and not skip_amount:
+                d_what = f"Invoice matched; invoice date differs by {date_diff_days} days"
+                d_why = f"Same normalized invoice and GSTIN, date differs by {date_diff_days} days (within {DATE_TOLERANCE_L2_DAYS}-day tolerance)"
+            elif date_within_l1 and not skip_date:
+                d_what = f"Invoice matched; minor amount difference of {_rs_str(amount_diff)}"
+                d_why = f"Same normalized invoice and GSTIN, amount differs by {_rs_str(amount_diff)} (within 1% tolerance)"
+            else:
+                d_what = "Invoice matched with normalized invoice and minor amount difference"
+                d_why = "Same normalized invoice and GSTIN, amount within acceptable tolerance"
+
             return _ret(
                 level=2, matched=True, confidence=90, requires_human_review=True,
-                decision_what="Invoice matched with normalized invoice and minor amount difference",
-                decision_why="Same normalized invoice and GSTIN, amount within acceptable tolerance",
+                decision_what=d_what,
+                decision_why=d_why,
                 decision_next="Verify if needed",
                 discrepancies=discrepancies,
                 identity_confidence="High", financial_status=financial_status,
@@ -1454,10 +1502,20 @@ def _match_gstr_to_pr_pair(
     # (if small) amount/date diff.
     if gstin_match and format_variant:
         if amount_within_l3 and date_within_l3:
+            if amount_within_l1 and not skip_amount:
+                d_what = f"Format variant with date difference of {date_diff_days} days"
+                d_why = f"Invoice format matches, date differs by {date_diff_days} days"
+            elif date_within_l1 and not skip_date:
+                d_what = f"Format variant with amount difference of {_rs_str(amount_diff)}"
+                d_why = f"Invoice format matches, amount differs by {_rs_str(amount_diff)}"
+            else:
+                d_what = "Format variant with amount or date mismatch"
+                d_why = "Invoice format matches, amount/date within L3 tolerances"
+
             return _ret(
                 level=3, matched=True, confidence=75, requires_human_review=True,
-                decision_what="Format variant with amount or date mismatch",
-                decision_why="Invoice format matches, amount/date within L3 tolerances",
+                decision_what=d_what,
+                decision_why=d_why,
                 decision_next="Review differences",
                 review_reason="Amount Mismatch or Date mismatch",
                 discrepancies=discrepancies,
