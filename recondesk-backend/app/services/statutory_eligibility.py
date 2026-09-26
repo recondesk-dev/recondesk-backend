@@ -48,11 +48,15 @@ class NormalizedIneligibilityReason(str, Enum):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Normalized RCM Detection
+# Normalized RCM Detection & Tri-State Conflict Engine
 # ══════════════════════════════════════════════════════════════════════════════
 
-_TRUE_STRINGS = frozenset({"Y", "YES", "TRUE", "1", "T"})
-_FALSE_STRINGS = frozenset({"N", "NO", "FALSE", "0", "F"})
+RCM_TRUE = "RCM_TRUE"
+RCM_FALSE = "RCM_FALSE"
+RCM_UNKNOWN = "RCM_UNKNOWN"
+
+_TRUE_STRINGS = frozenset({"Y", "YES", "TRUE", "1", "T", "RCM", "REVERSE CHARGE", "YES (RCM)"})
+_FALSE_STRINGS = frozenset({"N", "NO", "FALSE", "0", "F", "FCM", "FORWARD CHARGE", "FORWARD", "REGULAR", "NO (FORWARD CHARGE)"})
 
 
 def normalize_rcm_flag(value: Any) -> bool:
@@ -71,6 +75,224 @@ def normalize_rcm_flag(value: Any) -> bool:
         return int(value) == 1
     s = str(value).strip().upper()
     return s in _TRUE_STRINGS
+
+
+def normalize_rcm_tristate(value: Any) -> str:
+    """Normalize reverse charge indicator into strict tri-state representation.
+
+    Returns:
+        RCM_TRUE: Confirmed reverse charge supply (recipient pays tax u/s 9(3)/9(4))
+        RCM_FALSE: Confirmed regular forward charge supply
+        RCM_UNKNOWN: Unspecified, missing, empty, or unparseable flag
+    """
+    if value is None:
+        return RCM_UNKNOWN
+    if isinstance(value, bool):
+        return RCM_TRUE if value else RCM_FALSE
+    if isinstance(value, (int, float)):
+        try:
+            int_val = int(value)
+            if int_val == 1:
+                return RCM_TRUE
+            if int_val == 0:
+                return RCM_FALSE
+        except (ValueError, TypeError, OverflowError):
+            return RCM_UNKNOWN
+        return RCM_UNKNOWN
+    s = str(value).strip().upper()
+    if not s:
+        return RCM_UNKNOWN
+    if s in (RCM_TRUE, RCM_FALSE, RCM_UNKNOWN):
+        return s
+    if s in _TRUE_STRINGS:
+        return RCM_TRUE
+    if s in _FALSE_STRINGS:
+        return RCM_FALSE
+    return RCM_UNKNOWN
+
+
+def detect_rcm_conflict(gstr_rcm: Any, pr_rcm: Any) -> bool:
+    """Evaluate whether there is an RCM conflict between GSTR-2B and Purchase Register.
+
+    Truth Table (Prompt Section 3):
+    1. RCM_TRUE, RCM_TRUE -> False
+    2. RCM_TRUE, RCM_FALSE -> True  (Supplier filed under RCM; recipient booked under regular ITC)
+    3. RCM_TRUE, RCM_UNKNOWN -> True (Supplier filed under RCM; recipient omitted flag)
+    4. RCM_FALSE, RCM_TRUE -> True (Recipient treated as RCM; supplier filed under forward charge)
+    5. RCM_FALSE, RCM_FALSE -> False
+    6. RCM_FALSE, RCM_UNKNOWN -> False (Standard forward charge presumed)
+    7. RCM_UNKNOWN, RCM_TRUE -> False (GSTR omitted; PR has RCM; don't conflict on missing GSTR)
+    8. RCM_UNKNOWN, RCM_FALSE -> False (Consistent with forward charge)
+    9. RCM_UNKNOWN, RCM_UNKNOWN -> False (Consistent with forward charge)
+    """
+    g = gstr_rcm if gstr_rcm in (RCM_TRUE, RCM_FALSE, RCM_UNKNOWN) else normalize_rcm_tristate(gstr_rcm)
+    p = pr_rcm if pr_rcm in (RCM_TRUE, RCM_FALSE, RCM_UNKNOWN) else normalize_rcm_tristate(pr_rcm)
+
+    if g == RCM_TRUE:
+        return p != RCM_TRUE
+    if g == RCM_FALSE:
+        return p == RCM_TRUE
+    return False
+
+
+def get_rcm_conflict_details(gstr_rcm: Any, pr_rcm: Any) -> tuple[str, str, str]:
+    """Return standard actionable CA explanations (WHAT, WHY, NEXT) for an RCM conflict."""
+    g = gstr_rcm if gstr_rcm in (RCM_TRUE, RCM_FALSE, RCM_UNKNOWN) else normalize_rcm_tristate(gstr_rcm)
+    p = pr_rcm if pr_rcm in (RCM_TRUE, RCM_FALSE, RCM_UNKNOWN) else normalize_rcm_tristate(pr_rcm)
+
+    d_what = "Reverse charge treatment differs between GSTR-2B and Purchase Register."
+    if g == RCM_TRUE:
+        d_why = (
+            "GSTR-2B marks this invoice as reverse charge (tax payable by recipient under Section 9(3)/9(4)), "
+            "but Purchase Register treats it as regular forward charge."
+        )
+        d_next = (
+            "Verify reverse charge applicability under Section 9(3)/9(4). If RCM applies, pay tax under "
+            "Table 3.1(d) in cash and claim ITC under Table 4(A)(3). Do not claim under Table 4(A)(5)."
+        )
+    else:
+        d_why = (
+            "Purchase Register marks this invoice as reverse charge, but supplier reported it as "
+            "regular forward charge in GSTR-1."
+        )
+        d_next = (
+            "Confirm whether supply actually attracts RCM. If yes, request supplier amend GSTR-1. "
+            "If no, reclassify in purchase register to forward charge."
+        )
+    return d_what, d_why, d_next
+
+
+def _extract_paise_head(rec: Mapping[str, Any], key_paise: str, key_rupees: str) -> int:
+    if key_paise in rec and rec[key_paise] is not None:
+        try:
+            return int(rec[key_paise])
+        except (ValueError, TypeError):
+            pass
+    if key_rupees in rec and rec[key_rupees] is not None:
+        try:
+            return int(round(float(rec[key_rupees]) * 100))
+        except (ValueError, TypeError):
+            pass
+    return 0
+
+
+def detect_tax_head_mismatch(
+    gstr_record: Mapping[str, Any],
+    pr_record: Mapping[str, Any],
+    tolerance_paise: int = 100,
+) -> tuple[bool, Optional[str]]:
+    """Validate tax head allocation between GSTR-2B and Purchase Register records.
+
+    Uses integer paise arithmetic and a tolerance of 100 paise (₹1).
+    Detects:
+    1. Pure IGST vs Pure CGST+SGST
+    2. Mixed Head Allocation (one side mixed while the other is pure/absent)
+    3. Cess Discrepancy (cess present on one side and absent on other beyond tolerance)
+    4. Asymmetric Intra-State Heads (CGST != SGST by > tolerance on either side)
+
+    Returns:
+        (is_mismatch, mismatch_description)
+    """
+    g_igst = _extract_paise_head(gstr_record, "igst_paise", "igst")
+    g_cgst = _extract_paise_head(gstr_record, "cgst_paise", "cgst")
+    g_sgst = _extract_paise_head(gstr_record, "sgst_paise", "sgst")
+    g_cess = _extract_paise_head(gstr_record, "cess_paise", "cess")
+
+    p_igst = _extract_paise_head(pr_record, "igst_paise", "igst")
+    p_cgst = _extract_paise_head(pr_record, "cgst_paise", "cgst")
+    p_sgst = _extract_paise_head(pr_record, "sgst_paise", "sgst")
+    p_cess = _extract_paise_head(pr_record, "cess_paise", "cess")
+
+    # 1. Asymmetric intra-state heads check (intra-state requires CGST == SGST)
+    if (g_cgst > tolerance_paise or g_sgst > tolerance_paise) and abs(g_cgst - g_sgst) > tolerance_paise:
+        return True, f"GSTR-2B intra-state tax heads are asymmetric: CGST ₹{g_cgst/100:.2f} vs SGST ₹{g_sgst/100:.2f}"
+    if (p_cgst > tolerance_paise or p_sgst > tolerance_paise) and abs(p_cgst - p_sgst) > tolerance_paise:
+        return True, f"Purchase Register intra-state tax heads are asymmetric: CGST ₹{p_cgst/100:.2f} vs SGST ₹{p_sgst/100:.2f}"
+
+    # Component breakdown presence
+    g_has_breakdown = (
+        g_igst > tolerance_paise
+        or g_cgst > tolerance_paise
+        or g_sgst > tolerance_paise
+        or g_cess > tolerance_paise
+    )
+    p_has_breakdown = (
+        p_igst > tolerance_paise
+        or p_cgst > tolerance_paise
+        or p_sgst > tolerance_paise
+        or p_cess > tolerance_paise
+    )
+
+    # When PR only captures total tax (no component breakdown), do NOT fabricate mismatch (preserves Case D)
+    if not p_has_breakdown or not g_has_breakdown:
+        return False, None
+
+    g_has_igst = g_igst > tolerance_paise
+    g_has_cgst_sgst = (g_cgst > tolerance_paise or g_sgst > tolerance_paise)
+    g_has_cess = g_cess > tolerance_paise
+
+    p_has_igst = p_igst > tolerance_paise
+    p_has_cgst_sgst = (p_cgst > tolerance_paise or p_sgst > tolerance_paise)
+    p_has_cess = p_cess > tolerance_paise
+
+    # 2. Cess Discrepancy: Cess present on one side (> tolerance) and absent on other (<= tolerance)
+    if g_has_cess != p_has_cess and abs(g_cess - p_cess) > tolerance_paise:
+        return True, f"Cess mismatch: GSTR-2B has cess of ₹{g_cess/100:.2f} while Purchase Register has ₹{p_cess/100:.2f}"
+
+    # 3. Pure IGST vs Pure CGST+SGST
+    if g_has_igst and not g_has_cgst_sgst and not p_has_igst and p_has_cgst_sgst:
+        return True, f"GSTR-2B reports pure IGST (₹{g_igst/100:.2f}) while Purchase Register records CGST+SGST (₹{p_cgst/100:.2f} + ₹{p_sgst/100:.2f})"
+    if not g_has_igst and g_has_cgst_sgst and p_has_igst and not p_has_cgst_sgst:
+        return True, f"GSTR-2B reports CGST+SGST (₹{g_cgst/100:.2f} + ₹{g_sgst/100:.2f}) while Purchase Register records pure IGST (₹{p_igst/100:.2f})"
+
+    # 4. Mixed Head Allocation: One side has both IGST and CGST/SGST while other does not match
+    g_is_mixed = g_has_igst and g_has_cgst_sgst
+    p_is_mixed = p_has_igst and p_has_cgst_sgst
+    if g_is_mixed != p_is_mixed:
+        if g_is_mixed:
+            return True, "Mixed tax head allocation: GSTR-2B has both IGST and CGST/SGST while Purchase Register does not match this distribution"
+        else:
+            return True, "Mixed tax head allocation: Purchase Register has both IGST and CGST/SGST while GSTR-2B does not match this distribution"
+
+    return False, None
+
+
+def get_tax_head_mismatch_details(
+    gstr_record: Mapping[str, Any],
+    pr_record: Mapping[str, Any],
+    detail_msg: Optional[str] = None,
+) -> tuple[str, str, str]:
+    """Return standard actionable CA explanations (WHAT, WHY, NEXT) for a tax-head mismatch."""
+    d_what = "Tax head allocation mismatch between GSTR-2B and Purchase Register."
+    g_igst = _extract_paise_head(gstr_record, "igst_paise", "igst")
+    g_cgst = _extract_paise_head(gstr_record, "cgst_paise", "cgst")
+    g_sgst = _extract_paise_head(gstr_record, "sgst_paise", "sgst")
+    p_igst = _extract_paise_head(pr_record, "igst_paise", "igst")
+    p_cgst = _extract_paise_head(pr_record, "cgst_paise", "cgst")
+    p_sgst = _extract_paise_head(pr_record, "sgst_paise", "sgst")
+
+    if detail_msg:
+        d_why = f"{detail_msg}. Claiming wrong tax heads leads to demand under Section 77 / IGST Section 19."
+    elif g_igst > 0 and (p_cgst > 0 or p_sgst > 0):
+        d_why = (
+            f"IGST charged in GSTR-2B (₹{g_igst/100:.2f}) but CGST+SGST booked in Purchase Register "
+            f"(₹{p_cgst/100:.2f} + ₹{p_sgst/100:.2f}). Claiming wrong tax heads leads to demand under "
+            "Section 77 / IGST Section 19."
+        )
+    elif (g_cgst > 0 or g_sgst > 0) and p_igst > 0:
+        d_why = (
+            f"CGST+SGST charged in GSTR-2B (₹{g_cgst/100:.2f} + ₹{g_sgst/100:.2f}) but IGST booked in Purchase Register "
+            f"(₹{p_igst/100:.2f}). Claiming wrong tax heads leads to demand under "
+            "Section 77 / IGST Section 19."
+        )
+    else:
+        d_why = "Tax head allocation differs between GSTR-2B and Purchase Register. Claiming wrong tax heads leads to demand under Section 77 / IGST Section 19."
+
+    d_next = (
+        "Verify Place of Supply and invoice copy. Amend purchase register to match the invoice tax heads "
+        "before filing GSTR-3B. Do not claim IGST credit against CGST/SGST liability without cross-utilization rules."
+    )
+    return d_what, d_why, d_next
 
 
 def detect_rcm_supply(

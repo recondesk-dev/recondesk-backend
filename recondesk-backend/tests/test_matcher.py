@@ -1116,8 +1116,8 @@ def test_rcm_conflict_guard():
     assert r.matched is True
     assert r.requires_human_review is True
     assert r.review_reason == "RCM_FLAG_CONFLICT"
-    assert "Reverse Charge (RCM) conflict detected" in (r.decision_what or "")
-    assert any("reverse_charge" in d for d in r.discrepancies)
+    assert "Reverse charge treatment differs" in (r.decision_what or "")
+    assert any("rcm_conflict" in d or "reverse_charge" in d for d in r.discrepancies)
 
 
 def test_tax_head_mismatch_guard():
@@ -1145,7 +1145,7 @@ def test_tax_head_mismatch_guard():
     assert r.matched is True
     assert r.requires_human_review is True
     assert r.review_reason == "TAX_HEAD_MISMATCH"
-    assert "Tax head mismatch" in (r.decision_what or "")
-    assert any("tax_structure" in d for d in r.discrepancies)
+    assert "Tax head allocation mismatch" in (r.decision_what or "")
+    assert any("tax_head_mismatch" in d or "tax_structure" in d for d in r.discrepancies)
 
 

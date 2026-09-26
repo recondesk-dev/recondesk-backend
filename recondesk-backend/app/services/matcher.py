@@ -11,6 +11,16 @@ from datetime import date
 from typing import Any, Mapping
 
 from app.services.normalizer import is_urp_gstin, URP_NORMALIZED
+from app.services.statutory_eligibility import (
+    RCM_TRUE,
+    RCM_FALSE,
+    RCM_UNKNOWN,
+    normalize_rcm_tristate,
+    detect_rcm_conflict,
+    get_rcm_conflict_details,
+    detect_tax_head_mismatch,
+    get_tax_head_mismatch_details,
+)
 from app.services.vendor_name_matcher import (
     find_best_vendor_match,
     l1_vendor_name_ok,
@@ -623,6 +633,23 @@ def build_compared_fields(
                     )
                 )
 
+    g_rcm_cf = _is_record_rcm(gstr_rec)
+    p_rcm_cf = _is_record_rcm(pr_rec)
+    if detect_rcm_conflict(g_rcm_cf, p_rcm_cf):
+        out.append(_field_entry("reverse_charge", "not_matched"))
+    elif g_rcm_cf in (RCM_TRUE, RCM_FALSE) and g_rcm_cf == p_rcm_cf:
+        out.append(_field_entry("reverse_charge", "exact"))
+    elif g_rcm_cf != RCM_UNKNOWN or p_rcm_cf != RCM_UNKNOWN:
+        out.append(_field_entry("reverse_charge", "exact"))
+
+    th_mismatch, _ = detect_tax_head_mismatch(gstr_rec, pr_rec)
+    both_have_bd = _has_component_tax_breakdown(gstr_rec) and _has_component_tax_breakdown(pr_rec)
+    if both_have_bd:
+        if th_mismatch:
+            out.append(_field_entry("tax_heads", "not_matched"))
+        else:
+            out.append(_field_entry("tax_heads", "exact"))
+
     return out
 
 
@@ -1093,34 +1120,29 @@ def _is_debit_note(rec: Mapping[str, Any] | None) -> bool:
     return False
 
 
-def _is_record_rcm(rec: Mapping[str, Any] | None) -> bool | None:
-    """Return True if Reverse Charge applies, False if Forward Charge, None if unspecified.
+def _is_record_rcm(rec: Mapping[str, Any] | None) -> str:
+    """Return RCM_TRUE, RCM_FALSE, or RCM_UNKNOWN using normalize_rcm_tristate.
 
     Checks standard GSTN keys (rev, rchrg, reverse_charge) as well as PR columns.
     """
     if not rec:
-        return None
-    rc = rec.get("reverse_charge")
-    if isinstance(rc, bool):
-        return rc
-    if isinstance(rc, str):
-        rc_str = rc.strip().upper()
-        if rc_str in ("Y", "YES", "TRUE", "1", "RCM"):
-            return True
-        if rc_str in ("N", "NO", "FALSE", "0", "FCM"):
-            return False
-
-    for k in ("rev", "rchrg", "rev_chg", "rcm", "is_rcm", "reverse_charge_applicable"):
+        return RCM_UNKNOWN
+    for k in (
+        "reverse_charge",
+        "reverse_charge_raw",
+        "rev",
+        "rchrg",
+        "rev_chg",
+        "rcm",
+        "is_rcm",
+        "reverse_charge_applicable",
+    ):
         val = rec.get(k)
-        if isinstance(val, bool):
-            return val
-        if isinstance(val, str):
-            v_str = val.strip().upper()
-            if v_str in ("Y", "YES", "TRUE", "1", "RCM"):
-                return True
-            if v_str in ("N", "NO", "FALSE", "0", "FCM"):
-                return False
-    return None
+        if val is not None:
+            norm = normalize_rcm_tristate(val)
+            if norm != RCM_UNKNOWN:
+                return norm
+    return RCM_UNKNOWN
 
 
 def are_document_types_compatible(
@@ -1320,18 +1342,17 @@ def _match_gstr_to_pr_pair(
     total_diff = abs(abs(gstr_total) - abs(pr_total))
     gstr_is_igst = _safe_paise_field(gstr_rec, "igst_paise") > 0
     pr_is_igst = _safe_paise_field(pr_rec, "igst_paise") > 0
-    # Only treat a structure disagreement as real when BOTH sides actually
-    # report a per-head breakdown. If one side has no IGST/CGST/SGST data at
-    # all (common when a Purchase Register only tracks an aggregate total),
-    # there is nothing to compare — default to "not conflicting" rather than
-    # inferring CGST+SGST from an absent/zero-coerced field.
     both_have_tax_breakdown = _has_component_tax_breakdown(
         gstr_rec
     ) and _has_component_tax_breakdown(pr_rec)
-    tax_structure_match = (
-        (gstr_is_igst == pr_is_igst) if both_have_tax_breakdown else True
-    )
+
+    tax_head_mismatch, tax_head_msg = detect_tax_head_mismatch(gstr_rec, pr_rec)
+    tax_structure_match = not tax_head_mismatch
     has_tax_lines = _has_explicit_total_tax_line(gstr_rec, pr_rec)
+
+    g_rcm = _is_record_rcm(gstr_rec)
+    p_rcm = _is_record_rcm(pr_rec)
+    rcm_conflict = detect_rcm_conflict(g_rcm, p_rcm)
 
     discrepancies = build_discrepancies(
         gstr_rec, pr_rec, tg=tg, tp=tp, dg=dg, dp=dp,
@@ -1343,6 +1364,22 @@ def _match_gstr_to_pr_pair(
         gstr_total=gstr_total, pr_total=pr_total, total_diff=total_diff,
         tax_structure_match=tax_structure_match, gstr_is_igst=gstr_is_igst, pr_is_igst=pr_is_igst,
     )
+
+    if tax_head_mismatch:
+        g_igst = _safe_paise_field(gstr_rec, "igst_paise")
+        g_cgst = _safe_paise_field(gstr_rec, "cgst_paise")
+        g_sgst = _safe_paise_field(gstr_rec, "sgst_paise")
+        g_cess = _safe_paise_field(gstr_rec, "cess_paise")
+        p_igst = _safe_paise_field(pr_rec, "igst_paise")
+        p_cgst = _safe_paise_field(pr_rec, "cgst_paise")
+        p_sgst = _safe_paise_field(pr_rec, "sgst_paise")
+        p_cess = _safe_paise_field(pr_rec, "cess_paise")
+        gstr_heads = f"IGST={g_igst/100:.2f}, CGST={g_cgst/100:.2f}, SGST={g_sgst/100:.2f}, Cess={g_cess/100:.2f}"
+        pr_heads = f"IGST={p_igst/100:.2f}, CGST={p_cgst/100:.2f}, SGST={p_sgst/100:.2f}, Cess={p_cess/100:.2f}"
+        discrepancies.append(f"tax_head_mismatch: GSTR-2B=({gstr_heads}), PR=({pr_heads})")
+
+    if rcm_conflict:
+        discrepancies.append(f"rcm_conflict: GSTR-2B={g_rcm}, PR={p_rcm}")
 
     inv_ok = invoices_effectively_match(g_inv, p_inv)
     format_variant = False
@@ -1500,34 +1537,35 @@ def _match_gstr_to_pr_pair(
             review_reason="DOC_TYPE_NOTE_IN_B2B",
         )
 
-    # ── Reverse Charge (RCM) conflict guard ──────────────────────────────────
-    # If GSTR-2B marks the supply as Reverse Charge (rev_chg="Y") while PR does
-    # not, or PR books RCM while GSTR-2B is Forward Charge, this pair cannot be
-    # auto-approved as clean domestic ITC. Under Section 9(3)/9(4) of the CGST Act,
-    # RCM requires tax payment in cash under GSTR-3B Table 3.1(d).
-    g_rcm = _is_record_rcm(gstr_rec)
-    p_rcm = _is_record_rcm(pr_rec)
-    rcm_conflict = (g_rcm is True and p_rcm is not True) or (g_rcm is False and p_rcm is True)
-    if rcm_conflict and gstin_match and (inv_ok or format_variant):
-        g_lbl = "Yes (RCM)" if g_rcm else "No (Forward Charge)"
-        p_lbl = "Yes (RCM)" if p_rcm else ("No (Forward Charge)" if p_rcm is False else "Unspecified / Forward Charge")
-        rcm_discrepancies = list(discrepancies) + [f"reverse_charge: GSTR={g_lbl}, PR={p_lbl}"]
+    # ── Tax-head allocation mismatch guard ───────────────────────────────────
+    if tax_head_mismatch and gstin_match and (inv_ok or format_variant):
+        th_what, th_why, th_next = get_tax_head_mismatch_details(gstr_rec, pr_rec, tax_head_msg)
         return _ret(
             level=3,
             matched=True,
             confidence=75,
             requires_human_review=True,
-            decision_what="Reverse Charge (RCM) conflict detected",
-            decision_why=(
-                f"GSTR-2B indicates RCM={g_lbl}, but Purchase Register has RCM={p_lbl}. "
-                "Reverse charge supplies require recipient tax liability discharge in cash under Table 3.1(d)."
-            ),
-            decision_next=(
-                "Verify whether supply falls under Section 9(3)/9(4) (e.g. GTA, legal, security). "
-                "If RCM applies, pay tax in cash in GSTR-3B Table 3.1(d) and claim in Table 4(A)(3). "
-                "Do not claim as regular domestic ITC in Table 4(A)(5)."
-            ),
-            discrepancies=rcm_discrepancies,
+            decision_what=th_what,
+            decision_why=th_why,
+            decision_next=th_next,
+            discrepancies=discrepancies,
+            identity_confidence="High",
+            financial_status="Tax Mismatch",
+            review_reason="TAX_HEAD_MISMATCH",
+        )
+
+    # ── Reverse Charge (RCM) conflict guard ──────────────────────────────────
+    if rcm_conflict and gstin_match and (inv_ok or format_variant):
+        rcm_what, rcm_why, rcm_next = get_rcm_conflict_details(g_rcm, p_rcm)
+        return _ret(
+            level=3,
+            matched=True,
+            confidence=75,
+            requires_human_review=True,
+            decision_what=rcm_what,
+            decision_why=rcm_why,
+            decision_next=rcm_next,
+            discrepancies=discrepancies,
             identity_confidence="High",
             financial_status=financial_status,
             review_reason="RCM_FLAG_CONFLICT",
@@ -1632,19 +1670,11 @@ def _match_gstr_to_pr_pair(
         # Returning L6 here previously orphaned the pair into Missed ITC + ITC at
         # Risk as if the invoice numbers had never matched.
         if not tax_structure_match:
-            g_lbl = "IGST" if gstr_is_igst else "CGST+SGST"
-            p_lbl = "IGST" if pr_is_igst else "CGST+SGST"
+            th_what, th_why, th_next = get_tax_head_mismatch_details(gstr_rec, pr_rec, tax_head_msg)
             rr = "TAX_HEAD_MISMATCH"
-            d_what = f"Tax head mismatch ({g_lbl} vs {p_lbl})"
-            d_why = (
-                f"GSTR-2B reports {g_lbl} while Purchase Register records {p_lbl}. "
-                "Cross-head claiming violates Section 77 CGST / Section 19 IGST Act."
-            )
-            d_next = (
-                f"Verify Place of Supply and invoice copy. If supplier charged {g_lbl}, "
-                f"buyer books must be amended from {p_lbl} to {g_lbl}. "
-                "Do not claim cross-head credit without rectification."
-            )
+            d_what = th_what
+            d_why = th_why
+            d_next = th_next
         elif not l12_finance_ok or not amount_within_l2:
             rr = "AMOUNT_MISMATCH"
             d_what = "Invoice matched but with differences"

@@ -894,8 +894,9 @@ def build_outcome_rows(
         if not doc_type or doc_type not in ("CREDIT_NOTE", "DEBIT_NOTE"):
             doc_type = "CREDIT_NOTE" if is_cn else "INVOICE"
         
-        d_what = reason.replace("_", " ").title() if reason else "Manual Review Required"
-        d_next = "Manual review required to verify correct pairing."
+        d_what = dup.get("decision_what") or (reason.replace("_", " ").title() if reason else "Manual Review Required")
+        d_why = dup.get("decision_why") or reason
+        d_next = dup.get("decision_next") or "Manual review required to verify correct pairing."
         
         rows.append(
             OutcomeRow(
@@ -912,7 +913,7 @@ def build_outcome_rows(
                 sgst_diff=0,
                 total_tax_diff_paise=0,
                 decision_what=d_what,
-                decision_why=reason,
+                decision_why=d_why,
                 decision_next=d_next,
                 rule37_flag=False,
                 blocked_credit_flag=False,
@@ -920,8 +921,77 @@ def build_outcome_rows(
                 is_credit_note=is_cn,
                 document_type=doc_type,
                 amount=_opt_int(dup.get("total_tax_paise")) if _opt_int(dup.get("total_tax_paise")) is not None else _opt_int(m_rec.get("total_tax_paise")),
+                matched_pr_id=str(dup.get("id") or dup.get("pr_id") or "") or None,
                 match_confidence=dup.get("match_confidence"),
                 compared_fields=dup.get("compared_fields"),
+            )
+        )
+
+    for rr in list(engine.get("review_required") or []):
+        gid = str(rr.get("gstr_id") or "")
+        pid = str(rr.get("pr_id") or "")
+        cid = f"rrp:{gid}-{pid}" if (gid and pid) else (f"rrg:{gid}" if gid else f"rrp:{pid}")
+        if any(x.id == cid for x in rows):
+            continue
+        g_cell = gstr_m.get(gid) or {}
+        p_cell = pr_m.get(pid) or {}
+        g_rec = g_cell.get("matcher") or {}
+        p_rec = p_cell.get("matcher") or {}
+        g_rd = g_cell.get("record_data") or {}
+        p_rd = p_cell.get("record_data") or {}
+        sname = _gstr_name(g_rd) if g_rd else (str(p_rec.get("vendor_name") or "") or None)
+        invn = str(rr.get("invoice_number_normalized") or g_rec.get("invoice_number_normalized") or p_rec.get("invoice_number_normalized") or "")
+        invd = rr.get("invoice_date") or g_rec.get("invoice_date") or p_rec.get("invoice_date")
+        reason = str(rr.get("review_reason") or rr.get("reason") or "REVIEW_REQUIRED")
+        is_cn = bool(
+            rr.get("is_credit_note")
+            or g_rec.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
+            or p_rec.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
+            or p_rec.get("pr_note_quarantine")
+            or str(g_rec.get("section") or "").lower() in ("cdnr", "cdnra")
+        )
+        doc_type = str(rr.get("doc_type") or g_rec.get("doc_type") or p_rec.get("doc_type") or "").strip().upper()
+        if not doc_type or doc_type not in ("CREDIT_NOTE", "DEBIT_NOTE"):
+            doc_type = "CREDIT_NOTE" if is_cn else "INVOICE"
+
+        d_what = rr.get("decision_what") or (reason.replace("_", " ").title() if reason else "Manual Review Required")
+        d_why = rr.get("decision_why") or reason
+        d_next = rr.get("decision_next") or "Manual review required to verify correct pairing."
+
+        row_amt = _opt_int(g_rec.get("total_tax_paise")) if _opt_int(g_rec.get("total_tax_paise")) is not None else _opt_int(p_rec.get("total_tax_paise"))
+        if row_amt is None:
+            row_amt = _opt_int(rr.get("total_tax_paise")) or _opt_int(rr.get("amount"))
+
+        is_rcm_val = detect_rcm_supply(g_rec, g_rd, p_rec, p_rd)
+
+        rows.append(
+            OutcomeRow(
+                id=cid,
+                category="review_required",
+                supplier_gstin=str(g_rec.get("supplier_gstin") or p_rec.get("supplier_gstin") or rr.get("supplier_gstin") or ""),
+                supplier_name=sname,
+                invoice_number=invn,
+                invoice_date=str(invd) if invd else None,
+                match_status="REVIEW_REQUIRED",
+                taxable_value_diff=0,
+                igst_diff=0,
+                cgst_diff=0,
+                sgst_diff=0,
+                total_tax_diff_paise=int(rr.get("taxable_diff_paise") or 0),
+                decision_what=d_what,
+                decision_why=d_why,
+                decision_next=d_next,
+                rule37_flag=False,
+                blocked_credit_flag=False,
+                late_filing_flag=False,
+                is_credit_note=is_cn,
+                document_type=doc_type,
+                amount=row_amt,
+                matched_pr_id=pid if pid else None,
+                match_confidence=rr.get("match_confidence") or rr.get("confidence_score"),
+                compared_fields=rr.get("compared_fields"),
+                is_rcm=is_rcm_val,
+                supply_type="RCM" if is_rcm_val else "REGULAR",
             )
         )
 

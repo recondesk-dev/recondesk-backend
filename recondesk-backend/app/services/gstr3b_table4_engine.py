@@ -484,6 +484,14 @@ def compile_gstr3b_table4(
         # PR-only records (in books, not in GSTR-2B) cannot enter GSTR-3B under Section 16(2)(aa)
         if rec_id.startswith("pr:") or r.category in ("wrongful_itc_risk", "time_barred_itc"):
             continue
+        # Review-required records must NOT flow into Table 4 claimable ITC until resolved
+        if (
+            r.category == "review_required"
+            or rec_id.startswith("rrp:")
+            or rec_id.startswith("rrg:")
+            or getattr(r, "match_status", "") == "REVIEW_REQUIRED"
+        ):
+            continue
 
         pid = r.matched_pr_id or ""
         gid = rec_id.removeprefix("pm:").removeprefix("gstr:") if (rec_id.startswith("pm:") or rec_id.startswith("gstr:")) else ""

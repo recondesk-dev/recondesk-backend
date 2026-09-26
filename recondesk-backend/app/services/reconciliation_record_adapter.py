@@ -193,6 +193,16 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
             ).strip()
             or None
         ),
+        "reverse_charge": (
+            rd.get("reverse_charge")
+            if rd.get("reverse_charge") is not None
+            else (rd.get("rchrg") or rd.get("rev") or rd.get("rev_chg"))
+        ),
+        "reverse_charge_raw": (
+            rd.get("reverse_charge")
+            if rd.get("reverse_charge") is not None
+            else (rd.get("rchrg") or rd.get("rev") or rd.get("rev_chg"))
+        ),
     }
 
 
@@ -280,6 +290,16 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
         "pr_note_quarantine": bool(rd.get("pr_note_quarantine")),
         "original_invoice_number": orig_inv_str or None,
         "original_invoice_number_normalized": orig_inv_norm,
+        "reverse_charge": (
+            rd.get("reverse_charge")
+            if rd.get("reverse_charge") is not None
+            else (rd.get("rcm") or rd.get("rchrg") or rd.get("reverse_charge_applicable"))
+        ),
+        "reverse_charge_raw": (
+            rd.get("reverse_charge")
+            if rd.get("reverse_charge") is not None
+            else (rd.get("rcm") or rd.get("rchrg") or rd.get("reverse_charge_applicable"))
+        ),
     }
     if total_amt_raw != 0:
         res["total_amount_paise"] = total_amt_raw
