@@ -151,9 +151,13 @@ function chipClass(tone: "urgent" | "soon" | "ok" | "muted"): string {
 export function ReturnPeriodBoard({
   runs,
   loading,
+  selectedPeriod,
+  onSelectPeriod,
 }: {
   runs: ReconcileRunListRow[];
   loading?: boolean;
+  selectedPeriod?: string;
+  onSelectPeriod?: (period: string) => void;
 }) {
   const now = useMemo(() => new Date(), []);
   const rows = useMemo(() => buildPeriodRows(runs, now), [runs, now]);
@@ -175,7 +179,7 @@ export function ReturnPeriodBoard({
             Return periods
           </h2>
           <p className="mt-1 text-sm text-gray-500">
-            Open filing months vs GSTR-3B — not a trend line
+            Open filing months vs GSTR-3B statutory deadlines (20th)
           </p>
         </div>
         {openPeriods > 0 ? (
@@ -200,18 +204,33 @@ export function ReturnPeriodBoard({
       ) : (
         <div className="space-y-2.5">
           {urgent ? (
-            <p className="mb-3 text-xs text-gray-500">
-              Next pressure point:{" "}
-              <span className="font-semibold text-[var(--ink)]">{urgent.label}</span>
-              {" · "}
-              {
-                formatDueChip(
-                  urgent.dueDate,
-                  now,
-                  urgent.open + urgent.ready > 0
-                ).text
-              }
-            </p>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2.5 rounded-2xl bg-[#111111] px-4 py-3 text-white">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-white">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.75" />
+                    <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+                  </svg>
+                </span>
+                <div>
+                  <p className="text-xs font-semibold">
+                    GSTR-3B Statutory Deadline: {urgent.label} (Due {formatShortDate(urgent.dueDate)})
+                  </p>
+                  <p className="text-[11px] text-white/70">
+                    {formatDueChip(urgent.dueDate, now, true).text} · {urgent.open + urgent.ready} client(s) pending reconciliation
+                  </p>
+                </div>
+              </div>
+              {onSelectPeriod ? (
+                <button
+                  type="button"
+                  onClick={() => onSelectPeriod(selectedPeriod === urgent.periodKey ? "ALL" : urgent.periodKey)}
+                  className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[var(--ink)] hover:bg-gray-100 transition-colors"
+                >
+                  {selectedPeriod === urgent.periodKey ? "Filtered" : "Filter Clients"}
+                </button>
+              ) : null}
+            </div>
           ) : null}
 
           <ul className="space-y-2">
@@ -223,26 +242,74 @@ export function ReturnPeriodBoard({
               const readyPct = (row.ready / total) * 100;
               const openPct = (row.open / total) * 100;
 
+              const isSelected = selectedPeriod === row.periodKey;
+
               return (
                 <li
                   key={row.periodKey}
-                  className={`rounded-2xl px-4 py-3.5 transition-colors ${
+                  role={onSelectPeriod ? "button" : undefined}
+                  tabIndex={onSelectPeriod ? 0 : undefined}
+                  onClick={
+                    onSelectPeriod
+                      ? () =>
+                          onSelectPeriod(
+                            isSelected ? "ALL" : row.periodKey
+                          )
+                      : undefined
+                  }
+                  onKeyDown={
+                    onSelectPeriod
+                      ? (e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onSelectPeriod(
+                              isSelected ? "ALL" : row.periodKey
+                            );
+                          }
+                        }
+                      : undefined
+                  }
+                  className={`group relative rounded-2xl px-4 py-3.5 transition-all ${
+                    onSelectPeriod ? "cursor-pointer hover:shadow-sm" : ""
+                  } ${
+                    isSelected
+                      ? "ring-2 ring-[var(--ink)] shadow-sm"
+                      : ""
+                  } ${
                     hasWork && due.tone === "urgent"
                       ? "bg-[#111111] text-white"
                       : "bg-[#F7F7F8]"
                   }`}
+                  title={
+                    onSelectPeriod
+                      ? `Click to ${isSelected ? "clear filter" : `filter table by ${row.label}`}`
+                      : undefined
+                  }
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <p
-                        className={`text-sm font-semibold tracking-tight ${
-                          hasWork && due.tone === "urgent"
-                            ? "text-white"
-                            : "text-[var(--ink)]"
-                        }`}
-                      >
-                        {row.label}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p
+                          className={`text-sm font-semibold tracking-tight ${
+                            hasWork && due.tone === "urgent"
+                              ? "text-white"
+                              : "text-[var(--ink)]"
+                          }`}
+                        >
+                          {row.label}
+                        </p>
+                        {isSelected && (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              hasWork && due.tone === "urgent"
+                                ? "bg-white text-[var(--ink)]"
+                                : "bg-[var(--ink)] text-white"
+                            }`}
+                          >
+                            Selected
+                          </span>
+                        )}
+                      </div>
                       <p
                         className={`mt-0.5 text-xs ${
                           hasWork && due.tone === "urgent"
@@ -324,6 +391,21 @@ export function ReturnPeriodBoard({
               );
             })}
           </ul>
+
+          {selectedPeriod && selectedPeriod !== "ALL" && onSelectPeriod && (
+            <div className="mt-3 flex items-center justify-between rounded-xl bg-[#F5F5F6] px-3.5 py-2 text-xs">
+              <span className="text-gray-600">
+                Table filtered to <strong className="text-[var(--ink)]">{formatPeriodLabel(selectedPeriod)}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => onSelectPeriod("ALL")}
+                className="font-medium text-[var(--ink)] underline hover:text-black"
+              >
+                Clear filter
+              </button>
+            </div>
+          )}
 
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[11px] text-gray-400">
             <span className="inline-flex items-center gap-1.5">

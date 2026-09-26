@@ -251,6 +251,7 @@ export default function PortfolioDashboardPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [retryRow, setRetryRow] = useState<ClientPortfolioRow | null>(null);
   const [retryLoading, setRetryLoading] = useState(false);
+  const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
 
   const filtersWithSearch = useMemo(
     () => ({ ...filters, search: debouncedSearch }),
@@ -585,8 +586,10 @@ export default function PortfolioDashboardPage() {
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <StatCard
             label="Total Clients"
-            hint="Clients in your firm portfolio"
+            hint="Firm portfolio — Click to show all"
             icon={<IconUsers />}
+            onClick={() => setFilters((f) => ({ ...f, status: "ALL" }))}
+            isActive={filters.status === "ALL" && !showReset}
             value={
               statsLoading ? (
                 <span className="inline-block h-8 w-14 animate-pulse rounded bg-gray-100" />
@@ -594,16 +597,24 @@ export default function PortfolioDashboardPage() {
                 String(totalClients)
               )
             }
+            subtitle={`${teamMembersCount} team member${teamMembersCount === 1 ? "" : "s"}`}
           />
           <StatCard
             label="Needs Attention"
-            hint="Pending or in-progress reconciliations"
+            hint="Pending reconciliations — Click to filter"
             icon={<IconAlert />}
             empty={!statsLoading && pendingThisMonth === 0}
             emptyIcon="check"
             emptyCaption="All caught up"
             tone={!statsLoading && pendingThisMonth > 0 ? "emphasis" : "default"}
             trend={!statsLoading && pendingThisMonth > 0 ? "up" : "none"}
+            onClick={() =>
+              setFilters((f) => ({
+                ...f,
+                status: f.status === "PENDING" ? "ALL" : "PENDING",
+              }))
+            }
+            isActive={filters.status === "PENDING"}
             value={
               statsLoading ? (
                 <span className="inline-block h-8 w-12 animate-pulse rounded bg-white/20" />
@@ -611,11 +622,26 @@ export default function PortfolioDashboardPage() {
                 String(pendingThisMonth)
               )
             }
+            subtitle="Pending this month"
           />
           <StatCard
             label="Ready for Review"
-            hint="Completed reconciliations waiting for review"
+            hint="Matching complete — Click to filter"
             icon={<IconReview />}
+            onClick={() =>
+              setFilters((f) => ({
+                ...f,
+                status: f.status === "COMPLETE" ? "ALL" : "COMPLETE",
+              }))
+            }
+            isActive={filters.status === "COMPLETE"}
+            badge={
+              !statsLoading && readyForReview > 0 ? (
+                <span className="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-semibold">
+                  Action
+                </span>
+              ) : undefined
+            }
             value={
               statsLoading ? (
                 <span className="inline-block h-8 w-12 animate-pulse rounded bg-gray-100" />
@@ -623,6 +649,7 @@ export default function PortfolioDashboardPage() {
                 String(readyForReview)
               )
             }
+            subtitle="Awaiting CA sign-off"
           />
           <StatCard
             label="ITC Protected"
@@ -637,11 +664,15 @@ export default function PortfolioDashboardPage() {
                 formatInrCompact(totalItcProtected)
               )
             }
+            fullValue={formatInrFull(totalItcProtected)}
+            subtitle="Finalized & audit-ready"
           />
           <StatCard
-            label="Missed ITC"
-            hint="Missed ITC across latest client reconciliations"
+            label="Missed ITC at Risk"
+            hint="Unclaimed ITC — Click to sort table by missed ITC"
             icon={<IconFail />}
+            onClick={() => setSort({ key: "missedItc", dir: "desc" })}
+            isActive={sort.key === "missedItc"}
             value={
               statsLoading ? (
                 <span className="inline-block h-8 w-20 animate-pulse rounded bg-gray-100" />
@@ -649,18 +680,38 @@ export default function PortfolioDashboardPage() {
                 formatInrCompact(itcAtRiskTotal)
               )
             }
+            fullValue={formatInrFull(itcAtRiskTotal)}
+            subtitle="Sort by highest stakes"
           />
           <StatCard
-            label="Team Members"
-            hint="People who can be assigned reconciliations"
-            icon={<IconTeam />}
+            label="Failed Runs"
+            hint="Reconciliation errors — Click to filter"
+            icon={<IconFail />}
+            empty={!statsLoading && failedClientCount === 0}
+            emptyIcon="check"
+            emptyCaption="None failed"
+            onClick={() =>
+              setFilters((f) => ({
+                ...f,
+                status: f.status === "FAILED" ? "ALL" : "FAILED",
+              }))
+            }
+            isActive={filters.status === "FAILED"}
+            badge={
+              !statsLoading && failedClientCount > 0 ? (
+                <span className="rounded-full bg-red-100 text-red-800 px-2 py-0.5 text-[10px] font-semibold">
+                  Fix
+                </span>
+              ) : undefined
+            }
             value={
               statsLoading ? (
                 <span className="inline-block h-8 w-10 animate-pulse rounded bg-gray-100" />
               ) : (
-                String(teamMembersCount)
+                String(failedClientCount)
               )
             }
+            subtitle={failedClientCount > 0 ? "Requires retry" : "All engines healthy"}
           />
         </div>
       </section>
@@ -683,6 +734,8 @@ export default function PortfolioDashboardPage() {
           <ReturnPeriodBoard
             runs={(runs ?? []) as ReconcileRunListRow[]}
             loading={portfolioLoading}
+            selectedPeriod={filters.period}
+            onSelectPeriod={(p) => setFilters((f) => ({ ...f, period: p }))}
           />
         </div>
 
@@ -718,23 +771,19 @@ export default function PortfolioDashboardPage() {
               {attentionItems.map((item) => {
                 const status = asUiStatus(item.status);
                 return (
-                  <li key={item.client_id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (status === "FAILED") {
-                          setRetryRow(attentionToPortfolioRow(item));
-                          return;
-                        }
-                        router.push(`/clients/${item.client_id}`);
-                      }}
-                      className="flex w-full items-center gap-3 rounded-2xl bg-[#F7F7F8] px-3.5 py-3 text-left transition-colors hover:bg-[#F0F0F0]"
+                  <li
+                    key={item.client_id}
+                    className="flex items-center justify-between gap-3 rounded-2xl bg-[#F7F7F8] px-3.5 py-3 transition-colors hover:bg-[#F0F0F0]"
+                  >
+                    <div
+                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-3"
+                      onClick={() => router.push(`/clients/${item.client_id}`)}
                     >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-[var(--ink)] shadow-sm">
                         {item.trade_name.slice(0, 2).toUpperCase()}
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold text-[var(--ink)]">
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-[var(--ink)] hover:underline">
                           {item.trade_name}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-gray-400">
@@ -749,7 +798,10 @@ export default function PortfolioDashboardPage() {
                             ? ` · ${complianceRiskWords(item.compliance_risk)}`
                             : ""}
                         </span>
-                      </span>
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
                       {status ? (
                         <StatusBadge status={status} />
                       ) : (
@@ -757,7 +809,33 @@ export default function PortfolioDashboardPage() {
                           Pending
                         </span>
                       )}
-                    </button>
+
+                      {status === "COMPLETE" && item.run_id ? (
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/reconcile/runs/${item.run_id}/results`)}
+                          className="rounded-full bg-[var(--ink)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                        >
+                          Review →
+                        </button>
+                      ) : status === "FAILED" ? (
+                        <button
+                          type="button"
+                          onClick={() => setRetryRow(attentionToPortfolioRow(item))}
+                          className="rounded-full border border-[var(--danger)] bg-transparent px-3 py-1.5 text-xs font-semibold text-[var(--danger)] transition-colors hover:bg-red-50"
+                        >
+                          Retry
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/clients/${item.client_id}`)}
+                          className="rounded-full bg-[var(--ink)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                        >
+                          Start
+                        </button>
+                      )}
+                    </div>
                   </li>
                 );
               })}
@@ -799,6 +877,8 @@ export default function PortfolioDashboardPage() {
             onSearchInputChange={setSearchInput}
             showReset={showReset}
             onReset={onResetFilters}
+            density={density}
+            onDensityChange={setDensity}
           />
         )}
 
@@ -830,6 +910,7 @@ export default function PortfolioDashboardPage() {
             onToggleAllOnPage={toggleAllOnPage}
             onRetryConfirm={onRetryConfirm}
             onFinalizeConfirm={(row) => void onFinalizeConfirm(row)}
+            density={density}
           />
         )}
       </section>

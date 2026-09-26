@@ -134,7 +134,8 @@ function ItcAtRiskCell({ row }: { row: ClientPortfolioRow }) {
   );
 }
 
-function TableLoadingRows() {
+function TableLoadingRows({ density = "comfortable" }: { density?: "comfortable" | "compact" }) {
+  const pad = density === "compact" ? "px-3 py-2" : "px-4 py-3.5";
   const bar = (w: string) => (
     <div className={`h-4 animate-pulse rounded-lg bg-gray-100 ${w}`} />
   );
@@ -142,16 +143,16 @@ function TableLoadingRows() {
     <>
       {Array.from({ length: 5 }).map((_, i) => (
         <tr key={i} className="border-b border-gray-100">
-          <td className="px-4 py-3.5">{bar("w-4")}</td>
-          <td className="px-4 py-3.5">{bar("w-44")}</td>
-          <td className="px-4 py-3.5">{bar("w-36")}</td>
-          <td className="px-4 py-3.5">{bar("w-28")}</td>
-          <td className="px-4 py-3.5">{bar("w-20")}</td>
-          <td className="px-4 py-3.5">{bar("w-16")}</td>
-          <td className="px-4 py-3.5">{bar("w-24")}</td>
-          <td className="px-4 py-3.5">{bar("w-32")}</td>
-          <td className="px-4 py-3.5">{bar("w-24")}</td>
-          <td className="px-4 py-3.5">{bar("w-20")}</td>
+          <td className={pad}>{bar("w-4")}</td>
+          <td className={pad}>{bar("w-44")}</td>
+          <td className={pad}>{bar("w-36")}</td>
+          <td className={pad}>{bar("w-28")}</td>
+          <td className={pad}>{bar("w-20")}</td>
+          <td className={pad}>{bar("w-16")}</td>
+          <td className={pad}>{bar("w-24")}</td>
+          <td className={pad}>{bar("w-32")}</td>
+          <td className={pad}>{bar("w-24")}</td>
+          <td className={pad}>{bar("w-20")}</td>
         </tr>
       ))}
     </>
@@ -179,6 +180,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
   onPreviewEnter,
   onPreviewLeave,
   onRetryClick,
+  density = "comfortable",
 }: {
   row: ClientPortfolioRow;
   selected: boolean;
@@ -186,6 +188,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
   onPreviewEnter: (id: string, rect: DOMRect) => void;
   onPreviewLeave: () => void;
   onRetryClick: (row: ClientPortfolioRow) => void;
+  density?: "comfortable" | "compact";
 }) {
   const router = useRouter();
   const latest = row.latestRun;
@@ -204,6 +207,9 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
   const firstCellBorder = "";
   const rowOpacity = isFinalized ? "opacity-55" : "";
   const hoverClass = "hover:bg-[#F7F7F8]";
+  const isCompact = density === "compact";
+  const cellPad = isCompact ? "px-3 py-2" : "px-4 py-3.5";
+  const buttonPad = isCompact ? "px-3 py-1 text-xs" : "px-4 py-1.5 text-xs";
 
   return (
     <tr
@@ -219,7 +225,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
       }}
     >
       <td
-        className={`px-4 py-3.5 ${firstCellBorder}`}
+        className={`${cellPad} ${firstCellBorder}`}
         onClick={(e) => e.stopPropagation()}
       >
         <input
@@ -230,44 +236,48 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           aria-label={`Select ${row.client.tradeName}`}
         />
       </td>
-      <td className="max-w-[220px] px-4 py-3.5">
+      <td className={`max-w-[220px] ${cellPad}`}>
         <WhyItMattersCell row={row} />
       </td>
-      <td className="px-4 py-3.5">
+      <td className={cellPad}>
         <Link
           href={`/clients/${row.client.id}`}
-          className="font-medium text-[var(--ink)] hover:underline cursor-pointer"
+          className={`font-medium text-[var(--ink)] hover:underline cursor-pointer ${
+            isCompact ? "text-xs" : "text-sm"
+          }`}
         >
           {row.client.tradeName}
         </Link>
       </td>
-      <td className="hidden px-4 py-3.5 font-mono text-[11px] text-gray-400 xl:table-cell">
+      <td className={`hidden ${cellPad} font-mono text-[11px] text-gray-400 xl:table-cell`}>
         {row.client.gstin}
       </td>
-      <td className="px-4 py-3.5 font-mono text-[11px] text-gray-400 xl:hidden">
+      <td className={`${cellPad} font-mono text-[11px] text-gray-400 xl:hidden`}>
         {truncateGstin(row.client.gstin)}
       </td>
-      <td className="px-4 py-3.5">
+      <td className={cellPad}>
         {!latest ? (
           <span className="text-sm text-gray-400">No reconciliations yet</span>
         ) : (
           <StatusBadge status={latest.status} />
         )}
       </td>
-      <td className="px-4 py-3.5 text-xs text-gray-400">{latest?.period ?? "—"}</td>
-      <td className="px-4 py-3.5">
+      <td className={`${cellPad} text-xs text-gray-400`}>{latest?.period ?? "—"}</td>
+      <td className={cellPad}>
         <MatchRateBar rate={latest?.matchRate ?? null} />
       </td>
-      <td className="px-4 py-3.5">
+      <td className={cellPad}>
         <ItcAtRiskCell row={row} />
       </td>
-      <td className="px-4 py-3.5">
+      <td className={cellPad}>
         <div className="flex items-center gap-2">
           <Avatar initials={row.assignedStaff.avatarInitials} size="sm" />
-          <span className="text-sm text-[var(--text-primary)]">{row.assignedStaff.name}</span>
+          <span className={`${isCompact ? "text-xs" : "text-sm"} text-[var(--text-primary)]`}>
+            {row.assignedStaff.name}
+          </span>
         </div>
       </td>
-      <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
+      <td className={cellPad} onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-end">
           {status === "FINALIZED" && (
             <span className="text-xs text-gray-400">Done</span>
@@ -275,7 +285,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           {status === "COMPLETE" && (
             <button
               type="button"
-              className="rounded-full bg-[var(--ink)] px-4 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-black/20"
+              className={`rounded-full bg-[var(--ink)] ${buttonPad} font-semibold text-white transition-opacity hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-black/20`}
               onClick={() => navigateToResults()}
             >
               Review
@@ -284,7 +294,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           {status === "FAILED" && (
             <button
               type="button"
-              className="rounded-full border border-[var(--danger)] bg-transparent px-4 py-1.5 text-xs font-semibold text-[var(--danger)] hover:bg-red-50 transition-colors"
+              className={`rounded-full border border-[var(--danger)] bg-transparent ${buttonPad} font-semibold text-[var(--danger)] hover:bg-red-50 transition-colors`}
               onClick={() => onRetryClick(row)}
             >
               Retry
@@ -293,7 +303,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           {status === "PENDING" && (
             <button
               type="button"
-              className="rounded-full bg-[var(--ink)] px-4 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
+              className={`rounded-full bg-[var(--ink)] ${buttonPad} font-semibold text-white hover:opacity-90 transition-opacity`}
               onClick={() => navigateDetail()}
             >
               Start
@@ -302,7 +312,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           {!latest && (
             <button
               type="button"
-              className="rounded-full bg-[var(--ink)] px-4 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
+              className={`rounded-full bg-[var(--ink)] ${buttonPad} font-semibold text-white hover:opacity-90 transition-opacity`}
               onClick={() => navigateDetail()}
             >
               Start
@@ -312,7 +322,7 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
             <button
               type="button"
               disabled
-              className="cursor-not-allowed rounded-full bg-[#F0F0F0] px-4 py-1.5 text-xs font-semibold text-gray-400"
+              className={`cursor-not-allowed rounded-full bg-[#F0F0F0] ${buttonPad} font-semibold text-gray-400`}
             >
               In Progress
             </button>
@@ -514,6 +524,7 @@ export function ClientTable({
   onToggleAllOnPage,
   onRetryConfirm,
   onFinalizeConfirm: _onFinalizeConfirm,
+  density = "comfortable",
 }: {
   rows: ClientPortfolioRow[];
   loading: boolean;
@@ -528,6 +539,7 @@ export function ClientTable({
   onToggleAllOnPage: (ids: string[], checked: boolean) => void;
   onRetryConfirm: (row: ClientPortfolioRow) => void;
   onFinalizeConfirm: (row: ClientPortfolioRow) => void;
+  density?: "comfortable" | "compact";
 }) {
   void _onFinalizeConfirm;
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -581,13 +593,17 @@ export function ClientTable({
   const end = Math.min(page * pageSize, total);
   const maxPage = Math.max(1, Math.ceil(total / pageSize));
 
+  const isCompact = density === "compact";
+  const thPad = isCompact ? "px-3 py-2.5" : "px-4 py-4";
+  const thEdgePad = isCompact ? "px-3 py-2.5" : "px-5 py-4";
+
   return (
     <div className="relative bg-white">
       <div className="overflow-x-auto">
         <table className="min-w-[1100px] w-full border-collapse text-left">
           <thead>
             <tr className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
-              <th className="w-10 px-5 py-4">
+              <th className={`w-10 ${thEdgePad}`}>
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -597,7 +613,7 @@ export function ClientTable({
                   aria-label="Select all on page"
                 />
               </th>
-              <th className="px-4 py-4">
+              <th className={thPad}>
                 <button
                   type="button"
                   className="inline-flex items-center font-medium"
@@ -607,11 +623,11 @@ export function ClientTable({
                   <SortArrow active={sort.key === "priority"} dir={sort.dir} />
                 </button>
               </th>
-              <th className="px-4 py-4">Client Name</th>
-              <th className="px-4 py-4">GSTIN</th>
-              <th className="px-4 py-4">Status</th>
-              <th className="px-4 py-4">Period</th>
-              <th className="px-4 py-4">
+              <th className={thPad}>Client Name</th>
+              <th className={thPad}>GSTIN</th>
+              <th className={thPad}>Status</th>
+              <th className={thPad}>Period</th>
+              <th className={thPad}>
                 <button
                   type="button"
                   className="inline-flex items-center font-medium"
@@ -621,7 +637,7 @@ export function ClientTable({
                   <SortArrow active={sort.key === "matchRate"} dir={sort.dir} />
                 </button>
               </th>
-              <th className="px-4 py-4">
+              <th className={thPad}>
                 <button
                   type="button"
                   className="inline-flex items-center font-medium"
@@ -631,12 +647,12 @@ export function ClientTable({
                   <SortArrow active={sort.key === "missedItc"} dir={sort.dir} />
                 </button>
               </th>
-              <th className="px-4 py-4">Assigned To</th>
-              <th className="min-w-[100px] px-5 py-4 text-right">Actions</th>
+              <th className={thPad}>Assigned To</th>
+              <th className={`min-w-[100px] ${thEdgePad} text-right`}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {loading && <TableLoadingRows />}
+            {loading && <TableLoadingRows density={density} />}
             {!loading &&
               rows.map((row) => (
                 <PortfolioRowInner
@@ -647,6 +663,7 @@ export function ClientTable({
                   onPreviewEnter={onPreviewEnter}
                   onPreviewLeave={onPreviewLeave}
                   onRetryClick={onRetryConfirm}
+                  density={density}
                 />
               ))}
           </tbody>

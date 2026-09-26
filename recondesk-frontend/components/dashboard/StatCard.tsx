@@ -12,6 +12,11 @@ export function StatCard({
   emptyIcon = "dash",
   tone = "default",
   trend,
+  onClick,
+  isActive = false,
+  subtitle,
+  badge,
+  fullValue,
 }: {
   label: string;
   value: ReactNode;
@@ -22,17 +27,41 @@ export function StatCard({
   emptyIcon?: "dash" | "check";
   tone?: StatTone;
   trend?: "up" | "none";
+  onClick?: () => void;
+  isActive?: boolean;
+  subtitle?: string;
+  badge?: ReactNode;
+  fullValue?: string;
 }) {
   const emphasized = tone === "emphasis";
 
   return (
     <div
-      className={`group relative flex min-h-[148px] flex-col justify-between rounded-[1.5rem] p-5 transition-transform duration-200 hover:-translate-y-0.5 ${
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+      className={`group relative flex min-h-[148px] flex-col justify-between rounded-[1.5rem] p-5 transition-all duration-200 ${
+        onClick ? "cursor-pointer hover:shadow-md" : ""
+      } ${
+        isActive
+          ? "ring-2 ring-[var(--ink)] shadow-md"
+          : "hover:-translate-y-0.5"
+      } ${
         emphasized
           ? "bg-[var(--ink)] text-white shadow-[var(--shadow-lift)]"
-          : "dashboard-card"
+          : "dashboard-card bg-white"
       }`}
-      title={hint}
+      title={fullValue ? `${hint ? `${hint} — ` : ""}${fullValue}` : hint}
     >
       <div className="flex items-start justify-between gap-3">
         <span
@@ -52,24 +81,27 @@ export function StatCard({
             </svg>
           )}
         </span>
-        {trend === "up" ? (
-          <span
-            className={`inline-flex h-8 w-8 items-center justify-center rounded-full ${
-              emphasized ? "bg-white/15 text-white" : "bg-gray-100 text-gray-600"
-            }`}
-            aria-hidden
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M7 17L17 7M10 7h7v7"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </span>
-        ) : null}
+        <div className="flex items-center gap-1.5">
+          {badge}
+          {trend === "up" ? (
+            <span
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-full ${
+                emphasized ? "bg-white/15 text-white" : "bg-gray-100 text-gray-600"
+              }`}
+              aria-hidden
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M7 17L17 7M10 7h7v7"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-6">
@@ -156,6 +188,15 @@ export function StatCard({
         >
           {label}
         </p>
+        {subtitle && (
+          <p
+            className={`mt-0.5 text-[11px] leading-tight ${
+              emphasized ? "text-white/50" : "text-gray-400"
+            }`}
+          >
+            {subtitle}
+          </p>
+        )}
       </div>
     </div>
   );
