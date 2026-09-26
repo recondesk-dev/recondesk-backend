@@ -206,6 +206,7 @@ def build_excel_workbook_bytes(
     unmatched_note_rows: list[dict[str, Any]] | None = None,
     gstr3b_result: dict[str, Any] | None = None,
     followup_rows: list[dict[str, Any]] | None = None,
+    time_barred_rows: list[dict[str, Any]] | None = None,
 ) -> tuple[bytes, str]:
     """Return (xlsx bytes, filename).
 
@@ -215,6 +216,26 @@ def build_excel_workbook_bytes(
     duplicate_rows = list(duplicate_rows or [])
     unmatched_note_rows = list(unmatched_note_rows or [])
     followup_rows = list(followup_rows or [])
+
+    if time_barred_rows is None:
+        tb_rows = []
+        active_risk_rows = []
+        for r in risk_rows:
+            if (
+                str(r.get("section_16_4_status") or "").upper() == "ITC_TIME_BARRED"
+                or r.get("category") == "time_barred_itc"
+                or "time-barred" in str(r.get("decision_what") or "").lower()
+                or "time barred" in str(r.get("decision_what") or "").lower()
+                or "time-barred" in str(r.get("decision_why") or "").lower()
+            ):
+                tb_rows.append(r)
+            else:
+                active_risk_rows.append(r)
+        time_barred_rows = tb_rows
+        risk_rows = active_risk_rows
+    else:
+        time_barred_rows = list(time_barred_rows)
+
     tracks: list[_SheetTrack] = []
 
     wb = Workbook()
@@ -279,8 +300,65 @@ def build_excel_workbook_bytes(
             c1.font = Font(bold=True)
             c2 = ws1.cell(row=row, column=2, value=val)
             row += 1
-        ws1.column_dimensions["A"].width = 30
-        ws1.column_dimensions["B"].width = 20
+
+        row += 1
+        ws1.cell(row=row, column=1, value="Statutory GSTR-3B Allocation").font = Font(bold=True, size=11, color=_HEADER_BLUE)
+        row += 1
+
+        eligible_dom_amt = summary.get("matched_eligible_itc_amount")
+        if eligible_dom_amt is None:
+            eligible_dom_amt = sum(
+                float(ap.get("amount") or 0)
+                for ap, _o in matched_pairs
+                if ap.get("itc_available") is not False
+                and not bool(ap.get("is_rcm") or getattr(_o, "is_rcm", False))
+            )
+
+        rcm_itc_amt = summary.get("rcm_itc_amount")
+        if rcm_itc_amt is None:
+            rcm_itc_amt = sum(
+                float(ap.get("amount") or 0)
+                for ap, _o in matched_pairs
+                if bool(ap.get("is_rcm") or getattr(_o, "is_rcm", False))
+                and ap.get("itc_available") is not False
+            )
+
+        rcm_liab_amt = summary.get("rcm_liability_amount")
+        if rcm_liab_amt is None:
+            rcm_liab_amt = rcm_itc_amt
+
+        time_barred_amt = summary.get("time_barred_itc_amount")
+        if time_barred_amt is None:
+            time_barred_amt = sum(
+                _outcome_amount_rupees(r) if isinstance(r.get("amount"), int) else float(r.get("amount") or 0)
+                for r in time_barred_rows
+            )
+
+        ineligible_amt = summary.get("ineligible_itc_amount")
+        if ineligible_amt is None:
+            ineligible_amt = sum(
+                float(r.get("amount") or 0)
+                for r in section17_rows
+                if "POS" in str(r.get("decision_what") or "")
+                or "ineligible" in str(r.get("decision_what") or "").lower()
+                or "17(5)" in str(r.get("decision_what") or "")
+            )
+
+        statutory_stats = [
+            ("Eligible Domestic ITC [Table 4(A)(5)]", _rs_int(float(eligible_dom_amt or 0))),
+            ("Inward RCM Eligible ITC [Table 4(A)(3)]", _rs_int(float(rcm_itc_amt or 0))),
+            ("Inward RCM Cash Liability [Table 3.1(d)]", _rs_int(float(rcm_liab_amt or 0))),
+            ("Section 16(4) Time-Barred ITC (Dead Credit)", _rs_int(float(time_barred_amt or 0))),
+            ("Ineligible / Blocked ITC [Table 4(D)(2)]", _rs_int(float(ineligible_amt or 0))),
+        ]
+        for lab, val in statutory_stats:
+            c1 = ws1.cell(row=row, column=1, value=lab)
+            c1.font = Font(bold=True)
+            c2 = ws1.cell(row=row, column=2, value=val)
+            row += 1
+
+        ws1.column_dimensions["A"].width = 44
+        ws1.column_dimensions["B"].width = 24
         tracks.append(_SheetTrack("Summary", row_count=0, status="OK"))
     except Exception as e:
         _log.exception("excel summary sheet failed run=%s", run_id)
@@ -302,6 +380,8 @@ def build_excel_workbook_bytes(
             "WHAT IS WRONG",
             "WHY",
             "WHAT TO DO NEXT",
+            "Supply Type",
+            "3B Table",
             "Match Confidence",
             "Match Rationale",
         )
@@ -339,6 +419,8 @@ def build_excel_workbook_bytes(
                 )
             )
             is_rcm = bool(api_row.get("is_rcm") or getattr(_orow, "is_rcm", False))
+            supply_type = "RCM" if is_rcm else "REGULAR"
+            gstr3b_table = "Table 4(A)(3)" if is_rcm else "Table 4(A)(5)"
             doc_type_disp = _doc_type_display(api_row.get("document_type"))
             if is_rcm:
                 doc_type_disp = f"{doc_type_disp} (RCM 4A3)"
@@ -354,6 +436,8 @@ def build_excel_workbook_bytes(
                 _decision_cell(api_row.get("decision_what")),
                 _decision_cell(api_row.get("decision_why")),
                 _decision_cell(api_row.get("decision_next")),
+                supply_type,
+                gstr3b_table,
                 _format_match_confidence(api_row.get("match_confidence")),
                 _format_match_rationale(api_row.get("compared_fields")),
             )
@@ -479,7 +563,7 @@ def build_excel_workbook_bytes(
         ws4.cell(row=r, column=1, value="TOTAL")
         ws4.cell(row=r, column=1).font = bold
         ws4.cell(row=r, column=1).fill = total_fill
-        csum = ws4.cell(row=r, column=4, value=_comma_int(sum_risk))
+        csum = ws4.cell(row=r, column=5, value=_comma_int(sum_risk))
         csum.font = bold
         csum.fill = total_fill
         r += 1
@@ -492,6 +576,74 @@ def build_excel_workbook_bytes(
     except Exception as e:
         _log.exception("excel risk sheet failed run=%s", run_id)
         tracks.append(_SheetTrack("Compliance Risk", 0, f"FAILED: {e}"))
+
+    # --- Sheet 4b Time-Barred ITC (Sec 16-4) ---
+    ws4b = wb.create_sheet("Time-Barred ITC (Sec 16-4)")
+    try:
+        headers_tb = (
+            "Supplier GSTIN",
+            "Invoice#",
+            "Date",
+            "Document Type",
+            "ITC Amount",
+            "Statutory Cutoff",
+            "Section 16(4) Status",
+            "WHAT IS WRONG",
+            "WHY",
+            "WHAT TO DO NEXT",
+        )
+        hdr_fill = PatternFill("solid", fgColor=_HEADER_RED)
+        hdr_font = Font(bold=True, color="FFFFFF")
+        for col, h in enumerate(headers_tb, 1):
+            c = ws4b.cell(row=1, column=col, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+        ws4b.freeze_panes = "A2"
+        if not time_barred_rows:
+            ws4b["A2"] = "No Section 16(4) time-barred invoices found."
+        else:
+            r = 2
+            sum_tb = 0.0
+            for row in time_barred_rows:
+                am = _outcome_amount_rupees(row) if isinstance(row.get("amount"), int) else float(row.get("amount") or 0)
+                sum_tb += am
+                cutoff = row.get("statutory_deadline") or "30th November (following FY)"
+                sec_status = row.get("section_16_4_status") or "ITC_TIME_BARRED"
+                vals = (
+                    row.get("supplier_gstin", ""),
+                    row.get("invoice_number", ""),
+                    row.get("invoice_date", ""),
+                    _doc_type_display(row.get("document_type")),
+                    _comma_int(am),
+                    cutoff,
+                    sec_status,
+                    _decision_cell(row.get("decision_what") or "ITC Time-Barred under Section 16(4)"),
+                    _decision_cell(row.get("decision_why") or "Invoice date exceeds statutory deadline (30th November following financial year). ITC is permanently lapsed."),
+                    _decision_cell(row.get("decision_next") or "Do not claim in GSTR-3B Table 4(A)(5). Expense off tax amount in books to avoid DRC-01 interest and penalty."),
+                )
+                for col, v in enumerate(vals, 1):
+                    ws4b.cell(row=r, column=col, value=v)
+                r += 1
+            total_fill = PatternFill("solid", fgColor=_FILL_TOTAL_RED)
+            bold = Font(bold=True)
+            ws4b.cell(row=r, column=1, value="TOTAL")
+            ws4b.cell(row=r, column=1).font = bold
+            ws4b.cell(row=r, column=1).fill = total_fill
+            csum = ws4b.cell(row=r, column=5, value=_comma_int(sum_tb))
+            csum.font = bold
+            csum.fill = total_fill
+            r += 1
+        _autosize_columns(ws4b)
+        tracks.append(
+            _SheetTrack(
+                "Time-Barred ITC (Sec 16-4)",
+                row_count=len(time_barred_rows),
+                status="OK",
+            )
+        )
+    except Exception as e:
+        _log.exception("excel time-barred sheet failed run=%s", run_id)
+        tracks.append(_SheetTrack("Time-Barred ITC (Sec 16-4)", 0, f"FAILED: {e}"))
 
     # --- Sheet 5 Rule 37 & Section 17(5) ---
     ws5 = wb.create_sheet("Rule 37 & Section 17-5")
@@ -506,6 +658,8 @@ def build_excel_workbook_bytes(
             "WHAT IS WRONG",
             "WHY",
             "WHAT TO DO NEXT",
+            "Statutory Provision",
+            "GSTR-3B Table",
         )
         hdr_fill = PatternFill("solid", fgColor=_HEADER_PURPLE)
         hdr_font = Font(bold=True, color="FFFFFF")
@@ -566,6 +720,8 @@ def build_excel_workbook_bytes(
             fill_white = PatternFill("solid", fgColor="FFFFFF")
             for typ, row in combined:
                 urg = ""
+                stat_prov = row.get("statutory_provision") or ""
+                g3b_tbl = row.get("gstr3b_table") or ""
                 if typ in ("Rule 37", "Rule 37A"):
                     urg = str(row.get("rule37_urgency") or "")
                     if typ == "Rule 37A" and not urg:
@@ -579,9 +735,29 @@ def build_excel_workbook_bytes(
                         rf = fill_med
                     else:
                         rf = fill_white
+                    if not stat_prov:
+                        stat_prov = "Rule 37A CGST Rules" if typ == "Rule 37A" else "Rule 37(1) CGST Rules (180 Days)"
+                    if not g3b_tbl:
+                        g3b_tbl = "Table 4(B)(2) Others"
                 else:
                     urg = str(row.get("section_17_5_category") or "—")
                     rf = fill_white
+                    if not stat_prov:
+                        if typ == "POS Restricted":
+                            stat_prov = "Section 12(3) IGST Act (PoS Restriction)"
+                            g3b_tbl = g3b_tbl or "Table 4(D)(2) Ineligible"
+                        elif typ == "Section 16(4)":
+                            stat_prov = "Section 16(4) CGST Act (Time-Barred)"
+                            g3b_tbl = g3b_tbl or "Table 4(D)(2) / Lapsed"
+                        elif typ == "Ineligible ITC":
+                            stat_prov = "Section 17(5) / Ineligible ITC"
+                            g3b_tbl = g3b_tbl or "Table 4(D)(2) Ineligible"
+                        else:
+                            stat_prov = "Section 17(5) CGST Act (Blocked Credit)"
+                            g3b_tbl = g3b_tbl or "Table 4(B)(1) Blocked Credit"
+                    elif not g3b_tbl:
+                        g3b_tbl = "Table 4(B)(1) Blocked Credit"
+
                 vals = (
                     typ,
                     row.get("supplier_gstin", ""),
@@ -592,6 +768,8 @@ def build_excel_workbook_bytes(
                     _decision_cell(row.get("decision_what")),
                     _decision_cell(row.get("decision_why")),
                     _decision_cell(row.get("decision_next")),
+                    stat_prov,
+                    g3b_tbl,
                 )
                 for col, v in enumerate(vals, 1):
                     c = ws5.cell(row=r, column=col, value=v)
@@ -910,9 +1088,11 @@ def build_excel_workbook_bytes(
         "Matched Records": "Matched Records",
         "Missed ITC": "Missed ITC",
         "Compliance Risk": "Compliance Risk",
+        "Time-Barred ITC (Sec 16-4)": "Time-Barred ITC (Sec 16-4)",
         "Rule 37 & 17(5)": "Rule 37 & 17(5)",
         "Review Required": "Review Required",
         "Duplicate Entries": "Duplicate Entries",
+        "Unmatched Notes": "Unmatched Notes",
         "GSTR-3B Check": "GSTR-3B Check",
         "Follow-up Log": "Follow-up Log",
     }

@@ -3269,6 +3269,30 @@ def _build_reconcile_summary(
             ),
             2,
         ),
+        # Statutory 3B Breakdown
+        "matched_eligible_itc_amount": round(
+            sum(_paise_to_rupees(r.amount or 0) for r in outcome_rows if r.category == "matched" and getattr(r, "itc_available", True) and not getattr(r, "is_rcm", False)),
+            2,
+        ),
+        "rcm_count": sum(1 for r in outcome_rows if getattr(r, "is_rcm", False)),
+        "rcm_itc_amount": round(
+            sum(_paise_to_rupees(r.amount or 0) for r in outcome_rows if getattr(r, "is_rcm", False) and r.category == "matched" and getattr(r, "itc_available", True)),
+            2,
+        ),
+        "rcm_liability_amount": round(
+            sum(_paise_to_rupees(r.amount or 0) for r in outcome_rows if getattr(r, "is_rcm", False)),
+            2,
+        ),
+        "time_barred_count": sum(1 for r in outcome_rows if r.category == "time_barred_itc"),
+        "time_barred_itc_amount": round(
+            sum(_paise_to_rupees(r.amount or 0) for r in outcome_rows if r.category == "time_barred_itc"),
+            2,
+        ),
+        "ineligible_itc_count": sum(1 for r in outcome_rows if r.category == "blocked_credit" and getattr(r, "normalized_reason", None) in ("POS_RESTRICTED", "SECTION_16_4_TIME_BARRED", "GSTR2B_ITC_UNAVAILABLE")),
+        "ineligible_itc_amount": round(
+            sum(_paise_to_rupees(r.amount or 0) for r in outcome_rows if r.category == "blocked_credit" and getattr(r, "normalized_reason", None) in ("POS_RESTRICTED", "SECTION_16_4_TIME_BARRED", "GSTR2B_ITC_UNAVAILABLE")),
+            2,
+        ),
         "decisions_acted_count": decisions_acted_count,
         "decisions_ignored_count": decisions_ignored_count,
         "decisions_pending_count": decisions_pending_count,
@@ -6850,6 +6874,23 @@ async def reconcile_export_excel_workbook(
             source_software="your accounting software",
         )
         risk = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
+        time_barred_ids = {x.id for x in summ_outcome_rows if x.category == "time_barred_itc"}
+        recoverable_risk = [
+            r for r in risk
+            if r.get("id") not in time_barred_ids
+            and f"pr:{r.get('id')}" not in time_barred_ids
+            and f"wr:{r.get('id')}" not in time_barred_ids
+            and str(r.get("section_16_4_status") or "").upper() != "ITC_TIME_BARRED"
+        ]
+        time_barred_rows = [
+            r for r in risk
+            if (
+                r.get("id") in time_barred_ids
+                or f"pr:{r.get('id')}" in time_barred_ids
+                or f"wr:{r.get('id')}" in time_barred_ids
+                or str(r.get("section_16_4_status") or "").upper() == "ITC_TIME_BARRED"
+            )
+        ] or [x.as_dict() for x in summ_outcome_rows if x.category == "time_barred_itc"]
         r37 = _build_rule37_rows(sb, rid, p, notes)
         s17 = _build_section175_rows(sb, rid, p, notes)
         duplicate_rows = [
@@ -6898,7 +6939,8 @@ async def reconcile_export_excel_workbook(
             summary=summ,
             matched_pairs=matched_pairs,
             missed_rows=missed,
-            risk_rows=risk,
+            risk_rows=recoverable_risk,
+            time_barred_rows=time_barred_rows,
             rule37_rows=r37,
             section17_rows=s17,
             review_required_rows=review_rows,
