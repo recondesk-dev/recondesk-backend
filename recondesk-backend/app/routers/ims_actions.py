@@ -11,14 +11,23 @@ on the confirm response but not executed here.
 
 from __future__ import annotations
 
+import io
+import json
 import logging
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.auth import get_current_active_user
-from app.database import get_supabase
+from app.database import get_supabase, get_user_profile
+from app.utils.audit import client_display_label, log_audit
+from app.ims.ims_offline_export import (
+    build_ims_offline_json,
+    build_ims_workpaper_excel,
+    format_gstn_period,
+)
 from app.ims.ims_run_service import build_recommendations_for_run
 from app.ims.ims_action_store import ImsClaimRpcError, SupabaseImsActionStore
 from app.ims.ims_writeback_client import (
@@ -321,3 +330,198 @@ async def sync_ims_run_route(
         ) from exc
 
     return result.as_dict()
+
+
+class ImsExportRequest(BaseModel):
+    """Optional override payload for offline JSON or Excel export."""
+
+    model_config = ConfigDict(extra="ignore")
+    invoices: Optional[list[ConfirmInvoiceItem]] = None
+
+
+def _merge_export_items(
+    batch_invoices: list[Any],
+    overrides: Optional[list[ConfirmInvoiceItem]],
+) -> list[dict[str, Any]]:
+    override_map = {item.invoice_id: item for item in (overrides or [])}
+    merged: list[dict[str, Any]] = []
+
+    for inv in batch_invoices:
+        d = inv.as_dict() if hasattr(inv, "as_dict") else dict(inv)
+        inv_id = d.get("invoice_id")
+        if inv_id and inv_id in override_map:
+            ovr = override_map[inv_id]
+            d["chosen_action"] = ovr.chosen_action
+            if ovr.section:
+                d["section"] = ovr.section
+            if ovr.writeback_payload:
+                d["writeback_payload"] = ovr.writeback_payload
+        merged.append(d)
+
+    batch_ids = {d.get("invoice_id") for d in merged}
+    for item in (overrides or []):
+        if item.invoice_id not in batch_ids:
+            merged.append(
+                {
+                    "invoice_id": item.invoice_id,
+                    "chosen_action": item.chosen_action,
+                    "recommended_action": item.recommended_action or item.chosen_action,
+                    "section": item.section,
+                    "writeback_payload": item.writeback_payload,
+                }
+            )
+
+    return merged
+
+
+async def _handle_export_json(
+    run_id: str,
+    overrides: Optional[list[ConfirmInvoiceItem]],
+    current_user: dict,
+) -> StreamingResponse:
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, run_id, current_user)
+    client_row = _client_row_for_run(sb, run_row)
+
+    buyer_gstin = str(client_row.get("gstin") or "").strip()
+    period = str(run_row.get("period") or "").strip()
+    client_name = str(client_row.get("trade_name") or client_row.get("legal_name") or "Client").strip()
+
+    access_token: str | None = None
+    if client_row.get("gstn_access_token"):
+        try:
+            access_token = ensure_fresh_gstn_token(sb, client_row)
+        except Exception:
+            access_token = None
+
+    batch = build_recommendations_for_run(
+        sb,
+        run_id=str(run_row.get("id") or run_id),
+        run_row=run_row,
+        access_token=access_token,
+        buyer_gstin=buyer_gstin,
+    )
+
+    items = _merge_export_items(batch.invoices, overrides)
+    json_data = build_ims_offline_json(buyer_gstin, period, items)
+    json_str = json.dumps(json_data, indent=2)
+
+    fp = format_gstn_period(period)
+    filename = f"IMS_Offline_Actions_{buyer_gstin or 'CLIENT'}_{fp}.json"
+
+    label = f"{client_name} ({period})" if period else client_name
+    await log_audit(
+        sb,
+        current_user,
+        "RESULT_EXPORTED",
+        "ims",
+        run_id,
+        label,
+        {"export_type": "ims_offline_json", "count": len(items)},
+    )
+
+    return StreamingResponse(
+        io.BytesIO(json_str.encode("utf-8")),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+async def _handle_export_excel(
+    run_id: str,
+    overrides: Optional[list[ConfirmInvoiceItem]],
+    current_user: dict,
+) -> StreamingResponse:
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, run_id, current_user)
+    client_row = _client_row_for_run(sb, run_row)
+
+    buyer_gstin = str(client_row.get("gstin") or "").strip()
+    period = str(run_row.get("period") or "").strip()
+    client_name = str(client_row.get("trade_name") or client_row.get("legal_name") or "Client").strip()
+
+    uid = str(current_user.get("id") or "")
+    prof = get_user_profile(uid) or {}
+    firm_name = str(prof.get("firm_name") or "")
+    gen_name = str(prof.get("full_name") or "")
+
+    access_token: str | None = None
+    if client_row.get("gstn_access_token"):
+        try:
+            access_token = ensure_fresh_gstn_token(sb, client_row)
+        except Exception:
+            access_token = None
+
+    batch = build_recommendations_for_run(
+        sb,
+        run_id=str(run_row.get("id") or run_id),
+        run_row=run_row,
+        access_token=access_token,
+        buyer_gstin=buyer_gstin,
+    )
+
+    items = _merge_export_items(batch.invoices, overrides)
+    xlsx_bytes, filename = build_ims_workpaper_excel(
+        buyer_gstin,
+        period,
+        items,
+        client_name=client_name,
+        firm_name=firm_name,
+        generated_by=gen_name,
+    )
+
+    label = f"{client_name} ({period})" if period else client_name
+    await log_audit(
+        sb,
+        current_user,
+        "RESULT_EXPORTED",
+        "ims",
+        run_id,
+        label,
+        {"export_type": "ims_action_workpaper", "count": len(items)},
+    )
+
+    return StreamingResponse(
+        io.BytesIO(xlsx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/runs/{run_id}/ims/export/json")
+async def export_ims_json_post(
+    run_id: str,
+    body: ImsExportRequest,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Export GST Portal IMS Offline Utility compliant JSON file with current actions."""
+    return await _handle_export_json(run_id, body.invoices, current_user)
+
+
+@router.get("/runs/{run_id}/ims/export/json")
+async def export_ims_json_get(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Export default GST Portal IMS Offline Utility compliant JSON file."""
+    return await _handle_export_json(run_id, None, current_user)
+
+
+@router.post("/runs/{run_id}/ims/export/excel")
+async def export_ims_excel_post(
+    run_id: str,
+    body: ImsExportRequest,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Export CA-Grade IMS Action Audit Workpaper (.xlsx) with current actions."""
+    return await _handle_export_excel(run_id, body.invoices, current_user)
+
+
+@router.get("/runs/{run_id}/ims/export/excel")
+async def export_ims_excel_get(
+    run_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Export default CA-Grade IMS Action Audit Workpaper (.xlsx)."""
+    return await _handle_export_excel(run_id, None, current_user)
+

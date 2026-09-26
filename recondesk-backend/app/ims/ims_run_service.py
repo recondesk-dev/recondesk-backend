@@ -110,6 +110,9 @@ def build_recommendations_for_run(
         else:
             # Fall back to stored overlay on GSTR matcher / record_data.
             ims_status = _ims_from_gstr_maps(gstr_m, row, key)
+            writeback = _writeback_from_gstr_maps(gstr_m, row, key, gst, inum, period)
+            if getattr(row, "is_credit_note", False):
+                section = "cdnr"
 
         r37 = _lookup_rule37(row, gst, inum, r37_by_pr, r37_by_pair)
         bc = _lookup_blocked(row, gst, inum, blocked_by_pair)
@@ -229,6 +232,131 @@ def _writeback_from_ims(inv: IMSInvoice) -> dict[str, Any]:
     if "prev_status" not in raw:
         raw["prev_status"] = raw.get("action") or "N"
     return raw
+
+
+def _find_gstr_cell(
+    gstr_m: dict[str, Any],
+    row: Any,
+    key: tuple[str, str],
+) -> dict[str, Any] | None:
+    rid = str(getattr(row, "id", "") or "")
+    gstr_id = ""
+    if ":" in rid:
+        gstr_id = rid.split(":", 1)[1]
+    cell = gstr_m.get(gstr_id) if gstr_id else None
+    if isinstance(cell, dict):
+        return cell
+    for c in (gstr_m or {}).values():
+        if not isinstance(c, dict):
+            continue
+        matcher = c.get("matcher") or {}
+        if not isinstance(matcher, dict):
+            continue
+        k = ims_composite_key(
+            matcher.get("supplier_gstin"),
+            matcher.get("invoice_number") or matcher.get("invoice_number_normalized"),
+        )
+        if k == key:
+            return c
+    return None
+
+
+def _writeback_from_gstr_maps(
+    gstr_m: dict[str, Any],
+    row: Any,
+    key: tuple[str, str],
+    gst: str,
+    inum: str,
+    period: str,
+) -> dict[str, Any]:
+    cell = _find_gstr_cell(gstr_m, row, key)
+    rd = cell.get("record_data") or {} if isinstance(cell, dict) else {}
+    matcher = cell.get("matcher") or {} if isinstance(cell, dict) else {}
+
+    txval = rd.get("txval")
+    if txval is None:
+        tp = matcher.get("taxable_value_paise")
+        txval = round(float(tp) / 100.0, 2) if tp is not None else 0.0
+    else:
+        try:
+            txval = round(float(txval), 2)
+        except (TypeError, ValueError):
+            txval = 0.0
+
+    iamt = rd.get("iamt")
+    if iamt is None:
+        ip = matcher.get("igst_paise")
+        iamt = round(float(ip) / 100.0, 2) if ip is not None else 0.0
+    else:
+        try:
+            iamt = round(float(iamt), 2)
+        except (TypeError, ValueError):
+            iamt = 0.0
+
+    camt = rd.get("camt")
+    if camt is None:
+        cp = matcher.get("cgst_paise")
+        camt = round(float(cp) / 100.0, 2) if cp is not None else 0.0
+    else:
+        try:
+            camt = round(float(camt), 2)
+        except (TypeError, ValueError):
+            camt = 0.0
+
+    samt = rd.get("samt")
+    if samt is None:
+        sp = matcher.get("sgst_paise")
+        samt = round(float(sp) / 100.0, 2) if sp is not None else 0.0
+    else:
+        try:
+            samt = round(float(samt), 2)
+        except (TypeError, ValueError):
+            samt = 0.0
+
+    cess = rd.get("cess") or rd.get("csamt")
+    if cess is None:
+        csp = matcher.get("cess_paise")
+        cess = round(float(csp) / 100.0, 2) if csp is not None else 0.0
+    else:
+        try:
+            cess = round(float(cess), 2)
+        except (TypeError, ValueError):
+            cess = 0.0
+
+    tot_tax = round(iamt + camt + samt + cess, 2)
+    val = rd.get("val")
+    if val is None:
+        vp = matcher.get("invoice_value_paise")
+        val = round(float(vp) / 100.0, 2) if vp is not None else round(txval + tot_tax, 2)
+    else:
+        try:
+            val = round(float(val), 2)
+        except (TypeError, ValueError):
+            val = round(txval + tot_tax, 2)
+
+    idt = str(rd.get("idt") or getattr(row, "invoice_date", "") or matcher.get("invoice_date") or "").strip()
+    pos = str(rd.get("pos") or matcher.get("pos") or "27").strip()
+    rchrg = "Y" if (rd.get("rchrg") in ("Y", True) or matcher.get("is_rcm") or getattr(row, "is_rcm", False)) else "N"
+    inv_typ = str(rd.get("inv_typ") or "R")
+
+    return {
+        "stin": gst,
+        "inum": inum,
+        "idt": idt,
+        "val": val,
+        "txval": txval,
+        "iamt": iamt,
+        "camt": camt,
+        "samt": samt,
+        "cess": cess,
+        "pos": pos,
+        "rchrg": rchrg,
+        "inv_typ": inv_typ,
+        "rtnprd": period,
+        "srcform": "R1",
+        "prev_status": "N",
+    }
+
 
 
 def _compliance_indexes(

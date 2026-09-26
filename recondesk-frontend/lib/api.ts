@@ -3446,6 +3446,78 @@ export const imsApi = {
         token,
       }
     ),
+
+  exportOfflineJson: async (
+    token: string,
+    runId: string,
+    invoices?: Array<{
+      invoice_id: string;
+      chosen_action: string;
+      recommended_action?: string | null;
+      section?: string;
+    }>
+  ): Promise<{ blob: Blob; filename: string }> => {
+    const res = await fetch(
+      `${API_URL}/api/reconcile/runs/${encodeURIComponent(runId)}/ims/export/json`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ invoices: invoices ?? null }),
+      }
+    );
+    if (!res.ok) {
+      let detail = `Export JSON HTTP ${res.status}`;
+      try {
+        const err = await res.json();
+        if (err.detail) detail = err.detail;
+      } catch {}
+      throw { detail, status: res.status } satisfies ApiError;
+    }
+    const cd = res.headers.get("Content-Disposition") || "";
+    const fnMatch = cd.match(/filename="?([^";]+)"?/);
+    const filename = fnMatch ? fnMatch[1] : `IMS_Offline_Actions_${runId}.json`;
+    const blob = await res.blob();
+    return { blob, filename };
+  },
+
+  exportActionWorkpaper: async (
+    token: string,
+    runId: string,
+    invoices?: Array<{
+      invoice_id: string;
+      chosen_action: string;
+      recommended_action?: string | null;
+      section?: string;
+    }>
+  ): Promise<{ blob: Blob; filename: string }> => {
+    const res = await fetch(
+      `${API_URL}/api/reconcile/runs/${encodeURIComponent(runId)}/ims/export/excel`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ invoices: invoices ?? null }),
+      }
+    );
+    if (!res.ok) {
+      let detail = `Export Excel HTTP ${res.status}`;
+      try {
+        const err = await res.json();
+        if (err.detail) detail = err.detail;
+      } catch {}
+      throw { detail, status: res.status } satisfies ApiError;
+    }
+    const cd = res.headers.get("Content-Disposition") || "";
+    const fnMatch = cd.match(/filename="?([^";]+)"?/);
+    const filename = fnMatch ? fnMatch[1] : `IMS_Action_Workpaper_${runId}.xlsx`;
+    const blob = await res.blob();
+    return { blob, filename };
+  },
 };
 
 // ─── E-Invoicing / Billing Module API Client ───────────────────────────────

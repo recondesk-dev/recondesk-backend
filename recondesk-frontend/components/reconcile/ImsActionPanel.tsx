@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Loader2 } from "lucide-react";
+import { ChevronDown, Download, FileSpreadsheet, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -101,6 +101,9 @@ export function ImsActionPanel({
   const [phase4Note, setPhase4Note] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
+  const [exportingJson, setExportingJson] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [exportNote, setExportNote] = useState<string | null>(null);
 
   // Never auto-load on mount / refreshKey — only clear stale draft state.
   useEffect(() => {
@@ -112,6 +115,7 @@ export function ImsActionPanel({
     setActionError(null);
     setPhase4Note(null);
     setSyncNote(null);
+    setExportNote(null);
   }, [runId, refreshKey]);
 
 
@@ -216,6 +220,87 @@ export function ImsActionPanel({
     },
     []
   );
+
+  const getCurrentInvoiceItems = useCallback(() => {
+    return invoices.map((inv) => {
+      const r = rows.get(inv.invoice_id);
+      return {
+        invoice_id: inv.invoice_id,
+        chosen_action: r ? r.chosenAction : inv.recommended_action,
+        recommended_action: inv.recommended_action,
+        section: inv.section || "b2b",
+        writeback_payload: inv.writeback_payload ?? null,
+      };
+    });
+  }, [invoices, rows]);
+
+  const handleExportJson = useCallback(async () => {
+    if (!runId || !authToken) return;
+    setExportingJson(true);
+    setExportNote(null);
+    setActionError(null);
+    try {
+      const items = getCurrentInvoiceItems();
+      const { blob, filename } = await imsApi.exportOfflineJson(
+        authToken,
+        runId,
+        items
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setExportNote(`Downloaded GSTN IMS JSON: ${filename}`);
+    } catch (err) {
+      setActionError(
+        isApiError(err)
+          ? err.detail
+          : err instanceof Error
+            ? err.message
+            : "Failed to export GSTN JSON"
+      );
+    } finally {
+      setExportingJson(false);
+    }
+  }, [runId, authToken, getCurrentInvoiceItems]);
+
+  const handleExportExcel = useCallback(async () => {
+    if (!runId || !authToken) return;
+    setExportingExcel(true);
+    setExportNote(null);
+    setActionError(null);
+    try {
+      const items = getCurrentInvoiceItems();
+      const { blob, filename } = await imsApi.exportActionWorkpaper(
+        authToken,
+        runId,
+        items
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setExportNote(`Downloaded IMS Action Workpaper: ${filename}`);
+    } catch (err) {
+      setActionError(
+        isApiError(err)
+          ? err.detail
+          : err instanceof Error
+            ? err.message
+            : "Failed to export Excel Workpaper"
+      );
+    } finally {
+      setExportingExcel(false);
+    }
+  }, [runId, authToken, getCurrentInvoiceItems]);
 
   const runConfirmAndPoll = useCallback(async () => {
     const currentSelected = selectedRows(invoices, rows);
@@ -505,7 +590,51 @@ export function ImsActionPanel({
                 {bulkOverrideCount === 1 ? "" : "s"} in selection
               </span>
             ) : null}
+
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={exportingJson || confirmBusy}
+                onClick={() => void handleExportJson()}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[#D1D5DB] bg-white px-3 py-1.5 text-[12px] font-semibold text-[#1F2937] hover:bg-[#F9FAFB] disabled:opacity-40"
+                title="Download official GST Portal IMS Offline Utility JSON (act: A/R/P)"
+              >
+                {exportingJson ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-500" />
+                ) : (
+                  <Download className="h-3.5 w-3.5 text-gray-500" />
+                )}
+                Export GSTN JSON
+              </button>
+              <button
+                type="button"
+                disabled={exportingExcel || confirmBusy}
+                onClick={() => void handleExportExcel()}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[#D1D5DB] bg-white px-3 py-1.5 text-[12px] font-semibold text-[#1F2937] hover:bg-[#F9FAFB] disabled:opacity-40"
+                title="Download CA-Grade IMS Action Audit Workpaper (.xlsx) with RCM & Tax-Head audit trail"
+              >
+                {exportingExcel ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-600" />
+                ) : (
+                  <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+                )}
+                Export CA Workpaper
+              </button>
+            </div>
           </div>
+
+          {exportNote ? (
+            <div className="mt-3 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-[12px] font-medium text-emerald-800">
+              <span>{exportNote}</span>
+              <button
+                type="button"
+                onClick={() => setExportNote(null)}
+                className="text-xs text-emerald-600 hover:text-emerald-900"
+              >
+                ✕
+              </button>
+            </div>
+          ) : null}
 
           <ul className="mt-4 space-y-2">
             {invoices.map((inv) => {
