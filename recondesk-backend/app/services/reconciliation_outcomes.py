@@ -18,6 +18,17 @@ from app.services import reconciliation_record_adapter as rec_adapt
 from app.parsers.gstr2b_parser import resolve_itc_available, resolve_itc_reason
 from app.services.credit_note_handler import classify_document
 from app.services.matcher import TOTAL_TOLERANCE_PAISE, match_gstr_to_pr
+from app.services.statutory_eligibility import (
+    ITCEligibilityStatus,
+    NormalizedIneligibilityReason,
+    Section16_4Status,
+    classify_statutory_treatment_for_matched,
+    classify_statutory_treatment_for_gstr_only,
+    classify_statutory_treatment_for_pr_only,
+    detect_rcm_supply,
+    evaluate_section_16_4,
+    normalize_rcm_flag,
+)
 
 # Request-scoped memo so one HTTP handler does not re-page GSTR/PR maps /
 # payload / outcome rows when multiple builders run in the same call.
@@ -284,6 +295,13 @@ class OutcomeRow:
     itc_available: bool = True
     itc_reason: Optional[str] = None
     document_type: str = "INVOICE"
+    supply_type: str = "REGULAR"
+    itc_status: str = "ITC_AVAILABLE"
+    liability_table: Optional[str] = None
+    claim_table: Optional[str] = None
+    is_rcm: bool = False
+    section_16_4_status: Optional[str] = None
+    normalized_reason: Optional[str] = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -316,6 +334,13 @@ class OutcomeRow:
             "rule37a_flag": self.rule37a_flag,
             "itc_available": self.itc_available,
             "itc_reason": self.itc_reason,
+            "supply_type": self.supply_type,
+            "itc_status": self.itc_status,
+            "liability_table": self.liability_table,
+            "claim_table": self.claim_table,
+            "is_rcm": self.is_rcm,
+            "section_16_4_status": self.section_16_4_status,
+            "normalized_reason": self.normalized_reason,
         }
 
 
@@ -420,11 +445,15 @@ def _sum_itc_paise_with_fallback(
     """
     total = 0
     for item in itc_list:
+        gid = str(item.get("gstr_id") or "")
+        cell = gstr_m.get(gid) or {}
+        g = cell.get("matcher") or {}
+        g_rd = cell.get("record_data") or {}
+        if not resolve_itc_available(g, g_rd):
+            continue
         amt = int(item.get("total_tax_paise") or 0)
         if amt == 0:
-            gid = str(item.get("gstr_id") or "")
-            cell = gstr_m.get(gid) or {}
-            amt = int((cell.get("matcher") or {}).get("total_tax_paise") or 0)
+            amt = int(g.get("total_tax_paise") or 0)
         total += amt
     return total
 
@@ -606,118 +635,60 @@ def build_outcome_rows(
             )
         )
 
-        if is_r37a:
-            r37a_what = "ITC unavailable in GSTR-2B (Supplier GSTR-3B Non-Filer / Rule 37A)"
-            r37a_why = (
-                itc_rsn
-                or "Supplier has not filed GSTR-3B for the tax period (Rule 37A risk). "
-                "Ineligible to claim ITC until supplier files return."
-            )
-            r37a_next = (
-                "Hold on IMS and do not claim in GSTR-3B. Follow up with "
-                f"{g.get('supplier_gstin') or p.get('supplier_gstin') or 'supplier'} to file GSTR-3B. "
-                "Claiming prior to filing triggers mandatory reversal under Rule 37A."
-            )
+        sc = classify_statutory_treatment_for_matched(
+            g,
+            g_rd,
+            p,
+            pcell.get("record_data") or {},
+            is_itc_avail=is_itc_avail,
+            itc_rsn=itc_rsn,
+            is_r37a=is_r37a,
+            is_blocked_credit=is_blocked_credit,
+            default_d_what=d_what,
+            default_d_why=d_why,
+            default_d_next=d_next,
+            reporting_period=payload.get("period") or payload.get("return_period"),
+        )
+        row_amount = _opt_int(g.get("total_tax_paise")) if _opt_int(g.get("total_tax_paise")) is not None else _opt_int(p.get("total_tax_paise"))
+        mst_final = "RULE37A" if sc.rule37a_flag else ("BLOCKED" if sc.category == "blocked_credit" else mst)
 
-            rows.append(
-                OutcomeRow(
-                    id=f"pm:{g_id}",
-                    category="rule37_warnings",
-                    supplier_gstin=str(g.get("supplier_gstin") or p.get("supplier_gstin") or ""),
-                    supplier_name=sname,
-                    invoice_number=invn,
-                    invoice_date=str(invd) if invd else None,
-                    match_status="RULE37A",
-                    taxable_value_diff=tvd,
-                    igst_diff=igd,
-                    cgst_diff=cgd,
-                    sgst_diff=sgd,
-                    total_tax_diff_paise=ttd,
-                    decision_what=r37a_what,
-                    decision_why=r37a_why,
-                    decision_next=r37a_next,
-                    rule37_flag=True,
-                    rule37a_flag=True,
-                    itc_available=False,
-                    itc_reason=itc_rsn,
-                    blocked_credit_flag=bflag,
-                    late_filing_flag=lf_flag,
-                    is_credit_note=is_cn,
-                    document_type=doc_type,
-                    amount=_opt_int(g.get("total_tax_paise")) if _opt_int(g.get("total_tax_paise")) is not None else _opt_int(p.get("total_tax_paise")),
-                    match_confidence=m0.get("match_confidence"),
-                    compared_fields=m0.get("compared_fields"),
-                )
+        rows.append(
+            OutcomeRow(
+                id=f"pm:{g_id}",
+                category=sc.category,
+                supplier_gstin=str(g.get("supplier_gstin") or p.get("supplier_gstin") or ""),
+                supplier_name=sname,
+                invoice_number=invn,
+                invoice_date=str(invd) if invd else None,
+                match_status=mst_final,
+                taxable_value_diff=tvd,
+                igst_diff=igd,
+                cgst_diff=cgd,
+                sgst_diff=sgd,
+                total_tax_diff_paise=ttd,
+                decision_what=sc.decision_what,
+                decision_why=sc.decision_why,
+                decision_next=sc.decision_next,
+                rule37_flag=r37f or sc.rule37a_flag,
+                rule37a_flag=sc.rule37a_flag,
+                itc_available=sc.is_itc_available,
+                itc_reason=sc.source_reason,
+                blocked_credit_flag=sc.blocked_credit_flag or bflag,
+                late_filing_flag=lf_flag,
+                is_credit_note=is_cn,
+                document_type=doc_type,
+                amount=row_amount,
+                matched_pr_id=str(p_id) if p_id else None,
+                match_confidence=m0.get("match_confidence"),
+                compared_fields=m0.get("compared_fields"),
+                supply_type=sc.supply_type,
+                itc_status=sc.itc_status.value,
+                liability_table=sc.liability_table,
+                claim_table=sc.claim_table,
+                is_rcm=sc.is_rcm,
+                normalized_reason=sc.normalized_reason.value if sc.normalized_reason else None,
             )
-        elif is_blocked_credit:
-            bc_what = f"ITC blocked under Section 17(5){f': {itc_rsn}' if itc_rsn else ''}"
-            bc_why = (
-                f"Ineligible under Section 17(5) blocked credit ({itc_rsn}). "
-                if itc_rsn
-                else "Identified as Section 17(5) blocked credit (ineligible goods/services). "
-            ) + "Credit cannot be claimed in GSTR-3B."
-            bc_next = "Do not claim ITC in GSTR-3B. Verify Section 17(5) applicability."
-            rows.append(
-                OutcomeRow(
-                    id=f"pm:{g_id}",
-                    category="blocked_credit",
-                    supplier_gstin=str(g.get("supplier_gstin") or p.get("supplier_gstin") or ""),
-                    supplier_name=sname,
-                    invoice_number=invn,
-                    invoice_date=str(invd) if invd else None,
-                    match_status="BLOCKED",
-                    taxable_value_diff=tvd,
-                    igst_diff=igd,
-                    cgst_diff=cgd,
-                    sgst_diff=sgd,
-                    total_tax_diff_paise=ttd,
-                    decision_what=bc_what,
-                    decision_why=bc_why,
-                    decision_next=bc_next,
-                    rule37_flag=r37f,
-                    rule37a_flag=False,
-                    itc_available=False,
-                    itc_reason=itc_rsn,
-                    blocked_credit_flag=True,
-                    late_filing_flag=lf_flag,
-                    is_credit_note=is_cn,
-                    document_type=doc_type,
-                    amount=_opt_int(g.get("total_tax_paise")) if _opt_int(g.get("total_tax_paise")) is not None else _opt_int(p.get("total_tax_paise")),
-                    match_confidence=m0.get("match_confidence"),
-                    compared_fields=m0.get("compared_fields"),
-                )
-            )
-        else:
-            rows.append(
-                OutcomeRow(
-                    id=f"pm:{g_id}",
-                    category="matched",
-                    supplier_gstin=str(g.get("supplier_gstin") or p.get("supplier_gstin") or ""),
-                    supplier_name=sname,
-                    invoice_number=invn,
-                    invoice_date=str(invd) if invd else None,
-                    match_status=mst,
-                    taxable_value_diff=tvd,
-                    igst_diff=igd,
-                    cgst_diff=cgd,
-                    sgst_diff=sgd,
-                    total_tax_diff_paise=ttd,
-                    decision_what=d_what,
-                    decision_why=d_why,
-                    decision_next=d_next,
-                    rule37_flag=r37f,
-                    rule37a_flag=False,
-                    itc_available=is_itc_avail,
-                    itc_reason=itc_rsn if not is_itc_avail else None,
-                    blocked_credit_flag=bflag,
-                    late_filing_flag=lf_flag,
-                    is_credit_note=is_cn,
-                    document_type=doc_type,
-                    amount=_opt_int(g.get("total_tax_paise")) if _opt_int(g.get("total_tax_paise")) is not None else _opt_int(p.get("total_tax_paise")),
-                    match_confidence=m0.get("match_confidence"),
-                    compared_fields=m0.get("compared_fields"),
-                )
-            )
+        )
 
     for mi in list(engine.get("missed_itc") or []):
         gid = str(mi.get("gstr_id", ""))
@@ -735,32 +706,16 @@ def build_outcome_rows(
         if amt is None:
             amt = _opt_int(g.get("total_tax_paise"))
 
-        raw_itc_avl = g.get("itc_available")
-        if raw_itc_avl is None:
-            raw_itc_avl = g_rd.get("itc_available")
-        if raw_itc_avl is None:
-            raw_itc_avl = g_rd.get("itcavl")
-        if isinstance(raw_itc_avl, bool):
-            is_itc_avail = raw_itc_avl
-        elif raw_itc_avl is not None:
-            is_itc_avail = (
-                str(raw_itc_avl).strip().upper()[:1] in ("Y", "T", "1")
-                if str(raw_itc_avl).strip()
-                else True
-            )
-        else:
-            is_itc_avail = True
+        is_itc_avail = resolve_itc_available(g, g_rd)
+        itc_rsn = resolve_itc_reason(g, g_rd)
 
-        itc_rsn = (
-            str(
-                g.get("itc_reason")
-                or g_rd.get("itc_reason")
-                or g_rd.get("rsn")
-                or g_rd.get("reason")
-                or ""
-            ).strip()
-            or None
+        sc_mi = classify_statutory_treatment_for_gstr_only(
+            g,
+            g_rd,
+            is_itc_avail=is_itc_avail,
+            itc_rsn=itc_rsn,
         )
+
         is_cn = bool(
             mi.get("is_credit_note")
             or g.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
@@ -773,29 +728,35 @@ def build_outcome_rows(
         rows.append(
             OutcomeRow(
                 id=f"mi:{gid}",
-                category="missed_itc",
+                category=sc_mi.category,
                 supplier_gstin=str(mi.get("supplier_gstin") or g.get("supplier_gstin") or ""),
                 supplier_name=_gstr_name(g_rd),
                 invoice_number=invn,
                 invoice_date=str(invd) if invd else None,
-                match_status="UNMATCHED",
+                match_status="BLOCKED" if sc_mi.category == "blocked_credit" else "UNMATCHED",
                 taxable_value_diff=0,
                 igst_diff=0,
                 cgst_diff=0,
                 sgst_diff=0,
                 total_tax_diff_paise=0,
-                decision_what=DecisionWhat.MISSING_IN_BOOKS,
-                decision_why=DecisionWhy.INVOICE_NOT_BOOKED,
-                decision_next=DecisionNext.CLAIM_MISSED_ITC,
+                decision_what=sc_mi.decision_what,
+                decision_why=sc_mi.decision_why,
+                decision_next=sc_mi.decision_next,
                 rule37_flag=False,
                 rule37a_flag=False,
-                itc_available=is_itc_avail,
-                itc_reason=itc_rsn,
-                blocked_credit_flag=False,
+                itc_available=sc_mi.is_itc_available,
+                itc_reason=sc_mi.source_reason,
+                blocked_credit_flag=sc_mi.blocked_credit_flag,
                 late_filing_flag=False,
                 is_credit_note=is_cn,
                 document_type=doc_type,
                 amount=amt,
+                supply_type=sc_mi.supply_type,
+                itc_status=sc_mi.itc_status.value,
+                liability_table=sc_mi.liability_table,
+                claim_table=sc_mi.claim_table,
+                is_rcm=sc_mi.is_rcm,
+                normalized_reason=sc_mi.normalized_reason.value if sc_mi.normalized_reason else None,
             )
         )
 
@@ -817,29 +778,42 @@ def build_outcome_rows(
         if not doc_type or doc_type not in ("CREDIT_NOTE", "DEBIT_NOTE"):
             doc_type = "CREDIT_NOTE" if is_cn else "INVOICE"
 
+        sc_pr = classify_statutory_treatment_for_pr_only(
+            p=p,
+            p_rd=rd,
+            reporting_period=payload.get("period") or payload.get("return_period"),
+        )
+
         rows.append(
             OutcomeRow(
                 id=f"wr:{pid}",
-                category="wrongful_risk",
+                category=sc_pr.category,
                 supplier_gstin=str(wr.get("supplier_gstin") or p.get("supplier_gstin") or ""),
                 supplier_name=None,
                 invoice_number=invn,
                 invoice_date=str(invd) if invd else None,
-                match_status="UNMATCHED",
+                match_status="TIME_BARRED" if sc_pr.category == "time_barred_itc" else "UNMATCHED",
                 taxable_value_diff=0,
                 igst_diff=0,
                 cgst_diff=0,
                 sgst_diff=0,
                 total_tax_diff_paise=0,
-                decision_what=DecisionWhat.MISSING_IN_2B,
-                decision_why=DecisionWhy.INVOICE_NOT_FILED,
-                decision_next=DecisionNext.REVERSE_ITC,
+                decision_what=sc_pr.decision_what,
+                decision_why=sc_pr.decision_why,
+                decision_next=sc_pr.decision_next,
                 rule37_flag=r37f,
-                blocked_credit_flag=False,
+                blocked_credit_flag=sc_pr.blocked_credit_flag,
                 late_filing_flag=False,
                 is_credit_note=is_cn,
                 document_type=doc_type,
                 amount=_opt_int(wr.get("total_tax_paise")),
+                supply_type=sc_pr.supply_type,
+                itc_status=sc_pr.itc_status.value,
+                liability_table=sc_pr.liability_table,
+                claim_table=sc_pr.claim_table,
+                is_rcm=sc_pr.is_rcm,
+                section_16_4_status=sc_pr.section_16_4_status.value if sc_pr.section_16_4_status else None,
+                normalized_reason=sc_pr.normalized_reason.value if sc_pr.normalized_reason else None,
             )
         )
 
@@ -1192,6 +1166,7 @@ def build_outcome_rows(
         "matched",
         "missed_itc",
         "wrongful_risk",
+        "time_barred_itc",
         "rule37_warnings",
         "blocked_credit",
         "credit_notes",
@@ -1215,34 +1190,76 @@ def build_outcome_rows(
         for x in gstr_m.values()
     )
     itc_missed = _sum_itc_paise_with_fallback(engine.get("missed_itc") or [], gstr_m)
-    w_risk = sum(int(x.get("total_tax_paise") or 0) for x in (engine.get("wrongful_itc_risk") or []))
-
-
-    matched_itc = sum(
-        int(r.amount or 0) for r in rows if r.category == "matched"
+    w_risk = sum(
+        int(r.amount or 0) for r in rows if r.category == "wrongful_risk"
     )
+    time_barred_itc = sum(
+        int(r.amount or 0) for r in rows if r.category == "time_barred_itc"
+    )
+
+    # Regular eligible matched ITC (feeds Table 4(A)(5))
+    matched_eligible_itc = sum(
+        int(r.amount or 0)
+        for r in rows
+        if r.category == "matched" and getattr(r, "itc_available", True) and not getattr(r, "is_rcm", False)
+    )
+
+    # RCM eligible matched ITC (feeds Table 4(A)(3))
+    rcm_itc = sum(
+        int(r.amount or 0)
+        for r in rows
+        if r.category == "matched" and getattr(r, "itc_available", True) and getattr(r, "is_rcm", False)
+    )
+
+    # RCM total identified liability (feeds Table 3.1(d))
+    rcm_liability = sum(
+        int(r.amount or 0)
+        for r in rows
+        if getattr(r, "is_rcm", False)
+    )
+
+    # Total Ineligible / Blocked ITC
+    ineligible_itc = sum(
+        int(r.amount or 0)
+        for r in rows
+        if not getattr(r, "itc_available", True) or r.category == "blocked_credit"
+    )
+
+    # matched_itc represents regular eligible matched ITC
+    matched_itc = matched_eligible_itc
 
     if n_g:
         mrp = round(100.0 * (ccounts.get("matched", 0)) / n_g, 2)
     else:
         mrp = 0.0
-    net_claim = matched_itc - w_risk
+
+    net_claim = matched_eligible_itc - w_risk
     cnote_adj = (comp.get("credit_note_adjustment") or {}) if isinstance(
         comp.get("credit_note_adjustment"), dict
     ) else {}
     if isinstance(cnote_adj, dict) and cnote_adj.get("net_itc_paise") is not None:
-        # Prefer engine-computed net where present
         try:
             net_claim = int(cnote_adj["net_itc_paise"])
         except (TypeError, ValueError):
             pass
 
+    # Global invariant: net_claimable_itc <= total eligible ITC
+    net_claimable = max(net_claim, 0) if net_claim is not None else 0
+    total_eligible = matched_eligible_itc + rcm_itc
+    if net_claimable > total_eligible:
+        net_claimable = total_eligible
+
     money = {
         "total_itc_in_gstr_paise": total_itc_gstr,
         "matched_itc_paise": matched_itc,
+        "matched_eligible_itc_paise": matched_eligible_itc,
+        "rcm_itc_paise": rcm_itc,
+        "rcm_liability_paise": rcm_liability,
         "missed_itc_paise": itc_missed,
+        "ineligible_itc_paise": ineligible_itc,
+        "time_barred_itc_paise": time_barred_itc,
         "wrongful_risk_paise": w_risk,
-        "net_claimable_itc_paise": max(net_claim, 0) if net_claim is not None else 0,
+        "net_claimable_itc_paise": net_claimable,
         "match_rate_percent": mrp,
     }
 
@@ -1256,6 +1273,8 @@ def build_outcome_rows(
             "missing_in_books_count": missing_in_books,
             "rule37_warnings_count": ccounts.get("rule37_warnings", 0),
             "blocked_credit_count": ccounts.get("blocked_credit", 0),
+            "time_barred_itc_count": ccounts.get("time_barred_itc", 0),
+            "rcm_matched_count": sum(1 for r in rows if r.category == "matched" and getattr(r, "is_rcm", False)),
             "late_filing_count": len(late_filing),
             **money,
         },

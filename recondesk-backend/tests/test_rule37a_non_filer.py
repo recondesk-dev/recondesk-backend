@@ -318,14 +318,16 @@ def test_outcomes_does_not_route_to_rule37_warnings_when_no_r37a_signal():
 
     assert len(rows) == 1
     r = rows[0]
-    assert r.category == "matched"
+    assert r.category == "blocked_credit"
     assert r.rule37a_flag is False
     assert r.itc_available is False  # Must be preserved, NOT silently overwritten to True
     assert r.itc_reason is None
-    assert ccounts["matched"] == 1
+    assert ccounts["matched"] == 0
+    assert ccounts["blocked_credit"] == 1
     assert ccounts["rule37_warnings"] == 0
-    assert stats["matched_count"] == 1
-    assert stats["rule37_warnings_count"] == 0
+    assert stats["matched_count"] == 0
+    assert stats["blocked_credit_count"] == 1
+    assert stats["matched_itc_paise"] == 0
 
 
 def test_outcomes_routes_blocked_credit_when_itc_unavailable_due_to_sec_17_5():

@@ -294,6 +294,7 @@ async def get_reconciliation_invoices(
         "matched",
         "missed_itc",
         "wrongful_risk",
+        "time_barred_itc",
         "rule37_warnings",
         "blocked_credit",
         "credit_notes",

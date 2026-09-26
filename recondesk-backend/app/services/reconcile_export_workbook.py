@@ -318,6 +318,8 @@ def build_excel_workbook_bytes(
         fill_other = PatternFill("solid", fgColor=_FILL_OTHER)
         r = 2
         for api_row, _orow in matched_pairs:
+            if api_row.get("itc_available") is False or getattr(_orow, "itc_available", True) is False:
+                continue
             lvl = str(api_row.get("match_level") or "").upper()
             if lvl == "EXACT":
                 row_fill = fill_exact
@@ -336,11 +338,15 @@ def build_excel_workbook_bytes(
                     min(100.0, max(0.0, float(api_row.get("confidence_score") or 0)))
                 )
             )
+            is_rcm = bool(api_row.get("is_rcm") or getattr(_orow, "is_rcm", False))
+            doc_type_disp = _doc_type_display(api_row.get("document_type"))
+            if is_rcm:
+                doc_type_disp = f"{doc_type_disp} (RCM 4A3)"
             vals = (
                 api_row.get("supplier_gstin", ""),
                 api_row.get("invoice_number", ""),
                 api_row.get("invoice_date", ""),
-                _doc_type_display(api_row.get("document_type")),
+                doc_type_disp,
                 _comma_int(taxable),
                 _comma_int(float(api_row.get("amount") or 0)),
                 api_row.get("match_level", ""),
@@ -542,7 +548,14 @@ def build_excel_workbook_bytes(
             why = str(r.get("decision_why") or "")
             if "blocked credit: ?" in what or "HSN ?" in why:
                 continue
-            combined.append(("Section 17(5)", r))
+            styp = "Section 17(5)"
+            if "POS" in what or "Place of Supply" in what or "Place of Supply" in why:
+                styp = "POS Restricted"
+            elif "16(4)" in what or "Time-Barred" in what or "16(4)" in why:
+                styp = "Section 16(4)"
+            elif "unavailable" in what.lower() or "ineligible" in what.lower():
+                styp = "Ineligible ITC"
+            combined.append((styp, r))
         r = 2
         if not combined:
             ws5["A2"] = "No Rule 37 or Section 17(5) flags found."

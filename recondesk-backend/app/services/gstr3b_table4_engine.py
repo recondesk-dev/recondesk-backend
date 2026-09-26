@@ -24,6 +24,7 @@ from supabase import Client
 
 import app.services.reconciliation_outcomes as ro
 from app.services.reconciliation_outcomes import RULE37_CONCERNS, OutcomeRow
+from app.services.statutory_eligibility import detect_rcm_supply
 
 _log = logging.getLogger(__name__)
 
@@ -109,6 +110,11 @@ def extract_tax_heads_paise(rd: dict[str, Any]) -> tuple[int, int, int, int]:
             sgst = rupees_to_paise(rd.get("sgst") or 0)
         if rd.get("cess") is not None:
             cess = rupees_to_paise(rd.get("cess") or 0)
+        if igst == 0 and cgst == 0 and sgst == 0 and cess == 0:
+            if rd.get("total_tax_paise") is not None:
+                igst = int(rd.get("total_tax_paise") or 0)
+            elif rd.get("total_tax") is not None:
+                igst = rupees_to_paise(rd.get("total_tax") or 0)
 
     return igst, cgst, sgst, cess
 
@@ -158,6 +164,11 @@ def is_section_16_4_or_pos_restricted(
             return True, "POS_RESTRICTED"
 
     # 3. Check outcome row attributes
+    norm_rsn = str(getattr(r, "normalized_reason", "") or "").upper()
+    if norm_rsn in ("POS_RESTRICTED", "SECTION_16_4_TIME_BARRED"):
+        return True, norm_rsn
+    if getattr(r, "section_16_4_status", None) == "ITC_TIME_BARRED":
+        return True, "TIME_BARRED_16_4"
     if getattr(r, "itc_available", True) is False and r.itc_reason:
         r_rsn = r.itc_reason.lower()
         if any(k in r_rsn for k in ("16(4)", "16 (4)", "time barred", "time-barred")):
@@ -470,6 +481,9 @@ def compile_gstr3b_table4(
         # Duplicate entries (extra PR bookings) must never enter Table 4
         if rec_id.startswith("de:") or r.category == "duplicate_entry":
             continue
+        # PR-only records (in books, not in GSTR-2B) cannot enter GSTR-3B under Section 16(2)(aa)
+        if rec_id.startswith("pr:") or r.category in ("wrongful_itc_risk", "time_barred_itc"):
+            continue
 
         pid = r.matched_pr_id or ""
         gid = rec_id.removeprefix("pm:").removeprefix("gstr:") if (rec_id.startswith("pm:") or rec_id.startswith("gstr:")) else ""
@@ -503,7 +517,14 @@ def compile_gstr3b_table4(
         # Document/Transaction Type classification
         g_doctype = str(g_rd.get("doc_type") or g_rd.get("document_type") or "").strip().upper()
         p_doctype = str(p_rd.get("doc_type") or p_rd.get("document_type") or "").strip().upper()
-        is_rcm = str(g_rd.get("reverse_charge") or p_rd.get("reverse_charge") or "").strip().upper() in ("Y", "YES", "TRUE")
+        is_rcm = getattr(r, "is_rcm", False) or detect_rcm_supply(g=g_rd, g_rd=g_rd, p=p_rd, p_rd=p_rd)
+
+        is_sec175 = (
+            r.category == "blocked_credit"
+            or bool(r.blocked_credit_flag)
+            or (r.itc_reason and any(k in r.itc_reason.lower() for k in ("17(5)", "17 (5)", "blocked", "sec 17")))
+            or getattr(r, "normalized_reason", None) == "BLOCKED_CREDIT"
+        )
 
         # Check Dispositions
         disp_175 = dispositions.get(f"{rec_id}:SEC_17_5") or dispositions.get(rec_id)
@@ -527,12 +548,12 @@ def compile_gstr3b_table4(
         # Row Allocation Logic
         # -------------------------------------------------------------
 
-        # CASE 0: Section 16(4) Time-Barred & Place of Supply (PoS) Restricted -> 4D2 ONLY
+        # CASE 0: Section 16(4) Time-Barred & Place of Supply (PoS) Restricted & GSTR-2B Unavailable -> 4D2 ONLY
         # Circular 170/02/2022 Para 4.3 rule:
         # Such details are for information only and must be reported in Table 4(D)(2).
         # They must NEVER enter Table 4(A) or Table 4(B)!
         is_4d2_restricted, reason_4d2 = is_section_16_4_or_pos_restricted(r, g_rd, p_rd, disp_4d2)
-        if is_4d2_restricted:
+        if is_4d2_restricted or (getattr(r, "itc_available", True) is False and not is_sec175 and r.category != "rule37_warnings"):
             t4d2.add(sig_igst, sig_cgst, sig_sgst, sig_cess)
             contributing_record_ids.append(rec_id)
             continue
@@ -549,10 +570,14 @@ def compile_gstr3b_table4(
             contributing_record_ids.append(rec_id)
             continue
 
-        # CASE 3: Domestic Inward RCM -> 4A3
+        # CASE 3: Domestic Inward RCM -> 4A3 (Eligible RCM ITC only; ineligible goes to 4B1 or 4D2)
         if is_rcm and (p_rd or r.category == "matched"):
-            t4a3.add(sig_igst, sig_cgst, sig_sgst, sig_cess)
-            contributing_record_ids.append(rec_id)
+            if getattr(r, "itc_available", True) and not is_sec175:
+                t4a3.add(sig_igst, sig_cgst, sig_sgst, sig_cess)
+                contributing_record_ids.append(rec_id)
+            elif is_sec175:
+                t4b1.add(sig_igst, sig_cgst, sig_sgst, sig_cess)
+                contributing_record_ids.append(rec_id)
             continue
 
         # CASE 4: PR-Only (Missed ITC) -> Not included in current 4A (Section 16(2)(aa))
