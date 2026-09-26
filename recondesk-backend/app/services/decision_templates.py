@@ -165,6 +165,11 @@ TEMPLATES: dict[str, dict[str, str]] = {
             "in GSTR-3B."
         ),
     },
+    "REVIEW_DOC_TYPE_NOTE_IN_B2B": {
+        "what": "Potential Credit/Debit Note misfiled in B2B table",
+        "why": "Invoice number prefix or document type indicates a Credit Note (CBN/CRN) or Debit Note (DBN/DRN) filed under the B2B invoice table instead of the CDNR table.",
+        "next": "Verify document nature with supplier. If this is a Credit Note, ensure ITC is reversed in GSTR-3B Table 4(B)(2); do not claim as domestic inward ITC.",
+    },
     "REVIEW_GENERIC": {
         "what": "Review required — {confidence_pct}% confidence",
         "why": "This record requires human verification ({review_reason})",

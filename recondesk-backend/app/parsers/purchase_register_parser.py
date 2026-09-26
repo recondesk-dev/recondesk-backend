@@ -1031,9 +1031,9 @@ def _classify_invoice_type(
     """
     if note_type_hint:
         hint_clean = str(note_type_hint).strip().lower()
-        if re.search(r"credit|\bcn\b|return", hint_clean) and not re.search(r"debit|\bdn\b", hint_clean):
+        if re.search(r"credit|\bcn\b|\bcbt\b|return", hint_clean) and not re.search(r"debit|\bdn\b|\bdbt\b", hint_clean):
             return "CREDIT_NOTE"
-        if re.search(r"debit|\bdn\b", hint_clean):
+        if re.search(r"debit|\bdn\b|\bdbt\b", hint_clean):
             return "DEBIT_NOTE"
 
     if original_taxable is not None and original_taxable < 0:

@@ -43,6 +43,9 @@ _RE_NOTE_IDENTIFIER = re.compile(
 _RE_FISCAL_SERIES = re.compile(
     r"^[A-Z0-9]{1,5}[/-](?:20\d\d|19\d\d|\d{2}-\d{2})[/-]", re.IGNORECASE
 )
+_RE_NOTE_IN_B2B = re.compile(
+    r"^(?:DBN|CBN|CRN|DRN|CDN|CREDIT(?:NOTE)?|DEBIT(?:NOTE)?)[-_/\s]", re.IGNORECASE
+)
 
 
 
@@ -1410,6 +1413,61 @@ def _match_gstr_to_pr_pair(
             identity_confidence="High",
             financial_status=financial_status,
             review_reason="PERIOD_BOUNDARY_DATE_MISMATCH",
+        )
+
+    # Note-in-B2B document type guard:
+    # If a supplier files a Credit Note or Debit Note under the B2B invoice table
+    # (e.g. prefix DBN/, CBN/, CRN/, DRN/, or explicit CBT/DBT doc_type hint),
+    # link the pair but route to Review Required. A Credit Note in B2B requires
+    # ITC reversal in GSTR-3B Table 4(B)(2) rather than regular Table 4(A)(5) claim.
+    g_sec = str(gstr_rec.get("section") or gstr_rec.get("table_name") or "").lower().strip()
+    is_cdnr = g_sec in ("cdnr", "cdnra", "cdnur", "cdnura")
+    is_b2b_section = g_sec in ("b2b", "b2ba", "")
+
+    g_is_cn = _is_credit_note(gstr_rec)
+    g_is_dn = _is_debit_note(gstr_rec)
+    p_is_cn = _is_credit_note(pr_rec)
+    p_is_dn = _is_debit_note(pr_rec)
+    is_legit_note_pair = is_cdnr or (g_is_cn and p_is_cn) or (g_is_dn and p_is_dn)
+
+    g_raw_inv = str(gstr_rec.get("invoice_number_raw") or gstr_rec.get("invoice_number") or "").strip()
+    p_raw_inv = str(pr_rec.get("invoice_number_raw") or pr_rec.get("invoice_number") or "").strip()
+
+    note_in_b2b = not is_legit_note_pair and is_b2b_section and (
+        bool(_RE_NOTE_IN_B2B.match(g_raw_inv))
+        or bool(_RE_NOTE_IN_B2B.match(p_raw_inv))
+        or str(gstr_rec.get("inv_typ") or "").upper().strip() in ("CBT", "DBT")
+        or str(pr_rec.get("document_type") or "").upper().strip() in ("CREDIT_NOTE", "DEBIT_NOTE", "CBT", "DBT")
+        or str(pr_rec.get("invoice_type") or "").upper().strip() in ("CREDIT_NOTE", "DEBIT_NOTE", "CBT", "DBT")
+    )
+
+    if note_in_b2b and gstin_match and (inv_ok or format_variant):
+        is_credit = bool(
+            re.search(r"^(?:CBN|CRN|CDN|CREDIT)", g_raw_inv or p_raw_inv, re.IGNORECASE)
+            or "C" in str(pr_rec.get("document_type") or "").upper()
+            or "C" in str(pr_rec.get("invoice_type") or "").upper()
+            or str(gstr_rec.get("inv_typ") or "").upper().strip() == "CBT"
+        )
+        note_type_str = "Credit Note (CBN/CRN)" if is_credit else "Debit Note (DBN/DRN)"
+        b2b_discrepancies = list(discrepancies) + [f"doc_type: Note in B2B table ({note_type_str})"]
+        return _ret(
+            level=2,
+            matched=True,
+            confidence=85,
+            requires_human_review=True,
+            decision_what="Potential Credit/Debit Note filed in B2B table",
+            decision_why=(
+                f"Invoice number prefix or document type indicates a {note_type_str} filed "
+                "in the B2B invoice table instead of the CDNR table. Verify document nature."
+            ),
+            decision_next=(
+                "Verify document nature with supplier. If this is a Credit Note, "
+                "ensure ITC is reversed in GSTR-3B Table 4(B)(2); do not claim as domestic inward ITC."
+            ),
+            discrepancies=b2b_discrepancies,
+            identity_confidence="High",
+            financial_status=financial_status,
+            review_reason="DOC_TYPE_NOTE_IN_B2B",
         )
 
     # ── Zero-discrepancy invariant — single authoritative rule ───────────────

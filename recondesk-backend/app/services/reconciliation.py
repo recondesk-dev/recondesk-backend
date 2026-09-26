@@ -600,6 +600,13 @@ def _push_review_required(
         match_dict["pr_invoice_date"] = pr_rec.get("invoice_date")
     if gstr_rec is not None and gstr_rec.get("gstin_format_invalid"):
         match_dict["gstin_format_invalid"] = True
+    if best_result is not None:
+        if getattr(best_result, "decision_why", None):
+            match_dict["decision_why"] = best_result.decision_why
+        if getattr(best_result, "decision_what", None):
+            match_dict["decision_what"] = best_result.decision_what
+        if getattr(best_result, "decision_next", None):
+            match_dict["decision_next"] = best_result.decision_next
     state.review_required.append(match_dict)
     if pr_id:
         state.consumed_pr_ids.add(str(pr_id))

@@ -849,11 +849,11 @@ _INVOICE_TYPE_KEYWORDS: dict[str, list[str]] = {
         "sez without payment",
     ],
     "CREDIT_NOTE": [
-        "credit note", "cr note", "credit memo", "cn", "sales return",
+        "credit note", "cr note", "credit memo", "cn", "cbt", "crn", "sales return",
         "credit", "credit note (b2b)", "credit note (b2c)",
     ],
     "DEBIT_NOTE": [
-        "debit note", "dr note", "debit memo", "dn", "debit",
+        "debit note", "dr note", "debit memo", "dn", "dbt", "drn", "debit",
         "debit note (b2b)", "debit note (b2c)",
     ],
     "NIL_RATED": [

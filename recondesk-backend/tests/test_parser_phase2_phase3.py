@@ -275,3 +275,92 @@ def test_fiscal_series_invoices_not_misclassified_as_notes():
         assert r["is_debit_note"] is False
         assert r["taxable_amount_paise"] > 0
 
+
+def test_note_in_b2b_routed_to_review_required():
+    """Verify that credit/debit notes misfiled in B2B table are linked and routed to Review Required."""
+    from app.services.matcher import match_gstr_to_pr
+
+    # 1. DBN in B2B table -> Review Required (DOC_TYPE_NOTE_IN_B2B)
+    gstr_dbn = {
+        "id": "gstr_1",
+        "supplier_gstin": "36HTUAB6544W8ZK",
+        "invoice_number": "DBN20261488",
+        "invoice_number_raw": "DBN/2026-1488",
+        "invoice_date": "2026-04-15",
+        "taxable_amount_paise": 28683078,
+        "total_tax_paise": 5162954,
+        "section": "b2b",
+        "doc_type": "INVOICE",
+    }
+    pr_dbn = {
+        "id": "pr_1",
+        "supplier_gstin": "36HTUAB6544W8ZK",
+        "invoice_number": "DBN20261488",
+        "invoice_number_raw": "DBN/2026-1488",
+        "invoice_date": "2026-04-15",
+        "taxable_amount_paise": 28683078,
+        "total_tax_paise": 5162954,
+        "doc_type": "INVOICE",
+    }
+    res = match_gstr_to_pr(gstr_dbn, [pr_dbn])
+    assert res is not None
+    assert res.matched is True
+    assert res.requires_human_review is True
+    assert res.review_reason == "DOC_TYPE_NOTE_IN_B2B"
+
+    # 2. CBN in B2B table -> Review Required (DOC_TYPE_NOTE_IN_B2B)
+    gstr_cbn = {
+        "id": "gstr_2",
+        "supplier_gstin": "33IHTTJ8007S9ZA",
+        "invoice_number": "CBN20251489",
+        "invoice_number_raw": "CBN/2025-1489",
+        "invoice_date": "2026-07-07",
+        "taxable_amount_paise": 33574409,
+        "total_tax_paise": 4028929,
+        "section": "b2b",
+        "doc_type": "INVOICE",
+    }
+    pr_cbn = {
+        "id": "pr_2",
+        "supplier_gstin": "33IHTTJ8007S9ZA",
+        "invoice_number": "CBN20251489",
+        "invoice_number_raw": "CBN/2025-1489",
+        "invoice_date": "2026-07-07",
+        "taxable_amount_paise": 33574409,
+        "total_tax_paise": 4028929,
+        "doc_type": "INVOICE",
+    }
+    res_cbn = match_gstr_to_pr(gstr_cbn, [pr_cbn])
+    assert res_cbn is not None
+    assert res_cbn.matched is True
+    assert res_cbn.requires_human_review is True
+    assert res_cbn.review_reason == "DOC_TYPE_NOTE_IN_B2B"
+
+    # 3. Regular fiscal series like CR/2026-2999 must remain clean L1 match
+    gstr_cr = {
+        "id": "gstr_3",
+        "supplier_gstin": "27AABCU9603R1ZM",
+        "invoice_number": "CR20262999",
+        "invoice_number_raw": "CR/2026-2999",
+        "invoice_date": "2026-05-15",
+        "taxable_amount_paise": 1000000,
+        "total_tax_paise": 180000,
+        "section": "b2b",
+        "doc_type": "INVOICE",
+    }
+    pr_cr = {
+        "id": "pr_3",
+        "supplier_gstin": "27AABCU9603R1ZM",
+        "invoice_number": "CR20262999",
+        "invoice_number_raw": "CR/2026-2999",
+        "invoice_date": "2026-05-15",
+        "taxable_amount_paise": 1000000,
+        "total_tax_paise": 180000,
+        "doc_type": "INVOICE",
+    }
+    res_cr = match_gstr_to_pr(gstr_cr, [pr_cr])
+    assert res_cr is not None
+    assert res_cr.matched is True
+    assert res_cr.requires_human_review is False
+    assert res_cr.level == 1
+
