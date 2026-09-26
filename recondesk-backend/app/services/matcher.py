@@ -40,6 +40,10 @@ _RE_TRAILING_DIGITS = re.compile(r"\d+$")
 _RE_NOTE_IDENTIFIER = re.compile(
     r"(^|[\-_/])(CRN|CN|DBN|DN|CDN|DRN|CREDIT|DEBIT)([\-_/\s0-9]|$)", re.IGNORECASE
 )
+_RE_FISCAL_SERIES = re.compile(
+    r"^[A-Z0-9]{1,5}[/-](?:20\d\d|19\d\d|\d{2}-\d{2})[/-]", re.IGNORECASE
+)
+
 
 
 def normalise_inv_no(s: Any) -> str:
@@ -1011,12 +1015,17 @@ def _is_credit_note(rec: Mapping[str, Any] | None) -> bool:
     if section in ("b2b", "b2ba", "b2cl", "b2cla", "b2cs", "b2csa", "exp", "expa"):
         return False
     doc_type = str(rec.get("doc_type") or "").upper().strip()
-    if doc_type in ("CREDIT_NOTE", "CN", "CREDIT", "C"):
-        return True
-    if doc_type in ("INVOICE", "TAX_INVOICE", "INV"):
+    inv_type = str(rec.get("invoice_type") or "").upper().strip()
+    document_type = str(rec.get("document_type") or "").upper().strip()
+    if (
+        doc_type in ("INVOICE", "TAX_INVOICE", "INV")
+        or inv_type in ("INVOICE", "TAX_INVOICE", "INV")
+        or document_type in ("INVOICE", "TAX_INVOICE", "INV")
+    ):
         if not (rec.get("credit_note_number") or rec.get("note_number") or rec.get("nt_num") or rec.get("ntnum") or str(rec.get("ntty") or "").upper().strip() in ("C", "CR")):
             return False
-    inv_type = str(rec.get("invoice_type") or "").upper().strip()
+    if doc_type in ("CREDIT_NOTE", "CN", "CREDIT", "C"):
+        return True
     if inv_type in ("CREDIT_NOTE", "CN", "CREDIT", "C"):
         return True
     ntty = str(rec.get("ntty") or "").upper().strip()
@@ -1028,7 +1037,9 @@ def _is_credit_note(rec: Mapping[str, Any] | None) -> bool:
     if rec.get("credit_note_number") or rec.get("note_number") or rec.get("nt_num") or rec.get("ntnum"):
         return True
     inv_num = str(rec.get("invoice_number_raw") or rec.get("invoice_number") or "").strip()
-    if inv_num and re.search(r"(^|[\-_/])(CRN|CN)([\-_/\s0-9]|$)", inv_num, re.IGNORECASE):
+    if inv_num and _RE_FISCAL_SERIES.search(inv_num):
+        pass
+    elif inv_num and re.search(r"(^|[\-_/])(CRN|CN)([\-_/\s0-9]|$)", inv_num, re.IGNORECASE):
         return True
     taxable = _optional_taxable(rec)
     if taxable is not None:
@@ -1053,7 +1064,12 @@ def _is_debit_note(rec: Mapping[str, Any] | None) -> bool:
         return False
     doc_type = str(rec.get("doc_type") or "").upper().strip()
     inv_type = str(rec.get("invoice_type") or "").upper().strip()
-    if doc_type in ("INVOICE", "TAX_INVOICE", "INV") or inv_type in ("INVOICE", "TAX_INVOICE", "INV"):
+    document_type = str(rec.get("document_type") or "").upper().strip()
+    if (
+        doc_type in ("INVOICE", "TAX_INVOICE", "INV")
+        or inv_type in ("INVOICE", "TAX_INVOICE", "INV")
+        or document_type in ("INVOICE", "TAX_INVOICE", "INV")
+    ):
         if not (rec.get("debit_note_number") or rec.get("note_number") or rec.get("nt_num") or rec.get("ntnum") or str(rec.get("ntty") or "").upper().strip() in ("D", "DR")):
             return False
     if doc_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN"):
@@ -1067,7 +1083,9 @@ def _is_debit_note(rec: Mapping[str, Any] | None) -> bool:
     if "DEBIT" in voucher_type or voucher_type in ("DN", "DR NOTE", "DR. NOTE"):
         return True
     inv_num = str(rec.get("invoice_number_raw") or rec.get("invoice_number") or "").strip()
-    if inv_num and re.search(r"(^|[\-_/])(DBN|DN)([\-_/\s0-9]|$)", inv_num, re.IGNORECASE):
+    if inv_num and _RE_FISCAL_SERIES.search(inv_num):
+        pass
+    elif inv_num and re.search(r"(^|[\-_/])(DBN|DN)([\-_/\s0-9]|$)", inv_num, re.IGNORECASE):
         return True
     return False
 
@@ -1095,6 +1113,15 @@ def are_document_types_compatible(
 
     # 1. Reject cross-type match (Invoice <-> Note)
     if g_is_note != p_is_note:
+        # Failsafe: If GSTR is a verified B2B invoice (not a note) and PR has non-negative
+        # amount and was not explicitly quarantined in a notes sheet, treat as compatible invoice pair.
+        if not g_is_note:
+            p_quarantine = bool(pr_rec.get("pr_note_quarantine"))
+            p_note_no = bool(pr_rec.get("note_number"))
+            p_taxable = _optional_taxable(pr_rec)
+            p_taxable_val = int(p_taxable) if p_taxable is not None else 0
+            if not p_quarantine and not p_note_no and p_taxable_val >= 0:
+                return True, "INVOICE_PAIR"
         return False, "CROSS_DOCUMENT_TYPE_REJECTED"
 
     if not g_is_note:

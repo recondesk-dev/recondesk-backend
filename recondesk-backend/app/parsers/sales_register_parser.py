@@ -923,8 +923,13 @@ def _classify_invoice_type_from_column(raw_type: str | None) -> str | None:
     return None
 
 
-_CREDIT_NOTE_PREFIXES: tuple[str, ...] = ("CREDIT", "CRN", "CN", "CR")
-_DEBIT_NOTE_PREFIXES: tuple[str, ...] = ("DEBIT", "DRN", "DN", "DR")
+_CREDIT_NOTE_PREFIXES: tuple[str, ...] = ("CREDITNOTE", "CREDIT_NOTE", "CRN", "CDN")
+_DEBIT_NOTE_PREFIXES: tuple[str, ...] = ("DEBITNOTE", "DEBIT_NOTE", "DRN", "DBN")
+_RE_FISCAL_SERIES = re.compile(
+    r"^[A-Z0-9]{1,5}[/-](?:20\d\d|19\d\d|\d{2}-\d{2})[/-]", re.IGNORECASE
+)
+_RE_CN_NOTE = re.compile(r"^(?:CN|CRN|CDN)[-_/\s]\d+$|^(?:CREDIT)[-_/\s]", re.IGNORECASE)
+_RE_DN_NOTE = re.compile(r"^(?:DN|DRN|DBN)[-_/\s]\d+$|^(?:DEBIT)[-_/\s]", re.IGNORECASE)
 
 
 def _classify_invoice_type(
@@ -938,11 +943,12 @@ def _classify_invoice_type(
 
     Priority:
     1. Explicit invoice_type column value (if mapped and recognised).
-    2. Invoice number prefix: ``CN`` → CREDIT_NOTE, ``DN`` → DEBIT_NOTE.
-    3. Negative taxable value → CREDIT_NOTE.
-    4. Place of supply indicates foreign country (code 96/97) → EXPORT.
-    5. Valid GSTIN present → B2B.
-    6. No valid GSTIN → B2C.
+    2. Negative taxable value → CREDIT_NOTE.
+    3. Annual fiscal series invoice (e.g. CR/2026-2999) → B2B/B2C/EXPORT.
+    4. Explicit note prefix (CRN, DBN, CREDIT, DEBIT, CN-123) → CREDIT_NOTE / DEBIT_NOTE.
+    5. Place of supply indicates foreign country (code 96/97) → EXPORT.
+    6. Valid GSTIN present → B2B.
+    7. No valid GSTIN → B2C.
     """
     # 1. Explicit column
     if explicit_type is not None:
@@ -950,15 +956,18 @@ def _classify_invoice_type(
         if explicit_cat is not None:
             return explicit_cat
 
-    # 2. Invoice number prefix
-    inv = (invoice_number or "").strip().upper()
-    norm_inv = re.sub(r"[^A-Z0-9]", "", inv)
-    if any(norm_inv.startswith(p) for p in _CREDIT_NOTE_PREFIXES) or (
-        original_taxable is not None and original_taxable < 0
-    ):
+    # 2. Negative taxable value
+    if original_taxable is not None and original_taxable < 0:
         return "CREDIT_NOTE"
-    if any(norm_inv.startswith(p) for p in _DEBIT_NOTE_PREFIXES):
-        return "DEBIT_NOTE"
+
+    inv = (invoice_number or "").strip()
+    if inv and not _RE_FISCAL_SERIES.match(inv):
+        norm_inv = re.sub(r"[^A-Z0-9]", "", inv.upper())
+        if any(norm_inv.startswith(p) for p in _CREDIT_NOTE_PREFIXES) or _RE_CN_NOTE.match(inv):
+            return "CREDIT_NOTE"
+        if any(norm_inv.startswith(p) for p in _DEBIT_NOTE_PREFIXES) or _RE_DN_NOTE.match(inv):
+            return "DEBIT_NOTE"
+
 
     # 3. (Negative taxable already handled above with CN prefix check)
 

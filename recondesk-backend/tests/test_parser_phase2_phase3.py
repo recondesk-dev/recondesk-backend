@@ -222,3 +222,56 @@ def test_accounting_footer_row_skipped():
     assert len(result["records"]) == 1
     assert result["records"][0]["invoice_number"] == "INV-001"
     assert result["skip_reasons"].get("total_or_summary_row", 0) == 2
+
+
+def test_fiscal_series_invoices_not_misclassified_as_notes():
+    """Verify that invoices with series prefixes like DR/..., CR/..., DN/..., CN/... are parsed as INVOICE."""
+    df = pd.DataFrame([
+        {
+            "GSTIN": "27TGMMX1218P9Z3",
+            "Invoice No": "DR/2025-3256",
+            "Date": "2026-09-21",
+            "Taxable Value": 112157.26,
+            "CGST": 6729.44,
+            "SGST": 6729.44,
+            "Total Amount": 125616.14,
+        },
+        {
+            "GSTIN": "33RXCBI1148Y3ZP",
+            "Invoice No": "CR/2026-2999",
+            "Date": "2026-08-18",
+            "Taxable Value": 467372.65,
+            "IGST": 84127.08,
+            "Total Amount": 551499.73,
+        },
+        {
+            "GSTIN": "33MPOWK1297N2Z6",
+            "Invoice No": "DN/2025-7769",
+            "Date": "2026-05-22",
+            "Taxable Value": 406413.71,
+            "IGST": 73154.47,
+            "Total Amount": 479568.18,
+        },
+        {
+            "GSTIN": "08CZGUR9795K5ZJ",
+            "Invoice No": "CN/2025-8433",
+            "Date": "2026-08-10",
+            "Taxable Value": 269231.47,
+            "IGST": 13461.57,
+            "Total Amount": 282693.04,
+        },
+    ])
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False)
+    content = buf.getvalue()
+
+    result = parse_purchase_register(content, "purchase_register.xlsx")
+    assert result["skipped_rows"] == 0
+    assert len(result["records"]) == 4
+
+    for r in result["records"]:
+        assert r["invoice_type"] == "INVOICE", f"Expected INVOICE for {r['invoice_number']}, got {r['invoice_type']}"
+        assert r["is_credit_note"] is False
+        assert r["is_debit_note"] is False
+        assert r["taxable_amount_paise"] > 0
+

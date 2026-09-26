@@ -1005,8 +1005,13 @@ def normalize_dataframe_to_canonical_schema(
     return pd.DataFrame(out_cols, index=df.index)
 
 
-_CREDIT_NOTE_PREFIXES: tuple[str, ...] = ("CREDIT", "CRN", "CN", "CR")
-_DEBIT_NOTE_PREFIXES: tuple[str, ...] = ("DEBIT", "DRN", "DN", "DR")
+_CREDIT_NOTE_PREFIXES: tuple[str, ...] = ("CREDITNOTE", "CREDIT_NOTE", "CRN", "CDN")
+_DEBIT_NOTE_PREFIXES: tuple[str, ...] = ("DEBITNOTE", "DEBIT_NOTE", "DRN", "DBN")
+_RE_FISCAL_SERIES = re.compile(
+    r"^[A-Z0-9]{1,5}[/-](?:20\d\d|19\d\d|\d{2}-\d{2})[/-]", re.IGNORECASE
+)
+_RE_CN_NOTE = re.compile(r"^(?:CN|CRN|CDN)[-_/\s]\d+$|^(?:CREDIT)[-_/\s]", re.IGNORECASE)
+_RE_DN_NOTE = re.compile(r"^(?:DN|DRN|DBN)[-_/\s]\d+$|^(?:DEBIT)[-_/\s]", re.IGNORECASE)
 
 
 def _classify_invoice_type(
@@ -1019,8 +1024,9 @@ def _classify_invoice_type(
     Rules:
     * explicit note_type_hint containing "credit"/"cn"/"return" -> CREDIT_NOTE
     * explicit note_type_hint containing "debit"/"dn" -> DEBIT_NOTE
-    * credit note prefix (CN, CRN, CR, CREDIT) OR negative taxable -> CREDIT_NOTE
-    * debit note prefix (DN, DRN, DR, DEBIT) -> DEBIT_NOTE
+    * negative taxable value -> CREDIT_NOTE
+    * annual fiscal series invoice (e.g. CR/2026-2999, DN/2025-7769) -> INVOICE
+    * explicit note prefix (CRN, DBN, CREDIT, DEBIT, CN-123, DN-123) -> CREDIT_NOTE / DEBIT_NOTE
     * else -> INVOICE
     """
     if note_type_hint:
@@ -1030,15 +1036,25 @@ def _classify_invoice_type(
         if re.search(r"debit|\bdn\b", hint_clean):
             return "DEBIT_NOTE"
 
-    inv = (invoice_number or "").strip().upper()
-    norm_inv = re.sub(r"[^A-Z0-9]", "", inv)
-    if any(norm_inv.startswith(p) for p in _CREDIT_NOTE_PREFIXES) or (
-        original_taxable is not None and original_taxable < 0
-    ):
+    if original_taxable is not None and original_taxable < 0:
         return "CREDIT_NOTE"
-    if any(norm_inv.startswith(p) for p in _DEBIT_NOTE_PREFIXES):
+
+    inv = (invoice_number or "").strip()
+    if not inv:
+        return "INVOICE"
+
+    # Fiscal series pattern like CR/2026-2999, DR/2025-3256, CN/2025-8433, DN/2025-7769 is an invoice series
+    if _RE_FISCAL_SERIES.match(inv):
+        return "INVOICE"
+
+    norm_inv = re.sub(r"[^A-Z0-9]", "", inv.upper())
+    if any(norm_inv.startswith(p) for p in _CREDIT_NOTE_PREFIXES) or _RE_CN_NOTE.match(inv):
+        return "CREDIT_NOTE"
+    if any(norm_inv.startswith(p) for p in _DEBIT_NOTE_PREFIXES) or _RE_DN_NOTE.match(inv):
         return "DEBIT_NOTE"
+
     return "INVOICE"
+
 
 
 def _df_cell_int(val: Any) -> int | None:
