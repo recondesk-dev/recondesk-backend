@@ -39,6 +39,13 @@ interface NoticeDefenseModalProps {
   clientId: string;
   clientName: string;
   clientGstin: string;
+  initialRunId?: string | null;
+  initialPeriod?: string;
+  initialDemand?: number;
+  initialIgst?: number;
+  initialCgst?: number;
+  initialSgst?: number;
+  initialNoticeType?: string;
   onSaved?: () => void;
 }
 
@@ -48,6 +55,13 @@ export function NoticeDefenseModal({
   clientId,
   clientName,
   clientGstin,
+  initialRunId,
+  initialPeriod,
+  initialDemand,
+  initialIgst,
+  initialCgst,
+  initialSgst,
+  initialNoticeType,
   onSaved,
 }: NoticeDefenseModalProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -55,16 +69,16 @@ export function NoticeDefenseModal({
   // Notice input state
   const [noticeData, setNoticeData] = useState<NoticeDataInput>({
     notice_reference: "",
-    notice_type: "DRC-01C",
-    tax_period: "",
+    notice_type: initialNoticeType || "DRC-01C",
+    tax_period: initialPeriod || "",
     financial_year: "2023-24",
     issue_date: new Date().toISOString().split("T")[0],
     reply_due_date: "",
     issuing_authority: "Office of the Assistant Commissioner, GST",
-    alleged_tax_demand: 500000,
-    alleged_igst: 300000,
-    alleged_cgst: 100000,
-    alleged_sgst: 100000,
+    alleged_tax_demand: initialDemand !== undefined ? initialDemand : 500000,
+    alleged_igst: initialIgst !== undefined ? initialIgst : 300000,
+    alleged_cgst: initialCgst !== undefined ? initialCgst : 100000,
+    alleged_sgst: initialSgst !== undefined ? initialSgst : 100000,
     alleged_cess: 0,
     discrepancy_category: "ITC_EXCESS_3B_VS_2B",
   });
@@ -74,7 +88,7 @@ export function NoticeDefenseModal({
 
   // Step 2: Recon run matching
   const [matchingRuns, setMatchingRuns] = useState<MatchingReconRun[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId || null);
   const [loadingRuns, setLoadingRuns] = useState(false);
 
   // Step 3: Analysis result
@@ -96,8 +110,23 @@ export function NoticeDefenseModal({
       setDefenseResult(null);
       setSaveSuccess(false);
       setCertifiedByCa(false);
+      if (initialPeriod || initialDemand !== undefined || initialRunId) {
+        setNoticeData((prev) => ({
+          ...prev,
+          tax_period: initialPeriod || prev.tax_period,
+          alleged_tax_demand: initialDemand !== undefined ? initialDemand : prev.alleged_tax_demand,
+          alleged_igst: initialIgst !== undefined ? initialIgst : prev.alleged_igst,
+          alleged_cgst: initialCgst !== undefined ? initialCgst : prev.alleged_cgst,
+          alleged_sgst: initialSgst !== undefined ? initialSgst : prev.alleged_sgst,
+          notice_type: initialNoticeType || prev.notice_type,
+          notice_reference: prev.notice_reference || (initialPeriod ? `DRC01C-${initialPeriod.replace(/[^0-9A-Za-z]/g, "")}` : ""),
+        }));
+        if (initialRunId) {
+          setSelectedRunId(initialRunId);
+        }
+      }
     }
-  }, [open]);
+  }, [open, initialPeriod, initialDemand, initialIgst, initialCgst, initialSgst, initialNoticeType, initialRunId]);
 
   if (!open) return null;
 
@@ -601,6 +630,33 @@ export function NoticeDefenseModal({
           {/* STEP 3: DEFENSE WORKPAPER & REPLY GENERATOR */}
           {step === 3 && defenseResult && (
             <div className="space-y-5">
+              {/* Circuit Breaker & Health Warning */}
+              {defenseResult.is_anomalous && (
+                <div className="p-4 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 space-y-2 animate-in fade-in">
+                  <div className="flex items-center gap-2 font-bold text-rose-950 text-xs">
+                    <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0" />
+                    <span>Statutory Defense Circuit Breaker — Anomalous Match Profile</span>
+                  </div>
+                  <p className="text-xs text-rose-800 leading-relaxed">
+                    {defenseResult.run_integrity_warnings?.[0] ||
+                      "This reconciliation run has an abnormally low match rate (<15%). To prevent filing inaccurate statutory defenses, exporting and saving are blocked. Please re-verify whether the uploaded register belongs to another entity or tax period."}
+                  </p>
+                </div>
+              )}
+
+              {!defenseResult.is_anomalous && defenseResult.run_quality_status === "PERIOD_MISMATCH" && (
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 space-y-1 text-xs">
+                  <div className="flex items-center gap-2 font-bold text-amber-950">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Return Period Warning</span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    {defenseResult.run_integrity_warnings?.[0] ||
+                      "Notice period does not match reconciliation run period. Cross-period defense requires verification."}
+                  </p>
+                </div>
+              )}
+
               {/* Defense Mathematical Summary Card */}
               <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 text-white shadow-lg space-y-4">
                 <div className="flex items-center justify-between border-b border-indigo-900/60 pb-3">
@@ -892,10 +948,20 @@ export function NoticeDefenseModal({
 
             {step === 3 && defenseResult && (
               <>
+                {defenseResult.is_anomalous ? (
+                  <span className="text-xs text-rose-600 font-bold px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-200">
+                    Defense Blocked: Anomalous Run
+                  </span>
+                ) : !certifiedByCa ? (
+                  <span className="text-xs text-amber-700 font-semibold px-2 py-1">
+                    Check practitioner certification to export
+                  </span>
+                ) : null}
+
                 <button
                   onClick={handleDownloadExcel}
-                  disabled={downloadingExcel}
-                  className="px-4 py-2.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 text-xs font-bold flex items-center gap-2 transition-colors"
+                  disabled={downloadingExcel || defenseResult.is_anomalous || !certifiedByCa}
+                  className="px-4 py-2.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 text-xs font-bold flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {downloadingExcel ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4 text-emerald-600" />}
                   <span>Export Excel Annexure</span>
@@ -903,8 +969,8 @@ export function NoticeDefenseModal({
 
                 <button
                   onClick={handleSaveNotice}
-                  disabled={savingNotice || saveSuccess}
-                  className={`px-5 py-2.5 rounded-xl text-white text-xs font-bold flex items-center gap-2 shadow-md transition-all ${
+                  disabled={savingNotice || saveSuccess || defenseResult.is_anomalous || !certifiedByCa}
+                  className={`px-5 py-2.5 rounded-xl text-white text-xs font-bold flex items-center gap-2 shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                     saveSuccess
                       ? "bg-emerald-600 shadow-emerald-100"
                       : "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100"

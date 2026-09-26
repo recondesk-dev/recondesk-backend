@@ -530,6 +530,7 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             expected_count=len(for_sanity),
             source_type=file_type,
             client_gstin=client_gstin_fallback or None,
+            target_period=period or None,
         )
         sanity_json = _sanity_checks_to_json(checks)
         if file_type == "purchase_register" and pr_sheet_meta is not None:

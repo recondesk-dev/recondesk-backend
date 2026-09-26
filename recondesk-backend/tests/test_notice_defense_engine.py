@@ -286,3 +286,94 @@ def test_find_matching_reconciliation_runs_scoring():
     assert len(runs) == 3
     # Target period (032024 vs 2024-03) must be ranked first
     assert runs[0]["id"] == "run-target"
+
+
+def test_notice_defense_zero_hallucination_on_empty_run(monkeypatch):
+    """When a linked run has no matched invoices, strictly output 0 invoices and unverified status."""
+    mock_sb = MagicMock()
+    mock_sb.table().select().eq().limit().execute.return_value.data = [
+        {"id": "client-1", "gstin": "27AABCT1234F1Z1", "trade_name": "Test Client"}
+    ]
+
+    import app.services.reconciliation_outcomes as ro
+    monkeypatch.setattr(ro, "load_payload", lambda sb, run_id: {"engine": {"matched": []}})
+
+    notice_input = {
+        "notice_reference": "DIN-EMPTY-001",
+        "notice_type": "DRC-01C",
+        "tax_period": "092024",
+        "alleged_tax_demand": 200000.0,
+    }
+
+    result = compute_notice_defense(mock_sb, "client-1", notice_input, run_id="run-empty")
+    assert result["reconciliation_run_id"] == "run-empty"
+    # Must NOT hallucinate dummy rows when run_id is passed
+    assert len(result["invoices_schedule"]) == 0
+    assert result["defense_summary"]["unexplained_balance"] == 200000.0
+    assert result["defense_summary"]["reconciliation_status"] == "DEFENSE_UNVERIFIED_NO_EVIDENCE"
+
+
+def test_notice_defense_anomalous_run_blocks_defense(monkeypatch):
+    """When a run has <15% match rate, it must flag CANNOT_DEFEND_ANOMALOUS_RUN."""
+    mock_sb = MagicMock()
+    # 1st call for client, 2nd call for run_meta
+    client_mock = MagicMock()
+    client_mock.data = [{"id": "client-1", "gstin": "27AABCT1234F1Z1", "trade_name": "Test Client"}]
+    run_mock = MagicMock()
+    run_mock.data = [{"id": "run-anom", "period": "092024", "total_records": 100}]
+
+    mock_sb.table().select().eq().limit().execute.side_effect = [client_mock, run_mock]
+
+    # Only 2 matches out of 100 records (2% match rate)
+    import app.services.reconciliation_outcomes as ro
+    dummy_matches = [
+        {"supplier_gstin": "27A", "invoice_number": "1", "total_tax_paise": 100000, "is_late_filing": True}
+    ]
+    monkeypatch.setattr(
+        ro,
+        "load_payload",
+        lambda sb, run_id: {
+            "engine": {
+                "matched": dummy_matches,
+                "missing_in_gstr": [{}] * 50,
+                "missing_in_pr": [{}] * 49,
+            }
+        },
+    )
+
+    notice_input = {
+        "notice_reference": "DIN-ANOM-001",
+        "notice_type": "DRC-01C",
+        "tax_period": "092024",
+        "alleged_tax_demand": 100000.0,
+    }
+
+    result = compute_notice_defense(mock_sb, "client-1", notice_input, run_id="run-anom")
+    assert result["is_anomalous"] is True
+    assert result["run_quality_status"] == "ANOMALOUS_LOW_MATCH_RATE"
+    assert result["defense_summary"]["reconciliation_status"] == "CANNOT_DEFEND_ANOMALOUS_RUN"
+    assert any("abnormally low" in w for w in result["run_integrity_warnings"])
+
+
+def test_notice_defense_period_mismatch_flags_warning():
+    """When notice period differs from run period, flag DEFENSE_PERIOD_MISMATCH."""
+    mock_sb = MagicMock()
+    client_mock = MagicMock()
+    client_mock.data = [{"id": "client-1", "gstin": "27AABCT1234F1Z1", "trade_name": "Test Client"}]
+    run_mock = MagicMock()
+    # Run is for July 2024, but notice is for Sept 2024
+    run_mock.data = [{"id": "run-july", "period": "072024", "total_records": 50}]
+
+    mock_sb.table().select().eq().limit().execute.side_effect = [client_mock, run_mock]
+
+    notice_input = {
+        "notice_reference": "DIN-PERIOD-001",
+        "notice_type": "DRC-01C",
+        "tax_period": "092024",
+        "alleged_tax_demand": 50000.0,
+    }
+
+    result = compute_notice_defense(mock_sb, "client-1", notice_input, run_id="run-july")
+    assert result["run_quality_status"] == "PERIOD_MISMATCH"
+    assert result["defense_summary"]["reconciliation_status"] == "DEFENSE_PERIOD_MISMATCH"
+    assert any("does not match reconciliation run period" in w for w in result["run_integrity_warnings"])

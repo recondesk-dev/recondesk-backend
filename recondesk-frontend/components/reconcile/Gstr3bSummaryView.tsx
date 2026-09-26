@@ -23,6 +23,7 @@ import {
   statCardsGridClass,
 } from "./ResultsUi";
 import { Table4WorkpaperView } from "./Table4WorkpaperView";
+import { NoticeDefenseModal } from "@/components/notices/NoticeDefenseModal";
 
 
 const ITC_SOURCE_ORDER = ["IMPG", "IMPS", "ISRC", "ISD", "OTH"] as const;
@@ -129,7 +130,13 @@ function secondaryHasSignal(filed: Gstr3bFiledSummary): boolean {
   return false;
 }
 
-function Drc01cBanner({ drc }: { drc: Gstr3bDrc01cResult }) {
+function Drc01cBanner({
+  drc,
+  onPrepareDefense,
+}: {
+  drc: Gstr3bDrc01cResult;
+  onPrepareDefense?: () => void;
+}) {
   const pctLabel =
     drc.excess_pct == null
       ? "n/a (2B available is ₹0)"
@@ -157,9 +164,20 @@ function Drc01cBanner({ drc }: { drc: Gstr3bDrc01cResult }) {
       <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[13px] font-semibold text-red-800">DRC-01C — TRIGGER</p>
-          <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-[11px] font-semibold text-red-800 ring-1 ring-red-200">
-            Threshold crossed
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-[11px] font-semibold text-red-800 ring-1 ring-red-200">
+              Threshold crossed
+            </span>
+            {onPrepareDefense && (
+              <button
+                type="button"
+                onClick={onPrepareDefense}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm hover:bg-red-700 transition-colors"
+              >
+                <span>Prepare DRC-01C Defense</span>
+              </button>
+            )}
+          </div>
         </div>
         <p className="mt-1.5 text-[12px] text-red-700/90 leading-relaxed">
           Excess {formatINR(drc.excess_amount)} ({pctLabel} of 2B). Both Rule 88D gates exceeded
@@ -174,9 +192,20 @@ function Drc01cBanner({ drc }: { drc: Gstr3bDrc01cResult }) {
     <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[13px] font-semibold text-amber-900">DRC-01C — BELOW THRESHOLD</p>
-        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-900 ring-1 ring-amber-200">
-          Overclaim, under trigger
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-900 ring-1 ring-amber-200">
+            Overclaim, under trigger
+          </span>
+          {onPrepareDefense && (
+            <button
+              type="button"
+              onClick={onPrepareDefense}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-bold text-amber-900 shadow-sm hover:bg-amber-50 transition-colors"
+            >
+              <span>Verify Defense Readiness</span>
+            </button>
+          )}
+        </div>
       </div>
       <p className="mt-1.5 text-[12px] text-amber-800/90 leading-relaxed">
         Overclaim {formatINR(drc.excess_amount)} ({pctLabel}) is below the dual gate (&gt;{" "}
@@ -585,6 +614,7 @@ export function Gstr3bSummaryView({
   onFinalizeSuccess?: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<"workpaper" | "tieout">("workpaper");
+  const [showDefenseModal, setShowDefenseModal] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const reuploadRef = useRef<HTMLInputElement>(null);
@@ -731,7 +761,10 @@ export function Gstr3bSummaryView({
 
               {/* 1. DRC-01C — most actionable */}
               {data.drc01c ? (
-                <Drc01cBanner drc={data.drc01c} />
+                <Drc01cBanner
+                  drc={data.drc01c}
+                  onPrepareDefense={() => setShowDefenseModal(true)}
+                />
               ) : (
                 <div className="rounded-xl border border-[#E5E7EB] bg-[#FAFAFA] px-4 py-3 text-[12px] text-gray-500">
                   DRC-01C threshold not available for this result.
@@ -852,6 +885,23 @@ export function Gstr3bSummaryView({
             </div>
           )}
         </div>
+      )}
+
+      {showDefenseModal && data && (
+        <NoticeDefenseModal
+          open={showDefenseModal}
+          onClose={() => setShowDefenseModal(false)}
+          clientId={data.client_gstin_id || ""}
+          clientName={data.client_gstin || "Client Taxpayer"}
+          clientGstin={data.client_gstin || ""}
+          initialRunId={runId}
+          initialPeriod={data.tax_period}
+          initialDemand={data.drc01c?.excess_amount || 0}
+          initialIgst={Math.max(0, data.igst.difference || 0)}
+          initialCgst={Math.max(0, data.cgst.difference || 0)}
+          initialSgst={Math.max(0, data.sgst.difference || 0)}
+          initialNoticeType="DRC-01C"
+        />
       )}
     </div>
   );

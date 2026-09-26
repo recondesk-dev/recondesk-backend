@@ -403,3 +403,40 @@ def test_pr_column_inversion_auto_correction():
     assert records[1]["gstin"] == "06AADKT1002A1Z2"
     assert records[2]["gstin"] == "24AAMPN1003A1Z3"
 
+
+def test_period_date_alignment_passes_when_dates_match_target():
+    rows = [
+        _base(invoice_number_normalized=f"INV-{i}", invoice_date="2024-09-15")
+        for i in range(10)
+    ]
+    checks = run_import_sanity(
+        rows,
+        expected_count=10,
+        source_type="purchase_register",
+        target_period="09-2024",
+    )
+    c = _by_name(checks, "Period Date Alignment")
+    assert c.passed is True
+    assert c.severity == "info"
+    assert "align with selected return period September 2024" in c.detail
+
+
+def test_period_date_alignment_fails_when_dates_belong_to_different_month():
+    # 9 out of 10 rows in July 2024, but target period is September 2024
+    rows = [
+        _base(invoice_number_normalized=f"INV-{i}", invoice_date="2024-07-20")
+        for i in range(9)
+    ] + [_base(invoice_number_normalized="INV-9", invoice_date="2024-09-05")]
+    checks = run_import_sanity(
+        rows,
+        expected_count=10,
+        source_type="purchase_register",
+        target_period="2024-09",
+    )
+    c = _by_name(checks, "Period Date Alignment")
+    assert c.passed is False
+    assert c.severity == "warning"
+    assert "90.0% of invoices (9 of 10) belong to a different tax period" in c.detail
+    assert "Dominant period in file: July 2024" in c.detail
+    assert len(c.affected_records) > 0
+

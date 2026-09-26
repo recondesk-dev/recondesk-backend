@@ -30,6 +30,9 @@ export interface DefenseSummary {
   reconciled_pct: number;
   reconciliation_status: "FULLY_RECONCILED" | "PARTIALLY_EXPLAINED" | string;
   supporting_invoices_count: number;
+  run_quality_status?: string;
+  run_integrity_warnings?: string[];
+  is_anomalous?: boolean;
 }
 
 export interface InvoiceScheduleItem {
@@ -61,6 +64,9 @@ export interface NoticeDefenseResult {
   alleged_sgst: number;
   alleged_cess: number;
   defense_summary: DefenseSummary;
+  run_quality_status?: string;
+  run_integrity_warnings?: string[];
+  is_anomalous?: boolean;
   invoices_schedule: InvoiceScheduleItem[];
   formal_reply_text: string;
 }

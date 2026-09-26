@@ -62,6 +62,26 @@ def normalize_date_for_key(value: Any) -> str | None:
     return d.isoformat() if d is not None else None
 
 
+def parse_tax_period_year_month(period_str: Any) -> tuple[int, int] | None:
+    """Parse tax period strings like '2024-09', '09-2024', '092024', '202409' into (year, month)."""
+    if not period_str or not isinstance(period_str, str):
+        return None
+    s = period_str.strip().replace("/", "-")
+    # Patterns: YYYY-MM or YYYYMM
+    m1 = re.match(r"^(\d{4})-?(\d{2})$", s)
+    if m1:
+        y, m = int(m1.group(1)), int(m1.group(2))
+        if 1 <= m <= 12 and 2000 <= y <= 2100:
+            return y, m
+    # Patterns: MM-YYYY or MMYYYY
+    m2 = re.match(r"^(\d{2})-?(\d{4})$", s)
+    if m2:
+        m, y = int(m2.group(1)), int(m2.group(2))
+        if 1 <= m <= 12 and 2000 <= y <= 2100:
+            return y, m
+    return None
+
+
 def is_valid_gstin(value: Any) -> bool:
     s = normalize_string(value)
     if not s or s in GSTIN_PLACEHOLDERS:
@@ -160,6 +180,7 @@ def run_import_sanity(
     expected_count: int,
     source_type: str,
     client_gstin: str | None = None,
+    target_period: str | None = None,
 ) -> list[SanityCheck]:
     is_pr = source_type == "purchase_register"
     n = len(records)
@@ -412,6 +433,72 @@ def run_import_sanity(
             affected_records=_sample(bad_neg),
         )
     )
+
+    # 8 — Period Date Alignment (when target_period is supplied)
+    target_ym = parse_tax_period_year_month(target_period)
+    if target_ym is not None:
+        from collections import Counter
+
+        target_y, target_m = target_ym
+        target_label = datetime.date(target_y, target_m, 1).strftime("%B %Y")
+
+        valid_date_recs: list[tuple[dict, tuple[int, int]]] = []
+        for rec in records:
+            d = parse_date_safe(rec.get("invoice_date"))
+            if d is not None:
+                valid_date_recs.append((rec, (d.year, d.month)))
+
+        n_dates = len(valid_date_recs)
+        if n_dates >= 5:
+            counts = Counter(ym for _, ym in valid_date_recs)
+            matching_count = counts.get(target_ym, 0)
+            mismatch_count = n_dates - matching_count
+            mismatch_pct = (mismatch_count / n_dates) * 100.0
+
+            top_ym, top_count = counts.most_common(1)[0]
+            top_label = datetime.date(top_ym[0], top_ym[1], 1).strftime("%B %Y")
+
+            wrong_period_recs = [rec for rec, ym in valid_date_recs if ym != target_ym]
+
+            if mismatch_pct > 80.0:
+                out.append(
+                    SanityCheck(
+                        name="Period Date Alignment",
+                        passed=False,
+                        detail=(
+                            f"{round(mismatch_pct, 1)}% of invoices ({mismatch_count} of {n_dates}) "
+                            f"belong to a different tax period than selected ({target_label}). "
+                            f"Dominant period in file: {top_label} ({top_count} invoices). "
+                            "Please verify you did not upload the wrong period's register."
+                        ),
+                        severity="warning",
+                        affected_records=_sample(wrong_period_recs),
+                    )
+                )
+            elif mismatch_pct > 40.0:
+                out.append(
+                    SanityCheck(
+                        name="Period Date Alignment",
+                        passed=False,
+                        detail=(
+                            f"{round(mismatch_pct, 1)}% of invoices ({mismatch_count} of {n_dates}) "
+                            f"fall outside the active filing period ({target_label}). "
+                            f"{matching_count} invoices are in-period."
+                        ),
+                        severity="warning",
+                        affected_records=_sample(wrong_period_recs),
+                    )
+                )
+            else:
+                out.append(
+                    SanityCheck(
+                        name="Period Date Alignment",
+                        passed=True,
+                        detail=f"Invoice dates align with selected return period {target_label} ({matching_count} of {n_dates} in-period).",
+                        severity="info",
+                        affected_records=[],
+                    )
+                )
 
     return out
 

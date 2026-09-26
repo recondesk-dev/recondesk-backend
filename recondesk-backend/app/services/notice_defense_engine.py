@@ -321,8 +321,37 @@ def compute_notice_defense(
     # 2. Analyze linked reconciliation run
     table4_data: Optional[dict[str, Any]] = None
     payload_data: Optional[dict[str, Any]] = None
+    run_meta: Optional[dict[str, Any]] = None
+    run_quality_status = "HEALTHY"
+    run_integrity_warnings: list[str] = []
 
     if run_id:
+        try:
+            r_resp = (
+                sb.table("reconciliation_run")
+                .select("id, period, status, total_records, gstr_records_imported, pr_records_imported, summary")
+                .eq("id", run_id)
+                .limit(1)
+                .execute()
+            )
+            if r_resp.data:
+                run_meta = r_resp.data[0]
+        except Exception as exc:
+            _log.warning("error fetching run_meta in notice defense: %s", exc)
+
+        # Period compatibility verification
+        if run_meta and tax_period:
+            run_p = str(run_meta.get("period") or "").strip()
+            if run_p:
+                target_variants = _normalize_period_variants(tax_period)
+                run_variants = _normalize_period_variants(run_p)
+                if target_variants and run_variants and not (target_variants & run_variants):
+                    run_quality_status = "PERIOD_MISMATCH"
+                    run_integrity_warnings.append(
+                        f"Notice period ({tax_period}) does not match reconciliation run period ({run_p}). "
+                        "Cross-period defense requires verification."
+                    )
+
         try:
             table4_data = compile_gstr3b_table4(sb, run_id)
         except Exception as exc:
@@ -396,41 +425,58 @@ def compute_notice_defense(
                 "legal_basis": legal_basis,
             })
 
-    # If timing diffs still zero or no run payload linked, compute realistic statutory attribution
-    if not invoices_schedule:
-        # Generate sample representative schedule based on alleged demand
-        share_timing = round(alleged_total * 0.65, 2)
-        share_reclaim = round(alleged_total * 0.25, 2)
-        share_balance = round(alleged_total - share_timing - share_reclaim, 2)
-        timing_diff_itc = share_timing
-        reclaimed_rule37_itc = share_reclaim
+        # Run match rate anomaly evaluation
+        m_gstr = len(engine.get("missing_in_gstr") or [])
+        m_pr = len(engine.get("missing_in_pr") or [])
+        tot_records = int((run_meta and run_meta.get("total_records")) or (len(matched_pairs) + m_gstr + m_pr))
+        if tot_records >= 20:
+            match_rate = len(matched_pairs) / tot_records
+            if match_rate < 0.15:
+                run_quality_status = "ANOMALOUS_LOW_MATCH_RATE"
+                run_integrity_warnings.append(
+                    f"Reconciliation match rate is abnormally low ({round(match_rate * 100.0, 1)}%). "
+                    "The uploaded Purchase Register appears to belong to another client or period. "
+                    "Defense is flagged as unverified to prevent filing inaccurate statutory data."
+                )
 
-        invoices_schedule.append({
-            "supplier_gstin": "27AABCU9603R1ZM",
-            "supplier_name": "Apex Industrial Supplies Ltd",
-            "invoice_number": "INV-2023-8821",
-            "invoice_date": "2023-11-14",
-            "taxable_value": round(share_timing / 0.18, 2),
-            "igst": share_timing,
-            "cgst": 0.0,
-            "sgst": 0.0,
-            "total_tax": share_timing,
-            "defense_ground": "Inward supply received in FY; supplier uploaded in later period GSTR-1 (Cir 183/15/2022)",
-            "legal_basis": "CGST Act Sec 16(4) / Cir 183/2022",
-        })
-        invoices_schedule.append({
-            "supplier_gstin": "27AABCV5512Q1ZX",
-            "supplier_name": "Zenith Technical Solutions LLP",
-            "invoice_number": "ZTS-902",
-            "invoice_date": "2023-09-20",
-            "taxable_value": round(share_reclaim / 0.18, 2),
-            "igst": 0.0,
-            "cgst": round(share_reclaim / 2, 2),
-            "sgst": round(share_reclaim / 2, 2),
-            "total_tax": share_reclaim,
-            "defense_ground": "Rule 37 reversal re-availed in Table 4(D)(1) post supplier payment",
-            "legal_basis": "Proviso to Rule 37 / Sec 16(2)",
-        })
+    # If no substantiating invoices found:
+    if not invoices_schedule:
+        if run_id:
+            # Strictly zero hallucination when a reconciliation run is linked!
+            run_integrity_warnings.append("No substantiating invoices found in linked reconciliation run.")
+        else:
+            # Standalone statutory simulation mode (when no run is selected yet)
+            share_timing = round(alleged_total * 0.65, 2)
+            share_reclaim = round(alleged_total * 0.25, 2)
+            timing_diff_itc = share_timing
+            reclaimed_rule37_itc = share_reclaim
+
+            invoices_schedule.append({
+                "supplier_gstin": "27AABCU9603R1ZM",
+                "supplier_name": "Apex Industrial Supplies Ltd",
+                "invoice_number": "INV-2023-8821",
+                "invoice_date": "2023-11-14",
+                "taxable_value": round(share_timing / 0.18, 2),
+                "igst": share_timing,
+                "cgst": 0.0,
+                "sgst": 0.0,
+                "total_tax": share_timing,
+                "defense_ground": "Inward supply received in FY; supplier uploaded in later period GSTR-1 (Cir 183/15/2022)",
+                "legal_basis": "CGST Act Sec 16(4) / Cir 183/2022",
+            })
+            invoices_schedule.append({
+                "supplier_gstin": "27AABCV5512Q1ZX",
+                "supplier_name": "Zenith Technical Solutions LLP",
+                "invoice_number": "ZTS-902",
+                "invoice_date": "2023-09-20",
+                "taxable_value": round(share_reclaim / 0.18, 2),
+                "igst": 0.0,
+                "cgst": round(share_reclaim / 2, 2),
+                "sgst": round(share_reclaim / 2, 2),
+                "total_tax": share_reclaim,
+                "defense_ground": "Rule 37 reversal re-availed in Table 4(D)(1) post supplier payment",
+                "legal_basis": "Proviso to Rule 37 / Sec 16(2)",
+            })
 
     # Compute Total Explained & Residual Discrepancy
     total_explained = round(timing_diff_itc + reclaimed_rule37_itc + table4b_reversals_itc, 2)
@@ -440,7 +486,16 @@ def compute_notice_defense(
     unexplained_balance = round(max(0.0, alleged_total - total_explained), 2)
     reconciled_pct = round((total_explained / alleged_total * 100.0), 1) if alleged_total > 0 else 100.0
 
-    recon_status = "FULLY_RECONCILED" if unexplained_balance <= 5.0 else "PARTIALLY_EXPLAINED"
+    if run_quality_status == "ANOMALOUS_LOW_MATCH_RATE":
+        recon_status = "CANNOT_DEFEND_ANOMALOUS_RUN"
+    elif run_quality_status == "PERIOD_MISMATCH":
+        recon_status = "DEFENSE_PERIOD_MISMATCH"
+    elif not invoices_schedule and run_id:
+        recon_status = "DEFENSE_UNVERIFIED_NO_EVIDENCE"
+    elif unexplained_balance <= 5.0:
+        recon_status = "FULLY_RECONCILED"
+    else:
+        recon_status = "PARTIALLY_EXPLAINED"
 
     # Build Formal Legal Reply Text
     formal_reply = _build_formal_reply_letter(
@@ -484,7 +539,13 @@ def compute_notice_defense(
             "reconciled_pct": reconciled_pct,
             "reconciliation_status": recon_status,
             "supporting_invoices_count": len(invoices_schedule),
+            "run_quality_status": run_quality_status,
+            "run_integrity_warnings": run_integrity_warnings,
+            "is_anomalous": run_quality_status in ("ANOMALOUS_LOW_MATCH_RATE", "PERIOD_MISMATCH"),
         },
+        "run_quality_status": run_quality_status,
+        "run_integrity_warnings": run_integrity_warnings,
+        "is_anomalous": run_quality_status in ("ANOMALOUS_LOW_MATCH_RATE", "PERIOD_MISMATCH"),
         "invoices_schedule": invoices_schedule,
         "formal_reply_text": formal_reply,
     }
