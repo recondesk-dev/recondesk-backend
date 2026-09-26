@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Check, CheckCircle, ChevronDown, FileSpreadsheet, FileText, Info, Loader2, Lock, Shield, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle, ChevronDown, FileSpreadsheet, FileText, Info, Loader2, Lock, MessageSquare, Shield, Trash2, Upload, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { localizeDiscrepancyReason } from "@/lib/decision-translations";
 import {
@@ -24,6 +24,7 @@ import { Gstr3bSummaryView } from "@/components/reconcile/Gstr3bSummaryView";
 import { EInvoiceCheckPanel } from "@/components/reconcile/EInvoiceCheckPanel";
 import { AdvancedExportPanel } from "@/components/reconcile/AdvancedExportPanel";
 import { SupplierFollowupLetterModal } from "@/components/reconcile/SupplierFollowupLetterModal";
+import { BatchVendorFollowupDrawer } from "@/components/reconcile/BatchVendorFollowupDrawer";
 import { SupplierGroupView } from "@/components/reconcile/SupplierGroupView";
 import { ItcIneligibleBadge } from "@/components/reconcile/ItcIneligibleBadge";
 import {
@@ -1208,6 +1209,7 @@ export default function ReconcileResultsPage() {
   const [followupSelectionHint, setFollowupSelectionHint] = useState<
     string | null
   >(null);
+  const [batchFollowupDrawerOpen, setBatchFollowupDrawerOpen] = useState(false);
 
   const [activeRecord, setActiveRecord] = useState<ReconcileRow | null>(null);
   const [newNoteText, setNewNoteText] = useState("");
@@ -4138,7 +4140,25 @@ export default function ReconcileResultsPage() {
                 )}
                 {selectedIds.risk.size > 0 && (
                   <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#F0F0F0] bg-[#FAFAFA] px-4 py-2.5 text-[13px]">
-                    <span className="text-gray-600">{selectedIds.risk.size} selected</span>
+                    <span className="text-gray-600 font-medium">{selectedIds.risk.size} selected</span>
+                    <button
+                      type="button"
+                      disabled={
+                        isRunFinalized ||
+                        !authToken ||
+                        riskRowsSelectedOnPage.length === 0
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-full bg-[#0F172A] px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-xs hover:bg-[#1E293B] disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+                      onClick={() => setBatchFollowupDrawerOpen(true)}
+                    >
+                      <MessageSquare className="h-3.5 w-3.5 text-emerald-400" />
+                      <span>Vendor Follow-up Drawer</span>
+                      {riskSelectionGstinCount > 1 && (
+                        <span className="rounded-full bg-white/20 px-1.5 py-0.2 text-[10px] font-mono">
+                          {riskSelectionGstinCount} vendors
+                        </span>
+                      )}
+                    </button>
                     <button
                       type="button"
                       disabled={
@@ -4149,13 +4169,13 @@ export default function ReconcileResultsPage() {
                       }
                       title={
                         riskSelectionGstinCount !== 1
-                          ? "Select invoices from one supplier only"
+                          ? "Select invoices from one supplier only for PDF letter, or use Vendor Follow-up Drawer for batch"
                           : undefined
                       }
                       className="rounded-full bg-[#F5F5F6] px-3 py-1.5 text-[13px] font-medium text-[var(--ink)] hover:bg-gray-200/70 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => tryOpenBulkFollowup()}
                     >
-                      Generate follow-up letter
+                      Download PDF Letter
                     </button>
                     <button
                       type="button"
@@ -6655,6 +6675,20 @@ export default function ReconcileResultsPage() {
           )}
         </div>
       </div>
+
+      {batchFollowupDrawerOpen && summary && authToken && (
+        <BatchVendorFollowupDrawer
+          open={batchFollowupDrawerOpen}
+          onClose={() => setBatchFollowupDrawerOpen(false)}
+          runId={runId}
+          clientId={summary.client_gstin_id || ""}
+          clientName={summary.client_name || ""}
+          clientGstin={summary.client_gstin || ""}
+          taxPeriod={summary.period || ""}
+          rows={riskRowsSelectedOnPage}
+          token={authToken}
+        />
+      )}
 
       {followupLetterRows && summary && authToken && (
         <SupplierFollowupLetterModal
