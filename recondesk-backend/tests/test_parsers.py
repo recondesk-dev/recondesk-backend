@@ -75,3 +75,49 @@ def test_purchase_register_urp_vendor():
     assert res["records"][1]["gstin"] == "URP"
     assert res["records"][1]["gstin_valid"] is True
 
+
+def test_normalize_date_native_types():
+    from app.services.normalizer import normalize_date
+    from datetime import date, datetime
+    import pandas as pd
+
+    assert normalize_date(date(2024, 4, 5)).value == date(2024, 4, 5)
+    assert normalize_date(datetime(2024, 4, 5, 10, 30)).value == date(2024, 4, 5)
+    assert normalize_date(pd.Timestamp("2024-04-05 15:45:00")).value == date(2024, 4, 5)
+
+
+def test_tally_and_busy_excel_parsing():
+    import io, openpyxl
+    from app.parsers.purchase_register_parser import parse_purchase_register
+
+    # Tally format: top metadata, header at row 4, data, footer total
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Purchase"
+    ws.append(["Company XYZ Limited"])
+    ws.append(["GSTIN: 27AABCU9603R1ZX"])
+    ws.append(["Date", "Particulars", "Vch Type", "Vch No.", "GSTIN/UIN", "Gross Total", "Taxable Value", "Integrated Tax"])
+    ws.append(["05-04-2024", "ABC INFOTECH", "Purchase", "PUR/001", "27AABCU9603R1ZX", 118000, 100000, 18000])
+    ws.append(["Total", "", "", "", "", 118000, 100000, 18000])
+    bio = io.BytesIO()
+    wb.save(bio)
+
+    res = parse_purchase_register(bio.getvalue(), "tally.xlsx")
+    assert res["valid_rows"] == 1
+    assert res["records"][0]["invoice_number"] == "PUR/001"
+    assert res["records"][0]["taxable_amount_paise"] == 10000000
+
+
+def test_zoho_books_csv_parsing():
+    from app.parsers.purchase_register_parser import parse_purchase_register
+    zoho_csv = (
+        b"Vendor Name,GST Identification Number (GSTIN),Invoice Date,Invoice#,SubTotal,Total,IGST\n"
+        b"ALPHA CONSULTING,27AABCU9603R1ZX,2024-04-02,INV-2024-01,150000,177000,27000\n"
+    )
+    res = parse_purchase_register(zoho_csv, "zoho_bills.csv")
+    assert res["valid_rows"] == 1
+    assert res["records"][0]["invoice_number"] == "INV-2024-01"
+    assert res["records"][0]["gstin"] == "27AABCU9603R1ZX"
+    assert res["records"][0]["total_tax_paise"] == 2700000
+
+

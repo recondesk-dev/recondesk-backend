@@ -239,7 +239,7 @@ COLUMN_ALIASES: dict[str, list[str]] = merge_aliases(
 
 # Sheets whose normalised name contains any of these words are skipped.
 _SKIP_SHEET_WORDS: frozenset[str] = frozenset(
-    ["summary", "total", "instruction", "readme"]
+    ["summary", "total", "instruction", "readme", "read me", "legend", "metadata", "guidelines", "faq", "help"]
 )
 
 # Row-level skip markers (normalised cell value must start with one of these).

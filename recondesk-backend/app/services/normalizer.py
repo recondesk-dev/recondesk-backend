@@ -253,6 +253,12 @@ def normalize_date(raw) -> NormalizationResult:
         _note(notes, "excel_serial_converted")
         return NormalizationResult(value=date_val, notes=notes)
 
+    # --- Native date / datetime / Timestamp objects ---
+    if hasattr(raw, "date") and callable(raw.date):
+        return NormalizationResult(value=raw.date(), notes=notes)
+    if isinstance(raw, datetime.date):
+        return NormalizationResult(value=raw, notes=notes)
+
     if not isinstance(raw, str):
         raise NormalizationError("date", raw, "invalid_format")
 
