@@ -39,6 +39,12 @@ from app.parsers.erp_profiles import (
     ERP_SALES_ALIASES,
     is_erp_credit_note,
 )
+from app.parsers.resilient_recovery import (
+    _is_probable_date,
+    _is_probable_gstin,
+    infer_columns_by_content,
+    sanitize_csv_bytes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -381,7 +387,7 @@ def _uniqueify_header_labels(headers: list[Any]) -> list[str]:
 
 
 def _find_best_header_from_raw(
-    raw_df: pd.DataFrame, max_rows: int = 20
+    raw_df: pd.DataFrame, max_rows: int = 20, client_gstin: str | None = None
 ) -> tuple[pd.DataFrame | None, dict[str, str] | None, int]:
     """
     Given a DataFrame parsed without headers (header=None), scan the first
@@ -410,7 +416,7 @@ def _find_best_header_from_raw(
         try:
             mapping = detect_column_mapping(stub)
             score = len(mapping)
-            if score > max_score:
+            if score >= max_score:
                 max_score = score
                 best_mapping = mapping
                 best_headers = unique_headers
@@ -483,8 +489,22 @@ def _find_best_header_from_raw(
             best_mapping,
             best_header_row,
         )
-    if fallback_mapping is not None and fallback_headers is not None:
-        return _slice_body(0, fallback_headers), fallback_mapping, 0
+    if fallback_mapping is not None and fallback_headers is not None and len(fallback_mapping) >= 2:
+        row0_vals = [str(x).strip() for x in raw_df.iloc[0].tolist() if pd.notna(x)]
+        if not (any(_is_probable_gstin(v) for v in row0_vals) or any(_is_probable_date(v) for v in row0_vals)):
+            return _slice_body(0, fallback_headers), fallback_mapping, 0
+
+    # Resilient fallback: Infer columns by cell content heuristic
+    try:
+        inferred_mapping, data_start_row = infer_columns_by_content(
+            raw_df, client_gstin=client_gstin, mode="sales"
+        )
+        if len(inferred_mapping) >= 2 and any(k in inferred_mapping for k in ("gstin", "invoice_number", "taxable_amount")):
+            candidate = raw_df.iloc[data_start_row:].copy().reset_index(drop=True)
+            candidate.columns = [str(c) for c in raw_df.columns]
+            return candidate, inferred_mapping, data_start_row
+    except Exception as exc:
+        logger.debug("Content-based column inference failed: %s", exc)
 
     return None, None, -1
 
@@ -1512,7 +1532,9 @@ def _process_sr_sheet_rows(
     }
 
 
-def parse_sales_register(file_content: bytes, filename: str) -> dict:
+def parse_sales_register(
+    file_content: bytes, filename: str, client_gstin: str | None = None
+) -> dict:
     """Parse a sales-register file and return a structured result dict.
 
     Multi-sheet Excel workbooks: every non-skipped sheet with a valid column
@@ -1574,6 +1596,7 @@ def parse_sales_register(file_content: bytes, filename: str) -> dict:
     # Each job: (sheet_name|None, df, column_mapping, header_row, source_cols)
     sheet_jobs: list[tuple[str | None, pd.DataFrame, dict[str, str], int, list]] = []
     sheets_skipped: list[dict[str, Any]] = []
+    recovery_warnings: list[str] = []
 
     try:
         if ext in (".xlsx", ".xls"):
@@ -1631,7 +1654,7 @@ def parse_sales_register(file_content: bytes, filename: str) -> dict:
                     continue
 
                 best_df, best_mapping, best_header_row = _find_best_header_from_raw(
-                    raw_df
+                    raw_df, client_gstin=client_gstin
                 )
                 sheet_elapsed = time.perf_counter() - sheet_t0
                 if best_df is not None and best_mapping:
@@ -1674,14 +1697,21 @@ def parse_sales_register(file_content: bytes, filename: str) -> dict:
 
         elif ext == ".csv":
             found = False
+            clean_text, san_warns = sanitize_csv_bytes(file_content)
+            recovery_warnings.extend(san_warns)
+
+            candidate_texts = [clean_text]
             for encoding in ("utf-8", "utf-8-sig", "latin-1", "cp1252"):
-                if found:
-                    break
                 try:
-                    raw_text = file_content.decode(encoding, errors="replace")
+                    dec = file_content.decode(encoding, errors="replace")
+                    if dec not in candidate_texts:
+                        candidate_texts.append(dec)
                 except Exception:
                     continue
 
+            for raw_text in candidate_texts:
+                if found:
+                    break
                 first_line = raw_text.split("\n", 1)[0]
                 counts = {
                     ",": first_line.count(","),
@@ -1704,6 +1734,7 @@ def parse_sales_register(file_content: bytes, filename: str) -> dict:
                                 engine="python",
                                 header=None,
                                 dtype=str,
+                                on_bad_lines="skip",
                             )
                         else:
                             raw_df = pd.read_csv(
@@ -1711,12 +1742,13 @@ def parse_sales_register(file_content: bytes, filename: str) -> dict:
                                 sep=sep,
                                 header=None,
                                 dtype=str,
+                                on_bad_lines="skip",
                             )
                     except Exception:
                         continue
 
                     best_df, best_mapping, best_header_row = _find_best_header_from_raw(
-                        raw_df
+                        raw_df, client_gstin=client_gstin
                     )
                     if best_df is not None and best_mapping:
                         sheet_jobs.append(
@@ -1741,15 +1773,17 @@ def parse_sales_register(file_content: bytes, filename: str) -> dict:
 
     except ParseError as exc:
         result["errors"].append(str(exc))
+        result["warnings"].extend(recovery_warnings)
         result["sheets_skipped"] = sheets_skipped
         return result
     except Exception as exc:
         result["errors"].append(f"read_file: {exc}")
+        result["warnings"].extend(recovery_warnings)
         result["sheets_skipped"] = sheets_skipped
         return result
 
     records: list[dict] = []
-    warnings: list[str] = []
+    warnings: list[str] = list(recovery_warnings)
     errors: list[str] = []
     total_rows = 0
     skipped_rows = 0
