@@ -36,6 +36,10 @@ from app.parsers.tally_register import (
     merge_aliases,
     validate_tally_export,
 )
+from app.parsers.erp_profiles import (
+    ERP_PURCHASE_ALIASES,
+    is_erp_credit_note,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -244,9 +248,10 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     ],
 }
 
-# Includes the named "Tally Export" alias profile (Party's A/c Name, Vch No., …).
+# Includes the named "Tally Export" and ERP alias profiles (SAP, Oracle, Busy, Zoho).
 COLUMN_ALIASES: dict[str, list[str]] = merge_aliases(
-    _BASE_COLUMN_ALIASES, TALLY_PURCHASE_ALIASES
+    merge_aliases(_BASE_COLUMN_ALIASES, TALLY_PURCHASE_ALIASES),
+    ERP_PURCHASE_ALIASES,
 )
 
 # Sheets whose normalised name contains any of these words are skipped.
@@ -625,10 +630,14 @@ def _find_best_header_from_raw(
 def _invoice_col_specificity(col: str) -> int:
     """Prefer supplier invoice/bill/ref columns over internal voucher numbers."""
     norm = normalize_header(col)
+    if "xblnr" in norm or "ref doc" in norm:
+        return 25
     if any(k in norm for k in ("supplier inv", "supplier invoice", "original inv", "bill no", "ref no", "reference no")):
         return 20
-    if any(k in norm for k in ("inv no", "invoice no", "invoice number", "tax invoice")):
+    if any(k in norm for k in ("inv no", "invoice no", "invoice number", "tax invoice", "trx number")):
         return 10
+    if "belnr" in norm or "doc no" in norm or "doc num" in norm:
+        return 2
     if any(k in norm for k in ("vch no", "voucher no", "vch number", "voucher number")):
         return 1
     return 5
@@ -1085,10 +1094,13 @@ def _classify_invoice_type(
     invoice_number: str | None,
     original_taxable: int | None,
     note_type_hint: str | None = None,
+    shkzg_hint: str | None = None,
+    is_sales: bool = False,
 ) -> str:
     """Classify document type from invoice number prefix, signed taxable value, or note hint.
 
     Rules:
+    * ERP credit note indicator (BLART == KG/DG, SHKZG == H in sales, etc.) -> CREDIT_NOTE
     * explicit note_type_hint containing "credit"/"cn"/"return" -> CREDIT_NOTE
     * explicit note_type_hint containing "debit"/"dn" -> DEBIT_NOTE
     * negative taxable value -> CREDIT_NOTE
@@ -1096,8 +1108,10 @@ def _classify_invoice_type(
     * explicit note prefix (CRN, DBN, CREDIT, DEBIT, CN-123, DN-123) -> CREDIT_NOTE / DEBIT_NOTE
     * else -> INVOICE
     """
-    if note_type_hint:
-        hint_clean = str(note_type_hint).strip().lower()
+    if note_type_hint or shkzg_hint:
+        if is_erp_credit_note(note_type_hint, shkzg_hint, is_sales=is_sales):
+            return "CREDIT_NOTE"
+        hint_clean = str(note_type_hint or "").strip().lower()
         if re.search(r"credit|\bcn\b|\bcbt\b|return", hint_clean) and not re.search(r"debit|\bdn\b|\bdbt\b", hint_clean):
             return "CREDIT_NOTE"
         if re.search(r"debit|\bdn\b|\bdbt\b", hint_clean):
@@ -1451,7 +1465,10 @@ def _process_pr_sheet_rows(
             if "taxable_amount" in mapping:
                 original_taxable_peek = _df_cell_int(row.get("taxable_amount_paise"))
             note_type_hint = _safe_cell(row.get("note_type")) if "note_type" in mapping else None
-            invoice_type = _classify_invoice_type(inv_raw, original_taxable_peek, note_type_hint)
+            shkzg_hint = _safe_cell(orig_row.get("shkzg")) or _safe_cell(orig_row.get("SHKZG"))
+            invoice_type = _classify_invoice_type(
+                inv_raw, original_taxable_peek, note_type_hint, shkzg_hint=shkzg_hint, is_sales=False
+            )
 
         taxable_amount_paise: int | None = None
         note_amount_paise: int | None = None

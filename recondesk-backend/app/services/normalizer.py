@@ -183,6 +183,7 @@ ALLOWED_NOTES: frozenset = frozenset({
     "leading_zeros_stripped",
     "uppercased",
     "truncated_to_50_chars",
+    "erp_compact_date_converted",
 })
 
 # Suffix table: (uppercase_suffix, rupee_multiplier, note_tag)
@@ -241,9 +242,32 @@ def normalize_date(raw) -> NormalizationResult:
     """
     notes: list = []
 
-    # --- Excel serial supplied as Python numeric type ---
+    # --- Excel serial or 8-digit compact ERP date supplied as Python numeric type ---
     if not isinstance(raw, bool) and isinstance(raw, (int, float)):
-        serial = int(raw)
+        val_int = int(raw)
+        # Check for 8-digit compact date (e.g. 20240315 or 15032024)
+        s_val = str(val_int)
+        if len(s_val) == 8:
+            # Try YYYYMMDD
+            try:
+                y, m, d = int(s_val[0:4]), int(s_val[4:6]), int(s_val[6:8])
+                if 1900 <= y <= 2099:
+                    date_val = datetime.date(y, m, d)
+                    _note(notes, "erp_compact_date_converted")
+                    return NormalizationResult(value=date_val, notes=notes)
+            except ValueError:
+                pass
+            # Try DDMMYYYY
+            try:
+                d, m, y = int(s_val[0:2]), int(s_val[2:4]), int(s_val[4:8])
+                if 1900 <= y <= 2099:
+                    date_val = datetime.date(y, m, d)
+                    _note(notes, "erp_compact_date_converted")
+                    return NormalizationResult(value=date_val, notes=notes)
+            except ValueError:
+                pass
+
+        serial = val_int
         try:
             date_val = (
                 datetime.datetime(1899, 12, 30) + datetime.timedelta(days=serial)
@@ -266,8 +290,28 @@ def normalize_date(raw) -> NormalizationResult:
     if not s:
         raise NormalizationError("date", raw, "invalid_format")
 
-    # --- Excel serial as numeric string: "45383" or "45383.0" ---
+    # --- Excel serial or 8-digit compact ERP date as numeric string: "45383" or "20240315" ---
     if re.fullmatch(r"\d+(?:\.\d+)?", s):
+        clean_num_str = s.split(".")[0]
+        if len(clean_num_str) == 8:
+            # Try YYYYMMDD
+            try:
+                y, m, d = int(clean_num_str[0:4]), int(clean_num_str[4:6]), int(clean_num_str[6:8])
+                if 1900 <= y <= 2099:
+                    date_val = datetime.date(y, m, d)
+                    _note(notes, "erp_compact_date_converted")
+                    return NormalizationResult(value=date_val, notes=notes)
+            except ValueError:
+                pass
+            # Try DDMMYYYY
+            try:
+                d, m, y = int(clean_num_str[0:2]), int(clean_num_str[2:4]), int(clean_num_str[4:8])
+                if 1900 <= y <= 2099:
+                    date_val = datetime.date(y, m, d)
+                    _note(notes, "erp_compact_date_converted")
+                    return NormalizationResult(value=date_val, notes=notes)
+            except ValueError:
+                pass
         try:
             serial = int(float(s))
             date_val = (

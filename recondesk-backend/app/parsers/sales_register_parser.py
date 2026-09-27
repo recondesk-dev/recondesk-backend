@@ -35,6 +35,10 @@ from app.parsers.tally_register import (
     merge_aliases,
     validate_tally_export,
 )
+from app.parsers.erp_profiles import (
+    ERP_SALES_ALIASES,
+    is_erp_credit_note,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -224,9 +228,10 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     ],
 }
 
-# Includes the named "Tally Export" alias profile (Particulars, Party's A/c Name, …).
+# Includes the named "Tally Export" and ERP alias profiles (SAP, Oracle, Busy, Zoho).
 COLUMN_ALIASES: dict[str, list[str]] = merge_aliases(
-    _BASE_COLUMN_ALIASES, TALLY_SALES_ALIASES
+    merge_aliases(_BASE_COLUMN_ALIASES, TALLY_SALES_ALIASES),
+    ERP_SALES_ALIASES,
 )
 
 # Sheets whose normalised name contains any of these words are skipped.
@@ -484,6 +489,22 @@ def _find_best_header_from_raw(
     return None, None, -1
 
 
+def _invoice_col_specificity(col: str) -> int:
+    """Prefer customer invoice/bill columns over internal voucher numbers."""
+    norm = normalize_header(col)
+    if "vbeln" in norm or "billing doc" in norm:
+        return 25
+    if any(k in norm for k in ("sales inv", "sales invoice", "sale inv", "bill no", "ref no", "reference no")):
+        return 20
+    if any(k in norm for k in ("inv no", "invoice no", "invoice number", "tax invoice", "trx number")):
+        return 10
+    if "belnr" in norm or "doc no" in norm or "doc num" in norm:
+        return 2
+    if any(k in norm for k in ("vch no", "voucher no", "vch number", "voucher number")):
+        return 1
+    return 5
+
+
 def detect_column_mapping(df: pd.DataFrame) -> dict[str, str]:
     """Map standard field names to the actual column names present in *df*.
 
@@ -524,8 +545,10 @@ def detect_column_mapping(df: pd.DataFrame) -> dict[str, str]:
         tier, alias_len, priority, std_name = best
         prev = column_matches.get(std_name)
         if prev is not None:
-            current = (tier, alias_len, priority)
-            previous = prev[:3]
+            spec_cur = _invoice_col_specificity(orig_col) if std_name == "invoice_number" else 0
+            spec_prev = _invoice_col_specificity(prev[3]) if std_name == "invoice_number" else 0
+            current = (spec_cur, tier, alias_len, priority)
+            previous = (spec_prev, prev[0], prev[1], prev[2])
             if current > previous:
                 logger.warning(
                     "Field '%s' matched multiple columns [%s, %s] — "
@@ -888,7 +911,7 @@ _GSTIN_RE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
 _INVOICE_TYPE_KEYWORDS: dict[str, list[str]] = {
     "B2B": [
         "b2b", "business to business", "b 2 b", "regular",
-        "tax invoice", "taxable",
+        "tax invoice", "taxable", "dr", "f2",
     ],
     "B2C_LARGE": [
         "b2c large", "b2c (large)", "b2cl", "b2c-large",
@@ -908,11 +931,11 @@ _INVOICE_TYPE_KEYWORDS: dict[str, list[str]] = {
     ],
     "CREDIT_NOTE": [
         "credit note", "cr note", "credit memo", "cn", "cbt", "crn", "sales return",
-        "credit", "credit note (b2b)", "credit note (b2c)",
+        "credit", "credit note (b2b)", "credit note (b2c)", "dg", "g2",
     ],
     "DEBIT_NOTE": [
         "debit note", "dr note", "debit memo", "dn", "dbt", "drn", "debit",
-        "debit note (b2b)", "debit note (b2c)",
+        "debit note (b2b)", "debit note (b2c)", "l2",
     ],
     "NIL_RATED": [
         "nil rated", "nil", "nil rated/exempt", "exempt",
@@ -996,10 +1019,12 @@ def _classify_invoice_type(
     gstin: str | None,
     explicit_type: str | None,
     place_of_supply: str | None,
+    shkzg_hint: str | None = None,
 ) -> str:
     """Classify document type for GSTR-1 reporting.
 
     Priority:
+    0. ERP credit note indicator (BLART == DG/G2, SHKZG == H in customer ledger) → CREDIT_NOTE.
     1. Explicit invoice_type column value (if mapped and recognised).
     2. Negative taxable value → CREDIT_NOTE.
     3. Annual fiscal series invoice (e.g. CR/2026-2999) → B2B/B2C/EXPORT.
@@ -1008,6 +1033,9 @@ def _classify_invoice_type(
     6. Valid GSTIN present → B2B.
     7. No valid GSTIN → B2C.
     """
+    if is_erp_credit_note(explicit_type, shkzg_hint, is_sales=True):
+        return "CREDIT_NOTE"
+
     # 1. Explicit column
     if explicit_type is not None:
         explicit_cat = _classify_invoice_type_from_column(explicit_type)
@@ -1299,9 +1327,11 @@ def _process_sr_sheet_rows(
         )
 
         # --- Classify invoice type ---
+        shkzg_val = _safe_cell(orig_row.get("shkzg")) or _safe_cell(orig_row.get("SHKZG"))
         invoice_type = _classify_invoice_type(
             inv_raw, original_taxable, gstin_value,
             explicit_invoice_type, place_of_supply,
+            shkzg_hint=shkzg_val,
         )
         row_errors.extend(
             _invoice_type_consistency_errors(invoice_type, original_taxable)
