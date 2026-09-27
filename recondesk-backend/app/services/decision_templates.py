@@ -74,6 +74,24 @@ TEMPLATES: dict[str, dict[str, str]] = {
         ),
         "next": "Contact {supplier_gstin} to confirm filing status. Do not claim this ITC in GSTR-3B until it appears in GSTR-2B.",
     },
+    "WRONGFUL_ITC_GSTIN_TYPO": {
+        # Bug-3 fix: These records have an invoice number that IS present in
+        # GSTR-2B, but under a different supplier GSTIN than recorded in the PR.
+        # This is a data-entry error in the purchase register, NOT a supplier
+        # non-filing issue. CAs should correct their books, not chase the supplier.
+        "what": "Invoice not matched in GSTR-2B due to GSTIN mismatch in purchase register",
+        "why": (
+            "GSTIN in purchase register does not match GSTR-2B. The invoice appears "
+            "in GSTR-2B under a different supplier GSTIN than what is recorded in your "
+            "purchase register. This is likely a data-entry error in your books — not a "
+            "supplier filing failure. ITC of {itc_amount} cannot be claimed until the "
+            "purchase register is corrected."
+        ),
+        "next": (
+            "Check the supplier GSTIN on the physical invoice and correct your purchase "
+            "register. Once corrected, re-run reconciliation."
+        ),
+    },
     "RULE37_OVERDUE": {
         "what": "Invoice unpaid beyond 180 days -- ITC reversal is now mandatory",
         "why": "Section 16(2) with Rule 37 requires ITC reversal if supplier unpaid after 180 days",
@@ -126,6 +144,11 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "Invoice matched on identity fields but the taxable amount differs beyond auto-accept threshold",
         "next": "Compare physical invoice with GSTR-2B entry. Reconcile the {diff} difference with supplier before claiming ITC.",
     },
+    "REVIEW_DATE_MISMATCH": {
+        "what": "Verify manually — {confidence_pct}% confidence, invoice date differs",
+        "why": "Invoice matched on GSTIN, invoice number, and amount, but the dates differ between GSTR-2B and purchase register",
+        "next": "Compare physical invoice date with GSTR-2B entry. If dates differ across GST return periods, this may affect the period in which ITC can be claimed.",
+    },
     "REVIEW_GSTIN_MISMATCH": {
         "what": "GSTIN mismatch — verify supplier identity",
         "why": "Invoice number and amount match a purchase register entry but the supplier GSTIN differs",
@@ -140,6 +163,11 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "what": "Duplicate Entry — same invoice booked twice in books",
         "why": "Identical GSTIN + invoice appears more than once in the purchase register",
         "next": "Remove or mark the extra purchase-register row. Do not treat this as missing from GSTR-2B.",
+    },
+    "GSTR2B_DUPLICATE_ENTRY": {
+        "what": "Duplicate Entry in GSTR-2B — same invoice reported twice by portal",
+        "why": "This invoice appears more than once in your GSTR-2B. Only one copy has been matched to your purchase register. The extra copy is likely a portal duplicate (late-filed amendment re-reporting, IMS sync, or GSTN portal bug).",
+        "next": "No action required. Do not treat this as a missing invoice or chase the supplier — the matched entry already covers this ITC claim.",
     },
     "REVIEW_MULTIPLE_CANDIDATES": {
         "what": "Multiple matching candidates — manual selection required",

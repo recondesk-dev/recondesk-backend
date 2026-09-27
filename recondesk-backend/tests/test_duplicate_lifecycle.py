@@ -146,30 +146,30 @@ def test_c_one_gstr_two_pr_duplicate_pr_flagged():
     assert res["duplicate_entries"][0]["matched_pr_id"] == res["matched"][0]["pr_id"]
 
 
-# ── Test D: 2 GSTRs → 1 PR (ambiguous) ──────────────────────────────────────
+# ── Test D: 2 GSTRs → 1 PR (duplicate quarantine) ───────────────────────────
 
 def test_d_two_gstr_one_pr_goes_to_review():
-    """2 identical GSTRs, 1 PR → all go to review_required, none to missed_itc."""
+    """2 identical GSTRs, 1 PR → canonical GSTR matches PR, extra GSTR to duplicate_entries."""
     gstr = [_g("g1", tax=100), _g("g2", tax=100)]
     pr = [_p("p1", tax=100)]
     res = _run(gstr, pr)
     stats = res["stats"]
-    assert stats["duplicate_conflict_count"] >= 1
+    assert stats["clean_matched_count"] == 1
+    assert stats["duplicate_entry_count"] == 1
     assert stats["missed_itc_count"] == 0
     assert stats["wrongful_risk_count"] == 0
 
 
-# ── Test E: Ambiguous N:N (identical) → review_required ──────────────────────
+# ── Test E: Ambiguous N:N (identical) → duplicate quarantine + clean match ───
 
 def test_e_ambiguous_nn_all_review():
-    """2 GSTRs + 2 PRs with identical amounts/dates → all 4 to review_required."""
+    """2 GSTRs + 2 PRs with identical amounts/dates → GSTR and PR duplicates quarantined, canonical pair matches."""
     gstr = [_g("g1", tax=100, dt="2026-05-01"), _g("g2", tax=100, dt="2026-05-01")]
     pr = [_p("p1", tax=100, dt="2026-05-01"), _p("p2", tax=100, dt="2026-05-01")]
     res = _run(gstr, pr)
     stats = res["stats"]
-    assert stats["clean_matched_count"] == 0
-    assert stats["duplicate_conflict_count"] == 2
-    assert len(res["review_required"]) == 4
+    assert stats["clean_matched_count"] == 1
+    assert stats["duplicate_entry_count"] == 2
 
 
 # ── Test F: Unambiguous N:N → deterministic pairs ────────────────────────────

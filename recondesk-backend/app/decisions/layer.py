@@ -166,6 +166,20 @@ def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> Deci
         )
 
     if row.get("is_wrongful_itc") or mismatch_type == "WRONGFUL_ITC":
+        # Bug-3 fix: GSTIN-typo ITC-at-risk records must use a separate template.
+        # These records have their invoice number present in GSTR-2B under a
+        # different supplier GSTIN — the issue is a data-entry error in the PR,
+        # not a supplier non-filing case. Use the specific template so CAs get
+        # accurate guidance (correct their books) rather than chasing the supplier.
+        if row.get("gstin_typo_in_pr") or row.get("risk_reason") == "GSTIN_TYPO_IN_PR":
+            return generate_decision(
+                "WRONGFUL_ITC_GSTIN_TYPO",
+                confidence="MEDIUM",
+                matched_fields=_row_identity_fields(row),
+                differed_fields=[],
+                normalized_pairs=[],
+                itc_amount=itc_amount,
+            )
         return generate_decision(
             "WRONGFUL_ITC",
             confidence="MEDIUM",
@@ -455,6 +469,7 @@ def populate_decisions(
 _REVIEW_REASON_TO_TEMPLATE: dict[str, str] = {
     "AMOUNT_MISMATCH": "REVIEW_AMOUNT_MISMATCH",
     "Amount/Date mismatch": "REVIEW_AMOUNT_MISMATCH",
+    "DATE_MISMATCH": "REVIEW_DATE_MISMATCH",
     "GSTIN_MISMATCH": "REVIEW_GSTIN_MISMATCH",
     "DUPLICATE_AMBIGUITY": "REVIEW_DUPLICATE_AMBIGUITY",
     "DUPLICATE_AMBIGUITY_PR": "REVIEW_DUPLICATE_AMBIGUITY",

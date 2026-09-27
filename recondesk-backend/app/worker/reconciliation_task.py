@@ -31,6 +31,7 @@ from app.services.reconciliation import (
     build_pr_candidate_indices,
     build_wrongful_itc_risk,
     notify_reconciliation_run_completed_email_maybe,
+    prepass_gstr2b_duplicates,
     prepass_duplicate_ambiguity,
     process_gstr_records_chunk,
     execute_credit_note_reconciliation,
@@ -896,6 +897,7 @@ def execute_reconciliation(run_id: str) -> None:
         # greedy per-batch matching never silently auto-picks one of several
         # equally-plausible pairings (see prepass_duplicate_ambiguity docstring).
         pr_flat_current = [p for prs in pr_index_current.values() for p in prs]
+        prepass_gstr2b_duplicates(gstr_matcher, state)
         prepass_duplicate_ambiguity(gstr_matcher, pr_flat_current, state)
 
         n_gstr_chunks = max(1, (len(gstr_matcher) + BATCH - 1) // BATCH)
@@ -1612,7 +1614,7 @@ def execute_reconciliation(run_id: str) -> None:
             build_stored_results_payload(
                 matched=state.clean_matched,
                 missed_itc=state.missed_itc,
-                wrongful_itc_risk=wrongful_itc,
+                wrongful_itc_risk=res_payload.get("wrongful_itc_risk") or wrongful_itc,
                 rule37=rule37,
                 section_175_warnings=s175,
                 credit_note_adjustment=cn_net,

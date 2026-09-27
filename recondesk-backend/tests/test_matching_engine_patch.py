@@ -196,10 +196,10 @@ def test_duplicate_gstr_invoice_not_counted_as_missed_itc():
         [_rec("p1", GSTIN, "DUP-2B", 2_500_000)],
         gstr_period=date(2026, 5, 1),
     )
-    # New behavior: many-to-one maps to review_required
-    assert res["stats"]["matched_count"] == 0
+    # Prepass quarantines GSTR duplicate to duplicate_entries, canonical matches PR
+    assert res["stats"]["matched_count"] == 1
     assert res["stats"]["missed_itc_count"] == 0
-    assert res["stats"]["duplicate_conflict_count"] == 2
+    assert res["stats"]["duplicate_entry_count"] == 1
 
 
 # --- Rule 37 untouched ------------------------------------------------------

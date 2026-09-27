@@ -30,7 +30,7 @@ from app.services.matcher import (
     _parse_invoice_date,
     _RE_NOTE_IDENTIFIER,
 )
-from app.services.vendor_name_matcher import find_best_vendor_match, vendor_name_similarity
+from app.services.vendor_name_matcher import find_best_vendor_match, vendor_name_similarity, l1_vendor_name_ok
 from app.services.gstr3b_reconciliation import _paise_to_rupees
 
 logger = logging.getLogger(__name__)
@@ -815,7 +815,30 @@ def execute_credit_note_reconciliation(
             p_best, pathway, priority, pathway_desc, is_tol_match, tax_diff, taxable_diff = best_match
             pid = str(p_best["id"])
 
-            if is_tol_match:
+            p_gst = str(p_best.get("supplier_gstin") or p_best.get("gstin") or "").strip().upper()
+            if g_gst != p_gst:
+                mr = MatchResult(
+                    level=4,
+                    matched=False,
+                    confidence=70,
+                    requires_human_review=True,
+                    decision_what="Supplier GSTIN mismatch on Credit/Debit Note",
+                    decision_why=f"Note numbers match ({pathway_desc}) but supplier GSTIN differs ({g_gst} vs {p_gst})",
+                    decision_next="CA review required for supplier GSTIN mismatch",
+                    review_reason="GSTIN_MISMATCH",
+                    compared_fields=build_compared_fields(g, p_best),
+                )
+                _push_review_required(
+                    state=state,
+                    gstr_id=gid,
+                    pr_id=pid,
+                    score=70,
+                    review_type="GSTIN_MISMATCH",
+                    best_result=mr,
+                    gstr_rec=g,
+                    pr_rec=p_best,
+                )
+            elif is_tol_match:
                 m_level = 1 if priority in (1, 2) else 2
                 score = 100 if m_level == 1 else 90
                 mr = MatchResult(
@@ -1461,6 +1484,96 @@ def _push_multiline_clean_match(
     match_dict["pr_taxable_amount_paise"] = p_taxable_sum
 
 
+def prepass_gstr2b_duplicates(
+    gstr_records: list[dict],
+    state: ReconState,
+) -> int:
+    """Detect and quarantine duplicate GSTR-2B rows (same (GSTIN, invoice_norm) key)
+    BEFORE Phase 1 matching.
+
+    The GST portal can emit the same invoice twice in GSTR-2B (late-filed amendments,
+    portal bugs, IMS re-reporting). One copy is the canonical entry and should participate
+    in matching; extra copies must NOT fall through to Missed ITC as phantom gaps.
+
+    Returns the number of duplicate GSTR-2B rows quarantined.
+    """
+    # Group all GSTR records by (supplier_gstin, invoice_number_normalized)
+    groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for g in gstr_records:
+        gid = str(g.get("id") or "")
+        if gid in state.consumed_gstr_ids:
+            continue
+        gstin = str(g.get("supplier_gstin") or "").strip()
+        inv_norm = str(g.get("invoice_number_normalized") or "").strip()
+        if gstin and inv_norm:
+            groups[(gstin, inv_norm)].append(g)
+
+    total_quarantined = 0
+
+    for (gstin, inv_norm), rows in groups.items():
+        if len(rows) < 2:
+            continue  # no duplicate in this group
+
+        # Constraint: only deduplicate if ALL rows have amounts within 5% of each other.
+        # Rows with >5% taxable divergence are likely genuine separate invoices that
+        # happen to share the same (GSTIN, invoice number) — do not collapse them.
+        taxables = [_taxable_paise(r) for r in rows]
+        max_taxable = max(abs(t) for t in taxables) if taxables else 0
+        if max_taxable > 0:
+            skip_group = False
+            for t in taxables:
+                if abs(abs(t) - max_taxable) / max_taxable > 0.05:
+                    skip_group = True
+                    break
+            if skip_group:
+                continue
+
+        # Select canonical: earliest invoice_date, then lowest string(id) as tiebreaker
+        def _canonical_sort_key(rec: dict) -> tuple:
+            d = _parse_invoice_date(rec)
+            # Use a very late sentinel date when date is missing so record sorts last
+            sentinel = date(9999, 12, 31)
+            sort_date = d if d is not None else sentinel
+            return (sort_date, str(rec.get("id") or ""))
+
+        sorted_rows = sorted(rows, key=_canonical_sort_key)
+        canonical = sorted_rows[0]
+        canonical_gstr_id = str(canonical.get("id") or "")
+        extras = sorted_rows[1:]
+
+        for g in extras:
+            extra_gstr_id = str(g.get("id") or "")
+            if extra_gstr_id in state.consumed_gstr_ids:
+                continue
+            state.consumed_gstr_ids.add(extra_gstr_id)
+            state.duplicate_entries.append(
+                {
+                    "id": str(extra_gstr_id),
+                    "side": "GSTR2B",
+                    "reason": "GSTR2B_DUPLICATE",
+                    "classification": "Duplicate Entry",
+                    "matched_gstr_id": str(canonical_gstr_id),
+                    "supplier_gstin": str(g.get("supplier_gstin") or ""),
+                    "invoice_number_normalized": str(g.get("invoice_number_normalized") or ""),
+                    "invoice_date": g.get("invoice_date"),
+                    "total_tax_paise": int(g.get("total_tax_paise") or 0),
+                    "taxable_amount_paise": _taxable_paise(g),
+                    "what": "Duplicate Entry in GSTR-2B — same invoice reported twice by portal",
+                    "why": "This invoice appears more than once in GSTR-2B. Only one copy has been matched to your purchase register. This extra copy is likely a portal duplicate (amendment re-reporting, IMS sync, or GSTN bug).",
+                    "next": "No action required. The canonical entry has been matched. Do not chase the supplier — this is not a missing ITC.",
+                }
+            )
+            total_quarantined += 1
+
+    if total_quarantined > 0:
+        logger.info(
+            "[GSTR2B_DUP] Quarantined %d duplicate GSTR-2B row(s) across all groups",
+            total_quarantined,
+        )
+
+    return total_quarantined
+
+
 def prepass_duplicate_ambiguity(
     gstr_records: list[dict],
     pr_records: list[dict],
@@ -1499,12 +1612,16 @@ def prepass_duplicate_ambiguity(
 
     for g in gstr_records:
         gid = str(g.get("id"))
+        if gid in state.consumed_gstr_ids:
+            continue
         gstr_by_id[gid] = g
         key = _dup_group_key(g.get("supplier_gstin"), g.get("invoice_number_normalized"))
         if key:
             groups[key].append("G_" + gid)
     for p in pr_records:
         pid = str(p.get("id"))
+        if pid in state.consumed_pr_ids:
+            continue
         pr_by_id[pid] = p
         key = _dup_group_key(p.get("supplier_gstin"), p.get("invoice_number_normalized"))
         if key:
@@ -1720,11 +1837,12 @@ def resolve_orphans(
             g_taxable = _taxable_paise(mi)
             w_taxable = _taxable_paise(w)
 
-            compat_id, id_reason, id_type = supplier_identity_compatible(mi, w)
+            g_vend = str(mi.get("supplier_name") or mi.get("vendor_name") or "").strip()
+            w_vend = str(w.get("supplier_name") or w.get("vendor_name") or "").strip()
+            names_conflict = bool(g_vend and w_vend and not l1_vendor_name_ok(g_vend, w_vend))
             if (
                 g_gstin != w_gstin
-                and compat_id
-                and id_type != "IDENTITY_CONFLICT"
+                and not names_conflict
                 and abs(w_taxable - g_taxable) <= amount_tolerance_paise
             ):
                 gstin_mismatch.append({
@@ -1791,13 +1909,12 @@ def resolve_orphans(
                     else:
                         g_gstin = str(gstr_by_id_local[gid].get("supplier_gstin") or "")
                         p_gstin = str(pr_by_id_local[pid].get("supplier_gstin") or "")
-                        compat_id, id_reason, id_type = supplier_identity_compatible(
-                            gstr_by_id_local[gid], pr_by_id_local[pid]
-                        )
+                        g_vend = str(gstr_by_id_local[gid].get("supplier_name") or gstr_by_id_local[gid].get("vendor_name") or "").strip()
+                        p_vend = str(pr_by_id_local[pid].get("supplier_name") or pr_by_id_local[pid].get("vendor_name") or "").strip()
+                        names_conflict = bool(g_vend and p_vend and not l1_vendor_name_ok(g_vend, p_vend))
                         if (
                             g_gstin != p_gstin
-                            and compat_id
-                            and id_type != "IDENTITY_CONFLICT"
+                            and not names_conflict
                         ):
                             gstin_mismatch.append({
                                 "gstr_id": gid,
@@ -2321,8 +2438,9 @@ def execute_phase2_and_3(
                 continue
             p_gst = str(p.get("supplier_gstin") or "").strip()
             if gst != p_gst:
-                compat_id, id_reason, id_type = supplier_identity_compatible(g, p)
-                if not compat_id or id_type == "IDENTITY_CONFLICT":
+                g_vend = str(g.get("supplier_name") or g.get("vendor_name") or "").strip()
+                p_vend = str(p.get("supplier_name") or p.get("vendor_name") or "").strip()
+                if g_vend and p_vend and not l1_vendor_name_ok(g_vend, p_vend):
                     continue
                 if _pr_has_stronger_same_gstin_gstr_candidate(
                     p, unconsumed_gstr_by_gstin, state.consumed_gstr_ids
@@ -2603,9 +2721,27 @@ def execute_phase2_and_3(
                     gstr_rec=g, pr_rec=candidates_inv_match[0],
                 )
             else:
+                candidate = candidates_inv_match[0]
+                # Determine whether the actual discrepancy is amount or date.
+                # If taxable amounts are within 1% of each other but dates differ,
+                # label it DATE_MISMATCH not AMOUNT_MISMATCH.
+                _g_taxable = abs(_taxable_paise(g))
+                _p_taxable = abs(_taxable_paise(candidate))
+                _amount_close = (
+                    _g_taxable == _p_taxable
+                    or (_g_taxable > 0 and abs(_g_taxable - _p_taxable) / _g_taxable <= 0.01)
+                )
+                _g_date = _parse_invoice_date(g)
+                _p_date = _parse_invoice_date(candidate)
+                _dates_differ = (
+                    _g_date and _p_date and _g_date != _p_date
+                )
+                _fallback_review_type = (
+                    "DATE_MISMATCH" if (_amount_close and _dates_differ) else "AMOUNT_MISMATCH"
+                )
                 _push_review_required(
-                    state, gid, candidates_inv_match[0]["id"], 55, "AMOUNT_MISMATCH",
-                    gstr_rec=g, pr_rec=candidates_inv_match[0],
+                    state, gid, candidate["id"], 55, _fallback_review_type,
+                    gstr_rec=g, pr_rec=candidate,
                 )
             continue
 
@@ -3150,6 +3286,26 @@ def _finalize_reconciliation_result(
         for p in pr_records
         if str(p["id"]) not in state.consumed_pr_ids
     ]
+
+    # ── GSTIN-typo enrichment for ITC at Risk ─────────────────────────────────
+    # Some PR records that couldn't be matched have invoice numbers that DO appear
+    # in GSTR-2B — just under a different supplier GSTIN. These are GSTIN-typo
+    # errors in the purchase register, not cases of the supplier not filing.
+    # Enrich those records with a specific risk_reason and gstin_typo_in_pr flag
+    # so the downstream decision layer can render the correct WHY text for CAs.
+    if gstr_records:
+        gstr_inv_norms: set[str] = {
+            str(g.get("invoice_number_normalized") or "")
+            for g in gstr_records
+            if g.get("invoice_number_normalized")
+        }
+        for risk_row in pr_wrongful_itc_risk:
+            inv_norm = str(risk_row.get("invoice_number_normalized") or "")
+            if inv_norm and inv_norm in gstr_inv_norms:
+                # The invoice IS in GSTR-2B, just under a different GSTIN
+                risk_row["risk_reason"] = "GSTIN_TYPO_IN_PR"
+                risk_row["gstin_typo_in_pr"] = True
+
     filing_status_risk = build_filing_status_itc_risk(gstr_records or [])
     wrongful_itc_risk = pr_wrongful_itc_risk + filing_status_risk
     wrongful_risk_count = len(wrongful_itc_risk)

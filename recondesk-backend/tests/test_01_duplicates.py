@@ -70,7 +70,8 @@ def test_c_1_gstr_2_pr():
     assert res["duplicate_entries"][0]["matched_pr_id"] == "p1"
 
 def test_d_2_gstr_1_pr():
-    # Test D: GSTR has two supplier A / INV001 rows. PR has one supplier A / INV001 row
+    # Test D: GSTR has two supplier A / INV001 rows. PR has one supplier A / INV001 row.
+    # Canonical GSTR matches PR; extra GSTR is quarantined to duplicate_entries.
     gstr = [
         _gstr("g1", "27AAAAA0000A1Z5", "INV001", 100),
         _gstr("g2", "27AAAAA0000A1Z5", "INV001", 100),
@@ -78,9 +79,10 @@ def test_d_2_gstr_1_pr():
     pr = [_pr("p1", "27AAAAA0000A1Z5", "INV001", 100)]
     res = run_bidirectional_reconciliation(gstr, pr, gstr_period=date(2026, 5, 1))
     stats = res["stats"]
-    assert stats["clean_matched_count"] == 0
-    assert stats["duplicate_conflict_count"] == 2
-    assert len(res["review_required"]) == 3
+    assert stats["clean_matched_count"] == 1
+    assert stats["duplicate_entry_count"] == 1
+    assert stats["duplicate_conflict_count"] == 0
+    assert stats["missed_itc_count"] == 0
 
 def test_e_2_gstr_2_pr_unambiguous():
     # Test E: GSTR has two supplier A / INV001 rows. PR has two supplier A / INV001 rows
@@ -100,6 +102,8 @@ def test_e_2_gstr_2_pr_unambiguous():
     assert stats["duplicate_conflict_count"] == 0
     
 def test_e_2_gstr_2_pr_ambiguous():
+    # Test E ambiguous: GSTR has 2 identical rows; PR has 2 identical rows.
+    # GSTR duplicate is quarantined; canonical GSTR matches canonical PR; extra PR is quarantined.
     gstr = [
         _gstr("g1", "27AAAAA0000A1Z5", "INV001", 100, "2026-05-01"),
         _gstr("g2", "27AAAAA0000A1Z5", "INV001", 100, "2026-05-01"),
@@ -110,7 +114,5 @@ def test_e_2_gstr_2_pr_ambiguous():
     ]
     res = run_bidirectional_reconciliation(gstr, pr, gstr_period=date(2026, 5, 1))
     stats = res["stats"]
-    # Same amount/date, cannot deterministically map them
-    assert stats["clean_matched_count"] == 0
-    assert stats["duplicate_conflict_count"] == 2
-    assert len(res["review_required"]) == 4
+    assert stats["clean_matched_count"] == 1
+    assert stats["duplicate_entry_count"] == 2

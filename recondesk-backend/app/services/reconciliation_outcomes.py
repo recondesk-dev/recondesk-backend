@@ -17,6 +17,7 @@ from app.constants import ChangeReason, DecisionNext, DecisionWhat, DecisionWhy
 from app.services import reconciliation_record_adapter as rec_adapt
 from app.parsers.gstr2b_parser import resolve_itc_available, resolve_itc_reason
 from app.services.credit_note_handler import classify_document
+from app.services.decision_templates import generate_decision
 from app.services.matcher import TOTAL_TOLERANCE_PAISE, match_gstr_to_pr
 from app.services.statutory_eligibility import (
     ITCEligibilityStatus,
@@ -784,6 +785,18 @@ def build_outcome_rows(
             reporting_period=payload.get("period") or payload.get("return_period"),
         )
 
+        if wr.get("gstin_typo_in_pr") or wr.get("risk_reason") == "GSTIN_TYPO_IN_PR":
+            itc_amt_paise = _opt_int(wr.get("total_tax_paise")) or 0
+            itc_amt_str = f"₹{abs(itc_amt_paise) / 100:,.2f}"
+            dec = generate_decision("WRONGFUL_ITC_GSTIN_TYPO", itc_amount=itc_amt_str)
+            d_what = dec.what
+            d_why = dec.why
+            d_next = dec.next
+        else:
+            d_what = sc_pr.decision_what
+            d_why = sc_pr.decision_why
+            d_next = sc_pr.decision_next
+
         rows.append(
             OutcomeRow(
                 id=f"wr:{pid}",
@@ -798,9 +811,9 @@ def build_outcome_rows(
                 cgst_diff=0,
                 sgst_diff=0,
                 total_tax_diff_paise=0,
-                decision_what=sc_pr.decision_what,
-                decision_why=sc_pr.decision_why,
-                decision_next=sc_pr.decision_next,
+                decision_what=d_what,
+                decision_why=d_why,
+                decision_next=d_next,
                 rule37_flag=r37f,
                 blocked_credit_flag=sc_pr.blocked_credit_flag,
                 late_filing_flag=False,
@@ -1006,7 +1019,35 @@ def build_outcome_rows(
             or ""
         )
         invd = de.get("invoice_date") or m_rec.get("invoice_date")
-        matched_pr_id = str(de.get("matched_pr_id") or "").strip() or None
+        is_gstr_dup = (de.get("side") == "GSTR2B") or (de.get("reason") == "GSTR2B_DUPLICATE")
+        if is_gstr_dup:
+            matched_id = str(de.get("matched_gstr_id") or "").strip() or None
+            d_what = de.get("what") or "Duplicate Entry in GSTR-2B — same invoice reported twice by portal"
+            d_why = de.get("why") or (
+                "This invoice appears more than once in GSTR-2B. Only one copy has been matched to your "
+                "purchase register. This extra copy is likely a portal duplicate (amendment re-reporting, "
+                "IMS sync, or GSTN bug)."
+            )
+            d_next = de.get("next") or (
+                "No action required. The canonical entry has been matched. Do not chase the supplier — "
+                "this is not a missing ITC."
+            )
+        else:
+            matched_id = str(de.get("matched_pr_id") or "").strip() or None
+            d_what = de.get("what") or "Duplicate Entry — same invoice booked twice in books"
+            d_why = de.get("why") or (
+                "Identical GSTIN + invoice appears more than once in the "
+                "purchase register"
+                + (
+                    f"; canonical match is PR {matched_id}"
+                    if matched_id
+                    else ""
+                )
+            )
+            d_next = de.get("next") or (
+                "Remove or mark the extra purchase-register row. Do not treat "
+                "this as missing from GSTR-2B or reverse ITC for it."
+            )
         rows.append(
             OutcomeRow(
                 id=f"de:{pid}",
@@ -1023,20 +1064,9 @@ def build_outcome_rows(
                 cgst_diff=0,
                 sgst_diff=0,
                 total_tax_diff_paise=0,
-                decision_what="Duplicate Entry — same invoice booked twice in books",
-                decision_why=(
-                    "Identical GSTIN + invoice appears more than once in the "
-                    "purchase register"
-                    + (
-                        f"; canonical match is PR {matched_pr_id}"
-                        if matched_pr_id
-                        else ""
-                    )
-                ),
-                decision_next=(
-                    "Remove or mark the extra purchase-register row. Do not treat "
-                    "this as missing from GSTR-2B or reverse ITC for it."
-                ),
+                decision_what=d_what,
+                decision_why=d_why,
+                decision_next=d_next,
                 rule37_flag=False,
                 blocked_credit_flag=False,
                 late_filing_flag=False,
@@ -1044,7 +1074,7 @@ def build_outcome_rows(
                 amount=_opt_int(de.get("total_tax_paise"))
                 if _opt_int(de.get("total_tax_paise")) is not None
                 else _opt_int(m_rec.get("total_tax_paise")),
-                matched_pr_id=matched_pr_id,
+                matched_pr_id=matched_id,
             )
         )
 

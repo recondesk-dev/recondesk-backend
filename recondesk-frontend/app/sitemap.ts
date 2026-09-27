@@ -64,7 +64,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/shipping-returns", priority: 0.5, changeFrequency: "monthly" as const },
   ];
 
-  return candidates
+  const staticPages = candidates
     .filter((candidate) => routeExists(candidate.path))
     .map((candidate) => ({
       url: `${baseUrl}${candidate.path === "/" ? "" : candidate.path}`,
@@ -72,4 +72,15 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: candidate.changeFrequency,
       priority: candidate.priority,
     }));
+
+  const blogPosts = [
+    "what-is-gstr-2b-itc-claims-guide",
+  ].map((slug) => ({
+    url: `${baseUrl}/blog/${slug}`,
+    lastModified: new Date(),
+    changeFrequency: "monthly" as const,
+    priority: 0.8,
+  }));
+
+  return [...staticPages, ...blogPosts];
 }

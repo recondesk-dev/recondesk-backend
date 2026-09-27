@@ -70,6 +70,11 @@ export function LandingFooter() {
                 </a>
               </li>
               <li>
+                <Link href="/blog" className="hover:text-[#0A0A0A] transition-colors">
+                  Blog &amp; Insights
+                </Link>
+              </li>
+              <li>
                 <a href="/#faq" className="hover:text-[#0A0A0A] transition-colors">
                   FAQ
                 </a>

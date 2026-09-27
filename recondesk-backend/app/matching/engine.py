@@ -5,6 +5,7 @@ from app.services.amendment_handler import build_effective_gstr_records
 from app.services.reconciliation import (  # noqa: F401
     ReconState,
     build_wrongful_itc_risk,
+    prepass_gstr2b_duplicates,
     prepass_duplicate_ambiguity,
     resolve_orphans,
     process_gstr_records_chunk,
@@ -59,6 +60,7 @@ def run_bidirectional_reconciliation(
             
     candidate_indices = build_pr_candidate_indices(pr_index)
 
+    prepass_gstr2b_duplicates(effective_gstr, state)
     prepass_duplicate_ambiguity(effective_gstr, pr_records, state)
 
     process_gstr_records_chunk(

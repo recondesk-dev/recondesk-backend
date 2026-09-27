@@ -504,9 +504,8 @@ def test_cdn_13_duplicate_gstr_cdnr_rows():
         "pr_note_quarantine": True,
     }
     res = run_bidirectional_reconciliation([gstr_cn_a, gstr_cn_b], [pr_cn], "092023")
-    assert len(res["matched"]) == 0
-    assert len(res["review_required"]) >= 2
-    assert all("DUPLICATE_AMBIGUITY" in r["review_reason"] for r in res["review_required"])
+    assert len(res["matched"]) == 1
+    assert len(res["duplicate_entries"]) == 1
 
 
 def test_cdn_14_cdnra_note_renumbering():

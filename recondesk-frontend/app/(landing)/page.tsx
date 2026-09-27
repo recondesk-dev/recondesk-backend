@@ -6,6 +6,7 @@ import { SecurityTrustStrip } from "@/components/public/SecurityTrustStrip";
 import { HowItWorksSteps } from "@/components/public/HowItWorksSteps";
 import { PricingGrid } from "@/components/billing/PricingGrid";
 import { FaqAccordion } from "@/components/public/FaqAccordion";
+import { BlogPreviewSection } from "@/components/landing/BlogPreviewSection";
 
 function Section({
   id,
@@ -82,6 +83,9 @@ export default function LandingPage() {
         </div>
         <FaqAccordion />
       </Section>
+
+      {/* 8. Latest Insights & Blog Section */}
+      <BlogPreviewSection />
 
       {/* 9. Final High-Converting CTA Banner */}
       <Section className="py-16 sm:py-24">
