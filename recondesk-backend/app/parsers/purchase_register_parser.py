@@ -560,7 +560,20 @@ def _find_best_header_from_raw(
                     if s1.lower() == s2.lower():
                         combined_labels.append(s1)
                     else:
-                        combined_labels.append(f"{s1} {s2}")
+                        p = re.sub(
+                            r"\b(details|particulars|information|info|amounts|breakup|data)\b",
+                            "",
+                            s1,
+                            flags=re.I,
+                        ).strip()
+                        if p and any(w in s2.lower() for w in ("integrated tax", "taxable value", "taxable amount", "central tax", "state tax", "gstin")):
+                            combined_labels.append(s2)
+                        elif p and s2.lower().startswith(p.lower()):
+                            combined_labels.append(s2)
+                        elif p:
+                            combined_labels.append(f"{p} {s2}".strip())
+                        else:
+                            combined_labels.append(f"{s1} {s2}".strip())
                 elif s1:
                     combined_labels.append(s1)
                 elif s2:
@@ -1302,7 +1315,7 @@ def _process_pr_sheet_rows(
         gstin_value: str | None = None
         gstin_valid = False
         if "gstin" in mapping:
-            raw_gstin = row.get("gstin")
+            raw_gstin = _safe_cell(row.get("gstin"))
             if raw_gstin is not None:
                 raw_s = str(raw_gstin).strip()
                 if is_urp_gstin(raw_s):
@@ -1615,7 +1628,7 @@ def _process_pr_sheet_rows(
         records.append(out)
 
         if not note_mode:
-            if gstin_value and gstin_valid:
+            if gstin_value:
                 last_valid_gstin = gstin_value
                 last_valid_gstin_valid = gstin_valid
             elif supplier_name and last_valid_supplier_name and supplier_name.lower() != last_valid_supplier_name.lower():

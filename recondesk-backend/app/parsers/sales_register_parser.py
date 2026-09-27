@@ -426,7 +426,20 @@ def _find_best_header_from_raw(
                     if s1.lower() == s2.lower():
                         combined_labels.append(s1)
                     else:
-                        combined_labels.append(f"{s1} {s2}")
+                        p = re.sub(
+                            r"\b(details|particulars|information|info|amounts|breakup|data)\b",
+                            "",
+                            s1,
+                            flags=re.I,
+                        ).strip()
+                        if p and any(w in s2.lower() for w in ("integrated tax", "taxable value", "taxable amount", "central tax", "state tax", "gstin")):
+                            combined_labels.append(s2)
+                        elif p and s2.lower().startswith(p.lower()):
+                            combined_labels.append(s2)
+                        elif p:
+                            combined_labels.append(f"{p} {s2}".strip())
+                        else:
+                            combined_labels.append(f"{s1} {s2}".strip())
                 elif s1:
                     combined_labels.append(s1)
                 elif s2:
