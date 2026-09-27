@@ -33,8 +33,10 @@ ALLOWED_CONTENT_TYPES = {
     "text/csv",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.ms-excel",
+    "application/zip",
+    "application/x-zip-compressed",
 }
-ALLOWED_PURCHASE_REGISTER_EXTENSIONS = {".xlsx", ".xls", ".csv"}
+ALLOWED_PURCHASE_REGISTER_EXTENSIONS = {".xlsx", ".xls", ".csv", ".zip"}
 
 ALLOWED_CLIENT_CONTENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -104,11 +106,11 @@ def _validate_upload_bytes(content: bytes, ext: str) -> None:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="JSON file must start with { or [",
             )
-    elif ext == ".xlsx":
+    elif ext in (".xlsx", ".zip"):
         if len(content) < 2 or content[0:2] != b"PK":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid Excel file",
+                detail=f"Invalid {ext} file",
             )
     if len(content) > _max_bytes():
         raise HTTPException(
@@ -399,7 +401,7 @@ async def upload_purchase_register(
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only .xlsx, .xls, and .csv files are accepted.",
+            detail="Only .xlsx, .xls, .csv, and .zip files are accepted.",
         )
     content = await file.read()
     _validate_upload_bytes(content, ext)

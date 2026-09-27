@@ -23,8 +23,8 @@ from app.database import get_supabase
 router = APIRouter()
 _log = logging.getLogger(__name__)
 
-ALLOWED_EXT = {".csv", ".xlsx", ".xls"}
-MAX_BYTES = 20 * 1024 * 1024
+ALLOWED_EXT = {".csv", ".xlsx", ".xls", ".zip"}
+MAX_BYTES = 50 * 1024 * 1024
 
 
 def _ext_ok(filename: str) -> bool:
@@ -63,7 +63,7 @@ async def detect_register_type_endpoint(
     if not _ext_ok(filename):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "Only .csv, .xlsx, and .xls files are accepted",
+            "Only .csv, .xlsx, .xls, and .zip files are accepted",
         )
     content = await file.read()
     if len(content) > MAX_BYTES:

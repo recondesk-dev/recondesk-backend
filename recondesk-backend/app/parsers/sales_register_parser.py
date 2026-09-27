@@ -1555,6 +1555,22 @@ def parse_sales_register(file_content: bytes, filename: str) -> dict:
     if dot_idx != -1:
         ext = filename[dot_idx:].lower()
 
+    import zipfile
+    if (ext == ".zip" or file_content[:4] == b"PK\x03\x04") and ext not in (".xlsx", ".xls"):
+        try:
+            with zipfile.ZipFile(io.BytesIO(file_content)) as zf:
+                if any(n.startswith("xl/") or n == "[Content_Types].xml" for n in zf.namelist()):
+                    ext = ".xlsx"
+                else:
+                    from app.parsers.zip_batch_parser import parse_zip_batch
+                    return parse_zip_batch(
+                        file_content,
+                        filename,
+                        parser_func=parse_sales_register,
+                    )
+        except (zipfile.BadZipFile, Exception):
+            pass
+
     # Each job: (sheet_name|None, df, column_mapping, header_row, source_cols)
     sheet_jobs: list[tuple[str | None, pd.DataFrame, dict[str, str], int, list]] = []
     sheets_skipped: list[dict[str, Any]] = []

@@ -1708,20 +1708,13 @@ def parse_purchase_register(
                 if any(n.startswith("xl/") or n == "[Content_Types].xml" for n in zf.namelist()):
                     ext = ".xlsx"
                 else:
-                    members = [
-                        m for m in zf.namelist()
-                        if not m.startswith("__MACOSX/") and not os.path.basename(m).startswith(".") and not m.endswith("/")
-                    ]
-                    doc_members = [
-                        m for m in members
-                        if any(m.lower().endswith(e) for e in (".xlsx", ".xls", ".csv"))
-                    ]
-                    if doc_members:
-                        chosen = doc_members[0]
-                        file_content = zf.read(chosen)
-                        filename = os.path.basename(chosen)
-                        dot_idx = filename.rfind(".")
-                        ext = filename[dot_idx:].lower() if dot_idx != -1 else ""
+                    from app.parsers.zip_batch_parser import parse_zip_batch
+                    return parse_zip_batch(
+                        file_content,
+                        filename,
+                        parser_func=parse_purchase_register,
+                        client_gstin=client_gstin,
+                    )
         except (zipfile.BadZipFile, Exception):
             pass
 

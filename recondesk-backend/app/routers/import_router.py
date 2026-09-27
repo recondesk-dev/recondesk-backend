@@ -28,7 +28,7 @@ _log = logging.getLogger(__name__)
 
 PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-ALLOWED_PR_EXT = {".xlsx", ".xls", ".csv"}
+ALLOWED_PR_EXT = {".xlsx", ".xls", ".csv", ".zip"}
 
 
 @lru_cache(maxsize=1)
@@ -473,7 +473,7 @@ async def import_purchase_register(
     if ext not in ALLOWED_PR_EXT:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="file must be .xlsx, .xls, or .csv",
+            detail="file must be .xlsx, .xls, .csv, or .zip",
         )
 
     raw = await file.read()

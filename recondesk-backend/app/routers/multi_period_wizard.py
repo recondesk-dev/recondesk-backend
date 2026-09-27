@@ -161,10 +161,10 @@ async def upload_manual_pr_for_period(
 
     filename = file.filename or "pr.xlsx"
     ext = (filename.rsplit(".", 1)[-1] if "." in filename else "xlsx").lower()
-    if ext not in ("csv", "xlsx", "xls"):
+    if ext not in ("csv", "xlsx", "xls", "zip"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File must be .csv, .xlsx, or .xls",
+            detail="File must be .csv, .xlsx, .xls, or .zip",
         )
 
     contents = await file.read()

@@ -1346,11 +1346,11 @@ async def reconcile_gstr1(
     # ── Validate file types ──────────────────────────────────────────────
     sr_filename = sales_register_file.filename or "upload.xlsx"
     sr_ext = sr_filename.rsplit(".", 1)[-1].lower() if "." in sr_filename else ""
-    if sr_ext not in ("xlsx", "xls", "csv"):
+    if sr_ext not in ("xlsx", "xls", "csv", "zip"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"Sales Register must be .xlsx, .xls, or .csv — "
+                f"Sales Register must be .xlsx, .xls, .csv, or .zip — "
                 f"got '.{sr_ext}'"
             ),
         )
