@@ -1720,7 +1720,13 @@ def resolve_orphans(
             g_taxable = _taxable_paise(mi)
             w_taxable = _taxable_paise(w)
 
-            if g_gstin != w_gstin and abs(w_taxable - g_taxable) <= amount_tolerance_paise:
+            compat_id, id_reason, id_type = supplier_identity_compatible(mi, w)
+            if (
+                g_gstin != w_gstin
+                and compat_id
+                and id_type != "IDENTITY_CONFLICT"
+                and abs(w_taxable - g_taxable) <= amount_tolerance_paise
+            ):
                 gstin_mismatch.append({
                     "gstr_id": str(mi.get("gstr_id") or ""),
                     "pr_id": str(w.get("id") or ""),
@@ -1785,7 +1791,14 @@ def resolve_orphans(
                     else:
                         g_gstin = str(gstr_by_id_local[gid].get("supplier_gstin") or "")
                         p_gstin = str(pr_by_id_local[pid].get("supplier_gstin") or "")
-                        if g_gstin != p_gstin:
+                        compat_id, id_reason, id_type = supplier_identity_compatible(
+                            gstr_by_id_local[gid], pr_by_id_local[pid]
+                        )
+                        if (
+                            g_gstin != p_gstin
+                            and compat_id
+                            and id_type != "IDENTITY_CONFLICT"
+                        ):
                             gstin_mismatch.append({
                                 "gstr_id": gid,
                                 "pr_id": pid,
@@ -1797,6 +1810,9 @@ def resolve_orphans(
                                 "total_tax_paise": int(gstr_by_id_local[gid].get("total_tax_paise") or 0),
                                 "reason": "GSTIN_MISMATCH",
                             })
+                        elif g_gstin != p_gstin:
+                            missed_final.append(gstr_by_id_local[gid])
+                            wrongful_final.append(pr_by_id_local[pid])
                         else:
                             matched_final.append({
                                 "gstr_id": gid, "pr_id": pid,
@@ -2305,6 +2321,9 @@ def execute_phase2_and_3(
                 continue
             p_gst = str(p.get("supplier_gstin") or "").strip()
             if gst != p_gst:
+                compat_id, id_reason, id_type = supplier_identity_compatible(g, p)
+                if not compat_id or id_type == "IDENTITY_CONFLICT":
+                    continue
                 if _pr_has_stronger_same_gstin_gstr_candidate(
                     p, unconsumed_gstr_by_gstin, state.consumed_gstr_ids
                 ):
@@ -2358,6 +2377,9 @@ def execute_phase2_and_3(
             p_gst = str(p.get("supplier_gstin") or "").strip()
             # Must be a near-match GSTIN (not exact — exact case already handled above)
             if not _gstin_is_fuzzy_match(gst, p_gst):
+                continue
+            compat_id, id_reason, id_type = supplier_identity_compatible(g, p)
+            if not compat_id or id_type == "IDENTITY_CONFLICT":
                 continue
             if _pr_has_stronger_same_gstin_gstr_candidate(
                 p, unconsumed_gstr_by_gstin, state.consumed_gstr_ids
@@ -2543,6 +2565,9 @@ def execute_phase2_and_3(
                         continue
                     p_gst = str(p.get("supplier_gstin") or "").strip()
                     if p_gst != gst and _gstin_is_fuzzy_match(gst, p_gst):
+                        compat_id, id_reason, id_type = supplier_identity_compatible(g, p)
+                        if not compat_id or id_type == "IDENTITY_CONFLICT":
+                            continue
                         p_amt = p.get("total_tax_paise") or 0
                         if g_amt == 0 and p_amt == 0: diff_pct = 0.0
                         elif p_amt == 0: diff_pct = 1.0

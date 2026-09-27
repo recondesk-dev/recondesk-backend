@@ -527,3 +527,19 @@ def test_cntr_cns_dna_invoices_remain_blocked_by_sequential_guard():
     assert res_dna["stats"]["wrongful_risk_count"] == 1
 
 
+def test_cross_vendor_identical_invoice_numbers_blocked_by_supplier_identity_gate():
+    """Unrelated suppliers with identical invoice numbers and amounts must NOT match as GSTIN_MISMATCH.
+
+    Example: Tata Motors (27 MH) vs Reliance Retail (29 KA) both issue 'INV-101' for ₹10,000.
+    Because their PANs and identities conflict, they must remain distinct (Missed ITC & Wrongful Risk)
+    and NEVER be cross-matched into Review Required.
+    """
+    g_unrelated = [_make_gstr("g_tata", "INV-101", "27ABCDE1234F1Z5", 1000000, 180000, name="Tata Motors Limited")]
+    p_unrelated = [_make_pr("p_reliance", "INV-101", "29XYZPQ9876R1Z2", 1000000, 180000, name="Reliance Retail Limited")]
+    res = run_bidirectional_reconciliation(g_unrelated, p_unrelated, gstr_period=PERIOD)
+
+    assert res["stats"]["matched_count"] == 0
+    assert res["stats"]["review_required_count"] == 0
+    assert res["stats"]["gstin_mismatch_count"] == 0
+    assert res["stats"]["missed_itc_count"] == 1
+    assert res["stats"]["wrongful_risk_count"] == 1
