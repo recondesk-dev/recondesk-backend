@@ -1204,7 +1204,8 @@ export default function ReconcileResultsPage() {
   const [selectedIds, setSelectedIds] = useState<{
     itc: Set<string>;
     risk: Set<string>;
-  }>(() => ({ itc: new Set(), risk: new Set() }));
+    review: Set<string>;
+  }>(() => ({ itc: new Set(), risk: new Set(), review: new Set() }));
 
   const [followupLetterRows, setFollowupLetterRows] = useState<
     ReconcileRow[] | null
@@ -2229,7 +2230,7 @@ export default function ReconcileResultsPage() {
 
   const runBulkDecision = useCallback(
     async (
-      section: "itc" | "risk",
+      section: "itc" | "risk" | "review",
       ids: string[],
       status: DecisionStatus,
       selectedSnapshot: Set<string>
@@ -2282,9 +2283,11 @@ export default function ReconcileResultsPage() {
           if (section === "itc") {
             void mutateItc();
             void mutateItcAllRows();
-          } else {
+          } else if (section === "risk") {
             void mutateRisk();
             void mutateRiskAllRows();
+          } else {
+            void mutateReviewRequired();
           }
           void mutateSummary();
           void mutateTable4();
@@ -2309,8 +2312,16 @@ export default function ReconcileResultsPage() {
 
         // Trigger comprehensive revalidation chain for affected views
         await Promise.all([
-          section === "itc" ? mutateItc() : mutateRisk(),
-          section === "itc" ? mutateItcAllRows() : mutateRiskAllRows(),
+          section === "itc"
+            ? mutateItc()
+            : section === "risk"
+            ? mutateRisk()
+            : mutateReviewRequired(),
+          section === "itc"
+            ? mutateItcAllRows()
+            : section === "risk"
+            ? mutateRiskAllRows()
+            : mutateReviewRequired(),
           mutateSummary(),
           mutateTable4(),
           mutateMatched(),
@@ -2337,9 +2348,11 @@ export default function ReconcileResultsPage() {
         if (section === "itc") {
           void mutateItc();
           void mutateItcAllRows();
-        } else {
+        } else if (section === "risk") {
           void mutateRisk();
           void mutateRiskAllRows();
+        } else {
+          void mutateReviewRequired();
         }
         void mutateSummary();
         void mutateTable4();
@@ -2497,6 +2510,7 @@ export default function ReconcileResultsPage() {
 
   const itcHeaderRef = useRef<HTMLInputElement>(null);
   const riskHeaderRef = useRef<HTMLInputElement>(null);
+  const reviewRequiredHeaderRef = useRef<HTMLInputElement>(null);
 
   const itcRows = itcPageData?.data ?? [];
   const itcMax = useMemo(
@@ -2589,6 +2603,40 @@ export default function ReconcileResultsPage() {
     set.delete("");
     return set.size;
   }, [riskRowsSelectedOnPage]);
+
+  const reviewRequiredRows = useMemo(
+    () =>
+      (reviewRequiredData?.data ?? [])
+        .filter((r) => checkDocType(r, docTypeFilterReviewRequired))
+        .filter(
+          (r) =>
+            r.supplier_gstin ||
+            r.invoice_number ||
+            (r.amount && r.amount > 0)
+        ),
+    [reviewRequiredData?.data, docTypeFilterReviewRequired]
+  );
+
+  useEffect(() => {
+    const el = reviewRequiredHeaderRef.current;
+    if (!el || !reviewRequiredRows.length) return;
+    const n = reviewRequiredRows.filter((r) => selectedIds.review.has(r.id)).length;
+    el.indeterminate = n > 0 && n < reviewRequiredRows.length;
+  }, [selectedIds.review, reviewRequiredRows]);
+
+  const reviewRowsSelectedOnPage = useMemo(
+    () => reviewRequiredRows.filter((r) => selectedIds.review.has(r.id)),
+    [reviewRequiredRows, selectedIds.review]
+  );
+
+  const reviewSelectedTotalAmount = useMemo(
+    () =>
+      reviewRowsSelectedOnPage.reduce(
+        (sum, r) => sum + (Number(r.amount) || 0),
+        0
+      ),
+    [reviewRowsSelectedOnPage]
+  );
 
   const openFollowupLetter = useCallback((rows: ReconcileRow[]) => {
     if (!rows.length) return;
@@ -5591,18 +5639,105 @@ export default function ReconcileResultsPage() {
                 }
               />
             )}
-          {reviewRequiredData && !reviewRequiredError && reviewRequiredData.data.length > 0 && (
+          {reviewRequiredData && !reviewRequiredError && reviewRequiredRows.length > 0 && (
             <>
-              <VirtualizedDecisionInvoiceList
-                items={reviewRequiredData.data
-                  .filter((r) => checkDocType(r, docTypeFilterReviewRequired))
-                  .filter(
-                    (r) =>
-                      r.supplier_gstin ||
-                      r.invoice_number ||
-                      (r.amount && r.amount > 0)
+              {selectedIds.review.size > 0 && (
+                <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#F0F0F0] bg-[#FAFAFA] px-4 py-2.5 text-[13px]">
+                  <span className="font-semibold text-gray-800">
+                    {selectedIds.review.size} selected
+                  </span>
+                  {reviewSelectedTotalAmount > 0 && (
+                    <span className="rounded-full bg-gray-200/80 px-2 py-0.5 text-xs font-semibold tabular-nums text-gray-700">
+                      ₹{Math.round(reviewSelectedTotalAmount).toLocaleString("en-IN")}
+                    </span>
                   )}
+                  <button
+                    type="button"
+                    disabled={isRunFinalized}
+                    className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-[13px] font-medium text-emerald-700 hover:bg-emerald-50 hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => {
+                      const snap = new Set(selectedIds.review);
+                      const ids = Array.from(snap);
+                      void runBulkDecision("review", ids, "acted", snap);
+                    }}
+                  >
+                    Mark as Acted (Accept)
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isRunFinalized}
+                    className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-[13px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => {
+                      const snap = new Set(selectedIds.review);
+                      const ids = Array.from(snap);
+                      void runBulkDecision("review", ids, "ignored", snap);
+                    }}
+                  >
+                    Mark as Ignored
+                  </button>
+                  <button
+                    type="button"
+                    className="text-[13px] font-medium text-[var(--ink)] hover:underline"
+                    onClick={() =>
+                      setSelectedIds((p) => ({ ...p, review: new Set() }))
+                    }
+                  >
+                    Clear selection
+                  </button>
+                </div>
+              )}
+              <VirtualizedDecisionInvoiceList
+                items={reviewRequiredRows}
                 getItemKey={(row) => row.id}
+                selectAll={
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        ref={reviewRequiredHeaderRef}
+                        type="checkbox"
+                        disabled={isRunFinalized}
+                        checked={
+                          reviewRequiredRows.length > 0 &&
+                          reviewRequiredRows.every((r) => selectedIds.review.has(r.id))
+                        }
+                        onChange={(e) => {
+                          const on = e.target.checked;
+                          setSelectedIds((prev) => {
+                            const next = {
+                              ...prev,
+                              review: new Set(prev.review),
+                            };
+                            if (on) reviewRequiredRows.forEach((r) => next.review.add(r.id));
+                            else reviewRequiredRows.forEach((r) => next.review.delete(r.id));
+                            return next;
+                          });
+                        }}
+                        className="rounded border-gray-300"
+                      />
+                      <span className="text-[13px] font-medium text-gray-700">
+                        Select all on this page
+                      </span>
+                    </label>
+                    {reviewRequiredRows.some((r) => (r.priority || "").toUpperCase() === "MEDIUM") && (
+                      <button
+                        type="button"
+                        disabled={isRunFinalized}
+                        onClick={() => {
+                          setSelectedIds((prev) => {
+                            const next = { ...prev, review: new Set(prev.review) };
+                            reviewRequiredRows
+                              .filter((r) => (r.priority || "").toUpperCase() === "MEDIUM")
+                              .forEach((r) => next.review.add(r.id));
+                            return next;
+                          });
+                        }}
+                        className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition-colors border border-amber-200"
+                      >
+                        + Select all MEDIUM on page
+                      </button>
+                    )}
+                  </div>
+                }
                 renderItem={(row, i) => {
                   let taxDiff = formatTaxDifferenceDisplay(
                     row.tax_difference_paise,
@@ -5635,6 +5770,16 @@ export default function ReconcileResultsPage() {
                       invoiceNumber={row.invoice_number}
                       invoiceDate={formatDate(row.invoice_date)}
                       amount={row.amount}
+                      selected={selectedIds.review.has(row.id)}
+                      checkboxDisabled={isRunFinalized}
+                      onSelectChange={(checked) => {
+                        setSelectedIds((prev) => {
+                          const next = { ...prev, review: new Set(prev.review) };
+                          if (checked) next.review.add(row.id);
+                          else next.review.delete(row.id);
+                          return next;
+                        });
+                      }}
                       onOpen={() => {
                         setActiveRecord(row);
                         setDrawerDecisionError(null);
