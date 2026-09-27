@@ -209,7 +209,8 @@ export function usesSameOriginProxy(path: string): boolean {
     path.startsWith("/api/reconciliation") ||
     path.startsWith("/api/einvoice-recon") ||
     path.startsWith("/api/gstr2a-delta") ||
-    path.startsWith("/api/einvoicing")
+    path.startsWith("/api/einvoicing") ||
+    path.startsWith("/api/notices")
   );
 }
 

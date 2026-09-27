@@ -2,7 +2,7 @@
  * Notice Defense & Reconciliation API client.
  */
 
-import { apiFetch } from "@/lib/api";
+import { apiFetch, resolveApiUrl } from "@/lib/api";
 
 export interface NoticeDataInput {
   notice_reference: string;
@@ -107,7 +107,8 @@ export interface MatchingReconRun {
  * Upload and extract text / DIN / demand amounts from notice PDF.
  */
 export async function parseNoticePdf(
-  file: File
+  file: File,
+  token?: string
 ): Promise<{ success: boolean; notice: Partial<NoticeDataInput> }> {
   const formData = new FormData();
   formData.append("file", file);
@@ -117,6 +118,7 @@ export async function parseNoticePdf(
     {
       method: "POST",
       body: formData,
+      token,
     }
   );
 }
@@ -127,14 +129,16 @@ export async function parseNoticePdf(
 export async function getMatchingRuns(
   clientId: string,
   period?: string,
-  fy?: string
+  fy?: string,
+  token?: string
 ): Promise<{ client_id: string; runs: MatchingReconRun[] }> {
   const params = new URLSearchParams();
   if (period) params.set("period", period);
   if (fy) params.set("fy", fy);
 
   return apiFetch<{ client_id: string; runs: MatchingReconRun[] }>(
-    `/api/notices/matching-runs/${encodeURIComponent(clientId)}?${params.toString()}`
+    `/api/notices/matching-runs/${encodeURIComponent(clientId)}?${params.toString()}`,
+    { token }
   );
 }
 
@@ -144,7 +148,8 @@ export async function getMatchingRuns(
 export async function analyzeNoticeDefense(
   clientId: string,
   noticeData: NoticeDataInput,
-  reconciliationRunId?: string | null
+  reconciliationRunId?: string | null,
+  token?: string
 ): Promise<{ success: boolean; defense: NoticeDefenseResult }> {
   return apiFetch<{ success: boolean; defense: NoticeDefenseResult }>(
     "/api/notices/analyze-defense",
@@ -156,6 +161,7 @@ export async function analyzeNoticeDefense(
         notice_data: noticeData,
         reconciliation_run_id: reconciliationRunId || null,
       }),
+      token,
     }
   );
 }
@@ -163,19 +169,23 @@ export async function analyzeNoticeDefense(
 /**
  * Save notice and defense record in client workspace.
  */
-export async function saveNoticeRecord(payload: {
-  client_id: string;
-  notice_data: NoticeDataInput;
-  reconciliation_run_id?: string | null;
-  defense_summary?: DefenseSummary;
-  invoices_schedule?: InvoiceScheduleItem[];
-  formal_reply_text?: string;
-  status?: string;
-}): Promise<{ success: boolean; notice: SavedNoticeRecord }> {
+export async function saveNoticeRecord(
+  payload: {
+    client_id: string;
+    notice_data: NoticeDataInput;
+    reconciliation_run_id?: string | null;
+    defense_summary?: DefenseSummary;
+    invoices_schedule?: InvoiceScheduleItem[];
+    formal_reply_text?: string;
+    status?: string;
+  },
+  token?: string
+): Promise<{ success: boolean; notice: SavedNoticeRecord }> {
   return apiFetch<{ success: boolean; notice: SavedNoticeRecord }>("/api/notices", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    token,
   });
 }
 
@@ -183,10 +193,12 @@ export async function saveNoticeRecord(payload: {
  * List notices for a specific client.
  */
 export async function listClientNotices(
-  clientId: string
+  clientId: string,
+  token?: string
 ): Promise<{ client_id: string; notices: SavedNoticeRecord[] }> {
   return apiFetch<{ client_id: string; notices: SavedNoticeRecord[] }>(
-    `/api/notices/client/${encodeURIComponent(clientId)}`
+    `/api/notices/client/${encodeURIComponent(clientId)}`,
+    { token }
   );
 }
 
@@ -194,10 +206,12 @@ export async function listClientNotices(
  * Retrieve full details of a saved notice.
  */
 export async function getNotice(
-  noticeId: string
+  noticeId: string,
+  token?: string
 ): Promise<{ notice: SavedNoticeRecord }> {
   return apiFetch<{ notice: SavedNoticeRecord }>(
-    `/api/notices/${encodeURIComponent(noticeId)}`
+    `/api/notices/${encodeURIComponent(noticeId)}`,
+    { token }
   );
 }
 
@@ -206,7 +220,8 @@ export async function getNotice(
  */
 export async function updateNoticeStatus(
   noticeId: string,
-  status: string
+  status: string,
+  token?: string
 ): Promise<{ success: boolean }> {
   return apiFetch<{ success: boolean }>(
     `/api/notices/${encodeURIComponent(noticeId)}/status`,
@@ -214,6 +229,7 @@ export async function updateNoticeStatus(
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
+      token,
     }
   );
 }
@@ -222,11 +238,16 @@ export async function updateNoticeStatus(
  * Export and download defense Excel workbook.
  */
 export async function downloadDefenseExcel(
-  defenseData: NoticeDefenseResult | any
+  defenseData: NoticeDefenseResult | any,
+  token?: string
 ): Promise<void> {
-  const res = await fetch("/api/notices/export-excel", {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const res = await fetch(resolveApiUrl("/api/notices/export-excel"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(defenseData),
   });
 

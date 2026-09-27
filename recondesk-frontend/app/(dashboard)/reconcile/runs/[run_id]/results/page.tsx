@@ -453,6 +453,9 @@ type RunSummary = {
   decisions_acted_count?: number;
   decisions_ignored_count?: number;
   decisions_pending_count?: number;
+  /** LOW-priority Review Required records: safe to bulk-accept in one click. */
+  low_priority_review_count?: number;
+  low_priority_review_itc_paise?: number;
 };
 
 type ConfidenceSummary = {
@@ -1461,6 +1464,7 @@ export default function ReconcileResultsPage() {
     DEFAULT_AUTO_APPROVE_THRESHOLD
   );
   const [autoApproveSaving, setAutoApproveSaving] = useState(false);
+  const [bulkAcceptLowLoading, setBulkAcceptLowLoading] = useState(false);
 
   const downloadItcCsv = useCallback(async () => {
     if (!authToken || !runId) return;
@@ -2705,6 +2709,65 @@ export default function ReconcileResultsPage() {
     autoApproveThreshold,
     canEditAutoApproveThreshold,
   ]);
+
+  const handleBulkAcceptLow = useCallback(async () => {
+    if (!authToken || !runId) return;
+    setBulkAcceptLowLoading(true);
+    try {
+      // 1. Preview: get count + ITC amount without writing
+      const preview = await apiFetch<{
+        low_priority_count: number;
+        low_priority_itc_paise: number;
+        accepted_count: number;
+        dry_run: boolean;
+      }>("/api/reconcile/records/bulk-accept-low-priority", {
+        method: "POST",
+        token: authToken,
+        body: JSON.stringify({ run_id: runId, dry_run: true }),
+      });
+      if (!preview || preview.low_priority_count === 0) {
+        addToast("No LOW-priority items to accept", "warning");
+        return;
+      }
+      const itcRupees = (preview.low_priority_itc_paise / 100).toLocaleString("en-IN", {
+        maximumFractionDigits: 0,
+      });
+      const confirmed = window.confirm(
+        `Accept ${preview.low_priority_count} LOW-priority rounding/freight variances\nand add ₹${itcRupees} to Table 4(A)(5)?\n\nURGENT, HIGH, and MEDIUM items will NOT be touched.`
+      );
+      if (!confirmed) return;
+      // 2. Execute
+      const result = await apiFetch<{
+        low_priority_count: number;
+        low_priority_itc_paise: number;
+        accepted_count: number;
+        dry_run: boolean;
+      }>("/api/reconcile/records/bulk-accept-low-priority", {
+        method: "POST",
+        token: authToken,
+        body: JSON.stringify({ run_id: runId, dry_run: false }),
+      });
+      if (result && result.accepted_count > 0) {
+        addToast(
+          `${result.accepted_count} LOW-priority variances accepted — ₹${itcRupees} added to Table 4(A)(5)`,
+          "success"
+        );
+        void mutateReviewRequired();
+        void mutateSummary();
+        void mutateTable4();
+        void revalidateReconciliationRun(runId);
+      } else {
+        addToast("No records were updated", "error");
+      }
+    } catch (err) {
+      addToast(
+        isApiError(err) ? err.detail : "Failed to bulk accept — please try again",
+        "error"
+      );
+    } finally {
+      setBulkAcceptLowLoading(false);
+    }
+  }, [addToast, authToken, runId, mutateReviewRequired, mutateSummary, mutateTable4]);
 
   const exportScopeLabel = (
     <p className="text-[11px] text-gray-500">
@@ -5291,6 +5354,46 @@ export default function ReconcileResultsPage() {
               </button>
             </div>
           </div>
+
+          {/* ── Bulk Accept: LOW-Priority Rounding/Freight Variances ─────────────────────
+              Show only when there are unresolved LOW-priority items (minor rounding/freight
+              variances < ₹100 diff). URGENT, HIGH, and MEDIUM items are never touched.
+              The ITC amount is shown prominently in the button — that's the CA's decision
+              trigger, not the row count.
+          ──────────────────────────────────────────────────────────────────────────────── */}
+          {(summary?.low_priority_review_count ?? 0) > 0 && (
+            <div className="mb-4 flex flex-col gap-3 rounded-xl border border-[#D1FAE5] bg-[#F0FDF4] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-xs sm:text-[13px] font-semibold text-[#065F46] flex items-center gap-1.5">
+                  <span>✓</span>
+                  <span>
+                    {(summary?.low_priority_review_count ?? 0).toLocaleString("en-IN")} LOW-priority rounding &amp; freight variances — safe to bulk-accept
+                  </span>
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed text-[#047857]">
+                  Minor amount differences (&lt;₹100) due to rounding, freight, or TCS. GSTIN, invoice number, and date are all exact. URGENT, HIGH &amp; MEDIUM items remain untouched.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={bulkAcceptLowLoading || isRunFinalized}
+                onClick={() => void handleBulkAcceptLow()}
+                className="inline-flex shrink-0 items-center gap-2 rounded-full bg-[#059669] px-4 py-2 text-xs font-semibold text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {bulkAcceptLowLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <>
+                    <span>Bulk Accept</span>
+                    <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-bold tabular-nums">
+                      ₹{Math.round((summary?.low_priority_review_itc_paise ?? 0) / 100).toLocaleString("en-IN")}
+                    </span>
+                    <span>→ Table 4(A)(5)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
 
           <div className={filterToolbarClass}>
             <input

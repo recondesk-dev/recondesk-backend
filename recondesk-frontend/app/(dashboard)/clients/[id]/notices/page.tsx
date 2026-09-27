@@ -55,7 +55,7 @@ export default function ClientNoticesPage() {
     isLoading: noticesLoading,
     mutate: mutateNotices,
   } = useSWR(clientId && authToken ? ["client-notices", clientId] : null, () =>
-    listClientNotices(clientId)
+    listClientNotices(clientId, authToken!)
   );
 
   const notices: SavedNoticeRecord[] = noticesData?.notices || [];
@@ -83,11 +83,19 @@ export default function ClientNoticesPage() {
 
   async function handleStatusChange(noticeId: string, newStatus: string) {
     try {
-      await updateNoticeStatus(noticeId, newStatus);
+      await updateNoticeStatus(noticeId, newStatus, authToken || undefined);
       mutateNotices();
     } catch (err) {
       console.error("Failed to update status", err);
     }
+  }
+
+  if (tokenState === false) {
+    return (
+      <div className="rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm text-amber-950">
+        Sign in required to view Notice Defense & Workpapers.
+      </div>
+    );
   }
 
   return (
@@ -300,7 +308,7 @@ export default function ClientNoticesPage() {
 
                     <td className="p-3.5 text-right space-x-2">
                       <button
-                        onClick={() => downloadDefenseExcel(n)}
+                        onClick={() => downloadDefenseExcel(n, authToken || undefined)}
                         className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
                         title="Download Excel Annexure"
                       >

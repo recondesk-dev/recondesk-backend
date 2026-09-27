@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 
 import { formatINR } from "@/lib/format";
+import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import {
   analyzeNoticeDefense,
   downloadDefenseExcel,
@@ -64,6 +65,8 @@ export function NoticeDefenseModal({
   initialNoticeType,
   onSaved,
 }: NoticeDefenseModalProps) {
+  const tokenState = useAccessToken();
+  const token = typeof tokenState === "string" && tokenState.length > 0 ? tokenState : undefined;
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
   // Notice input state
@@ -140,7 +143,7 @@ export function NoticeDefenseModal({
     setParseNoticeMsg("Parsing notice document with AI OCR & regex extractor...");
 
     try {
-      const res = await parseNoticePdf(file);
+      const res = await parseNoticePdf(file, token);
       if (res.success && res.notice) {
         const n = res.notice;
         setNoticeData((prev) => ({
@@ -179,7 +182,7 @@ export function NoticeDefenseModal({
     setStep(2);
 
     try {
-      const res = await getMatchingRuns(clientId, noticeData.tax_period, noticeData.financial_year);
+      const res = await getMatchingRuns(clientId, noticeData.tax_period, noticeData.financial_year, token);
       setMatchingRuns(res.runs || []);
       if (res.runs && res.runs.length > 0) {
         setSelectedRunId(res.runs[0].id);
@@ -197,7 +200,7 @@ export function NoticeDefenseModal({
     setErrorMsg(null);
 
     try {
-      const res = await analyzeNoticeDefense(clientId, noticeData, selectedRunId);
+      const res = await analyzeNoticeDefense(clientId, noticeData, selectedRunId, token);
       if (res.success && res.defense) {
         setDefenseResult(res.defense);
         setStep(3);
@@ -229,7 +232,7 @@ export function NoticeDefenseModal({
     if (!defenseResult) return;
     setDownloadingExcel(true);
     try {
-      await downloadDefenseExcel(defenseResult);
+      await downloadDefenseExcel(defenseResult, token);
     } catch (err: any) {
       setErrorMsg(err?.message || "Failed to download Excel annexure");
     } finally {
@@ -242,15 +245,18 @@ export function NoticeDefenseModal({
     if (!defenseResult) return;
     setSavingNotice(true);
     try {
-      await saveNoticeRecord({
-        client_id: clientId,
-        notice_data: noticeData,
-        reconciliation_run_id: selectedRunId,
-        defense_summary: defenseResult.defense_summary,
-        invoices_schedule: defenseResult.invoices_schedule,
-        formal_reply_text: defenseResult.formal_reply_text,
-        status: "DEFENSE_READY",
-      });
+      await saveNoticeRecord(
+        {
+          client_id: clientId,
+          notice_data: noticeData,
+          reconciliation_run_id: selectedRunId,
+          defense_summary: defenseResult.defense_summary,
+          invoices_schedule: defenseResult.invoices_schedule,
+          formal_reply_text: defenseResult.formal_reply_text,
+          status: "DEFENSE_READY",
+        },
+        token
+      );
       setSaveSuccess(true);
       if (onSaved) onSaved();
       setTimeout(() => {
