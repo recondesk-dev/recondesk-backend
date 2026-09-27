@@ -9,6 +9,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { LanguageToggle } from "@/components/ui/LanguageToggle";
 import { useToast } from "@/components/providers/ToastProvider";
 import { useTranslations } from "next-intl";
+import { Menu, X } from "lucide-react";
 import {
   billingApi,
   isApiError,
@@ -223,10 +224,15 @@ export default function DashboardShellLayout({
   const supabase = createClient();
   const toast = useToast();
   const [panelOpen, setPanelOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const [headerProfileOpen, setHeaderProfileOpen] = useState(false);
   const headerProfileRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
   const [accessToken, setAccessToken] = useState<string | false | null>(null);
   const [currentUser, setCurrentUser] = useState({
     name: "…",
@@ -423,13 +429,35 @@ export default function DashboardShellLayout({
 
   return (
     <div className="dashboard-soft-bg flex min-h-screen w-full min-w-0 text-[var(--text-primary)]">
-      <aside className="fixed inset-y-3 left-3 z-50 flex w-[196px] flex-col rounded-[1.75rem] bg-white shadow-[var(--shadow-soft)]">
-        <div className="px-4 pb-3 pt-5">
-          <Link href="/dashboard" className="flex items-center">
-            <Logo width={150} height={28} />
+      {/* Mobile/Tablet Backdrop */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm transition-opacity lg:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Responsive Navigation Sidebar */}
+      <aside
+        className={`fixed inset-y-3 left-3 z-50 flex w-[230px] flex-col rounded-[1.75rem] bg-white shadow-[var(--shadow-lift)] transition-transform duration-300 ease-in-out lg:w-[196px] lg:translate-x-0 lg:shadow-[var(--shadow-soft)] ${
+          mobileMenuOpen ? "translate-x-0" : "-translate-x-[120%] lg:translate-x-0"
+        }`}
+      >
+        <div className="flex items-center justify-between px-4 pb-3 pt-5">
+          <Link href="/dashboard" className="flex items-center" onClick={() => setMobileMenuOpen(false)}>
+            <Logo width={140} height={26} />
           </Link>
+          <button
+            type="button"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-700 lg:hidden"
+            onClick={() => setMobileMenuOpen(false)}
+            aria-label="Close menu"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
-        <nav className="flex-1 space-y-0.5 px-2">
+        <nav className="flex-1 space-y-0.5 px-2 overflow-y-auto">
           {nav.map(({ href, label, Icon }) => {
             const isActive =
               href === "/dashboard"
@@ -439,6 +467,7 @@ export default function DashboardShellLayout({
               <Link
                 key={href}
                 href={href}
+                onClick={() => setMobileMenuOpen(false)}
                 className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-[13px] transition-all duration-200 ${
                   isActive
                     ? "bg-[var(--ink)] font-semibold text-white shadow-sm"
@@ -524,9 +553,23 @@ export default function DashboardShellLayout({
         </div>
       </aside>
 
-      <div className="ml-[216px] flex min-h-screen min-w-0 w-[calc(100%-216px)] max-w-[calc(100%-216px)] flex-1 flex-col overflow-x-hidden">
-        <header className="relative z-[60] flex h-16 shrink-0 items-center justify-between px-6 pt-2">
-          <div />
+      <div className="flex min-h-screen min-w-0 w-full flex-1 flex-col overflow-x-hidden lg:ml-[216px] lg:w-[calc(100%-216px)] lg:max-w-[calc(100%-216px)]">
+        <header className="relative z-[60] flex h-16 shrink-0 items-center justify-between px-4 sm:px-6 pt-2">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="flex items-center justify-center rounded-full bg-white p-2 text-gray-600 shadow-[var(--shadow-soft)] hover:bg-gray-50 hover:text-gray-900 lg:hidden"
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="Open menu"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <div className="lg:hidden flex items-center">
+              <Link href="/dashboard" className="flex items-center">
+                <Logo width={120} height={22} />
+              </Link>
+            </div>
+          </div>
           <div className="flex items-center gap-3">
             <LanguageToggle />
             <button
@@ -646,7 +689,7 @@ export default function DashboardShellLayout({
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-6 pb-10 pt-2">
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 sm:px-6 pb-10 pt-2">
           {children}
         </main>
       </div>
