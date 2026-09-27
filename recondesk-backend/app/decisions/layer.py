@@ -114,6 +114,25 @@ class RuleTemplate:
         return self.decision_next
 
 
+def _is_credit_note_row(row: dict[str, Any]) -> bool:
+    if row.get("is_credit_note"):
+        return True
+    for k in ("doc_type", "document_type", "section"):
+        v = str(row.get(k) or "").strip().upper()
+        if v in ("CREDIT_NOTE", "CREDIT NOTE", "CRN", "CDN", "CDNR", "CDNRA", "C"):
+            return True
+    return False
+
+
+def _is_rcm_row(row: dict[str, Any]) -> bool:
+    if row.get("is_rcm"):
+        return True
+    if str(row.get("supply_type") or "").strip().upper() == "RCM":
+        return True
+    rev = str(row.get("reverse_charge") or row.get("rcm") or "").strip().upper()
+    return rev in ("Y", "YES", "TRUE")
+
+
 def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> DecisionOutput | RuleTemplate:
     st = (row.get("scheme_type") or scheme_type or "regular").lower().strip()
     if scheme_type == "composition" or st == "composition":
@@ -154,9 +173,18 @@ def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> Deci
                 normalized_pairs=[],
             )
 
+    is_cn = _is_credit_note_row(row)
+    is_rcm = _is_rcm_row(row)
+
     if row.get("is_missed_itc") or mismatch_type == "MISSED_ITC":
+        if is_cn:
+            tmpl = "MISSED_ITC_CREDIT_NOTE"
+        elif is_rcm:
+            tmpl = "MISSED_ITC_RCM"
+        else:
+            tmpl = "MISSED_ITC"
         return generate_decision(
-            "MISSED_ITC",
+            tmpl,
             confidence="MEDIUM",
             matched_fields=_row_identity_fields(row),
             differed_fields=[],
@@ -178,6 +206,17 @@ def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> Deci
                 matched_fields=_row_identity_fields(row),
                 differed_fields=[],
                 normalized_pairs=[],
+                itc_amount=itc_amount,
+            )
+        if is_cn:
+            return generate_decision(
+                "WRONGFUL_ITC_CREDIT_NOTE",
+                confidence="MEDIUM",
+                matched_fields=_row_identity_fields(row),
+                differed_fields=[],
+                normalized_pairs=[],
+                supplier_gstin=supplier_gstin,
+                source_software=source_software,
                 itc_amount=itc_amount,
             )
         return generate_decision(
@@ -235,8 +274,9 @@ def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> Deci
 
     if level == 1:
         mf = list(dict.fromkeys(ident + amt_meta))
+        tmpl = "L1_CREDIT_NOTE_EXACT" if is_cn else ("L1_RCM_EXACT" if is_rcm else "L1_EXACT")
         return generate_decision(
-            "L1_EXACT",
+            tmpl,
             confidence="HIGH",
             matched_fields=mf,
             differed_fields=[],
@@ -322,8 +362,9 @@ def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> Deci
         )
 
     mf = list(dict.fromkeys(ident + amt_meta))
+    tmpl = "L1_CREDIT_NOTE_EXACT" if is_cn else ("L1_RCM_EXACT" if is_rcm else "L1_EXACT")
     return generate_decision(
-        "L1_EXACT",
+        tmpl,
         confidence="HIGH",
         matched_fields=mf,
         differed_fields=[],

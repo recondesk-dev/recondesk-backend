@@ -427,7 +427,11 @@ def _mr_to_decisions(
             if is_credit_note
             else d_why
         )
-        d_next = DecisionNext.NO_ACTION
+        d_next = (
+            "Reduce/reverse ITC in GSTR-3B Table 4(B)(2) as required. Do not claim as domestic inward ITC."
+            if is_credit_note
+            else DecisionNext.NO_ACTION
+        )
     return (d_what, d_why, d_next, tvd, igd, cgd, sgd, ttd, st)
 
 

@@ -16,7 +16,14 @@ def parse_csv(
     text = file_content.decode(encoding, errors="replace")
 
     if delimiter is None:
-        delimiter = "\t" if text.count("\t") > text.count(",") else ","
+        first_line = text.split("\n", 1)[0]
+        counts = {
+            ",": first_line.count(","),
+            ";": first_line.count(";"),
+            "\t": first_line.count("\t"),
+            "|": first_line.count("|"),
+        }
+        delimiter = max(counts, key=counts.get) if any(counts.values()) else ","
 
     df = pd.read_csv(io.StringIO(text), sep=delimiter, dtype=str)
     return _normalise(df)

@@ -23,6 +23,16 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "Invoice number, amount, and date all match within rounding tolerance",
         "next": "No action required. ITC can be claimed as filed.",
     },
+    "L1_CREDIT_NOTE_EXACT": {
+        "what": "Exact match found for Credit/Debit Note",
+        "why": "Credit/Debit note details and amounts align between GSTR-2B CDNR and purchase register",
+        "next": "Reduce/reverse ITC in GSTR-3B Table 4(B)(2) as required under Section 34(2). Do not claim as domestic inward ITC.",
+    },
+    "L1_RCM_EXACT": {
+        "what": "Exact match found (Reverse Charge / RCM)",
+        "why": "Inward supply liable to reverse charge under Section 9(3)/9(4) matches between GSTR-2B and books",
+        "next": "Discharge tax liability in cash under GSTR-3B Table 3.1(d), then claim corresponding ITC in Table 4(A)(3). Electronic credit ledger cannot be used for RCM tax payment.",
+    },
     "L2_NORMALIZED": {
         "what": "Normalized invoice match: {gstr_invoice} ↔ {pr_invoice}",
         "why": (
@@ -59,6 +69,16 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "Invoice not entered in {source_software} or entered under a different GSTIN",
         "next": "Locate physical invoice. If genuine, add to purchase register and claim ITC of {itc_amount}.",
     },
+    "MISSED_ITC_CREDIT_NOTE": {
+        "what": "Credit Note in 2B but Missing in Books",
+        "why": "Supplier issued a Credit Note of {itc_amount} in GSTR-2B CDNR that is not recorded in {source_software}",
+        "next": "Record credit note in purchase register and reduce/reverse ITC of {itc_amount} in GSTR-3B Table 4(B)(2) to prevent Section 50 interest.",
+    },
+    "MISSED_ITC_RCM": {
+        "what": "RCM Inward Supply in 2B but Missing in Books",
+        "why": "Inward supply liable to reverse charge appears in GSTR-2B Table 4(A)(3) but is not recorded in {source_software}",
+        "next": "Book in purchase register. Discharge tax in cash under Table 3.1(d) and avail ITC under Table 4(A)(3) of GSTR-3B.",
+    },
     "WRONGFUL_ITC": {
         # Bug-3 fix: The old label asserted "Supplier Has Not Filed" as a fact, but
         # PR-only records carry no supplier filing-status signal (supfildt is on the
@@ -73,6 +93,14 @@ TEMPLATES: dict[str, dict[str, str]] = {
             "ITC of {itc_amount} cannot be claimed until it appears in GSTR-2B."
         ),
         "next": "Contact {supplier_gstin} to confirm filing status. Do not claim this ITC in GSTR-3B until it appears in GSTR-2B.",
+    },
+    "WRONGFUL_ITC_CREDIT_NOTE": {
+        "what": "Credit Note in Books but not reflected in GSTR-2B",
+        "why": (
+            "Credit note recorded in {source_software} does not appear in supplier's GSTR-1 (CDNR table). "
+            "Supplier may not have filed or reported it under a different return period."
+        ),
+        "next": "Follow up with {supplier_gstin} to confirm filing of Credit Note in GSTR-1 Table 9B.",
     },
     "WRONGFUL_ITC_GSTIN_TYPO": {
         # Bug-3 fix: These records have an invoice number that IS present in

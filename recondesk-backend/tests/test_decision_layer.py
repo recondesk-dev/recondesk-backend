@@ -162,3 +162,88 @@ def test_l2_fuzzy_decision_what_from_live_taxable_pair():
     }
     d = _decision_for_row(row)
     assert "₹2,500.00" in d.what, f"expected ₹2,500.00 in decision_what, got {d.what!r}"
+
+
+def test_l1_credit_note_reverses_itc():
+    """Clean matched Credit Notes must instruct ITC reversal under Table 4(B)(2), NOT claim ITC."""
+    from app.decisions.layer import _decision_for_row
+
+    row = {
+        "match_level": 1,
+        "doc_type": "CREDIT_NOTE",
+        "supplier_gstin": "27AABCU9603R1ZX",
+        "invoice_number": "CN-001",
+    }
+    d = _decision_for_row(row)
+    assert d.rule == "L1_CREDIT_NOTE_EXACT"
+    assert "Table 4(B)(2)" in d.next
+    assert "Reduce/reverse ITC" in d.next
+    assert "claim as domestic inward ITC" in d.next or "Do not claim" in d.next
+
+
+def test_missed_itc_credit_note():
+    """Credit Note in 2B missing in Books is an over-claim requiring reversal, not new ITC claim."""
+    from app.decisions.layer import _decision_for_row
+
+    row = {
+        "is_missed_itc": True,
+        "doc_type": "CREDIT_NOTE",
+        "total_tax_paise": 180000,
+        "source_software": "Tally",
+        "supplier_gstin": "27AABCU9603R1ZX",
+    }
+    d = _decision_for_row(row)
+    assert d.rule == "MISSED_ITC_CREDIT_NOTE"
+    assert "reduce/reverse ITC" in d.next
+    assert "Table 4(B)(2)" in d.next
+    assert "Section 50" in d.next
+
+
+def test_wrongful_itc_credit_note():
+    """Credit Note booked in PR but missing in 2B must guide CA on GSTR-1 Table 9B follow-up."""
+    from app.decisions.layer import _decision_for_row
+
+    row = {
+        "is_wrongful_itc": True,
+        "is_credit_note": True,
+        "total_tax_paise": 180000,
+        "source_software": "Busy",
+        "supplier_gstin": "27AABCU9603R1ZX",
+    }
+    d = _decision_for_row(row)
+    assert d.rule == "WRONGFUL_ITC_CREDIT_NOTE"
+    assert "Table 9B" in d.next or "CDNR" in d.why
+
+
+def test_l1_rcm_cash_liability():
+    """Matched RCM supplies must warn that tax is payable in cash under Table 3.1(d)."""
+    from app.decisions.layer import _decision_for_row
+
+    row = {
+        "match_level": 1,
+        "is_rcm": True,
+        "supplier_gstin": "27AABCU9603R1ZX",
+        "invoice_number": "INV-RCM-1",
+    }
+    d = _decision_for_row(row)
+    assert d.rule == "L1_RCM_EXACT"
+    assert "Table 3.1(d)" in d.next
+    assert "Table 4(A)(3)" in d.next
+    assert "cash" in d.next.lower()
+
+
+def test_missed_itc_rcm():
+    """Unbooked RCM supplies in GSTR-2B must instruct Table 3.1(d) cash payment & Table 4(A)(3) claim."""
+    from app.decisions.layer import _decision_for_row
+
+    row = {
+        "is_missed_itc": True,
+        "supply_type": "RCM",
+        "total_tax_paise": 900000,
+        "supplier_gstin": "27AABCU9603R1ZX",
+    }
+    d = _decision_for_row(row)
+    assert d.rule == "MISSED_ITC_RCM"
+    assert "Table 3.1(d)" in d.next
+    assert "Table 4(A)(3)" in d.next
+

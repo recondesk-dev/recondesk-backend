@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import time
+import unicodedata
 from typing import Any
 
 import pandas as pd
@@ -97,6 +98,7 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "tax id", "gst identification no", "gst identification number",
         "party gstin / uin", "supplier gstin / uin", "tin / gstin", "gst / tin",
         "vat / gst no", "party's gstin/uin", "party gstin/uin", "gstin / uin of supplier",
+        "जीएसटी", "जीएसटी नंबर", "जीएसटीआईएन", "पार्टी जीएसटी", "विक्रेता जीएसटी", "सप्लायर जीएसटी",
     ],
     "invoice_number": [
         "invoice no", "invoice number", "inv no", "bill no",
@@ -110,12 +112,14 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "purchase no", "bill / inv no", "bill/inv no", "vch no / inv no",
         "vch no / bill no", "txn no", "transaction no", "transaction number",
         "inv id", "invoice id",
+        "चालान संख्या", "बिल संख्या", "इनवॉइस नंबर", "बिल नंबर", "वाउचर नंबर", "वाउचर संख्या", "चालान नं", "बिल नं", "इनवॉइस नं",
     ],
     "invoice_date": [
         "invoice date", "bill date", "bill dt", "date", "voucher date", "doc date",
         "inv date", "inv dt", "invoice dt", "document date", "posting date",
         "entry date", "voucher dt", "bill dt.", "invoice date / bill date",
         "bill date / invoice date", "date of invoice", "tx date", "transaction date",
+        "चालान दिनांक", "बिल दिनांक", "दिनांक", "तारीख", "तिथि",
     ],
     "taxable_amount": [
         "taxable value", "taxable amount", "base amount", "taxable",
@@ -127,16 +131,19 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "taxable value (rs)", "net taxable amount", "taxable goods value",
         "basic amount", "basic amt", "basic value", "net purchase",
         "purchase amount", "purchase value", "taxable amt rs", "taxable amt (rs)",
+        "कर योग्य मूल्य", "कर योग्य राशि", "आधार मूल्य", "कर मूल्य",
     ],
     "igst": [
         "igst", "integrated tax", "igst amount", "igst tax", "i.g.s.t", "igst paid",
         "igst amt", "igst amt.", "integrated gst", "igst tax amount",
         "integrated tax amount", "igst (rs)", "igst (rs.)", "igst amt (rs)",
+        "एकीकृत कर", "आईजीएसटी", "एकीकृत जीएसटी",
     ],
     "cgst": [
         "cgst", "central tax", "cgst amount", "cgst tax", "c.g.s.t",
         "cgst amt", "cgst amt.", "central gst", "cgst tax amount",
         "central tax amount", "cgst (rs)", "cgst (rs.)", "cgst amt (rs)",
+        "केंद्रीय कर", "सीजीएसटी", "केंद्रीय जीएसटी",
     ],
     "sgst": [
         "sgst", "state tax", "sgst amount", "sgst tax", "utgst", "s.g.s.t", "u.t.g.s.t",
@@ -145,17 +152,20 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "sgst / utgst", "sgst utgst", "state gst", "utgst amt", "sgst amt",
         "sgst amt.", "utgst amt.", "state gst amt", "state/utgst",
         "sgst / ut tax", "sgst / ut tax amount", "sgst (rs)", "sgst (rs.)", "sgst amt (rs)",
+        "राज्य कर", "एसजीएसटी", "राज्य जीएसटी",
     ],
     "cess": [
         "cess", "cess amount", "gst cess", "compensation cess",
         "cess amt", "cess amt.", "compensation cess amt", "compensation cess amount",
         "cess (rs)", "cess (rs.)",
+        "उपकर", "सेस",
     ],
     "total_tax": [
         "total tax", "gst amount", "tax amount", "total gst",
         "tax amt", "tax amt.", "total tax amt", "total tax amt.",
         "total tax amount", "total gst amount", "total gst amt",
         "gst amt", "gst amt.", "total tax rs", "total gst rs",
+        "कुल कर", "कुल जीएसटी", "कर राशि",
     ],
     "total_amount": [
         "total invoice value", "total value", "invoice value", "invoice amount",
@@ -165,6 +175,7 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "gross amt", "gross amt.", "invoice gross amount", "invoice net amount",
         "invoice total amount", "total amt", "total amt.", "total inv value",
         "total bill amount", "net bill amount", "final amount", "payable amount",
+        "कुल राशि", "सकल राशि", "कुल मूल्य", "कुल योग", "बिल राशि",
     ],
     "supplier_name": [
         "supplier name", "supplier", "vendor name", "vendor", "party name",
@@ -177,6 +188,7 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "party a/c name", "party ac name", "party account name", "account name",
         "particulars", "vendor / supplier name", "supplier / vendor name",
         "creditor's name", "seller's name", "party legal name", "company name",
+        "आपूर्तिकर्ता का नाम", "आपूर्तिकर्ता", "विक्रेता का नाम", "विक्रेता", "पार्टी का नाम", "फर्म का नाम",
     ],
     "place_of_supply": [
         "place of supply", "pos", "state",
@@ -257,10 +269,12 @@ _ACCT_SUFFIX_RE = re.compile(r"\s+(?:cr|dr)\.?\s*$", re.IGNORECASE)
 
 def normalize_header(col: str) -> str:
     """Lower-case, strip, treat underscores/punctuation as spaces, collapse spaces."""
-    col = col.lower()
-    col = col.strip()
-    col = col.replace("_", " ")
-    col = re.sub(r"[^\w\s]", " ", col)
+    col = str(col).lower().strip().replace("_", " ")
+    col = "".join(
+        c if (c.isalnum() or c.isspace() or unicodedata.category(c).startswith("M"))
+        else " "
+        for c in col
+    )
     col = re.sub(r"\s+", " ", col)
     return col.strip()
 
@@ -287,29 +301,34 @@ def detect_source_software(columns: list) -> str:
 def _alias_matches(col_norm: str, alias_norm: str) -> bool:
     """Return True when *alias_norm* matches *col_norm* at a word boundary.
 
-    Accepts exact matches (``col_norm == alias_norm``) and prefix matches where
-    the alias is followed by a space in the column name
-    (``"invoice no mandatory"`` matches alias ``"invoice no"``).
-    This handles real-world column headers that append extra descriptors such as
-    ``(Mandatory)``, ``(Rs.)``, or ``of Supplier`` after the core alias text.
+    Accepts exact matches (``col_norm == alias_norm``), prefix matches where
+    the alias is followed by a space in the column name, and suffix matches
+    where the alias is preceded by a space (e.g. ``"input tax cgst"``).
     """
     if alias_norm == "state" and col_norm.startswith(("state tax", "state ut", "state gst", "state / ut", "state cess")):
         return False
-    return col_norm == alias_norm or col_norm.startswith(alias_norm + " ")
+    return (
+        col_norm == alias_norm
+        or col_norm.startswith(alias_norm + " ")
+        or col_norm.endswith(" " + alias_norm)
+    )
 
 
 def _alias_match_quality(col_norm: str, alias_norm: str) -> tuple[int, int] | None:
     """Score how well *alias_norm* matches *col_norm*.
 
-    Returns ``(tier, alias_length)`` where tier ``2`` is an exact header match and
-    tier ``1`` is a prefix match (alias plus trailing descriptor words).
+    Returns ``(tier, alias_length)`` where tier ``3`` is an exact header match,
+    tier ``2`` is a prefix match (alias plus trailing descriptor words), and
+    tier ``1`` is a suffix match (e.g. parent section followed by alias).
     ``None`` when there is no match.
     """
     if alias_norm == "state" and col_norm.startswith(("state tax", "state ut", "state gst", "state / ut", "state cess")):
         return None
     if col_norm == alias_norm:
-        return (2, len(alias_norm))
+        return (3, len(alias_norm))
     if col_norm.startswith(alias_norm + " "):
+        return (2, len(alias_norm))
+    if col_norm.endswith(" " + alias_norm):
         return (1, len(alias_norm))
     return None
 
@@ -504,6 +523,7 @@ def _find_best_header_from_raw(
     best_mapping: dict[str, str] | None = None
     best_headers: list[str] | None = None
     best_header_row = -1
+    best_header_end_row = -1
     max_score = -1
 
     fallback_mapping: dict[str, str] | None = None
@@ -524,8 +544,42 @@ def _find_best_header_from_raw(
                 best_mapping = mapping
                 best_headers = unique_headers
                 best_header_row = header_row
+                best_header_end_row = header_row
         except ParseError:
             pass
+
+        # Check multi-row header combination with adjacent row
+        if header_row + 1 < max_check:
+            row1 = raw_df.iloc[header_row].tolist()
+            row2 = raw_df.iloc[header_row + 1].tolist()
+            combined_labels: list[str] = []
+            for h1, h2 in zip(row1, row2):
+                s1 = "" if (h1 is None or (isinstance(h1, float) and pd.isna(h1))) else str(h1).strip()
+                s2 = "" if (h2 is None or (isinstance(h2, float) and pd.isna(h2))) else str(h2).strip()
+                if s1 and s2:
+                    if s1.lower() == s2.lower():
+                        combined_labels.append(s1)
+                    else:
+                        combined_labels.append(f"{s1} {s2}")
+                elif s1:
+                    combined_labels.append(s1)
+                elif s2:
+                    combined_labels.append(s2)
+                else:
+                    combined_labels.append("")
+            multi_headers = _uniqueify_header_labels(combined_labels)
+            stub_multi = pd.DataFrame(columns=multi_headers)
+            try:
+                mapping_multi = detect_column_mapping(stub_multi)
+                score_multi = len(mapping_multi)
+                if score_multi > max_score:
+                    max_score = score_multi
+                    best_mapping = mapping_multi
+                    best_headers = multi_headers
+                    best_header_row = header_row
+                    best_header_end_row = header_row + 1
+            except ParseError:
+                pass
 
         if header_row == 0:
             fallback_headers = unique_headers
@@ -534,13 +588,13 @@ def _find_best_header_from_raw(
             except ParseError:
                 fallback_mapping = None
 
-    def _slice_body(header_row: int, headers: list[str]) -> pd.DataFrame:
-        candidate = raw_df.iloc[header_row + 1:].copy()
+    def _slice_body(end_row: int, headers: list[str]) -> pd.DataFrame:
+        candidate = raw_df.iloc[end_row + 1:].copy()
         candidate.columns = headers
         return candidate.reset_index(drop=True)
 
     if max_score >= 3 and best_mapping is not None and best_headers is not None:
-        body = _slice_body(best_header_row, best_headers)
+        body = _slice_body(best_header_end_row, best_headers)
         best_mapping = refine_gstin_column_mapping(body, best_mapping, client_gstin=client_gstin)
         return (
             body,
@@ -1185,6 +1239,13 @@ def _process_pr_sheet_rows(
     )
     df_canon = normalize_dataframe_to_canonical_schema(df, mapping)
 
+    last_valid_gstin: str | None = None
+    last_valid_gstin_valid: bool = False
+    last_valid_supplier_name: str | None = None
+    last_valid_inv_raw: str | None = None
+    last_valid_inv_norm: str | None = None
+    last_valid_date_value: str | None = None
+
     for df_idx, row in df_canon.iterrows():
         total_rows += 1
         row_number: int = selected_header_row + int(df_idx) + 2
@@ -1194,12 +1255,20 @@ def _process_pr_sheet_rows(
         if is_total_row(row_values):
             skipped_rows += 1
             _bump_skip("total_or_summary_row")
+            last_valid_gstin = None
+            last_valid_gstin_valid = False
+            last_valid_supplier_name = None
+            last_valid_inv_raw = None
+            last_valid_inv_norm = None
+            last_valid_date_value = None
             continue
 
         if all(_is_blank_cell(cell) for cell in row_values):
             errors.append(f"{sheet_prefix}Row {row_number}: empty row")
             skipped_rows += 1
             _bump_skip("empty_row")
+            last_valid_inv_raw = None
+            last_valid_inv_norm = None
             continue
 
         row_errors: list[str] = []
@@ -1234,21 +1303,7 @@ def _process_pr_sheet_rows(
         gstin_valid = False
         if "gstin" in mapping:
             raw_gstin = row.get("gstin")
-            if raw_gstin is None:
-                if embedded:
-                    if is_urp_gstin(embedded):
-                        gstin_value = URP_NORMALIZED
-                        gstin_valid = True
-                    else:
-                        try:
-                            gstin_value = normalize_gstin(embedded)
-                            gstin_valid = True
-                        except NormalizationError:
-                            gstin_value = embedded
-                            gstin_valid = False
-                else:
-                    row_errors.append("missing GSTIN")
-            else:
+            if raw_gstin is not None:
                 raw_s = str(raw_gstin).strip()
                 if is_urp_gstin(raw_s):
                     gstin_value = URP_NORMALIZED
@@ -1259,6 +1314,17 @@ def _process_pr_sheet_rows(
                         gstin_valid = True
                     except NormalizationError:
                         gstin_value = raw_s.upper() or None
+                        gstin_valid = False
+            elif embedded:
+                if is_urp_gstin(embedded):
+                    gstin_value = URP_NORMALIZED
+                    gstin_valid = True
+                else:
+                    try:
+                        gstin_value = normalize_gstin(embedded)
+                        gstin_valid = True
+                    except NormalizationError:
+                        gstin_value = embedded
                         gstin_valid = False
         elif embedded:
             # No dedicated GSTIN column (common Tally quirk) — use embedded value.
@@ -1302,8 +1368,6 @@ def _process_pr_sheet_rows(
                 inv_raw = inv_norm
             if inv_norm is None and inv_raw is not None:
                 inv_norm = normalize_invoice(inv_raw)
-            if inv_raw is None:
-                row_errors.append("missing invoice number")
 
         date_value: str | None = None
         if "invoice_date" in mapping:
@@ -1314,6 +1378,46 @@ def _process_pr_sheet_rows(
                     date_value = norm_date.value.isoformat()
                 except NormalizationError:
                     row_errors.append("invalid date")
+
+        # Merged cell recovery: check if row has amounts or line item data
+        raw_tax_peek = _safe_cell(orig_row.get(mapping["taxable_amount"])) if "taxable_amount" in mapping else None
+        raw_tot_peek = _safe_cell(orig_row.get(mapping["total_amount"])) if "total_amount" in mapping else None
+        raw_cgst_peek = _safe_cell(orig_row.get(mapping["cgst"])) if "cgst" in mapping else None
+        raw_sgst_peek = _safe_cell(orig_row.get(mapping["sgst"])) if "sgst" in mapping else None
+        raw_igst_peek = _safe_cell(orig_row.get(mapping["igst"])) if "igst" in mapping else None
+        has_amount_data = any(
+            v is not None and v != ""
+            for v in (raw_tax_peek, raw_tot_peek, raw_cgst_peek, raw_sgst_peek, raw_igst_peek)
+        )
+
+        if not note_mode:
+            # Case 1: Multiline invoice item with merged invoice header
+            if inv_raw is None and has_amount_data and last_valid_inv_raw is not None:
+                inv_raw = last_valid_inv_raw
+                inv_norm = last_valid_inv_norm
+                if not date_value and last_valid_date_value:
+                    date_value = last_valid_date_value
+                if not gstin_value and last_valid_gstin:
+                    gstin_value = last_valid_gstin
+                    gstin_valid = last_valid_gstin_valid
+                if not supplier_name and last_valid_supplier_name:
+                    supplier_name = last_valid_supplier_name
+
+            # Case 2: Supplier name / GSTIN merged once across multiple invoices
+            elif inv_raw is not None and gstin_value is None and last_valid_gstin is not None:
+                raw_supplier_in_row = _safe_cell(row.get("supplier_name")) if "supplier_name" in mapping else None
+                if raw_supplier_in_row is None or (
+                    last_valid_supplier_name and raw_supplier_in_row.lower() == last_valid_supplier_name.lower()
+                ):
+                    gstin_value = last_valid_gstin
+                    gstin_valid = last_valid_gstin_valid
+                    if not supplier_name and last_valid_supplier_name:
+                        supplier_name = last_valid_supplier_name
+
+            if inv_raw is None and "invoice_number" in mapping:
+                row_errors.append("missing invoice number")
+            if gstin_value is None and "gstin" in mapping:
+                row_errors.append("missing GSTIN")
 
         note_type_cell = _safe_cell(row.get("note_type")) if note_mode else None
         if note_mode:
@@ -1510,6 +1614,22 @@ def _process_pr_sheet_rows(
 
         records.append(out)
 
+        if not note_mode:
+            if gstin_value and gstin_valid:
+                last_valid_gstin = gstin_value
+                last_valid_gstin_valid = gstin_valid
+            elif supplier_name and last_valid_supplier_name and supplier_name.lower() != last_valid_supplier_name.lower():
+                last_valid_gstin = None
+                last_valid_gstin_valid = False
+
+            if supplier_name:
+                last_valid_supplier_name = supplier_name
+            if inv_raw:
+                last_valid_inv_raw = inv_raw
+                last_valid_inv_norm = inv_norm
+            if date_value:
+                last_valid_date_value = date_value
+
     return {
         "records": records,
         "errors": errors,
@@ -1678,7 +1798,7 @@ def parse_purchase_register(
 
         elif ext == ".csv":
             found = False
-            for encoding in ("utf-8", "latin-1"):
+            for encoding in ("utf-8", "utf-8-sig", "latin-1", "cp1252"):
                 if found:
                     break
                 try:
@@ -1686,30 +1806,54 @@ def parse_purchase_register(
                 except Exception:
                     continue
 
-                try:
-                    raw_df = pd.read_csv(
-                        io.StringIO(raw_text),
-                        header=None,
-                        dtype=str,
-                    )
-                except Exception:
-                    continue
+                first_line = raw_text.split("\n", 1)[0]
+                counts = {
+                    ",": first_line.count(","),
+                    ";": first_line.count(";"),
+                    "\t": first_line.count("\t"),
+                    "|": first_line.count("|"),
+                }
+                preferred = max(counts, key=counts.get) if any(counts.values()) else ","
+                delims = [preferred]
+                for d in [",", ";", "\t", "|", None]:
+                    if d not in delims:
+                        delims.append(d)
 
-                best_df, best_mapping, best_header_row = _find_best_header_from_raw(
-                    raw_df, client_gstin=client_gstin
-                )
-                if best_df is not None and best_mapping:
-                    sheet_jobs.append(
-                        (
-                            None,
-                            best_df,
-                            best_mapping,
-                            best_header_row,
-                            list(best_df.columns),
-                        )
+                for sep in delims:
+                    try:
+                        if sep is None:
+                            raw_df = pd.read_csv(
+                                io.StringIO(raw_text),
+                                sep=None,
+                                engine="python",
+                                header=None,
+                                dtype=str,
+                            )
+                        else:
+                            raw_df = pd.read_csv(
+                                io.StringIO(raw_text),
+                                sep=sep,
+                                header=None,
+                                dtype=str,
+                            )
+                    except Exception:
+                        continue
+
+                    best_df, best_mapping, best_header_row = _find_best_header_from_raw(
+                        raw_df, client_gstin=client_gstin
                     )
-                    found = True
-                    break
+                    if best_df is not None and best_mapping:
+                        sheet_jobs.append(
+                            (
+                                None,
+                                best_df,
+                                best_mapping,
+                                best_header_row,
+                                list(best_df.columns),
+                            )
+                        )
+                        found = True
+                        break
 
             if not found:
                 raise ParseError(

@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import time
+import unicodedata
 from typing import Any
 
 import pandas as pd
@@ -267,10 +268,12 @@ _STATE_CODES: dict[str, str] = {
 
 def normalize_header(col: str) -> str:
     """Lower-case, strip, treat underscores/punctuation as spaces, collapse spaces."""
-    col = col.lower()
-    col = col.strip()
-    col = col.replace("_", " ")
-    col = re.sub(r"[^\w\s]", " ", col)
+    col = str(col).lower().strip().replace("_", " ")
+    col = "".join(
+        c if (c.isalnum() or c.isspace() or unicodedata.category(c).startswith("M"))
+        else " "
+        for c in col
+    )
     col = re.sub(r"\s+", " ", col)
     return col.strip()
 
@@ -303,19 +306,26 @@ def _alias_matches(col_norm: str, alias_norm: str) -> bool:
     This handles real-world column headers that append extra descriptors such as
     ``(Mandatory)``, ``(Rs.)``, or ``of Recipient`` after the core alias text.
     """
-    return col_norm == alias_norm or col_norm.startswith(alias_norm + " ")
+    return (
+        col_norm == alias_norm
+        or col_norm.startswith(alias_norm + " ")
+        or col_norm.endswith(" " + alias_norm)
+    )
 
 
 def _alias_match_quality(col_norm: str, alias_norm: str) -> tuple[int, int] | None:
     """Score how well *alias_norm* matches *col_norm*.
 
-    Returns ``(tier, alias_length)`` where tier ``2`` is an exact header match and
-    tier ``1`` is a prefix match (alias plus trailing descriptor words).
+    Returns ``(tier, alias_length)`` where tier ``3`` is an exact header match,
+    tier ``2`` is a prefix match (alias plus trailing descriptor words), and
+    tier ``1`` is a suffix match.
     ``None`` when there is no match.
     """
     if col_norm == alias_norm:
-        return (2, len(alias_norm))
+        return (3, len(alias_norm))
     if col_norm.startswith(alias_norm + " "):
+        return (2, len(alias_norm))
+    if col_norm.endswith(" " + alias_norm):
         return (1, len(alias_norm))
     return None
 
@@ -379,6 +389,7 @@ def _find_best_header_from_raw(
     best_mapping: dict[str, str] | None = None
     best_headers: list[str] | None = None
     best_header_row = -1
+    best_header_end_row = -1
     max_score = -1
 
     fallback_mapping: dict[str, str] | None = None
@@ -399,8 +410,42 @@ def _find_best_header_from_raw(
                 best_mapping = mapping
                 best_headers = unique_headers
                 best_header_row = header_row
+                best_header_end_row = header_row
         except ParseError:
             pass
+
+        # Check multi-row header combination with adjacent row
+        if header_row + 1 < max_check:
+            row1 = raw_df.iloc[header_row].tolist()
+            row2 = raw_df.iloc[header_row + 1].tolist()
+            combined_labels: list[str] = []
+            for h1, h2 in zip(row1, row2):
+                s1 = "" if (h1 is None or (isinstance(h1, float) and pd.isna(h1))) else str(h1).strip()
+                s2 = "" if (h2 is None or (isinstance(h2, float) and pd.isna(h2))) else str(h2).strip()
+                if s1 and s2:
+                    if s1.lower() == s2.lower():
+                        combined_labels.append(s1)
+                    else:
+                        combined_labels.append(f"{s1} {s2}")
+                elif s1:
+                    combined_labels.append(s1)
+                elif s2:
+                    combined_labels.append(s2)
+                else:
+                    combined_labels.append("")
+            multi_headers = _uniqueify_header_labels(combined_labels)
+            stub_multi = pd.DataFrame(columns=multi_headers)
+            try:
+                mapping_multi = detect_column_mapping(stub_multi)
+                score_multi = len(mapping_multi)
+                if score_multi > max_score:
+                    max_score = score_multi
+                    best_mapping = mapping_multi
+                    best_headers = multi_headers
+                    best_header_row = header_row
+                    best_header_end_row = header_row + 1
+            except ParseError:
+                pass
 
         if header_row == 0:
             fallback_headers = unique_headers
@@ -409,14 +454,14 @@ def _find_best_header_from_raw(
             except ParseError:
                 fallback_mapping = None
 
-    def _slice_body(header_row: int, headers: list[str]) -> pd.DataFrame:
-        candidate = raw_df.iloc[header_row + 1:].copy()
+    def _slice_body(end_row: int, headers: list[str]) -> pd.DataFrame:
+        candidate = raw_df.iloc[end_row + 1:].copy()
         candidate.columns = headers
         return candidate.reset_index(drop=True)
 
     if max_score >= 3 and best_mapping is not None and best_headers is not None:
         return (
-            _slice_body(best_header_row, best_headers),
+            _slice_body(best_header_end_row, best_headers),
             best_mapping,
             best_header_row,
         )
@@ -1570,7 +1615,7 @@ def parse_sales_register(file_content: bytes, filename: str) -> dict:
 
         elif ext == ".csv":
             found = False
-            for encoding in ("utf-8", "latin-1"):
+            for encoding in ("utf-8", "utf-8-sig", "latin-1", "cp1252"):
                 if found:
                     break
                 try:
@@ -1578,30 +1623,54 @@ def parse_sales_register(file_content: bytes, filename: str) -> dict:
                 except Exception:
                     continue
 
-                try:
-                    raw_df = pd.read_csv(
-                        io.StringIO(raw_text),
-                        header=None,
-                        dtype=str,
-                    )
-                except Exception:
-                    continue
+                first_line = raw_text.split("\n", 1)[0]
+                counts = {
+                    ",": first_line.count(","),
+                    ";": first_line.count(";"),
+                    "\t": first_line.count("\t"),
+                    "|": first_line.count("|"),
+                }
+                preferred = max(counts, key=counts.get) if any(counts.values()) else ","
+                delims = [preferred]
+                for d in [",", ";", "\t", "|", None]:
+                    if d not in delims:
+                        delims.append(d)
 
-                best_df, best_mapping, best_header_row = _find_best_header_from_raw(
-                    raw_df
-                )
-                if best_df is not None and best_mapping:
-                    sheet_jobs.append(
-                        (
-                            None,
-                            best_df,
-                            best_mapping,
-                            best_header_row,
-                            list(best_df.columns),
-                        )
+                for sep in delims:
+                    try:
+                        if sep is None:
+                            raw_df = pd.read_csv(
+                                io.StringIO(raw_text),
+                                sep=None,
+                                engine="python",
+                                header=None,
+                                dtype=str,
+                            )
+                        else:
+                            raw_df = pd.read_csv(
+                                io.StringIO(raw_text),
+                                sep=sep,
+                                header=None,
+                                dtype=str,
+                            )
+                    except Exception:
+                        continue
+
+                    best_df, best_mapping, best_header_row = _find_best_header_from_raw(
+                        raw_df
                     )
-                    found = True
-                    break
+                    if best_df is not None and best_mapping:
+                        sheet_jobs.append(
+                            (
+                                None,
+                                best_df,
+                                best_mapping,
+                                best_header_row,
+                                list(best_df.columns),
+                            )
+                        )
+                        found = True
+                        break
 
             if not found:
                 raise ParseError(
