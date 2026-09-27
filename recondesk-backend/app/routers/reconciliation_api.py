@@ -3297,6 +3297,21 @@ def _build_reconcile_summary(
         "decisions_acted_count": decisions_acted_count,
         "decisions_ignored_count": decisions_ignored_count,
         "decisions_pending_count": decisions_pending_count,
+        # Low-priority review counts — power the Bulk Accept banner
+        "low_priority_review_count": sum(
+            1
+            for r in outcome_rows
+            if r.category == "review_required"
+            and not str(r.id).startswith("dp:")
+            and (getattr(r, "priority", None) or "LOW") == "LOW"
+        ),
+        "low_priority_review_itc_paise": int(round(sum(
+            float(r.amount or 0)
+            for r in outcome_rows
+            if r.category == "review_required"
+            and not str(r.id).startswith("dp:")
+            and (getattr(r, "priority", None) or "LOW") == "LOW"
+        ))),
     }
 
 
@@ -5736,6 +5751,92 @@ def _summary_without_payload(
             status_message=msg or "Processing…",
         )
     return None
+
+
+class BulkAcceptLowPriorityBody(BaseModel):
+    run_id: str
+    dry_run: bool = False
+    """When True, only returns the count and ITC amount — no DB writes."""
+
+
+class BulkAcceptLowPriorityResponse(BaseModel):
+    low_priority_count: int
+    low_priority_itc_paise: int
+    accepted_count: int
+    dry_run: bool
+
+
+@reconcile_runs_router.post(
+    "/records/bulk-accept-low-priority",
+    response_model=BulkAcceptLowPriorityResponse,
+)
+async def bulk_accept_low_priority_review(
+    body: BulkAcceptLowPriorityBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Accept all LOW-priority Review Required records in one click.
+
+    LOW-priority records are minor rounding / freight / TCS amount variances
+    (< ₹100 diff) that are safe for CA bulk-approval.  URGENT, HIGH, and MEDIUM
+    records are never touched by this endpoint.
+
+    Pass dry_run=True to get the count and ITC amount without committing.
+    """
+    rid = _parse_uuid(body.run_id, "run_id")
+    sb = get_supabase()
+    run_row = assert_run_accessible(sb, rid, current_user)
+    if bool(run_row.get("is_locked")) or str(run_row.get("status") or "").upper() == RunStatus.FINAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="locked or final runs cannot be modified",
+        )
+    uid = str(current_user.get("id") or "").strip()
+    if not uid:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing user id")
+
+    payload = _load_payload(sb, rid)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run payload not found")
+
+    outcome_rows = ro.build_outcome_rows(sb, rid, payload)[0]
+
+    # Collect all LOW-priority review_required record IDs and their ITC paise
+    low_ids: list[str] = []
+    low_itc_paise: int = 0
+    for r in outcome_rows:
+        if r.category != "review_required" or str(r.id).startswith("dp:"):
+            continue
+        prio = getattr(r, "priority", None) or "LOW"
+        if prio != "LOW":
+            continue
+        low_ids.append(str(r.id))
+        low_itc_paise += int(round(float(r.amount or 0)))
+
+    if body.dry_run or not low_ids:
+        return BulkAcceptLowPriorityResponse(
+            low_priority_count=len(low_ids),
+            low_priority_itc_paise=low_itc_paise,
+            accepted_count=0,
+            dry_run=True,
+        )
+
+    # Confirm IDs actually belong to this run then bulk-mark as acted
+    _assert_record_ids_in_run(sb, rid, low_ids)
+    for record_id in low_ids:
+        _upsert_decision_status(
+            sb,
+            run_id=rid,
+            record_id=record_id,
+            status_value="acted",
+            user_id=uid,
+        )
+
+    return BulkAcceptLowPriorityResponse(
+        low_priority_count=len(low_ids),
+        low_priority_itc_paise=low_itc_paise,
+        accepted_count=len(low_ids),
+        dry_run=False,
+    )
 
 
 @reconcile_runs_router.patch(
