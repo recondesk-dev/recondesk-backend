@@ -524,6 +524,8 @@ _REVIEW_REASON_TO_TEMPLATE: dict[str, str] = {
     "POSSIBLE_MATCH": "REVIEW_POSSIBLE_MATCH",
     "PERIOD_BOUNDARY_DATE_MISMATCH": "REVIEW_PERIOD_BOUNDARY_DATE_MISMATCH",
     "DOC_TYPE_NOTE_IN_B2B": "REVIEW_DOC_TYPE_NOTE_IN_B2B",
+    "TYPO_MISMATCH": "REVIEW_TYPO_MISMATCH",
+    "OCR_CONFIDENCE_REVIEW": "REVIEW_OCR_CONFIDENCE_REVIEW",
 }
 
 
@@ -542,9 +544,21 @@ def _decision_for_review_row(row: dict[str, Any]) -> DecisionOutput:
     total_diff = int(row.get("total_diff_paise") or row.get("amount_difference_paise") or row.get("taxable_diff_paise") or 0)
     diff_paise = total_diff
 
+    g_date = row.get("gstr_invoice_date") or row.get("gstr_date")
+    p_date = row.get("pr_invoice_date") or row.get("pr_date")
+    date_diff_days = row.get("invoice_date_diff_days")
+    dates_differ = False
+    if date_diff_days is not None:
+        try:
+            dates_differ = int(date_diff_days) > 0
+        except (ValueError, TypeError):
+            dates_differ = False
+    elif g_date and p_date:
+        dates_differ = str(g_date) != str(p_date)
+
     template_key = _REVIEW_REASON_TO_TEMPLATE.get(review_reason, "REVIEW_GENERIC")
     if template_key == "REVIEW_AMOUNT_MISMATCH" or review_reason in ("Amount/Date mismatch", "AMOUNT_MISMATCH"):
-        if total_diff <= 100:
+        if dates_differ and total_diff <= 100:
             template_key = "REVIEW_DATE_MISMATCH"
         elif taxable_diff <= 100 and tax_diff > 100:
             template_key = "REVIEW_TAX_AMOUNT_MISMATCH"

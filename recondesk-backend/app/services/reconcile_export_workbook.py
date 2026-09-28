@@ -105,14 +105,22 @@ def _comma_int(n: float) -> str:
     return f"{int(round(float(n))):,}"
 
 
-def _doc_type_display(doc_type: Any) -> str:
-    """Return formatted document type, defaulting to 'Invoice'."""
+def _doc_type_display(doc_type: Any, row: dict[str, Any] | None = None) -> str:
+    """Return formatted document type: 'Credit Note', 'Debit Note', or 'Invoice'."""
+    if row and isinstance(row, dict):
+        if (
+            row.get("is_credit_note")
+            or str(row.get("section") or "").lower() in ("cdnr", "cdnra", "cdnur", "cdnura")
+        ):
+            return "Credit Note"
+        if row.get("is_debit_note"):
+            return "Debit Note"
     if not doc_type:
         return "Invoice"
-    s = str(doc_type).strip().upper()
-    if s in ("CREDIT_NOTE", "CREDIT"):
+    s = str(doc_type).strip().upper().replace("-", "_").replace(" ", "_")
+    if s in ("CREDIT_NOTE", "CREDIT", "CRN", "CN", "CDN", "C", "CBT"):
         return "Credit Note"
-    if s in ("DEBIT_NOTE", "DEBIT"):
+    if s in ("DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT"):
         return "Debit Note"
     return "Invoice"
 
@@ -127,6 +135,27 @@ def _period_mmm_yyyy(period: str) -> str:
     except (ValueError, TypeError, IndexError):
         pass
     return s or "—"
+
+
+def _format_period_range(period_raw: str, all_dates: list[str] | None = None) -> str:
+    """Format period label; if dates span multiple calendar months, return 'MMM YYYY – MMM YYYY'."""
+    if all_dates:
+        valid_dates = []
+        for d in all_dates:
+            if not d:
+                continue
+            s = str(d).strip()[:10]
+            if len(s) == 10 and s[4] == "-" and s[7] == "-":
+                try:
+                    valid_dates.append(date.fromisoformat(s))
+                except ValueError:
+                    pass
+        if valid_dates:
+            min_d = min(valid_dates)
+            max_d = max(valid_dates)
+            if (min_d.year, min_d.month) != (max_d.year, max_d.month):
+                return f"{min_d.strftime('%b %Y')} – {max_d.strftime('%b %Y')}"
+    return _period_mmm_yyyy(period_raw)
 
 
 def _taxable_from_gstr_merged(gd: dict[str, Any]) -> float:
@@ -253,7 +282,17 @@ def build_excel_workbook_bytes(
     # --- Sheet 1 Summary ---
     ws1 = wb.create_sheet("Summary", 0)
     try:
-        period_disp = _period_mmm_yyyy(period_raw)
+        # Collect dates from all record sets to detect multi-month consolidated runs
+        all_row_dates: list[str] = []
+        for _pair in matched_pairs:
+            _arow = _pair[0] if isinstance(_pair, tuple) else _pair
+            if isinstance(_arow, dict) and _arow.get("invoice_date"):
+                all_row_dates.append(str(_arow["invoice_date"]))
+        for _r in (missed_rows + risk_rows + review_required_rows + duplicate_rows):
+            if isinstance(_r, dict) and _r.get("invoice_date"):
+                all_row_dates.append(str(_r["invoice_date"]))
+
+        period_disp = _format_period_range(period_raw, all_row_dates)
         title_font = Font(size=16, bold=True, color=_HEADER_BLUE)
         ws1["A1"] = "Reconciliation Report"
         ws1["A1"].font = title_font
@@ -416,21 +455,46 @@ def build_excel_workbook_bytes(
                 row_fill = fill_manual
             else:
                 row_fill = fill_other
-            gd = api_row.get("gstr2b_data")
-            taxable = (
-                _taxable_from_gstr_merged(gd) if isinstance(gd, dict) else 0.0
-            )
+            gd = api_row.get("gstr2b_data") if isinstance(api_row.get("gstr2b_data"), dict) else {}
+            taxable = _taxable_from_gstr_merged(gd)
             conf_pct = int(
                 round(
                     min(100.0, max(0.0, float(api_row.get("confidence_score") or 0)))
                 )
             )
             is_rcm = bool(api_row.get("is_rcm") or getattr(_orow, "is_rcm", False))
-            supply_type = "RCM" if is_rcm else "REGULAR"
-            gstr3b_table = "Table 4(A)(3)" if is_rcm else "Table 4(A)(5)"
-            doc_type_disp = _doc_type_display(api_row.get("document_type"))
+            is_cn = (
+                bool(api_row.get("is_credit_note"))
+                or bool(gd.get("is_credit_note"))
+                or str(gd.get("section") or "").lower() in ("cdnr", "cdnra", "cdnur", "cdnura")
+                or str(api_row.get("document_type") or "").upper().replace(" ", "_") in (
+                    "CREDIT_NOTE", "CREDIT", "CRN", "CN", "CDN", "C", "CBT"
+                )
+            )
+            is_dn = (
+                bool(api_row.get("is_debit_note"))
+                or bool(gd.get("is_debit_note"))
+                or str(api_row.get("document_type") or "").upper().replace(" ", "_") in (
+                    "DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT"
+                )
+            )
+
             if is_rcm:
-                doc_type_disp = f"{doc_type_disp} (RCM 4A3)"
+                supply_type = "RCM"
+                gstr3b_table = "Table 4(A)(3)"
+                doc_type_disp = f"{_doc_type_display(api_row.get('document_type'), api_row)} (RCM 4A3)"
+            elif is_cn:
+                supply_type = "CREDIT NOTE"
+                gstr3b_table = "Table 4(B)(2)"
+                doc_type_disp = "Credit Note"
+            elif is_dn:
+                supply_type = "DEBIT NOTE"
+                gstr3b_table = "Table 4(A)(5)"
+                doc_type_disp = "Debit Note"
+            else:
+                supply_type = "REGULAR"
+                gstr3b_table = "Table 4(A)(5)"
+                doc_type_disp = _doc_type_display(api_row.get("document_type"), api_row)
             vals = (
                 api_row.get("supplier_gstin", ""),
                 api_row.get("invoice_number", ""),

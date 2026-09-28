@@ -111,6 +111,43 @@ def ocr_canonical_invoice(s: str | None) -> str:
     return norm.translate(_OCR_MAP)
 
 
+def count_ocr_substitutions(a: str, b: str) -> tuple[int, bool]:
+    """Count OCR transliteration differences between two normalized invoices.
+
+    Returns:
+        (substitution_count, has_prefix_or_structural_substitution)
+    """
+    na, nb = normalize_invoice(a), normalize_invoice(b)
+    if not na or not nb or na == nb:
+        return 0, False
+
+    ocr_a = ocr_canonical_invoice(na)
+    ocr_b = ocr_canonical_invoice(nb)
+    if ocr_a != ocr_b:
+        return levenshtein(na, nb), True
+
+    subs = 0
+    prefix_sub = False
+    pa = _RE_LEADING_ALPHA.match(na)
+    pb = _RE_LEADING_ALPHA.match(nb)
+    p_len_a = pa.end() if pa else 0
+    p_len_b = pb.end() if pb else 0
+    p_len = max(p_len_a, p_len_b)
+
+    for i, (ca, cb) in enumerate(zip(na, nb)):
+        if ca != cb:
+            subs += 1
+            if i < p_len or (i < 3 and (ca in "15280" or cb in "15280")):
+                prefix_sub = True
+
+    diff_len = abs(len(na) - len(nb))
+    subs += diff_len
+    if diff_len > 0:
+        prefix_sub = True
+
+    return subs, prefix_sub
+
+
 def _pan_of(gstin: str | None) -> str:
     """Return the 10-char PAN embedded in a GSTIN (positions 3-12), else ``""``."""
     g = (gstin or "").strip().upper()
@@ -344,7 +381,12 @@ def is_invoice_format_variant(
                             if na[-1].isdigit() and nb[-1].isdigit():
                                 return True
                     elif not (pa and pb):
-                        return True
+                        # One side has no alpha prefix (e.g. pure numeric '100' or '89').
+                        # The core invoice sequence number (last non-FY numeric token) must match!
+                        core_a = [t for t in tokens_a if not (20 <= t <= 35 or 2020 <= t <= 2035)]
+                        core_b = [t for t in tokens_b if not (20 <= t <= 35 or 2020 <= t <= 2035)]
+                        if core_a and core_b and core_a[-1] == core_b[-1]:
+                            return True
             # Note: a fuzzy "1-char-edit-distance numeric core" fallback used to live
             # here (intended to catch zero-padding typos like '00051' vs '00057').
             # It was removed: an equal-length, 1-digit-different numeric core is
@@ -477,9 +519,16 @@ def invoice_similarity(inv1: str, inv2: str) -> float:
 
     max_len = max(len(a), len(b))
     dist = levenshtein(a, b)
-    if max_len == 0:
-        return 0.0
-    return 1.0 - (dist / max_len)
+    raw_sim = 1.0 - (dist / max_len) if max_len else 0.0
+
+    # Also compute similarity in OCR canonical space (accounting for O↔0, I↔1, S↔5, etc.)
+    if ocr_a and ocr_b:
+        ocr_max = max(len(ocr_a), len(ocr_b))
+        ocr_dist = levenshtein(ocr_a, ocr_b)
+        ocr_sim = (1.0 - (ocr_dist / ocr_max)) if ocr_max else 0.0
+        return max(raw_sim, ocr_sim)
+
+    return raw_sim
 
 
 def explain_invoice_difference(inv1: str, inv2: str) -> str:
@@ -1677,6 +1726,16 @@ def _match_gstr_to_pr_pair(
         and amount_diff <= AMOUNT_TOLERANCE_L1_PAISE
         and tax_only_diff <= AMOUNT_TOLERANCE_L1_PAISE
     )
+    norm_g = normalize_invoice(g_inv)
+    norm_p = normalize_invoice(p_inv)
+    ocr_subs, ocr_pfx = count_ocr_substitutions(g_inv, p_inv)
+    ocr_only_match = (
+        not raw_inv_ok
+        and bool(norm_g and norm_p and norm_g != norm_p)
+        and ocr_canonical_invoice(norm_g) == ocr_canonical_invoice(norm_p)
+    )
+    is_risky_ocr = ocr_only_match and ((ocr_subs >= 2) or ocr_pfx)
+
     if (
         gstin_match
         and (inv_ok or format_variant)
@@ -1686,6 +1745,26 @@ def _match_gstr_to_pr_pair(
         and tax_structure_match
         and not rcm_conflict
     ):
+        if is_risky_ocr:
+            ocr_discrepancies = list(discrepancies) + [
+                f"ocr_review: Invoice numbers differ by {ocr_subs} OCR character(s) ({g_inv} vs {p_inv})"
+            ]
+            return _ret(
+                level=3,
+                matched=True,
+                confidence=75,
+                requires_human_review=True,
+                decision_what=f"Invoice matched via OCR correction with {ocr_subs} character substitutions",
+                decision_why=(
+                    f"Invoice numbers {g_inv} (GSTR-2B) and {p_inv} (PR) differ by {ocr_subs} "
+                    "OCR character substitutions. Physical invoice review required."
+                ),
+                decision_next="Verify physical document to ensure invoice number OCR reading is correct before claiming ITC.",
+                discrepancies=ocr_discrepancies,
+                identity_confidence="Medium",
+                financial_status="Exact",
+                review_reason="OCR_CONFIDENCE_REVIEW",
+            )
         # L1 only when raw invoice strings are identical. Normalized / format-
         # variant identity with zero financial diff stays on Matched as L2
         # (requires_human_review=False) so the Non-exact chip and FUZZY filter
@@ -1731,7 +1810,11 @@ def _match_gstr_to_pr_pair(
             # A genuinely zero-discrepancy pair is already handled by the
             # zero-discrepancy invariant above and never reaches this branch;
             # anything landing here has a real (if small) amount/date diff.
-            if date_diff_days > 0 and amount_within_l1 and tax_only_diff <= AMOUNT_TOLERANCE_L1_PAISE:
+            if is_risky_ocr:
+                rr = "OCR_CONFIDENCE_REVIEW"
+                d_what = f"Invoice matched via OCR correction with {ocr_subs} character substitutions"
+                d_why = f"Same normalized invoice identity via OCR transliteration ({ocr_subs} corrections); verification required"
+            elif date_diff_days > 0 and amount_within_l1 and tax_only_diff <= AMOUNT_TOLERANCE_L1_PAISE:
                 d_what = f"Invoice matched; invoice date differs by {date_diff_days} days"
                 d_why = f"Same normalized invoice and GSTIN, date differs by {date_diff_days} days (within {DATE_TOLERANCE_L2_DAYS}-day tolerance)"
                 rr = "DATE_MISMATCH"

@@ -639,9 +639,12 @@ def _push_review_required(
             review_type = "GSTIN_FORMAT_INVALID"
 
     if review_type in ("Amount/Date mismatch", "AMOUNT_MISMATCH"):
-        if total_diff <= 100:
+        g_d = _parse_invoice_date(gstr_rec) if gstr_rec else None
+        p_d = _parse_invoice_date(pr_rec) if pr_rec else None
+        dates_differ = bool(g_d and p_d and g_d != p_d)
+        if total_diff <= 100 and dates_differ:
             review_type = "DATE_MISMATCH"
-        else:
+        elif total_diff > 100:
             review_type = "AMOUNT_MISMATCH"
 
     compared_fields = list(getattr(best_result, "compared_fields", None) or [])
@@ -2474,8 +2477,11 @@ def execute_phase2_and_3(
                 best_sort_key = sort_key
 
         if best_candidate is not None:
+            g_gst = str(g.get("supplier_gstin") or "").strip().upper()
+            p_gst = str(best_candidate.get("supplier_gstin") or "").strip().upper()
+            rev_type = "GSTIN_FORMAT_INVALID" if (g_gst and p_gst and g_gst == p_gst) else "GSTIN_MISMATCH"
             _push_review_required(
-                state, gid, best_candidate["id"], 35, "GSTIN_FORMAT_INVALID",
+                state, gid, best_candidate["id"], 35, rev_type,
                 gstr_rec=g, pr_rec=best_candidate,
                 note="Supplier GSTIN has invalid format — verify manually",
             )

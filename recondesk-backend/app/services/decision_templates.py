@@ -236,6 +236,16 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "Invoice number prefix or document type indicates a Credit Note (CBN/CRN) or Debit Note (DBN/DRN) filed under the B2B invoice table instead of the CDNR table.",
         "next": "Verify document nature with supplier. If this is a Credit Note, ensure ITC is reversed in GSTR-3B Table 4(B)(2); do not claim as domestic inward ITC.",
     },
+    "REVIEW_TYPO_MISMATCH": {
+        "what": "Typo in invoice number — verify manually ({confidence_pct}% confidence)",
+        "why": "Invoice numbers differ by typographical/OCR variation; GSTIN and amounts align",
+        "next": "Verify physical invoice to confirm correct invoice number before claiming ITC in GSTR-3B.",
+    },
+    "REVIEW_OCR_CONFIDENCE_REVIEW": {
+        "what": "Invoice matched via OCR correction — verify manually ({confidence_pct}% confidence)",
+        "why": "Invoice numbers match after OCR character transliteration, but multiple character corrections require human verification",
+        "next": "Verify physical invoice to ensure invoice number OCR reading is correct before claiming ITC.",
+    },
     "REVIEW_GENERIC": {
         "what": "Review required — {confidence_pct}% confidence",
         "why": "This record requires human verification ({review_reason})",

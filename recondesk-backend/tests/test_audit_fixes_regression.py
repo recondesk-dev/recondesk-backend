@@ -172,3 +172,64 @@ def test_legitimate_cross_gstin_mismatch_preserved():
     assert state.review_required[0]["pr_id"] == "pr_1"
     assert state.review_required[0]["review_reason"] == "GSTIN_MISMATCH"
 
+
+def test_2bonly_intermediate_number_not_format_variant():
+    """2BONLY-41-00005 vs 51-41/01678 sharing middle token '41' must NOT match."""
+    from app.services.matcher import is_invoice_format_variant
+    assert not is_invoice_format_variant("2BONLY4100005", "514101678", "2BONLY-41-00005", "51-41/01678")
+
+
+def test_ocr_similarity_and_risky_ocr_review_routing():
+    """Verify risky OCR matches (>=2 substitutions) route to Review Required, while 1 sub stays clean."""
+    from app.services.matcher import match_gstr_to_pr, invoice_similarity
+    
+    # S1-43/O0388 vs SI4300388 similarity in OCR space must be >= 0.75
+    sim = invoice_similarity("SI4300388", "S1-43/O0388")
+    assert sim >= 0.75, f"Expected similarity >= 0.75, got {sim}"
+
+    # Risky OCR: TAX-4O/0I878 vs TAX4001878 (2 substitutions)
+    g_risky = {
+        "id": "g1", "invoice_number": "TAX4001878", "supplier_gstin": "27AAPFU0939F1ZV",
+        "taxable_amount_paise": 100000, "total_tax_paise": 18000, "invoice_date": "2026-08-10", "section": "b2b",
+    }
+    p_risky = {
+        "id": "p1", "invoice_number": "TAX-4O/0I878", "supplier_gstin": "27AAPFU0939F1ZV",
+        "taxable_amount_paise": 100000, "total_tax_paise": 18000, "invoice_date": "2026-08-10", "document_type": "INVOICE",
+    }
+    res_risky = match_gstr_to_pr(g_risky, [p_risky])
+    assert res_risky is not None
+    assert res_risky.requires_human_review is True
+    assert res_risky.review_reason == "OCR_CONFIDENCE_REVIEW"
+
+    # Clean single numeric OCR: INV-49/O1210 vs INV4901210 (1 substitution in numeric part)
+    g_clean = {
+        "id": "g2", "invoice_number": "INV4901210", "supplier_gstin": "27AAPFU0939F1ZV",
+        "taxable_amount_paise": 100000, "total_tax_paise": 18000, "invoice_date": "2026-08-10", "section": "b2b",
+    }
+    p_clean = {
+        "id": "p2", "invoice_number": "INV-49/O1210", "supplier_gstin": "27AAPFU0939F1ZV",
+        "taxable_amount_paise": 100000, "total_tax_paise": 18000, "invoice_date": "2026-08-10", "document_type": "INVOICE",
+    }
+    res_clean = match_gstr_to_pr(g_clean, [p_clean])
+    assert res_clean is not None
+    assert res_clean.requires_human_review is False
+    assert res_clean.level == 2
+
+
+def test_credit_note_display_and_table_treatment():
+    """Verify credit notes format as 'Credit Note' and Table 4(B)(2)."""
+    from app.services.reconcile_export_workbook import _doc_type_display
+    assert _doc_type_display("CRN") == "Credit Note"
+    assert _doc_type_display("CREDIT NOTE") == "Credit Note"
+    assert _doc_type_display("CDN") == "Credit Note"
+    assert _doc_type_display("Invoice", {"is_credit_note": True}) == "Credit Note"
+    assert _doc_type_display("DBN") == "Debit Note"
+
+
+def test_format_period_range_multi_month():
+    """Verify multi-month date ranges display as 'MMM YYYY – MMM YYYY'."""
+    from app.services.reconcile_export_workbook import _format_period_range
+    dates = ["2026-04-15", "2026-06-20", "2026-09-28"]
+    disp = _format_period_range("2026-08", dates)
+    assert disp == "Apr 2026 – Sep 2026"
+
