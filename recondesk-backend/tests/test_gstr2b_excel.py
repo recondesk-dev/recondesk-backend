@@ -775,6 +775,30 @@ def test_gstr2b_excel_synthetic_16char_gstin_and_metadata_sheet():
     assert rec["invoice_number_raw"] == "INV-0001"
 
 
+def test_consolidated_period_range_in_title_extracts_end_month():
+    """Verify ranges like 'Consolidated Apr-Sep 2026' or 'Apr–Sep 2026' resolve to the end month (092026)."""
+    from app.parsers.gstr2b_parser import _alt_parse_period_to_rtnprd
+    assert _alt_parse_period_to_rtnprd("Return Period: Consolidated Apr-Sep 2026") == "092026"
+    assert _alt_parse_period_to_rtnprd("Synthetic period: Apr–Sep 2026") == "092026"
+    assert _alt_parse_period_to_rtnprd("April 2026 - September 2026") == "092026"
+    assert _alt_parse_period_to_rtnprd("Q2 (Jul-Sep 2026)") == "092026"
+
+
+def test_multi_period_rows_respect_fallback_period():
+    """When an export has mixed/multi-period rows, the user's explicit fallback_period takes precedence."""
+    from app.parsers.gstr2b_parser import normalize_alt_2b_schema
+    payload = {
+        "invoice": [
+            {"Sr": 1, "GSTIN": "27AACCV1726H1ZE", "Period": "072026", "Invoice No": "INV-1", "Invoice Date": "15-07-2026", "Invoice Value": 1000.0, "Taxable Value": 1000.0, "IGST": 180.0},
+            {"Sr": 2, "GSTIN": "27AACCV1726H1ZE", "Period": "072026", "Invoice No": "INV-2", "Invoice Date": "16-07-2026", "Invoice Value": 1000.0, "Taxable Value": 1000.0, "IGST": 180.0},
+            {"Sr": 3, "GSTIN": "27AACCV1726H1ZE", "Period": "092026", "Invoice No": "INV-3", "Invoice Date": "15-09-2026", "Invoice Value": 1000.0, "Taxable Value": 1000.0, "IGST": 180.0},
+        ]
+    }
+    normalized = normalize_alt_2b_schema(payload, fallback_period="2026-09")
+    assert normalized["data"]["rtnprd"] == "092026"
+
+
+
 
 
 

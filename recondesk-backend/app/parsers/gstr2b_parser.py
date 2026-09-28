@@ -1416,10 +1416,28 @@ def _alt_blank(val: Any) -> bool:
 
 
 def _alt_parse_period_to_rtnprd(raw: Any) -> str | None:
-    """Convert ``Jun,2026`` / ``Jun 2026`` / ``06-2026`` / ``2026-06`` / ``2026-06-01`` → ``MMYYYY``."""
+    """Convert ``Jun,2026`` / ``Jun 2026`` / ``06-2026`` / ``2026-06`` / ``2026-06-01`` / ``Apr-Sep 2026`` → ``MMYYYY``."""
     if _alt_blank(raw):
         return None
     s = str(raw).strip()
+    while True:
+        s_new = re.sub(
+            r"^(?:consolidated|synthetic\s*period|return\s*period|filing\s*period|synthetic|period)\s*[:\-]?\s*",
+            "",
+            s,
+            flags=re.IGNORECASE,
+        ).strip()
+        if s_new == s:
+            break
+        s = s_new
+    s = re.sub(r"^q[1-4]\s*\(?|\)$", "", s, flags=re.IGNORECASE).strip()
+    m_range = re.match(
+        r"^[A-Za-z]{3,9}(?:\s*,?\s*\d{4})?\s*(?:[-–/]|to)+\s*([A-Za-z]{3,9}\s*,?\s*\d{4})$",
+        s,
+        re.IGNORECASE,
+    )
+    if m_range:
+        return _alt_parse_period_to_rtnprd(m_range.group(1))
     m = re.match(r"^([A-Za-z]{3,9})[-_,\s]*(\d{4})$", s)
     if m:
         token = m.group(1).lower()
@@ -2020,12 +2038,21 @@ def normalize_alt_2b_schema(
         )
 
     rtnprd = ""
-    if rtnprd_votes:
-        rtnprd = max(set(rtnprd_votes), key=rtnprd_votes.count)
-    if not rtnprd:
+    # 1. Statement-level period from Excel sheet metadata or JSON root
+    if data.get("period") or data.get("rtnprd"):
         rtnprd = (
             _alt_parse_period_to_rtnprd(data.get("period") or data.get("rtnprd")) or ""
         )
+    # 2. Row votes: if unanimous single-period, row period takes precedence; if mixed multi-period, respect user fallback_period
+    if not rtnprd and rtnprd_votes:
+        unique_votes = set(rtnprd_votes)
+        if len(unique_votes) == 1:
+            rtnprd = next(iter(unique_votes))
+        elif fallback_period:
+            rtnprd = _alt_parse_period_to_rtnprd(fallback_period) or ""
+        if not rtnprd:
+            rtnprd = max(unique_votes, key=rtnprd_votes.count)
+    # 3. Explicit fallback_period chosen by user when starting run
     if not rtnprd and fallback_period:
         rtnprd = _alt_parse_period_to_rtnprd(fallback_period) or ""
 

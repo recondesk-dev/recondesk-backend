@@ -291,14 +291,20 @@ def _extract_period_from_title_or_filename(
             if not text:
                 continue
             m = re.search(
-                r"(?:return\s*period|filing\s*period|period|month)\s*[:\-]?\s*([A-Za-z]{3,9}\s*,?\s*\d{4}|\d{1,2}[-/]\d{4}|\d{4}[-/]\d{1,2})",
+                r"(?:return\s*period|filing\s*period|synthetic\s*period|period|month)\s*[:\-]?"
+                r"\s*(?:consolidated\s+|q[1-4]\s*)?\(?"
+                r"(?:[A-Za-z]{3,9}(?:\s*,?\s*\d{4})?\s*(?:[-–/]|to)+\s*([A-Za-z]{3,9}\s*,?\s*\d{4})|([A-Za-z]{3,9}\s*,?\s*\d{4}|\d{1,2}[-/]\d{4}|\d{4}[-/]\d{1,2}))",
                 text,
                 re.IGNORECASE,
             )
             if m:
-                p = _alt_parse_period_to_rtnprd(m.group(1))
+                cand = m.group(1) or m.group(2)
+                p = _alt_parse_period_to_rtnprd(cand)
                 if p:
                     return p
+            p_direct = _alt_parse_period_to_rtnprd(text)
+            if p_direct:
+                return p_direct
     if filename:
         fn = os.path.basename(filename)
         m_fn = re.search(
@@ -496,6 +502,7 @@ def excel_to_alt_2b_dict(
     file_content: bytes,
     filename: str = "gstr2b.xlsx",
     client_gstin: str | None = None,
+    fallback_period: str | None = None,
 ) -> dict:
     """Convert workbook bytes into the alt flat-JSON dict shape.
 
@@ -617,20 +624,44 @@ def excel_to_alt_2b_dict(
                 except Exception:
                     pass
 
-    # Fallback for period: derive from invoice dates in rows if still missing
+    # Fallback for period: if not title_period, check row "Period" column first, then fallback_period, then invoice dates
     if not title_period and invoice_rows:
-        date_votes: list[str] = []
-        for row in invoice_rows[:100]:
-            d_val = _alt_invoice_date_portal(
-                _alt_row_get(
-                    row, "Invoice Date", "invoice_date", "idt",
-                    "Document Date", "Doc Date", "Date"
-                )
+        period_votes: list[str] = []
+        for row in invoice_rows:
+            p_val = _alt_parse_period_to_rtnprd(
+                _alt_row_get(row, "Period", "period", "Return Period", "Filing Period")
             )
-            if d_val and len(d_val) == 10 and d_val[2] == "-" and d_val[5] == "-":
-                date_votes.append(d_val[3:5] + d_val[6:])
-        if date_votes:
-            title_period = max(set(date_votes), key=date_votes.count)
+            if p_val:
+                period_votes.append(p_val)
+        if period_votes:
+            unique_p = set(period_votes)
+            if len(unique_p) == 1:
+                title_period = next(iter(unique_p))
+            elif fallback_period:
+                parsed_fb = _alt_parse_period_to_rtnprd(fallback_period)
+                if parsed_fb:
+                    title_period = parsed_fb
+            if not title_period:
+                title_period = max(unique_p, key=period_votes.count)
+
+    if not title_period:
+        if fallback_period:
+            parsed_fb = _alt_parse_period_to_rtnprd(fallback_period)
+            if parsed_fb:
+                title_period = parsed_fb
+        elif invoice_rows:
+            date_votes: list[str] = []
+            for row in invoice_rows[:100]:
+                d_val = _alt_invoice_date_portal(
+                    _alt_row_get(
+                        row, "Invoice Date", "invoice_date", "idt",
+                        "Document Date", "Doc Date", "Date"
+                    )
+                )
+                if d_val and len(d_val) == 10 and d_val[2] == "-" and d_val[5] == "-":
+                    date_votes.append(d_val[3:5] + d_val[6:])
+            if date_votes:
+                title_period = max(set(date_votes), key=date_votes.count)
 
     payload: dict[str, Any] = {
         "invoice": invoice_rows,
@@ -658,7 +689,10 @@ def parse_2b_excel(
     ``normalize_alt_2b_schema`` (same path as flat JSON exports).
     """
     alt = excel_to_alt_2b_dict(
-        file_content, filename, client_gstin=fallback_buyer_gstin
+        file_content,
+        filename,
+        client_gstin=fallback_buyer_gstin,
+        fallback_period=fallback_period,
     )
     isd_count = int(alt.pop(_UNPARSED_ISD_COUNT_KEY, 0) or 0)
     impg_count = int(alt.pop(_UNPARSED_IMPG_COUNT_KEY, 0) or 0)

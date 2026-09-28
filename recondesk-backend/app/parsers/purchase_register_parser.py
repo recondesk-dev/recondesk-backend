@@ -93,6 +93,8 @@ STANDARD_TO_CANONICAL: dict[str, str] = {
     "note_type": "note_type",
     "note_reason": "note_reason",
     "original_invoice_number": "original_invoice_number",
+    # ERP accounting / book date — distinct from the document/invoice date.
+    "posting_date": "posting_date",
 }
 
 _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
@@ -125,11 +127,21 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "चालान संख्या", "बिल संख्या", "इनवॉइस नंबर", "बिल नंबर", "वाउचर नंबर", "वाउचर संख्या", "चालान नं", "बिल नं", "इनवॉइस नं",
     ],
     "invoice_date": [
-        "invoice date", "bill date", "bill dt", "date", "voucher date", "doc date",
-        "inv date", "inv dt", "invoice dt", "document date", "posting date",
-        "entry date", "voucher dt", "bill dt.", "invoice date / bill date",
-        "bill date / invoice date", "date of invoice", "tx date", "transaction date",
+        # Document date (actual invoice/bill date) — highest confidence
+        "invoice date", "bill date", "bill dt", "bill dt.", "voucher date",
+        "voucher dt", "doc date", "document date", "date of invoice",
+        "inv date", "inv dt", "invoice dt",
+        "invoice date / bill date", "bill date / invoice date",
+        # Generic 'date' column only when it is the sole date column in the sheet
+        "date",
         "चालान दिनांक", "बिल दिनांक", "दिनांक", "तारीख", "तिथि",
+        # NOTE: 'posting date', 'entry date', 'tx date', 'transaction date' are
+        # intentionally NOT here — they are accounting posting dates (ERP internal),
+        # not the document/invoice date. They are mapped to `posting_date` below.
+    ],
+    "posting_date": [
+        "posting date", "entry date", "tx date", "transaction date",
+        "accounting date", "book date", "ledger date",
     ],
     "taxable_amount": [
         "taxable value", "taxable amount", "base amount", "taxable",
@@ -377,6 +389,7 @@ _FIELD_MATCH_PRIORITY: dict[str, int] = {
     "note_type": 50,
     "note_reason": 30,
     "original_invoice_number": 35,
+    "posting_date": 10,  # Low priority — only used when explicitly no document-date column exists
 }
 
 # Sheet / header signals that a PR sheet is credit/debit notes, not invoices.
@@ -926,9 +939,11 @@ def is_total_row(row_values: list[str]) -> bool:
 
 
 _REPEATED_HEADER_DATE_LABELS = frozenset({
-    "invoice date", "inv date", "voucher dt", "posting date", "doc date",
-    "date of invoice", "tx date", "bill date", "entry date", "invoice dt", "bill dt",
-    "invoice date / bill date", "bill date / invoice date", "document date", "चालान दिनांक", "बिल दिनांक", "दिनांक", "तारीख", "तिथि"
+    "invoice date", "inv date", "voucher dt", "doc date",
+    "date of invoice", "bill date", "invoice dt", "bill dt",
+    "invoice date / bill date", "bill date / invoice date", "document date",
+    "posting date", "entry date", "tx date", "transaction date",  # kept so repeated-header detection still works
+    "चालान दिनांक", "बिल दिनांक", "दिनांक", "तारीख", "तिथि"
 })
 _REPEATED_HEADER_GSTIN_LABELS = frozenset({
     "gstin", "supplier gstin", "party gstin", "gst no", "party s gstin",
@@ -1483,6 +1498,29 @@ def _process_pr_sheet_rows(
                 except NormalizationError:
                     row_errors.append("invalid date")
 
+        # Extract posting_date independently (ERP accounting date, not document date).
+        posting_date_value: str | None = None
+        if "posting_date" in mapping:
+            raw_posting = _safe_cell(orig_row.get(mapping["posting_date"]))
+            if raw_posting is not None:
+                try:
+                    posting_date_value = normalize_date(raw_posting).value.isoformat()
+                except NormalizationError:
+                    pass  # Silently ignore; posting_date is supplementary only
+
+        # Fallback: if no document date was found but a posting_date column was mapped,
+        # use the posting_date as invoice_date as a last resort. This is explicitly a
+        # secondary fallback — it only activates when no Voucher Dt / Invoice Date column
+        # was detected. Log a warning so operators can audit.
+        if date_value is None and posting_date_value is not None:
+            date_value = posting_date_value
+            # Mark that we fell back to posting date so the record can be audited
+            row["date_source"] = "posting_date_fallback"
+            logger.debug(
+                "Row date_source=posting_date_fallback: no document-date column detected, "
+                "using Posting Date as invoice_date. Verify PR column mapping."
+            )
+
         # Merged cell recovery: check if row has amounts or line item data
         raw_tax_peek = _safe_cell(orig_row.get(mapping["taxable_amount"])) if "taxable_amount" in mapping else None
         raw_tot_peek = _safe_cell(orig_row.get(mapping["total_amount"])) if "total_amount" in mapping else None
@@ -1675,6 +1713,7 @@ def _process_pr_sheet_rows(
             "is_credit_note": (invoice_type == "CREDIT_NOTE" or (taxable_amount_paise is not None and taxable_amount_paise < 0)),
             "is_debit_note": (invoice_type == "DEBIT_NOTE"),
             "invoice_date": date_value,
+            "posting_date": posting_date_value,  # None if not present in this PR
             "gstin": gstin_value,
             "gstin_valid": gstin_valid,
             "supplier_name": supplier_name,

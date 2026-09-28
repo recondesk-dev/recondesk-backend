@@ -410,10 +410,27 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             parsed_period = str(parsed.get("period", ""))
             if parsed_period and len(parsed_period) >= 7:
                 new_period = parsed_period[:7]
-                if new_period != period:
-                    _log.info("Updating run %s period from %s to %s based on GSTR-2B", run_id, period, new_period)
+                is_official_portal = (
+                    parsed.get("buyer_gstin_source") == "portal"
+                    and not parsed.get("_alt_buyer_gstin_source")
+                    and file_type == "gstr2b"
+                )
+                if not period:
+                    _log.info("Setting run %s period to %s from GSTR-2B", run_id, new_period)
                     period = new_period
                     _update_run(client, run_id, {"period": period})
+                    try:
+                        client.table("reconciliation_import_runs").update({"period": f"{period}-01"}).eq("id", run_id).execute()
+                    except Exception:
+                        pass
+                elif is_official_portal and new_period != period:
+                    _log.info("Updating run %s period from %s to %s based on official portal GSTR-2B", run_id, period, new_period)
+                    period = new_period
+                    _update_run(client, run_id, {"period": period})
+                    try:
+                        client.table("reconciliation_import_runs").update({"period": f"{period}-01"}).eq("id", run_id).execute()
+                    except Exception:
+                        pass
             if parsed.get("buyer_gstin_source") == "placeholder":
                 _log.warning(
                     "GSTR-2B alt schema for run %s has no buyer GSTIN in file or "

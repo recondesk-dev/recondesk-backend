@@ -3110,11 +3110,11 @@ export default function ReconcileResultsPage() {
                 <Link href="/clients" className="shrink-0 hover:text-[#0F172A] transition-colors">
                   Clients
                 </Link>
-                <span className="shrink-0 text-[#CBD5E1]">›</span>
+                <span className="shrink-0 text-[#94A3B8] font-semibold">›</span>
                 <span className="truncate font-semibold text-[#0F172A] max-w-[200px] sm:max-w-xs" title={summary.client_name ?? undefined}>
                   {summary.client_name || "—"}
                 </span>
-                <span className="shrink-0 text-[#CBD5E1]">›</span>
+                <span className="shrink-0 text-[#94A3B8] font-semibold">›</span>
                 <span className="shrink-0 font-medium text-[#475569]">
                   {formatPeriod(summary.period)}
                 </span>
