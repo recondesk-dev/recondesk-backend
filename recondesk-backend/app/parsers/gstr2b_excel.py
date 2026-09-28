@@ -77,12 +77,12 @@ def _sheet_kind(sheet_name: str) -> str | None:
     # "B2B, Credit/Debit Notes(Amendment)"
     if compact.startswith("b2b") and ("cdnr" in compact or "credit" in compact or "debit" in compact):
         return "note"
-    # "B2BA" = B2B amendment — treat as invoice
+    # "B2BA" = B2B amendment
     if compact in {"b2ba"}:
-        return "invoice"
+        return "b2ba"
     # CDNRA = note amendment
     if compact in {"cdnra"}:
-        return "note"
+        return "cdnra"
     # Plain "b2b" prefix without cdnr/credit/debit is an invoice sheet
     if compact.startswith("b2b"):
         return "invoice"
@@ -185,6 +185,7 @@ _CANONICAL_FIELD_TO_STD_KEY: tuple[tuple[str, str], ...] = (
     ("note_type", "Note Type"),
     ("note_reason", "Reason"),
     ("original_invoice_number", "Original Invoice Number"),
+    ("recipient_gstin", "Recipient GSTIN"),
 )
 
 
@@ -527,6 +528,8 @@ def excel_to_alt_2b_dict(
 
     invoice_rows: list[dict[str, Any]] = []
     note_rows: list[dict[str, Any]] = []
+    b2ba_rows: list[dict[str, Any]] = []
+    cdnra_rows: list[dict[str, Any]] = []
     title_gstin = ""
     title_period = ""
     isd_count = 0
@@ -554,15 +557,19 @@ def excel_to_alt_2b_dict(
             title_period = period
         if kind == "invoice":
             invoice_rows.extend(rows)
-        else:
+        elif kind == "note":
             note_rows.extend(rows)
+        elif kind == "b2ba":
+            b2ba_rows.extend(rows)
+        elif kind == "cdnra":
+            cdnra_rows.extend(rows)
 
     # Fallback: If no invoice sheet was found by name, inspect workbook sheets by CONTENT.
     if not invoice_rows:
         for sheet_name in xl.sheet_names:
             str_name = str(sheet_name)
             if (
-                _sheet_kind(str_name) == "note"
+                _sheet_kind(str_name) in ("note", "cdnra")
                 or _unparsed_sheet_kind(str_name) is not None
             ):
                 continue
@@ -582,7 +589,7 @@ def excel_to_alt_2b_dict(
                     title_period = period
                 break
 
-    if not invoice_rows and not note_rows:
+    if not invoice_rows and not note_rows and not b2ba_rows and not cdnra_rows:
         raise ValueError(
             "gstr2b_excel_no_invoice_sheet: expected an 'invoice' (and optional "
             "'note') sheet with Sr / GSTIN / Invoice No columns"
@@ -666,6 +673,8 @@ def excel_to_alt_2b_dict(
     payload: dict[str, Any] = {
         "invoice": invoice_rows,
         "note": note_rows,
+        "b2ba": b2ba_rows,
+        "cdnra": cdnra_rows,
         _UNPARSED_ISD_COUNT_KEY: int(isd_count),
         _UNPARSED_IMPG_COUNT_KEY: int(impg_count),
     }

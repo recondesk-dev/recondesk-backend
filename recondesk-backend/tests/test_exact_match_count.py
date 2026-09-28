@@ -164,7 +164,9 @@ def test_build_reconcile_summary_decision_status_counts():
     with patch("app.routers.reconciliation_api.ro.load_gstr_map", return_value={}), \
          patch("app.routers.reconciliation_api.ro.load_pr_map", return_value={}), \
          patch("app.routers.reconciliation_api.get_user_profile", return_value={"role": "admin"}), \
-         patch("app.routers.reconciliation_api._decision_statuses_for_run", return_value=mock_statuses):
+         patch("app.routers.reconciliation_api._decision_statuses_for_run", return_value=mock_statuses), \
+         patch("app.routers.reconciliation_api._cached_matched_pairs", return_value=[]), \
+         patch("app.routers.reconciliation_api._notes_count_for_run", return_value={}):
         res = _build_reconcile_summary(
             sb=mock_sb,
             run_row=run_row,

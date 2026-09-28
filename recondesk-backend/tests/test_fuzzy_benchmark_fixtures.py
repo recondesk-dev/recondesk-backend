@@ -28,10 +28,14 @@ def test_gstr2b_fuzzy_fixture_parsing():
     payload = load_gstr2b_upload_payload(raw, "ReconDesk_GSTR2B_3000_Fuzzy.xlsx")
     res = parse_gstr2b(payload)
 
-    # 3,070 total rows (2,910 B2B + 80 CDNR + 80 B2BA) should all parse with 0 skips
-    assert res["total_parsed"] == 3070
+    # 3,070 total rows (2,910 B2B + 80 CDNR + 80 B2BA).
+    # 50 rows belonging to foreign recipient GSTIN 27UOYGT9506IRZ6 are excluded.
+    # 3,020 valid rows parsed cleanly.
+    # 3,070 total rows (2,910 B2B + 80 CDNR + 80 B2BA).
+    # 50 rows belonging to foreign recipient GSTIN 27UOYGT9506IRZ6 are excluded before output.
+    # 3,020 valid rows parsed cleanly with 0 parsing errors/skips.
+    assert res["total_parsed"] == 3020
     assert res["total_skipped"] == 0
-    assert not res["metrics"].get("skip_breakdown", {})
 
 
 @pytest.mark.skipif(not PR_FILE.exists(), reason="PR fuzzy fixture missing")
@@ -60,7 +64,8 @@ def test_purchase_register_fuzzy_fixture_full_parse():
         raw = f.read()
 
     res = parse_purchase_register(raw, "ReconDesk_Purchase_Register_3000_Fuzzy.xlsx")
-    assert res.get("valid_rows") == 3173
+    # 3 compound subtotal rows ('SUB TOTAL (export block ...)') are skipped
+    assert res.get("valid_rows") == 3170
     # Master and decoy sheets should be skipped and not combined into invoices
     sheets_used = [s["sheet"] for s in res.get("sheets_used", [])]
     assert sheets_used == ["Purchase Dump Apr-Sep"]
@@ -85,8 +90,8 @@ def test_fuzzy_benchmark_reconciliation_conservation():
     for i, p in enumerate(pr_records):
         p["id"] = f"p_{i}"
 
-    assert len(gstr_records) == 3070
-    assert len(pr_records) == 3173
+    assert len(gstr_records) == 3020
+    assert len(pr_records) == 3170
 
     recon_res = run_bidirectional_reconciliation(gstr_records[:300], pr_records[:300])
     stats = recon_res.get("stats") or {}

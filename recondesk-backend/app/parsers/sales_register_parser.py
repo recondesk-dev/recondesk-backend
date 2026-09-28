@@ -138,8 +138,8 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     "invoice_date": [
         "invoice date", "bill date", "bill dt", "date", "voucher date",
         "doc date", "document date", "sale date", "sales date",
-        "inv date", "inv dt", "invoice dt", "posting date", "entry date",
-        "voucher dt", "bill dt.", "date of invoice", "tx date", "transaction date",
+        "inv date", "inv dt", "invoice dt",
+        "voucher dt", "bill dt.", "date of invoice",
     ],
     "taxable_amount": [
         "taxable value", "taxable amount", "base amount", "taxable",
@@ -620,12 +620,12 @@ def _safe_cell(val: Any) -> str | None:
 
 _NUMERIC_REMAINDER_RE = re.compile(r"^[\d,. ]+$")
 
-_TOTAL_KEYWORDS: tuple[str, ...] = (
-    "grand total",
+_COMPOUND_TOTAL_PREFIXES: tuple[str, ...] = (
     "sub total",
     "subtotal",
-    "total",
-    "sum",
+    "sub-total",
+    "grand total",
+    "page total",
     "closing balance",
     "opening balance",
     "carried over",
@@ -633,7 +633,11 @@ _TOTAL_KEYWORDS: tuple[str, ...] = (
     "brought forward",
     "balance c/f",
     "balance b/f",
-    "page total",
+)
+
+_TOTAL_KEYWORDS: tuple[str, ...] = (
+    "total",
+    "sum",
 )
 
 
@@ -641,22 +645,29 @@ def is_total_row(row_values: list[str]) -> bool:
     """Return True only when a cell is an actual totals/summary marker.
 
     Rules (applied to each non-empty cell):
-    - Exact match against a keyword → True.
-    - Starts with a keyword AND the remainder is empty or purely numeric
-      (digits, commas, decimals, spaces) → True.
-    - "Total Solutions Pvt Ltd" — remainder is " Solutions Pvt Ltd" which is
-      not numeric → False.
+    - Cell starts with a compound total phrase ("sub total", "grand total", "page total",
+      "carried forward", etc.) regardless of trailing commentary e.g. "(export block 1)".
+    - Exact match against any keyword in _TOTAL_KEYWORDS ("total", "sum").
+    - Starts with "total" / "sum" AND the remainder is empty, numeric, or a summary label
+      (e.g. "total: ...", "total - ...", "total (...)").
+    - Protect vendor names like "Total Solutions Pvt Ltd" (where remainder is " solutions...").
     """
     for raw in row_values:
         cell = raw.strip().lower()
         if not cell or cell in ("nan", "none", "nat"):
             continue
+        for pfx in _COMPOUND_TOTAL_PREFIXES:
+            if cell == pfx or cell.startswith(pfx):
+                return True
         for kw in _TOTAL_KEYWORDS:
             if cell == kw:
                 return True
             if cell.startswith(kw):
                 remainder = cell[len(kw):]
                 if not remainder or _NUMERIC_REMAINDER_RE.match(remainder):
+                    return True
+                s_rem = remainder.strip()
+                if s_rem.startswith((":", "-", "—", "–", "(", "of ", "for ", "count")):
                     return True
     return False
 

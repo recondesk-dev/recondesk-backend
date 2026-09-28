@@ -94,6 +94,23 @@ def normalize_invoice_number(value: str | None) -> str:
     return normalize_invoice(value)
 
 
+_OCR_MAP = str.maketrans({
+    "O": "0", "o": "0",
+    "I": "1", "i": "1", "l": "1",
+    "S": "5", "s": "5",
+    "Z": "2", "z": "2",
+    "B": "8", "b": "8",
+})
+
+
+def ocr_canonical_invoice(s: str | None) -> str:
+    """Normalize invoice number with OCR-confused character transliteration."""
+    if not s:
+        return ""
+    norm = normalize_invoice(s)
+    return norm.translate(_OCR_MAP)
+
+
 def _pan_of(gstin: str | None) -> str:
     """Return the 10-char PAN embedded in a GSTIN (positions 3-12), else ``""``."""
     g = (gstin or "").strip().upper()
@@ -234,6 +251,12 @@ def is_invoice_format_variant(
     if not na or not nb:
         return False
     if na == nb:
+        return True
+
+    # OCR transliteration equality (e.g. O↔0, I↔1, S↔5, Z↔2, B↔8)
+    ocr_a = ocr_canonical_invoice(na)
+    ocr_b = ocr_canonical_invoice(nb)
+    if ocr_a and ocr_b and ocr_a == ocr_b:
         return True
 
     # Check 1: Shared prefix and financial-year expansion or omission
@@ -447,6 +470,11 @@ def invoice_similarity(inv1: str, inv2: str) -> float:
     if a == b:
         return 1.0
 
+    ocr_a = ocr_canonical_invoice(a)
+    ocr_b = ocr_canonical_invoice(b)
+    if ocr_a and ocr_b and ocr_a == ocr_b:
+        return 0.95
+
     max_len = max(len(a), len(b))
     dist = levenshtein(a, b)
     if max_len == 0:
@@ -514,6 +542,16 @@ def _field_entry(
     }
 
 
+def _is_note_doc(rec: Mapping[str, Any] | None) -> bool:
+    if not rec:
+        return False
+    sec = str(rec.get("section") or "").lower().strip()
+    if sec in ("cdnr", "cdnra", "cdnur", "cdnura"):
+        return True
+    doc = str(rec.get("doc_type") or rec.get("document_type") or "").upper().strip()
+    return doc in ("CREDIT_NOTE", "DEBIT_NOTE", "CRN", "DRN", "CN", "DN") or bool(rec.get("pr_note_quarantine"))
+
+
 def build_compared_fields(
     gstr_rec: Mapping[str, Any],
     pr_rec: Mapping[str, Any],
@@ -559,6 +597,20 @@ def build_compared_fields(
         format_variant = is_invoice_format_variant(
             g_inv, p_inv, gstr_rec.get("invoice_number"), pr_rec.get("invoice_number")
         )
+
+    g_is_note = _is_note_doc(gstr_rec)
+    p_is_note = _is_note_doc(pr_rec)
+    if not g_is_note and not p_is_note:
+        g_orig = str(gstr_rec.get("original_invoice_number") or gstr_rec.get("oinum") or "").strip()
+        p_orig = str(pr_rec.get("original_invoice_number") or pr_rec.get("oinum") or "").strip()
+        if g_orig and not inv_ok and not format_variant:
+            if invoices_effectively_match(g_orig, p_inv) or is_invoice_format_variant(g_orig, p_inv):
+                format_variant = True
+                inv_ok = True
+        if p_orig and not inv_ok and not format_variant:
+            if invoices_effectively_match(g_inv, p_orig) or is_invoice_format_variant(g_inv, p_orig):
+                format_variant = True
+                inv_ok = True
     # Normalized / format-variant identity with different raw strings is not "exact".
     # Labelling those exact made Matched FUZZY rationale identical to L1 and hid the
     # only real difference a CA needs to see (GST/0001/26 ↔ GST126).
@@ -600,10 +652,23 @@ def build_compared_fields(
     else:
         out.append(_field_entry("taxable_amount", "not_matched"))
 
+    tax_g = _safe_paise_field(gstr_rec, "total_tax_paise")
+    tax_p = _safe_paise_field(pr_rec, "total_tax_paise")
+    if tax_g or tax_p:
+        tax_diff = abs(tax_g - tax_p)
+        if tax_diff <= AMOUNT_TOLERANCE_L1_PAISE:
+            out.append(_field_entry("tax_amount", "exact"))
+        else:
+            tax_pct = tax_diff / float(max(tax_g, tax_p)) if max(tax_g, tax_p) > 0 else 1.0
+            if tax_pct <= AMOUNT_TOLERANCE_L3_PCT:
+                out.append(_field_entry("tax_amount", "fuzzy", int(round(max(0.0, 1.0 - tax_pct) * 100))))
+            else:
+                out.append(_field_entry("tax_amount", "not_matched"))
+
     dg = _parse_invoice_date(gstr_rec)
     dp = _parse_invoice_date(pr_rec)
     date_diff_days, skip_date = _date_diff_days_and_skip(dg, dp)
-    if skip_date or date_diff_days <= DATE_TOLERANCE_L1_DAYS:
+    if skip_date or date_diff_days == 0:
         out.append(_field_entry("date", "exact"))
     elif date_diff_days <= DATE_TOLERANCE_L3_DAYS:
         closeness = max(
@@ -1017,6 +1082,10 @@ def invoices_effectively_match(g_inv: str, p_inv: str) -> bool:
     norm_p = normalise_inv_no(p_inv)
     if norm_g and norm_p and norm_g == norm_p:
         return True
+    ocr_g = ocr_canonical_invoice(g_inv)
+    ocr_p = ocr_canonical_invoice(p_inv)
+    if ocr_g and ocr_p and ocr_g == ocr_p:
+        return True
     # If one side includes a standard prefix (INV, CN, etc.) and the other omits it
     if norm_g and norm_p:
         for pref in _STANDARD_DOC_PREFIXES:
@@ -1386,6 +1455,24 @@ def _match_gstr_to_pr_pair(
     if not inv_ok:
         format_variant = is_invoice_format_variant(g_inv, p_inv, gstr_rec.get("invoice_number"), pr_rec.get("invoice_number"))
 
+    g_orig = str(gstr_rec.get("original_invoice_number") or gstr_rec.get("oinum") or "").strip()
+    p_orig = str(pr_rec.get("original_invoice_number") or pr_rec.get("oinum") or "").strip()
+    if not inv_ok and not format_variant and not _is_note_doc(gstr_rec) and not _is_note_doc(pr_rec):
+        if g_orig:
+            if invoices_effectively_match(g_orig, p_inv) or is_invoice_format_variant(
+                g_orig, p_inv, gstr_rec.get("original_invoice_number_raw") or g_orig, pr_rec.get("invoice_number")
+            ):
+                inv_ok = True
+                format_variant = True
+                discrepancies.append(f"amendment: Amended invoice {g_inv} links to original {g_orig}")
+        if not inv_ok and not format_variant and p_orig:
+            if invoices_effectively_match(g_inv, p_orig) or is_invoice_format_variant(
+                g_inv, p_orig, gstr_rec.get("invoice_number"), pr_rec.get("original_invoice_number_raw") or p_orig
+            ):
+                inv_ok = True
+                format_variant = True
+                discrepancies.append(f"amendment: PR original invoice {p_orig} links to GSTR {g_inv}")
+
     raw_inv_ok = bool(g_inv_raw and p_inv_raw and g_inv_raw == p_inv_raw)
     amount_pct = _compute_percentage_diff(amount_diff, skip_amount, tg, tp)
 
@@ -1644,15 +1731,23 @@ def _match_gstr_to_pr_pair(
             # A genuinely zero-discrepancy pair is already handled by the
             # zero-discrepancy invariant above and never reaches this branch;
             # anything landing here has a real (if small) amount/date diff.
-            if amount_within_l1 and not skip_amount:
+            if date_diff_days > 0 and amount_within_l1 and tax_only_diff <= AMOUNT_TOLERANCE_L1_PAISE:
                 d_what = f"Invoice matched; invoice date differs by {date_diff_days} days"
                 d_why = f"Same normalized invoice and GSTIN, date differs by {date_diff_days} days (within {DATE_TOLERANCE_L2_DAYS}-day tolerance)"
-            elif date_within_l1 and not skip_date:
-                d_what = f"Invoice matched; minor amount difference of {_rs_str(amount_diff)}"
-                d_why = f"Same normalized invoice and GSTIN, amount differs by {_rs_str(amount_diff)} (within 1% tolerance)"
+                rr = "DATE_MISMATCH"
+            elif amount_diff > AMOUNT_TOLERANCE_L1_PAISE or tax_only_diff > AMOUNT_TOLERANCE_L1_PAISE:
+                diff_to_report = amount_diff if amount_diff > AMOUNT_TOLERANCE_L1_PAISE else tax_only_diff
+                d_what = f"Invoice matched; minor amount difference of {_rs_str(diff_to_report)}"
+                d_why = f"Same normalized invoice and GSTIN, amount differs by {_rs_str(diff_to_report)} (within 1% tolerance)"
+                rr = "AMOUNT_MISMATCH"
+            elif date_diff_days > 0:
+                d_what = f"Invoice matched; invoice date differs by {date_diff_days} days"
+                d_why = f"Same normalized invoice and GSTIN, date differs by {date_diff_days} days (within {DATE_TOLERANCE_L2_DAYS}-day tolerance)"
+                rr = "DATE_MISMATCH"
             else:
                 d_what = "Invoice matched with normalized invoice and minor amount difference"
                 d_why = "Same normalized invoice and GSTIN, amount within acceptable tolerance"
+                rr = "AMOUNT_MISMATCH"
 
             return _ret(
                 level=2, matched=True, confidence=90, requires_human_review=True,
@@ -1661,7 +1756,7 @@ def _match_gstr_to_pr_pair(
                 decision_next="Verify if needed",
                 discrepancies=discrepancies,
                 identity_confidence="High", financial_status=financial_status,
-                review_reason="Amount/Date mismatch",
+                review_reason=rr,
             )
 
         # Same GSTIN + same normalized invoice but amount or date exceeds L2 — L3 review.

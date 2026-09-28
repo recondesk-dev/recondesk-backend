@@ -450,7 +450,7 @@ def test_cross_period_prevents_duplicate_itc_event():
 
 
 def test_lineage_invoices_downstream_matcher_alias_limitation():
-    """Verify that lineage_invoices is metadata-only and not yet used for PR lookups by the matcher."""
+    """Verify that downstream matcher matches PR holding old invoice number to amended GSTR invoice via oinum."""
     inv_orig = _invoice("INV-008", "01-04-2024", 59000, [_item(50000, cgst=4500, sgst=4500)])
     inv_amend = _invoice(
         "INV-008-NEW", "12-04-2024", 59000, [_item(50000, cgst=4500, sgst=4500)],
@@ -470,8 +470,7 @@ def test_lineage_invoices_downstream_matcher_alias_limitation():
     assert chain["effective_invoice"] == "INV-008-NEW"
     assert chain["original_invoice"] in ("INV8", "INV-008")
 
-    # Because downstream PR matcher indexes only by invoice_number_normalized ('INV8NEW'),
-    # it does not find 'INV8', so it is placed in missed_itc rather than clean_matched.
-    assert out["matched_count"] == 0
-    assert out["missed_itc_count"] == 1
+    # Downstream PR matcher links the amendment to the PR invoice via original_invoice_number
+    assert out["matched_count"] == 1
+    assert out["missed_itc_count"] == 0
 

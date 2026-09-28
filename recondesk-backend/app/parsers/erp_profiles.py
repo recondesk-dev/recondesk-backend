@@ -50,8 +50,10 @@ SAP_PURCHASE_ALIASES: dict[str, list[str]] = {
         "accounting doc", "accounting document", "fi doc no", "doc_no",
     ],
     "invoice_date": [
-        "budat", "bldat", "cpudt", "posting_date", "document_date",
-        "entry_date", "doc_date", "post_date",
+        "bldat", "document_date", "doc_date",
+    ],
+    "posting_date": [
+        "budat", "cpudt", "posting_date", "entry_date", "post_date",
     ],
     "taxable_amount": [
         "wrbtr", "dmbtr", "fwbas", "hwbas", "base_amount", "netwr",
@@ -96,8 +98,10 @@ SAP_SALES_ALIASES: dict[str, list[str]] = {
         "sales_doc", "invoice_doc",
     ],
     "invoice_date": [
-        "fkdat", "budat", "bldat", "billing_date", "posting_date",
-        "doc_date",
+        "fkdat", "bldat", "billing_date", "doc_date",
+    ],
+    "posting_date": [
+        "budat", "posting_date",
     ],
     "taxable_amount": [
         "netwr", "wrbtr", "dmbtr", "fwbas", "hwbas", "base_amount",
@@ -145,7 +149,10 @@ ORACLE_PURCHASE_ALIASES: dict[str, list[str]] = {
         "trx no", "ap_invoice_num", "voucher_num",
     ],
     "invoice_date": [
-        "trx_date", "gl_date", "doc_date", "invoice_date", "accounting_date",
+        "trx_date", "doc_date", "invoice_date",
+    ],
+    "posting_date": [
+        "gl_date", "accounting_date", "posting_date",
     ],
     "taxable_amount": [
         "line_amount", "taxable_amount", "base_amount", "amount_applied",
@@ -179,7 +186,10 @@ ORACLE_SALES_ALIASES: dict[str, list[str]] = {
         "ar_invoice_num", "trx no",
     ],
     "invoice_date": [
-        "trx_date", "gl_date", "doc_date", "invoice_date", "accounting_date",
+        "trx_date", "doc_date", "invoice_date",
+    ],
+    "posting_date": [
+        "gl_date", "accounting_date", "posting_date",
     ],
     "taxable_amount": [
         "line_amount", "taxable_amount", "base_amount", "amount_applied",

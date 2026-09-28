@@ -657,25 +657,25 @@ def _parse_b2b_invoice(
     original_invoice_date_raw = None
     original_invoice_date = None
 
-    if is_amendment:
-        oinum_raw = invoice.get("oinum")
-        if oinum_raw is not None:
-            original_invoice_number_raw = str(oinum_raw)
-            result = _validate_result(
-                normalize_invoice_number(original_invoice_number_raw),
-                "original_invoice_number",
-            )
-            if result.notes:
-                normalization_notes["original_invoice_number"] = result.notes
-            original_invoice_number = normalize_invoice(result.value)
+    oinum_raw = invoice.get("oinum") or invoice.get("original_invoice_number")
+    if oinum_raw is not None and str(oinum_raw).strip():
+        is_amendment = True
+        original_invoice_number_raw = str(oinum_raw).strip()
+        result = _validate_result(
+            normalize_invoice_number(original_invoice_number_raw),
+            "original_invoice_number",
+        )
+        if result.notes:
+            normalization_notes["original_invoice_number"] = result.notes
+        original_invoice_number = normalize_invoice(result.value)
 
-        oidt_raw = invoice.get("oidt")
-        if oidt_raw is not None:
-            original_invoice_date_raw = str(oidt_raw)
-            result = _validate_result(normalize_date(oidt_raw), "original_invoice_date")
-            if result.notes:
-                normalization_notes["original_invoice_date"] = result.notes
-            original_invoice_date = result.value
+    oidt_raw = invoice.get("oidt") or invoice.get("original_invoice_date")
+    if oidt_raw is not None and str(oidt_raw).strip():
+        original_invoice_date_raw = str(oidt_raw).strip()
+        result = _validate_result(normalize_date(oidt_raw), "original_invoice_date")
+        if result.notes:
+            normalization_notes["original_invoice_date"] = result.notes
+        original_invoice_date = result.value
 
     items_list = _invoice_items_list(invoice)
     item_records, raw_txvals = _parse_items(items_list)
@@ -1679,13 +1679,46 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
         elif tot_tax == 0.0:
             txval = val
 
+    recip_gstin = str(
+        _alt_row_get(
+            row,
+            "Recipient GSTIN", "recipient_gstin", "Buyer GSTIN", "buyer_gstin",
+            "Receiver GSTIN", "receiver_gstin", "Customer GSTIN",
+            "Recipient GSTIN/UIN", "Recipient GSTIN / UIN",
+        ) or ""
+    ).strip().upper()
+
+    orig_inv = str(
+        _alt_row_get(
+            row,
+            "Original Invoice Number", "Original Invoice No",
+            "Original Inv No", "Original Inv Number",
+            "Against Invoice Number", "Against Inv No",
+            "against_invoice_number", "original_invoice_number",
+            "oinum", "ont_num", "ointnum",
+        ) or ""
+    ).strip()
+    if orig_inv == inum:
+        orig_inv = ""
+    orig_dt = _alt_invoice_date_portal(
+        _alt_row_get(
+            row,
+            "Original Invoice Date", "Original Inv Date",
+            "Against Invoice Date", "Against Inv Date",
+            "oidt", "ointdt",
+        )
+    )
+
     return {
         "_supplier_gstin": gstin,
         "_supplier_name": party,
+        "_recipient_gstin": recip_gstin,
         "_rtnprd": _alt_parse_period_to_rtnprd(
             _alt_row_get(row, "Period", "period", "Return Period", "Filing Period")
         ),
         "inum": inum,
+        "oinum": orig_inv or None,
+        "oidt": orig_dt or None,
         "dt": _alt_invoice_date_portal(
             _alt_row_get(
                 row, "Invoice Date", "invoice_date", "idt",
@@ -1888,9 +1921,19 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
         )
     )
 
+    recip_gstin = str(
+        _alt_row_get(
+            row,
+            "Recipient GSTIN", "recipient_gstin", "Buyer GSTIN", "buyer_gstin",
+            "Receiver GSTIN", "receiver_gstin", "Customer GSTIN",
+            "Recipient GSTIN/UIN", "Recipient GSTIN / UIN",
+        ) or ""
+    ).strip().upper()
+
     return {
         "_supplier_gstin": gstin,
         "_supplier_name": party,
+        "_recipient_gstin": recip_gstin,
         "_rtnprd": _alt_parse_period_to_rtnprd(
             _alt_row_get(row, "Period", "period", "Return Period", "Filing Period")
         ),
@@ -1963,6 +2006,7 @@ def _alt_group_by_supplier(mapped_rows: list[dict[str, Any]]) -> list[dict[str, 
         ctin = str(row.pop("_supplier_gstin", "") or "").strip().upper() or "UNKNOWN"
         name = str(row.pop("_supplier_name", "") or "").strip()
         row.pop("_rtnprd", None)
+        row.pop("_recipient_gstin", None)
 
         if is_urp_gstin(ctin) or ctin in ("UNKNOWN", ""):
             key = (ctin, name.strip().upper())
@@ -2007,6 +2051,8 @@ def normalize_alt_2b_schema(
 
     invoice_rows_raw = data.get("invoice") if isinstance(data.get("invoice"), list) else []
     note_rows_raw = data.get("note") if isinstance(data.get("note"), list) else []
+    b2ba_rows_raw = data.get("b2ba") if isinstance(data.get("b2ba"), list) else []
+    cdnra_rows_raw = data.get("cdnra") if isinstance(data.get("cdnra"), list) else []
 
     mapped_inv: list[dict[str, Any]] = []
     rtnprd_votes: list[str] = []
@@ -2020,6 +2066,17 @@ def normalize_alt_2b_schema(
             rtnprd_votes.append(str(mapped["_rtnprd"]))
         mapped_inv.append(mapped)
 
+    mapped_b2ba: list[dict[str, Any]] = []
+    for row in b2ba_rows_raw:
+        if not isinstance(row, dict):
+            continue
+        mapped = _alt_map_invoice_row(row)
+        if mapped is None:
+            continue
+        if mapped.get("_rtnprd"):
+            rtnprd_votes.append(str(mapped["_rtnprd"]))
+        mapped_b2ba.append(mapped)
+
     mapped_notes: list[dict[str, Any]] = []
     for row in note_rows_raw:
         if not isinstance(row, dict):
@@ -2031,7 +2088,27 @@ def normalize_alt_2b_schema(
             rtnprd_votes.append(str(mapped["_rtnprd"]))
         mapped_notes.append(mapped)
 
-    if not mapped_inv and not mapped_notes:
+    mapped_cdnra: list[dict[str, Any]] = []
+    for row in cdnra_rows_raw:
+        if not isinstance(row, dict):
+            continue
+        mapped = _alt_map_note_row(row)
+        if mapped is None:
+            continue
+        if mapped.get("_rtnprd"):
+            rtnprd_votes.append(str(mapped["_rtnprd"]))
+        mapped_cdnra.append(mapped)
+
+    # Move any invoice rows that have an original invoice number to b2ba
+    regular_inv: list[dict[str, Any]] = []
+    for row in mapped_inv:
+        if row.get("oinum"):
+            mapped_b2ba.append(row)
+        else:
+            regular_inv.append(row)
+    mapped_inv = regular_inv
+
+    if not mapped_inv and not mapped_notes and not mapped_b2ba and not mapped_cdnra:
         raise ValueError(
             "alt_gstr2b_empty: no invoice/note rows with a non-blank Sr "
             "(totals-only or empty export)"
@@ -2062,6 +2139,17 @@ def normalize_alt_2b_schema(
         )
 
     buyer = _alt_extract_buyer_gstin(data)
+    if not buyer:
+        all_mapped = mapped_inv + mapped_notes + mapped_b2ba + mapped_cdnra
+        recip_votes = [
+            str(r["_recipient_gstin"]).strip().upper()
+            for r in all_mapped
+            if r.get("_recipient_gstin") and len(re.sub(r"[^0-9A-Z]", "", str(r["_recipient_gstin"]))) == 15
+        ]
+        if recip_votes:
+            buyer = max(set(recip_votes), key=recip_votes.count)
+            buyer_source = BUYER_GSTIN_SOURCE_FILE
+
     if buyer:
         buyer_source = BUYER_GSTIN_SOURCE_FILE
     else:
@@ -2073,13 +2161,41 @@ def normalize_alt_2b_schema(
             buyer = ALT_2B_PLACEHOLDER_BUYER_GSTIN
             buyer_source = BUYER_GSTIN_SOURCE_PLACEHOLDER
 
+    # Filter out rows belonging to a different recipient GSTIN
+    clean_buyer = re.sub(r"[^0-9A-Z]", "", buyer.upper())
+    if len(clean_buyer) == 15:
+        def _matches_buyer(r: dict[str, Any]) -> bool:
+            rg = str(r.get("_recipient_gstin") or "").strip().upper()
+            if not rg:
+                return True
+            clean_rg = re.sub(r"[^0-9A-Z]", "", rg)
+            return len(clean_rg) != 15 or clean_rg == clean_buyer
+
+        before_cnt = len(mapped_inv) + len(mapped_notes) + len(mapped_b2ba) + len(mapped_cdnra)
+        mapped_inv = [r for r in mapped_inv if _matches_buyer(r)]
+        mapped_notes = [r for r in mapped_notes if _matches_buyer(r)]
+        mapped_b2ba = [r for r in mapped_b2ba if _matches_buyer(r)]
+        mapped_cdnra = [r for r in mapped_cdnra if _matches_buyer(r)]
+        after_cnt = len(mapped_inv) + len(mapped_notes) + len(mapped_b2ba) + len(mapped_cdnra)
+        if before_cnt != after_cnt:
+            logger.info(
+                "Filtered out %d rows belonging to a different recipient GSTIN (kept %d for %s)",
+                before_cnt - after_cnt,
+                after_cnt,
+                clean_buyer,
+            )
+
     root: dict[str, Any] = {
         "gstin": buyer,
         "rtnprd": rtnprd,
         "b2b": _alt_group_by_supplier(mapped_inv) if mapped_inv else [],
     }
+    if mapped_b2ba:
+        root["b2ba"] = _alt_group_by_supplier(mapped_b2ba)
     if mapped_notes:
         root["cdnr"] = _alt_group_by_supplier(mapped_notes)
+    if mapped_cdnra:
+        root["cdnra"] = _alt_group_by_supplier(mapped_cdnra)
 
     return {
         "data": root,

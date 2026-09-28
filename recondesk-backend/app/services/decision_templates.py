@@ -172,6 +172,11 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why": "Invoice matched on identity fields but the taxable amount differs beyond auto-accept threshold",
         "next": "Compare physical invoice with GSTR-2B entry. Reconcile the {diff} difference with supplier before claiming ITC.",
     },
+    "REVIEW_TAX_AMOUNT_MISMATCH": {
+        "what": "Verify manually — {confidence_pct}% confidence, tax amount differs by {diff}",
+        "why": "Taxable values match but tax amounts differ between GSTR-2B and purchase register (possible tax rate difference)",
+        "next": "Verify tax rate (CGST/SGST/IGST) and tax breakdown on physical invoice against GSTR-2B.",
+    },
     "REVIEW_DATE_MISMATCH": {
         "what": "Verify manually — {confidence_pct}% confidence, invoice date differs",
         "why": "Invoice matched on GSTIN, invoice number, and amount, but the dates differ between GSTR-2B and purchase register",
@@ -181,6 +186,11 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "what": "GSTIN mismatch — verify supplier identity",
         "why": "Invoice number and amount match a purchase register entry but the supplier GSTIN differs",
         "next": "Confirm correct GSTIN with supplier {supplier_gstin}. Update purchase register if supplier migrated or amended their GSTIN.",
+    },
+    "REVIEW_GSTIN_FORMAT_INVALID": {
+        "what": "Supplier GSTIN format invalid — verify manually",
+        "why": "Supplier GSTIN in GSTR-2B or purchase register does not conform to the standard 15-character GSTIN structure",
+        "next": "Verify physical invoice for valid 15-digit GSTIN and correct in books/portal.",
     },
     "REVIEW_DUPLICATE_AMBIGUITY": {
         "what": "Duplicate invoice — multiple entries found",

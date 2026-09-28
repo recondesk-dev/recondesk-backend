@@ -509,9 +509,11 @@ def populate_decisions(
 # Map review_reason strings to the REVIEW_* template keys.
 _REVIEW_REASON_TO_TEMPLATE: dict[str, str] = {
     "AMOUNT_MISMATCH": "REVIEW_AMOUNT_MISMATCH",
+    "TAX_AMOUNT_MISMATCH": "REVIEW_TAX_AMOUNT_MISMATCH",
     "Amount/Date mismatch": "REVIEW_AMOUNT_MISMATCH",
     "DATE_MISMATCH": "REVIEW_DATE_MISMATCH",
     "GSTIN_MISMATCH": "REVIEW_GSTIN_MISMATCH",
+    "GSTIN_FORMAT_INVALID": "REVIEW_GSTIN_FORMAT_INVALID",
     "DUPLICATE_AMBIGUITY": "REVIEW_DUPLICATE_AMBIGUITY",
     "DUPLICATE_AMBIGUITY_PR": "REVIEW_DUPLICATE_AMBIGUITY",
     "DUPLICATE_CLAIM": "REVIEW_DUPLICATE_AMBIGUITY",
@@ -535,15 +537,40 @@ def _decision_for_review_row(row: dict[str, Any]) -> DecisionOutput:
     review_reason = row.get("review_reason") or row.get("reason") or ""
     confidence_score = row.get("confidence_score") or 0
     confidence_pct = int(confidence_score) if confidence_score else 0
-    diff_paise = row.get("taxable_diff_paise") or row.get("amount_difference_paise") or 0
-    diff_str = f"₹{abs(int(diff_paise)) / 100:,.2f}"
-    supplier_gstin = row.get("supplier_gstin") or "?"
+    taxable_diff = int(row.get("raw_taxable_diff_paise") if "raw_taxable_diff_paise" in row else (row.get("taxable_diff_paise") or 0))
+    tax_diff = int(row.get("tax_difference_paise") or 0)
+    total_diff = int(row.get("total_diff_paise") or row.get("amount_difference_paise") or row.get("taxable_diff_paise") or 0)
+    diff_paise = total_diff
 
     template_key = _REVIEW_REASON_TO_TEMPLATE.get(review_reason, "REVIEW_GENERIC")
+    if template_key == "REVIEW_AMOUNT_MISMATCH" or review_reason in ("Amount/Date mismatch", "AMOUNT_MISMATCH"):
+        if total_diff <= 100:
+            template_key = "REVIEW_DATE_MISMATCH"
+        elif taxable_diff <= 100 and tax_diff > 100:
+            template_key = "REVIEW_TAX_AMOUNT_MISMATCH"
+            diff_paise = tax_diff
+        else:
+            template_key = "REVIEW_AMOUNT_MISMATCH"
+            diff_paise = total_diff
+    elif template_key == "REVIEW_TAX_AMOUNT_MISMATCH" and tax_diff > 0:
+        diff_paise = tax_diff
+
+    diff_str = f"₹{abs(int(diff_paise)) / 100:,.2f}"
+    supplier_gstin = str(row.get("supplier_gstin") or row.get("gstr_gstin") or row.get("pr_gstin") or "").strip()
 
     ident = _row_identity_fields(row)
     amt_meta = _amount_fields_present(row)
     mf = list(dict.fromkeys(ident + amt_meta))
+
+    df: list[str] = []
+    if template_key == "REVIEW_AMOUNT_MISMATCH":
+        df = ["taxable_amount"]
+    elif template_key == "REVIEW_TAX_AMOUNT_MISMATCH":
+        df = ["total_tax"]
+    elif template_key in ("REVIEW_DATE_MISMATCH", "REVIEW_PERIOD_BOUNDARY_DATE_MISMATCH"):
+        df = ["invoice_date"]
+    elif template_key in ("REVIEW_GSTIN_MISMATCH", "REVIEW_GSTIN_FORMAT_INVALID"):
+        df = ["gstin"]
 
     extra_kwargs: dict[str, object] = {}
     if review_reason == "PERIOD_BOUNDARY_DATE_MISMATCH":
@@ -565,7 +592,7 @@ def _decision_for_review_row(row: dict[str, Any]) -> DecisionOutput:
         template_key,
         confidence="LOW",
         matched_fields=mf,
-        differed_fields=[],
+        differed_fields=df,
         normalized_pairs=[],
         confidence_pct=confidence_pct,
         diff=diff_str,

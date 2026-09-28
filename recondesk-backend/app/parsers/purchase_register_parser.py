@@ -95,12 +95,13 @@ STANDARD_TO_CANONICAL: dict[str, str] = {
     "original_invoice_number": "original_invoice_number",
     # ERP accounting / book date — distinct from the document/invoice date.
     "posting_date": "posting_date",
+    "recipient_gstin": "recipient_gstin",
 }
 
 _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     "gstin": [
         "gstin", "supplier gstin", "party gstin", "vendor gstin", "gst no",
-        "gstn", "gst number", "vendor gst", "party gst no", "buyer gst",
+        "gstn", "gst number", "vendor gst", "party gst no",
         "gstin uin", "gstin of supplier", "gstin of the supplier",
         "gstin uin of supplier", "supplier gstin uin", "party s gstin",
         "party gstin uin", "supplier gstin number", "supplier gst no",
@@ -111,6 +112,11 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "party gstin / uin", "supplier gstin / uin", "tin / gstin", "gst / tin",
         "vat / gst no", "party's gstin/uin", "party gstin/uin", "gstin / uin of supplier",
         "जीएसटी", "जीएसटी नंबर", "जीएसटीआईएन", "पार्टी जीएसटी", "विक्रेता जीएसटी", "सप्लायर जीएसटी",
+    ],
+    "recipient_gstin": [
+        "recipient gstin", "recipient gst", "buyer gstin", "buyer gst",
+        "receiver gstin", "customer gstin", "recipient gstin / uin",
+        "recipient gstin/uin", "party gstin / uin of recipient",
     ],
     "invoice_number": [
         "invoice no", "invoice number", "inv no", "bill no",
@@ -897,12 +903,12 @@ def _safe_cell(val: Any) -> str | None:
 
 _NUMERIC_REMAINDER_RE = re.compile(r"^[\d,. ]+$")
 
-_TOTAL_KEYWORDS: tuple[str, ...] = (
-    "grand total",
+_COMPOUND_TOTAL_PREFIXES: tuple[str, ...] = (
     "sub total",
     "subtotal",
-    "total",
-    "sum",
+    "sub-total",
+    "grand total",
+    "page total",
     "closing balance",
     "opening balance",
     "carried over",
@@ -910,7 +916,11 @@ _TOTAL_KEYWORDS: tuple[str, ...] = (
     "brought forward",
     "balance c/f",
     "balance b/f",
-    "page total",
+)
+
+_TOTAL_KEYWORDS: tuple[str, ...] = (
+    "total",
+    "sum",
 )
 
 
@@ -918,22 +928,29 @@ def is_total_row(row_values: list[str]) -> bool:
     """Return True only when a cell is an actual totals/summary marker.
 
     Rules (applied to each non-empty cell):
-    - Exact match against a keyword → True.
-    - Starts with a keyword AND the remainder is empty or purely numeric
-      (digits, commas, decimals, spaces) → True.
-    - "Total Solutions Pvt Ltd" — remainder is " Solutions Pvt Ltd" which is
-      not numeric → False.
+    - Cell starts with a compound total phrase ("sub total", "grand total", "page total",
+      "carried forward", etc.) regardless of trailing commentary e.g. "(export block 1)".
+    - Exact match against any keyword in _TOTAL_KEYWORDS ("total", "sum").
+    - Starts with "total" / "sum" AND the remainder is empty, numeric, or a summary label
+      (e.g. "total: ...", "total - ...", "total (...)").
+    - Protect vendor names like "Total Solutions Pvt Ltd" (where remainder is " solutions...").
     """
     for raw in row_values:
         cell = raw.strip().lower()
         if not cell or cell in ("nan", "none", "nat"):
             continue
+        for pfx in _COMPOUND_TOTAL_PREFIXES:
+            if cell == pfx or cell.startswith(pfx):
+                return True
         for kw in _TOTAL_KEYWORDS:
             if cell == kw:
                 return True
             if cell.startswith(kw):
                 remainder = cell[len(kw):]
                 if not remainder or _NUMERIC_REMAINDER_RE.match(remainder):
+                    return True
+                s_rem = remainder.strip()
+                if s_rem.startswith((":", "-", "—", "–", "(", "of ", "for ", "count")):
                     return True
     return False
 

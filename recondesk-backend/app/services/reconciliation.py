@@ -25,6 +25,7 @@ from app.services.matcher import (
     is_sequential_series_mismatch,
     match_gstr_to_pr,
     normalize_invoice,
+    ocr_canonical_invoice,
     same_pan,
     supplier_identity_compatible,
     _parse_invoice_date,
@@ -230,6 +231,13 @@ def build_pr_by_invoice(
             inv = str(pr.get("invoice_number_normalized") or "")
             if inv:
                 out[gstin][inv] = pr
+            if not is_pr_note_quarantine(pr) and not _is_note_document(pr):
+                orig = str(pr.get("original_invoice_number") or pr.get("oinum") or "").strip()
+                if orig:
+                    from app.services.matcher import normalize_invoice_number
+                    orig_norm = normalize_invoice_number(orig)
+                    if orig_norm and orig_norm not in out[gstin]:
+                        out[gstin][orig_norm] = pr
     return {g: dict(inv_map) for g, inv_map in out.items()}
 
 
@@ -243,6 +251,8 @@ class PRCandidateIndices:
     by_taxable: dict[str, dict[int, list[dict]]] = field(default_factory=dict)
     by_tax: dict[str, dict[int, list[dict]]] = field(default_factory=dict)
     by_invoice_norm_global: dict[str, list[dict]] = field(default_factory=dict)
+    by_invoice_ocr_global: dict[str, list[dict]] = field(default_factory=dict)
+    by_invoice_ocr: dict[str, dict[str, list[dict]]] = field(default_factory=dict)
     # Full PR list per GSTIN — used for format-variant scans that cross bucket boundaries
     by_gstin: dict[str, list[dict]] = field(default_factory=dict)
 
@@ -251,6 +261,7 @@ def build_pr_candidate_indices(pr_index: dict[str, list[dict]]) -> PRCandidateIn
     for gstin, prs in pr_index.items():
         taxable_dict = defaultdict(list)
         tax_dict = defaultdict(list)
+        ocr_dict = defaultdict(list)
         for pr in prs:
             tb = _get_tax_bucket(_taxable_paise(pr))
             txb = _get_tax_bucket(pr.get("total_tax_paise"))
@@ -264,8 +275,32 @@ def build_pr_candidate_indices(pr_index: dict[str, list[dict]]) -> PRCandidateIn
                     indices.by_invoice_norm_global[inv_norm] = []
                 indices.by_invoice_norm_global[inv_norm].append(pr)
                 
+                ocr_k = ocr_canonical_invoice(inv_norm)
+                if ocr_k:
+                    if ocr_k not in indices.by_invoice_ocr_global:
+                        indices.by_invoice_ocr_global[ocr_k] = []
+                    indices.by_invoice_ocr_global[ocr_k].append(pr)
+                    ocr_dict[ocr_k].append(pr)
+
+            if not is_pr_note_quarantine(pr) and not _is_note_document(pr):
+                orig = str(pr.get("original_invoice_number") or pr.get("oinum") or "").strip()
+                if orig:
+                    from app.services.matcher import normalize_invoice_number
+                    orig_norm = normalize_invoice_number(orig)
+                    if orig_norm:
+                        if orig_norm not in indices.by_invoice_norm_global:
+                            indices.by_invoice_norm_global[orig_norm] = []
+                        indices.by_invoice_norm_global[orig_norm].append(pr)
+                        ocr_orig = ocr_canonical_invoice(orig_norm)
+                        if ocr_orig:
+                            if ocr_orig not in indices.by_invoice_ocr_global:
+                                indices.by_invoice_ocr_global[ocr_orig] = []
+                            indices.by_invoice_ocr_global[ocr_orig].append(pr)
+                            ocr_dict[ocr_orig].append(pr)
+                
         indices.by_taxable[gstin] = dict(taxable_dict)
         indices.by_tax[gstin] = dict(tax_dict)
+        indices.by_invoice_ocr[gstin] = dict(ocr_dict)
         indices.by_gstin[gstin] = list(prs)
     return indices
 
@@ -279,6 +314,13 @@ def _get_narrowed_candidates(
 ) -> list[dict]:
     """Narrow candidates using exact match and tax amount buckets to avoid O(N*M) fuzzy comparisons."""
     direct = pr_by_invoice.get(gstin, {}).get(inv_norm) if pr_by_invoice and inv_norm else None
+    g_orig = str(gstr_record.get("original_invoice_number") or gstr_record.get("oinum") or "").strip() if not _is_note_document(gstr_record) else ""
+    orig_norm = ""
+    if not direct and g_orig and pr_by_invoice:
+        from app.services.matcher import normalize_invoice_number
+        orig_norm = normalize_invoice_number(g_orig)
+        if orig_norm:
+            direct = pr_by_invoice.get(gstin, {}).get(orig_norm)
 
     if not candidate_indices:
         candidates = pr_index_candidates
@@ -290,6 +332,17 @@ def _get_narrowed_candidates(
     candidates_set = {}
     if direct:
         candidates_set[str(direct["id"])] = direct
+
+    # Check OCR-based direct candidates for this GSTIN
+    ocr_gstin_map = candidate_indices.by_invoice_ocr.get(gstin, {})
+    if inv_norm:
+        ocr_k = ocr_canonical_invoice(inv_norm)
+        for pr in ocr_gstin_map.get(ocr_k, []):
+            candidates_set[str(pr["id"])] = pr
+    if orig_norm:
+        ocr_orig = ocr_canonical_invoice(orig_norm)
+        for pr in ocr_gstin_map.get(ocr_orig, []):
+            candidates_set[str(pr["id"])] = pr
 
     g_taxable = _taxable_paise(gstr_record)
     g_tax = gstr_record.get("total_tax_paise")
@@ -312,6 +365,16 @@ def _get_narrowed_candidates(
     # Candidates by exact normalized invoice number globally (handles GSTIN typos)
     if inv_norm:
         for pr in candidate_indices.by_invoice_norm_global.get(inv_norm, []):
+            candidates_set[str(pr["id"])] = pr
+        ocr_k = ocr_canonical_invoice(inv_norm)
+        for pr in candidate_indices.by_invoice_ocr_global.get(ocr_k, []):
+            candidates_set[str(pr["id"])] = pr
+
+    if orig_norm:
+        for pr in candidate_indices.by_invoice_norm_global.get(orig_norm, []):
+            candidates_set[str(pr["id"])] = pr
+        ocr_orig = ocr_canonical_invoice(orig_norm)
+        for pr in candidate_indices.by_invoice_ocr_global.get(ocr_orig, []):
             candidates_set[str(pr["id"])] = pr
 
     ordered = []
@@ -556,6 +619,8 @@ def _push_review_required(
     # only a last-resort fallback (see _pair_tax_diff_paise in reconciliation_api.py,
     # which recomputes live from the DB and is what the UI actually reads).
     taxable_diff: int = 0
+    tax_diff: int = 0
+    total_diff: int = 0
     if gstr_rec is not None and pr_rec is not None:
         g_taxable = _taxable_paise(gstr_rec)
         p_taxable = _taxable_paise(pr_rec)
@@ -563,7 +628,21 @@ def _push_review_required(
         p_tt = int(pr_rec.get("total_tax_paise") or 0)
         g_tot = int(gstr_rec.get("invoice_value_paise") or gstr_rec.get("total_amount_paise") or (g_taxable + g_tt))
         p_tot = int(pr_rec.get("total_amount_paise") or pr_rec.get("invoice_value_paise") or (p_taxable + p_tt))
-        taxable_diff = abs(g_tot - p_tot)
+        taxable_diff = abs(g_taxable - p_taxable)
+        tax_diff = abs(g_tt - p_tt)
+        total_diff = abs(g_tot - p_tot)
+
+    if review_type == "GSTIN_MISMATCH" and gstr_rec and pr_rec:
+        g_gst = str(gstr_rec.get("supplier_gstin") or "").strip().upper()
+        p_gst = str(pr_rec.get("supplier_gstin") or "").strip().upper()
+        if g_gst and p_gst and g_gst == p_gst:
+            review_type = "GSTIN_FORMAT_INVALID"
+
+    if review_type in ("Amount/Date mismatch", "AMOUNT_MISMATCH"):
+        if total_diff <= 100:
+            review_type = "DATE_MISMATCH"
+        else:
+            review_type = "AMOUNT_MISMATCH"
 
     compared_fields = list(getattr(best_result, "compared_fields", None) or [])
     if not compared_fields and gstr_rec is not None and pr_rec is not None:
@@ -584,7 +663,11 @@ def _push_review_required(
         "reason": review_type,
         "match_level": getattr(best_result, "level", 0) if best_result else 0,
         "vendor_similarity_score": getattr(best_result, "vendor_similarity_score", None) if best_result else None,
-        "taxable_diff_paise": taxable_diff,
+        "taxable_diff_paise": total_diff if total_diff > 0 else taxable_diff,
+        "raw_taxable_diff_paise": taxable_diff,
+        "tax_difference_paise": tax_diff,
+        "total_diff_paise": total_diff,
+        "amount_difference_paise": total_diff if total_diff > 0 else taxable_diff,
         "note": note,
         "match_confidence": match_confidence,  # invoice_similarity score for L5/fuzzy matches
         "compared_fields": compared_fields or None,
@@ -2392,7 +2475,7 @@ def execute_phase2_and_3(
 
         if best_candidate is not None:
             _push_review_required(
-                state, gid, best_candidate["id"], 35, "GSTIN_MISMATCH",
+                state, gid, best_candidate["id"], 35, "GSTIN_FORMAT_INVALID",
                 gstr_rec=g, pr_rec=best_candidate,
                 note="Supplier GSTIN has invalid format — verify manually",
             )
@@ -2632,18 +2715,31 @@ def execute_phase2_and_3(
         # pair MUST be linked as Review Required even if the amount differs by >50%.
         # The by_taxable bucket scan (Pass 2) cannot find this PR when the amount diff
         # pushes the PR outside the ±30-bucket window, so we check the global index first.
+        g_orig = str(g.get("original_invoice_number") or g.get("oinum") or "").strip() if not _is_note_document(g) else ""
+        orig_norm = normalize_invoice_number(g_orig) if g_orig else ""
+        ocr_k = ocr_canonical_invoice(g_inv_norm) if g_inv_norm else ""
+
+        pr_candidates_to_check = []
         if g_inv_norm:
-            for p in candidate_indices.by_invoice_norm_global.get(g_inv_norm, []):
-                pid = str(p["id"])
-                if pid in state.consumed_pr_ids:
-                    continue
-                compat, _ = are_document_types_compatible(g, p)
-                if not compat:
-                    continue
-                p_gst = str(p.get("supplier_gstin") or "").strip()
-                if p_gst == gst:
-                    # Exact GSTIN + exact normalized invoice: no amount cap.
-                    candidates_inv_match.append(p)
+            pr_candidates_to_check.extend(candidate_indices.by_invoice_norm_global.get(g_inv_norm, []))
+        if orig_norm:
+            pr_candidates_to_check.extend(candidate_indices.by_invoice_norm_global.get(orig_norm, []))
+        if ocr_k:
+            pr_candidates_to_check.extend(candidate_indices.by_invoice_ocr_global.get(ocr_k, []))
+
+        seen_pids = set()
+        for p in pr_candidates_to_check:
+            pid = str(p["id"])
+            if pid in seen_pids or pid in state.consumed_pr_ids:
+                continue
+            seen_pids.add(pid)
+            compat, _ = are_document_types_compatible(g, p)
+            if not compat:
+                continue
+            p_gst = str(p.get("supplier_gstin") or "").strip()
+            if p_gst == gst:
+                # Exact GSTIN + exact normalized invoice: no amount cap.
+                candidates_inv_match.append(p)
 
         # Pass 2: format-variant or near-GSTIN scan via taxable-bucket index (50% cap).
         # Only run when Pass 1 found nothing, to avoid double-counting.
@@ -2727,18 +2823,25 @@ def execute_phase2_and_3(
                 # label it DATE_MISMATCH not AMOUNT_MISMATCH.
                 _g_taxable = abs(_taxable_paise(g))
                 _p_taxable = abs(_taxable_paise(candidate))
+                _taxable_diff = abs(_g_taxable - _p_taxable)
+                _g_tax = abs(int(g.get("total_tax_paise") or 0))
+                _p_tax = abs(int(candidate.get("total_tax_paise") or 0))
+                _tax_diff = abs(_g_tax - _p_tax)
+
                 _amount_close = (
-                    _g_taxable == _p_taxable
-                    or (_g_taxable > 0 and abs(_g_taxable - _p_taxable) / _g_taxable <= 0.01)
+                    _taxable_diff <= 100
+                    or (_g_taxable > 0 and _taxable_diff / _g_taxable <= 0.01)
                 )
                 _g_date = _parse_invoice_date(g)
                 _p_date = _parse_invoice_date(candidate)
                 _dates_differ = (
                     _g_date and _p_date and _g_date != _p_date
                 )
-                _fallback_review_type = (
-                    "DATE_MISMATCH" if (_amount_close and _dates_differ) else "AMOUNT_MISMATCH"
-                )
+                if _amount_close and _dates_differ:
+                    _fallback_review_type = "DATE_MISMATCH"
+                else:
+                    _fallback_review_type = "AMOUNT_MISMATCH"
+
                 _push_review_required(
                     state, gid, candidate["id"], 55, _fallback_review_type,
                     gstr_rec=g, pr_rec=candidate,
