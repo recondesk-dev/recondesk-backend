@@ -51,7 +51,7 @@ export default function ForgotPasswordPage() {
           <p className="mt-2 text-sm text-gray-900">Protect your clients&apos; ITC. Every month.</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+        <div className="bg-white rounded-[22px] shadow-[var(--shadow-lift)] border border-white/85 p-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-1">Reset your password</h2>
           <p className="text-sm text-gray-500 mb-6">
             Enter your email and we&apos;ll send you a reset link

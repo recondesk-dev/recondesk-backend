@@ -248,7 +248,7 @@ function SignupForm() {
           <p className="mt-2 text-sm text-gray-900">Protect your clients&apos; ITC. Every month.</p>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-md">
+        <div className="rounded-[22px] border border-white/85 bg-white p-8 shadow-[var(--shadow-lift)]">
           <h2 className="mb-1 text-xl font-semibold text-gray-900">Create your account</h2>
           <p className="mb-6 text-sm text-gray-500">Get started with ReconDesk for free</p>
 

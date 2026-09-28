@@ -6,7 +6,7 @@ import { HeroProductPanel } from "./HeroProductPanel";
 
 export function HeroSection() {
   return (
-    <section className="relative overflow-hidden bg-white pt-14 sm:pt-20 lg:pt-[84px] pb-16 sm:pb-24">
+    <section className="relative overflow-hidden pt-14 sm:pt-20 lg:pt-[84px] pb-16 sm:pb-24">
       {/* Centered Hero Content */}
       <div className="mx-auto max-w-5xl px-4 text-center sm:px-6 lg:px-8">
         
@@ -14,7 +14,7 @@ export function HeroSection() {
         <div className="hero-animate-badge inline-flex items-center justify-center">
           <a
             href="#modules"
-            className="group inline-flex items-center gap-2 rounded-full border border-[#E5E5E2] bg-white p-1 pl-1 pr-3 text-xs shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition hover:border-[#6B6B6B]/40"
+            className="group inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/90 p-1 pl-1 pr-3 text-xs shadow-sm transition hover:border-[#6B6B6B]/40"
           >
             {/* Left half: solid black rounded pill */}
             <span className="rounded-full bg-[#0A0A0A] px-2.5 py-0.5 font-semibold text-white">
@@ -36,7 +36,7 @@ export function HeroSection() {
         </h1>
 
         {/* 3. Short 2-line Subtext (Orchestrated Step 3: ~360ms delay) */}
-        <p className="hero-animate-subtext mx-auto mt-5 max-w-[560px] text-base leading-relaxed text-[#6B6B6B] sm:text-lg">
+        <p className="hero-animate-subtext mx-auto mt-5 max-w-[560px] text-base leading-relaxed text-[#5B6577] sm:text-lg">
           Upload your Tally, Busy, or Excel registers with GST portal files. Get audit-grade 5-level matching, Rule 37 reversal alerts, and decision-ready workpapers in under 60 seconds.
         </p>
 
@@ -45,16 +45,16 @@ export function HeroSection() {
           {/* Solid brand purple button (#7B5CFA) */}
           <Link
             href="/auth/signup"
-            className="inline-flex min-h-[46px] w-full items-center justify-center gap-1.5 rounded-[8px] bg-[#7B5CFA] px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#6C4DE6] active:scale-[0.99] sm:w-auto"
+            className="inline-flex min-h-[46px] w-full items-center justify-center gap-1.5 rounded-xl bg-[#0A0A0A] px-6 py-2.5 text-sm font-semibold text-white shadow-md transition-colors hover:bg-[#262626] active:scale-[0.99] sm:w-auto"
           >
             <span>Start 60-Day Free Trial (2 GSTINs)</span>
             <span>→</span>
           </Link>
 
-          {/* Purple-outline ghost button */}
+          {/* Outline ghost button */}
           <a
             href="#modules"
-            className="inline-flex min-h-[46px] w-full items-center justify-center gap-1.5 rounded-[8px] border border-[#7B5CFA] bg-white px-6 py-2.5 text-sm font-semibold text-[#7B5CFA] transition-colors hover:bg-[#7B5CFA]/5 active:scale-[0.99] sm:w-auto"
+            className="inline-flex min-h-[46px] w-full items-center justify-center gap-1.5 rounded-xl border border-white/80 bg-white/90 px-6 py-2.5 text-sm font-semibold text-[#0A0A0A] shadow-xs transition-colors hover:bg-white active:scale-[0.99] sm:w-auto"
           >
             <span>Explore GSTR Modules</span>
             <span>↓</span>

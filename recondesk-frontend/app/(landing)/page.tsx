@@ -26,7 +26,7 @@ function Section({
 
 export default function LandingPage() {
   return (
-    <div className="bg-white text-[#0A0A0A]">
+    <div className="text-[#0A0A0A]">
       {/* 1. Hero Section with Glow Arc and Browser Chrome Panel */}
       <HeroSection />
 
@@ -40,7 +40,7 @@ export default function LandingPage() {
       <SecurityTrustStrip />
 
       {/* 5. How It Works (Upload -> Match -> Decide) */}
-      <Section id="how-it-works" className="scroll-mt-20 py-12 sm:scroll-mt-24 sm:py-20 border-t border-[#E5E5E2]">
+      <Section id="how-it-works" className="scroll-mt-20 py-12 sm:scroll-mt-24 sm:py-20 border-t border-[#CBD5E1]/60">
         <div className="text-center mb-10">
           <p className="text-xs font-bold uppercase tracking-widest text-[#7B5CFA]">
             Streamlined Workflow
@@ -48,7 +48,7 @@ export default function LandingPage() {
           <h2 className="mt-2 text-2xl font-bold tracking-tight text-[#0A0A0A] sm:text-3xl">
             How ReconDesk Works
           </h2>
-          <p className="mx-auto mt-3 max-w-xl text-sm text-[#6B6B6B]">
+          <p className="mx-auto mt-3 max-w-xl text-sm text-[#5B6577]">
             From raw spreadsheet uploads to decision-ready audit files in 3 simple steps.
           </p>
         </div>
@@ -56,7 +56,7 @@ export default function LandingPage() {
       </Section>
 
       {/* 6. Simple, Transparent Pricing */}
-      <Section id="pricing" className="py-12 sm:py-20 border-t border-[#E5E5E2]">
+      <Section id="pricing" className="py-12 sm:py-20 border-t border-[#CBD5E1]/60">
         <div className="text-center mb-12">
           <p className="text-xs font-bold uppercase tracking-widest text-[#7B5CFA]">
             Transparent Plans
@@ -64,7 +64,7 @@ export default function LandingPage() {
           <h2 className="mt-2 text-2xl font-bold tracking-tight text-[#0A0A0A] sm:text-3xl">
             Simple, Transparent Pricing
           </h2>
-          <p className="mt-3 text-sm text-[#6B6B6B]">
+          <p className="mt-3 text-sm text-[#5B6577]">
             Start free. Upgrade when you&apos;re ready for your firm. Zero feature gating.
           </p>
         </div>
@@ -72,7 +72,7 @@ export default function LandingPage() {
       </Section>
 
       {/* 7. FAQ Accordion */}
-      <Section id="faq" className="pt-8 pb-16 sm:pt-10 sm:pb-20 border-t border-[#E5E5E2]">
+      <Section id="faq" className="pt-8 pb-16 sm:pt-10 sm:pb-20 border-t border-[#CBD5E1]/60">
         <div className="text-center mb-10">
           <p className="text-xs font-bold uppercase tracking-widest text-[#7B5CFA]">
             Got Questions?
@@ -89,7 +89,7 @@ export default function LandingPage() {
 
       {/* 9. Final High-Converting CTA Banner */}
       <Section className="py-16 sm:py-24">
-        <div className="relative mx-auto max-w-4xl overflow-hidden rounded-[14px] border border-[#E5E5E2] bg-white p-8 text-center sm:p-14 shadow-sm">
+        <div className="relative mx-auto max-w-4xl overflow-hidden rounded-[24px] border border-white/85 bg-white p-8 text-center sm:p-14 shadow-[var(--shadow-lift)]">
           {/* Subtle brand purple accent glow in background */}
           <div
             className="absolute -top-24 left-1/2 -translate-x-1/2 h-48 w-96 rounded-full bg-[#7B5CFA]/10 blur-3xl pointer-events-none"
@@ -99,7 +99,7 @@ export default function LandingPage() {
           <h2 className="relative text-2xl font-extrabold tracking-tight text-[#0A0A0A] sm:text-4xl">
             Stop Losing ITC. Start Recovering It.
           </h2>
-          <p className="relative mx-auto mt-4 max-w-xl text-sm leading-relaxed text-[#6B6B6B] sm:text-base">
+          <p className="relative mx-auto mt-4 max-w-xl text-sm leading-relaxed text-[#5B6577] sm:text-base">
             2 GSTINs free for 60 days (2 monthly filing cycles). Upload your GSTR portal files and purchase register now to see results in 60 seconds.
           </p>
           

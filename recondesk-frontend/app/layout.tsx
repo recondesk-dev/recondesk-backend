@@ -1,5 +1,5 @@
-import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, Space_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Plus_Jakarta_Sans, Space_Mono, Inter } from "next/font/google";
 
 import { ClarityScript } from "@/components/ClarityScript";
 import { KeepAlive } from "@/components/KeepAlive";
@@ -14,12 +14,23 @@ const jakarta = Plus_Jakarta_Sans({
   display: "swap",
 });
 
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
 const spaceMono = Space_Mono({
   subsets: ["latin"],
   weight: ["400", "700"],
   variable: "--font-space-mono",
   display: "swap",
 });
+
+export const viewport: Viewport = {
+  themeColor: "#DDE2EE",
+};
 
 export const metadata: Metadata = {
   title: "ReconDesk",
@@ -32,7 +43,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${jakarta.variable} ${spaceMono.variable} scroll-smooth`}>
+    <html lang="en" className={`${jakarta.variable} ${inter.variable} ${spaceMono.variable} scroll-smooth`}>
       <body className={`${jakarta.className} min-w-0 font-sans antialiased`}>
         <RootProviders>{children}</RootProviders>
         <KeepAlive />

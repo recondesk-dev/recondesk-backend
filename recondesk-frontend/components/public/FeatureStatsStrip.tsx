@@ -80,7 +80,7 @@ export function FeatureStatsStrip() {
       <div className="mt-12 grid grid-cols-1 gap-5 md:grid-cols-3">
         
         {/* ── Card 1: 103+ Rules Engine (Spans 2 columns on desktop) ── */}
-        <div className="md:col-span-2 relative overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs flex flex-col justify-between">
+        <div className="md:col-span-2 relative overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 sm:p-7 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)] flex flex-col justify-between">
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-[#7B5CFA] border border-purple-100">
@@ -150,7 +150,7 @@ export function FeatureStatsStrip() {
         </div>
 
         {/* ── Card 2: 5-Level Match Hierarchy Bar (1 column on desktop) ── */}
-        <div className="relative overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs flex flex-col justify-between">
+        <div className="relative overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 sm:p-7 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)] flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 border border-blue-100">
@@ -226,7 +226,7 @@ export function FeatureStatsStrip() {
         </div>
 
         {/* ── Card 3: Rule 37 180-Day Countdown (1 column) ── */}
-        <div className="relative overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 shadow-xs flex flex-col justify-between">
+        <div className="relative overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)] flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-50 px-3 py-1 text-xs font-bold text-orange-700 border border-orange-100">
@@ -266,7 +266,7 @@ export function FeatureStatsStrip() {
         </div>
 
         {/* ── Card 4: Section 17(5) 7-Chapter Scanner (1 column) ── */}
-        <div className="relative overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 shadow-xs flex flex-col justify-between">
+        <div className="relative overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)] flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700 border border-red-100">
@@ -314,7 +314,7 @@ export function FeatureStatsStrip() {
         </div>
 
         {/* ── Card 5: 1-Click Defaulting Vendor Demand Letters (1 column) ── */}
-        <div className="relative overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 shadow-xs flex flex-col justify-between">
+        <div className="relative overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)] flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-100">

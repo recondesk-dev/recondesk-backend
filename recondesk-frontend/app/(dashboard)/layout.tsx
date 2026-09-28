@@ -11,7 +11,7 @@ export default function DashboardLayout({
 }) {
   return (
     <AppSWRProvider>
-      <div className="font-sans" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+      <div className="font-sans min-h-screen">
         <DashboardShellLayout>{children}</DashboardShellLayout>
       </div>
     </AppSWRProvider>

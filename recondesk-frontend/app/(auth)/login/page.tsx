@@ -106,7 +106,7 @@ export default function LoginPage() {
         </div>
 
         {/* Card */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-md">
+        <div className="rounded-[22px] border border-white/85 bg-white p-8 shadow-[var(--shadow-lift)]">
           <h2 className="text-xl font-semibold text-gray-900 mb-1">Welcome back</h2>
           <p className="text-sm text-gray-500 mb-6">Sign in to your account</p>
 

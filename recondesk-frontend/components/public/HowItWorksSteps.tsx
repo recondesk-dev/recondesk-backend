@@ -168,7 +168,7 @@ export function HowItWorksSteps() {
         {steps.map((item, index) => (
           <div
             key={item.step}
-            className="relative flex flex-col justify-between rounded-[16px] border border-[#E5E5E2] bg-white p-6 shadow-xs transition-all duration-200 hover:-translate-y-1 hover:shadow-md"
+            className="relative flex flex-col justify-between rounded-[22px] border border-white/85 bg-white p-6 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)]"
           >
             <div>
               {/* Step Number Badge */}

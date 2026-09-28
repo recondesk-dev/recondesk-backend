@@ -29,8 +29,10 @@ const config: Config = {
       },
       fontFamily: {
         sans: [
-          "'DM Sans'",
           "var(--font-plus-jakarta)",
+          "'Plus Jakarta Sans'",
+          "var(--font-inter)",
+          "'Inter'",
           "system-ui",
           "-apple-system",
           "BlinkMacSystemFont",

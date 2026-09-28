@@ -15,7 +15,7 @@ export function BlogCard({ post }: { post: BlogPost }) {
     categoryColors[post.category] || "bg-gray-100 text-gray-700 border-gray-200";
 
   return (
-    <article className="group flex flex-col justify-between rounded-xl border border-[#E5E5E2] bg-white p-5 sm:p-6 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#7B5CFA]/40 hover:shadow-md">
+    <article className="group flex flex-col justify-between rounded-[22px] border border-white/85 bg-white p-5 sm:p-6 shadow-[var(--shadow-card)] transition-all duration-200 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)]">
       <div>
         {/* Top: Category & Read Time */}
         <div className="flex items-center justify-between gap-2 text-xs">

@@ -5,7 +5,7 @@ import { ShieldCheck } from "lucide-react";
 
 export function LandingFooter() {
   return (
-    <footer className="border-t border-[#E5E5E2] bg-white pt-16 pb-12 text-sm text-[#6B6B6B]">
+    <footer className="border-t border-[#CBD5E1]/60 bg-[#DDE2EE] pt-16 pb-12 text-sm text-[#5B6577]">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-2 gap-8 md:grid-cols-5 lg:gap-12">
           {/* Brand Col */}

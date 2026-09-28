@@ -9,7 +9,7 @@ export function BlogPreviewSection() {
   const featured = recentPosts[0];
 
   return (
-    <section id="blog" className="py-12 sm:py-20 border-t border-[#E5E5E2] bg-white">
+    <section id="blog" className="py-12 sm:py-20 border-t border-[#CBD5E1]/60">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between mb-8 sm:mb-10 gap-4">
@@ -21,7 +21,7 @@ export function BlogPreviewSection() {
             <h2 className="mt-2 text-2xl font-bold tracking-tight text-[#0A0A0A] sm:text-3xl">
               Actionable Insights for Modern CAs
             </h2>
-            <p className="mt-2 max-w-xl text-xs sm:text-sm text-[#6B6B6B]">
+            <p className="mt-2 max-w-xl text-xs sm:text-sm text-[#5B6577]">
               Deep-dives into GST statutory deadlines, Rule 36(4) compliance, and multi-level invoice matching.
             </p>
           </div>
@@ -37,7 +37,7 @@ export function BlogPreviewSection() {
 
         {/* If 1 post: Showcase as a premium flagship card */}
         {recentPosts.length === 1 && featured ? (
-          <div className="relative overflow-hidden rounded-2xl border border-[#E5E5E2] bg-gradient-to-br from-[#FAF9F5] via-white to-purple-50/40 p-6 sm:p-10 shadow-sm transition hover:border-[#7B5CFA]/40 hover:shadow-md">
+          <div className="relative overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 sm:p-10 shadow-[var(--shadow-card)] transition hover:shadow-[var(--shadow-lift)]">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
               <div className="space-y-4 max-w-2xl">
                 <div className="flex items-center gap-2 text-xs">

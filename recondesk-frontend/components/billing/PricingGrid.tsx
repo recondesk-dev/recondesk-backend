@@ -49,13 +49,13 @@ export function PricingGrid({
     <div className="space-y-8">
       {/* Monthly / Annual Billing Toggle Switch */}
       <div className="flex flex-col items-center justify-center gap-3 pt-2">
-        <div className="inline-flex items-center rounded-full bg-slate-100 p-1.5 shadow-inner ring-1 ring-slate-200">
+        <div className="inline-flex items-center rounded-full bg-slate-200/80 p-1 shadow-inner">
           <button
             type="button"
             onClick={() => setCycle("monthly")}
-            className={`relative rounded-full px-5 py-2 text-sm font-semibold transition-all duration-200 ${
+            className={`relative rounded-full px-5 py-1.5 text-sm font-semibold transition-all duration-200 ${
               cycle === "monthly"
-                ? "bg-white text-[var(--ink)] shadow-md"
+                ? "bg-white text-[var(--ink)] shadow-sm"
                 : "text-gray-600 hover:text-[var(--ink)]"
             }`}
           >
@@ -64,16 +64,16 @@ export function PricingGrid({
           <button
             type="button"
             onClick={() => setCycle("yearly")}
-            className={`relative rounded-full px-5 py-2 text-sm font-semibold transition-all duration-200 ${
+            className={`relative rounded-full px-5 py-1.5 text-sm font-semibold transition-all duration-200 ${
               cycle === "yearly"
-                ? "bg-[var(--ink)] text-white shadow-md"
+                ? "bg-[#1C1D22] text-white shadow-sm"
                 : "text-gray-600 hover:text-[var(--ink)]"
             }`}
           >
             Annual
           </button>
         </div>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-[#5B6577]">
           {cycle === "yearly"
             ? "Annual subscription — lowest effective rate per client GSTIN"
             : "Flexible month-to-month access with zero lock-in"}
@@ -81,15 +81,15 @@ export function PricingGrid({
       </div>
 
       {/* Shared "Included in ALL Plans" Bar */}
-      <div className="mx-auto max-w-7xl rounded-2xl border border-slate-200/80 bg-white/70 p-5 shadow-sm backdrop-blur-md">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/60 pb-3 mb-4">
+      <div className="mx-auto max-w-7xl rounded-[22px] border border-white/85 bg-white p-5 shadow-[var(--shadow-card)]">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3 mb-4">
           <div className="flex items-center gap-2">
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 ring-4 ring-emerald-100" />
             <span className="text-xs font-bold uppercase tracking-wider text-[var(--ink)]">
               Included in 100% of Plans — Zero Feature Gating
             </span>
           </div>
-          <span className="text-xs text-gray-500 font-medium">
+          <span className="text-xs text-[#5B6577] font-medium">
             Every tier gets the complete ReconDesk matching engine & compliance suite
           </span>
         </div>
@@ -319,7 +319,7 @@ function PricingCard({
                 <button
                   type="button"
                   disabled
-                  className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-slate-200 px-6 py-2.5 text-sm font-semibold text-slate-600 cursor-default"
+                  className="inline-flex w-full min-h-[44px] items-center justify-center rounded-xl bg-slate-100 px-6 py-2.5 text-sm font-semibold text-slate-600 cursor-default"
                 >
                   60-Day Trial (2 GSTINs)
                 </button>
@@ -328,7 +328,7 @@ function PricingCard({
                   type="button"
                   disabled={loadingPlan !== null}
                   onClick={() => onSelectPlan(plan.id, cycle)}
-                  className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-6 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex w-full min-h-[44px] items-center justify-center rounded-xl bg-[#1C1D22] px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#2E3038] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loadingPlan === plan.id ? "Opening checkout…" : `${plan.cta} →`}
                 </button>
@@ -336,7 +336,7 @@ function PricingCard({
             ) : (
               <Link
                 href={`/auth/signup?plan=${plan.id}${plan.isFree ? "" : `&cycle=${cycle}`}`}
-                className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-[var(--ink)] px-6 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90"
+                className="inline-flex w-full min-h-[44px] items-center justify-center rounded-xl bg-[#1C1D22] px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#2E3038]"
               >
                 {plan.cta} →
               </Link>

@@ -240,7 +240,7 @@ export function SubscriptionFeatures({ compact = false }: Props) {
         {CHAPTERS.map((chapter, idx) => (
           <article
             key={chapter.index}
-            className={`subscription-feature-chapter relative overflow-hidden rounded-[1.75rem] border border-white/70 bg-gradient-to-br ${chapter.accent} bg-white/65 p-6 shadow-[var(--shadow-soft)] backdrop-blur-md sm:p-8 ${
+            className={`subscription-feature-chapter relative overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 shadow-[var(--shadow-card)] sm:p-8 ${
               idx % 2 === 1 ? "sm:ml-6 lg:ml-12" : "sm:mr-6 lg:mr-12"
             }`}
           >
@@ -287,8 +287,8 @@ export function SubscriptionFeatures({ compact = false }: Props) {
       <div
         className={`flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-gray-600 ${
           compact
-            ? "rounded-[1.25rem] bg-[#F7F7F8] px-5 py-4"
-            : "justify-center rounded-[1.25rem] bg-white/60 px-5 py-4 shadow-[var(--shadow-soft)] backdrop-blur-sm"
+            ? "rounded-[18px] border border-white/85 bg-white px-5 py-4 shadow-[var(--shadow-card)]"
+            : "justify-center rounded-[20px] border border-white/85 bg-white px-6 py-3.5 shadow-[var(--shadow-card)]"
         }`}
       >
         {TRUST.map((t) => (

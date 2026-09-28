@@ -71,7 +71,7 @@ export default function PricingPage() {
           {pricingFaq.map(({ q, a }) => (
             <div
               key={q}
-              className="rounded-[1.25rem] bg-white/80 px-5 py-4 shadow-[var(--shadow-soft)] backdrop-blur-sm"
+              className="rounded-[20px] bg-white border border-white/85 px-6 py-5 shadow-[var(--shadow-card)]"
             >
               <dt className="font-semibold text-[var(--ink)]">{q}</dt>
               <dd className="mt-2 text-sm text-gray-600 leading-relaxed">{a}</dd>

@@ -41,10 +41,10 @@ export function HeroProductPanel() {
   return (
     <div className="relative z-10 mx-auto w-full max-w-6xl px-1 sm:px-2">
       {/* Outer Window Chrome Frame with soft drop shadow and seamless fade into white */}
-      <div className="relative overflow-hidden rounded-[16px] border border-[#E2E8F0] bg-[#F1F5F9] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.14)] [mask-image:linear-gradient(to_bottom,black_50%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_bottom,black_50%,transparent_100%)]">
+      <div className="relative overflow-hidden rounded-[22px] border border-white/85 bg-white shadow-[var(--shadow-lift)] [mask-image:linear-gradient(to_bottom,black_55%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_bottom,black_55%,transparent_100%)]">
         
         {/* Browser Top Window Bar */}
-        <div className="flex h-10 items-center justify-between border-b border-[#E2E8F0] bg-white px-4">
+        <div className="flex h-10 items-center justify-between border-b border-[#CBD5E1]/50 bg-white px-4">
           <div className="flex items-center gap-2">
             <div className="h-3 w-3 rounded-full bg-[#EF4444]/80" />
             <div className="h-3 w-3 rounded-full bg-[#F59E0B]/80" />
@@ -64,7 +64,7 @@ export function HeroProductPanel() {
         </div>
 
         {/* Main 2-Column App Layout (Sidebar + Content Workspace) */}
-        <div className="flex min-h-[580px] bg-[#F8FAFC]">
+        <div className="flex min-h-[580px] bg-[#DDE2EE]/45">
           
           {/* Left Sidebar (Desktop view) */}
           <aside className="hidden w-52 shrink-0 flex-col justify-between border-r border-[#E2E8F0] bg-white p-4 lg:flex">

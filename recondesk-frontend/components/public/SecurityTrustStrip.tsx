@@ -35,7 +35,7 @@ export function SecurityTrustStrip() {
   return (
     <section
       id="security"
-      className="scroll-mt-20 mx-auto my-16 max-w-6xl px-4 sm:px-6 lg:px-8 border-t border-[#E5E5E2] pt-16"
+      className="scroll-mt-20 mx-auto my-16 max-w-6xl px-4 sm:px-6 lg:px-8 border-t border-[#CBD5E1]/60 pt-16"
       aria-label="Security and data protection"
     >
       {/* Section Header */}
@@ -75,7 +75,7 @@ export function SecurityTrustStrip() {
       <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-2">
         
         {/* ── Pillar 1: Firm-Level Tenant Isolation ── */}
-        <div className="relative overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs transition-all duration-300 hover:border-emerald-500/40 hover:shadow-[0_12px_32px_rgba(16,185,129,0.06)] flex flex-col justify-between">
+        <div className="relative overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 sm:p-7 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)] flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-100">
@@ -127,7 +127,7 @@ export function SecurityTrustStrip() {
         </div>
 
         {/* ── Pillar 2: Zero AI Training Guarantee ── */}
-        <div className="relative overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs transition-all duration-300 hover:border-purple-500/40 hover:shadow-[0_12px_32px_rgba(123,92,250,0.06)] flex flex-col justify-between">
+        <div className="relative overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 sm:p-7 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)] flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-[#7B5CFA] border border-purple-100">
@@ -181,7 +181,7 @@ export function SecurityTrustStrip() {
         </div>
 
         {/* ── Pillar 3: Cryptographic Audit Trails ── */}
-        <div className="relative overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs transition-all duration-300 hover:border-blue-500/40 hover:shadow-[0_12px_32px_rgba(59,130,246,0.06)] flex flex-col justify-between">
+        <div className="relative overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 sm:p-7 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)] flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 border border-blue-100">
@@ -232,7 +232,7 @@ export function SecurityTrustStrip() {
         </div>
 
         {/* ── Pillar 4: 1-Click Engagement Data Purge ── */}
-        <div className="relative overflow-hidden rounded-[16px] border border-[#E5E5E2] bg-white p-6 sm:p-7 shadow-xs transition-all duration-300 hover:border-red-500/40 hover:shadow-[0_12px_32px_rgba(239,68,68,0.06)] flex flex-col justify-between">
+        <div className="relative overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 sm:p-7 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)] flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700 border border-red-100">

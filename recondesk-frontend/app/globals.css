@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 @tailwind base;
@@ -6,7 +6,7 @@
 @tailwind utilities;
 
 body {
-  font-family: 'DM Sans', sans-serif;
+  font-family: var(--font-plus-jakarta), 'Plus Jakarta Sans', var(--font-inter), 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 /* ─── Scrollstory design tokens ─────────────────────────────────────────── */
@@ -49,21 +49,22 @@ input[type='range']::-moz-range-thumb {
 @layer base {
   :root {
     --sidebar: #0f1117;
-    --bg: #f2f3f5;
+    --bg: #DDE2EE;
     --surface: #ffffff;
-    --surface-textured: #f2f3f5;
-    --surface-textured-dot: rgba(17, 24, 39, 0.06);
+    --surface-textured: #DDE2EE;
+    --surface-textured-dot: rgba(28, 40, 68, 0.05);
     --accent: #111111; /* synced with dashboard ink CTAs — lib/brand.ts */
-    --accent-dim: #f0f0f0; /* synced with tailwind brand.dim */
+    --accent-dim: #E8ECF4; /* synced with tailwind brand.dim */
     --ink: #111111;
     --danger: #ef4444;
     --warning: #f59e0b;
     --success: #10b981;
-    --text-primary: #111111;
-    --text-secondary: #6b7280;
-    --border: #ebebec;
-    --shadow-soft: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px rgba(16, 24, 40, 0.05);
-    --shadow-lift: 0 2px 8px rgba(16, 24, 40, 0.06), 0 16px 40px rgba(16, 24, 40, 0.06);
+    --text-primary: #0F172A;
+    --text-secondary: #5B6577;
+    --border: #CBD5E1;
+    --shadow-soft: 0 4px 6px -1px rgba(28, 40, 68, 0.03), 0 10px 28px -4px rgba(28, 40, 68, 0.08);
+    --shadow-lift: 0 10px 25px -4px rgba(28, 40, 68, 0.08), 0 24px 50px -10px rgba(28, 40, 68, 0.12);
+    --shadow-card: 0 10px 30px -5px rgba(28, 40, 68, 0.08), 0 20px 48px -10px rgba(28, 40, 68, 0.12);
   }
 
   * {
@@ -80,8 +81,13 @@ input[type='range']::-moz-range-thumb {
 
   body {
     @apply bg-[var(--bg)] text-[var(--text-primary)];
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
-      "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: var(--font-plus-jakarta), "Plus Jakarta Sans", var(--font-inter),
+      "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    letter-spacing: -0.025em;
   }
 }
 
@@ -239,20 +245,22 @@ input[type='range']::-moz-range-thumb {
   .dashboard-soft-bg {
     background-color: var(--bg);
     background-image:
-      radial-gradient(ellipse 80% 50% at 10% -10%, rgba(17, 17, 17, 0.045), transparent 55%),
-      radial-gradient(ellipse 60% 40% at 95% 5%, rgba(17, 17, 17, 0.03), transparent 50%),
-      radial-gradient(ellipse 50% 35% at 80% 90%, rgba(17, 17, 17, 0.025), transparent 55%);
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(255, 255, 255, 0.65), transparent 70%),
+      radial-gradient(ellipse 60% 40% at 95% 5%, rgba(200, 212, 235, 0.35), transparent 50%),
+      radial-gradient(ellipse 50% 35% at 5% 90%, rgba(200, 212, 235, 0.25), transparent 55%);
   }
 
   .dashboard-card {
     border-radius: 1.5rem;
-    background: var(--surface);
-    box-shadow: var(--shadow-soft);
+    background: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    box-shadow: var(--shadow-card);
   }
 
   .dashboard-card-lift {
     border-radius: 1.5rem;
-    background: var(--surface);
+    background: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.95);
     box-shadow: var(--shadow-lift);
   }
 
@@ -280,7 +288,10 @@ input[type='range']::-moz-range-thumb {
   }
 
   .landing-page .landing-card {
-    box-shadow: var(--shadow-soft);
+    border-radius: 1.5rem;
+    background: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    box-shadow: var(--shadow-card);
     transition:
       box-shadow 0.2s ease,
       transform 0.2s ease;
@@ -306,12 +317,12 @@ input[type='range']::-moz-range-thumb {
 
   .landing-trust-marquee::before {
     left: 0;
-    background: linear-gradient(to right, var(--bg) 0%, rgba(242, 243, 245, 0) 100%);
+    background: linear-gradient(to right, var(--bg) 0%, rgba(221, 226, 238, 0) 100%);
   }
 
   .landing-trust-marquee::after {
     right: 0;
-    background: linear-gradient(to left, var(--bg) 0%, rgba(242, 243, 245, 0) 100%);
+    background: linear-gradient(to left, var(--bg) 0%, rgba(221, 226, 238, 0) 100%);
   }
 
   .landing-trust-track {
@@ -516,54 +527,30 @@ input[type='range']::-moz-range-thumb {
 .liquid-glass-card {
   position: relative;
   overflow: hidden;
-  isolation: isolate;
-  border-radius: 1.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  background: linear-gradient(
-    155deg,
-    rgba(255, 255, 255, 0.72) 0%,
-    rgba(255, 255, 255, 0.38) 48%,
-    rgba(255, 255, 255, 0.55) 100%
-  );
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.65) inset,
-    0 12px 40px rgba(16, 24, 40, 0.08);
-  backdrop-filter: blur(18px) saturate(1.35);
-  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  border-radius: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
   transition:
-    transform 0.35s ease,
-    box-shadow 0.35s ease;
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
 }
 
 .liquid-glass-card--featured {
-  border-color: rgba(17, 17, 17, 0.18);
-  background: linear-gradient(
-    155deg,
-    rgba(255, 255, 255, 0.82) 0%,
-    rgba(245, 245, 246, 0.55) 45%,
-    rgba(255, 255, 255, 0.7) 100%
-  );
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.75) inset,
-    0 18px 48px rgba(16, 24, 40, 0.12);
+  border: 2px solid #0F172A;
+  background: #ffffff;
+  box-shadow: var(--shadow-lift);
 }
 
 @media (hover: hover) {
   .liquid-glass-card:hover {
-    transform: translateY(-4px);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.7) inset,
-      0 20px 50px rgba(16, 24, 40, 0.12);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lift);
   }
 }
 
 .liquid-glass-card__blob {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(36px);
-  opacity: 0.55;
-  pointer-events: none;
-  z-index: 0;
+  display: none;
 }
 
 .liquid-glass-card__blob--a {

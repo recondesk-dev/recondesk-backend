@@ -38,7 +38,7 @@ export function GstrModulesGrid() {
   }, []);
 
   return (
-    <section id="modules" className="scroll-mt-20 py-20 sm:py-28 border-t border-[#E5E5E2] bg-[#FAFAFA]">
+    <section id="modules" className="scroll-mt-20 py-20 sm:py-28 border-t border-[#CBD5E1]/60">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         
         {/* Section Header */}
@@ -49,7 +49,7 @@ export function GstrModulesGrid() {
           <h2 className="mt-2.5 text-3xl font-extrabold tracking-tight text-[#0A0A0A] sm:text-4xl">
             Built for Every GST Reconciliation Workflow
           </h2>
-          <p className="mt-3.5 text-base text-[#6B6B6B] leading-relaxed">
+          <p className="mt-3.5 text-base text-[#5B6577] leading-relaxed">
             ReconDesk replaces messy spreadsheets with automated modules for purchase ITC, sales reconciliation, liability checks, and annual audit certification.
           </p>
         </div>
@@ -58,7 +58,7 @@ export function GstrModulesGrid() {
         <div className="mt-14 grid grid-cols-1 gap-6 md:grid-cols-2">
           
           {/* ─── Card 1: GSTR-2B ↔ Purchase Register (ITC Engine) ─── */}
-          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] border-b-transparent bg-white p-6 sm:p-7 shadow-[0_4px_24px_rgba(0,0,0,0.02)] transition-all duration-300 hover:-translate-y-1 hover:border-[#7B5CFA]/40 hover:shadow-[0_16px_40px_rgba(123,92,250,0.08)]">
+          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 sm:p-7 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)]">
             <div className="absolute top-0 left-0 right-0 h-1 bg-[#7B5CFA]" />
 
             <div>
@@ -154,7 +154,7 @@ export function GstrModulesGrid() {
           </div>
 
           {/* ─── Card 2: GSTR-1 ↔ Sales Register (Revenue Tie-Out) ─── */}
-          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] border-b-transparent bg-white p-6 sm:p-7 shadow-[0_4px_24px_rgba(0,0,0,0.02)] transition-all duration-300 hover:-translate-y-1 hover:border-[#10B981]/40 hover:shadow-[0_16px_40px_rgba(16,185,129,0.08)]">
+          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 sm:p-7 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)]">
             <div className="absolute top-0 left-0 right-0 h-1 bg-[#10B981]" />
 
             <div>
@@ -252,7 +252,7 @@ export function GstrModulesGrid() {
           </div>
 
           {/* ─── Card 3: GSTR-3B vs Books & 2B (Notice Shield) ─── */}
-          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] border-b-transparent bg-white p-6 sm:p-7 shadow-[0_4px_24px_rgba(0,0,0,0.02)] transition-all duration-300 hover:-translate-y-1 hover:border-[#F59E0B]/40 hover:shadow-[0_16px_40px_rgba(245,158,11,0.08)]">
+          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 sm:p-7 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)]">
             <div className="absolute top-0 left-0 right-0 h-1 bg-[#F59E0B]" />
 
             <div>
@@ -350,7 +350,7 @@ export function GstrModulesGrid() {
           </div>
 
           {/* ─── Card 4: GSTR-9C Annual Audit Workpapers ─── */}
-          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[16px] border border-[#E5E5E2] border-b-transparent bg-white p-6 sm:p-7 shadow-[0_4px_24px_rgba(0,0,0,0.02)] transition-all duration-300 hover:-translate-y-1 hover:border-[#3B82F6]/40 hover:shadow-[0_16px_40px_rgba(59,130,246,0.08)]">
+          <div className="group relative flex flex-col justify-between overflow-hidden rounded-[22px] border border-white/85 bg-white p-6 sm:p-7 shadow-[var(--shadow-card)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)]">
             <div className="absolute top-0 left-0 right-0 h-1 bg-[#3B82F6]" />
 
             <div>
