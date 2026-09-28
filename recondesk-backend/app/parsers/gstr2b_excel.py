@@ -188,11 +188,81 @@ _CANONICAL_FIELD_TO_STD_KEY: tuple[tuple[str, str], ...] = (
 )
 
 
+def _is_repeated_header_or_total_row(
+    series: pd.Series, mapping: dict[str, str] | None = None
+) -> bool:
+    """Check if a DataFrame row is a repeated column header row or total/summary row."""
+    str_vals = [
+        str(v).strip()
+        for v in series.tolist()
+        if v is not None and not (isinstance(v, float) and pd.isna(v))
+    ]
+    if not str_vals:
+        return True
+    from app.parsers.purchase_register_parser import is_total_row
+
+    if is_total_row(str_vals):
+        return True
+
+    if mapping:
+        date_col = mapping.get("invoice_date")
+        if date_col and date_col in series.index:
+            val_d = normalize_header(str(series.get(date_col) or ""))
+            if any(
+                h in val_d
+                for h in (
+                    "invoice date",
+                    "inv date",
+                    "voucher dt",
+                    "posting date",
+                    "doc date",
+                    "date of invoice",
+                    "tx date",
+                )
+            ):
+                return True
+        gstin_col = mapping.get("gstin")
+        if gstin_col and gstin_col in series.index:
+            val_g = normalize_header(str(series.get(gstin_col) or ""))
+            if any(
+                h in val_g
+                for h in (
+                    "gstin",
+                    "supplier gstin",
+                    "party gstin",
+                    "gst no",
+                    "party s gstin",
+                    "gstin of supplier",
+                )
+            ):
+                return True
+        inv_col = mapping.get("invoice_number") or mapping.get("note_number")
+        if inv_col and inv_col in series.index:
+            val_i = normalize_header(str(series.get(inv_col) or ""))
+            if any(
+                h in val_i
+                for h in (
+                    "invoice no",
+                    "invoice number",
+                    "inv no",
+                    "bill no",
+                    "voucher no",
+                    "vch no",
+                    "note no",
+                    "note number",
+                )
+            ):
+                return True
+    return False
+
+
 def _dataframe_to_row_dicts(
     df: pd.DataFrame, mapping: dict[str, str] | None = None
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for _, series in df.iterrows():
+        if _is_repeated_header_or_total_row(series, mapping):
+            continue
         row: dict[str, Any] = {}
         for col in df.columns:
             key = str(col).strip() if col is not None else ""

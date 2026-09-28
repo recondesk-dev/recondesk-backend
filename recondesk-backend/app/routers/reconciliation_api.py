@@ -2104,7 +2104,10 @@ _RECORD_ID_PREFIXES: tuple[str, ...] = (
     "pm:",
     "mi:",
     "wr:",
+    "rrp:",
+    "rrg:",
     "rr:",
+    "dp:",
 )
 
 
@@ -2129,7 +2132,13 @@ def _db_record_id(record_id: str) -> str:
     rid = _normalize_record_id(record_id)
     for prefix in _RECORD_ID_PREFIXES:
         if rid.startswith(prefix):
-            return rid[len(prefix) :]
+            rid = rid[len(prefix) :]
+            break
+    # If a compound key was passed (e.g. gid-pid from rrp:), extract the primary UUID
+    if "-" in rid and len(rid) > 36:
+        parts = rid.split("-")
+        if len(parts) >= 10:
+            rid = "-".join(parts[:5])
     return rid
 
 
@@ -3202,6 +3211,24 @@ def _build_reconcile_summary(
     action_needed_count = review_required_count + missed_count + wrongful_count
     decisions_pending_count = max(0, action_needed_count - decisions_acted_count - decisions_ignored_count)
 
+    low_priority_review_count = 0
+    low_priority_review_itc_paise = 0
+    if review_required_count > 0:
+        notes = _notes_count_for_run(sb, rid)
+        rr_pairs = _cached_matched_pairs(
+            sb,
+            rid=rid,
+            payload=payload,
+            note_counts=notes,
+            fetch_review_required=True,
+        )
+        for api_row, _ in rr_pairs:
+            prio = str(api_row.get("priority") or "LOW").upper()
+            status_val = str(api_row.get("decision_status") or "pending").lower()
+            if prio == "LOW" and status_val != "acted":
+                low_priority_review_count += 1
+                low_priority_review_itc_paise += int(round(float(api_row.get("amount") or 0) * 100))
+
     return {
         "run_id": rid,
         "client_name": client_display,
@@ -3298,20 +3325,8 @@ def _build_reconcile_summary(
         "decisions_ignored_count": decisions_ignored_count,
         "decisions_pending_count": decisions_pending_count,
         # Low-priority review counts — power the Bulk Accept banner
-        "low_priority_review_count": sum(
-            1
-            for r in outcome_rows
-            if r.category == "review_required"
-            and not str(r.id).startswith("dp:")
-            and (getattr(r, "priority", None) or "LOW") == "LOW"
-        ),
-        "low_priority_review_itc_paise": int(round(sum(
-            float(r.amount or 0)
-            for r in outcome_rows
-            if r.category == "review_required"
-            and not str(r.id).startswith("dp:")
-            and (getattr(r, "priority", None) or "LOW") == "LOW"
-        ))),
+        "low_priority_review_count": low_priority_review_count,
+        "low_priority_review_itc_paise": low_priority_review_itc_paise,
     }
 
 
@@ -3709,7 +3724,11 @@ def _build_matched_pair_records(
     )
 
     if fetch_review_required:
-        engine_matched = (payload.get("engine", {}).get("duplicates") or []) + (payload.get("engine", {}).get("review_required_typo") or [])
+        engine_matched = (
+            (payload.get("engine", {}).get("duplicates") or [])
+            + (payload.get("engine", {}).get("review_required") or [])
+            + (payload.get("engine", {}).get("review_required_typo") or [])
+        )
         oc_matched_in_order = [r for r in all_outcome_rows if r.category == "review_required"]
         if len(oc_matched_in_order) != len(engine_matched):
             _log.warning(
@@ -4206,18 +4225,19 @@ def _assert_record_ids_in_run(sb, rid: str, record_ids: list[str]) -> None:
                 decision_statuses={},
             )
         )
-    if any(x.startswith("rr:") for x in wanted):
-        valid.update(
-            str(row.get("id") or "")
-            for row, _ in _build_matched_pair_records(
-                sb,
-                rid=rid,
-                payload=p,
-                note_counts=notes,
-                fetch_review_required=True,
-                decision_statuses={},
-            )
-        )
+    if any(x.startswith("rr:") or x.startswith("rrp:") or x.startswith("rrg:") or x.startswith("dp:") for x in wanted):
+        for row, orow in _build_matched_pair_records(
+            sb,
+            rid=rid,
+            payload=p,
+            note_counts=notes,
+            fetch_review_required=True,
+            decision_statuses={},
+        ):
+            if row.get("id"):
+                valid.add(str(row.get("id")))
+            if orow and getattr(orow, "id", None):
+                valid.add(str(orow.id))
     if any(x.startswith("r37:") for x in wanted):
         valid.update(
             str(row.get("id") or "")
@@ -5794,23 +5814,31 @@ async def bulk_accept_low_priority_review(
     if not uid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing user id")
 
-    payload = _load_payload(sb, rid)
-    if not payload:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run payload not found")
+    payload = _payload_or_404(sb, rid)
+    notes = _notes_count_for_run(sb, rid)
+    pairs = _cached_matched_pairs(
+        sb,
+        rid=rid,
+        payload=payload,
+        note_counts=notes,
+        fetch_review_required=True,
+    )
 
-    outcome_rows = ro.build_outcome_rows(sb, rid, payload)[0]
-
-    # Collect all LOW-priority review_required record IDs and their ITC paise
+    # Collect all unresolved LOW-priority review_required record IDs and their ITC paise
     low_ids: list[str] = []
     low_itc_paise: int = 0
-    for r in outcome_rows:
-        if r.category != "review_required" or str(r.id).startswith("dp:"):
-            continue
-        prio = getattr(r, "priority", None) or "LOW"
+    for api_row, _ in pairs:
+        prio = str(api_row.get("priority") or "LOW").upper()
+        status_val = str(api_row.get("decision_status") or "pending").lower()
         if prio != "LOW":
             continue
-        low_ids.append(str(r.id))
-        low_itc_paise += int(round(float(r.amount or 0)))
+        if status_val == "acted":
+            continue
+        rec_id = str(api_row.get("id") or "").strip()
+        if not rec_id:
+            continue
+        low_ids.append(rec_id)
+        low_itc_paise += int(round(float(api_row.get("amount") or 0) * 100))
 
     if body.dry_run or not low_ids:
         return BulkAcceptLowPriorityResponse(

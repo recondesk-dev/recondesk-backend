@@ -1740,6 +1740,15 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "CDN No", "CDN Number",
         ) or ""
     ).strip()
+    if not nt_num:
+        nt_num = str(
+            _alt_row_get(
+                row,
+                "Invoice No", "Invoice Number", "Invoice number",
+                "Inv No", "inv_no", "Bill No", "Voucher No", "Vch No",
+                "inum",
+            ) or ""
+        ).strip()
 
     if _alt_blank(sr):
         if not gstin and not nt_num:
@@ -1847,15 +1856,17 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "Original Inv No", "Original Inv Number",
             "Against Invoice Number", "Against Inv No",
             "against_invoice_number", "original_invoice_number",
-            "oinum", "ont_num", "ointnum", "inum",
+            "oinum", "ont_num", "ointnum",
         ) or ""
     ).strip()
+    if orig_inv == nt_num:
+        orig_inv = ""
     orig_dt = _alt_invoice_date_portal(
         _alt_row_get(
             row,
             "Original Invoice Date", "Original Inv Date",
             "Against Invoice Date", "Against Inv Date",
-            "oidt", "ointdt", "idt",
+            "oidt", "ointdt",
         )
     )
 
@@ -1871,6 +1882,8 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             _alt_row_get(
                 row, "Note Date", "note_date", "idt",
                 "Document Date", "Doc Date",
+                "Invoice Date", "invoice_date", "Invoice date",
+                "Date", "date", "Voucher Date", "Bill Date",
             )
         ),
         "inum": orig_inv or None,

@@ -19,6 +19,7 @@ from app.parsers.gstr2b_parser import resolve_itc_available, resolve_itc_reason
 from app.services.credit_note_handler import classify_document
 from app.services.decision_templates import generate_decision
 from app.services.matcher import TOTAL_TOLERANCE_PAISE, match_gstr_to_pr
+from app.services.review_priority import classify_review_priority
 from app.services.statutory_eligibility import (
     ITCEligibilityStatus,
     NormalizedIneligibilityReason,
@@ -303,6 +304,7 @@ class OutcomeRow:
     is_rcm: bool = False
     section_16_4_status: Optional[str] = None
     normalized_reason: Optional[str] = None
+    priority: Optional[str] = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -342,6 +344,7 @@ class OutcomeRow:
             "is_rcm": self.is_rcm,
             "section_16_4_status": self.section_16_4_status,
             "normalized_reason": self.normalized_reason,
+            "priority": self.priority,
         }
 
 
@@ -914,7 +917,15 @@ def build_outcome_rows(
         d_what = dup.get("decision_what") or (reason.replace("_", " ").title() if reason else "Manual Review Required")
         d_why = dup.get("decision_why") or reason
         d_next = dup.get("decision_next") or "Manual review required to verify correct pairing."
-        
+        dup_prio = classify_review_priority({
+            "review_reason": reason,
+            "reason": reason,
+            "taxable_diff_paise": dup.get("taxable_diff_paise") or dup.get("amount_difference_paise"),
+            "amount_difference_paise": dup.get("amount_difference_paise"),
+            "amount_diff": dup.get("amount_diff"),
+            "amount_difference_pct": dup.get("amount_difference_pct"),
+        })
+
         rows.append(
             OutcomeRow(
                 id=cid,
@@ -941,6 +952,7 @@ def build_outcome_rows(
                 matched_pr_id=str(dup.get("id") or dup.get("pr_id") or "") or None,
                 match_confidence=dup.get("match_confidence"),
                 compared_fields=dup.get("compared_fields"),
+                priority=dup_prio,
             )
         )
 
@@ -980,6 +992,15 @@ def build_outcome_rows(
             row_amt = _opt_int(rr.get("total_tax_paise")) or _opt_int(rr.get("amount"))
 
         is_rcm_val = detect_rcm_supply(g_rec, g_rd, p_rec, p_rd)
+        rr_tax_diff = int(rr.get("taxable_diff_paise") or 0)
+        rr_prio = classify_review_priority({
+            "review_reason": reason,
+            "reason": reason,
+            "taxable_diff_paise": rr_tax_diff or rr.get("amount_difference_paise"),
+            "amount_difference_paise": rr.get("amount_difference_paise"),
+            "amount_diff": rr.get("amount_diff"),
+            "amount_difference_pct": rr.get("amount_difference_pct"),
+        })
 
         rows.append(
             OutcomeRow(
@@ -994,7 +1015,7 @@ def build_outcome_rows(
                 igst_diff=0,
                 cgst_diff=0,
                 sgst_diff=0,
-                total_tax_diff_paise=int(rr.get("taxable_diff_paise") or 0),
+                total_tax_diff_paise=rr_tax_diff,
                 decision_what=d_what,
                 decision_why=d_why,
                 decision_next=d_next,
@@ -1010,6 +1031,7 @@ def build_outcome_rows(
                 is_rcm=is_rcm_val,
                 supply_type="RCM" if is_rcm_val else "REGULAR",
                 normalized_reason=reason,
+                priority=rr_prio,
             )
         )
 
@@ -1153,6 +1175,14 @@ def build_outcome_rows(
         invn = str(typo.get("gstr_raw_invoice") or m_rec.get("invoice_number_normalized") or "")
         invd = m_rec.get("invoice_date")
         reason = str(typo.get("reason") or "Invoice Number Typos / Mismatch")
+        typo_prio = classify_review_priority({
+            "review_reason": reason,
+            "reason": reason,
+            "taxable_diff_paise": typo.get("taxable_diff_paise") or typo.get("amount_difference_paise"),
+            "amount_difference_paise": typo.get("amount_difference_paise"),
+            "amount_diff": typo.get("amount_diff"),
+            "amount_difference_pct": typo.get("amount_difference_pct"),
+        })
         rows.append(
             OutcomeRow(
                 id=f"rtp:{rid}-{gstr_id}",
@@ -1177,6 +1207,7 @@ def build_outcome_rows(
                 amount=_opt_int(m_rec.get("total_tax_paise")),
                 match_confidence=typo.get("match_confidence"),
                 compared_fields=typo.get("compared_fields"),
+                priority=typo_prio,
             )
         )
 

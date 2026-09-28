@@ -262,7 +262,14 @@ COLUMN_ALIASES: dict[str, list[str]] = merge_aliases(
 
 # Sheets whose normalised name contains any of these words are skipped.
 _SKIP_SHEET_WORDS: frozenset[str] = frozenset(
-    ["summary", "total", "instruction", "readme", "read me", "legend", "metadata", "guidelines", "faq", "help"]
+    [
+        "summary", "total", "instruction", "instructions", "readme", "read me", "read_me",
+        "legend", "metadata", "guidelines", "faq", "help", "about",
+        "pivot", "pivot_summary", "pivot summary", "pivotsummary",
+        "master", "vendor master", "vendormaster", "item master", "itemmaster",
+        "customer master", "customermaster", "party master", "partymaster",
+        "ledger master", "ledgermaster", "chart of accounts", "chartofaccounts",
+    ]
 )
 
 # Row-level skip markers (normalised cell value must start with one of these).
@@ -918,6 +925,65 @@ def is_total_row(row_values: list[str]) -> bool:
     return False
 
 
+def is_repeated_header_row(
+    orig_row: pd.Series, mapping: dict[str, str]
+) -> bool:
+    """Return True if row contains repeated column header labels rather than transaction data."""
+    if not mapping:
+        return False
+    date_col = mapping.get("invoice_date")
+    if date_col and date_col in orig_row.index:
+        val = normalize_header(str(orig_row.get(date_col) or ""))
+        if any(
+            h in val
+            for h in (
+                "invoice date",
+                "inv date",
+                "voucher dt",
+                "posting date",
+                "doc date",
+                "date of invoice",
+                "tx date",
+            )
+        ):
+            return True
+    gstin_col = mapping.get("gstin")
+    if gstin_col and gstin_col in orig_row.index:
+        val = normalize_header(str(orig_row.get(gstin_col) or ""))
+        if any(
+            h in val
+            for h in (
+                "party gst",
+                "supplier gst",
+                "gstin",
+                "party gstin",
+                "party s gstin",
+                "vendor gst",
+                "gstin of supplier",
+            )
+        ):
+            return True
+    inv_col = mapping.get("invoice_number") or mapping.get("note_number")
+    if inv_col and inv_col in orig_row.index:
+        val = normalize_header(str(orig_row.get(inv_col) or ""))
+        if any(
+            h in val
+            for h in (
+                "invoice number",
+                "invoice no",
+                "inv no",
+                "bill ref",
+                "bill no",
+                "voucher no",
+                "vch no",
+                "note no",
+                "note number",
+            )
+        ):
+            return True
+    return False
+
+
 def _normalize_reverse_charge(val: Any) -> bool | None:
     """Return True/False for RC flags, or None if the cell was empty."""
     s = _safe_cell(val)
@@ -1309,6 +1375,11 @@ def _process_pr_sheet_rows(
             last_valid_inv_raw = None
             last_valid_inv_norm = None
             last_valid_date_value = None
+            continue
+
+        if is_repeated_header_row(orig_row, mapping):
+            skipped_rows += 1
+            _bump_skip("repeated_header_row")
             continue
 
         if all(_is_blank_cell(cell) for cell in row_values):

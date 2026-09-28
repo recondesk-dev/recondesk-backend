@@ -662,9 +662,8 @@ def multi_sheet_combine_blocks_start(
 
 
 def _read_pr_dataframe(raw: bytes, filename: str) -> pd.DataFrame:
-    """Read a purchase-register file, scanning the first 20 rows to find the
-    correct header row (handles CA exports with noisy title/blank rows before
-    the actual column headers)."""
+    """Read a purchase-register file, scanning candidate sheets and header rows
+    to select the best transaction DataFrame for column mapping and preview."""
     ext = (filename or "").rsplit(".", 1)[-1].lower() if "." in (filename or "") else "csv"
     bio = io.BytesIO(raw)
 
@@ -687,29 +686,72 @@ def _read_pr_dataframe(raw: bytes, filename: str) -> pd.DataFrame:
     except Exception:  # noqa: BLE001
         return pd.DataFrame()
 
+    from app.parsers.purchase_register_parser import _SKIP_SHEET_WORDS, normalize_header
+
+    candidate_scores: list[tuple[int, int, str, pd.DataFrame]] = []
+    fallback_scores: list[tuple[int, int, str, pd.DataFrame]] = []
+
     for sheet_name in xl.sheet_names:
+        str_name = str(sheet_name)
+        norm_name = normalize_header(str_name)
+        is_skip = any(w in norm_name for w in _SKIP_SHEET_WORDS)
+
         try:
             raw_df = pd.read_excel(
-                io.BytesIO(raw),
+                xl,
                 sheet_name=sheet_name,
                 header=None,
                 dtype=str,
             )
         except Exception:  # noqa: BLE001
             continue
-        _log.info(
-            "[detect-columns] _read_pr_dataframe: scanning sheet '%s', shape=%s",
-            sheet_name,
-            raw_df.shape,
-        )
+
+        if raw_df is None or raw_df.empty:
+            continue
+
         best_df, best_mapping, best_header_row = _find_best_header_from_raw(raw_df)
+        if best_df is None or best_df.empty:
+            continue
+
+        score = 0
+        if best_mapping:
+            score += len(best_mapping) * 10
+            if "gstin" in best_mapping:
+                score += 30
+            if "invoice_number" in best_mapping or "note_number" in best_mapping:
+                score += 30
+            if "invoice_date" in best_mapping:
+                score += 20
+            if "taxable_amount" in best_mapping or "total_amount" in best_mapping:
+                score += 20
+            if any(t in best_mapping for t in ("igst", "cgst", "sgst", "cess", "total_tax")):
+                score += 20
+
+        num_rows = len(best_df)
+        if num_rows > 10:
+            score += 10
+        if num_rows > 100:
+            score += 20
+
+        item = (score, num_rows, str_name, best_df)
+        if is_skip:
+            fallback_scores.append(item)
+        else:
+            candidate_scores.append(item)
+
+    if candidate_scores:
+        candidate_scores.sort(key=lambda x: (x[0], x[1]), reverse=True)
         _log.info(
-            "[detect-columns] _read_pr_dataframe: best_header_row=%s, mapping=%s",
-            best_header_row,
-            best_mapping,
+            "[detect-columns] _read_pr_dataframe: selected best sheet '%s' (score=%d, rows=%d)",
+            candidate_scores[0][2],
+            candidate_scores[0][0],
+            candidate_scores[0][1],
         )
-        if best_df is not None:
-            return best_df
+        return candidate_scores[0][3]
+
+    if fallback_scores:
+        fallback_scores.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        return fallback_scores[0][3]
 
     # Nothing worked — fall back to openpyxl row-0 parse
     _log.warning("[detect-columns] _read_pr_dataframe: no best header found, falling back to row 0")
