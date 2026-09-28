@@ -208,50 +208,26 @@ def _is_repeated_header_or_total_row(
         date_col = mapping.get("invoice_date")
         if date_col and date_col in series.index:
             val_d = normalize_header(str(series.get(date_col) or ""))
-            if any(
-                h in val_d
-                for h in (
-                    "invoice date",
-                    "inv date",
-                    "voucher dt",
-                    "posting date",
-                    "doc date",
-                    "date of invoice",
-                    "tx date",
-                )
-            ):
+            if val_d in {
+                "invoice date", "inv date", "voucher dt", "posting date", "doc date",
+                "date of invoice", "tx date", "bill date", "entry date", "invoice dt", "bill dt"
+            }:
                 return True
         gstin_col = mapping.get("gstin")
         if gstin_col and gstin_col in series.index:
             val_g = normalize_header(str(series.get(gstin_col) or ""))
-            if any(
-                h in val_g
-                for h in (
-                    "gstin",
-                    "supplier gstin",
-                    "party gstin",
-                    "gst no",
-                    "party s gstin",
-                    "gstin of supplier",
-                )
-            ):
+            if val_g in {
+                "gstin", "supplier gstin", "party gstin", "gst no", "party s gstin",
+                "gstin of supplier", "gstn", "gst number", "vendor gst", "vendor gstin"
+            }:
                 return True
         inv_col = mapping.get("invoice_number") or mapping.get("note_number")
         if inv_col and inv_col in series.index:
             val_i = normalize_header(str(series.get(inv_col) or ""))
-            if any(
-                h in val_i
-                for h in (
-                    "invoice no",
-                    "invoice number",
-                    "inv no",
-                    "bill no",
-                    "voucher no",
-                    "vch no",
-                    "note no",
-                    "note number",
-                )
-            ):
+            if val_i in {
+                "invoice no", "invoice number", "inv no", "bill no", "voucher no",
+                "vch no", "note no", "note number", "doc no", "document no"
+            }:
                 return True
     return False
 

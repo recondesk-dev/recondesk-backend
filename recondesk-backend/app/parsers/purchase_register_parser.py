@@ -925,6 +925,26 @@ def is_total_row(row_values: list[str]) -> bool:
     return False
 
 
+_REPEATED_HEADER_DATE_LABELS = frozenset({
+    "invoice date", "inv date", "voucher dt", "posting date", "doc date",
+    "date of invoice", "tx date", "bill date", "entry date", "invoice dt", "bill dt",
+    "invoice date / bill date", "bill date / invoice date", "document date", "चालान दिनांक", "बिल दिनांक", "दिनांक", "तारीख", "तिथि"
+})
+_REPEATED_HEADER_GSTIN_LABELS = frozenset({
+    "gstin", "supplier gstin", "party gstin", "gst no", "party s gstin",
+    "gstin of supplier", "gstin of the supplier", "gstn", "gst number", "vendor gst",
+    "vendor gstin", "vendor gst no", "vendor gstin no", "party gst no", "cparty gstin",
+    "counter party gstin", "gstin uin", "gstin uin of supplier", "party tin", "tin",
+    "party gst in", "supplier gst in", "जीएसटी", "जीएसटी नंबर", "जीएसटीआईएन"
+})
+_REPEATED_HEADER_INV_LABELS = frozenset({
+    "invoice number", "invoice no", "inv no", "bill ref", "voucher no",
+    "voucher number", "vch no", "vch number", "vch no.", "bill no", "bill number",
+    "doc no", "document no", "reference no", "ref no", "purchase invoice no",
+    "note no", "note number", "चालान संख्या", "बिल संख्या", "इनवॉइस नंबर", "बिल नंबर", "वाउचर नंबर"
+})
+
+
 def is_repeated_header_row(
     orig_row: pd.Series, mapping: dict[str, str]
 ) -> bool:
@@ -934,52 +954,17 @@ def is_repeated_header_row(
     date_col = mapping.get("invoice_date")
     if date_col and date_col in orig_row.index:
         val = normalize_header(str(orig_row.get(date_col) or ""))
-        if any(
-            h in val
-            for h in (
-                "invoice date",
-                "inv date",
-                "voucher dt",
-                "posting date",
-                "doc date",
-                "date of invoice",
-                "tx date",
-            )
-        ):
+        if val in _REPEATED_HEADER_DATE_LABELS:
             return True
     gstin_col = mapping.get("gstin")
     if gstin_col and gstin_col in orig_row.index:
         val = normalize_header(str(orig_row.get(gstin_col) or ""))
-        if any(
-            h in val
-            for h in (
-                "party gst",
-                "supplier gst",
-                "gstin",
-                "party gstin",
-                "party s gstin",
-                "vendor gst",
-                "gstin of supplier",
-            )
-        ):
+        if val in _REPEATED_HEADER_GSTIN_LABELS:
             return True
     inv_col = mapping.get("invoice_number") or mapping.get("note_number")
     if inv_col and inv_col in orig_row.index:
         val = normalize_header(str(orig_row.get(inv_col) or ""))
-        if any(
-            h in val
-            for h in (
-                "invoice number",
-                "invoice no",
-                "inv no",
-                "bill ref",
-                "bill no",
-                "voucher no",
-                "vch no",
-                "note no",
-                "note number",
-            )
-        ):
+        if val in _REPEATED_HEADER_INV_LABELS:
             return True
     return False
 

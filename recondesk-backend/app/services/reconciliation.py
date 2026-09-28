@@ -3334,8 +3334,9 @@ def _finalize_reconciliation_result(
     )
     invalid_gstin_unresolved_count = invalid_gstin_count - invalid_gstin_matched_count
 
+    gstr_dup_count = sum(1 for d in state.duplicate_entries if d.get("side") == "GSTR2B")
     sanity_passed = (
-        matched_count + missed_itc_count + review_gstr_count == total_gstr
+        matched_count + missed_itc_count + review_gstr_count + gstr_dup_count == total_gstr
     )
 
     if total_gstr > 0:

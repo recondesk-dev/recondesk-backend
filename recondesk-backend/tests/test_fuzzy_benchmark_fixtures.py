@@ -64,3 +64,31 @@ def test_purchase_register_fuzzy_fixture_full_parse():
     # Master and decoy sheets should be skipped and not combined into invoices
     sheets_used = [s["sheet"] for s in res.get("sheets_used", [])]
     assert sheets_used == ["Purchase Dump Apr-Sep"]
+
+
+@pytest.mark.skipif(not (GSTR2B_FILE.exists() and PR_FILE.exists()), reason="Benchmark fixtures missing")
+def test_fuzzy_benchmark_reconciliation_conservation():
+    from app.matching.engine import run_bidirectional_reconciliation
+
+    with open(GSTR2B_FILE, "rb") as f:
+        gstr_payload = load_gstr2b_upload_payload(f.read(), "ReconDesk_GSTR2B_3000_Fuzzy.xlsx")
+    gstr_res = parse_gstr2b(gstr_payload)
+
+    with open(PR_FILE, "rb") as f:
+        pr_res = parse_purchase_register(f.read(), "ReconDesk_Purchase_Register_3000_Fuzzy.xlsx")
+
+    gstr_records = gstr_res.get("records") or []
+    pr_records = pr_res.get("records") or []
+
+    for i, g in enumerate(gstr_records):
+        g["id"] = f"g_{i}"
+    for i, p in enumerate(pr_records):
+        p["id"] = f"p_{i}"
+
+    assert len(gstr_records) == 3070
+    assert len(pr_records) == 3173
+
+    recon_res = run_bidirectional_reconciliation(gstr_records[:300], pr_records[:300])
+    stats = recon_res.get("stats") or {}
+    assert stats.get("sanity_passed") is True
+
