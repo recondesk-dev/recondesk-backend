@@ -549,6 +549,7 @@ def _build_invoice_record(
     filing_status: str | None = None,
     invoice_level_paise: dict[str, int] | None = None,
     itc_reason: str | None = None,
+    supply_type: str | None = None,
 ) -> dict:
     invoice_date_norm = (
         invoice_date.isoformat()
@@ -584,6 +585,7 @@ def _build_invoice_record(
         "reverse_charge": reverse_charge,
         "itc_available": itc_available,
         "itc_reason": itc_reason,
+        "supply_type": supply_type,
         "supprd": supprd,
         "unique_key": None,
         "items": items,
@@ -717,6 +719,7 @@ def _parse_b2b_invoice(
         filing_status=filing_status,
         invoice_level_paise=invoice_level_paise,
         itc_reason=_itc_reason_value(invoice),
+        supply_type=str(invoice.get("supply_type") or invoice.get("sply_ty") or invoice.get("inv_supply_type") or "").strip().upper() or None,
     )
 
 
@@ -836,6 +839,7 @@ def _parse_cdnr_invoice(
         gstin_format_invalid=gstin_format_invalid,
         invoice_level_paise=invoice_level_paise,
         itc_reason=_itc_reason_value(invoice),
+        supply_type=str(invoice.get("supply_type") or invoice.get("sply_ty") or invoice.get("inv_supply_type") or "").strip().upper() or None,
     )
 
 
@@ -1766,6 +1770,9 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
         ).strip().upper()[:1] or "Y",
         "rsn": _alt_row_get(
             row,
+            "Eligibility / Restriction Reason",
+            "Eligibility/Restriction Reason",
+            "Restriction Reason",
             "Reason",
             "rsn",
             "ITC Ineligibility Reason",
@@ -1776,6 +1783,11 @@ def _alt_map_invoice_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "Reason if ITC N/A",
             "Reason if ITC NA",
         ),
+        "supply_type": str(
+            _alt_row_get(
+                row, "Supply Type", "supply_type", "Type of Supply", "inv_supply_type", "sply_ty"
+            ) or ""
+        ).strip().upper() or None,
     }
 
 
@@ -1992,6 +2004,9 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
         ).strip().upper()[:1] or "Y",
         "rsn": _alt_row_get(
             row,
+            "Eligibility / Restriction Reason",
+            "Eligibility/Restriction Reason",
+            "Restriction Reason",
             "Reason",
             "rsn",
             "ITC Ineligibility Reason",
@@ -2000,6 +2015,11 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "itc_reason",
             "reason",
         ),
+        "supply_type": str(
+            _alt_row_get(
+                row, "Supply Type", "supply_type", "Type of Supply", "inv_supply_type", "sply_ty"
+            ) or ""
+        ).strip().upper() or None,
     }
 
 

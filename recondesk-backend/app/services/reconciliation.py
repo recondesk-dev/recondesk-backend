@@ -2271,7 +2271,16 @@ def _levenshtein_distance(s1: str, s2: str) -> int:
 
 def _invoice_digit_core(s: str | None) -> str:
     """Digits-only spine of an invoice number (for mangled-prefix twin checks)."""
-    return re.sub(r"[^0-9]", "", str(s or ""))
+    raw = str(s or "").upper()
+    raw = re.sub(r"FY\s*\d{2,4}[-/]?", "", raw)
+    raw = re.sub(r"[-/][AR]$", "", raw)
+    from app.services.matcher import ocr_canonical_invoice
+    try:
+        raw = ocr_canonical_invoice(raw)
+        raw = re.sub(r"0+", "0", raw)
+    except Exception:
+        pass
+    return re.sub(r"[^0-9]", "", raw)
 
 
 def _pct_within(a: int, b: int, pct: float) -> bool:
@@ -2287,7 +2296,7 @@ def _invoice_twin_similarity_ok(
     *,
     sim_min: float,
     digit_dist_max: int | None = 2,
-    min_digit_len: int = 4,
+    min_digit_len: int = 3,
 ) -> tuple[bool, float]:
     """True when invoice sim ≥ ``sim_min`` or digit-core edit distance ≤ max.
 
@@ -2304,9 +2313,12 @@ def _invoice_twin_similarity_ok(
         if (
             len(gc) >= min_digit_len
             and len(pc) >= min_digit_len
-            and _levenshtein_distance(gc, pc) <= digit_dist_max
         ):
-            return True, sim
+            if _levenshtein_distance(gc, pc) <= digit_dist_max:
+                return True, sim
+            from collections import Counter
+            if Counter(gc) == Counter(pc) and abs(len(gc) - len(pc)) <= 1:
+                return True, sim
     return False, sim
 
 
@@ -3096,7 +3108,7 @@ def execute_phase2_and_3(
                 if not p_inv_norm or p_inv_norm == g_inv_norm:
                     continue  # exact norm already handled earlier in Phase 2
                 ok, sim = _invoice_twin_similarity_ok(
-                    g_inv_norm, p_inv_norm, sim_min=0.75, digit_dist_max=None
+                    g_inv_norm, p_inv_norm, sim_min=0.75, digit_dist_max=2
                 )
                 if not ok:
                     continue

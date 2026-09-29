@@ -3305,7 +3305,25 @@ def _build_reconcile_summary(
         ),
         # Statutory 3B Breakdown
         "matched_eligible_itc_amount": round(
-            sum(_paise_to_rupees(r.amount or 0) for r in outcome_rows if r.category == "matched" and getattr(r, "itc_available", True) and not getattr(r, "is_rcm", False)),
+            sum(
+                _paise_to_rupees(r.amount or 0)
+                for r in outcome_rows
+                if r.category == "matched"
+                and getattr(r, "itc_available", True)
+                and not getattr(r, "is_rcm", False)
+                and getattr(r, "supply_type", "") != "ISD"
+            ),
+            2,
+        ),
+        "isd_count": sum(1 for r in outcome_rows if getattr(r, "supply_type", "") == "ISD"),
+        "isd_itc_amount": round(
+            sum(
+                _paise_to_rupees(r.amount or 0)
+                for r in outcome_rows
+                if getattr(r, "supply_type", "") == "ISD"
+                and r.category == "matched"
+                and getattr(r, "itc_available", True)
+            ),
             2,
         ),
         "rcm_count": sum(1 for r in outcome_rows if getattr(r, "is_rcm", False)),
@@ -3322,9 +3340,20 @@ def _build_reconcile_summary(
             sum(_paise_to_rupees(r.amount or 0) for r in outcome_rows if r.category == "time_barred_itc"),
             2,
         ),
-        "ineligible_itc_count": sum(1 for r in outcome_rows if r.category == "blocked_credit" and getattr(r, "normalized_reason", None) in ("POS_RESTRICTED", "SECTION_16_4_TIME_BARRED", "GSTR2B_ITC_UNAVAILABLE")),
+        "ineligible_itc_count": sum(
+            1 for r in outcome_rows
+            if r.category == "blocked_credit"
+            or getattr(r, "blocked_credit_flag", False)
+            or getattr(r, "itc_available", True) is False
+        ),
         "ineligible_itc_amount": round(
-            sum(_paise_to_rupees(r.amount or 0) for r in outcome_rows if r.category == "blocked_credit" and getattr(r, "normalized_reason", None) in ("POS_RESTRICTED", "SECTION_16_4_TIME_BARRED", "GSTR2B_ITC_UNAVAILABLE")),
+            sum(
+                _paise_to_rupees(r.amount or 0)
+                for r in outcome_rows
+                if r.category == "blocked_credit"
+                or getattr(r, "blocked_credit_flag", False)
+                or getattr(r, "itc_available", True) is False
+            ),
             2,
         ),
         "decisions_acted_count": decisions_acted_count,
@@ -3716,6 +3745,7 @@ def _build_matched_pair_records(
     fetch_review_required: bool = False,
     precomputed_outcome_rows: Optional[list[Any]] = None,
     decision_statuses: Optional[dict[str, str]] = None,
+    include_ineligible: bool = False,
 ) -> list[tuple[dict[str, Any], Any]]:
     """Return list of ({api_row}, outcome_row) for pagination / filters."""
     gstr_db = ro.load_gstr_map(sb, rid)
@@ -3750,11 +3780,23 @@ def _build_matched_pair_records(
         # engine["matched"] can contain ghost rows (gstr_id not in DB) that
         # build_outcome_rows silently skips, causing oc_matched_in_order[idx]
         # to return the WRONG orow for every row after the gap.
-        oc_matched_by_gid = {
-            r.id.removeprefix("pm:"): r
-            for r in all_outcome_rows
-            if r.category == "matched" and r.id.startswith("pm:")
-        }
+        if include_ineligible:
+            oc_matched_by_gid = {
+                r.id.removeprefix("pm:"): r
+                for r in all_outcome_rows
+                if r.id.startswith("pm:")
+                and (
+                    r.category in ("matched", "blocked_credit")
+                    or getattr(r, "itc_available", True) is False
+                    or getattr(r, "blocked_credit_flag", False)
+                )
+            }
+        else:
+            oc_matched_by_gid = {
+                r.id.removeprefix("pm:"): r
+                for r in all_outcome_rows
+                if r.category == "matched" and r.id.startswith("pm:")
+            }
         oc_matched_in_order = []  # unused in matched branch (kept for type consistency)
 
     # Bug-1b fix: Build a dict of decisions keyed by gstr_id.
@@ -3915,6 +3957,26 @@ def _build_matched_pair_records(
                 itc_avl = resolve_itc_available(gm, grd_raw)
                 itc_rsn_val = resolve_itc_reason(gm, grd_raw)
 
+            is_ineligible_row = (
+                itc_avl is False
+                or getattr(orow, "itc_available", True) is False
+                or getattr(orow, "category", "") == "blocked_credit"
+                or getattr(orow, "blocked_credit_flag", False)
+                or str(pd2.get("itc_eligibility") or "").strip().upper() in ("N", "NO", "INELIGIBLE")
+            )
+            if is_ineligible_row and orow and getattr(orow, "decision_next", None) and "can be claimed" not in str(getattr(orow, "decision_next", "")).lower():
+                final_d_what = str(getattr(orow, "decision_what", ""))
+                final_d_why = str(getattr(orow, "decision_why", ""))
+                final_d_next = str(getattr(orow, "decision_next", ""))
+            elif is_ineligible_row:
+                final_d_what = "Matched invoice, but ITC is marked ineligible/blocked"
+                final_d_why = str(itc_rsn_val or getattr(orow, "itc_reason", None) or "Invoice matches in books, but is blocked under Section 17(5) or marked ineligible in GSTR-2B")
+                final_d_next = "Ineligible for ITC u/s 17(5) / marked ineligible. Do not claim in Table 4(A)(5); report under Table 4(D)(2)."
+            else:
+                final_d_what = d_what if d_what else (str(getattr(orow, "decision_what", "")) if orow else None)
+                final_d_why = d_why if d_why else (str(getattr(orow, "decision_why", "")) if orow else None)
+                final_d_next = d_next if d_next else (str(getattr(orow, "decision_next", "")) if orow else None)
+
             api_row = {
                 "id": rid_str,
                 "supplier_gstin": str(en_row.get("supplier_gstin") or gm.get("supplier_gstin") or pm.get("supplier_gstin") or ""),
@@ -3933,15 +3995,18 @@ def _build_matched_pair_records(
                 "discrepancy_note": en_row.get("note") if isinstance(en_row, dict) else None,
                 "discrepancy_reason": discrepancy_reason,
                 "tax_difference_paise": tax_diff_paise or 0,
-                "decision_what": d_what
-                if d_what
-                else (str(getattr(orow, "decision_what", "")) if orow else None),
-                "decision_why": d_why
-                if d_why
-                else (str(getattr(orow, "decision_why", "")) if orow else None),
-                "decision_next": d_next
-                if d_next
-                else (str(getattr(orow, "decision_next", "")) if orow else None),
+                "supply_type": (
+                    getattr(orow, "supply_type", None)
+                    or en_row.get("supply_type")
+                    or gm.get("supply_type")
+                    or pm.get("supply_type")
+                    or "REGULAR"
+                ),
+                "itc_available": not is_ineligible_row,
+                "itc_reason": itc_rsn_val or getattr(orow, "itc_reason", None),
+                "decision_what": final_d_what,
+                "decision_why": final_d_why,
+                "decision_next": final_d_next,
                 "decision_status": _lookup_by_record_id(decision_statuses, rid_str, "pending"),
                 "decision_type": None,
                 "notes_count": int(_lookup_by_record_id(note_counts, rid_str, 0)),
@@ -7027,6 +7092,7 @@ async def reconcile_export_excel_workbook(
             payload=p,
             note_counts=notes,
             precomputed_outcome_rows=summ_outcome_rows,
+            include_ineligible=True,
         )
         review_pairs = _build_matched_pair_records(
             sb,

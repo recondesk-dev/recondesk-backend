@@ -446,11 +446,20 @@ def is_sequential_series_mismatch(
     if not n1 or not n2 or n1 == n2:
         return False
 
+    # Check OCR-canonical equality with zero compression (e.g. 00385 vs O038S)
+    try:
+        o1 = re.sub(r"0+", "0", ocr_canonical_invoice(s1))
+        o2 = re.sub(r"0+", "0", ocr_canonical_invoice(s2))
+        if o1 and o2 and o1 == o2:
+            return False
+    except Exception:
+        pass
+
     # Digit transpositions (e.g. 650125 ↔ 605125 or 185025 ↔ 815025) are typos,
     # not sequential series mismatches.
     d1 = "".join(re.findall(r"\d", s1)).lstrip("0")
     d2 = "".join(re.findall(r"\d", s2)).lstrip("0")
-    if len(d1) >= 4 and len(d2) >= 4 and Counter(d1) == Counter(d2):
+    if len(d1) >= 3 and len(d2) >= 3 and Counter(d1) == Counter(d2):
         return False
 
     def _extract_nums(s: str) -> list[int]:

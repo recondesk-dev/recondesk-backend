@@ -1294,6 +1294,8 @@ def build_outcome_rows(
                 late_filing_flag=False,
                 is_credit_note=False,
                 amount=_opt_int(g.get("total_tax_paise")),
+                itc_available=False,
+                normalized_reason="BLOCKED_CREDIT",
             )
         )
 

@@ -1,0 +1,41 @@
+{
+  "stats": {
+    "total_gstr": 4000,
+    "total_pr": 4000,
+    "matched_count": 3272,
+    "clean_matched_count": 3272,
+    "review_required_count": 481,
+    "total_linked_count": 3753,
+    "missed_itc_count": 247,
+    "missed_itc_amount_paise": 602188606,
+    "wrongful_risk_count": 247,
+    "wrongful_risk_amount_paise": 623656689,
+    "itc_at_risk_count": 247,
+    "itc_at_risk_total": 623656689,
+    "purchase_value_at_risk_paise": 0,
+    "duplicate_entry_count": 0,
+    "unmatched_notes_count": 0,
+    "gstin_mismatch_count": 50,
+    "gstin_mismatch_amount_paise": 0,
+    "invalid_gstin_count": 0,
+    "invalid_gstin_amount_paise": 0,
+    "invalid_gstin_matched_count": 0,
+    "invalid_gstin_unresolved_count": 0,
+    "duplicate_count": 0,
+    "duplicate_pr_count": 0,
+    "duplicate_conflict_count": 0,
+    "genuine_gstr_only_count": 247,
+    "genuine_pr_only_count": 247,
+    "missed_itc_total": 602188606,
+    "match_rate_pct": 81.8,
+    "sanity_passed": true
+  },
+  "counts": {
+    "total_gstr": 4000,
+    "total_pr": 4000,
+    "matched": 3272,
+    "review_required": 481,
+    "missed_itc": 247,
+    "itc_at_risk": 247
+  }
+}

@@ -203,6 +203,9 @@ def gstr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
             if rd.get("reverse_charge") is not None
             else (rd.get("rchrg") or rd.get("rev") or rd.get("rev_chg"))
         ),
+        "supply_type": (
+            str(rd.get("supply_type") or rd.get("sply_ty") or rd.get("inv_supply_type") or "").strip().upper() or None
+        ),
     }
 
 
@@ -299,6 +302,9 @@ def pr_db_row_to_matcher_row(row: dict[str, Any]) -> dict[str, Any]:
             rd.get("reverse_charge")
             if rd.get("reverse_charge") is not None
             else (rd.get("rcm") or rd.get("rchrg") or rd.get("reverse_charge_applicable"))
+        ),
+        "supply_type": (
+            str(rd.get("supply_type") or "").strip().upper() or None
         ),
     }
     if total_amt_raw != 0:

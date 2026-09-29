@@ -573,7 +573,9 @@ def compile_gstr3b_table4(
             continue
 
         # CASE 2: Input Service Distributor (ISD) -> 4A4
-        if g_doctype == "ISD" or p_doctype == "ISD":
+        g_supply = str(g_rd.get("supply_type") or "").strip().upper()
+        p_supply = str(p_rd.get("supply_type") or "").strip().upper()
+        if g_doctype == "ISD" or p_doctype == "ISD" or g_supply == "ISD" or p_supply == "ISD":
             t4a4.add(sig_igst, sig_cgst, sig_sgst, sig_cess)
             contributing_record_ids.append(rec_id)
             continue
@@ -1184,7 +1186,12 @@ def get_table4_drilldown(
         elif row_id_clean == "4A3" and is_rcm and (p_rd or r.category == "matched"):
             belongs_to_row = True
             stat_reason = "Domestic Inward Supply liable to Reverse Charge under Section 9(3)"
-        elif row_id_clean == "4A4" and (g_doctype == "ISD" or p_doctype == "ISD"):
+        elif row_id_clean == "4A4" and (
+            g_doctype == "ISD"
+            or p_doctype == "ISD"
+            or str(g_rd.get("supply_type") or "").strip().upper() == "ISD"
+            or str(p_rd.get("supply_type") or "").strip().upper() == "ISD"
+        ):
             belongs_to_row = True
             stat_reason = "Input Service Distributor document under Section 20"
         elif row_id_clean == "4A5":

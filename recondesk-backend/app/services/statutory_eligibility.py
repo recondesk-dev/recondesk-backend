@@ -510,7 +510,19 @@ def classify_statutory_treatment_for_matched(
 ) -> StatutoryClassification:
     """Classify statutory eligibility and GSTR-3B table allocation for a matched record pair."""
     is_rcm = detect_rcm_supply(g, g_rd, p, p_rd)
-    supply_type = "RCM" if is_rcm else "REGULAR"
+    is_isd = bool(
+        str(g.get("supply_type") or g_rd.get("supply_type") or g_rd.get("Supply Type") or "").strip().upper() == "ISD"
+        or str(p.get("supply_type") or p_rd.get("supply_type") or p_rd.get("Supply Type") or "").strip().upper() == "ISD"
+        or str(g.get("document_type") or g_rd.get("document_type") or g_rd.get("Document Type") or "").strip().upper() == "ISD"
+        or str(p.get("document_type") or p_rd.get("document_type") or p_rd.get("Document Type") or "").strip().upper() == "ISD"
+        or str(g.get("section") or g_rd.get("section") or "").strip().upper() in ("ISD", "ISDA")
+    )
+    if is_rcm:
+        supply_type = "RCM"
+    elif is_isd:
+        supply_type = "ISD"
+    else:
+        supply_type = "REGULAR"
 
     # CASE 1: Rule 37A Supplier Non-Filer Risk
     if is_r37a:
@@ -638,6 +650,28 @@ def classify_statutory_treatment_for_matched(
             blocked_credit_flag=False,
         )
 
+    # CASE 3b: Input Service Distributor (ISD) with ITC Available
+    if is_isd:
+        isd_what = "Inward Supplies from Input Service Distributor (ISD)"
+        isd_why = "Invoice received from Input Service Distributor (ISD) for distributed input tax credit."
+        isd_next = "Claim eligible ITC in GSTR-3B Table 4(A)(4) (Inward supplies from ISD). Do not report under Table 4(A)(5)."
+        return StatutoryClassification(
+            itc_status=ITCEligibilityStatus.AVAILABLE,
+            is_rcm=False,
+            is_itc_available=True,
+            normalized_reason=None,
+            source_reason=None,
+            supply_type="ISD",
+            liability_table=None,
+            claim_table="4(A)(4)",
+            decision_what=isd_what,
+            decision_why=isd_why,
+            decision_next=isd_next,
+            category="matched",
+            rule37a_flag=False,
+            blocked_credit_flag=False,
+        )
+
     # CASE 4: Standard Regular Eligible Inward Supply
     return StatutoryClassification(
         itc_status=ITCEligibilityStatus.AVAILABLE,
@@ -666,7 +700,17 @@ def classify_statutory_treatment_for_gstr_only(
 ) -> StatutoryClassification:
     """Classify statutory eligibility for an unmatched GSTR-2B record (missing in books)."""
     is_rcm = detect_rcm_supply(g, g_rd)
-    supply_type = "RCM" if is_rcm else "REGULAR"
+    is_isd = bool(
+        str(g.get("supply_type") or g_rd.get("supply_type") or g_rd.get("Supply Type") or "").strip().upper() == "ISD"
+        or str(g.get("document_type") or g_rd.get("document_type") or g_rd.get("Document Type") or "").strip().upper() == "ISD"
+        or str(g.get("section") or g_rd.get("section") or "").strip().upper() in ("ISD", "ISDA")
+    )
+    if is_rcm:
+        supply_type = "RCM"
+    elif is_isd:
+        supply_type = "ISD"
+    else:
+        supply_type = "REGULAR"
 
     if not is_itc_avail:
         norm_rsn = normalize_ineligibility_reason(itc_rsn, is_blocked_credit=False, is_non_filer=False)
@@ -696,15 +740,20 @@ def classify_statutory_treatment_for_gstr_only(
         )
 
     # Eligible GSTR-only invoice
-    claim_table = "4(A)(3)" if is_rcm else "4(A)(5)"
+    claim_table = "4(A)(3)" if is_rcm else ("4(A)(4)" if is_isd else "4(A)(5)")
     liability_table = "3.1(d)" if is_rcm else None
-    d_what = "Inward Supply Missing in Books" if not is_rcm else "RCM Inward Supply Missing in Books"
-    d_why = "Invoice present in GSTR-2B but not found in Purchase Register."
-    d_next = (
-        "Verify & book in accounting software; pay RCM tax under Table 3.1(d) and claim under Table 4(A)(3)."
-        if is_rcm
-        else "Verify & book invoice in purchase register to claim missed ITC in GSTR-3B."
-    )
+    if is_rcm:
+        d_what = "RCM Inward Supply Missing in Books"
+        d_why = "Invoice present in GSTR-2B but not found in Purchase Register."
+        d_next = "Verify & book in accounting software; pay RCM tax under Table 3.1(d) and claim under Table 4(A)(3)."
+    elif is_isd:
+        d_what = "ISD Inward Supply Missing in Books"
+        d_why = "Input Service Distributor invoice present in GSTR-2B but not found in Purchase Register."
+        d_next = "Verify & book in purchase register; claim ISD credit under GSTR-3B Table 4(A)(4)."
+    else:
+        d_what = "Inward Supply Missing in Books"
+        d_why = "Invoice present in GSTR-2B but not found in Purchase Register."
+        d_next = "Verify & book invoice in purchase register to claim missed ITC in GSTR-3B."
 
     return StatutoryClassification(
         itc_status=ITCEligibilityStatus.RCM if is_rcm else ITCEligibilityStatus.AVAILABLE,

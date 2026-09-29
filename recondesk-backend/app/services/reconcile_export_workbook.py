@@ -351,13 +351,35 @@ def build_excel_workbook_bytes(
         ws1.cell(row=row, column=1, value="Statutory GSTR-3B Allocation").font = Font(bold=True, size=11, color=_HEADER_BLUE)
         row += 1
 
+        isd_itc_amt = summary.get("isd_itc_amount")
+        if isd_itc_amt is None:
+            isd_itc_amt = sum(
+                float(ap.get("amount") or 0)
+                for ap, _o in matched_pairs
+                if (
+                    ap.get("supply_type") == "ISD"
+                    or getattr(_o, "supply_type", "") == "ISD"
+                    or (isinstance(ap.get("gstr2b_data"), dict) and ap.get("gstr2b_data", {}).get("supply_type") == "ISD")
+                    or str(ap.get("document_type") or "").upper() == "ISD"
+                )
+                and ap.get("itc_available") is not False
+                and getattr(_o, "itc_available", True) is not False
+            )
+
         eligible_dom_amt = summary.get("matched_eligible_itc_amount")
         if eligible_dom_amt is None:
             eligible_dom_amt = sum(
                 float(ap.get("amount") or 0)
                 for ap, _o in matched_pairs
                 if ap.get("itc_available") is not False
+                and getattr(_o, "itc_available", True) is not False
                 and not bool(ap.get("is_rcm") or getattr(_o, "is_rcm", False))
+                and not (
+                    ap.get("supply_type") == "ISD"
+                    or getattr(_o, "supply_type", "") == "ISD"
+                    or (isinstance(ap.get("gstr2b_data"), dict) and ap.get("gstr2b_data", {}).get("supply_type") == "ISD")
+                    or str(ap.get("document_type") or "").upper() == "ISD"
+                )
             )
 
         rcm_itc_amt = summary.get("rcm_itc_amount")
@@ -381,17 +403,21 @@ def build_excel_workbook_bytes(
             )
 
         ineligible_amt = summary.get("ineligible_itc_amount")
-        if ineligible_amt is None:
+        if ineligible_amt is None or float(ineligible_amt or 0) == 0:
             ineligible_amt = sum(
                 float(r.get("amount") or 0)
                 for r in section17_rows
-                if "POS" in str(r.get("decision_what") or "")
-                or "ineligible" in str(r.get("decision_what") or "").lower()
-                or "17(5)" in str(r.get("decision_what") or "")
             )
+            if float(ineligible_amt or 0) == 0:
+                ineligible_amt = sum(
+                    float(ap.get("amount") or 0)
+                    for ap, _o in matched_pairs
+                    if ap.get("itc_available") is False or getattr(_o, "itc_available", True) is False
+                )
 
         statutory_stats = [
             ("Eligible Domestic ITC [Table 4(A)(5)]", _rs_int(float(eligible_dom_amt or 0))),
+            ("Inward Supplies from ISD [Table 4(A)(4)]", _rs_int(float(isd_itc_amt or 0))),
             ("Inward RCM Eligible ITC [Table 4(A)(3)]", _rs_int(float(rcm_itc_amt or 0))),
             ("Inward RCM Cash Liability [Table 3.1(d)]", _rs_int(float(rcm_liab_amt or 0))),
             ("Section 16(4) Time-Barred ITC (Dead Credit)", _rs_int(float(time_barred_amt or 0))),
@@ -444,18 +470,6 @@ def build_excel_workbook_bytes(
         fill_other = PatternFill("solid", fgColor=_FILL_OTHER)
         r = 2
         for api_row, _orow in matched_pairs:
-            # Only skip rows that are explicitly ITC-blocked AND categorised as
-            # blocked_credit / rule37 — those belong in the Rule 37 & Section 17-5
-            # sheet.  Do NOT skip rows whose itc_available is merely None/absent;
-            # that would silently drop legitimately matched records (e.g. synthetic
-            # test data where the ITC flag column is missing).
-            _orow_cat = getattr(_orow, "category", None) or ""
-            _is_blocked_category = _orow_cat in ("blocked_credit", "rule37_warnings")
-            if _is_blocked_category and (
-                api_row.get("itc_available") is False
-                or getattr(_orow, "itc_available", True) is False
-            ):
-                continue
             lvl = str(api_row.get("match_level") or "").upper()
             if lvl == "EXACT":
                 row_fill = fill_exact
@@ -466,6 +480,9 @@ def build_excel_workbook_bytes(
             else:
                 row_fill = fill_other
             gd = api_row.get("gstr2b_data") if isinstance(api_row.get("gstr2b_data"), dict) else {}
+            pd = api_row.get("purchase_register_data") if isinstance(api_row.get("purchase_register_data"), dict) else {}
+            if not pd:
+                pd = api_row.get("pr_data") if isinstance(api_row.get("pr_data"), dict) else {}
             taxable = _taxable_from_gstr_merged(gd)
             conf_pct = int(
                 round(
@@ -473,6 +490,16 @@ def build_excel_workbook_bytes(
                 )
             )
             is_rcm = bool(api_row.get("is_rcm") or getattr(_orow, "is_rcm", False))
+            is_isd = bool(
+                api_row.get("supply_type") == "ISD"
+                or getattr(_orow, "supply_type", "") == "ISD"
+                or gd.get("supply_type") == "ISD"
+                or pd.get("supply_type") == "ISD"
+                or str(api_row.get("document_type") or "").upper() == "ISD"
+                or str(gd.get("document_type") or "").upper() == "ISD"
+                or str(pd.get("document_type") or "").upper() == "ISD"
+                or str(gd.get("section") or "").upper() in ("ISD", "ISDA")
+            )
             is_cn = (
                 bool(api_row.get("is_credit_note"))
                 or bool(gd.get("is_credit_note"))
@@ -489,10 +516,35 @@ def build_excel_workbook_bytes(
                 )
             )
 
-            if is_rcm:
+            _orow_cat = getattr(_orow, "category", None) or ""
+            is_blocked_or_ineligible = (
+                api_row.get("itc_available") is False
+                or getattr(_orow, "itc_available", True) is False
+                or _orow_cat == "blocked_credit"
+                or getattr(_orow, "blocked_credit_flag", False)
+                or str(pd.get("itc_eligibility") or api_row.get("itc_eligibility") or "").strip().upper() in ("N", "NO", "INELIGIBLE")
+            )
+
+            dec_what = api_row.get("decision_what")
+            dec_why = api_row.get("decision_why")
+            dec_next = api_row.get("decision_next")
+
+            if is_blocked_or_ineligible:
+                supply_type = "INELIGIBLE"
+                gstr3b_table = "Table 4(D)(2)"
+                doc_type_disp = _doc_type_display(api_row.get("document_type"), api_row)
+                if not dec_next or "can be claimed" in str(dec_next).lower():
+                    dec_what = "Matched invoice, but ITC is marked ineligible/blocked"
+                    dec_why = api_row.get("itc_reason") or getattr(_orow, "itc_reason", None) or "Invoice matches in books, but is blocked under Section 17(5) or marked ineligible in GSTR-2B"
+                    dec_next = "Ineligible for ITC u/s 17(5) / marked ineligible. Do not claim in Table 4(A)(5); report under Table 4(D)(2)."
+            elif is_rcm:
                 supply_type = "RCM"
                 gstr3b_table = "Table 4(A)(3)"
                 doc_type_disp = f"{_doc_type_display(api_row.get('document_type'), api_row)} (RCM 4A3)"
+            elif is_isd:
+                supply_type = "ISD"
+                gstr3b_table = "Table 4(A)(4)"
+                doc_type_disp = f"{_doc_type_display(api_row.get('document_type'), api_row)} (ISD 4A4)"
             elif is_cn:
                 supply_type = "CREDIT NOTE"
                 gstr3b_table = "Table 4(B)(2)"
@@ -514,9 +566,9 @@ def build_excel_workbook_bytes(
                 _comma_int(float(api_row.get("amount") or 0)),
                 api_row.get("match_level", ""),
                 f"{conf_pct}%",
-                _decision_cell(api_row.get("decision_what")),
-                _decision_cell(api_row.get("decision_why")),
-                _decision_cell(api_row.get("decision_next")),
+                _decision_cell(dec_what),
+                _decision_cell(dec_why),
+                _decision_cell(dec_next),
                 supply_type,
                 gstr3b_table,
                 _format_match_confidence(api_row.get("match_confidence")),
@@ -628,15 +680,6 @@ def build_excel_workbook_bytes(
             for col, v in enumerate(vals, 1):
                 ws4.cell(row=r, column=col, value=v)
             r += 1
-        total_fill = PatternFill("solid", fgColor=_FILL_TOTAL_RED)
-        bold = Font(bold=True)
-        ws4.cell(row=r, column=1, value="TOTAL")
-        ws4.cell(row=r, column=1).font = bold
-        ws4.cell(row=r, column=1).fill = total_fill
-        csum = ws4.cell(row=r, column=5, value=_comma_int(sum_risk))
-        csum.font = bold
-        csum.fill = total_fill
-        r += 1
         _autosize_columns(ws4)
         tracks.append(
             _SheetTrack(
@@ -694,15 +737,6 @@ def build_excel_workbook_bytes(
                 for col, v in enumerate(vals, 1):
                     ws4b.cell(row=r, column=col, value=v)
                 r += 1
-            total_fill = PatternFill("solid", fgColor=_FILL_TOTAL_RED)
-            bold = Font(bold=True)
-            ws4b.cell(row=r, column=1, value="TOTAL")
-            ws4b.cell(row=r, column=1).font = bold
-            ws4b.cell(row=r, column=1).fill = total_fill
-            csum = ws4b.cell(row=r, column=5, value=_comma_int(sum_tb))
-            csum.font = bold
-            csum.fill = total_fill
-            r += 1
         _autosize_columns(ws4b)
         tracks.append(
             _SheetTrack(

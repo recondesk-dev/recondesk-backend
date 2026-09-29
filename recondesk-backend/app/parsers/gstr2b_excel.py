@@ -186,6 +186,7 @@ _CANONICAL_FIELD_TO_STD_KEY: tuple[tuple[str, str], ...] = (
     ("note_reason", "Reason"),
     ("original_invoice_number", "Original Invoice Number"),
     ("recipient_gstin", "Recipient GSTIN"),
+    ("supply_type", "Supply Type"),
 )
 
 

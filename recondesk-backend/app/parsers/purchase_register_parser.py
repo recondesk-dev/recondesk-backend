@@ -86,6 +86,7 @@ STANDARD_TO_CANONICAL: dict[str, str] = {
     "payment_date": "payment_date",
     "amount_paid": "amount_paid_paise",
     "itc_eligibility": "itc_eligibility",
+    "supply_type": "supply_type",
     "hsn": "hsn",
     # Credit/debit note sheets (quarantined from invoice matching).
     "note_number": "note_number",
@@ -244,6 +245,9 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "itc claimed", "itc claim", "itc availed", "itc availed yn",
         "itc availability", "itc available", "itc available yn", "itc avl", "itcavl",
     ],
+    "supply_type": [
+        "supply type", "type of supply", "nature of supply", "inv supply type",
+    ],
     "hsn": [
         "hsn", "hsn code", "hsn/sac", "sac", "sac code", "hsn code/sac code",
     ],
@@ -259,7 +263,7 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     "note_type": [
         "note type", "cn dn", "cndn",
         "voucher type", "vch type", "document type", "doc type",
-        "transaction type", "trans type", "type",
+        "transaction type", "trans type",
     ],
     "note_reason": [
         "reason", "note reason", "remarks", "remark",
@@ -1153,7 +1157,7 @@ def normalize_dataframe_to_canonical_schema(
             "total_amount_paise",
         ):
             out_cols[canon] = ser.map(_amount_int_unsigned)
-        elif canon in ("supplier_name", "place_of_supply"):
+        elif canon in ("supplier_name", "place_of_supply", "supply_type"):
             out_cols[canon] = ser.map(_safe_cell)
         elif canon == "reverse_charge":
             out_cols[canon] = ser.map(_normalize_reverse_charge)
@@ -1766,6 +1770,10 @@ def _process_pr_sheet_rows(
             _itc = row.get("itc_eligibility")
             if _itc is not None and not (isinstance(_itc, float) and pd.isna(_itc)):
                 out["itc_eligibility"] = str(_itc)
+        if "supply_type" in mapping:
+            _st = row.get("supply_type")
+            if _st is not None and not (isinstance(_st, float) and pd.isna(_st)):
+                out["supply_type"] = str(_st).strip().upper()
         if "hsn" in mapping:
             _hsn = row.get("hsn")
             if _hsn is not None and not (isinstance(_hsn, float) and pd.isna(_hsn)):
