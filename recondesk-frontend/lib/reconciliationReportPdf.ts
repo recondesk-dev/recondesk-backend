@@ -583,7 +583,11 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
   let y = CONTENT_TOP;
   const { summary } = data;
   const periodLabel = formatReportPeriod(summary.period);
-  const matchPct = summary.match_rate_percent ?? 0;
+  const cleanMatched = summary.clean_matched_count ?? summary.matched_count;
+  const itcOnHold = summary.itc_on_hold_count ?? 0;
+  const grossMatched = summary.gross_matched_count ?? (cleanMatched + itcOnHold);
+  const grossMatchPct = summary.gross_match_rate_pct ?? (summary.total_gstr_records > 0 ? (grossMatched / summary.total_gstr_records) * 100 : 0);
+  const matchPct = itcOnHold > 0 ? grossMatchPct : (summary.match_rate_percent ?? 0);
 
   y = drawSectionTitle(doc, y, "Reconciliation Overview");
 
@@ -607,8 +611,8 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
     boxY,
     boxW,
     boxH,
-    "Matched",
-    summary.matched_count.toLocaleString("en-IN"),
+    itcOnHold > 0 ? "Total Matched" : "Matched",
+    (itcOnHold > 0 ? grossMatched : summary.matched_count).toLocaleString("en-IN"),
     GREEN_DOT
   );
   drawCurrencyStatBox(
@@ -638,9 +642,14 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
 
   // Status pills row (dashboard-style)
   let pillX = MARGIN;
-  pillX += drawStatusPill(doc, pillX, y, "Matched", summary.matched_count, {
-    dot: GREEN_DOT,
-  });
+  pillX += drawStatusPill(
+    doc,
+    pillX,
+    y,
+    itcOnHold > 0 ? "Total Matched" : "Matched",
+    itcOnHold > 0 ? grossMatched : summary.matched_count,
+    { dot: GREEN_DOT }
+  );
   pillX += drawStatusPill(doc, pillX, y, "ITC at Risk — Not in GSTR-2B", summary.wrongful_risk_count, {
     dot: RED_DOT,
   });
@@ -677,14 +686,16 @@ function buildOverviewPage(doc: jsPDF, data: ReportPdfDataset): number {
   const riskN = summary.wrongful_risk_count;
   const unmatched = Math.max(
     0,
-    summary.total_gstr_records - summary.matched_count
+    summary.total_gstr_records - (itcOnHold > 0 ? grossMatched : summary.matched_count)
   );
-  const narrative = `Out of ${summary.total_gstr_records.toLocaleString("en-IN")} GSTR records processed for ${periodLabel}, ${summary.matched_count.toLocaleString("en-IN")} invoices (${matchPct.toFixed(1)}%) were successfully matched. ${unmatched.toLocaleString("en-IN")} unmatched invoices were identified. ${riskN.toLocaleString("en-IN")} invoices worth ${formatINR(summary.wrongful_risk_total_amount)} carry compliance risk and require attention.`;
+  const narrative = itcOnHold > 0
+    ? `Out of ${summary.total_gstr_records.toLocaleString("en-IN")} GSTR records processed for ${periodLabel}, ${grossMatched.toLocaleString("en-IN")} invoices (${matchPct.toFixed(1)}%) were matched (${cleanMatched.toLocaleString("en-IN")} eligible under Table 4(A)(5), ${itcOnHold.toLocaleString("en-IN")} quarantined under Table 4(B)). ${unmatched.toLocaleString("en-IN")} unmatched invoices were identified. ${riskN.toLocaleString("en-IN")} invoices worth ${formatINR(summary.wrongful_risk_total_amount)} carry compliance risk and require attention.`
+    : `Out of ${summary.total_gstr_records.toLocaleString("en-IN")} GSTR records processed for ${periodLabel}, ${summary.matched_count.toLocaleString("en-IN")} invoices (${matchPct.toFixed(1)}%) were successfully matched. ${unmatched.toLocaleString("en-IN")} unmatched invoices were identified. ${riskN.toLocaleString("en-IN")} invoices worth ${formatINR(summary.wrongful_risk_total_amount)} carry compliance risk and require attention.`;
   y = drawSubtitle(doc, y, narrative);
 
   const metrics: [string, string][] = [
     ["Total GSTR Records", summary.total_gstr_records.toLocaleString("en-IN")],
-    ["Matched Records", summary.matched_count.toLocaleString("en-IN")],
+    ["Matched Records", itcOnHold > 0 ? `${grossMatched.toLocaleString("en-IN")} (${cleanMatched.toLocaleString("en-IN")} eligible + ${itcOnHold.toLocaleString("en-IN")} on hold)` : summary.matched_count.toLocaleString("en-IN")],
     ["Match Rate", `${matchPct.toFixed(1)}%`],
     ["Missed ITC Count", missedN.toLocaleString("en-IN")],
     ["ITC at Risk — Not in GSTR-2B Count", riskN.toLocaleString("en-IN")],

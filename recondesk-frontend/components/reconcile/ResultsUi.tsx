@@ -777,7 +777,9 @@ export function ResultsBucketTabs({
               : "border-transparent text-[#64748B] hover:text-[#0F172A]"
           }`}
         >
-          {tResults("matched")}
+          {tabCounts?.itc_on_hold != null && tabCounts.itc_on_hold > 0
+            ? "Matched (Eligible)"
+            : tResults("matched")}
           {tabCounts?.matched != null && (
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.matched}`}>
               {tabCounts.matched.toLocaleString("en-IN")}

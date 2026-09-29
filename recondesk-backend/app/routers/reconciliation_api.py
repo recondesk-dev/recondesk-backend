@@ -3229,6 +3229,12 @@ def _build_reconcile_summary(
                 low_priority_review_count += 1
                 low_priority_review_itc_paise += int(round(float(api_row.get("amount") or 0) * 100))
 
+    itc_on_hold_count = sum(
+        1 for r in outcome_rows if r.id.startswith("pm:") and r.category in ("rule37_warnings", "blocked_credit")
+    )
+    gross_matched_count = matched_count + itc_on_hold_count
+    gross_match_pct = round(100.0 * gross_matched_count / n_g, 1) if n_g > 0 else 0.0
+
     return {
         "run_id": rid,
         "client_name": client_display,
@@ -3243,6 +3249,8 @@ def _build_reconcile_summary(
         "total_gstr_records": n_g,
         # Stable canonical fields consumed by the results page
         "clean_matched_count": matched_count,
+        "gross_matched_count": gross_matched_count,
+        "gross_match_rate_pct": gross_match_pct,
         "review_required_count": review_required_count,
         "total_linked_count": total_linked_count,
         # matched_count kept for backward compat (= clean_matched_count)
@@ -3280,9 +3288,7 @@ def _build_reconcile_summary(
         "matched_notes_count": sum(
             1 for r in outcome_rows if r.category == "matched" and getattr(r, "is_credit_note", False)
         ),
-        "itc_on_hold_count": sum(
-            1 for r in outcome_rows if r.id.startswith("pm:") and r.category in ("rule37_warnings", "blocked_credit")
-        ),
+        "itc_on_hold_count": itc_on_hold_count,
         "rule37a_count": sum(
             1 for r in outcome_rows if r.category == "rule37_warnings"
         ),

@@ -37,6 +37,11 @@ export type ReportSummary = {
   status: string;
   total_gstr_records: number;
   matched_count: number;
+  clean_matched_count?: number;
+  itc_on_hold_count?: number;
+  itc_on_hold_total_amount?: number;
+  gross_matched_count?: number;
+  gross_match_rate_pct?: number;
   missed_itc_count: number;
   missed_itc_total_amount: number;
   wrongful_risk_count: number;

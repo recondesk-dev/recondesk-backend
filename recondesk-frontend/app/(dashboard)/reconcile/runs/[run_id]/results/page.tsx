@@ -418,6 +418,9 @@ type RunSummary = {
   total_gstr_records: number;
   // Stable canonical fields (guaranteed from backend)
   clean_matched_count: number;
+  gross_matched_count?: number;
+  gross_match_rate_pct?: number;
+  matched_eligible_itc_amount?: number;
   review_required_count: number;
   total_linked_count: number;
   matched_count: number;          // = clean_matched_count (backward compat)
@@ -3237,7 +3240,16 @@ export default function ReconcileResultsPage() {
         )}
 
         {/* KPI section */}
-        {summary && !summaryError && (
+        {summary && !summaryError && (() => {
+          const cleanMatched = summary.clean_matched_count ?? summary.matched_count ?? 0;
+          const itcOnHold = summary.itc_on_hold_count ?? 0;
+          const grossMatched = summary.gross_matched_count ?? (cleanMatched + itcOnHold);
+          const totalRecords = Math.max(summary.total_gstr_records, 1);
+          const grossMatchPct = summary.gross_match_rate_pct ?? Math.min(100, Math.round((grossMatched / totalRecords) * 100));
+          const cleanMatchedPct = Math.min(100, Math.round((cleanMatched / totalRecords) * 100));
+          const onHoldPct = Math.min(100 - cleanMatchedPct, Math.round((itcOnHold / totalRecords) * 100));
+
+          return (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {/* Left: Run summary */}
             <div className="flex items-center gap-6 rounded-[10px] border border-[#E2E8F0] bg-white p-5 px-6">
@@ -3252,22 +3264,44 @@ export default function ReconcileResultsPage() {
               </div>
               <div className="h-14 w-[1px] bg-[#F1F5F9]" />
               <div className="flex-1">
-                <div className="mb-1.5 flex justify-between text-xs text-[#94A3B8]">
-                  <span className="font-semibold uppercase tracking-wider">{tResults("matched")}</span>
-                  <span className="text-base sm:text-lg font-bold text-[#16A34A]">
-                    {(summary.clean_matched_count ?? summary.matched_count).toLocaleString("en-IN")} · {Math.round(((summary.clean_matched_count ?? summary.matched_count) / Math.max(summary.total_gstr_records, 1)) * 100)}%
+                <div className="mb-1.5 flex justify-between items-baseline text-xs text-[#94A3B8]">
+                  <span className="font-semibold uppercase tracking-wider text-[#64748B]">
+                    {itcOnHold > 0 ? "Total Matched" : tResults("matched")}
+                  </span>
+                  <span className="text-base sm:text-lg font-bold text-[#0F172A]">
+                    <span className="text-[#16A34A]">{grossMatched.toLocaleString("en-IN")}</span>
+                    <span className="text-[#64748B] text-sm sm:text-base font-semibold"> · {grossMatchPct}%</span>
                   </span>
                 </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-[#F1F5F9]">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-[#F1F5F9] flex">
                   <div
-                    className="h-full rounded-full bg-[#16A34A] transition-all duration-150"
+                    className="h-full bg-[#16A34A] transition-all duration-150"
                     style={{
-                      width: `${Math.min(100, Math.max(0, Math.round(((summary.clean_matched_count ?? summary.matched_count) / Math.max(summary.total_gstr_records, 1)) * 100)))}%`,
+                      width: `${cleanMatchedPct}%`,
                     }}
+                    title={`${cleanMatched.toLocaleString("en-IN")} Eligible ITC (${cleanMatchedPct}%)`}
                   />
+                  {itcOnHold > 0 && (
+                    <div
+                      className="h-full bg-[#F59E0B] transition-all duration-150"
+                      style={{
+                        width: `${onHoldPct}%`,
+                      }}
+                      title={`${itcOnHold.toLocaleString("en-IN")} Blocked / On Hold (${onHoldPct}%)`}
+                    />
+                  )}
                 </div>
-                <div className="mt-1.5 text-xs font-medium text-[#64748B]">
-                  {`${(summary.clean_matched_count ?? summary.matched_count ?? 0).toLocaleString("en-IN")} Eligible for GSTR-3B Table 4(A)(5) · ${(summary.itc_on_hold_count ?? 0).toLocaleString("en-IN")} On Hold / Ineligible`}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] font-medium">
+                  <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 text-emerald-700 border border-emerald-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    <strong>{cleanMatched.toLocaleString("en-IN")}</strong> Eligible (Table 4A5)
+                  </span>
+                  {itcOnHold > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-amber-700 border border-amber-200">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                      <strong>{itcOnHold.toLocaleString("en-IN")}</strong> Blocked by GSTN (Table 4B)
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="h-14 w-[1px] bg-[#F1F5F9]" />
@@ -3352,7 +3386,14 @@ export default function ReconcileResultsPage() {
                 className="flex cursor-pointer items-center border-t border-[#F8FAFC] px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
                 onClick={() => setResultsTab("itc_on_hold")}
               >
-                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#334155]">ITC On Hold (Table 4B Ineligible)</div>
+                <div className="flex-1">
+                  <div className="text-[13px] sm:text-sm font-medium text-[#334155]">
+                    ITC On Hold (Table 4B Ineligible)
+                  </div>
+                  <div className="text-[11px] text-[#64748B]">
+                    Matched invoices blocked by GST portal rules
+                  </div>
+                </div>
                 <span className="rounded-[5px] border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-800">
                   {(summary.itc_on_hold_count ?? 0).toLocaleString("en-IN")}
                 </span>
@@ -3363,7 +3404,8 @@ export default function ReconcileResultsPage() {
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* Tabs & Table Card Wrapper */}
         <div className="overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-white">
@@ -4616,7 +4658,7 @@ export default function ReconcileResultsPage() {
               <div className="ml-auto flex items-center gap-2">
                 <div className="flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-2.5 py-1 text-[11px] font-medium text-[#475569]">
                   <span className="h-1.5 w-1.5 rounded-full bg-[#16A34A]" aria-hidden />
-                  {(summary?.clean_matched_count ?? summary?.matched_count ?? 0).toLocaleString("en-IN")} Matched
+                  {(summary?.clean_matched_count ?? summary?.matched_count ?? 0).toLocaleString("en-IN")} {(summary?.itc_on_hold_count ?? 0) > 0 ? "Matched (Eligible)" : "Matched"}
                 </div>
                 <div className="flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-2.5 py-1 text-[11px] font-medium text-[#475569]">
                   <span className="h-1.5 w-1.5 rounded-full bg-[#D97706]" aria-hidden />
