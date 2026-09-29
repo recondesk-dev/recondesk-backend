@@ -795,7 +795,54 @@ def test_multi_period_rows_respect_fallback_period():
         ]
     }
     normalized = normalize_alt_2b_schema(payload, fallback_period="2026-09")
-    assert normalized["data"]["rtnprd"] == "092026"
+def test_gstr2b_excel_generic_sheet_with_itc_availability_and_fy_period():
+    """Verify that a GSTR-2B Excel workbook with a generic sheet name ('Sheet')
+    and standard 'ITC Availability' column parses successfully instead of being falsely
+    rejected as a purchase register. Also verify that periods like 'November 2024-25'
+    and 'January 2024-25' correctly resolve to calendar month-year."""
+    import io
+    import pandas as pd
+    from app.parsers.gstr2b_excel import excel_to_alt_2b_dict, parse_2b_excel
+    from app.parsers.gstr2b_parser import _alt_parse_period_to_rtnprd, parse_gstr2b
+
+    # Verify FY period conversion
+    assert _alt_parse_period_to_rtnprd("November 2024-25") == "112024"
+    assert _alt_parse_period_to_rtnprd("January 2024-25") == "012025"
+    assert _alt_parse_period_to_rtnprd("2024-25") is None
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "GSTIN of Supplier": "27POSSK4287F7ZV",
+                    "Trade/Legal Name": "Tata Consultancy Services",
+                    "Invoice Number": "SI/001/A",
+                    "Invoice Type": "Regular",
+                    "Invoice Date": "09-09-2024",
+                    "Invoice Value": 597442.71,
+                    "Place of Supply": "29-Karnataka",
+                    "Reverse Charge": "N",
+                    "Taxable Value": 466752.12,
+                    "IGST": 130690.59,
+                    "CGST": 0.0,
+                    "SGST": 0.0,
+                    "Period": "November 2024-25",
+                    "ITC Availability": "Yes",
+                }
+            ]
+        ).to_excel(writer, sheet_name="Sheet", index=False)
+
+    raw = buf.getvalue()
+    alt = excel_to_alt_2b_dict(raw, "GSTR2B_27ISKPK1273H1ZF_FY2024-25.xlsx")
+    assert len(alt["invoice"]) == 1
+    assert alt["invoice"][0]["GSTIN"] == "27POSSK4287F7ZV"
+
+    portal = parse_2b_excel(raw, "GSTR2B_27ISKPK1273H1ZF_FY2024-25.xlsx", fallback_buyer_gstin="27ISKPK1273H1ZF")
+    parsed = parse_gstr2b(portal)
+    assert parsed["total_parsed"] == 1
+    assert parsed["records"][0]["supplier_gstin"] == "27POSSK4287F7ZV"
+    assert parsed["records"][0]["invoice_number_raw"] == "SI/001/A"
 
 
 

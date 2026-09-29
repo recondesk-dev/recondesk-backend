@@ -469,10 +469,10 @@ def _is_gstr2b_invoice_sheet_by_content(
     if not (has_gstin and has_invoice_num and (has_date or has_taxable or has_tax)):
         return False, [], "", ""
 
-    # Check for PR-specific column markers
-    if "itc_eligibility" in mapping:
-        return False, [], "", ""
-
+    # Check for PR-specific column markers.
+    # Note: GSTR-2B officially contains "ITC Availability" / "ITC Available" (which maps
+    # to canonical itc_eligibility for downstream ingestion), so we only reject on genuine
+    # PR-specific headers (e.g. Voucher No, Purchase Account, or ITC Claimed / Availed).
     col_norms = [
         normalize_header(str(col)) for col in body_df.columns if col is not None
     ]

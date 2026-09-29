@@ -1438,14 +1438,26 @@ def _alt_parse_period_to_rtnprd(raw: Any) -> str | None:
     )
     if m_range:
         return _alt_parse_period_to_rtnprd(m_range.group(1))
-    m = re.match(r"^([A-Za-z]{3,9})[-_,\s]*(\d{4})$", s)
+    m = re.match(r"^([A-Za-z]{3,9})[-_,\s]*(\d{4})(?:[-/](\d{2,4}))?$", s)
     if m:
         token = m.group(1).lower()
         mon = _MONTH_ABBR_TO_NUM.get(
             "sept" if token.startswith("sept") else token[:3]
         )
         if mon:
-            return f"{mon:02d}{m.group(2)}"
+            fy_start = int(m.group(2))
+            fy_end_raw = m.group(3)
+            if fy_end_raw:
+                if 1 <= mon <= 3:
+                    cal_year = (
+                        (fy_start // 100) * 100 + int(fy_end_raw)
+                        if len(fy_end_raw) == 2
+                        else int(fy_end_raw)
+                    )
+                else:
+                    cal_year = fy_start
+                return f"{mon:02d}{cal_year}"
+            return f"{mon:02d}{fy_start}"
     m2 = re.match(r"^(\d{1,2})[-/](\d{4})$", s)
     if m2:
         mon = int(m2.group(1))
@@ -1465,7 +1477,7 @@ def _alt_parse_period_to_rtnprd(raw: Any) -> str | None:
         y_part, m_part = int(digits[:4]), int(digits[4:])
         if 1900 <= y_part <= 2100 and 1 <= m_part <= 12:
             return f"{m_part:02d}{y_part}"
-        return digits
+        return None
     return None
 
 
