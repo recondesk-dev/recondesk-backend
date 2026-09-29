@@ -373,6 +373,89 @@ class TestExcelExport:
         xlsx_bytes, _ = result
         assert len(xlsx_bytes) > 0
 
+    def test_matched_records_not_dropped_when_itc_unavailable_but_not_blocked(self):
+        """Regression: matched rows with itc_available=False but category != blocked_credit
+        must NOT be silently skipped from the Matched Records sheet.
+        Previously the guard `if itc_available is False: continue` silently dropped
+        these rows, causing a -50 discrepancy between engine count and Excel sheet count.
+        """
+        from io import BytesIO
+        import openpyxl
+
+        # Simulate a plain OutcomeRow-like object with category='matched'
+        class _FakeORow:
+            category = "matched"
+            itc_available = False  # ITC flag absent/unavailable but NOT blocked_credit
+
+        pair_no_itc = (
+            {
+                "supplier_gstin": "27TESTGSTIN1Z0",
+                "invoice_number": "INV-NO-ITC",
+                "invoice_date": "2024-04-15",
+                "match_level": "EXACT",
+                "confidence_score": 100,
+                "itc_available": False,  # absent ITC flag
+                "amount": 18000.0,
+                "decision_what": "Exact match",
+                "decision_why": "All fields aligned",
+                "decision_next": "No action needed",
+            },
+            _FakeORow(),
+        )
+
+        xlsx_bytes, _ = self._build(matched_pairs=[pair_no_itc])
+        wb = openpyxl.load_workbook(BytesIO(xlsx_bytes))
+        ws = wb["Matched Records"]
+        data_rows = [
+            row for row in ws.iter_rows(min_row=2, values_only=True)
+            if any(v is not None for v in row)
+        ]
+        assert len(data_rows) == 1, (
+            f"Matched Records sheet must contain 1 data row for a matched pair "
+            f"with itc_available=False but category='matched'. Got {len(data_rows)} rows. "
+            f"Bug: itc_available guard is incorrectly dropping non-blocked matched rows."
+        )
+        assert data_rows[0][1] == "INV-NO-ITC", (
+            f"Expected invoice number 'INV-NO-ITC' in row 1, got {data_rows[0][1]}"
+        )
+
+    def test_missed_itc_sheet_row_count_strictly_matches_data_rows(self):
+        """Regression: Missed ITC sheet must contain exactly N rows for N missed records.
+        Previously, an appended TOTAL summary row caused N+1 rows (e.g. 245 rows for 244 records),
+        creating a discrepancy with the engine count and Summary tab.
+        """
+        from io import BytesIO
+        import openpyxl
+
+        dummy_missed = [
+            {
+                "supplier_gstin": f"27AAAAA{i:04d}1Z5",
+                "invoice_number": f"INV-{i}",
+                "invoice_date": "2024-01-01",
+                "amount": 1000.0,
+                "decision_what": "Missed ITC",
+                "decision_why": "GSTR only",
+                "decision_next": "Book invoice",
+            }
+            for i in range(244)
+        ]
+
+        xlsx_bytes, _ = self._build(missed_rows=dummy_missed)
+        wb = openpyxl.load_workbook(BytesIO(xlsx_bytes))
+        ws = wb["Missed ITC"]
+        data_rows = [
+            row for row in ws.iter_rows(min_row=2, values_only=True)
+            if any(v is not None for v in row)
+        ]
+        assert len(data_rows) == 244, (
+            f"Missed ITC sheet must contain exactly 244 data rows for 244 missed records. "
+            f"Got {len(data_rows)} rows. Check for phantom/TOTAL rows."
+        )
+        # Ensure the last row is the 244th record and not a TOTAL row
+        assert data_rows[-1][0] == "27AAAAA02431Z5"
+        assert data_rows[-1][1] == "INV-243"
+
+
 
 # ── helper function tests ─────────────────────────────────────────────────────
 

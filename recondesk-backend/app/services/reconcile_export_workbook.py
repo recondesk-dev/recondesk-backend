@@ -444,7 +444,17 @@ def build_excel_workbook_bytes(
         fill_other = PatternFill("solid", fgColor=_FILL_OTHER)
         r = 2
         for api_row, _orow in matched_pairs:
-            if api_row.get("itc_available") is False or getattr(_orow, "itc_available", True) is False:
+            # Only skip rows that are explicitly ITC-blocked AND categorised as
+            # blocked_credit / rule37 — those belong in the Rule 37 & Section 17-5
+            # sheet.  Do NOT skip rows whose itc_available is merely None/absent;
+            # that would silently drop legitimately matched records (e.g. synthetic
+            # test data where the ITC flag column is missing).
+            _orow_cat = getattr(_orow, "category", None) or ""
+            _is_blocked_category = _orow_cat in ("blocked_credit", "rule37_warnings")
+            if _is_blocked_category and (
+                api_row.get("itc_available") is False
+                or getattr(_orow, "itc_available", True) is False
+            ):
                 continue
             lvl = str(api_row.get("match_level") or "").upper()
             if lvl == "EXACT":
@@ -550,11 +560,9 @@ def build_excel_workbook_bytes(
             c.fill = hdr_fill
         ws3.freeze_panes = "A2"
         r = 2
-        sum_itc = 0.0
         for row in missed_rows:
             tax_amt = _taxable_from_missed_row(row)
             itc_am = float(row.get("amount") or 0)
-            sum_itc += itc_am
             gstr_doc = row.get("gstr2b_data", {}).get("document_type") if isinstance(row.get("gstr2b_data"), dict) else None
             # fallback to top-level if gstr2b_data doesn't have it
             if not gstr_doc:
@@ -574,15 +582,6 @@ def build_excel_workbook_bytes(
             for col, v in enumerate(vals, 1):
                 ws3.cell(row=r, column=col, value=v)
             r += 1
-        total_fill = PatternFill("solid", fgColor=_FILL_TOTAL_GREEN)
-        bold = Font(bold=True)
-        ws3.cell(row=r, column=1, value="TOTAL")
-        ws3.cell(row=r, column=1).font = bold
-        ws3.cell(row=r, column=1).fill = total_fill
-        csum = ws3.cell(row=r, column=5, value=_comma_int(sum_itc))
-        csum.font = bold
-        csum.fill = total_fill
-        r += 1
         _autosize_columns(ws3)
         tracks.append(
             _SheetTrack("Missed ITC", row_count=len(missed_rows), status="OK")
