@@ -203,29 +203,35 @@ def detect_tax_head_mismatch(
     p_sgst = _extract_paise_head(pr_record, "sgst_paise", "sgst")
     p_cess = _extract_paise_head(pr_record, "cess_paise", "cess")
 
-    # 1. Asymmetric intra-state heads check (intra-state requires CGST == SGST)
-    if (g_cgst > tolerance_paise or g_sgst > tolerance_paise) and abs(g_cgst - g_sgst) > tolerance_paise:
+    # 1. Asymmetric intra-state heads check (intra-state requires CGST == SGST within tolerance)
+    if (g_cgst > 0 or g_sgst > 0) and abs(g_cgst - g_sgst) > tolerance_paise:
         return True, f"GSTR-2B intra-state tax heads are asymmetric: CGST ₹{g_cgst/100:.2f} vs SGST ₹{g_sgst/100:.2f}"
-    if (p_cgst > tolerance_paise or p_sgst > tolerance_paise) and abs(p_cgst - p_sgst) > tolerance_paise:
+    if (p_cgst > 0 or p_sgst > 0) and abs(p_cgst - p_sgst) > tolerance_paise:
         return True, f"Purchase Register intra-state tax heads are asymmetric: CGST ₹{p_cgst/100:.2f} vs SGST ₹{p_sgst/100:.2f}"
 
     # Component breakdown presence
     g_has_breakdown = (
-        g_igst > tolerance_paise
-        or g_cgst > tolerance_paise
-        or g_sgst > tolerance_paise
-        or g_cess > tolerance_paise
+        g_igst > 0
+        or g_cgst > 0
+        or g_sgst > 0
+        or g_cess > 0
     )
     p_has_breakdown = (
-        p_igst > tolerance_paise
-        or p_cgst > tolerance_paise
-        or p_sgst > tolerance_paise
-        or p_cess > tolerance_paise
+        p_igst > 0
+        or p_cgst > 0
+        or p_sgst > 0
+        or p_cess > 0
     )
 
     # When PR only captures total tax (no component breakdown), do NOT fabricate mismatch (preserves Case D)
     if not p_has_breakdown or not g_has_breakdown:
         return False, None
+
+    # Pure IGST vs CGST+SGST: If one side has pure IGST (no CGST/SGST) and other has pure CGST+SGST (no IGST)
+    if (g_igst > 0 and g_cgst == 0 and g_sgst == 0) and (p_cgst > 0 or p_sgst > 0) and p_igst == 0:
+        return True, f"GSTR-2B reports pure IGST (₹{g_igst/100:.2f}) while Purchase Register records CGST+SGST (₹{p_cgst/100:.2f} + ₹{p_sgst/100:.2f})"
+    if (p_igst > 0 and p_cgst == 0 and p_sgst == 0) and (g_cgst > 0 or g_sgst > 0) and g_igst == 0:
+        return True, f"Purchase Register records pure IGST (₹{p_igst/100:.2f}) while GSTR-2B reports CGST+SGST (₹{g_cgst/100:.2f} + ₹{g_sgst/100:.2f})"
 
     g_has_igst = g_igst > tolerance_paise
     g_has_cgst_sgst = (g_cgst > tolerance_paise or g_sgst > tolerance_paise)
@@ -239,7 +245,7 @@ def detect_tax_head_mismatch(
     if g_has_cess != p_has_cess and abs(g_cess - p_cess) > tolerance_paise:
         return True, f"Cess mismatch: GSTR-2B has cess of ₹{g_cess/100:.2f} while Purchase Register has ₹{p_cess/100:.2f}"
 
-    # 3. Pure IGST vs Pure CGST+SGST
+    # 3. Pure IGST vs Pure CGST+SGST (> tolerance)
     if g_has_igst and not g_has_cgst_sgst and not p_has_igst and p_has_cgst_sgst:
         return True, f"GSTR-2B reports pure IGST (₹{g_igst/100:.2f}) while Purchase Register records CGST+SGST (₹{p_cgst/100:.2f} + ₹{p_sgst/100:.2f})"
     if not g_has_igst and g_has_cgst_sgst and p_has_igst and not p_has_cgst_sgst:

@@ -877,6 +877,14 @@ def _enrich_record(record: dict, buyer_gstin: str) -> None:
 
     # invoice_number_norm — uppercase, trimmed
     record["invoice_number_norm"] = str(record["invoice_number"]).strip().upper()
+    # invoice_number_normalized — canonical form used by reconciliation engine, prepass,
+    # and phase-2 GSTIN-mismatch lookup.  Must match the PR parser's normalisation so that
+    # GSTR records can be indexed and looked up by the same key.
+    try:
+        from app.services.matcher import normalize_invoice as _ni
+        record["invoice_number_normalized"] = _ni(record["invoice_number"])
+    except Exception:
+        record["invoice_number_normalized"] = record["invoice_number_norm"]
 
     # taxable_value — sum of item taxable values in whole rupees (integer).
     # Prefer invoice-root taxable_value_paise when line items are absent
@@ -2085,6 +2093,27 @@ def normalize_alt_2b_schema(
     note_rows_raw = data.get("note") if isinstance(data.get("note"), list) else []
     b2ba_rows_raw = data.get("b2ba") if isinstance(data.get("b2ba"), list) else []
     cdnra_rows_raw = data.get("cdnra") if isinstance(data.get("cdnra"), list) else []
+
+    # Partition: if any invoice rows are actually credit/debit notes, route them to note_rows_raw
+    if invoice_rows_raw:
+        def _is_alt_note_row(r: Mapping[str, Any]) -> bool:
+            for k, v in r.items():
+                if not v or not isinstance(v, str):
+                    continue
+                kn = _alt_key_norm(k)
+                if any(term in kn for term in ("doctype", "documenttype", "notetype", "ntty", "vouchertype", "type")):
+                    vn = v.strip().lower()
+                    if any(term in vn for term in ("credit", "debit", "cdn", "cdnr", "cr note", "dr note")) or vn in {"c", "d", "cn", "dn", "cr", "dr"}:
+                        return True
+            return False
+
+        real_inv_raw: list[dict[str, Any]] = []
+        for r in invoice_rows_raw:
+            if isinstance(r, dict) and _is_alt_note_row(r):
+                note_rows_raw.append(r)
+            else:
+                real_inv_raw.append(r)
+        invoice_rows_raw = real_inv_raw
 
     mapped_inv: list[dict[str, Any]] = []
     rtnprd_votes: list[str] = []

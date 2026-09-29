@@ -511,7 +511,17 @@ def build_excel_workbook_bytes(
             is_dn = (
                 bool(api_row.get("is_debit_note"))
                 or bool(gd.get("is_debit_note"))
+                or bool(pd.get("is_debit_note"))
                 or str(api_row.get("document_type") or "").upper().replace(" ", "_") in (
+                    "DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT"
+                )
+                or str(api_row.get("doc_type") or "").upper().replace(" ", "_") in (
+                    "DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT"
+                )
+                or str(pd.get("document_type") or pd.get("doc_type") or "").upper().replace(" ", "_") in (
+                    "DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT"
+                )
+                or str(gd.get("document_type") or gd.get("doc_type") or "").upper().replace(" ", "_") in (
                     "DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT"
                 )
             )
@@ -533,10 +543,9 @@ def build_excel_workbook_bytes(
                 supply_type = "INELIGIBLE"
                 gstr3b_table = "Table 4(D)(2)"
                 doc_type_disp = _doc_type_display(api_row.get("document_type"), api_row)
-                if not dec_next or "can be claimed" in str(dec_next).lower():
-                    dec_what = "Matched invoice, but ITC is marked ineligible/blocked"
-                    dec_why = api_row.get("itc_reason") or getattr(_orow, "itc_reason", None) or "Invoice matches in books, but is blocked under Section 17(5) or marked ineligible in GSTR-2B"
-                    dec_next = "Ineligible for ITC u/s 17(5) / marked ineligible. Do not claim in Table 4(A)(5); report under Table 4(D)(2)."
+                dec_what = "Matched invoice, but ITC is marked ineligible/blocked"
+                dec_why = api_row.get("itc_reason") or getattr(_orow, "itc_reason", None) or "Invoice matches in books, but is blocked under Section 17(5) or marked ineligible in GSTR-2B"
+                dec_next = "Ineligible for ITC u/s 17(5) / marked ineligible. Do not claim in Table 4(A)(5); report under Table 4(D)(2)."
             elif is_rcm:
                 supply_type = "RCM"
                 gstr3b_table = "Table 4(A)(3)"

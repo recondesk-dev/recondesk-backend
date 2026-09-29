@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 _EXCEL_EXTS = frozenset({".xls", ".xlsx"})
 
 # Sheet tabs we import (IMS tabs ignored for now — same as alt JSON path).
-_INVOICE_SHEET_NAMES = frozenset({"invoice", "invoices", "b2b"})
+_INVOICE_SHEET_NAMES = frozenset({"invoice", "invoices", "b2b", "gstr2b", "gstr-2b", "2b"})
 _NOTE_SHEET_NAMES = frozenset({"note", "notes", "cdn", "cdnr"})
 
 # Unparsed section tabs — detect + count only.
@@ -589,6 +589,28 @@ def excel_to_alt_2b_dict(
                 if period and not title_period:
                     title_period = period
                 break
+
+    # Partition note rows: If any invoice sheet contains credit notes or debit notes
+    # (distinguished by Document Type / Note Type column), route them to note_rows.
+    if invoice_rows:
+        def _is_note_row(r: dict[str, Any]) -> bool:
+            for k, v in r.items():
+                if not v or not isinstance(v, str):
+                    continue
+                kn = normalize_header(k)
+                if any(term in kn for term in ("doc type", "document type", "note type", "ntty", "voucher type", "type")):
+                    vn = v.strip().lower()
+                    if any(term in vn for term in ("credit", "debit", "cdn", "cdnr", "cr note", "dr note")) or vn in {"c", "d", "cn", "dn", "cr", "dr"}:
+                        return True
+            return False
+
+        real_invoice_rows: list[dict[str, Any]] = []
+        for r in invoice_rows:
+            if _is_note_row(r):
+                note_rows.append(r)
+            else:
+                real_invoice_rows.append(r)
+        invoice_rows = real_invoice_rows
 
     if not invoice_rows and not note_rows and not b2ba_rows and not cdnra_rows:
         raise ValueError(

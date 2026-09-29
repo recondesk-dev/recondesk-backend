@@ -424,16 +424,16 @@ def _mr_to_decisions(
         else:
             d_what = DecisionWhat.MISMATCH_AMOUNT
     else:
-        d_what = "Matched Credit/Debit Note" if is_credit_note else DecisionWhat.MISMATCH_AMOUNT
+        d_what = "Matched Credit/Debit Note" if is_credit_note else "Exact match found"
         d_why = (
             "Credit/debit note values match between GSTR-2B CDNR and purchase register."
             if is_credit_note
-            else d_why
+            else "Invoice number, amount, and date align"
         )
         d_next = (
             "Reduce/reverse ITC in GSTR-3B Table 4(B)(2) as required. Do not claim as domestic inward ITC."
             if is_credit_note
-            else DecisionNext.NO_ACTION
+            else "ITC can be claimed as filed"
         )
     return (d_what, d_why, d_next, tvd, igd, cgd, sgd, ttd, st)
 

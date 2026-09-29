@@ -56,6 +56,13 @@ _RE_FISCAL_SERIES = re.compile(
 _RE_NOTE_IN_B2B = re.compile(
     r"^(?:DBN|CBN|CRN|DRN|CDN|CREDIT(?:NOTE)?|DEBIT(?:NOTE)?)[-_/\s]", re.IGNORECASE
 )
+_RE_AMENDMENT_PREFIX = re.compile(
+    r"^(?:AMD|AMEND|AMENDMENT|REV|MOD)[-_/\s:]", re.IGNORECASE
+)
+_RE_AMENDMENT_NORM = re.compile(
+    r"^(?:AMD|AMEND|AMENDMENT|REV|MOD)", re.IGNORECASE
+)
+
 
 
 
@@ -289,6 +296,13 @@ def is_invoice_format_variant(
         return False
     if na == nb:
         return True
+
+    # Material amendment prefixes (AMD-, AMEND-, REV-) indicate an amended document,
+    # not a mere format variant. They must be routed to human review, not auto-accepted.
+    has_amd_a = bool(_RE_AMENDMENT_PREFIX.match(str(a_raw or a or "")) or (na and _RE_AMENDMENT_NORM.match(na)))
+    has_amd_b = bool(_RE_AMENDMENT_PREFIX.match(str(b_raw or b or "")) or (nb and _RE_AMENDMENT_NORM.match(nb)))
+    if has_amd_a != has_amd_b:
+        return False
 
     # OCR transliteration equality (e.g. O↔0, I↔1, S↔5, Z↔2, B↔8)
     ocr_a = ocr_canonical_invoice(na)
@@ -646,14 +660,14 @@ def build_compared_fields(
 
     g_inv = _invoice_number(gstr_rec)
     p_inv = _invoice_number(pr_rec)
-    g_inv_raw = str(gstr_rec.get("invoice_number", "")).strip()
-    p_inv_raw = str(pr_rec.get("invoice_number", "")).strip()
+    g_inv_raw = str(gstr_rec.get("invoice_number_raw") or gstr_rec.get("invoice_number", "")).strip()
+    p_inv_raw = str(pr_rec.get("invoice_number_raw") or pr_rec.get("invoice_number", "")).strip()
     inv_ok = invoices_effectively_match(g_inv, p_inv) if g_inv and p_inv else False
     raw_inv_ok = bool(g_inv_raw and p_inv_raw and g_inv_raw == p_inv_raw)
     format_variant = False
     if g_inv and p_inv and not inv_ok:
         format_variant = is_invoice_format_variant(
-            g_inv, p_inv, gstr_rec.get("invoice_number"), pr_rec.get("invoice_number")
+            g_inv, p_inv, g_inv_raw, p_inv_raw
         )
 
     g_is_note = _is_note_doc(gstr_rec)
@@ -1166,14 +1180,24 @@ def _is_credit_note(rec: Mapping[str, Any] | None) -> bool:
     """
     if not rec:
         return False
+    doc_type = str(rec.get("doc_type") or "").upper().strip()
+    inv_type = str(rec.get("invoice_type") or "").upper().strip()
+    document_type = str(rec.get("document_type") or "").upper().strip()
+    ntty = str(rec.get("ntty") or "").upper().strip()
+    if (
+        doc_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN")
+        or inv_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN")
+        or document_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN")
+        or ntty in ("D", "DR", "DEBIT", "DEBIT_NOTE")
+        or rec.get("is_debit_note")
+    ):
+        return False
+
     section = str(rec.get("section") or "").lower().strip()
     if section in ("cdnr", "cdnra", "cdnur", "cdnura"):
         return True
     if section in ("b2b", "b2ba", "b2cl", "b2cla", "b2cs", "b2csa", "exp", "expa"):
         return False
-    doc_type = str(rec.get("doc_type") or "").upper().strip()
-    inv_type = str(rec.get("invoice_type") or "").upper().strip()
-    document_type = str(rec.get("document_type") or "").upper().strip()
     if (
         doc_type in ("INVOICE", "TAX_INVOICE", "INV")
         or inv_type in ("INVOICE", "TAX_INVOICE", "INV")
@@ -1304,6 +1328,21 @@ def are_document_types_compatible(
             p_taxable_val = int(p_taxable) if p_taxable is not None else 0
             if not p_quarantine and not p_note_no and p_taxable_val >= 0:
                 return True, "INVOICE_PAIR"
+
+        # Note in B2B table / booked as credit note in PR: allow candidate through
+        # ONLY if GSTR is an invoice (not a note) and PR is a note with matching GSTIN & invoice
+        if not g_is_note and p_is_note:
+            g_gst = _supplier_gstin(gstr_rec)
+            p_gst = _supplier_gstin(pr_rec)
+            if g_gst and p_gst and g_gst == p_gst:
+                g_inv_k = normalize_invoice(_invoice_number(gstr_rec))
+                p_inv_k = normalize_invoice(_invoice_number(pr_rec))
+                if g_inv_k and p_inv_k and g_inv_k == p_inv_k:
+                    g_tax = abs(int(_optional_taxable(gstr_rec) or 0))
+                    p_tax = abs(int(_optional_taxable(pr_rec) or 0))
+                    if g_tax and p_tax and abs(g_tax - p_tax) <= 100:
+                        return True, "DOC_TYPE_NOTE_IN_B2B_CANDIDATE"
+
         return False, "CROSS_DOCUMENT_TYPE_REJECTED"
 
     if not g_is_note:
@@ -1441,8 +1480,8 @@ def _match_gstr_to_pr_pair(
     # g_inv_raw / p_inv_raw: must be the truly raw (pre-normalization) invoice strings.
     # The adapters (gstr_db_row_to_matcher_row / pr_db_row_to_matcher_row) are responsible
     # for ensuring that "invoice_number" = original raw, "invoice_number_normalized" = normalized.
-    g_inv_raw = str(gstr_rec.get("invoice_number", "")).strip()
-    p_inv_raw = str(pr_rec.get("invoice_number", "")).strip()
+    g_inv_raw = str(gstr_rec.get("invoice_number_raw") or gstr_rec.get("invoice_number", "")).strip()
+    p_inv_raw = str(pr_rec.get("invoice_number_raw") or pr_rec.get("invoice_number", "")).strip()
 
     pass
 
@@ -1511,7 +1550,7 @@ def _match_gstr_to_pr_pair(
     inv_ok = invoices_effectively_match(g_inv, p_inv)
     format_variant = False
     if not inv_ok:
-        format_variant = is_invoice_format_variant(g_inv, p_inv, gstr_rec.get("invoice_number"), pr_rec.get("invoice_number"))
+        format_variant = is_invoice_format_variant(g_inv, p_inv, g_inv_raw, p_inv_raw)
 
     g_orig = str(gstr_rec.get("original_invoice_number") or gstr_rec.get("oinum") or "").strip()
     p_orig = str(pr_rec.get("original_invoice_number") or pr_rec.get("oinum") or "").strip()
@@ -1802,7 +1841,7 @@ def _match_gstr_to_pr_pair(
         )
 
     if gstin_match and raw_inv_ok and _vendor_name_ok:
-        if amount_within_l1 and date_within_l1 and l12_finance_ok:
+        if amount_within_l1 and date_within_l1 and l12_finance_ok and tax_structure_match:
             return _ret(
                 level=1, matched=True, confidence=100, requires_human_review=False,
                 decision_what="Exact match found",
@@ -1813,6 +1852,34 @@ def _match_gstr_to_pr_pair(
             )
         # Same raw invoice, same GSTIN, vendor ok — but financial mismatch (tax
         # structure or total_tax differs). Fall through to L2/L3 for human review.
+
+    # ── Amendment Reference Check ──
+    # If one side has an amendment prefix (e.g. AMD-TXN003629 vs TXN003629), route to L3 review
+    g_raw_s = str(g_inv_raw or g_inv or "")
+    p_raw_s = str(p_inv_raw or p_inv or "")
+    m_amd_g = _RE_AMENDMENT_PREFIX.match(g_raw_s)
+    m_amd_p = _RE_AMENDMENT_PREFIX.match(p_raw_s)
+    if bool(m_amd_g) != bool(m_amd_p):
+        stripped_g = g_raw_s[m_amd_g.end():] if m_amd_g else g_raw_s
+        stripped_p = p_raw_s[m_amd_p.end():] if m_amd_p else p_raw_s
+        norm_sg = normalize_invoice_number(stripped_g)
+        norm_sp = normalize_invoice_number(stripped_p)
+        if norm_sg and norm_sp and (norm_sg == norm_sp or is_invoice_format_variant(norm_sg, norm_sp, stripped_g, stripped_p)):
+            if gstin_match and amount_within_l3:
+                return _ret(
+                    level=3,
+                    matched=True,
+                    confidence=75,
+                    requires_human_review=True,
+                    decision_what="Amended invoice reference requires review",
+                    decision_why=f"Invoice has amendment reference prefix ({p_inv} vs {g_inv}). Verify amendment validity before claiming ITC.",
+                    decision_next="Review amendment details and confirm invoice validity.",
+                    review_reason="AMENDMENT_REFERENCE",
+                    discrepancies=list(discrepancies) + ["amendment_prefix_detected"],
+                    identity_confidence="Medium",
+                    financial_status="Exact" if zero_discrepancy else financial_status,
+                )
+
     # ── Tier 2: Same GSTIN + normalized invoice number (L2) ─────────────────
     if gstin_match and inv_ok:
         if amount_within_l2 and date_within_l2 and tax_structure_match:

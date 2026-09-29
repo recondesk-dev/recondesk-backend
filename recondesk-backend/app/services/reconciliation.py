@@ -577,7 +577,9 @@ def _push_clean_matched(
     p_doc = str((pr_rec or {}).get("doc_type") or (pr_rec or {}).get("document_type") or "").strip().upper()
     if g_doc in ("CREDIT_NOTE", "DEBIT_NOTE") or p_doc in ("CREDIT_NOTE", "DEBIT_NOTE"):
         match_dict["doc_type"] = g_doc or p_doc
+        match_dict["document_type"] = g_doc or p_doc
         match_dict["is_credit_note"] = (g_doc == "CREDIT_NOTE" or p_doc == "CREDIT_NOTE")
+        match_dict["is_debit_note"] = (g_doc == "DEBIT_NOTE" or p_doc == "DEBIT_NOTE")
     if g_taxable is not None:
         match_dict["gstr_taxable_amount_paise"] = g_taxable
     if p_taxable is not None:
@@ -679,7 +681,9 @@ def _push_review_required(
     p_doc = str((pr_rec or {}).get("doc_type") or (pr_rec or {}).get("document_type") or "").strip().upper()
     if g_doc in ("CREDIT_NOTE", "DEBIT_NOTE") or p_doc in ("CREDIT_NOTE", "DEBIT_NOTE"):
         match_dict["doc_type"] = g_doc or p_doc
+        match_dict["document_type"] = g_doc or p_doc
         match_dict["is_credit_note"] = (g_doc == "CREDIT_NOTE" or p_doc == "CREDIT_NOTE")
+        match_dict["is_debit_note"] = (g_doc == "DEBIT_NOTE" or p_doc == "DEBIT_NOTE")
     if gstr_rec is not None:
         match_dict["gstr_invoice_date"] = gstr_rec.get("invoice_date")
     if pr_rec is not None:
@@ -2272,12 +2276,14 @@ def _levenshtein_distance(s1: str, s2: str) -> int:
 def _invoice_digit_core(s: str | None) -> str:
     """Digits-only spine of an invoice number (for mangled-prefix twin checks)."""
     raw = str(s or "").upper()
+    if not any(c.isdigit() for c in raw):
+        return ""
     raw = re.sub(r"FY\s*\d{2,4}[-/]?", "", raw)
     raw = re.sub(r"[-/][AR]$", "", raw)
+    raw = re.sub(r"\b0+(\d+)", r"\1", raw)
     from app.services.matcher import ocr_canonical_invoice
     try:
         raw = ocr_canonical_invoice(raw)
-        raw = re.sub(r"0+", "0", raw)
     except Exception:
         pass
     return re.sub(r"[^0-9]", "", raw)
@@ -2308,17 +2314,18 @@ def _invoice_twin_similarity_ok(
     if sim >= sim_min:
         return True, sim
     if digit_dist_max is not None:
-        gc = _invoice_digit_core(g_inv)
-        pc = _invoice_digit_core(p_inv)
-        if (
-            len(gc) >= min_digit_len
-            and len(pc) >= min_digit_len
-        ):
-            if _levenshtein_distance(gc, pc) <= digit_dist_max:
-                return True, sim
-            from collections import Counter
-            if Counter(gc) == Counter(pc) and abs(len(gc) - len(pc)) <= 1:
-                return True, sim
+        if any(c.isdigit() for c in g_inv) and any(c.isdigit() for c in p_inv):
+            gc = _invoice_digit_core(g_inv)
+            pc = _invoice_digit_core(p_inv)
+            if (
+                len(gc) >= min_digit_len
+                and len(pc) >= min_digit_len
+            ):
+                if _levenshtein_distance(gc, pc) <= digit_dist_max:
+                    return True, sim
+                from collections import Counter
+                if Counter(gc) == Counter(pc) and abs(len(gc) - len(pc)) <= 1:
+                    return True, sim
     return False, sim
 
 
