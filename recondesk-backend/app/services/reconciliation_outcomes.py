@@ -616,16 +616,33 @@ def build_outcome_rows(
 
         # Route to rule37_warnings ONLY when there is a genuine supplier non-filer signal.
         # A missing itc_reason or missing parser field must NEVER default to Rule 37A.
-        is_non_filer = bool(
-            (
-                itc_rsn
-                and any(
-                    k in itc_rsn.lower()
-                    for k in ("3b", "filed", "rule 37a", "non-filer", "non filer")
+        itc_rsn_lower = (itc_rsn or "").lower()
+        is_late_or_time_barred = any(
+            k in itc_rsn_lower
+            for k in ("annual return", "post annual return", "time barred", "time-barred", "16(4)", "16 (4)")
+        )
+        is_non_filer = (
+            not is_late_or_time_barred
+            and (
+                bool(
+                    itc_rsn
+                    and any(
+                        k in itc_rsn_lower
+                        for k in (
+                            "rule 37a",
+                            "non-filer",
+                            "non filer",
+                            "not filed",
+                            "unfiled",
+                            "3b not filed",
+                            "gstr-3b not filed",
+                            "3b unfiled",
+                        )
+                    )
                 )
+                or str(g.get("filing_status") or g_rd.get("filing_status") or "").strip().upper()
+                in ("NO", "N", "NOT_FILED", "UNFILED")
             )
-            or str(g.get("filing_status") or g_rd.get("filing_status") or "").strip().upper()
-            in ("NO", "N", "NOT_FILED", "UNFILED")
         )
         is_r37a = bool((not is_itc_avail) and is_non_filer)
 
@@ -1105,67 +1122,149 @@ def build_outcome_rows(
         )
 
     for note in list(engine.get("unmatched_notes") or []):
-        pid = str(note.get("id") or "")
-        pcell = pr_m.get(pid) or {}
-        m_rec = pcell.get("matcher") or {}
-        rd = pcell.get("record_data") or {}
-        note_no = str(
-            note.get("note_number")
-            or m_rec.get("note_number")
-            or rd.get("note_number")
-            or ""
-        )
-        invd = note.get("invoice_date") or m_rec.get("invoice_date")
-        doc = str(
-            note.get("document_type")
-            or m_rec.get("doc_type")
-            or rd.get("document_type")
-            or "DEBIT_NOTE"
-        ).strip().upper()
-        amt = _opt_int(note.get("note_amount_paise"))
-        if amt is None:
-            amt = _opt_int(m_rec.get("note_amount_paise"))
-        if amt is None:
-            amt = _opt_int(rd.get("note_amount_paise"))
-        rows.append(
-            OutcomeRow(
-                id=f"un:{pid}",
-                category="unmatched_notes",
-                supplier_gstin=str(
-                    note.get("supplier_gstin")
-                    or m_rec.get("supplier_gstin")
-                    or ""
-                ),
-                supplier_name=(
-                    str(note.get("supplier_name") or "").strip()
-                    or str(rd.get("supplier_name") or "").strip()
-                    or None
-                ),
-                invoice_number=note_no,
-                invoice_date=str(invd) if invd else None,
-                match_status=doc if doc in {"CREDIT_NOTE", "DEBIT_NOTE"} else "NOTE_NOT_MATCHED",
-                taxable_value_diff=0,
-                igst_diff=0,
-                cgst_diff=0,
-                sgst_diff=0,
-                decision_what=f"Unmatched {doc.replace('_', ' ').title()}",
-                decision_why=(
-                    f"{doc.replace('_', ' ').title()} from purchase register was quarantined "
-                    "and has no matching entry in GSTR-2B CDNR for this supplier. "
-                    "Verify whether the supplier has filed this note in GSTR-1."
-                ),
-                decision_next=(
-                    "Follow up with supplier to file the credit/debit note in their GSTR-1, "
-                    "or verify whether note is applicable to a different period."
-                ),
-                rule37_flag=False,
-                blocked_credit_flag=False,
-                late_filing_flag=False,
-                is_credit_note=(doc == "CREDIT_NOTE"),
-                document_type=doc,
-                amount=amt,
+        side = str(note.get("side") or "PR").strip().upper()
+        if side == "GSTR":
+            gid = str(note.get("id") or note.get("gstr_id") or "")
+            gcell = gstr_m.get(gid) or {}
+            m_rec = gcell.get("matcher") or {}
+            rd = gcell.get("record_data") or {}
+            note_no = str(
+                note.get("note_number")
+                or m_rec.get("invoice_number_normalized")
+                or rd.get("invoice_number")
+                or ""
             )
-        )
+            invd = note.get("invoice_date") or m_rec.get("invoice_date")
+            doc = str(
+                note.get("document_type")
+                or m_rec.get("doc_type")
+                or "CREDIT_NOTE"
+            ).strip().upper()
+            amt = _opt_int(note.get("total_tax_paise"))
+            if amt is None:
+                amt = _opt_int(m_rec.get("total_tax_paise"))
+            if amt is None:
+                amt = _opt_int(note.get("note_amount_paise"))
+            sgstin = str(
+                note.get("supplier_gstin")
+                or m_rec.get("supplier_gstin")
+                or ""
+            )
+            sname = (
+                str(note.get("supplier_name") or "").strip()
+                or _gstr_name(rd)
+                or None
+            )
+            if doc == "CREDIT_NOTE":
+                d_what = "Unbooked Credit Note (ITC Reduction Pending)"
+                d_why = (
+                    "Supplier filed a Credit Note in GSTR-2B CDNR that is not recorded in your purchase register. "
+                    "Under GST Section 34 and GSTR-3B Table 4(B)(2), this credit note reduces eligible ITC."
+                )
+                d_next = (
+                    "Reverse/reduce ITC in GSTR-3B Table 4(B)(2) and enter credit note into purchase register "
+                    "to adjust supplier balance."
+                )
+                claim_tbl = "4(B)(2)"
+                itc_stat = "REVERSAL_REQUIRED"
+            else:
+                d_what = "Unbooked Debit Note (Additional ITC Available)"
+                d_why = "Supplier filed a Debit Note in GSTR-2B CDNR that is not recorded in your purchase register."
+                d_next = "Verify and book debit note in purchase register to claim additional ITC in GSTR-3B Table 4(A)(5)."
+                claim_tbl = "4(A)(5)"
+                itc_stat = "ITC_AVAILABLE"
+
+            rows.append(
+                OutcomeRow(
+                    id=f"un:gstr:{gid}",
+                    category="unmatched_notes",
+                    supplier_gstin=sgstin,
+                    gstr_supplier_gstin=sgstin,
+                    supplier_name=sname,
+                    invoice_number=note_no,
+                    invoice_date=str(invd) if invd else None,
+                    match_status=doc if doc in {"CREDIT_NOTE", "DEBIT_NOTE"} else "NOTE_NOT_MATCHED",
+                    taxable_value_diff=0,
+                    igst_diff=0,
+                    cgst_diff=0,
+                    sgst_diff=0,
+                    total_tax_diff_paise=0,
+                    decision_what=d_what,
+                    decision_why=d_why,
+                    decision_next=d_next,
+                    rule37_flag=False,
+                    blocked_credit_flag=False,
+                    late_filing_flag=False,
+                    is_credit_note=(doc == "CREDIT_NOTE"),
+                    document_type=doc,
+                    amount=amt,
+                    claim_table=claim_tbl,
+                    itc_status=itc_stat,
+                )
+            )
+        else:
+            pid = str(note.get("id") or "")
+            pcell = pr_m.get(pid) or {}
+            m_rec = pcell.get("matcher") or {}
+            rd = pcell.get("record_data") or {}
+            note_no = str(
+                note.get("note_number")
+                or m_rec.get("note_number")
+                or rd.get("note_number")
+                or ""
+            )
+            invd = note.get("invoice_date") or m_rec.get("invoice_date")
+            doc = str(
+                note.get("document_type")
+                or m_rec.get("doc_type")
+                or rd.get("document_type")
+                or "DEBIT_NOTE"
+            ).strip().upper()
+            amt = _opt_int(note.get("note_amount_paise"))
+            if amt is None:
+                amt = _opt_int(m_rec.get("note_amount_paise"))
+            if amt is None:
+                amt = _opt_int(rd.get("note_amount_paise"))
+            rows.append(
+                OutcomeRow(
+                    id=f"un:{pid}",
+                    category="unmatched_notes",
+                    supplier_gstin=str(
+                        note.get("supplier_gstin")
+                        or m_rec.get("supplier_gstin")
+                        or ""
+                    ),
+                    supplier_name=(
+                        str(note.get("supplier_name") or "").strip()
+                        or str(rd.get("supplier_name") or "").strip()
+                        or None
+                    ),
+                    invoice_number=note_no,
+                    invoice_date=str(invd) if invd else None,
+                    match_status=doc if doc in {"CREDIT_NOTE", "DEBIT_NOTE"} else "NOTE_NOT_MATCHED",
+                    taxable_value_diff=0,
+                    igst_diff=0,
+                    cgst_diff=0,
+                    sgst_diff=0,
+                    total_tax_diff_paise=0,
+                    decision_what=f"Unmatched {doc.replace('_', ' ').title()}",
+                    decision_why=(
+                        f"{doc.replace('_', ' ').title()} from purchase register was quarantined "
+                        "and has no matching entry in GSTR-2B CDNR for this supplier. "
+                        "Verify whether the supplier has filed this note in GSTR-1."
+                    ),
+                    decision_next=(
+                        "Follow up with supplier to file the credit/debit note in their GSTR-1, "
+                        "or verify whether note is applicable to a different period."
+                    ),
+                    rule37_flag=False,
+                    blocked_credit_flag=False,
+                    late_filing_flag=False,
+                    is_credit_note=(doc == "CREDIT_NOTE"),
+                    document_type=doc,
+                    amount=amt,
+                )
+            )
 
     for typo in list(engine.get("review_required_typo") or []):
         rid = str(typo.get("pr_id", ""))

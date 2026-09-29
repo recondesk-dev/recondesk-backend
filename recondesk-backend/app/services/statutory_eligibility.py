@@ -461,14 +461,14 @@ def normalize_ineligibility_reason(
     """Normalize raw reason string into a standardized statutory reason enum."""
     rsn = (raw_reason or "").strip().lower()
 
-    if is_non_filer or any(k in rsn for k in ("3b", "rule 37a", "non-filer", "non filer")):
+    if any(k in rsn for k in ("16(4)", "16 (4)", "time barred", "time-barred", "limitation", "annual return", "post annual return")):
+        return NormalizedIneligibilityReason.SECTION_16_4_TIME_BARRED
+    if is_non_filer or any(k in rsn for k in ("rule 37a", "non-filer", "non filer", "not filed", "unfiled", "3b not filed", "gstr-3b not filed", "3b unfiled")):
         return NormalizedIneligibilityReason.RULE37A_NON_FILER
     if is_blocked_credit or any(k in rsn for k in ("17(5)", "17 (5)", "blocked", "sec 17")):
         return NormalizedIneligibilityReason.BLOCKED_CREDIT
     if any(k in rsn for k in ("pos", "place of supply", "different state")):
         return NormalizedIneligibilityReason.POS_RESTRICTED
-    if any(k in rsn for k in ("16(4)", "16 (4)", "time barred", "time-barred", "limitation")):
-        return NormalizedIneligibilityReason.SECTION_16_4_TIME_BARRED
 
     return NormalizedIneligibilityReason.GSTR2B_ITC_UNAVAILABLE
 

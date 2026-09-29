@@ -314,9 +314,16 @@ def build_excel_workbook_bytes(
         ws1.cell(row=row, column=1, value="Key Stats")
         ws1.cell(row=row, column=1).font = Font(bold=True)
         row += 1
+        gross_matched = summary.get("gross_matched_count") or len(matched_pairs)
+        gross_rate = summary.get("gross_match_rate_pct") or summary.get("match_rate_percent", 0)
+        clean_matched = summary.get("clean_matched_count") or summary.get("matched_count", 0)
+        on_hold_count = summary.get("itc_on_hold_count", 0)
+
         stats = [
             ("Total GSTR Records", summary.get("total_gstr_records", 0)),
-            ("Matched Records", summary.get("matched_count", 0)),
+            ("Matched Records", gross_matched),
+            ("  — Eligible ITC Matched", clean_matched),
+            ("  — Ineligible / Blocked Matched", on_hold_count),
             (
                 "Review Required",
                 summary.get("review_required_count", len(review_required_rows)),
@@ -329,7 +336,7 @@ def build_excel_workbook_bytes(
                 "Unmatched Notes",
                 summary.get("unmatched_notes_count", len(unmatched_note_rows)),
             ),
-            ("Match Rate %", summary.get("match_rate_percent", 0)),
+            ("Match Rate %", gross_rate),
             ("Missed ITC Count", summary.get("missed_itc_count", 0)),
             (
                 "Total ITC Recoverable",

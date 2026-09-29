@@ -1290,7 +1290,18 @@ def flag_fuzzy_duplicates_of_linked_prs(
             c_inv = str(cp.get("invoice_number_normalized") or "")
             if not c_inv:
                 continue
+            c_date = _parse_invoice_date(cp)
             exact_inv = c_inv == inv
+            if not exact_inv:
+                if p_date and c_date and p_date != c_date:
+                    if is_sequential_series_mismatch(
+                        inv,
+                        c_inv,
+                        str(p.get("invoice_number") or ""),
+                        str(cp.get("invoice_number") or ""),
+                        is_note=_is_note_document(p) or _is_note_document(cp),
+                    ):
+                        continue
             sim = 1.0 if exact_inv else invoice_similarity(inv, c_inv)
             if not exact_inv and sim < invoice_sim_min:
                 ok_digit, _ = _invoice_twin_similarity_ok(
@@ -1325,7 +1336,6 @@ def flag_fuzzy_duplicates_of_linked_prs(
                 if not tax_ok:
                     continue
                 max_date_days = date_tolerance_days
-            c_date = _parse_invoice_date(cp)
             if p_date and c_date and abs((p_date - c_date).days) > max_date_days:
                 continue
             if best is None or sim > best[0] or (sim == best[0] and cid < str(best[1]["id"])):
@@ -1413,6 +1423,15 @@ def flag_fuzzy_pr_peer_duplicates(
                     continue
                 ok, sim = _peer_pr_invoice_clone_ok(c_inv, e_inv)
                 if not ok:
+                    continue
+                exact_inv = c_inv == e_inv
+                if not exact_inv and is_sequential_series_mismatch(
+                    c_inv,
+                    e_inv,
+                    str(canon.get("invoice_number") or ""),
+                    str(extra.get("invoice_number") or ""),
+                    is_note=_is_note_document(canon) or _is_note_document(extra),
+                ):
                     continue
                 e_tax = abs(_taxable_paise(extra))
                 e_tot = abs(int(extra.get("total_tax_paise") or 0))
@@ -2685,6 +2704,15 @@ def execute_phase2_and_3(
                 compat, _ = are_document_types_compatible(g, p)
                 if not compat: continue
                 p_amt = p.get("total_tax_paise") or 0
+                g_tax = _taxable_paise(g)
+                p_tax = _taxable_paise(p)
+                if g_tax and p_tax:
+                    taxable_diff_pct = abs(g_tax - p_tax) / float(p_tax)
+                    if taxable_diff_pct > 0.05 and abs(g_tax - p_tax) > amount_tolerance_paise:
+                        continue
+                elif (g_tax or 0) != (p_tax or 0):
+                    continue
+
                 if g_amt == 0 and p_amt == 0: diff_pct = 0
                 elif p_amt == 0: diff_pct = 1.0
                 else: diff_pct = abs(g_amt - p_amt) / float(p_amt)
@@ -3221,18 +3249,32 @@ def execute_phase2_and_3(
             "total_tax_paise": int(ttp) if ttp is not None else 0,
         }
         g_doc = str(g.get("doc_type") or "").strip().upper()
-        if g_doc == "CREDIT_NOTE":
-            entry["doc_type"] = "CREDIT_NOTE"
-            entry["is_credit_note"] = True
-            entry["note_kind"] = "CREDIT_NOTE"
-            entry["mismatch_reason"] = "UNBOOKED_CREDIT_NOTE_ITC_REDUCTION_PENDING"
-            entry["requires_reversal"] = True
-        elif g_doc == "DEBIT_NOTE":
-            entry["doc_type"] = "DEBIT_NOTE"
-            entry["is_debit_note"] = True
-            entry["note_kind"] = "DEBIT_NOTE"
-            entry["mismatch_reason"] = "UNCLAIMED_DEBIT_NOTE_ITC"
-        elif g.get("gstin_format_invalid"):
+        g_sec = str(g.get("section") or "").strip().lower()
+        g_is_cn = g_doc == "CREDIT_NOTE" or bool(g.get("is_credit_note")) or (g_sec in ("cdnr", "cdnra") and g_doc != "DEBIT_NOTE")
+        g_is_dn = g_doc == "DEBIT_NOTE"
+
+        if g_is_cn or g_is_dn:
+            doc_type = "DEBIT_NOTE" if g_is_dn else "CREDIT_NOTE"
+            state.unmatched_notes.append({
+                "id": str(g["id"]),
+                "gstr_id": str(g["id"]),
+                "side": "GSTR",
+                "reason": "GSTR_CREDIT_NOTE_UNBOOKED_IN_PR" if g_is_cn else "GSTR_DEBIT_NOTE_UNCLAIMED",
+                "classification": "Credit Notes — Unbooked in Books" if g_is_cn else "Debit Notes — Unclaimed in Books",
+                "document_type": doc_type,
+                "note_number": str(g.get("invoice_number_normalized") or g.get("invoice_number") or ""),
+                "note_amount_paise": int(tap) if tap is not None else 0,
+                "total_tax_paise": int(ttp) if ttp is not None else 0,
+                "supplier_gstin": str(g.get("supplier_gstin") or ""),
+                "supplier_name": g.get("supplier_name") or g.get("trade_name"),
+                "invoice_date": g.get("invoice_date"),
+                "match_status": doc_type,
+                "requires_reversal": g_is_cn,
+                "is_credit_note": g_is_cn,
+            })
+            continue
+
+        if g.get("gstin_format_invalid"):
             # The GSTIN_FORMAT_INVALID fallback pass above already tried and
             # failed to find a PR counterpart by invoice_number + amount +
             # trade name. This is still a genuine GSTR-2B invoice — do not
@@ -3463,8 +3505,9 @@ def _finalize_reconciliation_result(
     invalid_gstin_unresolved_count = invalid_gstin_count - invalid_gstin_matched_count
 
     gstr_dup_count = sum(1 for d in state.duplicate_entries if d.get("side") == "GSTR2B")
+    gstr_note_count = sum(1 for n in state.unmatched_notes if n.get("side") == "GSTR")
     sanity_passed = (
-        matched_count + missed_itc_count + review_gstr_count + gstr_dup_count == total_gstr
+        matched_count + missed_itc_count + review_gstr_count + gstr_dup_count + gstr_note_count == total_gstr
     )
 
     if total_gstr > 0:

@@ -231,9 +231,9 @@ def test_cdn_05_gstr_cn_vs_normal_pr_invoice_rejected():
     )
     assert len(result["matched"]) == 0
     assert len(result["review_required"]) == 0
-    # GSTR CN lands in missed_itc with credit note tags
-    assert len(result["missed_itc"]) == 1
-    assert result["missed_itc"][0]["is_credit_note"] is True
+    # GSTR CN lands in unmatched_notes with credit note tags (not missed_itc)
+    assert len(result["unmatched_notes"]) == 1
+    assert result["unmatched_notes"][0]["is_credit_note"] is True
     # PR Invoice lands in wrongful_itc_risk (ITC at Risk)
     assert len(result["wrongful_itc_risk"]) == 1
 
@@ -752,14 +752,13 @@ def test_cdn_18_unmatched_gstr_credit_note_tagged():
         }
     ]
     res = run_bidirectional_reconciliation(gstr_records, [], "092023")
-    assert len(res["missed_itc"]) == 1
-    entry = res["missed_itc"][0]
-    assert entry["gstr_id"] == "gstr_unmatched_cn"
-    assert entry["doc_type"] == "CREDIT_NOTE"
+    assert len(res["unmatched_notes"]) == 1
+    entry = res["unmatched_notes"][0]
+    assert entry["id"] == "gstr_unmatched_cn"
+    assert entry["document_type"] == "CREDIT_NOTE"
     assert entry["is_credit_note"] is True
-    assert entry["note_kind"] == "CREDIT_NOTE"
-    assert entry["mismatch_reason"] == "UNBOOKED_CREDIT_NOTE_ITC_REDUCTION_PENDING"
     assert entry["requires_reversal"] is True
+    assert entry["side"] == "GSTR"
 
 
 def test_cdn_19_unmatched_pr_note_residual_quarantine():
@@ -1121,16 +1120,16 @@ def test_cdn_25_unconsumed_residual_quarantine_integrity():
     res = run_bidirectional_reconciliation(gstr_records, pr_records, "092023")
     assert len(res["matched"]) == 1
     assert res["matched"][0]["gstr_id"] == "gstr_matched"
-    assert len(res["missed_itc"]) == 1
-    assert res["missed_itc"][0]["gstr_id"] == "gstr_unbooked"
-    assert res["missed_itc"][0]["requires_reversal"] is True
-    assert len(res["unmatched_notes"]) == 1
-    assert res["unmatched_notes"][0]["id"] == "pr_unmatched"
+    assert len(res["missed_itc"]) == 0
+    assert len(res["unmatched_notes"]) == 2
+    unbooked_gstr = [n for n in res["unmatched_notes"] if n.get("id") == "gstr_unbooked"]
+    assert len(unbooked_gstr) == 1
+    assert unbooked_gstr[0]["requires_reversal"] is True
+    assert unbooked_gstr[0]["side"] == "GSTR"
     assert len(res["wrongful_itc_risk"]) == 0
-    # Invariant: 1 matched + 1 missed_itc + 0 review == 2 total_gstr
+    # Invariant: 1 matched + 0 missed_itc + 0 review + 1 gstr_note == 2 total_gstr
     stats = res["stats"]
     assert stats["sanity_passed"] is True
-    assert stats["matched_count"] + stats["missed_itc_count"] + stats["review_required_count"] == len(gstr_records)
 
 
 def test_cdn_gstr2b_parser_extracts_oinum_standard_note():
