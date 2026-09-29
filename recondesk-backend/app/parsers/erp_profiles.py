@@ -225,7 +225,10 @@ BUSY_PURCHASE_ALIASES: dict[str, list[str]] = {
         "bill no.", "bill no", "vch no.", "vch no", "voucher no.", "voucher no",
     ],
     "invoice_date": [
-        "bill date", "bill dt.", "vch date", "vch dt.", "voucher date",
+        "bill date", "bill dt.",
+    ],
+    "posting_date": [
+        "vch date", "vch dt.", "voucher date",
     ],
     "taxable_amount": [
         "taxable amt", "taxable amt.", "taxable value", "taxable amount",
@@ -250,7 +253,10 @@ BUSY_SALES_ALIASES: dict[str, list[str]] = {
         "bill no.", "bill no", "vch no.", "vch no", "sale bill no", "sale inv no",
     ],
     "invoice_date": [
-        "bill date", "bill dt.", "vch date", "vch dt.", "sale date",
+        "bill date", "bill dt.", "sale date",
+    ],
+    "posting_date": [
+        "vch date", "vch dt.", "voucher date",
     ],
     "taxable_amount": [
         "taxable amt", "taxable amt.", "taxable value", "taxable amount",

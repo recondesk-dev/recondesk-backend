@@ -135,20 +135,25 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     ],
     "invoice_date": [
         # Document date (actual invoice/bill date) — highest confidence
-        "invoice date", "bill date", "bill dt", "bill dt.", "voucher date",
-        "voucher dt", "doc date", "document date", "date of invoice",
+        "supplier invoice date", "supplier inv date", "supplier bill date",
+        "supplier date", "party invoice date", "vendor invoice date",
+        "original invoice date", "tax invoice date",
+        "invoice date", "bill date", "bill dt", "bill dt.",
+        "doc date", "document date", "date of invoice",
         "inv date", "inv dt", "invoice dt",
         "invoice date / bill date", "bill date / invoice date",
         # Generic 'date' column only when it is the sole date column in the sheet
-        "date",
+        "date", "dt", "dt.",
         "चालान दिनांक", "बिल दिनांक", "दिनांक", "तारीख", "तिथि",
-        # NOTE: 'posting date', 'entry date', 'tx date', 'transaction date' are
-        # intentionally NOT here — they are accounting posting dates (ERP internal),
+        # NOTE: 'posting date', 'entry date', 'tx date', 'transaction date',
+        # 'voucher date' are accounting posting dates (ERP internal),
         # not the document/invoice date. They are mapped to `posting_date` below.
     ],
     "posting_date": [
         "posting date", "entry date", "tx date", "transaction date",
-        "accounting date", "book date", "ledger date",
+        "accounting date", "book date", "ledger date", "booking date",
+        "voucher date", "voucher dt", "vch date", "vch dt", "voucher dt.", "vch dt.",
+        "वाउचर दिनांक", "प्रविष्टि दिनांक",
     ],
     "taxable_amount": [
         "taxable value", "taxable amount", "base amount", "taxable",
@@ -694,6 +699,31 @@ def _invoice_col_specificity(col: str) -> int:
     return 5
 
 
+def _date_col_specificity(col: str) -> int:
+    """Prefer supplier invoice/bill/document date over internal voucher/posting dates."""
+    norm = normalize_header(col)
+    # Priority 1 (Score 30): Explicit supplier / vendor / party / tax invoice date
+    if any(k in norm for k in (
+        "supplier inv", "supplier invoice", "vendor inv", "vendor invoice",
+        "party inv", "party invoice", "original inv", "original invoice",
+        "tax invoice date", "date of invoice", "invoice date", "inv date",
+        "bill date", "bill dt", "doc date", "document date", "inv dt", "invoice dt",
+        "चालान दिनांक", "बिल दिनांक"
+    )):
+        return 30
+    # Priority 2 (Score 10): Generic single Date column
+    if norm in ("date", "dt", "दिनांक", "तारीख", "तिथि"):
+        return 10
+    # Priority 3 (Score 1): Internal voucher / posting / entry / transaction dates (demoted)
+    if any(k in norm for k in (
+        "vch date", "voucher date", "vch dt", "voucher dt", "posting date",
+        "entry date", "tx date", "transaction date", "booking date", "book date",
+        "accounting date", "ledger date", "वाउचर दिनांक", "प्रविष्टि दिनांक"
+    )):
+        return 1
+    return 5
+
+
 def extract_column_sample_values(df: pd.DataFrame, max_samples: int = 3) -> dict[str, list[str]]:
     """Return up to max_samples non-empty string values for each column in df."""
     if df is None or len(df.columns) == 0:
@@ -755,8 +785,15 @@ def detect_column_mapping(df: pd.DataFrame, client_gstin: str | None = None) -> 
         tier, alias_len, priority, std_name = best
         prev = column_matches.get(std_name)
         if prev is not None:
-            spec_cur = _invoice_col_specificity(orig_col) if std_name == "invoice_number" else 0
-            spec_prev = _invoice_col_specificity(prev[3]) if std_name == "invoice_number" else 0
+            if std_name == "invoice_number":
+                spec_cur = _invoice_col_specificity(orig_col)
+                spec_prev = _invoice_col_specificity(prev[3])
+            elif std_name == "invoice_date":
+                spec_cur = _date_col_specificity(orig_col)
+                spec_prev = _date_col_specificity(prev[3])
+            else:
+                spec_cur = 0
+                spec_prev = 0
             current = (spec_cur, tier, alias_len, priority)
             previous = (spec_prev, prev[0], prev[1], prev[2])
             if current > previous:
@@ -782,6 +819,10 @@ def detect_column_mapping(df: pd.DataFrame, client_gstin: str | None = None) -> 
             column_matches[std_name] = (tier, alias_len, priority, orig_col)
 
     mapping = {std: orig for std, (_, _, _, orig) in column_matches.items()}
+
+    # If no document date column was found, fall back to posting/voucher date
+    if "invoice_date" not in mapping and "posting_date" in mapping:
+        mapping["invoice_date"] = mapping["posting_date"]
 
     if len(df) > 0:
         mapping = refine_gstin_column_mapping(df, mapping, client_gstin=client_gstin)

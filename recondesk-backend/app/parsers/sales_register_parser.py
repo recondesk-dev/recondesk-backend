@@ -136,10 +136,11 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "transaction number", "inv id",
     ],
     "invoice_date": [
-        "invoice date", "bill date", "bill dt", "date", "voucher date",
-        "doc date", "document date", "sale date", "sales date",
-        "inv date", "inv dt", "invoice dt",
-        "voucher dt", "bill dt.", "date of invoice",
+        "sales invoice date", "sale invoice date", "tax invoice date",
+        "original invoice date", "invoice date", "bill date", "bill dt",
+        "bill dt.", "date of invoice", "doc date", "document date",
+        "sale date", "sales date", "inv date", "inv dt", "invoice dt",
+        "date",
     ],
     "taxable_amount": [
         "taxable value", "taxable amount", "base amount", "taxable",
@@ -525,6 +526,26 @@ def _invoice_col_specificity(col: str) -> int:
     return 5
 
 
+def _date_col_specificity(col: str) -> int:
+    """Prefer sales invoice/bill/document date over internal voucher/posting dates."""
+    norm = normalize_header(col)
+    if any(k in norm for k in (
+        "sales inv", "sales invoice", "sale inv", "sale invoice",
+        "tax invoice date", "date of invoice", "invoice date", "inv date",
+        "bill date", "bill dt", "doc date", "document date", "inv dt", "invoice dt",
+        "sale date", "sales date", "original invoice date"
+    )):
+        return 30
+    if norm in ("date", "dt"):
+        return 10
+    if any(k in norm for k in (
+        "vch date", "voucher date", "vch dt", "voucher dt", "posting date",
+        "entry date", "tx date", "transaction date", "booking date", "book date"
+    )):
+        return 1
+    return 5
+
+
 def detect_column_mapping(df: pd.DataFrame) -> dict[str, str]:
     """Map standard field names to the actual column names present in *df*.
 
@@ -565,8 +586,15 @@ def detect_column_mapping(df: pd.DataFrame) -> dict[str, str]:
         tier, alias_len, priority, std_name = best
         prev = column_matches.get(std_name)
         if prev is not None:
-            spec_cur = _invoice_col_specificity(orig_col) if std_name == "invoice_number" else 0
-            spec_prev = _invoice_col_specificity(prev[3]) if std_name == "invoice_number" else 0
+            if std_name == "invoice_number":
+                spec_cur = _invoice_col_specificity(orig_col)
+                spec_prev = _invoice_col_specificity(prev[3])
+            elif std_name == "invoice_date":
+                spec_cur = _date_col_specificity(orig_col)
+                spec_prev = _date_col_specificity(prev[3])
+            else:
+                spec_cur = 0
+                spec_prev = 0
             current = (spec_cur, tier, alias_len, priority)
             previous = (spec_prev, prev[0], prev[1], prev[2])
             if current > previous:
@@ -592,6 +620,10 @@ def detect_column_mapping(df: pd.DataFrame) -> dict[str, str]:
             column_matches[std_name] = (tier, alias_len, priority, orig_col)
 
     mapping = {std: orig for std, (_, _, _, orig) in column_matches.items()}
+
+    # If no document date column was found, fall back to posting/voucher date
+    if "invoice_date" not in mapping and "posting_date" in mapping:
+        mapping["invoice_date"] = mapping["posting_date"]
 
     if "gstin" not in mapping and "invoice_number" not in mapping:
         raise ParseError("Cannot identify GSTIN or invoice number columns")
