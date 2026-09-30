@@ -1,0 +1,169 @@
+"""SQLAlchemy schema models and DDL definitions for persistent Cognito account mapping.
+
+Phase 2A Target Schema for AWS Aurora PostgreSQL.
+Enforces a strict 1:1 bijection between Amazon Cognito 'sub' and ReconDesk 'user_profiles.id'
+within an isolated Cognito User Pool.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.types import JSON, TypeDecorator, CHAR
+
+from app.cognito_identity import CognitoIdentityMapping
+
+Base = declarative_base()
+
+
+class GUID(TypeDecorator):
+    """Platform-independent GUID type.
+
+    Uses PostgreSQL's UUID type when available, otherwise falls back to CHAR(36).
+    """
+
+    impl = CHAR
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(PG_UUID(as_uuid=True))
+        return dialect.type_descriptor(CHAR(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        if dialect.name == "postgresql":
+            return str(value)
+        if isinstance(value, uuid.UUID):
+            return str(value)
+        return str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        return str(value)
+
+
+class UserProfileModel(Base):
+    """Minimal SQLAlchemy model for public.user_profiles to support foreign key
+    constraints and transactional integrity checks across Aurora and test fixtures.
+    """
+
+    __tablename__ = "user_profiles"
+
+    id = Column(GUID(), primary_key=True)
+    email = Column(String(255), nullable=False)
+    role = Column(String(50), default="admin", nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    full_name = Column(String(255), nullable=True)
+    firm_name = Column(String(255), nullable=True)
+
+
+class CognitoUserMappingModel(Base):
+    """SQLAlchemy model for public.cognito_user_mappings in AWS Aurora.
+
+    Enforces 1:1 unique constraints on (cognito_user_pool_id, cognito_sub)
+    and (cognito_user_pool_id, user_id).
+    """
+
+    __tablename__ = "cognito_user_mappings"
+    __table_args__ = (
+        UniqueConstraint("cognito_user_pool_id", "cognito_sub", name="uq_cognito_pool_sub"),
+        UniqueConstraint("cognito_user_pool_id", "user_id", name="uq_cognito_pool_user_id"),
+        CheckConstraint(
+            "mapping_method IN ('admin_provisioned', 'verified_link_token')",
+            name="ck_cognito_user_mappings_method",
+        ),
+        Index("idx_cognito_user_mappings_email", "email"),
+        Index("idx_cognito_user_mappings_pool_sub", "cognito_user_pool_id", "cognito_sub"),
+    )
+
+    id = Column(GUID(), primary_key=True, default=lambda: str(uuid.uuid4()))
+    cognito_user_pool_id = Column(String(64), nullable=False, default="ap-south-1_nvIPYMvFh")
+    cognito_sub = Column(String(128), nullable=False)
+    user_id = Column(
+        GUID(),
+        ForeignKey("user_profiles.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    email = Column(String(255), nullable=False)
+    mapping_method = Column(String(50), nullable=False)
+    is_verified = Column(Boolean, nullable=False, default=False)
+    provisioned_by = Column(String(128), nullable=True)
+    linking_ip = Column(String(64), nullable=True)
+    metadata_json = Column(JSON, nullable=False, default=dict)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    def to_domain(self) -> CognitoIdentityMapping:
+        """Convert SQLAlchemy database record to domain dataclass."""
+        return CognitoIdentityMapping(
+            cognito_sub=self.cognito_sub,
+            user_id=str(self.user_id),
+            email=self.email,
+            mapping_method=self.mapping_method,
+            verified=bool(self.is_verified),
+            cognito_user_pool_id=self.cognito_user_pool_id,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
+
+
+class CognitoAccountLinkingTokenModel(Base):
+    """SQLAlchemy model for public.cognito_account_linking_tokens in AWS Aurora.
+
+    Stores cryptographic SHA-256 hashes of one-time linking tokens.
+    Plaintext tokens are NEVER stored in the database.
+    """
+
+    __tablename__ = "cognito_account_linking_tokens"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_cognito_linking_token_hash"),
+        Index("idx_cognito_tokens_lookup", "token_hash"),
+        Index("idx_cognito_tokens_user_id", "user_id"),
+        Index("idx_cognito_tokens_pool_sub", "cognito_user_pool_id", "cognito_sub"),
+    )
+
+    id = Column(GUID(), primary_key=True, default=lambda: str(uuid.uuid4()))
+    token_hash = Column(String(64), nullable=False)
+    cognito_user_pool_id = Column(String(64), nullable=False, default="ap-south-1_nvIPYMvFh")
+    cognito_sub = Column(String(128), nullable=False)
+    user_id = Column(
+        GUID(),
+        ForeignKey("user_profiles.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    email = Column(String(255), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    created_ip = Column(String(64), nullable=True)
+    consumed_ip = Column(String(64), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )

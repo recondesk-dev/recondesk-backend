@@ -74,6 +74,32 @@ class Settings(BaseSettings):
         description="Psycopg2 connection establishment timeout in seconds.",
     )
 
+    # Amazon Cognito (Migration layer)
+    COGNITO_AUTH_ENABLED: bool = Field(
+        default=False,
+        description="Feature flag for Amazon Cognito authentication layer.",
+    )
+    COGNITO_REGION: str = Field(
+        default="ap-south-1",
+        description="AWS region for Cognito User Pool.",
+    )
+    COGNITO_USER_POOL_ID: str = Field(
+        default="ap-south-1_nvIPYMvFh",
+        description="Cognito User Pool ID.",
+    )
+    COGNITO_CLIENT_ID: str = Field(
+        default="2qui5lp7if0g4lftbrag7o6sce",
+        description="Cognito App Client ID.",
+    )
+    COGNITO_CLIENT_SECRET: str = Field(
+        default="",
+        description="Cognito App Client Secret (Server-side only).",
+    )
+    COGNITO_REDIRECT_URI: str = Field(
+        default="http://localhost:3000/api/auth/cognito/callback",
+        description="Cognito OAuth Callback URL.",
+    )
+
     # Supabase
     SUPABASE_URL: str = ""
     SUPABASE_ANON_KEY: str = ""
