@@ -535,6 +535,10 @@ def classify_statutory_treatment_for_matched(
             or str(p.get("supply_type") or p_rd.get("supply_type") or p_rd.get("Supply Type") or "").strip().upper() in ("SEZ", "SEZWOP", "SEZWP")
         )
     )
+    is_zero_rated = bool(
+        str(g.get("supply_type") or g_rd.get("supply_type") or g_rd.get("Supply Type") or "").strip().upper() in ("ZERO_RATED", "ZERO RATED", "EXPORT", "EXPORTS", "EXP")
+        or str(p.get("supply_type") or p_rd.get("supply_type") or p_rd.get("Supply Type") or "").strip().upper() in ("ZERO_RATED", "ZERO RATED", "EXPORT", "EXPORTS", "EXP")
+    )
     if is_rcm:
         supply_type = "RCM"
     elif is_isd:
@@ -543,6 +547,8 @@ def classify_statutory_treatment_for_matched(
         supply_type = "IMPORT_GOODS"
     elif is_sez:
         supply_type = "SEZ"
+    elif is_zero_rated:
+        supply_type = "ZERO_RATED"
     else:
         supply_type = "REGULAR"
 
@@ -738,6 +744,28 @@ def classify_statutory_treatment_for_matched(
             blocked_credit_flag=False,
         )
 
+    # CASE 3e: Zero-Rated / Export Inward Supply
+    if is_zero_rated:
+        zr_what = "Inward Supply from SEZ / Export / Zero-Rated"
+        zr_why = "Zero-rated inward supplies or supplies from SEZ developers/units."
+        zr_next = "Claim eligible ITC in GSTR-3B Table 4(A)(5). Verify zero-rated export documentation."
+        return StatutoryClassification(
+            itc_status=ITCEligibilityStatus.AVAILABLE,
+            is_rcm=False,
+            is_itc_available=True,
+            normalized_reason=None,
+            source_reason=None,
+            supply_type="ZERO_RATED",
+            liability_table=None,
+            claim_table="4(A)(5)",
+            decision_what=zr_what,
+            decision_why=zr_why,
+            decision_next=zr_next,
+            category="matched",
+            rule37a_flag=False,
+            blocked_credit_flag=False,
+        )
+
     # CASE 4: Standard Regular Eligible Inward Supply
     return StatutoryClassification(
         itc_status=ITCEligibilityStatus.AVAILABLE,
@@ -745,7 +773,7 @@ def classify_statutory_treatment_for_matched(
         is_itc_available=True,
         normalized_reason=None,
         source_reason=None,
-        supply_type="REGULAR",
+        supply_type=supply_type,
         liability_table=None,
         claim_table="4(A)(5)",
         decision_what=default_d_what,
@@ -781,6 +809,9 @@ def classify_statutory_treatment_for_gstr_only(
             str(g.get("supply_type") or g_rd.get("supply_type") or g_rd.get("Supply Type") or "").strip().upper() in ("SEZ", "SEZWOP", "SEZWP")
         )
     )
+    is_zero_rated = bool(
+        str(g.get("supply_type") or g_rd.get("supply_type") or g_rd.get("Supply Type") or "").strip().upper() in ("ZERO_RATED", "ZERO RATED", "EXPORT", "EXPORTS", "EXP")
+    )
     if is_rcm:
         supply_type = "RCM"
     elif is_isd:
@@ -789,6 +820,8 @@ def classify_statutory_treatment_for_gstr_only(
         supply_type = "IMPORT_GOODS"
     elif is_sez:
         supply_type = "SEZ"
+    elif is_zero_rated:
+        supply_type = "ZERO_RATED"
     else:
         supply_type = "REGULAR"
 
@@ -870,6 +903,10 @@ def classify_statutory_treatment_for_pr_only(
 ) -> StatutoryClassification:
     """Classify statutory eligibility for an unmatched PR record (not found in GSTR-2B)."""
     is_rcm = detect_rcm_supply(p=p, p_rd=p_rd)
+    is_zero_rated = bool(
+        str(p.get("supply_type") or p_rd.get("supply_type") or p_rd.get("Supply Type") or "").strip().upper() in ("ZERO_RATED", "ZERO RATED", "EXPORT", "EXPORTS", "EXP")
+    )
+    pr_supply_type = "RCM" if is_rcm else ("ZERO_RATED" if is_zero_rated else "REGULAR")
     inv_date = p.get("invoice_date") or p_rd.get("invoice_date")
 
     sec16_4_status, cutoff_date, fy_label = evaluate_section_16_4(
@@ -896,7 +933,7 @@ def classify_statutory_treatment_for_pr_only(
             is_itc_available=False,
             normalized_reason=NormalizedIneligibilityReason.SECTION_16_4_TIME_BARRED,
             source_reason=f"Section 16(4) deadline expired on {cutoff_str}",
-            supply_type="RCM" if is_rcm else "REGULAR",
+            supply_type=pr_supply_type,
             liability_table="3.1(d)" if is_rcm else None,
             claim_table=None,
             decision_what=tb_what,
@@ -923,7 +960,7 @@ def classify_statutory_treatment_for_pr_only(
         is_itc_available=True,
         normalized_reason=None,
         source_reason=None,
-        supply_type="RCM" if is_rcm else "REGULAR",
+        supply_type=pr_supply_type,
         liability_table="3.1(d)" if is_rcm else None,
         claim_table="4(A)(3)" if is_rcm else "4(A)(5)",
         decision_what=d_what,

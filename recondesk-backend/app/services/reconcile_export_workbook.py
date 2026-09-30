@@ -599,6 +599,12 @@ def build_excel_workbook_bytes(
                     or str(pd.get("supply_type") or "").upper() in ("SEZ", "SEZWOP", "SEZWP")
                 )
             )
+            is_zero_rated = bool(
+                api_row.get("supply_type") in ("ZERO_RATED", "ZERO RATED", "EXPORT", "EXPORTS", "EXP")
+                or getattr(_orow, "supply_type", "") in ("ZERO_RATED", "ZERO RATED", "EXPORT", "EXPORTS", "EXP")
+                or str(gd.get("supply_type") or "").upper() in ("ZERO_RATED", "ZERO RATED", "EXPORT", "EXPORTS", "EXP")
+                or str(pd.get("supply_type") or "").upper() in ("ZERO_RATED", "ZERO RATED", "EXPORT", "EXPORTS", "EXP")
+            )
 
             dec_what = api_row.get("decision_what") or getattr(_orow, "decision_what", None)
             dec_why = api_row.get("decision_why") or getattr(_orow, "decision_why", None)
@@ -627,6 +633,10 @@ def build_excel_workbook_bytes(
                 supply_type = "SEZ"
                 gstr3b_table = "Table 4(A)(5)"
                 doc_type_disp = f"{_doc_type_display(api_row.get('document_type'), api_row)} (SEZ 4A5)"
+            elif is_zero_rated:
+                supply_type = "ZERO_RATED"
+                gstr3b_table = "Table 4(A)(5)"
+                doc_type_disp = _doc_type_display(api_row.get("document_type"), api_row)
             elif is_cn:
                 supply_type = "CREDIT NOTE"
                 gstr3b_table = "Table 4(B)(2)"

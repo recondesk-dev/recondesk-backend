@@ -3156,7 +3156,15 @@ def execute_phase2_and_3(
                     p_inv_raw_twin,
                     is_note=_is_note_document(g) or _is_note_document(p),
                 ):
-                    continue
+                    if (
+                        re.match(r"^(?:PO|CNTR|CNS|DNA)-\d{1,4}$", g_inv_raw_twin, re.IGNORECASE)
+                        or re.match(r"^(?:PO|CNTR|CNS|DNA)-\d{1,4}$", p_inv_raw_twin, re.IGNORECASE)
+                    ):
+                        continue
+                    p_date_check = _parse_invoice_date(p)
+                    d_diff = abs((g_date - p_date_check).days) if g_date and p_date_check else 0
+                    if d_diff > 7 or _levenshtein_distance(g_inv_norm, p_inv_norm) > 1:
+                        continue
                 p_date = _parse_invoice_date(p)
                 date_diff = abs((g_date - p_date).days) if g_date and p_date else 0
                 if g_date and p_date and date_diff > 30:

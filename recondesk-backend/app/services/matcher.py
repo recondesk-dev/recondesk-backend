@@ -62,6 +62,12 @@ _RE_AMENDMENT_PREFIX = re.compile(
 _RE_AMENDMENT_NORM = re.compile(
     r"^(?:AMD|AMEND|AMENDMENT|REV|MOD)", re.IGNORECASE
 )
+_RE_AMENDMENT_SUFFIX = re.compile(
+    r"[-_/](?:A\d+|REV\d*|AMD\d*|MOD\d*)$", re.IGNORECASE
+)
+_RE_AMENDMENT_SUFFIX_NORM = re.compile(
+    r"(?:A\d+|REV\d*|AMD\d*|MOD\d*)$", re.IGNORECASE
+)
 _RE_BRANCH_SUFFIX = re.compile(
     r"[/-](?:BR|BRANCH|HO|UNIT|PLANT|DEPOT)\d*$", re.IGNORECASE
 )
@@ -303,10 +309,20 @@ def is_invoice_format_variant(
     if na == nb:
         return True
 
-    # Material amendment prefixes (AMD-, AMEND-, REV-) indicate an amended document,
-    # not a mere format variant. They must be routed to human review, not auto-accepted.
-    has_amd_a = bool(_RE_AMENDMENT_PREFIX.match(str(a_raw or a or "")) or (na and _RE_AMENDMENT_NORM.match(na)))
-    has_amd_b = bool(_RE_AMENDMENT_PREFIX.match(str(b_raw or b or "")) or (nb and _RE_AMENDMENT_NORM.match(nb)))
+    # Material amendment prefixes (AMD-, AMEND-, REV-) and suffixes (/A1, /A2, /REV) indicate
+    # an amended document, not a mere format variant. They must be routed to human review, not auto-accepted.
+    has_amd_a = bool(
+        _RE_AMENDMENT_PREFIX.match(str(a_raw or a or ""))
+        or _RE_AMENDMENT_SUFFIX.search(str(a_raw or a or ""))
+        or (na and _RE_AMENDMENT_NORM.match(na))
+        or (na and _RE_AMENDMENT_SUFFIX_NORM.search(na))
+    )
+    has_amd_b = bool(
+        _RE_AMENDMENT_PREFIX.match(str(b_raw or b or ""))
+        or _RE_AMENDMENT_SUFFIX.search(str(b_raw or b or ""))
+        or (nb and _RE_AMENDMENT_NORM.match(nb))
+        or (nb and _RE_AMENDMENT_SUFFIX_NORM.search(nb))
+    )
     if has_amd_a != has_amd_b:
         return False
 
@@ -375,16 +391,21 @@ def is_invoice_format_variant(
     # Check 2: Shared exact core numeric sequence (using raw tokens to split by separators)
     # We enforce len(na) != len(nb) so we don't accidentally swallow equal-length typos like "INV1" vs "INX1"
     if len(na) != len(nb):
-        def _extract_numeric(s: str) -> list[int]:
-            # Include numbers >= 1 not directly followed by letters (prevents '2' in '2BONLY' matching '2')
-            return [int(t) for t in re.findall(r"\d+(?![A-Za-z])", str(s)) if int(t) >= 1]
+        def _extract_numeric_tokens(s: str) -> list[tuple[int, int]]:
+            # Return list of (integer_value, digit_string_length)
+            return [(int(t), len(t)) for t in re.findall(r"\d+(?![A-Za-z])", str(s)) if int(t) >= 1]
 
-        tokens_a = _extract_numeric(a_raw or a or "")
-        tokens_b = _extract_numeric(b_raw or b or "")
+        tokens_a_raw = _extract_numeric_tokens(a_raw or a or "")
+        tokens_b_raw = _extract_numeric_tokens(b_raw or b or "")
+        tokens_a = [t[0] for t in tokens_a_raw]
+        tokens_b = [t[0] for t in tokens_b_raw]
         if tokens_a and tokens_b:
             shared_nums = set(tokens_a) & set(tokens_b)
-            # Financial-year tokens (e.g. 26 or 2026) cannot by themselves establish format variance
-            meaningful_shared = {n for n in shared_nums if not (20 <= n <= 35 or 2020 <= n <= 2035)}
+            # Financial-year tokens (e.g. 26 or 2026) cannot by themselves establish format variance.
+            # Only discount if the token in the raw string was actually a 2-digit or 4-digit FY (len 2 or 4).
+            fy_vals_a = {t[0] for t in tokens_a_raw if (20 <= t[0] <= 35 and t[1] == 2) or (2020 <= t[0] <= 2035 and t[1] == 4)}
+            fy_vals_b = {t[0] for t in tokens_b_raw if (20 <= t[0] <= 35 and t[1] == 2) or (2020 <= t[0] <= 2035 and t[1] == 4)}
+            meaningful_shared = {n for n in shared_nums if not (n in fy_vals_a and n in fy_vals_b)}
             if meaningful_shared:
                 has_alpha_a = bool(re.search(r'[A-Za-z]', (a_raw or a or "")))
                 has_alpha_b = bool(re.search(r'[A-Za-z]', (b_raw or b or "")))
@@ -1204,16 +1225,19 @@ def _is_credit_note(rec: Mapping[str, Any] | None) -> bool:
     """
     if not rec:
         return False
-    doc_type = str(rec.get("doc_type") or "").upper().strip()
-    inv_type = str(rec.get("invoice_type") or "").upper().strip()
-    document_type = str(rec.get("document_type") or "").upper().strip()
-    ntty = str(rec.get("ntty") or "").upper().strip()
+    if rec.get("is_credit_note"):
+        return True
+    if rec.get("is_debit_note"):
+        return False
+    doc_type = str(rec.get("doc_type") or "").upper().strip().replace(" ", "_").replace("-", "_")
+    inv_type = str(rec.get("invoice_type") or "").upper().strip().replace(" ", "_").replace("-", "_")
+    document_type = str(rec.get("document_type") or "").upper().strip().replace(" ", "_").replace("-", "_")
+    ntty = str(rec.get("ntty") or "").upper().strip().replace(" ", "_").replace("-", "_")
     if (
-        doc_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN")
-        or inv_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN")
-        or document_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN")
+        doc_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN", "DR", "DR_NOTE")
+        or inv_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN", "DR", "DR_NOTE")
+        or document_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN", "DR", "DR_NOTE")
         or ntty in ("D", "DR", "DEBIT", "DEBIT_NOTE")
-        or rec.get("is_debit_note")
     ):
         return False
 
@@ -1222,18 +1246,22 @@ def _is_credit_note(rec: Mapping[str, Any] | None) -> bool:
         return True
     if section in ("b2b", "b2ba", "b2cl", "b2cla", "b2cs", "b2csa", "exp", "expa"):
         return False
+
+    if (
+        doc_type in ("CREDIT_NOTE", "CN", "CREDIT", "C", "CR", "CR_NOTE")
+        or inv_type in ("CREDIT_NOTE", "CN", "CREDIT", "C", "CR", "CR_NOTE")
+        or document_type in ("CREDIT_NOTE", "CN", "CREDIT", "C", "CR", "CR_NOTE")
+    ):
+        return True
+
     if (
         doc_type in ("INVOICE", "TAX_INVOICE", "INV")
         or inv_type in ("INVOICE", "TAX_INVOICE", "INV")
         or document_type in ("INVOICE", "TAX_INVOICE", "INV")
     ):
-        if not (rec.get("credit_note_number") or rec.get("note_number") or rec.get("nt_num") or rec.get("ntnum") or str(rec.get("ntty") or "").upper().strip() in ("C", "CR")):
+        if not (rec.get("credit_note_number") or rec.get("note_number") or rec.get("nt_num") or rec.get("ntnum") or ntty in ("C", "CR")):
             return False
-    if doc_type in ("CREDIT_NOTE", "CN", "CREDIT", "C"):
-        return True
-    if inv_type in ("CREDIT_NOTE", "CN", "CREDIT", "C"):
-        return True
-    ntty = str(rec.get("ntty") or "").upper().strip()
+
     if ntty in ("C", "CR", "CREDIT", "CREDIT_NOTE"):
         return True
     voucher_type = str(rec.get("voucher_type") or "").upper().strip()
@@ -1267,21 +1295,37 @@ def _is_debit_note(rec: Mapping[str, Any] | None) -> bool:
     """Return True if rec represents a debit note."""
     if not rec:
         return False
-    doc_type = str(rec.get("doc_type") or "").upper().strip()
-    inv_type = str(rec.get("invoice_type") or "").upper().strip()
-    document_type = str(rec.get("document_type") or "").upper().strip()
+    if rec.get("is_debit_note"):
+        return True
+    if rec.get("is_credit_note"):
+        return False
+    doc_type = str(rec.get("doc_type") or "").upper().strip().replace(" ", "_").replace("-", "_")
+    inv_type = str(rec.get("invoice_type") or "").upper().strip().replace(" ", "_").replace("-", "_")
+    document_type = str(rec.get("document_type") or "").upper().strip().replace(" ", "_").replace("-", "_")
+    ntty = str(rec.get("ntty") or "").upper().strip().replace(" ", "_").replace("-", "_")
+    if (
+        doc_type in ("CREDIT_NOTE", "CN", "CREDIT", "C", "CR", "CR_NOTE")
+        or inv_type in ("CREDIT_NOTE", "CN", "CREDIT", "C", "CR", "CR_NOTE")
+        or document_type in ("CREDIT_NOTE", "CN", "CREDIT", "C", "CR", "CR_NOTE")
+        or ntty in ("C", "CR", "CREDIT", "CREDIT_NOTE")
+    ):
+        return False
+
+    if (
+        doc_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN", "DR", "DR_NOTE")
+        or inv_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN", "DR", "DR_NOTE")
+        or document_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN", "DR", "DR_NOTE")
+    ):
+        return True
+
     if (
         doc_type in ("INVOICE", "TAX_INVOICE", "INV")
         or inv_type in ("INVOICE", "TAX_INVOICE", "INV")
         or document_type in ("INVOICE", "TAX_INVOICE", "INV")
     ):
-        if not (rec.get("debit_note_number") or rec.get("note_number") or rec.get("nt_num") or rec.get("ntnum") or str(rec.get("ntty") or "").upper().strip() in ("D", "DR")):
+        if not (rec.get("debit_note_number") or rec.get("note_number") or rec.get("nt_num") or rec.get("ntnum") or ntty in ("D", "DR")):
             return False
-    if doc_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN"):
-        return True
-    if inv_type in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN"):
-        return True
-    ntty = str(rec.get("ntty") or "").upper().strip()
+
     if ntty in ("D", "DR", "DEBIT", "DEBIT_NOTE"):
         return True
     voucher_type = str(rec.get("voucher_type") or "").upper().strip()
@@ -1343,30 +1387,6 @@ def are_document_types_compatible(
 
     # 1. Reject cross-type match (Invoice <-> Note)
     if g_is_note != p_is_note:
-        # Failsafe: If GSTR is a verified B2B invoice (not a note) and PR has non-negative
-        # amount and was not explicitly quarantined in a notes sheet, treat as compatible invoice pair.
-        if not g_is_note:
-            p_quarantine = bool(pr_rec.get("pr_note_quarantine"))
-            p_note_no = bool(pr_rec.get("note_number"))
-            p_taxable = _optional_taxable(pr_rec)
-            p_taxable_val = int(p_taxable) if p_taxable is not None else 0
-            if not p_quarantine and not p_note_no and p_taxable_val >= 0:
-                return True, "INVOICE_PAIR"
-
-        # Note in B2B table / booked as credit note in PR: allow candidate through
-        # ONLY if GSTR is an invoice (not a note) and PR is a note with matching GSTIN & invoice
-        if not g_is_note and p_is_note:
-            g_gst = _supplier_gstin(gstr_rec)
-            p_gst = _supplier_gstin(pr_rec)
-            if g_gst and p_gst and g_gst == p_gst:
-                g_inv_k = normalize_invoice(_invoice_number(gstr_rec))
-                p_inv_k = normalize_invoice(_invoice_number(pr_rec))
-                if g_inv_k and p_inv_k and g_inv_k == p_inv_k:
-                    g_tax = abs(int(_optional_taxable(gstr_rec) or 0))
-                    p_tax = abs(int(_optional_taxable(pr_rec) or 0))
-                    if g_tax and p_tax and abs(g_tax - p_tax) <= 100:
-                        return True, "DOC_TYPE_NOTE_IN_B2B_CANDIDATE"
-
         return False, "CROSS_DOCUMENT_TYPE_REJECTED"
 
     if not g_is_note:
@@ -1703,17 +1723,24 @@ def _match_gstr_to_pr_pair(
     g_is_dn = _is_debit_note(gstr_rec)
     p_is_cn = _is_credit_note(pr_rec)
     p_is_dn = _is_debit_note(pr_rec)
-    is_legit_note_pair = is_cdnr or (g_is_cn and p_is_cn) or (g_is_dn and p_is_dn)
+    is_legit_note_pair = (
+        is_cdnr
+        or (g_is_cn and p_is_cn)
+        or (g_is_dn and p_is_dn)
+        or (compat_reason in ("COMPATIBLE_CREDIT_NOTE", "COMPATIBLE_BUYER_RETURN_DEBIT_NOTE", "COMPATIBLE_DEBIT_NOTE"))
+    )
 
     g_raw_inv = str(gstr_rec.get("invoice_number_raw") or gstr_rec.get("invoice_number") or "").strip()
     p_raw_inv = str(pr_rec.get("invoice_number_raw") or pr_rec.get("invoice_number") or "").strip()
 
-    note_in_b2b = not is_legit_note_pair and is_b2b_section and (
+    note_in_b2b = not is_legit_note_pair and (
         bool(_RE_NOTE_IN_B2B.match(g_raw_inv))
         or bool(_RE_NOTE_IN_B2B.match(p_raw_inv))
         or str(gstr_rec.get("inv_typ") or "").upper().strip() in ("CBT", "DBT")
-        or str(pr_rec.get("document_type") or "").upper().strip() in ("CREDIT_NOTE", "DEBIT_NOTE", "CBT", "DBT")
-        or str(pr_rec.get("invoice_type") or "").upper().strip() in ("CREDIT_NOTE", "DEBIT_NOTE", "CBT", "DBT")
+        or str(pr_rec.get("document_type") or "").upper().strip().replace(" ", "_") in ("CREDIT_NOTE", "DEBIT_NOTE", "CBT", "DBT")
+        or str(pr_rec.get("invoice_type") or "").upper().strip().replace(" ", "_") in ("CREDIT_NOTE", "DEBIT_NOTE", "CBT", "DBT")
+        or (g_is_cn != p_is_cn)
+        or (g_is_dn != p_is_dn)
     )
 
     if note_in_b2b and gstin_match and (inv_ok or format_variant):
@@ -1878,14 +1905,30 @@ def _match_gstr_to_pr_pair(
         # structure or total_tax differs). Fall through to L2/L3 for human review.
 
     # ── Amendment Reference Check ──
-    # If one side has an amendment prefix (e.g. AMD-TXN003629 vs TXN003629), route to L3 review
+    # If one side has an amendment prefix (e.g. AMD-TXN003629 vs TXN003629) or suffix (/A1, /A2), route to L3 review
     g_raw_s = str(g_inv_raw or g_inv or "")
     p_raw_s = str(p_inv_raw or p_inv or "")
-    m_amd_g = _RE_AMENDMENT_PREFIX.match(g_raw_s)
-    m_amd_p = _RE_AMENDMENT_PREFIX.match(p_raw_s)
-    if bool(m_amd_g) != bool(m_amd_p):
-        stripped_g = g_raw_s[m_amd_g.end():] if m_amd_g else g_raw_s
-        stripped_p = p_raw_s[m_amd_p.end():] if m_amd_p else p_raw_s
+    m_amd_pfx_g = _RE_AMENDMENT_PREFIX.match(g_raw_s)
+    m_amd_pfx_p = _RE_AMENDMENT_PREFIX.match(p_raw_s)
+    m_amd_sfx_g = _RE_AMENDMENT_SUFFIX.search(g_raw_s)
+    m_amd_sfx_p = _RE_AMENDMENT_SUFFIX.search(p_raw_s)
+
+    has_amd_g = bool(m_amd_pfx_g or m_amd_sfx_g)
+    has_amd_p = bool(m_amd_pfx_p or m_amd_sfx_p)
+
+    if has_amd_g != has_amd_p:
+        stripped_g = g_raw_s
+        if m_amd_pfx_g:
+            stripped_g = stripped_g[m_amd_pfx_g.end():]
+        if m_amd_sfx_g:
+            stripped_g = stripped_g[:m_amd_sfx_g.start()]
+
+        stripped_p = p_raw_s
+        if m_amd_pfx_p:
+            stripped_p = stripped_p[m_amd_pfx_p.end():]
+        if m_amd_sfx_p:
+            stripped_p = stripped_p[:m_amd_sfx_p.start()]
+
         norm_sg = normalize_invoice_number(stripped_g)
         norm_sp = normalize_invoice_number(stripped_p)
         if norm_sg and norm_sp and (norm_sg == norm_sp or is_invoice_format_variant(norm_sg, norm_sp, stripped_g, stripped_p)):
@@ -1896,10 +1939,10 @@ def _match_gstr_to_pr_pair(
                     confidence=75,
                     requires_human_review=True,
                     decision_what="Amended invoice reference requires review",
-                    decision_why=f"Invoice has amendment reference prefix ({p_inv} vs {g_inv}). Verify amendment validity before claiming ITC.",
+                    decision_why=f"Invoice has amendment reference ({p_inv} vs {g_inv}). Verify amendment validity before claiming ITC.",
                     decision_next="Review amendment details and confirm invoice validity.",
                     review_reason="AMENDMENT_REFERENCE",
-                    discrepancies=list(discrepancies) + ["amendment_prefix_detected"],
+                    discrepancies=list(discrepancies) + ["amendment_reference_detected"],
                     identity_confidence="Medium",
                     financial_status="Exact" if zero_discrepancy else financial_status,
                 )
