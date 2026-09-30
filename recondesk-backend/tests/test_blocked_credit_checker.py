@@ -135,3 +135,41 @@ def test_keyword_blocked_credit_triggers_warning():
     assert warnings[0]["flag_source"] == "keyword"
     assert "Outdoor Catering" in warnings[0]["category"]
     assert warnings[0]["amount"] == 1500.0
+
+
+def test_plant_machinery_exemption_for_hsn_9954():
+    """HSN 9954 with Plant & Machinery Installation ledger must NOT be flagged as blocked credit."""
+    exempt_inv = {
+        "invoice_number": "INV-PM-01",
+        "supplier_gstin": "27AAA",
+        "hsn": "9954",
+        "purchase_ledger": "Plant & Machinery Installation",
+        "total_tax_paise": 180000,
+    }
+    warnings = check_blocked_credits([exempt_inv])
+    assert len(warnings) == 0
+
+    # Non-exempt works contract under HSN 9954 must still be flagged
+    blocked_inv = {
+        "invoice_number": "INV-BL-01",
+        "supplier_gstin": "27AAA",
+        "hsn": "9954",
+        "purchase_ledger": "Civil Construction of Office Building",
+        "total_tax_paise": 180000,
+    }
+    warnings = check_blocked_credits([blocked_inv])
+    assert len(warnings) == 1
+    assert warnings[0]["hsn_code"] == "9954"
+
+
+def test_purchase_ledger_keywords_and_hsns_flagged():
+    """HSN 8703, 9963, 9987 and purchase ledger keywords are properly identified."""
+    invoices = [
+        {"invoice_number": "I1", "supplier_gstin": "27A", "hsn": "8703", "purchase_ledger": "Motor Car Purchase"},
+        {"invoice_number": "I2", "supplier_gstin": "27B", "hsn": "9963", "purchase_ledger": "Staff Welfare - Catering"},
+        {"invoice_number": "I3", "supplier_gstin": "27C", "hsn": "9987", "purchase_ledger": "Vehicle Repair & Maintenance"},
+    ]
+    warnings = check_blocked_credits(invoices)
+    assert len(warnings) == 3
+    hsn_codes = {w["hsn_code"] for w in warnings}
+    assert hsn_codes == {"8703", "9963", "9987"}

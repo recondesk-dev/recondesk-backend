@@ -24,9 +24,14 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "next": "No action required. ITC can be claimed as filed.",
     },
     "L1_CREDIT_NOTE_EXACT": {
-        "what": "Exact match found for Credit/Debit Note",
-        "why": "Credit/Debit note details and amounts align between GSTR-2B CDNR and purchase register",
+        "what": "Exact match found for Credit Note",
+        "why": "Credit note details and amounts align between GSTR-2B CDNR and purchase register",
         "next": "Reduce/reverse ITC in GSTR-3B Table 4(B)(2) as required under Section 34(2). Do not claim as domestic inward ITC.",
+    },
+    "L1_DEBIT_NOTE_EXACT": {
+        "what": "Exact match found for Debit Note",
+        "why": "Debit note details and amounts align between GSTR-2B and purchase register",
+        "next": "Claim eligible ITC in GSTR-3B Table 4(A)(5). Supplier has increased tax liability.",
     },
     "L1_RCM_EXACT": {
         "what": "Exact match found (Reverse Charge / RCM)",
@@ -245,6 +250,11 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "what": "Invoice matched via OCR correction — verify manually ({confidence_pct}% confidence)",
         "why": "Invoice numbers match after OCR character transliteration, but multiple character corrections require human verification",
         "next": "Verify physical invoice to ensure invoice number OCR reading is correct before claiming ITC.",
+    },
+    "REVIEW_VENDOR_NAME_MISMATCH": {
+        "what": "Verify supplier name — {confidence_pct}% confidence",
+        "why": "Supplier GSTIN, invoice number, and amounts match, but vendor trade names differ between books and portal",
+        "next": "Verify that the trade name in the purchase register refers to the same legal entity as the GSTIN registered on the portal.",
     },
     "REVIEW_GENERIC": {
         "what": "Review required — {confidence_pct}% confidence",

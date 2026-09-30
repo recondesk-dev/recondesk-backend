@@ -213,7 +213,7 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     ],
     "supplier_name": [
         "supplier name", "supplier", "vendor name", "vendor", "party name",
-        "party", "ledger name", "ledger", "seller name", "seller",
+        "party", "seller name", "seller",
         "creditor name", "creditor", "from", "name",
         "trade/legal name", "trade legal name", "legal name", "trade name",
         "trade/legal name of supplier", "trade legal name of supplier",
@@ -223,6 +223,11 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "particulars", "vendor / supplier name", "supplier / vendor name",
         "creditor's name", "seller's name", "party legal name", "company name",
         "आपूर्तिकर्ता का नाम", "आपूर्तिकर्ता", "विक्रेता का नाम", "विक्रेता", "पार्टी का नाम", "फर्म का नाम",
+    ],
+    "purchase_ledger": [
+        "purchase ledger", "ledger name", "ledger", "ledger account", "expense ledger",
+        "expense account", "account ledger", "item ledger", "ledger head", "nominal ledger",
+        "account head", "cost center",
     ],
     "place_of_supply": [
         "place of supply", "pos", "state",
@@ -1265,6 +1270,8 @@ def _classify_invoice_type(
             return "CREDIT_NOTE"
         if re.search(r"debit|\bdn\b|\bdbt\b", hint_clean):
             return "DEBIT_NOTE"
+        if re.search(r"\b(invoice|inv|tax\s+invoice|tax_invoice)\b", hint_clean):
+            return "INVOICE"
 
     if original_taxable is not None and original_taxable < 0:
         return "CREDIT_NOTE"
@@ -1623,6 +1630,7 @@ def _process_pr_sheet_rows(
             if gstin_value is None and "gstin" in mapping:
                 row_errors.append("missing GSTIN")
 
+        explicit_inv = False
         note_type_cell = _safe_cell(row.get("note_type")) if note_mode else None
         if note_mode:
             invoice_type = infer_note_document_type(
@@ -1661,8 +1669,13 @@ def _process_pr_sheet_rows(
             if raw_tax is not None:
                 if taxable_amount_paise is None:
                     row_errors.append("invalid value")
-            # Auto-promote negative taxable rows to CREDIT_NOTE
-            if not note_mode and taxable_amount_paise is not None and taxable_amount_paise < 0 and invoice_type == "INVOICE":
+            # Auto-promote negative taxable rows to CREDIT_NOTE only if NOT explicitly declared as INVOICE
+            explicit_inv = False
+            if note_type_hint:
+                nth_clean = str(note_type_hint).strip().lower()
+                if re.search(r"\b(invoice|inv|tax\s+invoice|tax_invoice)\b", nth_clean):
+                    explicit_inv = True
+            if not note_mode and not explicit_inv and taxable_amount_paise is not None and taxable_amount_paise < 0 and invoice_type == "INVOICE":
                 invoice_type = "CREDIT_NOTE"
 
         if row_errors:
@@ -1772,7 +1785,7 @@ def _process_pr_sheet_rows(
             "invoice_number": None if note_mode else inv_raw,
             "document_type": invoice_type,
             "invoice_type": invoice_type,
-            "is_credit_note": (invoice_type == "CREDIT_NOTE" or (taxable_amount_paise is not None and taxable_amount_paise < 0)),
+            "is_credit_note": (invoice_type == "CREDIT_NOTE" or (not explicit_inv and taxable_amount_paise is not None and taxable_amount_paise < 0)),
             "is_debit_note": (invoice_type == "DEBIT_NOTE"),
             "invoice_date": date_value,
             "posting_date": posting_date_value,  # None if not present in this PR
@@ -1819,6 +1832,10 @@ def _process_pr_sheet_rows(
             _hsn = row.get("hsn")
             if _hsn is not None and not (isinstance(_hsn, float) and pd.isna(_hsn)):
                 out["hsn"] = str(_hsn).strip()
+        if "purchase_ledger" in mapping:
+            _pl = row.get("purchase_ledger")
+            if _pl is not None and not (isinstance(_pl, float) and pd.isna(_pl)):
+                out["purchase_ledger"] = str(_pl).strip()
         if "original_invoice_number" in mapping:
             _orig_inv = _safe_cell(row.get("original_invoice_number"))
             if _orig_inv:

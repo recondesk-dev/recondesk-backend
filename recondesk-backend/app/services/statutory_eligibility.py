@@ -10,6 +10,7 @@ Reverse Charge (Section 9(3)/9(4)), and GSTR-3B Table 4 allocation.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum
@@ -426,24 +427,44 @@ def evaluate_section_16_4(
             eval_ref = rep_d
         elif isinstance(reporting_period, str):
             clean_rp = reporting_period.strip()
-            # YYYY-MM period format
-            if len(clean_rp) == 7 and clean_rp[4] == "-":
+            # Standard formats: YYYY-MM, MM-YYYY, MM/YYYY, MMYYYY, Month YYYY, etc.
+            for fmt in ("%Y-%m", "%m-%Y", "%m/%Y", "%m%Y", "%B %Y", "%b %Y", "%B-%Y", "%b-%Y", "%B%Y", "%b%Y"):
                 try:
-                    y, m = int(clean_rp[:4]), int(clean_rp[5:7])
-                    # End of reporting month
+                    dt = datetime.strptime(clean_rp, fmt)
+                    y, m = dt.year, dt.month
                     if m == 12:
                         eval_ref = date(y, 12, 31)
                     else:
-                        eval_ref = date(y, m + 1, 1) # first day of next month is after reporting period
+                        eval_ref = date(y, m + 1, 1)
+                    break
                 except (ValueError, TypeError):
                     pass
+            if not eval_ref:
+                # Regex search for month name and year inside clean_rp (e.g. "September 2026", "Sep-2026")
+                m_match = re.search(
+                    r"(?i)\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)[ -]*(\d{4})\b",
+                    clean_rp,
+                )
+                if m_match:
+                    m_str, y_str = m_match.group(1), m_match.group(2)
+                    for fmt in ("%B %Y", "%b %Y"):
+                        try:
+                            dt = datetime.strptime(f"{m_str} {y_str}", fmt)
+                            y, m = dt.year, dt.month
+                            if m == 12:
+                                eval_ref = date(y, 12, 31)
+                            else:
+                                eval_ref = date(y, m + 1, 1)
+                            break
+                        except (ValueError, TypeError):
+                            pass
 
     if not eval_ref:
-        return Section16_4Status.OPEN, cutoff_date, fy_label
+        eval_ref = date.today()
 
     if eval_ref > cutoff_date:
         return Section16_4Status.TIME_BARRED, cutoff_date, fy_label
-    elif (cutoff_date - eval_ref).days <= 60:
+    elif (cutoff_date - eval_ref).days <= 60 or eval_ref > date(inv_d.year if inv_d.month <= 3 else inv_d.year + 1, 3, 31):
         return Section16_4Status.EXPIRING, cutoff_date, fy_label
     else:
         return Section16_4Status.OPEN, cutoff_date, fy_label
@@ -791,6 +812,8 @@ def classify_statutory_treatment_for_gstr_only(
     *,
     is_itc_avail: bool,
     itc_rsn: Optional[str],
+    reporting_period: Any = None,
+    evaluation_date: Optional[date] = None,
 ) -> StatutoryClassification:
     """Classify statutory eligibility for an unmatched GSTR-2B record (missing in books)."""
     is_rcm = detect_rcm_supply(g, g_rd)
@@ -825,6 +848,47 @@ def classify_statutory_treatment_for_gstr_only(
     else:
         supply_type = "REGULAR"
 
+    inv_date = (
+        g.get("invoice_date")
+        or g_rd.get("invoice_date")
+        or g_rd.get("Invoice date")
+        or g_rd.get("idt")
+    )
+    sec16_4_status, cutoff_date, fy_label = evaluate_section_16_4(
+        inv_date,
+        reporting_period=reporting_period,
+        evaluation_date=evaluation_date,
+    )
+
+    if sec16_4_status == Section16_4Status.TIME_BARRED:
+        cutoff_str = cutoff_date.strftime("%d %b %Y") if cutoff_date else "30 November"
+        fy_str = fy_label or "relevant FY"
+        tb_what = f"Time-Barred under Section 16(4) ({fy_str})"
+        tb_why = (
+            f"Statutory ITC claim deadline for FY {fy_str} expired on {cutoff_str} under Section 16(4). "
+            "Credit cannot be availed in GSTR-3B even if supplier uploaded invoice in GSTR-1."
+        )
+        tb_next = (
+            "Cannot be claimed in GSTR-3B. Do NOT book or claim this ITC as statutory entitlement has expired."
+        )
+        return StatutoryClassification(
+            itc_status=ITCEligibilityStatus.TIME_BARRED,
+            is_rcm=is_rcm,
+            is_itc_available=False,
+            normalized_reason=NormalizedIneligibilityReason.SECTION_16_4_TIME_BARRED,
+            source_reason=f"Section 16(4) deadline expired on {cutoff_str}",
+            supply_type=supply_type,
+            liability_table="3.1(d)" if is_rcm else None,
+            claim_table=None,
+            decision_what=tb_what,
+            decision_why=tb_why,
+            decision_next=tb_next,
+            category="time_barred_itc",
+            rule37a_flag=False,
+            blocked_credit_flag=True,
+            section_16_4_status=Section16_4Status.TIME_BARRED,
+        )
+
     if not is_itc_avail:
         norm_rsn = normalize_ineligibility_reason(itc_rsn, is_blocked_credit=False, is_non_filer=False)
         bc_what = f"GSTR-2B Only — ITC Ineligible ({norm_rsn.value})"
@@ -850,7 +914,12 @@ def classify_statutory_treatment_for_gstr_only(
             category="blocked_credit",
             rule37a_flag=False,
             blocked_credit_flag=True,
+            section_16_4_status=sec16_4_status,
         )
+
+    expiring_note = ""
+    if sec16_4_status == Section16_4Status.EXPIRING and cutoff_date:
+        expiring_note = f" URGENT: Section 16(4) claim window expires on {cutoff_date.strftime('%d %b %Y')}."
 
     # Eligible GSTR-only invoice
     claim_table = "4(A)(3)" if is_rcm else ("4(A)(4)" if is_isd else ("4(A)(1)" if is_import_goods else "4(A)(5)"))
@@ -858,23 +927,23 @@ def classify_statutory_treatment_for_gstr_only(
     if is_rcm:
         d_what = "RCM Inward Supply Missing in Books"
         d_why = "Invoice present in GSTR-2B but not found in Purchase Register."
-        d_next = "Verify & book in accounting software; pay RCM tax under Table 3.1(d) and claim under Table 4(A)(3)."
+        d_next = f"Verify & book in accounting software; pay RCM tax under Table 3.1(d) and claim under Table 4(A)(3).{expiring_note}"
     elif is_isd:
         d_what = "ISD Inward Supply Missing in Books"
         d_why = "Input Service Distributor invoice present in GSTR-2B but not found in Purchase Register."
-        d_next = "Verify & book in purchase register; claim ISD credit under GSTR-3B Table 4(A)(4)."
+        d_next = f"Verify & book in purchase register; claim ISD credit under GSTR-3B Table 4(A)(4).{expiring_note}"
     elif is_import_goods:
         d_what = "Import Goods Missing in Books (Bill of Entry)"
         d_why = "Bill of Entry present in GSTR-2B (ICEGATE) but not entered in purchase register."
-        d_next = "Enter Bill of Entry in purchase register; claim IGST credit in GSTR-3B Table 4(A)(1)."
+        d_next = f"Enter Bill of Entry in purchase register; claim IGST credit in GSTR-3B Table 4(A)(1).{expiring_note}"
     elif is_sez:
         d_what = "SEZ Inward Supply Missing in Books"
         d_why = "SEZ invoice present in GSTR-2B but not found in Purchase Register."
-        d_next = "Verify & book invoice in purchase register to claim SEZ ITC in GSTR-3B."
+        d_next = f"Verify & book invoice in purchase register to claim SEZ ITC in GSTR-3B.{expiring_note}"
     else:
         d_what = "Inward Supply Missing in Books"
         d_why = "Invoice present in GSTR-2B but not found in Purchase Register."
-        d_next = "Verify & book invoice in purchase register to claim missed ITC in GSTR-3B."
+        d_next = f"Verify & book invoice in purchase register to claim missed ITC in GSTR-3B.{expiring_note}"
 
     return StatutoryClassification(
         itc_status=ITCEligibilityStatus.RCM if is_rcm else ITCEligibilityStatus.AVAILABLE,
@@ -891,6 +960,7 @@ def classify_statutory_treatment_for_gstr_only(
         category="missed_itc",
         rule37a_flag=False,
         blocked_credit_flag=False,
+        section_16_4_status=sec16_4_status,
     )
 
 

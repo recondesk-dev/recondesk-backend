@@ -446,6 +446,7 @@ type RunSummary = {
   /** GSTR-2B ISD / IMPG lines detected but not included in reconciliation. */
   isd_present?: boolean;
   isd_count?: number;
+  isd_itc_amount?: number;
   impg_present?: boolean;
   impg_count?: number;
   isd_impg_warning?: string | null;
@@ -3228,12 +3229,18 @@ export default function ReconcileResultsPage() {
       <div className={pageContentClass}>
         {summary && (summary.isd_count ?? 0) > 0 && (
           <div
-            className="rounded-[10px] border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs text-amber-950"
+            className={`rounded-[10px] border px-4 py-2.5 text-xs ${
+              (summary.isd_itc_amount ?? 0) > 0
+                ? "border-emerald-300 bg-emerald-50 text-emerald-950"
+                : "border-amber-300 bg-amber-50 text-amber-950"
+            }`}
             role="alert"
           >
             <strong>ISD / Import of goods:</strong>{" "}
             {summary.isd_impg_warning?.trim() ||
-              `This GSTR-2B file contains ${(summary.isd_count ?? 0) > 0 ? `${summary.isd_count!.toLocaleString("en-IN")} ISD credit line(s)` : ""} not included in reconciliation.`}
+              ((summary.isd_itc_amount ?? 0) > 0
+                ? `This GSTR-2B file contains ${(summary.isd_count ?? 0).toLocaleString("en-IN")} ISD credit line(s) reconciled to Table 4(A)(4).`
+                : `This GSTR-2B file contains ${(summary.isd_count ?? 0).toLocaleString("en-IN")} ISD credit line(s) not included in reconciliation.`)}
           </div>
         )}
 

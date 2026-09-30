@@ -839,3 +839,39 @@ def test_financial_invariants_global():
 
     # Invariant 7: RCM liability represents identified RCM liability
     assert stats["rcm_liability_paise"] >= 500000
+
+
+def test_gstr_only_time_barred_detected():
+    """GSTR-2B-only invoice past Section 16(4) deadline must be TIME_BARRED, not Missed ITC."""
+    # Invoice dated 10-Mar-2025 (FY 2024-25, deadline 30-Nov-2025). Recon run for Sep 2026.
+    g = {"invoice_date": "2025-03-10", "total_tax_paise": 200744}
+    sc = classify_statutory_treatment_for_gstr_only(
+        g=g,
+        g_rd={},
+        is_itc_avail=True,
+        itc_rsn=None,
+        reporting_period="September 2026",
+    )
+    assert sc.category == "time_barred_itc"
+    assert sc.is_itc_available is False
+    assert sc.itc_status == ITCEligibilityStatus.TIME_BARRED
+    assert sc.section_16_4_status == Section16_4Status.TIME_BARRED
+    assert "Time-Barred under Section 16(4)" in sc.decision_what
+    assert "Cannot be claimed in GSTR-3B" in sc.decision_next
+
+
+def test_gstr_only_prior_fy_expiring_warning():
+    """GSTR-2B-only invoice from prior FY (Jan-Mar 2026) evaluated in Jul 2026 must warn Section 16(4) expiring."""
+    # Invoice dated 15-Feb-2026 (FY 2025-26, deadline 30-Nov-2026). Recon run for Jul 2026.
+    g = {"invoice_date": "2026-02-15", "total_tax_paise": 50000}
+    sc = classify_statutory_treatment_for_gstr_only(
+        g=g,
+        g_rd={},
+        is_itc_avail=True,
+        itc_rsn=None,
+        reporting_period="July 2026",
+    )
+    assert sc.category == "missed_itc"
+    assert sc.is_itc_available is True
+    assert sc.section_16_4_status == Section16_4Status.EXPIRING
+    assert "URGENT: Section 16(4) claim window expires on 30 Nov 2026" in sc.decision_next

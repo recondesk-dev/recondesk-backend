@@ -349,7 +349,7 @@ class OutcomeRow:
 
 
 def _mr_to_decisions(
-    g: dict[str, Any], p: dict[str, Any], *, is_credit_note: bool = False
+    g: dict[str, Any], p: dict[str, Any], *, is_credit_note: bool = False, is_debit_note: bool = False
 ) -> tuple[str, str, str, int, int, int, int, int, str]:
     """Return decision enums + diffs; derive match_status from financial diffs only.
 
@@ -424,17 +424,18 @@ def _mr_to_decisions(
         else:
             d_what = DecisionWhat.MISMATCH_AMOUNT
     else:
-        d_what = "Matched Credit/Debit Note" if is_credit_note else "Exact match found"
-        d_why = (
-            "Credit/debit note values match between GSTR-2B CDNR and purchase register."
-            if is_credit_note
-            else "Invoice number, amount, and date align"
-        )
-        d_next = (
-            "Reduce/reverse ITC in GSTR-3B Table 4(B)(2) as required. Do not claim as domestic inward ITC."
-            if is_credit_note
-            else "ITC can be claimed as filed"
-        )
+        if is_debit_note:
+            d_what = "Matched Debit Note"
+            d_why = "Debit note details and amounts align between GSTR-2B and purchase register."
+            d_next = "Claim eligible ITC in GSTR-3B Table 4(A)(5). Supplier has increased tax liability."
+        elif is_credit_note:
+            d_what = "Matched Credit Note"
+            d_why = "Credit note details and amounts align between GSTR-2B CDNR and purchase register."
+            d_next = "Reduce/reverse ITC in GSTR-3B Table 4(B)(2) as required. Do not claim as domestic inward ITC."
+        else:
+            d_what = "Exact match found"
+            d_why = "Invoice number, amount, and date align"
+            d_next = "ITC can be claimed as filed"
     return (d_what, d_why, d_next, tvd, igd, cgd, sgd, ttd, st)
 
 
@@ -579,12 +580,24 @@ def build_outcome_rows(
         sname = _gstr_name(g_rd) if g_rd else None
         invn = str(g.get("invoice_number_normalized") or p.get("invoice_number_normalized") or "")
         invd = g.get("invoice_date") or p.get("invoice_date")
+        is_dn = bool(
+            m0.get("is_debit_note")
+            or g.get("doc_type") == "DEBIT_NOTE"
+            or p.get("doc_type") == "DEBIT_NOTE"
+            or str(g.get("document_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DN", "DEBIT", "D")
+            or str(p.get("document_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DN", "DEBIT", "D")
+            or str(g.get("ntty") or "").upper().strip() in ("D", "DR", "DEBIT", "DEBIT_NOTE")
+        )
         is_cn = bool(
-            m0.get("is_credit_note")
-            or g.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
-            or p.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
-            or p.get("pr_note_quarantine")
-            or str(g.get("section") or "").lower() in ("cdnr", "cdnra")
+            not is_dn
+            and (
+                m0.get("is_credit_note")
+                or g.get("doc_type") == "CREDIT_NOTE"
+                or p.get("doc_type") == "CREDIT_NOTE"
+                or p.get("pr_note_quarantine")
+                or str(g.get("section") or "").lower() in ("cdnr", "cdnra")
+                or str(g.get("ntty") or "").upper().strip() in ("C", "CR", "CREDIT", "CREDIT_NOTE")
+            )
         )
         doc_type = (
             str(m0.get("doc_type") or g.get("doc_type") or p.get("doc_type") or "")
@@ -592,10 +605,10 @@ def build_outcome_rows(
             .upper()
         )
         if not doc_type or doc_type not in ("CREDIT_NOTE", "DEBIT_NOTE"):
-            doc_type = "CREDIT_NOTE" if is_cn else "INVOICE"
+            doc_type = "DEBIT_NOTE" if is_dn else ("CREDIT_NOTE" if is_cn else "INVOICE")
 
         d_what, d_why, d_next, tvd, igd, cgd, sgd, ttd, mst = _mr_to_decisions(
-            g, p, is_credit_note=is_cn
+            g, p, is_credit_note=is_cn, is_debit_note=is_dn
         )
         r37r = r37x.get(p_id, {})
         r37f = (r37r.get("status") or "") in _RULE37_CONCERNS
@@ -739,16 +752,27 @@ def build_outcome_rows(
             g_rd,
             is_itc_avail=is_itc_avail,
             itc_rsn=itc_rsn,
+            reporting_period=payload.get("period") or payload.get("return_period"),
         )
 
+        is_dn = bool(
+            mi.get("is_debit_note")
+            or g.get("doc_type") == "DEBIT_NOTE"
+            or str(g.get("document_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DN", "DEBIT", "D")
+            or str(g.get("ntty") or "").upper().strip() in ("D", "DR", "DEBIT", "DEBIT_NOTE")
+        )
         is_cn = bool(
-            mi.get("is_credit_note")
-            or g.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
-            or str(g.get("section") or "").lower() in ("cdnr", "cdnra")
+            not is_dn
+            and (
+                mi.get("is_credit_note")
+                or g.get("doc_type") == "CREDIT_NOTE"
+                or str(g.get("section") or "").lower() in ("cdnr", "cdnra")
+                or str(g.get("ntty") or "").upper().strip() in ("C", "CR", "CREDIT", "CREDIT_NOTE")
+            )
         )
         doc_type = str(mi.get("doc_type") or g.get("doc_type") or "").strip().upper()
         if not doc_type or doc_type not in ("CREDIT_NOTE", "DEBIT_NOTE"):
-            doc_type = "CREDIT_NOTE" if is_cn else "INVOICE"
+            doc_type = "DEBIT_NOTE" if is_dn else ("CREDIT_NOTE" if is_cn else "INVOICE")
 
         rows.append(
             OutcomeRow(
@@ -758,7 +782,7 @@ def build_outcome_rows(
                 supplier_name=_gstr_name(g_rd),
                 invoice_number=invn,
                 invoice_date=str(invd) if invd else None,
-                match_status="BLOCKED" if sc_mi.category == "blocked_credit" else "UNMATCHED",
+                match_status="TIME_BARRED" if sc_mi.category == "time_barred_itc" else ("BLOCKED" if sc_mi.category == "blocked_credit" else "UNMATCHED"),
                 taxable_value_diff=0,
                 igst_diff=0,
                 cgst_diff=0,
@@ -781,6 +805,7 @@ def build_outcome_rows(
                 liability_table=sc_mi.liability_table,
                 claim_table=sc_mi.claim_table,
                 is_rcm=sc_mi.is_rcm,
+                section_16_4_status=sc_mi.section_16_4_status.value if sc_mi.section_16_4_status else None,
                 normalized_reason=sc_mi.normalized_reason.value if sc_mi.normalized_reason else None,
             )
         )
@@ -794,14 +819,22 @@ def build_outcome_rows(
         invd = wr.get("invoice_date") or p.get("invoice_date")
         r37r = r37x.get(pid, {})
         r37f = (r37r.get("status") or "") in _RULE37_CONCERNS
+        is_dn = bool(
+            wr.get("is_debit_note")
+            or p.get("doc_type") == "DEBIT_NOTE"
+            or str(rd.get("document_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DN", "DEBIT", "D")
+        )
         is_cn = bool(
-            wr.get("is_credit_note")
-            or p.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
-            or p.get("pr_note_quarantine")
+            not is_dn
+            and (
+                wr.get("is_credit_note")
+                or p.get("doc_type") == "CREDIT_NOTE"
+                or p.get("pr_note_quarantine")
+            )
         )
         doc_type = str(wr.get("doc_type") or p.get("doc_type") or rd.get("document_type") or "").strip().upper()
         if not doc_type or doc_type not in ("CREDIT_NOTE", "DEBIT_NOTE"):
-            doc_type = "CREDIT_NOTE" if is_cn else "INVOICE"
+            doc_type = "DEBIT_NOTE" if is_dn else ("CREDIT_NOTE" if is_cn else "INVOICE")
 
         sc_pr = classify_statutory_treatment_for_pr_only(
             p=p,
@@ -922,14 +955,22 @@ def build_outcome_rows(
         invn = str(dup.get("invoice_number_normalized") or m_rec.get("invoice_number_normalized") or "")
         invd = dup.get("invoice_date") or m_rec.get("invoice_date")
         reason = str(dup.get("reason") or "DUPLICATE_CONFLICT")
+        is_dn = bool(
+            dup.get("is_debit_note")
+            or m_rec.get("doc_type") == "DEBIT_NOTE"
+            or str(m_rec.get("document_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DN", "DEBIT", "D")
+        )
         is_cn = bool(
-            dup.get("is_credit_note")
-            or m_rec.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
-            or m_rec.get("pr_note_quarantine")
+            not is_dn
+            and (
+                dup.get("is_credit_note")
+                or m_rec.get("doc_type") == "CREDIT_NOTE"
+                or m_rec.get("pr_note_quarantine")
+            )
         )
         doc_type = str(dup.get("doc_type") or m_rec.get("doc_type") or "").strip().upper()
         if not doc_type or doc_type not in ("CREDIT_NOTE", "DEBIT_NOTE"):
-            doc_type = "CREDIT_NOTE" if is_cn else "INVOICE"
+            doc_type = "DEBIT_NOTE" if is_dn else ("CREDIT_NOTE" if is_cn else "INVOICE")
         
         d_what = dup.get("decision_what") or (reason.replace("_", " ").title() if reason else "Manual Review Required")
         d_why = dup.get("decision_why") or reason
@@ -989,16 +1030,28 @@ def build_outcome_rows(
         invn = str(rr.get("invoice_number_normalized") or g_rec.get("invoice_number_normalized") or p_rec.get("invoice_number_normalized") or "")
         invd = rr.get("invoice_date") or g_rec.get("invoice_date") or p_rec.get("invoice_date")
         reason = str(rr.get("review_reason") or rr.get("reason") or "REVIEW_REQUIRED")
+        is_dn = bool(
+            rr.get("is_debit_note")
+            or g_rec.get("doc_type") == "DEBIT_NOTE"
+            or p_rec.get("doc_type") == "DEBIT_NOTE"
+            or str(g_rec.get("document_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DN", "DEBIT", "D")
+            or str(p_rec.get("document_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DN", "DEBIT", "D")
+            or str(g_rec.get("ntty") or "").upper().strip() in ("D", "DR", "DEBIT", "DEBIT_NOTE")
+        )
         is_cn = bool(
-            rr.get("is_credit_note")
-            or g_rec.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
-            or p_rec.get("doc_type") in ("CREDIT_NOTE", "DEBIT_NOTE")
-            or p_rec.get("pr_note_quarantine")
-            or str(g_rec.get("section") or "").lower() in ("cdnr", "cdnra")
+            not is_dn
+            and (
+                rr.get("is_credit_note")
+                or g_rec.get("doc_type") == "CREDIT_NOTE"
+                or p_rec.get("doc_type") == "CREDIT_NOTE"
+                or p_rec.get("pr_note_quarantine")
+                or str(g_rec.get("section") or "").lower() in ("cdnr", "cdnra")
+                or str(g_rec.get("ntty") or "").upper().strip() in ("C", "CR", "CREDIT", "CREDIT_NOTE")
+            )
         )
         doc_type = str(rr.get("doc_type") or g_rec.get("doc_type") or p_rec.get("doc_type") or "").strip().upper()
         if not doc_type or doc_type not in ("CREDIT_NOTE", "DEBIT_NOTE"):
-            doc_type = "CREDIT_NOTE" if is_cn else "INVOICE"
+            doc_type = "DEBIT_NOTE" if is_dn else ("CREDIT_NOTE" if is_cn else "INVOICE")
 
         d_what = rr.get("decision_what") or (reason.replace("_", " ").title() if reason else "Manual Review Required")
         d_why = rr.get("decision_why") or reason

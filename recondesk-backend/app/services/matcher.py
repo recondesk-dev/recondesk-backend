@@ -542,9 +542,8 @@ def is_sequential_series_mismatch(
                 or _RE_NOTE_IDENTIFIER.search(r1)
                 or _RE_NOTE_IDENTIFIER.search(r2)
             )
-            if levenshtein(n1, n2) == 1:
-                if is_note_doc or abs(last1 - last2) != 1:
-                    return False
+            if levenshtein(n1, n2) == 1 and is_note_doc:
+                return False
 
             # 1. Same leading alphabetic prefix (e.g. "INV" on both)
             p1 = _RE_LEADING_ALPHA.match(n1)
@@ -1970,10 +1969,18 @@ def _match_gstr_to_pr_pair(
                 d_what = f"Invoice matched; invoice date differs by {date_diff_days} days"
                 d_why = f"Same normalized invoice and GSTIN, date differs by {date_diff_days} days (within {DATE_TOLERANCE_L2_DAYS}-day tolerance)"
                 rr = "DATE_MISMATCH"
-            else:
+            elif not _vendor_name_ok:
+                d_what = "Invoice matched; vendor trade name differs"
+                d_why = f"Same GSTIN and invoice, supplier name differs ({g_vendor} vs {p_vendor})"
+                rr = "VENDOR_NAME_MISMATCH"
+            elif amount_diff > 0 or tax_only_diff > 0:
                 d_what = "Invoice matched with normalized invoice and minor amount difference"
                 d_why = "Same normalized invoice and GSTIN, amount within acceptable tolerance"
                 rr = "AMOUNT_MISMATCH"
+            else:
+                d_what = "Invoice matched; manual verification recommended"
+                d_why = "Same normalized invoice and GSTIN, verify record details"
+                rr = "REVIEW_REQUIRED"
 
             return _ret(
                 level=2, matched=True, confidence=90, requires_human_review=True,

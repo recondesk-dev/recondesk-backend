@@ -1149,3 +1149,37 @@ def test_tax_head_mismatch_guard():
     assert any("tax_head_mismatch" in d or "tax_structure" in d for d in r.discrepancies)
 
 
+def test_vendor_branch_variation_clean_match():
+    """Branch annotations in parentheses like '(Mumbai)' must not cause false AMOUNT_MISMATCH."""
+    from app.services.vendor_name_matcher import l1_vendor_name_ok
+
+    assert l1_vendor_name_ok("Prime Cables Pvt Ltd (Mumbai)", "Prime Cables Pvt Ltd") is True
+
+    g = _base_rec(
+        supplier_gstin="06KNIFC6596P2ZK",
+        invoice_number="T-00099",
+        invoice_date="2026-07-26",
+        taxable_paise=1500000,
+    )
+    g["supplier_name"] = "Prime Cables Pvt Ltd"
+    g["igst_paise"] = 270000
+    g["total_tax_paise"] = 270000
+
+    p = _base_rec(
+        supplier_gstin="06KNIFC6596P2ZK",
+        invoice_number="T-00099",
+        invoice_date="2026-07-26",
+        taxable_paise=1500000,
+    )
+    p["vendor_name"] = "Prime Cables Pvt Ltd (Mumbai)"
+    p["igst_paise"] = 270000
+    p["total_tax_paise"] = 270000
+
+    r = match_gstr_to_pr(g, [p])
+    assert r is not None
+    assert r.matched is True
+    assert r.level == 1
+    assert r.requires_human_review is False
+    assert r.review_reason is None
+
+

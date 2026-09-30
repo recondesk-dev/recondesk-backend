@@ -114,13 +114,33 @@ class RuleTemplate:
         return self.decision_next
 
 
+def _is_debit_note_row(row: dict[str, Any]) -> bool:
+    if row.get("is_debit_note"):
+        return True
+    if row.get("is_credit_note"):
+        return False
+    for k in ("doc_type", "document_type"):
+        v = str(row.get(k) or "").strip().upper().replace(" ", "_")
+        if v in ("DEBIT_NOTE", "DN", "DEBIT", "D", "DBN", "DR"):
+            return True
+    if str(row.get("ntty") or "").strip().upper() in ("D", "DR", "DEBIT", "DEBIT_NOTE"):
+        return True
+    return False
+
+
 def _is_credit_note_row(row: dict[str, Any]) -> bool:
+    if _is_debit_note_row(row):
+        return False
     if row.get("is_credit_note"):
         return True
-    for k in ("doc_type", "document_type", "section"):
-        v = str(row.get(k) or "").strip().upper()
-        if v in ("CREDIT_NOTE", "CREDIT NOTE", "CRN", "CDN", "CDNR", "CDNRA", "C"):
+    for k in ("doc_type", "document_type"):
+        v = str(row.get(k) or "").strip().upper().replace(" ", "_")
+        if v in ("CREDIT_NOTE", "CRN", "CDN", "C", "CR"):
             return True
+    if str(row.get("ntty") or "").strip().upper() in ("C", "CR", "CREDIT", "CREDIT_NOTE"):
+        return True
+    if str(row.get("section") or "").strip().upper() in ("CDNR", "CDNRA") and not _is_debit_note_row(row):
+        return True
     return False
 
 
@@ -173,6 +193,7 @@ def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> Deci
                 normalized_pairs=[],
             )
 
+    is_dn = _is_debit_note_row(row)
     is_cn = _is_credit_note_row(row)
     is_rcm = _is_rcm_row(row)
 
@@ -274,7 +295,7 @@ def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> Deci
 
     if level == 1:
         mf = list(dict.fromkeys(ident + amt_meta))
-        tmpl = "L1_CREDIT_NOTE_EXACT" if is_cn else ("L1_RCM_EXACT" if is_rcm else "L1_EXACT")
+        tmpl = "L1_DEBIT_NOTE_EXACT" if is_dn else ("L1_CREDIT_NOTE_EXACT" if is_cn else ("L1_RCM_EXACT" if is_rcm else "L1_EXACT"))
         return generate_decision(
             tmpl,
             confidence="HIGH",
@@ -362,7 +383,7 @@ def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> Deci
         )
 
     mf = list(dict.fromkeys(ident + amt_meta))
-    tmpl = "L1_CREDIT_NOTE_EXACT" if is_cn else ("L1_RCM_EXACT" if is_rcm else "L1_EXACT")
+    tmpl = "L1_DEBIT_NOTE_EXACT" if is_dn else ("L1_CREDIT_NOTE_EXACT" if is_cn else ("L1_RCM_EXACT" if is_rcm else "L1_EXACT"))
     return generate_decision(
         tmpl,
         confidence="HIGH",
@@ -526,6 +547,7 @@ _REVIEW_REASON_TO_TEMPLATE: dict[str, str] = {
     "DOC_TYPE_NOTE_IN_B2B": "REVIEW_DOC_TYPE_NOTE_IN_B2B",
     "TYPO_MISMATCH": "REVIEW_TYPO_MISMATCH",
     "OCR_CONFIDENCE_REVIEW": "REVIEW_OCR_CONFIDENCE_REVIEW",
+    "VENDOR_NAME_MISMATCH": "REVIEW_VENDOR_NAME_MISMATCH",
 }
 
 

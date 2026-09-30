@@ -91,6 +91,7 @@ _ABBREV_MAP: dict[str, str] = {
 }
 
 
+_RE_PARENTHESES = re.compile(r"\([^)]*\)|\[[^\]]*\]")
 _RE_PUNCT = re.compile(r"[.,&()\-/]")
 _RE_SPACE = re.compile(r"\s+")
 _RE_DIGITS_ONLY = re.compile(r'^\d+$')
@@ -101,6 +102,7 @@ def _normalize_for_l1(name: str) -> str:
     """Return a suffix-stripped, uppercased name core for L1 comparison.
 
     Steps:
+    0. Strip parenthetical/bracketed branch/city annotations (e.g. "(Mumbai)", "[HO]").
     1. Uppercase + strip punctuation.
     2. Drop pure-numeric tokens (e.g. sequence numbers like 4324).
     3. Expand ONLY legal-form abbreviations (CORP→CORPORATION, ASSOC→ASSOCIATES).
@@ -112,8 +114,11 @@ def _normalize_for_l1(name: str) -> str:
     if not name:
         return ""
 
+    # 0. Strip parenthetical / bracketed annotations before tokenizing
+    name_clean = _RE_PARENTHESES.sub(" ", name)
+
     # 1. Uppercase + strip punctuation + collapse spaces
-    s = _RE_PUNCT.sub(" ", name.upper())
+    s = _RE_PUNCT.sub(" ", name_clean.upper())
     s = _RE_SPACE.sub(" ", s).strip()
 
     # 2. Drop pure-numeric tokens (sequence numbers embedded in vendor names)

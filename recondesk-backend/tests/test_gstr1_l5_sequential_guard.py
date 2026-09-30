@@ -274,3 +274,13 @@ async def test_fuzz_2000_regression_full_pipeline():
     for i in range(251, 281):
         inv_no = f"INV/25-26/{i:04d}"
         assert inv_no in matched_sr_raws, f"Format variant {inv_no} failed to match!"
+
+
+def test_sequential_series_mismatch_single_char_trailing_diff():
+    """AB/26-27/0441 vs AB/26-27/0445 represent distinct commercial sequential invoices, not duplicates."""
+    assert is_sequential_series_mismatch(
+        "AB/26-27/0441",
+        "AB/26-27/0445",
+        "AB/26-27/0441",
+        "AB/26-27/0445",
+    ) is True

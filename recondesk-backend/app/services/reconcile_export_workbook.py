@@ -109,19 +109,24 @@ def _doc_type_display(doc_type: Any, row: dict[str, Any] | None = None) -> str:
     """Return formatted document type: 'Credit Note', 'Debit Note', or 'Invoice'."""
     if row and isinstance(row, dict):
         if (
+            row.get("is_debit_note")
+            or str(row.get("document_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT")
+            or str(row.get("doc_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT")
+            or str(row.get("ntty") or "").upper().strip() in ("D", "DR", "DEBIT", "DEBIT_NOTE")
+        ):
+            return "Debit Note"
+        if (
             row.get("is_credit_note")
             or str(row.get("section") or "").lower() in ("cdnr", "cdnra", "cdnur", "cdnura")
         ):
             return "Credit Note"
-        if row.get("is_debit_note"):
-            return "Debit Note"
     if not doc_type:
         return "Invoice"
     s = str(doc_type).strip().upper().replace("-", "_").replace(" ", "_")
-    if s in ("CREDIT_NOTE", "CREDIT", "CRN", "CN", "CDN", "C", "CBT"):
-        return "Credit Note"
     if s in ("DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT"):
         return "Debit Note"
+    if s in ("CREDIT_NOTE", "CREDIT", "CRN", "CN", "CDN", "C", "CBT"):
+        return "Credit Note"
     return "Invoice"
 
 
@@ -138,7 +143,11 @@ def _period_mmm_yyyy(period: str) -> str:
 
 
 def _format_period_range(period_raw: str, all_dates: list[str] | None = None) -> str:
-    """Format period label; if dates span multiple calendar months, return 'MMM YYYY – MMM YYYY'."""
+    """Format period label; prefers the declared reconciliation period."""
+    if period_raw and str(period_raw).strip() not in ("", "—", "-"):
+        p_str = _period_mmm_yyyy(str(period_raw).strip())
+        if p_str and p_str != "—":
+            return p_str
     if all_dates:
         valid_dates = []
         for d in all_dates:
@@ -155,6 +164,7 @@ def _format_period_range(period_raw: str, all_dates: list[str] | None = None) ->
             max_d = max(valid_dates)
             if (min_d.year, min_d.month) != (max_d.year, max_d.month):
                 return f"{min_d.strftime('%b %Y')} – {max_d.strftime('%b %Y')}"
+            return max_d.strftime("%b %Y")
     return _period_mmm_yyyy(period_raw)
 
 
@@ -271,6 +281,25 @@ def build_excel_workbook_bytes(
         risk_rows = active_risk_rows
     else:
         time_barred_rows = list(time_barred_rows)
+
+    active_missed_rows = []
+    existing_tb_ids = {str(r.get("id") or "") for r in time_barred_rows}
+    for m in missed_rows:
+        if (
+            str(m.get("section_16_4_status") or "").upper() == "ITC_TIME_BARRED"
+            or m.get("category") == "time_barred_itc"
+            or "time-barred" in str(m.get("decision_what") or "").lower()
+            or "time barred" in str(m.get("decision_what") or "").lower()
+            or "time-barred" in str(m.get("decision_why") or "").lower()
+        ):
+            mid = str(m.get("id") or "")
+            if not mid or mid not in existing_tb_ids:
+                time_barred_rows.append(m)
+                if mid:
+                    existing_tb_ids.add(mid)
+        else:
+            active_missed_rows.append(m)
+    missed_rows = active_missed_rows
 
     tracks: list[_SheetTrack] = []
 
@@ -394,6 +423,15 @@ def build_excel_workbook_bytes(
         def _row_is_cn(ap, _o):
             pd = ap.get("pr_data") if isinstance(ap.get("pr_data"), dict) else {}
             gd = ap.get("gstr2b_data") if isinstance(ap.get("gstr2b_data"), dict) else {}
+            if (
+                ap.get("is_debit_note")
+                or getattr(_o, "is_debit_note", False)
+                or str(ap.get("document_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DN", "DEBIT", "D")
+                or str(pd.get("document_type") or pd.get("doc_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DN", "DEBIT", "D")
+                or str(gd.get("document_type") or gd.get("doc_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DN", "DEBIT", "D")
+                or str(gd.get("ntty") or "").upper().strip() in ("D", "DR", "DEBIT", "DEBIT_NOTE")
+            ):
+                return False
             return bool(
                 ap.get("is_credit_note")
                 or getattr(_o, "is_credit_note", False)
@@ -545,14 +583,6 @@ def build_excel_workbook_bytes(
                 or str(pd.get("document_type") or "").upper() == "ISD"
                 or str(gd.get("section") or "").upper() in ("ISD", "ISDA")
             )
-            is_cn = (
-                bool(api_row.get("is_credit_note"))
-                or bool(gd.get("is_credit_note"))
-                or str(gd.get("section") or "").lower() in ("cdnr", "cdnra", "cdnur", "cdnura")
-                or str(api_row.get("document_type") or "").upper().replace(" ", "_") in (
-                    "CREDIT_NOTE", "CREDIT", "CRN", "CN", "CDN", "C", "CBT"
-                )
-            )
             is_dn = (
                 bool(api_row.get("is_debit_note"))
                 or bool(gd.get("is_debit_note"))
@@ -568,6 +598,19 @@ def build_excel_workbook_bytes(
                 )
                 or str(gd.get("document_type") or gd.get("doc_type") or "").upper().replace(" ", "_") in (
                     "DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT"
+                )
+                or str(gd.get("ntty") or "").upper().strip() in ("D", "DR", "DEBIT", "DEBIT_NOTE")
+            )
+            is_cn = (
+                not is_dn
+                and (
+                    bool(api_row.get("is_credit_note"))
+                    or bool(gd.get("is_credit_note"))
+                    or str(gd.get("section") or "").lower() in ("cdnr", "cdnra", "cdnur", "cdnura")
+                    or str(api_row.get("document_type") or "").upper().replace(" ", "_") in (
+                        "CREDIT_NOTE", "CREDIT", "CRN", "CN", "CDN", "C", "CBT"
+                    )
+                    or str(gd.get("ntty") or "").upper().strip() in ("C", "CR", "CREDIT", "CREDIT_NOTE")
                 )
             )
 
@@ -637,14 +680,17 @@ def build_excel_workbook_bytes(
                 supply_type = "ZERO_RATED"
                 gstr3b_table = "Table 4(A)(5)"
                 doc_type_disp = _doc_type_display(api_row.get("document_type"), api_row)
-            elif is_cn:
-                supply_type = "CREDIT NOTE"
-                gstr3b_table = "Table 4(B)(2)"
-                doc_type_disp = "Credit Note"
             elif is_dn:
                 supply_type = "DEBIT NOTE"
                 gstr3b_table = "Table 4(A)(5)"
                 doc_type_disp = "Debit Note"
+                dec_what = "Matched Debit Note"
+                dec_why = "Debit note details and amounts align between GSTR-2B and purchase register"
+                dec_next = "Claim eligible ITC in GSTR-3B Table 4(A)(5). Supplier has increased tax liability."
+            elif is_cn:
+                supply_type = "CREDIT NOTE"
+                gstr3b_table = "Table 4(B)(2)"
+                doc_type_disp = "Credit Note"
             else:
                 supply_type = "REGULAR"
                 gstr3b_table = "Table 4(A)(5)"

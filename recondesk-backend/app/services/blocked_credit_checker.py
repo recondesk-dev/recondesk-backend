@@ -142,6 +142,8 @@ BLOCKED_KEYWORDS: list[tuple[str, str]] = [
     ("HEALTH INSURANCE", "Health Insurance Services -- Section 17(5)(b)(i)"),
     ("BEAUTY TREATMENT", "Beauty Treatment Services -- Section 17(5)(b)(i)"),
     ("PLASTIC SURGERY", "Cosmetic/Plastic Surgery -- Section 17(5)(b)(i)"),
+    ("MOTOR CAR", "Motor Vehicles -- Section 17(5)(a)"),
+    ("VEHICLE REPAIR", "Maintenance/Servicing of Motor Vehicles -- Section 17(5)(ab)"),
 ]
 
 
@@ -293,43 +295,49 @@ def check_blocked_credits(invoices: list[dict]) -> list[dict]:
 
         hsn_code = _raw_hsn_from_record(record)
         hsn_chapter = _hsn_chapter_key(hsn_code)
-        if hsn_chapter is not None and hsn_chapter in BLOCKED_HSN_CODES:
-            entry = BLOCKED_HSN_CODES[hsn_chapter]
-            category = entry["category"]
-            usage_dependent = entry["usage_dependent"]
-            exempt_note = entry["exempt_note"]
-
-            if usage_dependent:
-                reason = (
-                    f"HSN {hsn_chapter} falls under {category}. "
-                    "Verify before claiming ITC -- may be blocked under Section 17(5). "
-                    f"Note: {exempt_note}"
-                )
-            else:
-                reason = (
-                    f"HSN {hsn_chapter} falls under {category}. "
-                    "Verify before claiming ITC -- likely blocked under Section 17(5)"
-                )
-
-            warnings.append(
-                _base_warning(
-                    record,
-                    reason=reason,
-                    hsn_code=hsn_chapter,
-                    category=category,
-                    flag_source="hsn",
-                )
-            )
-            continue
-
-        # Check line item / ledger text description for blocked credit keywords
         desc_text = " ".join([
             str(record.get("description") or ""),
             str(record.get("item_name") or ""),
+            str(record.get("purchase_ledger") or ""),
             str(record.get("ledger_name") or ""),
+            str(record.get("ledger") or ""),
             str(record.get("remarks") or ""),
         ]).upper()
 
+        if hsn_chapter is not None and hsn_chapter in BLOCKED_HSN_CODES:
+            # Section 17(5)(c) carve-out: Plant and Machinery installation/works contract is NOT blocked
+            if hsn_chapter == "9954" and (("PLANT" in desc_text and "MACHINERY" in desc_text) or "PLANT & MACHINERY" in desc_text):
+                pass  # Exempt under Section 17(5)(c) carve-out
+            else:
+                entry = BLOCKED_HSN_CODES[hsn_chapter]
+                category = entry["category"]
+                usage_dependent = entry["usage_dependent"]
+                exempt_note = entry["exempt_note"]
+
+                if usage_dependent:
+                    reason = (
+                        f"HSN {hsn_chapter} falls under {category}. "
+                        "Verify before claiming ITC -- may be blocked under Section 17(5). "
+                        f"Note: {exempt_note}"
+                    )
+                else:
+                    reason = (
+                        f"HSN {hsn_chapter} falls under {category}. "
+                        "Verify before claiming ITC -- likely blocked under Section 17(5)"
+                    )
+
+                warnings.append(
+                    _base_warning(
+                        record,
+                        reason=reason,
+                        hsn_code=hsn_chapter,
+                        category=category,
+                        flag_source="hsn",
+                    )
+                )
+                continue
+
+        # Check line item / ledger text description for blocked credit keywords
         if desc_text.strip():
             matched_cat = None
             for kw, cat_desc in BLOCKED_KEYWORDS:

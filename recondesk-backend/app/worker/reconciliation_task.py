@@ -1248,13 +1248,19 @@ def execute_reconciliation(run_id: str) -> None:
                 if ggr.get(amt_key) is not None and merged.get(amt_key) is None:
                     merged[amt_key] = ggr.get(amt_key)
             
-            # Merge PR's itc_eligibility if matched
+            # Merge PR's itc_eligibility, hsn, and purchase_ledger if matched
             matched_pr_id = matched_gstr_to_pr.get(gid)
             if matched_pr_id:
                 pr_raw = pr_raw_by_id.get(matched_pr_id) or {}
                 if isinstance(pr_raw, dict):
                     if pr_raw.get("itc_eligibility") is not None:
                         merged["itc_eligibility"] = pr_raw.get("itc_eligibility")
+                    if pr_raw.get("hsn") is not None:
+                        merged["hsn"] = pr_raw.get("hsn")
+                    elif (pr_by_id.get(matched_pr_id) or {}).get("hsn") is not None:
+                        merged["hsn"] = pr_by_id[matched_pr_id]["hsn"]
+                    if pr_raw.get("purchase_ledger") is not None:
+                        merged["purchase_ledger"] = pr_raw.get("purchase_ledger")
                     
             invoices_for_blocked.append(merged)
 
@@ -1275,6 +1281,10 @@ def execute_reconciliation(run_id: str) -> None:
                     pr_merged["itc_eligibility"] = raw_pr["itc_eligibility"]
                 if pr.get("hsn") is not None:
                     pr_merged["hsn"] = pr["hsn"]
+                elif raw_pr.get("hsn") is not None:
+                    pr_merged["hsn"] = raw_pr["hsn"]
+                if raw_pr.get("purchase_ledger") is not None:
+                    pr_merged["purchase_ledger"] = raw_pr["purchase_ledger"]
                 invoices_for_blocked.append(pr_merged)
         s175 = check_blocked_credits(invoices_for_blocked)
 

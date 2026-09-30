@@ -3200,7 +3200,10 @@ def _build_reconcile_summary(
     isd_present = bool(rs.get("isd_present")) or isd_count > 0
     impg_present = bool(rs.get("impg_present")) or impg_count > 0
     isd_impg_warning = rs.get("isd_impg_warning")
-    if (isd_count > 0 or impg_count > 0) and not isd_impg_warning:
+    isd_itc_amt = float(rs.get("isd_itc_amount") or 0)
+    if isd_count > 0 and isd_itc_amt > 0:
+        isd_impg_warning = f"This GSTR-2B file contains {isd_count} ISD credit line(s) reconciled to Table 4(A)(4)."
+    elif (isd_count > 0 or impg_count > 0) and not isd_impg_warning:
         from app.parsers.gstr2b_parser import format_isd_impg_warning
 
         isd_impg_warning = format_isd_impg_warning(isd_count, impg_count)
@@ -3395,10 +3398,12 @@ def _build_missed_itc_records(
     payload: dict[str, Any],
     note_counts: Counter[str],
     source_software: str,
+    precomputed_outcome_rows: Sequence[ro.OutcomeRow] | None = None,
 ) -> list[dict[str, Any]]:
     engine = payload.get("engine") or {}
     gstr_db = ro.load_gstr_map(sb, rid)
     decision_statuses = _decision_statuses_for_run(sb, rid)
+    out_map = {r.id: r for r in precomputed_outcome_rows} if precomputed_outcome_rows else {}
     out = []
     for mi in engine.get("missed_itc") or []:
         gid = str(mi.get("gstr_id", "")).strip()
@@ -3441,6 +3446,30 @@ def _build_missed_itc_records(
         decision_status = _lookup_by_record_id(
             decision_statuses, row_id, "pending"
         )
+        o_row = out_map.get(row_id)
+        if o_row:
+            dec_what = o_row.decision_what or dout.what
+            dec_why = o_row.decision_why or dout.why
+            dec_next = o_row.decision_next or dout.next
+            cat = o_row.category
+            sec_stat = o_row.section_16_4_status
+            itc_avail = o_row.itc_available
+        else:
+            from app.services.statutory_eligibility import classify_statutory_treatment_for_gstr_only
+            sc = classify_statutory_treatment_for_gstr_only(
+                mt,
+                rd,
+                is_itc_avail=ro.resolve_itc_available(mt, rd),
+                itc_rsn=ro.resolve_itc_reason(mt, rd),
+                reporting_period=payload.get("period") or payload.get("return_period"),
+            )
+            dec_what = sc.decision_what or dout.what
+            dec_why = sc.decision_why or dout.why
+            dec_next = sc.decision_next or dout.next
+            cat = sc.category
+            sec_stat = sc.section_16_4_status.value if sc.section_16_4_status else None
+            itc_avail = sc.is_itc_available
+
         out.append(
             {
                 "id": row_id,
@@ -3453,12 +3482,15 @@ def _build_missed_itc_records(
                 ),
                 "invoice_date": str(mi.get("invoice_date") or mt.get("invoice_date") or "")[:40],
                 "amount": amt,
+                "category": cat,
+                "section_16_4_status": sec_stat,
+                "itc_available": itc_avail,
                 "match_level": "UNMATCHED",
                 "confidence_score": 0.0,
                 "discrepancy_note": mi.get("mismatch_reason") if isinstance(mi, dict) else None,
-                "decision_what": dout.what,
-                "decision_why": dout.why,
-                "decision_next": dout.next,
+                "decision_what": dec_what,
+                "decision_why": dec_why,
+                "decision_next": dec_next,
                 "decision_rule": dout.rule,
                 "decision_confidence": dout.confidence,
                 "decision_matched_fields": list(dout.matched_fields),
@@ -7125,13 +7157,13 @@ async def reconcile_export_excel_workbook(
             fetch_review_required=True,
             precomputed_outcome_rows=summ_outcome_rows,
         )
-        review_rows = [pair[0] for pair in review_pairs]
         missed = _build_missed_itc_records(
             sb,
             rid=rid,
             payload=p,
             note_counts=notes,
             source_software="your accounting software",
+            precomputed_outcome_rows=summ_outcome_rows,
         )
         risk = _build_wrongful_risk_records(sb, rid=rid, payload=p, note_counts=notes)
         time_barred_ids = {x.id for x in summ_outcome_rows if x.category == "time_barred_itc"}
@@ -7141,16 +7173,39 @@ async def reconcile_export_excel_workbook(
             and f"pr:{r.get('id')}" not in time_barred_ids
             and f"wr:{r.get('id')}" not in time_barred_ids
             and str(r.get("section_16_4_status") or "").upper() != "ITC_TIME_BARRED"
+            and r.get("category") != "time_barred_itc"
         ]
-        time_barred_rows = [
+        time_barred_from_risk = [
             r for r in risk
             if (
                 r.get("id") in time_barred_ids
                 or f"pr:{r.get('id')}" in time_barred_ids
                 or f"wr:{r.get('id')}" in time_barred_ids
                 or str(r.get("section_16_4_status") or "").upper() == "ITC_TIME_BARRED"
+                or r.get("category") == "time_barred_itc"
             )
-        ] or [x.as_dict() for x in summ_outcome_rows if x.category == "time_barred_itc"]
+        ]
+        time_barred_from_missed = [
+            m for m in missed
+            if (
+                m.get("id") in time_barred_ids
+                or f"mi:{m.get('id')}" in time_barred_ids
+                or str(m.get("section_16_4_status") or "").upper() == "ITC_TIME_BARRED"
+                or m.get("category") == "time_barred_itc"
+            )
+        ]
+        valid_missed = [
+            m for m in missed
+            if (
+                m.get("id") not in time_barred_ids
+                and f"mi:{m.get('id')}" not in time_barred_ids
+                and str(m.get("section_16_4_status") or "").upper() != "ITC_TIME_BARRED"
+                and m.get("category") != "time_barred_itc"
+            )
+        ]
+        time_barred_rows = time_barred_from_risk + time_barred_from_missed
+        if not time_barred_rows:
+            time_barred_rows = [x.as_dict() for x in summ_outcome_rows if x.category == "time_barred_itc"]
         r37 = _build_rule37_rows(sb, rid, p, notes)
         s17 = _build_section175_rows(sb, rid, p, notes)
         duplicate_rows = [
@@ -7198,7 +7253,7 @@ async def reconcile_export_excel_workbook(
             period_raw=str(run_row.get("period") or ""),
             summary=summ,
             matched_pairs=matched_pairs,
-            missed_rows=missed,
+            missed_rows=valid_missed,
             risk_rows=recoverable_risk,
             time_barred_rows=time_barred_rows,
             rule37_rows=r37,
