@@ -27,6 +27,20 @@ import {
 
 import { lookupCognitoMapping } from "../lib/cognito/mapping.ts";
 
+import {
+  COGNITO_COOKIE_NAMES,
+  DEFAULT_COGNITO_REFRESH_TOKEN_MAX_AGE_SECONDS,
+  setCognitoSessionCookies,
+  clearCognitoSessionCookies,
+  clearCognitoHandshakeCookies,
+  resolveCookieSecure,
+} from "../lib/cognito/cookies.ts";
+
+import {
+  resolveAccessTokenBridge,
+  resolveBackendProxyAuth,
+} from "../lib/cognito/sessionBridge.ts";
+
 // Helper to generate RSA key pair and JWKS
 function generateTestJwks() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
@@ -881,5 +895,336 @@ describe("Cognito-to-Aurora Trusted Account Mapping Lookup", () => {
 
     assert.equal(res.account_mapping_status, "pending_trusted_mapping_phase");
     assert.equal(res.user_id, null);
+  });
+});
+
+describe("Dual-Auth Phase 2A: Session Bridge, Precedence & Cookies", () => {
+  const { privateKey, jwks, kid } = generateTestJwks();
+
+  function createMockResponse() {
+    const cookiesMap = new Map();
+    return {
+      cookies: {
+        set(name, value, options) {
+          cookiesMap.set(name, { value, options });
+        },
+        delete(name) {
+          cookiesMap.delete(name);
+          cookiesMap.set(name, { value: "", options: { maxAge: 0 } });
+        },
+        get(name) {
+          return cookiesMap.get(name);
+        },
+        has(name) {
+          return cookiesMap.has(name) && cookiesMap.get(name).options?.maxAge !== 0;
+        },
+        getAll() {
+          return Array.from(cookiesMap.entries()).map(([name, data]) => ({ name, ...data }));
+        },
+      },
+      cookiesMap,
+    };
+  }
+
+  function createValidCognitoAccessToken(customClaims = {}) {
+    const now = Math.floor(Date.now() / 1000);
+    const payload = {
+      sub: "d1a38dfa-20e1-70bb-061d-eb14138ccd11",
+      iss: `https://cognito-idp.${mockConfig.region}.amazonaws.com/${mockConfig.userPoolId}`,
+      client_id: mockConfig.clientId,
+      token_use: "access",
+      scope: "openid email",
+      auth_time: now - 60,
+      exp: now + 3600,
+      iat: now - 60,
+      jti: "test-access-jti-uuid",
+      username: "d1a38dfa-20e1-70bb-061d-eb14138ccd11",
+      ...customClaims,
+    };
+    return { token: signTestJwt(payload, privateKey, kid), payload };
+  }
+
+  test("1. setCognitoSessionCookies sets access token cookie with strict flags and path=/", () => {
+    const mockRes = createMockResponse();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const exp = nowSec + 1800; // 30 minutes in future
+
+    setCognitoSessionCookies(mockRes, {
+      accessToken: "test-access-token-val",
+      accessExp: exp,
+      expiresIn: 1800,
+    });
+
+    const accessCookie = mockRes.cookies.get(COGNITO_COOKIE_NAMES.ACCESS_TOKEN);
+    assert.ok(accessCookie, "Access token cookie must be set");
+    assert.equal(accessCookie.value, "test-access-token-val");
+    assert.equal(accessCookie.options.httpOnly, true, "Must be HttpOnly");
+    assert.equal(accessCookie.options.sameSite, "lax", "Must be SameSite=Lax");
+    assert.equal(accessCookie.options.path, "/", "Must be Path=/");
+    assert.ok(accessCookie.options.maxAge <= 1800, "MaxAge must not exceed exp");
+    assert.ok(accessCookie.options.maxAge >= 1795, "MaxAge must match remaining seconds");
+
+    // ID token cookie must deliberately NOT be set
+    assert.equal(mockRes.cookies.has(COGNITO_COOKIE_NAMES.ID_TOKEN), false, "ID token must NOT be stored in cookies");
+  });
+
+  test("2. setCognitoSessionCookies sets refresh token only if provided, following configured lifetime", () => {
+    const mockResWithRefresh = createMockResponse();
+    setCognitoSessionCookies(mockResWithRefresh, {
+      accessToken: "test-access-token-val",
+      accessExp: Math.floor(Date.now() / 1000) + 3600,
+      refreshToken: "test-refresh-token-val",
+    });
+
+    const refreshCookie = mockResWithRefresh.cookies.get(COGNITO_COOKIE_NAMES.REFRESH_TOKEN);
+    assert.ok(refreshCookie, "Refresh token cookie should be set when present");
+    assert.equal(refreshCookie.value, "test-refresh-token-val");
+    assert.equal(refreshCookie.options.httpOnly, true);
+    assert.equal(refreshCookie.options.sameSite, "lax");
+    assert.equal(refreshCookie.options.path, "/");
+    assert.equal(refreshCookie.options.maxAge, DEFAULT_COGNITO_REFRESH_TOKEN_MAX_AGE_SECONDS);
+
+    // When refreshToken is undefined or empty string:
+    const mockResNoRefresh = createMockResponse();
+    setCognitoSessionCookies(mockResNoRefresh, {
+      accessToken: "test-access-token-val",
+      accessExp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    assert.equal(mockResNoRefresh.cookies.has(COGNITO_COOKIE_NAMES.REFRESH_TOKEN), false, "Refresh token cookie must NOT be set if omitted");
+  });
+
+  test("3. Access token cookie maxAge strictly never exceeds token exp (fails closed for past exp)", () => {
+    const mockRes = createMockResponse();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const pastExp = nowSec - 300; // expired 5 mins ago
+
+    setCognitoSessionCookies(mockRes, {
+      accessToken: "expired-access-token",
+      accessExp: pastExp,
+      expiresIn: 3600, // Token response may claim 3600, but token exp is in the past!
+    });
+
+    const accessCookie = mockRes.cookies.get(COGNITO_COOKIE_NAMES.ACCESS_TOKEN);
+    assert.ok(accessCookie);
+    assert.equal(accessCookie.options.maxAge, 0, "Expired token maxAge must be 0 (never exceed token exp)");
+  });
+
+  test("4. Secure cookie flag evaluates true in production or https, and false on http dev", () => {
+    assert.equal(resolveCookieSecure({ nextUrl: { protocol: "https:" }, headers: new Headers() }), true);
+    assert.equal(resolveCookieSecure({ nextUrl: { protocol: "http:" }, headers: new Headers() }), false);
+    assert.equal(resolveCookieSecure({ nextUrl: {}, headers: new Headers({ "x-forwarded-proto": "https" }) }), true);
+
+    const prevEnv = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = "production";
+      assert.equal(resolveCookieSecure(null), true);
+      assert.equal(resolveCookieSecure({ nextUrl: { protocol: "http:" }, headers: new Headers() }), true);
+    } finally {
+      process.env.NODE_ENV = prevEnv;
+    }
+  });
+
+  test("5. clearCognitoSessionCookies deletes access, refresh and id tokens", () => {
+    const mockRes = createMockResponse();
+    setCognitoSessionCookies(mockRes, {
+      accessToken: "token-to-delete",
+      refreshToken: "refresh-to-delete",
+    });
+    clearCognitoSessionCookies(mockRes);
+
+    assert.equal(mockRes.cookies.get(COGNITO_COOKIE_NAMES.ACCESS_TOKEN).options.maxAge, 0);
+    assert.equal(mockRes.cookies.get(COGNITO_COOKIE_NAMES.REFRESH_TOKEN).options.maxAge, 0);
+    assert.equal(mockRes.cookies.get(COGNITO_COOKIE_NAMES.ID_TOKEN).options.maxAge, 0);
+  });
+
+  test("6. clearCognitoHandshakeCookies deletes state, nonce, and pkce verifier", () => {
+    const mockRes = createMockResponse();
+    mockRes.cookies.set(COGNITO_COOKIE_NAMES.STATE, "dummy-state");
+    mockRes.cookies.set(COGNITO_COOKIE_NAMES.NONCE, "dummy-nonce");
+    mockRes.cookies.set(COGNITO_COOKIE_NAMES.VERIFIER, "dummy-verifier");
+
+    clearCognitoHandshakeCookies(mockRes);
+
+    assert.equal(mockRes.cookies.get(COGNITO_COOKIE_NAMES.STATE).options.maxAge, 0);
+    assert.equal(mockRes.cookies.get(COGNITO_COOKIE_NAMES.NONCE).options.maxAge, 0);
+    assert.equal(mockRes.cookies.get(COGNITO_COOKIE_NAMES.VERIFIER).options.maxAge, 0);
+  });
+
+  test("7. Callback logic: verified mapping sets session cookies, clears handshake, and redirects to sanitized destination", () => {
+    const mockRes = createMockResponse();
+    const verifiedMapping = {
+      account_mapping_status: "verified_mapping_found",
+      user_id: "1fa557d7-5f6f-4539-9e0c-3e75a71a9a6c",
+    };
+    const isVerifiedFound =
+      verifiedMapping.account_mapping_status === "verified_mapping_found" &&
+      typeof verifiedMapping.user_id === "string" &&
+      verifiedMapping.user_id.length > 0;
+
+    assert.equal(isVerifiedFound, true);
+
+    const rawNext = "/dashboard?tab=overview";
+    const sanitizedNext = sanitizeRedirectPath(rawNext, "/dashboard");
+    assert.equal(sanitizedNext, "/dashboard?tab=overview");
+
+    setCognitoSessionCookies(mockRes, {
+      accessToken: "verified-access-token",
+      accessExp: Math.floor(Date.now() / 1000) + 3600,
+      refreshToken: "verified-refresh-token",
+    });
+    clearCognitoHandshakeCookies(mockRes);
+
+    assert.equal(mockRes.cookies.get(COGNITO_COOKIE_NAMES.ACCESS_TOKEN).value, "verified-access-token");
+    assert.equal(mockRes.cookies.get(COGNITO_COOKIE_NAMES.REFRESH_TOKEN).value, "verified-refresh-token");
+    assert.equal(mockRes.cookies.get(COGNITO_COOKIE_NAMES.STATE).options.maxAge, 0);
+  });
+
+  test("8. Callback logic: unmapped user sets NO session cookies, clears handshake, and redirects to /login?error=account_not_linked", () => {
+    const mockRes = createMockResponse();
+    const unmappedMapping = {
+      account_mapping_status: "pending_trusted_mapping_phase",
+      user_id: null,
+    };
+    const isVerifiedFound =
+      unmappedMapping.account_mapping_status === "verified_mapping_found" &&
+      typeof unmappedMapping.user_id === "string" &&
+      unmappedMapping.user_id.length > 0;
+
+    assert.equal(isVerifiedFound, false);
+
+    // Unmapped redirect target:
+    const targetUrl = new URL("http://localhost:3000/login");
+    targetUrl.searchParams.set("error", "account_not_linked");
+    assert.equal(targetUrl.pathname, "/login");
+    assert.equal(targetUrl.searchParams.get("error"), "account_not_linked");
+    assert.equal(targetUrl.searchParams.has("user_id"), false, "Internal IDs must not leak in URL");
+
+    clearCognitoHandshakeCookies(mockRes);
+    clearCognitoSessionCookies(mockRes);
+
+    assert.equal(mockRes.cookies.has(COGNITO_COOKIE_NAMES.ACCESS_TOKEN), false);
+    assert.equal(mockRes.cookies.has(COGNITO_COOKIE_NAMES.REFRESH_TOKEN), false);
+    assert.equal(mockRes.cookies.get(COGNITO_COOKIE_NAMES.STATE).options.maxAge, 0);
+  });
+
+  test("9. /api/auth/access-token bridge: returns Supabase token when Supabase session exists (precedence rule)", async () => {
+    const { token: cognitoToken } = createValidCognitoAccessToken();
+
+    // Both Supabase session AND Cognito cookie exist: Supabase MUST win
+    const result = await resolveAccessTokenBridge({
+      getSupabaseToken: async () => "supabase-jwt-token-xyz",
+      getCognitoCookie: () => cognitoToken,
+      verifyCognitoToken: async (tok) => {
+        await verifyCognitoAccessToken({ token: tok, config: mockConfig, jwksOverride: jwks });
+      },
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.provider, "supabase", "Supabase must take precedence over Cognito");
+    assert.equal(result.body.access_token, "supabase-jwt-token-xyz");
+    assert.equal(result.body.refresh_token, undefined, "Refresh token must never be returned");
+  });
+
+  test("10. /api/auth/access-token bridge: returns Cognito token with provider='cognito' when only Cognito exists and is valid", async () => {
+    const { token: cognitoToken } = createValidCognitoAccessToken();
+
+    const result = await resolveAccessTokenBridge({
+      getSupabaseToken: async () => null, // No Supabase session
+      getCognitoCookie: () => cognitoToken,
+      verifyCognitoToken: async (tok) => {
+        await verifyCognitoAccessToken({ token: tok, config: mockConfig, jwksOverride: jwks });
+      },
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.provider, "cognito");
+    assert.equal(result.body.access_token, cognitoToken);
+    assert.equal(result.body.refresh_token, undefined, "Refresh token must never be returned");
+  });
+
+  test("11. /api/auth/access-token bridge: returns 401 when Cognito token is invalid or expired (fails closed)", async () => {
+    // Expired Cognito token
+    const now = Math.floor(Date.now() / 1000);
+    const { token: expiredCognitoToken } = createValidCognitoAccessToken({
+      exp: now - 100, // expired
+    });
+
+    const result = await resolveAccessTokenBridge({
+      getSupabaseToken: async () => null,
+      getCognitoCookie: () => expiredCognitoToken,
+      verifyCognitoToken: async (tok) => {
+        await verifyCognitoAccessToken({ token: tok, config: mockConfig, jwksOverride: jwks });
+      },
+    });
+
+    assert.equal(result.status, 401);
+    assert.equal(result.body.error, "Unauthorized");
+    assert.equal(result.body.access_token, undefined);
+
+    // Missing token entirely
+    const resultMissing = await resolveAccessTokenBridge({
+      getSupabaseToken: async () => null,
+      getCognitoCookie: () => undefined,
+      verifyCognitoToken: async () => {},
+    });
+    assert.equal(resultMissing.status, 401);
+    assert.equal(resultMissing.body.error, "Unauthorized");
+  });
+
+  test("12. backendProxy: caller-supplied Authorization header has highest priority", async () => {
+    const { token: cognitoToken } = createValidCognitoAccessToken();
+
+    const resolved = await resolveBackendProxyAuth({
+      incomingAuthHeader: "Bearer custom-explicit-api-key",
+      getSupabaseToken: async () => "supabase-jwt",
+      getCognitoToken: () => cognitoToken,
+      verifyCognitoToken: async () => {},
+    });
+
+    assert.equal(resolved, "Bearer custom-explicit-api-key");
+  });
+
+  test("13. backendProxy: attaches Supabase bearer token when Supabase session exists (precedence rule)", async () => {
+    const { token: cognitoToken } = createValidCognitoAccessToken();
+
+    const resolved = await resolveBackendProxyAuth({
+      incomingAuthHeader: null,
+      getSupabaseToken: async () => "supabase-session-jwt",
+      getCognitoToken: () => cognitoToken,
+      verifyCognitoToken: async () => {},
+    });
+
+    assert.equal(resolved, "Bearer supabase-session-jwt", "Supabase session must win over Cognito cookie");
+  });
+
+  test("14. backendProxy: attaches Cognito bearer token when Supabase is absent and Cognito token is valid", async () => {
+    const { token: cognitoToken } = createValidCognitoAccessToken();
+
+    const resolved = await resolveBackendProxyAuth({
+      incomingAuthHeader: null,
+      getSupabaseToken: async () => null,
+      getCognitoToken: () => cognitoToken,
+      verifyCognitoToken: async (tok) => {
+        await verifyCognitoAccessToken({ token: tok, config: mockConfig, jwksOverride: jwks });
+      },
+    });
+
+    assert.equal(resolved, `Bearer ${cognitoToken}`);
+  });
+
+  test("15. backendProxy: does NOT attach invalid/expired Cognito token (leaves unauthenticated)", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const { token: expiredToken } = createValidCognitoAccessToken({ exp: now - 300 });
+
+    const resolved = await resolveBackendProxyAuth({
+      incomingAuthHeader: null,
+      getSupabaseToken: async () => null,
+      getCognitoToken: () => expiredToken,
+      verifyCognitoToken: async (tok) => {
+        await verifyCognitoAccessToken({ token: tok, config: mockConfig, jwksOverride: jwks });
+      },
+    });
+
+    assert.equal(resolved, null, "Must leave unauthenticated so backend fails closed");
   });
 });

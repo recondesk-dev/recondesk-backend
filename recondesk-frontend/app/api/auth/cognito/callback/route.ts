@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getCognitoOAuthConfig,
   exchangeCodeForTokens,
-  COGNITO_COOKIE_NAMES,
 } from "@/lib/cognito/oauth";
+import {
+  COGNITO_COOKIE_NAMES,
+  setCognitoSessionCookies,
+  clearCognitoHandshakeCookies,
+  clearCognitoSessionCookies,
+} from "@/lib/cognito/cookies";
 import {
   validateOAuthState,
   sanitizeRedirectPath,
-  isSecureCookie,
 } from "@/lib/cognito/pkce";
 import {
   verifyCognitoIdToken,
@@ -46,17 +50,21 @@ export async function GET(request: NextRequest) {
   if (error) {
     const redirectUrl = new URL("/login", request.nextUrl.origin);
     redirectUrl.searchParams.set("error", "auth_failed");
-    return NextResponse.redirect(redirectUrl);
+    const res = NextResponse.redirect(redirectUrl);
+    clearCognitoHandshakeCookies(res);
+    return res;
   }
 
   const rawState = searchParams.get("state");
   const code = searchParams.get("code");
 
   if (!rawState || !code) {
-    return NextResponse.json(
+    const res = NextResponse.json(
       { error: "invalid_request", message: "Missing required authorization code or state parameter." },
       { status: 400 }
     );
+    clearCognitoHandshakeCookies(res);
+    return res;
   }
 
   // Parse state and extract post-login redirect destination
@@ -80,20 +88,13 @@ export async function GET(request: NextRequest) {
   const storedVerifier = request.cookies.get(COGNITO_COOKIE_NAMES.VERIFIER)?.value;
   const storedNonce = request.cookies.get(COGNITO_COOKIE_NAMES.NONCE)?.value;
 
-  // Helper to clear handshake cookies
-  const clearHandshakeCookies = (res: NextResponse) => {
-    res.cookies.delete(COGNITO_COOKIE_NAMES.STATE);
-    res.cookies.delete(COGNITO_COOKIE_NAMES.NONCE);
-    res.cookies.delete(COGNITO_COOKIE_NAMES.VERIFIER);
-  };
-
   // Strict state validation (prevents CSRF)
   if (!validateOAuthState(state, storedState)) {
     const res = NextResponse.json(
       { error: "invalid_state", message: "Invalid or expired OAuth state parameter." },
       { status: 400 }
     );
-    clearHandshakeCookies(res);
+    clearCognitoHandshakeCookies(res);
     return res;
   }
 
@@ -102,7 +103,7 @@ export async function GET(request: NextRequest) {
       { error: "invalid_handshake", message: "Missing required PKCE verifier or login nonce cookie." },
       { status: 400 }
     );
-    clearHandshakeCookies(res);
+    clearCognitoHandshakeCookies(res);
     return res;
   }
 
@@ -121,7 +122,7 @@ export async function GET(request: NextRequest) {
       { error: "token_exchange_failed", message: "Unable to complete authentication with identity provider." },
       { status: 400 }
     );
-    clearHandshakeCookies(res);
+    clearCognitoHandshakeCookies(res);
     return res;
   }
 
@@ -130,7 +131,7 @@ export async function GET(request: NextRequest) {
       { error: "invalid_token_response", message: "Identity provider response missing required tokens." },
       { status: 400 }
     );
-    clearHandshakeCookies(res);
+    clearCognitoHandshakeCookies(res);
     return res;
   }
 
@@ -149,7 +150,7 @@ export async function GET(request: NextRequest) {
       { error: "invalid_id_token", message: "Cognito ID token verification failed." },
       { status: 401 }
     );
-    clearHandshakeCookies(res);
+    clearCognitoHandshakeCookies(res);
     return res;
   }
 
@@ -167,11 +168,11 @@ export async function GET(request: NextRequest) {
       { error: "invalid_access_token", message: "Cognito Access token verification failed." },
       { status: 401 }
     );
-    clearHandshakeCookies(res);
+    clearCognitoHandshakeCookies(res);
     return res;
   }
 
-  // 3. Trusted Cognito-to-Aurora identity mapping lookup via backend (Requirements 1, 2, 3, 4, 5, 8, 9)
+  // 3. Trusted Cognito-to-Aurora identity mapping lookup via backend
   let mappingResult;
   try {
     mappingResult = await lookupCognitoMapping({
@@ -191,30 +192,28 @@ export async function GET(request: NextRequest) {
     typeof mappingResult.user_id === "string" &&
     mappingResult.user_id.trim().length > 0;
 
-  // Safe development response (Requirements 7, 8, 9)
-  // Do NOT establish an authenticated ReconDesk session yet (Requirement 7)
-  const responsePayload: Record<string, unknown> = {
-    status: "identity_verified",
-    cognito_sub: idClaims.sub,
-    token_use: idClaims.token_use,
-    access_token_use: accessClaims.token_use,
-    account_mapping_status: isVerifiedFound
-      ? "verified_mapping_found"
-      : "pending_trusted_mapping_phase",
-    sanitized_next: sanitizedNextPath,
-  };
-
+  // Dual-Auth Phase 2A Session Bridge:
+  // - Verified mapping found: Set server-only Cognito session cookies, clear handshake cookies, redirect to sanitized destination.
+  // - Unmapped / pending mapping: Clear handshake and session cookies, redirect to safe unlinked error notice without exposing IDs.
   if (isVerifiedFound) {
-    responsePayload.user_id = mappingResult.user_id!.trim();
-    responsePayload.message = "Trusted Aurora account mapping verified for Cognito identity.";
-  } else {
-    responsePayload.message = (
-      "Cognito identity successfully verified. Active ReconDesk session creation " +
-      "remains disabled until trusted Aurora account mapping is implemented."
-    );
+    const redirectUrl = new URL(sanitizedNextPath, request.nextUrl.origin);
+    const response = NextResponse.redirect(redirectUrl);
+    setCognitoSessionCookies(response, {
+      accessToken: tokenResponse.access_token,
+      accessExp: accessClaims.exp,
+      expiresIn: tokenResponse.expires_in,
+      refreshToken: tokenResponse.refresh_token,
+      request,
+    });
+    clearCognitoHandshakeCookies(response);
+    return response;
   }
 
-  const response = NextResponse.json(responsePayload, { status: 200 });
-  clearHandshakeCookies(response);
+  // Unmapped identity: fail closed with no session cookies established
+  const loginRedirectUrl = new URL("/login", request.nextUrl.origin);
+  loginRedirectUrl.searchParams.set("error", "account_not_linked");
+  const response = NextResponse.redirect(loginRedirectUrl);
+  clearCognitoHandshakeCookies(response);
+  clearCognitoSessionCookies(response);
   return response;
 }

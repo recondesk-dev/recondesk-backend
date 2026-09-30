@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { COGNITO_COOKIE_NAMES } from "@/lib/cognito/cookies";
+import { verifyCognitoAccessToken } from "@/lib/cognito/jwt";
+import { resolveBackendProxyAuth } from "@/lib/cognito/sessionBridge";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(
   /\/+$/,
@@ -14,6 +17,12 @@ const PROXY_GET_TIMEOUT_MS = 90_000;
  * Browser calls hit Next.js first so cold-start / transport failures become
  * HTTP 502 instead of opaque "Failed to fetch" (which wrongly triggers the
  * Connection-lost banner).
+ *
+ * Dual-Auth Precedence (Phase 2A, Requirement 5):
+ * 1. Caller Authorization header (highest priority)
+ * 2. Supabase session (production priority)
+ * 3. Verified Cognito access-token cookie (migration bridge)
+ * 4. Fails closed / unauthenticated
  */
 export async function proxyToBackend(
   request: NextRequest,
@@ -24,22 +33,27 @@ export async function proxyToBackend(
 
   const headers = new Headers();
   const auth = request.headers.get("authorization");
-  if (auth) {
-    headers.set("Authorization", auth);
-  } else {
-    try {
+
+  const resolvedAuth = await resolveBackendProxyAuth({
+    incomingAuthHeader: auth,
+    getSupabaseToken: async () => {
       const supabase = createClient();
-      if (supabase) {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (session?.access_token) {
-          headers.set("Authorization", `Bearer ${session.access_token}`);
-        }
-      }
-    } catch {
-      // Ignore cookie read failure
-    }
+      if (!supabase) return null;
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      return session?.access_token;
+    },
+    getCognitoToken: () => {
+      return request.cookies.get(COGNITO_COOKIE_NAMES.ACCESS_TOKEN)?.value;
+    },
+    verifyCognitoToken: async (token: string) => {
+      await verifyCognitoAccessToken({ token });
+    },
+  });
+
+  if (resolvedAuth) {
+    headers.set("Authorization", resolvedAuth);
   }
 
   const contentType = request.headers.get("content-type");
