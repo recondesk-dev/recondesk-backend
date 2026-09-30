@@ -101,7 +101,7 @@ CREATE INDEX IF NOT EXISTS idx_cognito_tokens_pool_sub
 COMMENT ON TABLE public.cognito_user_mappings IS
     'Persistent 1:1 identity mappings linking Amazon Cognito identities (sub) to ReconDesk users (user_profiles.id) isolated by user pool';
 COMMENT ON COLUMN public.cognito_user_mappings.cognito_user_pool_id IS
-    'Cognito User Pool ID (e.g. ap-south-1_nvIPYMvFh) isolating development from production';
+    'Cognito User Pool ID (e.g. ap-south-1_nvlPYMvFh) isolating development from production';
 COMMENT ON COLUMN public.cognito_user_mappings.cognito_sub IS
     'Amazon Cognito User Pool immutable user identifier (UUID format)';
 COMMENT ON COLUMN public.cognito_user_mappings.user_id IS

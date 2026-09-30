@@ -114,8 +114,8 @@ export async function GET(request: NextRequest) {
       config,
     });
   } catch (err: unknown) {
-    // Log safe diagnostic code without exposing raw response, codes, or secrets
-    console.error("[Cognito OAuth] Token exchange failed with provider");
+    const detail = err instanceof Error ? err.message : "Unknown exchange failure";
+    console.error(`[Cognito OAuth] Token exchange failed with provider: ${detail}`);
     const res = NextResponse.json(
       { error: "token_exchange_failed", message: "Unable to complete authentication with identity provider." },
       { status: 400 }
@@ -142,7 +142,8 @@ export async function GET(request: NextRequest) {
       config,
     });
   } catch (err: unknown) {
-    console.error("[Cognito OAuth] ID token verification failed");
+    const detail = err instanceof Error ? err.message : "Unknown verification error";
+    console.error(`[Cognito OAuth] ID token verification failed: ${detail}`);
     const res = NextResponse.json(
       { error: "invalid_id_token", message: "Cognito ID token verification failed." },
       { status: 401 }
@@ -159,7 +160,8 @@ export async function GET(request: NextRequest) {
       config,
     });
   } catch (err: unknown) {
-    console.error("[Cognito OAuth] Access token verification failed");
+    const detail = err instanceof Error ? err.message : "Unknown verification error";
+    console.error(`[Cognito OAuth] Access token verification failed: ${detail}`);
     const res = NextResponse.json(
       { error: "invalid_access_token", message: "Cognito Access token verification failed." },
       { status: 401 }

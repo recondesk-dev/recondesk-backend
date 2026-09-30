@@ -22,7 +22,7 @@ export const COGNITO_COOKIE_NAMES = {
 export function getCognitoOAuthConfig(): CognitoOAuthConfig {
   return {
     region: process.env.COGNITO_REGION || "ap-south-1",
-    userPoolId: process.env.COGNITO_USER_POOL_ID || "ap-south-1_nvIPYMvFh",
+    userPoolId: process.env.COGNITO_USER_POOL_ID || "ap-south-1_nvlPYMvFh",
     clientId: process.env.COGNITO_CLIENT_ID || "2qui5lp7if0g4lftbrag7o6sce",
     clientSecret: process.env.COGNITO_CLIENT_SECRET || "",
     redirectUri:

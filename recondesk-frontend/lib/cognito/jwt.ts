@@ -9,7 +9,7 @@ export interface CognitoOAuthConfig {
 function getDefaultCognitoConfig(): CognitoOAuthConfig {
   return {
     region: process.env.COGNITO_REGION || "ap-south-1",
-    userPoolId: process.env.COGNITO_USER_POOL_ID || "ap-south-1_nvIPYMvFh",
+    userPoolId: process.env.COGNITO_USER_POOL_ID || "ap-south-1_nvlPYMvFh",
     clientId: process.env.COGNITO_CLIENT_ID || "2qui5lp7if0g4lftbrag7o6sce",
   };
 }
@@ -72,13 +72,32 @@ export async function fetchCognitoJwks(config?: CognitoOAuthConfig): Promise<Cog
     return jwksCache.data;
   }
 
-  const jwksUrl = `https://cognito-idp.${cfg.region}.amazonaws.com/${cfg.userPoolId}/.well-known/jwks.json`;
-  const res = await fetch(jwksUrl, { cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(`Failed to fetch Cognito JWKS (${res.status})`);
+  const userPoolId = (cfg.userPoolId || "").trim();
+  if (!userPoolId) {
+    throw new Error("Cognito userPoolId is not configured");
+  }
+  const jwksUrl = `https://cognito-idp.${cfg.region}.amazonaws.com/${userPoolId}/.well-known/jwks.json`;
+  let res: Response;
+  try {
+    res = await fetch(jwksUrl, { cache: "no-store" });
+  } catch (netErr: unknown) {
+    const detail = netErr instanceof Error ? netErr.message : String(netErr);
+    throw new Error(`Failed to reach Cognito JWKS endpoint (${jwksUrl}): ${detail}`);
   }
 
-  const data = (await res.json()) as CognitoJWKS;
+  if (!res.ok) {
+    throw new Error(
+      `Failed to fetch Cognito JWKS (HTTP ${res.status}): User pool '${userPoolId}' may not exist or endpoint is unreachable`
+    );
+  }
+
+  let data: CognitoJWKS;
+  try {
+    data = (await res.json()) as CognitoJWKS;
+  } catch {
+    throw new Error(`Failed to parse Cognito JWKS JSON response from ${jwksUrl}`);
+  }
+
   if (!data?.keys || !Array.isArray(data.keys) || data.keys.length === 0) {
     throw new Error("Cognito JWKS response contains no keys");
   }
@@ -137,7 +156,9 @@ function verifyRs256Signature(
     const verifier = crypto.createVerify("RSA-SHA256");
     verifier.update(signingInput);
     return verifier.verify(publicKey, signature);
-  } catch {
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(`[Cognito JWT] RS256 signature verification internal error: ${reason}`);
     return false;
   }
 }
@@ -157,6 +178,11 @@ export async function verifyCognitoIdToken(params: {
 }): Promise<CognitoIdTokenClaims> {
   const { token, expectedNonce, jwksOverride, clockToleranceSeconds = 30 } = params;
   const cfg = params.config || getDefaultCognitoConfig();
+
+  const userPoolId = (cfg.userPoolId || "").trim();
+  if (!userPoolId) {
+    throw new Error("Cognito userPoolId is not configured");
+  }
 
   if (!expectedNonce || typeof expectedNonce !== "string") {
     throw new Error("Missing expected nonce for ID token verification");
@@ -184,14 +210,20 @@ export async function verifyCognitoIdToken(params: {
   }
 
   const claims = payload as unknown as CognitoIdTokenClaims;
-  const expectedIssuer = `https://cognito-idp.${cfg.region}.amazonaws.com/${cfg.userPoolId}`;
+  const expectedIssuer = `https://cognito-idp.${cfg.region}.amazonaws.com/${userPoolId}`;
 
   if (claims.iss !== expectedIssuer) {
-    throw new Error(`Issuer mismatch: expected ${expectedIssuer}, got ${claims.iss}`);
+    throw new Error(`Issuer mismatch: expected '${expectedIssuer}', got '${claims.iss}'`);
   }
 
-  if (claims.aud !== cfg.clientId) {
-    throw new Error(`Audience mismatch: expected ${cfg.clientId}, got ${claims.aud}`);
+  const expectedAudience = cfg.clientId;
+  const isAudValid = Array.isArray(claims.aud)
+    ? claims.aud.includes(expectedAudience)
+    : claims.aud === expectedAudience;
+
+  if (!isAudValid) {
+    const actualAud = Array.isArray(claims.aud) ? claims.aud.join(", ") : claims.aud;
+    throw new Error(`Audience mismatch: expected '${expectedAudience}', got '${actualAud}'`);
   }
 
   if (claims.token_use !== "id") {
@@ -241,6 +273,11 @@ export async function verifyCognitoAccessToken(params: {
   const { token, jwksOverride, clockToleranceSeconds = 30 } = params;
   const cfg = params.config || getDefaultCognitoConfig();
 
+  const userPoolId = (cfg.userPoolId || "").trim();
+  if (!userPoolId) {
+    throw new Error("Cognito userPoolId is not configured");
+  }
+
   const { header, payload, signingInput, signature } = parseJwtParts(token);
 
   if (header.alg !== "RS256") {
@@ -263,14 +300,14 @@ export async function verifyCognitoAccessToken(params: {
   }
 
   const claims = payload as unknown as CognitoAccessTokenClaims;
-  const expectedIssuer = `https://cognito-idp.${cfg.region}.amazonaws.com/${cfg.userPoolId}`;
+  const expectedIssuer = `https://cognito-idp.${cfg.region}.amazonaws.com/${userPoolId}`;
 
   if (claims.iss !== expectedIssuer) {
-    throw new Error(`Issuer mismatch: expected ${expectedIssuer}, got ${claims.iss}`);
+    throw new Error(`Issuer mismatch: expected '${expectedIssuer}', got '${claims.iss}'`);
   }
 
   if (claims.client_id !== cfg.clientId) {
-    throw new Error(`Client ID mismatch: expected ${cfg.clientId}, got ${claims.client_id}`);
+    throw new Error(`Client ID mismatch: expected '${cfg.clientId}', got '${claims.client_id}'`);
   }
 
   if (claims.token_use !== "access") {

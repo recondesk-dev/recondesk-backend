@@ -94,7 +94,7 @@ class CognitoUserMappingModel(Base):
     )
 
     id = Column(GUID(), primary_key=True, default=lambda: str(uuid.uuid4()))
-    cognito_user_pool_id = Column(String(64), nullable=False, default="ap-south-1_nvIPYMvFh")
+    cognito_user_pool_id = Column(String(64), nullable=False, default="ap-south-1_nvlPYMvFh")
     cognito_sub = Column(String(128), nullable=False)
     user_id = Column(
         GUID(),
@@ -150,7 +150,7 @@ class CognitoAccountLinkingTokenModel(Base):
 
     id = Column(GUID(), primary_key=True, default=lambda: str(uuid.uuid4()))
     token_hash = Column(String(64), nullable=False)
-    cognito_user_pool_id = Column(String(64), nullable=False, default="ap-south-1_nvIPYMvFh")
+    cognito_user_pool_id = Column(String(64), nullable=False, default="ap-south-1_nvlPYMvFh")
     cognito_sub = Column(String(128), nullable=False)
     user_id = Column(
         GUID(),

@@ -15,6 +15,7 @@ import {
 import {
   verifyCognitoIdToken,
   verifyCognitoAccessToken,
+  fetchCognitoJwks,
 } from "../lib/cognito/jwt.ts";
 
 import {
@@ -55,7 +56,7 @@ function signTestJwt(payload, privateKey, kid = "test-node-key-1") {
 
 const mockConfig = {
   region: "ap-south-1",
-  userPoolId: "ap-south-1_nvIPYMvFh",
+  userPoolId: "ap-south-1_nvlPYMvFh",
   clientId: "2qui5lp7if0g4lftbrag7o6sce",
   clientSecret: "test-secret",
   redirectUri: "http://localhost:3000/api/auth/cognito/callback",
@@ -466,5 +467,258 @@ describe("Cognito Domain & Endpoint Construction", () => {
     assert.equal(parsed.searchParams.get("nonce"), "nonce-xyz");
     assert.equal(parsed.searchParams.get("code_challenge"), "code-challenge-sha256");
     assert.equal(parsed.searchParams.get("code_challenge_method"), "S256");
+  });
+});
+
+describe("Cognito Exact User Pool ID Enforcement & Verification", () => {
+  const { privateKey, jwks } = generateTestJwks();
+  const canonicalPoolId = "ap-south-1_nvlPYMvFh";
+  const mistypedPoolId = "ap-south-1_nvIPYMvFh"; // Incorrect ID with uppercase I
+  const canonicalIssuer = `https://cognito-idp.${mockConfig.region}.amazonaws.com/${canonicalPoolId}`;
+
+  test("uses exact configured pool ID for successful ID token verification", async () => {
+    const nonce = "test-nonce-12345";
+    const now = Math.floor(Date.now() / 1000);
+    const token = signTestJwt(
+      {
+        sub: "user-456",
+        iss: canonicalIssuer,
+        aud: mockConfig.clientId,
+        token_use: "id",
+        nonce: nonce,
+        exp: now + 3600,
+        iat: now,
+        email: "user@example.com",
+      },
+      privateKey
+    );
+
+    const claims = await verifyCognitoIdToken({
+      token,
+      expectedNonce: nonce,
+      config: mockConfig,
+      jwksOverride: jwks,
+    });
+
+    assert.equal(claims.sub, "user-456");
+    assert.equal(claims.iss, canonicalIssuer);
+    assert.equal(claims.aud, mockConfig.clientId);
+    assert.equal(claims.nonce, nonce);
+  });
+
+  test("uses exact configured pool ID for successful Access token verification", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const token = signTestJwt(
+      {
+        sub: "user-456",
+        iss: canonicalIssuer,
+        client_id: mockConfig.clientId,
+        token_use: "access",
+        exp: now + 3600,
+        iat: now,
+      },
+      privateKey
+    );
+
+    const claims = await verifyCognitoAccessToken({
+      token,
+      config: mockConfig,
+      jwksOverride: jwks,
+    });
+
+    assert.equal(claims.sub, "user-456");
+    assert.equal(claims.iss, canonicalIssuer);
+    assert.equal(claims.client_id, mockConfig.clientId);
+  });
+
+  test("fails closed without silent rewriting when config contains mistyped pool ID", async () => {
+    const nonce = "test-nonce-fail-closed";
+    const now = Math.floor(Date.now() / 1000);
+    const token = signTestJwt(
+      {
+        sub: "user-456",
+        iss: canonicalIssuer,
+        aud: mockConfig.clientId,
+        token_use: "id",
+        nonce: nonce,
+        exp: now + 3600,
+        iat: now,
+      },
+      privateKey
+    );
+
+    // Explicitly pass config with incorrect pool ID; MUST fail closed, not silently rewritten
+    const wrongConfig = { ...mockConfig, userPoolId: mistypedPoolId };
+    await assert.rejects(
+      async () => {
+        await verifyCognitoIdToken({
+          token,
+          expectedNonce: nonce,
+          config: wrongConfig,
+          jwksOverride: jwks,
+        });
+      },
+      {
+        message: /Issuer mismatch: expected 'https:\/\/cognito-idp\.ap-south-1\.amazonaws\.com\/ap-south-1_nvIPYMvFh', got 'https:\/\/cognito-idp\.ap-south-1\.amazonaws\.com\/ap-south-1_nvlPYMvFh'/,
+      }
+    );
+  });
+
+  test("Access token verification fails closed when config contains mistyped pool ID", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const token = signTestJwt(
+      {
+        sub: "user-456",
+        iss: canonicalIssuer,
+        client_id: mockConfig.clientId,
+        token_use: "access",
+        exp: now + 3600,
+        iat: now,
+      },
+      privateKey
+    );
+
+    const wrongConfig = { ...mockConfig, userPoolId: mistypedPoolId };
+    await assert.rejects(
+      async () => {
+        await verifyCognitoAccessToken({
+          token,
+          config: wrongConfig,
+          jwksOverride: jwks,
+        });
+      },
+      {
+        message: /Issuer mismatch: expected 'https:\/\/cognito-idp\.ap-south-1\.amazonaws\.com\/ap-south-1_nvIPYMvFh', got 'https:\/\/cognito-idp\.ap-south-1\.amazonaws\.com\/ap-south-1_nvlPYMvFh'/,
+      }
+    );
+  });
+
+  test("fails closed if userPoolId is unconfigured or empty", async () => {
+    const unconfiguredConfig = { ...mockConfig, userPoolId: "" };
+    await assert.rejects(
+      async () => {
+        await verifyCognitoIdToken({
+          token: "dummy.jwt.token",
+          expectedNonce: "dummy-nonce",
+          config: unconfiguredConfig,
+          jwksOverride: jwks,
+        });
+      },
+      {
+        message: /Cognito userPoolId is not configured/,
+      }
+    );
+
+    await assert.rejects(
+      async () => {
+        await verifyCognitoAccessToken({
+          token: "dummy.jwt.token",
+          config: unconfiguredConfig,
+          jwksOverride: jwks,
+        });
+      },
+      {
+        message: /Cognito userPoolId is not configured/,
+      }
+    );
+
+    await assert.rejects(
+      async () => {
+        await fetchCognitoJwks(unconfiguredConfig);
+      },
+      {
+        message: /Cognito userPoolId is not configured/,
+      }
+    );
+  });
+
+  test("verifyCognitoIdToken strictly rejects tokens from untrusted foreign issuer", async () => {
+    const nonce = "test-nonce-789";
+    const now = Math.floor(Date.now() / 1000);
+    const untrustedIssuer = "https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_evilPool";
+    const token = signTestJwt(
+      {
+        sub: "user-attacker",
+        iss: untrustedIssuer,
+        aud: mockConfig.clientId,
+        token_use: "id",
+        nonce: nonce,
+        exp: now + 3600,
+        iat: now,
+      },
+      privateKey
+    );
+
+    await assert.rejects(
+      async () => {
+        await verifyCognitoIdToken({
+          token,
+          expectedNonce: nonce,
+          config: mockConfig,
+          jwksOverride: jwks,
+        });
+      },
+      {
+        message: /Issuer mismatch: expected 'https:\/\/cognito-idp\.ap-south-1\.amazonaws\.com\/ap-south-1_nvlPYMvFh', got 'https:\/\/cognito-idp\.ap-south-1\.amazonaws\.com\/ap-south-1_evilPool'/,
+      }
+    );
+  });
+
+  test("verifyCognitoIdToken supports audience as array matching client ID", async () => {
+    const nonce = "test-nonce-array-aud";
+    const now = Math.floor(Date.now() / 1000);
+    const token = signTestJwt(
+      {
+        sub: "user-789",
+        iss: canonicalIssuer,
+        aud: [mockConfig.clientId, "secondary-client"],
+        token_use: "id",
+        nonce: nonce,
+        exp: now + 3600,
+        iat: now,
+      },
+      privateKey
+    );
+
+    const claims = await verifyCognitoIdToken({
+      token,
+      expectedNonce: nonce,
+      config: mockConfig,
+      jwksOverride: jwks,
+    });
+    assert.equal(claims.sub, "user-789");
+  });
+
+  test("safe diagnostics do not expose sensitive credentials in error messages", async () => {
+    const nonce = "test-nonce-safe";
+    const now = Math.floor(Date.now() / 1000);
+
+    // Mismatched audience
+    const badAudToken = signTestJwt(
+      {
+        sub: "user-123",
+        iss: canonicalIssuer,
+        aud: "unauthorized-client-id",
+        token_use: "id",
+        nonce: nonce,
+        exp: now + 3600,
+      },
+      privateKey
+    );
+
+    try {
+      await verifyCognitoIdToken({
+        token: badAudToken,
+        expectedNonce: nonce,
+        config: mockConfig,
+        jwksOverride: jwks,
+      });
+      assert.fail("Should have thrown Audience mismatch");
+    } catch (err) {
+      assert.ok(err.message.includes("Audience mismatch"));
+      // Ensure private credentials/secrets are not present
+      assert.ok(!err.message.includes("test-secret"));
+      assert.ok(!err.message.includes(badAudToken));
+    }
   });
 });
